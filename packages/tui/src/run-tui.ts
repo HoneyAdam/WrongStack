@@ -819,6 +819,23 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     opts.requestExit = requestExit;
 
     let instance: ReturnType<typeof render>;
+
+    // Physically clear the terminal on `/clear`. `instance.clear()` erases the
+    // live frame AND resyncs Ink's log-update line tracking, so the subsequent
+    // raw clear-screen write doesn't fight Ink's cursor math (which is exactly
+    // why cli-main's onClear skips the escape in TUI mode). Then the same
+    // \x1b[2J\x1b[3J\x1b[H used at boot wipes the visible screen + native
+    // scrollback so the pre-clear conversation isn't left above the banner.
+    // The closure reads `instance` lazily — it only ever runs on a user
+    // /clear, long after render() has assigned it.
+    const clearTerminal = () => {
+      try {
+        instance?.clear();
+        stdout.write('\x1b[2J\x1b[3J\x1b[H');
+      } catch {
+        // stdout may be closed mid-teardown — ignore.
+      }
+    };
     try {
       instance = render(
         React.createElement(App, {
@@ -856,6 +873,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onClearHistory: opts.onClearHistory
             ? (dispatch) => opts.onClearHistory?.(dispatch)
             : undefined,
+          clearTerminal,
           fleetStreamController: opts.fleetStreamController,
           interruptController: opts.interruptController,
           enhanceController: opts.enhanceController,

@@ -76,10 +76,13 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
 };
 
 /**
- * Which TUI status bar line each chip appears on.
- * Used to group chips visually in the picker.
+ * Which TUI status bar line each chip appears on. Used to group chips
+ * visually in the picker. MUST mirror the actual render lines in
+ * `status-bar.tsx`: line 1 = runtime essentials, line 2 = session context,
+ * line 3 = active work, line 4 = mailbox + fleet-agent detail. Exported so
+ * the navigation-order test guards against drift instead of duplicating it.
  */
-const ITEM_LINE: Record<StatuslineItem, number> = {
+export const ITEM_LINE: Record<StatuslineItem, number> = {
   context: 1,
   cost: 1,
   elapsed: 2,
@@ -90,7 +93,8 @@ const ITEM_LINE: Record<StatuslineItem, number> = {
   tasks: 3,
   fleet: 4,
   brain: 3,
-  mailbox: 3,
+  // mailbox renders on line 4 alongside the fleet-agent detail row, not line 3.
+  mailbox: 4,
   enhance: 3,
   debug_stream: 3,
 };
@@ -122,12 +126,12 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'brain',
   'debug_stream',
   'enhance',
-  'mailbox',
   'plan',
   'tasks',
   'todos',
   // Line 4
   'fleet',
+  'mailbox',
 ];
 
 /** Stream-triggered chips — these auto-expire unless the user has toggled them on permanently. */

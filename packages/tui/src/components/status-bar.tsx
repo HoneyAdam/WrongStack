@@ -2,9 +2,10 @@ import { expectDefined } from '@wrongstack/core';
 import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
+import { Fragment } from 'react';
 import type { ChipMeta } from './statusline-picker.js';
 import type { StatuslineMode } from './settings-picker.js';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import type { GitInfo } from '../git-info.js';
@@ -82,6 +83,39 @@ function formatSuggestionLabel(label: string, maxLen = 28): string {
   const shortened = stripped.slice(0, maxLen);
   const lastSpace = shortened.lastIndexOf(' ');
   return lastSpace > 10 ? `${shortened.slice(0, lastSpace)}…` : `${shortened}…`;
+}
+
+/**
+ * Shared green → yellow → red color ramp for countdown chips. `warn`/`danger`
+ * are the (exclusive) thresholds at/below which the color steps down.
+ */
+function countdownColor(secs: number, warn: number, danger: number): string {
+  if (secs > warn) return 'green';
+  if (secs > danger) return 'yellow';
+  return 'red';
+}
+
+/**
+ * Interleave the visible chips of a status-bar line with the dim `│`
+ * separator. Replaces the hand-rolled per-chip separator chains (each chip
+ * used to re-derive "did any earlier chip render?" by OR-ing every preceding
+ * condition), which drifted out of sync and produced missing/doubled
+ * separators in edge cases. Callers push only the chips that should appear;
+ * this guarantees exactly one separator between every adjacent pair.
+ */
+function joinChips(chips: React.ReactNode[]): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  chips.forEach((chip, i) => {
+    if (i > 0) {
+      out.push(
+        <Text key={`sep-${i}`} dimColor>
+          │
+        </Text>,
+      );
+    }
+    out.push(<Fragment key={`chip-${i}`}>{chip}</Fragment>);
+  });
+  return out;
 }
 
 /** Minimum terminal width before we switch to ultra-compact mode. Exported so
@@ -443,7 +477,7 @@ export function StatusBar({
 
   const isCompact = termWidth < COMPACT_THRESHOLD;
   const isComfortable = termWidth >= COMFORTABLE_THRESHOLD;
-  const hiddenSet = new Set(hiddenItems);
+  const hiddenSet = useMemo(() => new Set(hiddenItems), [hiddenItems]);
   // Use the refresh hook so token/cost updates appear immediately when
   // the provider responds, instead of waiting for the next nowTick poll.
   const tokenData = useTokenCounterRefresh(tokenCounter, events);
@@ -454,13 +488,18 @@ export function StatusBar({
   const cache = tokenData?.cacheStats;
 
   // Elapsed time display — updated locally on a 1s interval so the "⏱ 12:34"
-  // chip stays live without forcing a full App tree re-render.
+  // chip stays live without forcing a full App tree re-render. When the chip
+  // is hidden the interval is skipped entirely: otherwise the whole status-bar
+  // subtree re-rendered every second for a value nobody could see — pure churn
+  // that adds up over long autonomous sessions.
+  const elapsedHidden = hiddenSet.has('elapsed');
   const [elapsedMs, setElapsedMs] = useState(startedAt ? Date.now() - startedAt : 0);
   useEffect(() => {
-    if (startedAt == null) return;
+    if (startedAt == null || elapsedHidden) return;
+    setElapsedMs(Date.now() - startedAt); // snapshot immediately on (re)enable
     const t = setInterval(() => setElapsedMs(Date.now() - startedAt), 1000);
     return () => clearInterval(t);
-  }, [startedAt]);
+  }, [startedAt, elapsedHidden]);
 
   // Animated braille spinner — cycles while the agent is thinking/streaming.
   // Stops when idle so the interval doesn't drive unnecessary re-renders.
@@ -508,18 +547,15 @@ export function StatusBar({
     subagentCount > 0;
   // Stream chip visibility — these gate both the chip render AND the separator before it.
   // Unlike the raw hasBrainActivity flags, these respect the hidden set and expiration.
-  const showBrain = isStreamChipVisible('brain', brain, hiddenSet ?? new Set<string>(), visibleChips);
-  const showDebugStream = isStreamChipVisible('debug_stream', debugStreamStats, hiddenSet ?? new Set<string>(), visibleChips);
-  const showEnhance = isStreamChipVisible('enhance', enhanceCountdown, hiddenSet ?? new Set<string>(), visibleChips);
+  const showBrain = isStreamChipVisible('brain', brain, hiddenSet, visibleChips);
+  const showDebugStream = isStreamChipVisible('debug_stream', debugStreamStats, hiddenSet, visibleChips);
+  const showEnhance = isStreamChipVisible('enhance', enhanceCountdown, hiddenSet, visibleChips);
   const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
 
-  // Countdown color threshold helper — transitions from green through
-  // yellow to red as the remaining time drops. Shared by the next-steps
-  // auto-submit countdown and the enhance-panel auto-send countdown.
-  const countdownColor = nextStepsAutoSubmitCountdown != null
-    ? nextStepsAutoSubmitCountdown > 20 ? 'green'
-      : nextStepsAutoSubmitCountdown > 10 ? 'yellow'
-      : 'red'
+  // Next-steps auto-submit countdown color: green → yellow → red as the timer
+  // drops (thresholds 20s / 10s), via the shared countdownColor ramp.
+  const nextStepsColor = nextStepsAutoSubmitCountdown != null
+    ? countdownColor(nextStepsAutoSubmitCountdown, 20, 10)
     : 'green';
 
   const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
@@ -755,134 +791,72 @@ export function StatusBar({
           pushes the input area into the static history scrollback. */}
       {hasSecondLine ? (
         <Box flexDirection="row" gap={2}>
-          {yolo ? (
-            <Text color="red" bold>
-              ⚠ YOLO
-            </Text>
-          ) : null}
-          {autonomy && autonomy !== 'off' ? (
-            <>
-              {yolo ? <Text dimColor>│</Text> : null}
-              <Text
-                color={autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'}
-                bold
-              >
-                ∞ {autonomy.toUpperCase()}
-              </Text>
-            </>
-          ) : null}
-          {eternalStage ? (
-            <>
-              {yolo || (autonomy && autonomy !== 'off') ? <Text dimColor>│</Text> : null}
-              <EternalStageChip stage={eternalStage} />
-            </>
-          ) : null}
-          {elapsedMs !== undefined && !hiddenSet.has('elapsed') ? (
-            <>
-              {yolo || (autonomy && autonomy !== 'off') || eternalStage ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
-            </>
-          ) : null}
-          {projectName ? (
-            <>
-              {yolo || startedAt != null ? <Text dimColor>│</Text> : null}
-              <Text color="blue">📁 {projectName}</Text>
-            </>
-          ) : null}
-          {workingDir && !hiddenSet.has('working_dir') ? (
-            <>
-              {yolo ||
-              startedAt != null ||
-              projectName ||
+          {joinChips(
+            [
+              yolo ? (
+                <Text color="red" bold>
+                  ⚠ YOLO
+                </Text>
+              ) : null,
+              autonomy && autonomy !== 'off' ? (
+                <Text
+                  color={autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'}
+                  bold
+                >
+                  ∞ {autonomy.toUpperCase()}
+                </Text>
+              ) : null,
+              eternalStage ? <EternalStageChip stage={eternalStage} /> : null,
+              elapsedMs !== undefined && !hiddenSet.has('elapsed') ? (
+                <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
+              ) : null,
+              projectName ? <Text color="blue">📁 {projectName}</Text> : null,
+              workingDir && !hiddenSet.has('working_dir') ? (
+                <Text color="blue">📂 {workingDir}</Text>
+              ) : null,
               goalSummary ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text color="blue">📂 {workingDir}</Text>
-            </>
-          ) : null}
-          {goalSummary ? (
-            <>
-              {yolo || startedAt != null || projectName || workingDir ? <Text dimColor>│</Text> : null}
-              <Text
-                color={
-                  goalSummary.goalState === 'active'
-                    ? 'green'
-                    : goalSummary.goalState === 'paused'
-                      ? 'yellow'
-                      : goalSummary.goalState === 'completed'
-                        ? 'green'
-                        : 'dim'
-                }
-              >
-                🎯{' '}
-                {goalSummary.goal.length > 40
-                  ? `${goalSummary.goal.slice(0, 37)}…`
-                  : goalSummary.goal}{' '}
-                [{goalSummary.goalState}] (iter {goalSummary.iterations})
-              </Text>
-            </>
-          ) : null}
-          {modeLabel ? (
-            <>
-              {yolo ||
-              (autonomy && autonomy !== 'off') ||
-              eternalStage ||
-              startedAt != null ||
-              projectName ||
-              workingDir ||
-              goalSummary ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text color="cyan">{modeIcon(modeLabel)}</Text>
-            </>
-          ) : null}
-          {hasAutoProceed ? (
-            <>
-              {yolo ||
-              (autonomy && autonomy !== 'off') ||
-              eternalStage ||
-              startedAt != null ||
-              projectName ||
-              workingDir ||
-              goalSummary ||
-              modeLabel ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text color={autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'}>
-                ⏳ auto in {autoProceedCountdown}s
-              </Text>
-            </>
-          ) : null}
-          {git && !hiddenSet.has('git') ? (
-            <>
-              {yolo || startedAt != null || projectName || workingDir ? <Text dimColor>│</Text> : null}
-              <Text>
-                <Text color="magenta">⎇ {git.branch}</Text>
-                {git.deleted > 0 ? <Text color="red"> -{git.deleted}</Text> : null}
-                {git.untracked > 0 ? <Text dimColor> ?{git.untracked}</Text> : null}
-              </Text>
-            </>
-          ) : null}
-          {sessionCount != null && sessionCount > 0 ? (
-            <>
-              {yolo || startedAt != null || projectName || workingDir || (git && !hiddenSet.has('git')) ? <Text dimColor>│</Text> : null}
-              <Text color="cyan">⧉ {sessionCount} session{sessionCount === 1 ? '' : 's'}</Text>
-            </>
-          ) : null}
-          {toolCount != null ? (
-            <>
-              {yolo || startedAt != null || projectName || workingDir || (git && !hiddenSet.has('git')) || sessionCount ? <Text dimColor>│</Text> : null}
-              <Text color="cyan">🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}</Text>
-            </>
-          ) : null}
-          {tokenSavingMode ? (
-            <>
-              {yolo || startedAt != null || projectName || workingDir || (git && !hiddenSet.has('git')) || sessionCount || toolCount ? <Text dimColor>│</Text> : null}
-              <Text color="yellow" bold>💾 save</Text>
-            </>
-          ) : null}
+                <Text
+                  color={
+                    goalSummary.goalState === 'active'
+                      ? 'green'
+                      : goalSummary.goalState === 'paused'
+                        ? 'yellow'
+                        : goalSummary.goalState === 'completed'
+                          ? 'green'
+                          : 'dim'
+                  }
+                >
+                  🎯{' '}
+                  {goalSummary.goal.length > 40
+                    ? `${goalSummary.goal.slice(0, 37)}…`
+                    : goalSummary.goal}{' '}
+                  [{goalSummary.goalState}] (iter {goalSummary.iterations})
+                </Text>
+              ) : null,
+              modeLabel ? <Text color="cyan">{modeIcon(modeLabel)}</Text> : null,
+              hasAutoProceed ? (
+                <Text color={autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'}>
+                  ⏳ auto in {autoProceedCountdown}s
+                </Text>
+              ) : null,
+              git && !hiddenSet.has('git') ? (
+                <Text>
+                  <Text color="magenta">⎇ {git.branch}</Text>
+                  {git.deleted > 0 ? <Text color="red"> -{git.deleted}</Text> : null}
+                  {git.untracked > 0 ? <Text dimColor> ?{git.untracked}</Text> : null}
+                </Text>
+              ) : null,
+              sessionCount != null && sessionCount > 0 ? (
+                <Text color="cyan">⧉ {sessionCount} session{sessionCount === 1 ? '' : 's'}</Text>
+              ) : null,
+              toolCount != null ? (
+                <Text color="cyan">🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}</Text>
+              ) : null,
+              tokenSavingMode ? (
+                <Text color="yellow" bold>💾 save</Text>
+              ) : null,
+            ].filter((c): c is React.ReactElement => c !== null),
+          )}
         </Box>
       ) : (
         <Box height={1}>
@@ -893,154 +867,95 @@ export function StatusBar({
       {/* Line 3 always rendered — same stability guarantee as line 2. */}
       {hasThirdLine ? (
         <Box flexDirection="row" gap={2}>
-          {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos') ? (
-            <Text>
-              <Text dimColor>todos </Text>
-              {todos.inProgress > 0 ? <Text color="yellow">⌛{todos.inProgress}</Text> : null}
-              {todos.inProgress > 0 && (todos.pending > 0 || todos.completed > 0) ? ' ' : ''}
-              {todos.pending > 0 ? <Text dimColor>☐{todos.pending}</Text> : null}
-              {todos.pending > 0 && todos.completed > 0 ? ' ' : ''}
-              {todos.completed > 0 ? <Text color="green">✓{todos.completed}</Text> : null}
-            </Text>
-          ) : null}
-          {plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan') ? (
-            <>
-              {todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos') ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text>
-                <Text color="cyan">📋 </Text>
-                {plan.inProgress > 0 ? <Text color="yellow">⌛{plan.inProgress}</Text> : null}
-                {plan.inProgress > 0 && (plan.open > 0 || plan.done > 0) ? ' ' : ''}
-                {plan.open > 0 ? <Text dimColor>☐{plan.open}</Text> : null}
-                {plan.open > 0 && plan.done > 0 ? ' ' : ''}
-                {plan.done > 0 ? <Text color="green">✓{plan.done}</Text> : null}
-                {plan.scope ? (
-                  <Text dimColor> [{plan.scope}]</Text>
-                ) : null}
-              </Text>
-            </>
-          ) : null}
-          {hasTaskActivity && !hiddenSet.has('tasks') ? (
-            <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text>
-                <Text color="magenta">⚡ </Text>
-                {tasks!.inProgress > 0 ? <Text color="yellow">⌛{tasks!.inProgress}</Text> : null}
-                {tasks!.inProgress > 0 && (tasks!.pending > 0 || tasks!.blocked > 0) ? ' ' : ''}
-                {tasks!.pending > 0 ? <Text dimColor>☐{tasks!.pending}</Text> : null}
-                {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
-                {tasks!.blocked > 0 ? <Text color="red">⊘{tasks!.blocked}</Text> : null}
-                {(tasks!.pending > 0 || tasks!.blocked > 0) && (tasks!.completed > 0 || tasks!.failed > 0) ? ' ' : ''}
-                {tasks!.completed > 0 ? <Text color="green">✓{tasks!.completed}</Text> : null}
-                {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
-                {tasks!.failed > 0 ? <Text color="red">✗{tasks!.failed}</Text> : null}
-                {tasks!.scope ? (
-                  <Text dimColor> [{tasks!.scope}]</Text>
-                ) : null}
-              </Text>
-            </>
-          ) : null}
-          {fleetHasActivity && !hiddenSet.has('fleet') ? (
-            <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              {fleet ? (
+          {joinChips(
+            [
+              todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos') ? (
                 <Text>
-                  <Text color="blue">🌐 </Text>
-                  {fleet.running > 0 ? <Text color="yellow">▶{fleet.running}</Text> : null}
-                  {fleet.running > 0 && (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
-                    ? ' '
-                    : ''}
-                  {fleet.pending > 0 ? <Text dimColor>☐{fleet.pending}</Text> : null}
-                  {fleet.pending > 0 && (fleet.idle > 0 || fleet.completed > 0) ? ' ' : ''}
-                  {fleet.idle > 0 ? <Text dimColor>·{fleet.idle}idle</Text> : null}
-                  {fleet.idle > 0 && fleet.completed > 0 ? ' ' : ''}
-                  {fleet.completed > 0 ? <Text color="green">✓{fleet.completed}</Text> : null}
+                  <Text dimColor>todos </Text>
+                  {todos.inProgress > 0 ? <Text color="yellow">⌛{todos.inProgress}</Text> : null}
+                  {todos.inProgress > 0 && (todos.pending > 0 || todos.completed > 0) ? ' ' : ''}
+                  {todos.pending > 0 ? <Text dimColor>☐{todos.pending}</Text> : null}
+                  {todos.pending > 0 && todos.completed > 0 ? ' ' : ''}
+                  {todos.completed > 0 ? <Text color="green">✓{todos.completed}</Text> : null}
                 </Text>
-              ) : (
-                <Text color="blue">
-                  🌐 {subagentCount} agent{subagentCount === 1 ? '' : 's'}
+              ) : null,
+              plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan') ? (
+                <Text>
+                  <Text color="cyan">📋 </Text>
+                  {plan.inProgress > 0 ? <Text color="yellow">⌛{plan.inProgress}</Text> : null}
+                  {plan.inProgress > 0 && (plan.open > 0 || plan.done > 0) ? ' ' : ''}
+                  {plan.open > 0 ? <Text dimColor>☐{plan.open}</Text> : null}
+                  {plan.open > 0 && plan.done > 0 ? ' ' : ''}
+                  {plan.done > 0 ? <Text color="green">✓{plan.done}</Text> : null}
+                  {plan.scope ? <Text dimColor> [{plan.scope}]</Text> : null}
                 </Text>
-              )}
-            </>
-          ) : null}
-          {showBrain ? (
-            <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
-              (hasTaskActivity && !hiddenSet.has('tasks')) ||
-              (fleetHasActivity && !hiddenSet.has('fleet')) ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <BrainChip brain={brain!} />
-            </>
-          ) : null}
-          {showDebugStream ? (
-            <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
-              (hasTaskActivity && !hiddenSet.has('tasks')) ||
-              (fleetHasActivity && !hiddenSet.has('fleet')) ||
-              showBrain ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text color="cyan">
-                <Text bold>🐛 stream</Text>
-                <Text dimColor> #{debugStreamStats!.chunkCount}</Text>
-                <Text dimColor> · {debugStreamStats!.lastChunkSize}B</Text>
-                <Text dimColor> · +{debugStreamStats!.lastDeltaMs}ms</Text>
-                <Text dimColor> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
-              </Text>
-            </>
-          ) : null}
-          {showEnhance ? (
-            <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
-              (hasTaskActivity && !hiddenSet.has('tasks')) ||
-              (fleetHasActivity && !hiddenSet.has('fleet')) ||
-              showBrain ||
+              ) : null,
+              hasTaskActivity && !hiddenSet.has('tasks') ? (
+                <Text>
+                  <Text color="magenta">⚡ </Text>
+                  {tasks!.inProgress > 0 ? <Text color="yellow">⌛{tasks!.inProgress}</Text> : null}
+                  {tasks!.inProgress > 0 && (tasks!.pending > 0 || tasks!.blocked > 0) ? ' ' : ''}
+                  {tasks!.pending > 0 ? <Text dimColor>☐{tasks!.pending}</Text> : null}
+                  {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
+                  {tasks!.blocked > 0 ? <Text color="red">⊘{tasks!.blocked}</Text> : null}
+                  {(tasks!.pending > 0 || tasks!.blocked > 0) && (tasks!.completed > 0 || tasks!.failed > 0) ? ' ' : ''}
+                  {tasks!.completed > 0 ? <Text color="green">✓{tasks!.completed}</Text> : null}
+                  {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
+                  {tasks!.failed > 0 ? <Text color="red">✗{tasks!.failed}</Text> : null}
+                  {tasks!.scope ? <Text dimColor> [{tasks!.scope}]</Text> : null}
+                </Text>
+              ) : null,
+              fleetHasActivity && !hiddenSet.has('fleet') ? (
+                fleet ? (
+                  <Text>
+                    <Text color="blue">🌐 </Text>
+                    {fleet.running > 0 ? <Text color="yellow">▶{fleet.running}</Text> : null}
+                    {fleet.running > 0 && (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
+                      ? ' '
+                      : ''}
+                    {fleet.pending > 0 ? <Text dimColor>☐{fleet.pending}</Text> : null}
+                    {fleet.pending > 0 && (fleet.idle > 0 || fleet.completed > 0) ? ' ' : ''}
+                    {fleet.idle > 0 ? <Text dimColor>·{fleet.idle}idle</Text> : null}
+                    {fleet.idle > 0 && fleet.completed > 0 ? ' ' : ''}
+                    {fleet.completed > 0 ? <Text color="green">✓{fleet.completed}</Text> : null}
+                  </Text>
+                ) : (
+                  <Text color="blue">
+                    🌐 {subagentCount} agent{subagentCount === 1 ? '' : 's'}
+                  </Text>
+                )
+              ) : null,
+              showBrain ? <BrainChip brain={brain!} /> : null,
               showDebugStream ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text color={
-                enhanceCountdown! > 15 ? 'green'
-                : enhanceCountdown! > 5 ? 'yellow'
-                : 'red'
-              }>
-                ⏳ auto-send in {enhanceCountdown}s
-              </Text>
-            </>
-          ) : null}
-          {hasNextStepsAutoSubmit && nextStepsAutoSubmitCountdown != null ? (
-            <>
-              {(todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos')) ||
-              (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && !hiddenSet.has('plan')) ||
-              (hasTaskActivity && !hiddenSet.has('tasks')) ||
-              (fleetHasActivity && !hiddenSet.has('fleet')) ||
-              showBrain ||
-              showDebugStream ||
+                <Text color="cyan">
+                  <Text bold>🐛 stream</Text>
+                  <Text dimColor> #{debugStreamStats!.chunkCount}</Text>
+                  <Text dimColor> · {debugStreamStats!.lastChunkSize}B</Text>
+                  <Text dimColor> · +{debugStreamStats!.lastDeltaMs}ms</Text>
+                  <Text dimColor> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
+                </Text>
+              ) : null,
               showEnhance ? (
-                <Text dimColor>│</Text>
-              ) : null}
-              <Text color={countdownColor} bold>
-                ⏳ {nextStepsAutoSubmitCountdown}s
-              </Text>
-              <Text dimColor>
-                {' '}
-                {nextStepsAutoSubmitLabel
-                  ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
-                  : ''}
-                {' · ⇥ edit'}
-              </Text>
-            </>
-          ) : null}
+                <Text color={countdownColor(enhanceCountdown!, 15, 5)}>
+                  ⏳ auto-send in {enhanceCountdown}s
+                </Text>
+              ) : null,
+              hasNextStepsAutoSubmit && nextStepsAutoSubmitCountdown != null ? (
+                <>
+                  <Text color={nextStepsColor} bold>
+                    ⏳ {nextStepsAutoSubmitCountdown}s
+                  </Text>
+                  <Text dimColor>
+                    {' '}
+                    {nextStepsAutoSubmitLabel
+                      ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
+                      : ''}
+                    {' · ⇥ edit'}
+                  </Text>
+                </>
+              ) : null,
+            ].filter((c): c is React.ReactElement => c !== null),
+          )}
         </Box>
       ) : (
         <Box height={1}>

@@ -470,6 +470,15 @@ export interface AppProps {
       | { type: 'toolStreamClear' }
     >,
   ) => void) | undefined;
+  /**
+   * Called on `/clear` to physically wipe the terminal (visible screen +
+   * native scrollback) before the chat history is reset. Without this, the
+   * `clearHistory` remount only reprints the banner *below* the old chat,
+   * which stays reachable in scrollback. Owned by `run-tui` because it needs
+   * the live Ink instance to reset frame tracking and avoid a smeared status
+   * bar. No-op outside the TUI.
+   */
+  clearTerminal?: (() => void) | undefined;
 
   /**
    * Called when the user selects a session in the /resume picker. The host
@@ -763,6 +772,7 @@ export function App({
   director,
   fleetRoster,
   onClearHistory,
+  clearTerminal,
   listSessions,
   onResumeSession,
   fleetStreamController,
@@ -5106,6 +5116,10 @@ export function App({
             version: appVersion,
             state: state.status,
             fleetRunning: fleetCounts?.running ?? 0,
+            // Must match the rendered state label width — while streaming the bar
+            // shows the configured thinking word, so the span shifts with it.
+            // Omitting this made the model chip un-clickable mid-stream.
+            thinkingWord: liveThinkingWord,
             model: `${liveProvider}/${liveModel}`,
           });
           if (inSpan(span)) {
@@ -5127,20 +5141,21 @@ export function App({
           return;
         }
         // Statusline chips — click to open statusline picker focused on that chip.
-        // Line 3 (rowFor(2)): todos(11), plan(9), tasks(10)
-        // Line 4 (rowFor(3)): fleet(12)
+        // Field indices are derived from STATUSLINE_ITEMS so they can't drift
+        // when the picker's item order changes (line 3: todos/plan/tasks;
+        // line 4: fleet).
         const hiddenSet = new Set(state.statuslinePicker.hiddenItems);
         if (my === rowFor(2)) {
           const mxLocal = mx - SB_PADX - 1;
           if (!hiddenSet.has('todos') && mxLocal >= 0 && mxLocal < 20) {
-            dispatch({ type: 'statuslineFieldSet', field: 11 });
+            dispatch({ type: 'statuslineFieldSet', field: STATUSLINE_ITEMS.indexOf('todos') });
             dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
             return;
           }
           if (!hiddenSet.has('plan')) {
             const planStart = 21;
             if (mxLocal >= planStart && mxLocal < planStart + 22) {
-              dispatch({ type: 'statuslineFieldSet', field: 9 });
+              dispatch({ type: 'statuslineFieldSet', field: STATUSLINE_ITEMS.indexOf('plan') });
               dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
               return;
             }
@@ -5148,7 +5163,7 @@ export function App({
           if (!hiddenSet.has('tasks')) {
             const tasksStart = 44;
             if (mxLocal >= tasksStart && mxLocal < tasksStart + 26) {
-              dispatch({ type: 'statuslineFieldSet', field: 10 });
+              dispatch({ type: 'statuslineFieldSet', field: STATUSLINE_ITEMS.indexOf('tasks') });
               dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
               return;
             }
@@ -5158,7 +5173,7 @@ export function App({
           const mxLocal = mx - SB_PADX - 1;
           const fleetStart = 0;
           if (mxLocal >= fleetStart && mxLocal < fleetStart + 22) {
-            dispatch({ type: 'statuslineFieldSet', field: 12 });
+            dispatch({ type: 'statuslineFieldSet', field: STATUSLINE_ITEMS.indexOf('fleet') });
             dispatch({ type: 'statuslineOpen', hiddenItems: state.statuslinePicker.hiddenItems });
             return;
           }
@@ -5800,6 +5815,11 @@ export function App({
         // prefix, so `/clearfoo` doesn't trigger.
         const cmd = trimmed.slice(1).split(/\s+/, 1)[0];
         if (cmd === 'clear') {
+          // Physically wipe the terminal (screen + scrollback) FIRST so the
+          // old conversation isn't left reachable above the fresh banner;
+          // the clearHistory remount below then reprints the banner onto a
+          // clean screen.
+          clearTerminal?.();
           onClearHistory?.(dispatch);
           // Reset cumulative token/cost counters so the status bar
           // reflects a fresh session, not pre-clear stats.

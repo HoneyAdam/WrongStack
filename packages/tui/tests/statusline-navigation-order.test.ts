@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STATUSLINE_ITEMS, STATUSLINE_FIELD_COUNT } from '../src/components/statusline-picker.js';
+import { STATUSLINE_ITEMS, STATUSLINE_FIELD_COUNT, ITEM_LINE } from '../src/components/statusline-picker.js';
 
 /**
  * Navigation order must match the visual layout order.
@@ -14,23 +14,6 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
   });
 
   it('follows line 1 → line 2 → line 3 → line 4 order', () => {
-    // ITEM_LINE mapping from statusline-picker.tsx
-    const ITEM_LINE: Record<string, number> = {
-      context: 1,
-      cost: 1,
-      elapsed: 2,
-      git: 2,
-      working_dir: 2,
-      todos: 3,
-      plan: 3,
-      tasks: 3,
-      brain: 3,
-      mailbox: 3,
-      enhance: 3,
-      debug_stream: 3,
-      fleet: 4,
-    };
-
     const lines = STATUSLINE_ITEMS.map((item) => ITEM_LINE[item]);
 
     // All line 1 items come first
@@ -53,22 +36,6 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
   });
 
   it('is alphabetically sorted within each line', () => {
-    const ITEM_LINE: Record<string, number> = {
-      context: 1,
-      cost: 1,
-      elapsed: 2,
-      git: 2,
-      working_dir: 2,
-      todos: 3,
-      plan: 3,
-      tasks: 3,
-      brain: 3,
-      mailbox: 3,
-      enhance: 3,
-      debug_stream: 3,
-      fleet: 4,
-    };
-
     // Group by line
     const byLine = new Map<number, string[]>();
     for (const item of STATUSLINE_ITEMS) {
