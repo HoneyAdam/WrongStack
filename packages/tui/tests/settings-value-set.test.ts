@@ -392,3 +392,79 @@ describe('getSettingsFieldValue', () => {
     });
   });
 });
+
+// ── formatAllSettingsSummary ─────────────────────────────────────
+
+import { formatAllSettingsSummary } from '../src/components/settings-picker.js';
+
+describe('formatAllSettingsSummary', () => {
+  const testValues: SettingsPickerValues = {
+    mode: 'off',
+    delayMs: 0,
+    titleAnimation: true,
+    yolo: false,
+    streamFleet: true,
+    chime: false,
+    confirmExit: true,
+    nextPrediction: false,
+    featureMcp: true,
+    featurePlugins: true,
+    featureMemory: true,
+    featureSkills: true,
+    featureModelsRegistry: false,
+    tokenSavingTier: 'off',
+    allowOutsideProjectRoot: true,
+    contextAutoCompact: true,
+    contextStrategy: 'hybrid',
+    contextMode: 'balanced',
+    maxConcurrent: 10,
+    logLevel: 'info',
+    auditLevel: 'standard',
+    indexOnStart: true,
+    multiDiffSummaryThreshold: 5,
+    maxIterations: 500,
+    autoProceedMaxIterations: 50,
+    enhanceDelayMs: 60_000,
+    enhanceEnabled: true,
+    enhanceLanguage: 'original',
+    debugStream: false,
+    statuslineMode: 'detailed',
+    reasoningMode: 'auto',
+    reasoningEffort: 'high',
+    reasoningPreserve: false,
+    thinkingWord: 'thinking',
+    cacheTtl: 'default',
+    configScope: 'global',
+  };
+
+  it('contains all 9 section headings', () => {
+    const out = formatAllSettingsSummary(testValues);
+    const sections = ['Autonomy', 'UX', 'Features', 'Tools', 'Reasoning', 'Context', 'Fleet', 'Logging', 'Debug'];
+    for (const s of sections) {
+      expect(out).toContain(`── ${s} ──`);
+    }
+  });
+
+  it('renders exactly 36 value lines (one per field)', () => {
+    const out = formatAllSettingsSummary(testValues);
+    const fieldLines = out.split('\n').filter((l) => l.startsWith('  ') && l.trim().length > 0);
+    expect(fieldLines).toHaveLength(36);
+  });
+
+  it('includes the thinking word value', () => {
+    const out = formatAllSettingsSummary(testValues);
+    expect(out).toContain('thinking');
+  });
+
+  it('formats booleans as on/off', () => {
+    const out = formatAllSettingsSummary(testValues);
+    expect(out).toContain('YOLO mode');
+    expect(out).toMatch(/YOLO mode\s+off/);
+    expect(out).toMatch(/Stream fleet\s+on/);
+  });
+
+  it('formats presets with display names', () => {
+    const out = formatAllSettingsSummary({ ...testValues, maxIterations: 0 });
+    expect(out).toMatch(/Max iterations\s+unlimited/);
+  });
+});

@@ -67,6 +67,7 @@ import {
   SettingsPicker,
   THINKING_WORD_FIELD,
   getSettingsFieldValue,
+  formatAllSettingsSummary,
   resolveSettingsFieldValue,
   settingsPickerJumpByName,
   settingsPickerJumpField,
@@ -3098,9 +3099,8 @@ export function App({
       async run(args: string) {
         const query = args.trim();
         if (query === '') {
-          return {
-            message: 'Usage: /settings-get <chord>\nAvailable: ' + settingsPickerJumpNames().join(', '),
-          };
+          // No argument: show all settings as a compact grouped summary.
+          return { message: formatAllSettingsSummary(state.settingsPicker) };
         }
         const field = settingsPickerJumpByName(query);
         if (field === undefined) {
@@ -6499,7 +6499,6 @@ export function App({
             onMeasure={(totalLines) => dispatch({ type: 'setMeasuredLines', totalLines })}
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
-            autoSubmitCountdown={nextStepsAutoSubmitCountdown}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
           />
         ) : (
@@ -6510,7 +6509,6 @@ export function App({
             toolStream={state.toolStream}
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
-            autoSubmitCountdown={nextStepsAutoSubmitCountdown}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
           />
         )}

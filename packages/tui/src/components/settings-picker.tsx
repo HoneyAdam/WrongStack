@@ -701,6 +701,80 @@ export function getSettingsFieldValue(
   return { ok: false, error: `Unknown settings field ${field}.` };
 }
 
+/**
+ * Section headings and their field ranges, matching the picker's visual
+ * grouping. Used by {@link formatAllSettingsSummary} to produce a compact
+ * grouped overview.
+ */
+const SETTINGS_SECTIONS: ReadonlyArray<{ name: string; fields: readonly number[] }> = [
+  {
+    name: 'Autonomy',
+    fields: [0, 1],
+  },
+  {
+    name: 'UX',
+    fields: [2, 3, 4, 5, 6, 7],
+  },
+  {
+    name: 'Features',
+    fields: [8, 9, 10, 11, 12, 13, 14],
+  },
+  {
+    name: 'Tools',
+    fields: [15, 16, 17, 18, 19, 20, 21, 22],
+  },
+  {
+    name: 'Reasoning',
+    fields: [23, 24, 25, 26],
+  },
+  {
+    name: 'Context',
+    fields: [27, 28, 29],
+  },
+  {
+    name: 'Fleet',
+    fields: [30],
+  },
+  {
+    name: 'Logging',
+    fields: [31, 32],
+  },
+  {
+    name: 'Debug',
+    fields: [33, 34, 35],
+  },
+];
+
+/**
+ * Produce a compact, section-grouped text summary of ALL settings values.
+ * Used by the `/settings-get` command when called with no arguments, so
+ * the user can see their full configuration at a glance without opening
+ * the picker overlay.
+ *
+ * Format (one line per field):
+ * ```
+ * ── Autonomy ──
+ *   Default autonomy mode     auto
+ *   Auto-proceed delay        30s
+ * ── UX ──
+ *   YOLO mode                 off
+ *   ...
+ * ```
+ */
+export function formatAllSettingsSummary(values: SettingsPickerValues): string {
+  const lines: string[] = [];
+  for (const section of SETTINGS_SECTIONS) {
+    lines.push(`── ${section.name} ──`);
+    for (const field of section.fields) {
+      const result = getSettingsFieldValue(values, field);
+      if (result.ok) {
+        lines.push(`  ${result.label.padEnd(28)} ${result.displayValue}`);
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
 export function SettingsPicker({
   field,
   filter,
