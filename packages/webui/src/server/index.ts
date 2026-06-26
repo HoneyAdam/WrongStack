@@ -109,7 +109,7 @@ import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wro
 import { builtinToolsPack, configureExecPolicy, ensureSessionShell, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createDefaultContainer } from '../../../runtime/src/container.js';
+import { createDefaultContainer, makeLightSubagentFactory } from '@wrongstack/runtime';
 import { bootConfig, patchConfig } from './boot.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
 import { SpecsWebSocketHandler } from './specs-ws-handler.js';
@@ -117,7 +117,6 @@ import { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
 import { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
 import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
 import { handleSddWizardRoute, type SddWizardRouteHandlers } from './sdd-wizard-routes.js';
-import { makeLightSubagentFactory } from '@wrongstack/runtime';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import {
   ensureProjectDataDir,
