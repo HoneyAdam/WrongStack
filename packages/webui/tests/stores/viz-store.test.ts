@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVizStore, wsToVizEvent } from '../../src/stores/viz-store';
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -137,6 +137,74 @@ describe('pushEvent', () => {
     useVizStore.getState().pushEvent(makeEvent({ id: 'ev-b', label: 'B' }));
     useVizStore.getState().pushEvent(makeEvent({ id: 'ev-c', label: 'C' }));
     expect(useVizStore.getState().events.map((e) => e.label)).toEqual(['C', 'B']);
+  });
+
+  it('keeps nodes Map reference stable when pushEvent upserts produce shallow-equal nodes (Track E.7)', () => {
+    // Seed source + target nodes that already match what pushEvent would
+    // compute for an `iteration:start` event with Date.now frozen at
+    // `fixed`. We need a deterministic timestamp to make `lastSeenAt`
+    // predictable — it's the source of all churn in this path.
+    const fixed = 1_700_000_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(fixed);
+    try {
+      useVizStore.getState().upsertNode({
+        id: 'leader',
+        kind: 'session',
+        label: 'Iteration 0',
+        status: 'streaming',
+        activity: 1.0,
+        color: 'hsl(280, 80%, 65%)',
+        lastSeenAt: fixed,
+      });
+      useVizStore.getState().upsertNode({
+        id: 'session',
+        kind: 'coordinator',
+        label: 'session',
+        status: 'streaming',
+        activity: 0.8,
+        color: 'hsl(280, 80%, 65%)',
+        lastSeenAt: fixed,
+      });
+      useVizStore.getState().upsertEdge({
+        id: 'leader->session',
+        source: 'leader',
+        target: 'session',
+        kind: 'iteration:start',
+        label: 'Iteration 0',
+        intensity: 1,
+        color: 'hsl(280, 80%, 65%)',
+        lastActiveAt: fixed,
+        totalMagnitude: 0,
+      });
+      const nodesRefBefore = useVizStore.getState().nodes;
+      const edgesRefBefore = useVizStore.getState().edges;
+
+      // Push an event whose computed merged source/target/edge are all
+      // shallow-equal to the seeded entries — same ids, same kinds (because
+      // inferKind maps iteration:start → 'session'), same labels, same
+      // status, same activity, same color, same lastSeenAt (Date.now frozen).
+      useVizStore.getState().pushEvent({
+        kind: 'iteration:start',
+        timestamp: fixed,
+        source: 'leader',
+        target: 'session',
+        label: 'Iteration 0',
+        magnitude: 0,
+        color: 'hsl(280, 80%, 65%)',
+        flowGroup: 'iteration',
+      });
+
+      const state = useVizStore.getState();
+      // Events array reference must change (new event prepended).
+      expect(state.events.length).toBe(1);
+      // Nodes Map reference must be preserved (shallowEqual matched).
+      expect(state.nodes).toBe(nodesRefBefore);
+      // Edges Map reference must also be preserved (edge upsert was a no-op too).
+      expect(state.edges).toBe(edgesRefBefore);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -238,6 +238,43 @@ function nextId(): string {
   return `viz_${Date.now()}_${++_eventSeq}`;
 }
 
+/**
+ * Shallow object equality for plain objects with string keys.
+ *
+ * Used by `pushEvent` to skip cloning `nodes`/`edges` Maps when an
+ * upsert would produce a value equal to the existing one — keeps
+ * zustand's per-key reference comparison stable so subscribers that
+ * selected only `nodes` or only `edges` skip a re-render.
+ *
+ * Arrays and Maps are treated as unequal unless they share the same
+ * reference (VizNode/VizEdge don't contain arrays or Maps today, so
+ * this is sufficient for the current shape — widen if that changes).
+ */
+
+function shallowEqual(a: Record<string, unknown> | null | undefined, b: Record<string, unknown> | null | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    const av = a[k];
+    const bv = b[k];
+    if (av === bv) continue;
+    if (av == null || bv == null) return false;
+    if (typeof av !== typeof bv) return false;
+    if (typeof av === 'object') {
+      // Only recurse one level into plain objects — arrays/Maps count as
+      // different references unless they're the same instance.
+      if (Array.isArray(av) || Array.isArray(bv)) return false;
+      if (!shallowEqual(av as Record<string, unknown>, bv as Record<string, unknown>)) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 const NODE_COLORS: Record<string, string> = {
   provider: 'hsl(180, 80%, 55%)',    // cyan
   agent: 'hsl(280, 80%, 65%)',       // purple
@@ -279,13 +316,19 @@ export const useVizStore = create<VizState>()((set, _get) => ({
     if (events.length > state.maxEvents) events.length = state.maxEvents;
 
     // ── Apply event to nodes/edges maps ───────────────────────────
-    const nodes = new Map(state.nodes);
-    const edges = new Map(state.edges);
+    // Perf note (Track E.7): the throttling/coalescing policy for
+    // high-frequency events (provider:delta, tool:progress) is parked
+    // pending a design call from someone with viz-store context. Until
+    // that lands, this push path keeps the per-event shape but skips
+    // the Map clone when every upsert is shallow-equal to the existing
+    // entry — preserves zustand's reference-stable contract for
+    // subscribers that select only nodes or only edges.
     const now = Date.now();
 
     // Upsert source node
+    const sourceId = event.source;
     const sourceNode: VizNode = {
-      id: event.source,
+      id: sourceId,
       kind: inferKind(event),
       label: event.label,
       status: inferStatus(event.kind),
@@ -293,29 +336,46 @@ export const useVizStore = create<VizState>()((set, _get) => ({
       color: event.color ?? NODE_COLORS[inferKind(event)],
       lastSeenAt: now,
     };
-    const existingSource = nodes.get(event.source);
-    nodes.set(event.source, { ...existingSource, ...sourceNode });
+    const existingSource = state.nodes.get(sourceId);
+    const mergedSource: VizNode = existingSource ? { ...existingSource, ...sourceNode } : sourceNode;
+    const sourceChanged = !shallowEqual(
+      existingSource as unknown as Record<string, unknown> | undefined,
+      mergedSource as unknown as Record<string, unknown>,
+    );
 
     // Upsert target node if present
+    let mergedTarget: VizNode | undefined;
+    let targetChanged = false;
+    let targetId: string | undefined;
     if (event.target) {
+      targetId = event.target;
       const targetNode: VizNode = {
-        id: event.target,
+        id: targetId,
         kind: inferKind(event, true),
-        label: event.target,
+        label: targetId,
         status: inferStatus(event.kind),
         activity: 0.8,
         color: event.color ?? NODE_COLORS[inferKind(event, true)],
         lastSeenAt: now,
       };
-      const existingTarget = nodes.get(event.target);
-      nodes.set(event.target, { ...existingTarget, ...targetNode });
+      const existingTarget = state.nodes.get(targetId);
+      mergedTarget = existingTarget ? { ...existingTarget, ...targetNode } : targetNode;
+      targetChanged = !shallowEqual(
+        existingTarget as unknown as Record<string, unknown> | undefined,
+        mergedTarget as unknown as Record<string, unknown>,
+      );
+    }
 
-      // Upsert edge
-      const edgeId = `${event.source}->${event.target}`;
-      const existingEdge = edges.get(edgeId);
-      edges.set(edgeId, {
+    // Upsert edge if both endpoints present
+    let mergedEdge: VizEdge | undefined;
+    let edgeChanged = false;
+    let edgeId: string | undefined;
+    if (event.target && sourceId) {
+      edgeId = `${sourceId}->${event.target}`;
+      const existingEdge = state.edges.get(edgeId);
+      const newEdge: VizEdge = {
         id: edgeId,
-        source: event.source,
+        source: sourceId,
         target: event.target,
         kind: event.kind as VizEdge['kind'],
         label: event.label,
@@ -323,7 +383,26 @@ export const useVizStore = create<VizState>()((set, _get) => ({
         color: event.color ?? NODE_COLORS[inferKind(event)] ?? '#6366f1',
         lastActiveAt: now,
         totalMagnitude: (existingEdge?.totalMagnitude ?? 0) + (event.magnitude ?? 0),
-      });
+      };
+      mergedEdge = existingEdge ? { ...existingEdge, ...newEdge } : newEdge;
+      edgeChanged = !shallowEqual(
+        existingEdge as unknown as Record<string, unknown> | undefined,
+        mergedEdge as unknown as Record<string, unknown>,
+      );
+    }
+
+    // Only allocate new Maps when something actually changed. Otherwise
+    // return the existing references so zustand skips the notification.
+    let nodes: Map<string, VizNode> = state.nodes;
+    let edges: Map<string, VizEdge> = state.edges;
+    if (sourceChanged || targetChanged) {
+      nodes = new Map(state.nodes);
+      if (sourceChanged) nodes.set(sourceId, mergedSource);
+      if (targetChanged && mergedTarget && targetId) nodes.set(targetId, mergedTarget);
+    }
+    if (edgeChanged && mergedEdge && edgeId) {
+      edges = new Map(state.edges);
+      edges.set(edgeId, mergedEdge);
     }
 
     return { events, nodes, edges };
