@@ -177,14 +177,28 @@ export function nextInputWordStart(buffer: string, cursor: number): number {
  * Convert restored session messages into TUI history entries so a resumed
  * session renders its prior conversation visually, not just in the LLM context.
  *
- * - system messages are skipped (not displayed)
- * - user messages become `kind: 'user'` entries
- * - assistant messages become `kind: 'assistant'` entries (tool_use blocks
- *   are stripped; full tool rendering needs the execution events which are
- *   not available at resume time)
- * - tool execution records (from `tool_call_end` JSONL events) become
- *   `kind: 'tool'` entries, inserted after the assistant response that
- *   triggered them (heuristic: last assistant turn before the tool_use id)
+ * Order MUST match what the user saw before the crash — assistant text and
+ * tool executions are interleaved chronologically. The data path makes this
+ * straightforward:
+ *
+ *  - `messages` carries user_input / llm_response / tool_result events in
+ *    JSONL order (see DefaultSessionStore.load).
+ *  - For assistant messages whose `content` is an array, tool_use blocks
+ *    appear in JSONL order. Each has a stable `id`.
+ *  - `toolCalls` is the JSONL-ordered list of `tool_call_end` events, each
+ *    carrying the same `id` as the tool_use block it resolves.
+ *
+ * Algorithm:
+ *  - System messages are skipped (not displayed).
+ *  - User messages → `kind: 'user'`.
+ *  - Assistant messages → `kind: 'assistant'` (text only; tool_use blocks
+ *    are dropped from the body since the tool entry renders the execution).
+ *  - After each assistant message, emit a `kind: 'tool'` entry for each
+ *    tool_use id that appears in that assistant's content, looking up the
+ *    matching tool_call_end by id. If the assistant has multiple tool_use
+ *    blocks, the tool entries appear in the same order as those blocks.
+ *  - Unmatched tool_call_ends (legacy / id drift) are appended at the end
+ *    in their original JSONL order so they aren't silently dropped.
  */
 export function rehydrateHistory(
   messages: Message[],
@@ -199,47 +213,74 @@ export function rehydrateHistory(
     outputLines?: number | undefined;
   }> | undefined,
 ): import('./components/history/types.js').HistoryEntry[] {
-  const entries: import('./components/history/types.js').HistoryEntry[] = [];
+  type ToolEntry = import('./components/history/types.js').HistoryEntry;
+  const entries: ToolEntry[] = [];
+  // Build a one-shot id → tool_call_end index. tool_call_end events are
+  // already in JSONL order (DefaultSessionStore.extractToolCallEnds walks
+  // events in file order); when two tool_use blocks share an id (shouldn't
+  // happen, but defensive) we keep the first end so the timeline stays sane.
+  const toolCallsById = new Map<string, NonNullable<typeof toolCalls>[number]>();
+  if (toolCalls) {
+    for (const tc of toolCalls) {
+      if (!toolCallsById.has(tc.id)) toolCallsById.set(tc.id, tc);
+    }
+  }
+  const consumed = new Set<string>();
+  const fallback: ToolEntry[] = [];
+
   let nextId = startId;
+  const textOf = (msg: Message): string => {
+    if (typeof msg.content === 'string') return msg.content;
+    return msg.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('');
+  };
+  const toolEntryFor = (tc: NonNullable<typeof toolCalls>[number]): ToolEntry => ({
+    id: nextId++,
+    kind: 'tool',
+    name: tc.name,
+    durationMs: tc.durationMs,
+    ok: tc.ok,
+    outputBytes: tc.outputBytes,
+    outputTokens: tc.outputTokens,
+    outputLines: tc.outputLines,
+  });
+
   for (const msg of messages) {
     if (msg.role === 'system') continue;
-    // Inline asText: extract string content from text blocks.
-    const text =
-      typeof msg.content === 'string'
-        ? msg.content
-        : msg.content
-            .filter((b) => b.type === 'text')
-            .map((b) => (b as { text: string }).text)
-            .join('');
-    const trimmed = text.trim();
-    if (!trimmed) continue;
+    const text = textOf(msg).trim();
+    if (!text) continue;
     if (msg.role === 'user') {
-      entries.push({ id: nextId++, kind: 'user', text: trimmed });
-    } else if (msg.role === 'assistant') {
-      entries.push({ id: nextId++, kind: 'assistant', text: trimmed });
-      // After each assistant message, emit any tool calls that were triggered
-      // by tool_use blocks within this response. Tool execution events are
-      // sequentially ordered in the JSONL — we match by tool_use id heuristic.
+      entries.push({ id: nextId++, kind: 'user', text });
+      continue;
+    }
+    if (msg.role === 'assistant') {
+      entries.push({ id: nextId++, kind: 'assistant', text });
+      // Walk the assistant content for tool_use blocks and emit a tool entry
+      // for each, in the order the blocks appear. Skips text/thinking blocks
+      // — the body text was already pushed above.
+      if (Array.isArray(msg.content)) {
+        for (const block of msg.content as ContentBlock[]) {
+          if (block.type !== 'tool_use') continue;
+          const tc = toolCallsById.get(block.id);
+          if (!tc) continue;
+          entries.push(toolEntryFor(tc));
+          consumed.add(block.id);
+        }
+      }
     }
   }
-  // Append tool execution entries after their corresponding assistant turn.
-  // Since tool_call_end events don't carry a promptIndex, we can't perfectly
-  // interleave them. We append them after all assistant messages, sorted by
-  // their order in the original JSONL (the caller preserves insertion order).
-  if (toolCalls && toolCalls.length > 0) {
+
+  // Fallback: any tool_call_end we couldn't match to a tool_use block in
+  // an assistant message. Emit them in their original JSONL order so the
+  // user still sees the audit trail, but only at the end of the timeline.
+  if (toolCalls) {
     for (const tc of toolCalls) {
-      entries.push({
-        id: nextId++,
-        kind: 'tool',
-        name: tc.name,
-        durationMs: tc.durationMs,
-        ok: tc.ok,
-        outputBytes: tc.outputBytes,
-        outputTokens: tc.outputTokens,
-        outputLines: tc.outputLines,
-      });
+      if (!consumed.has(tc.id)) fallback.push(toolEntryFor(tc));
     }
   }
+  entries.push(...fallback);
   return entries;
 }
 
