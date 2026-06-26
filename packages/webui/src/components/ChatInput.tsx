@@ -1,5 +1,5 @@
 import { expectDefined, toErrorMessage } from '@wrongstack/core';
-import { Bell, ListPlus, Pencil, RotateCw, Sparkles, Square } from 'lucide-react';
+import { Bell, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -26,6 +26,14 @@ export function ChatInput({
   onOpenBreakdown?: (() => void) | undefined;
 } = {}) {
   const { isLoading, setLoading, addMessage, clearMessages } = useChatStore();
+  const messages = useChatStore((s) => s.messages);
+  /** A "started" chat is one that already has at least one message — i.e.
+   *  the user has sent a prompt at some point and is now either waiting
+   *  for a response or has finished one. While the chat hasn't started yet
+   *  the input only shows `refining` + `submit`; once it has started we
+   *  reveal the send-mode trio (`btw` / `steer` / `queue`) alongside the
+   *  `stop` button. */
+  const chatStarted = messages.length > 0;
   const queue = useChatStore((s) => s.queue);
   const enqueue = useChatStore((s) => s.enqueue);
   const removeQueued = useChatStore((s) => s.removeQueued);
@@ -811,7 +819,7 @@ export function ChatInput({
         </div>
 
         <div className="flex gap-1">
-          {isLoading ? (
+          {isLoading && chatStarted ? (
             <>
               {/* Stop controls stay beside the new send-mode buttons so
                   the user can interrupt from the same row. Stop-and-edit
@@ -861,51 +869,78 @@ export function ChatInput({
             </Button>
           )}
 
+          {/* Submit button — the only send control visible before the
+              chat has started. Enter on the textarea routes here via the
+              form submit handler too. Hidden once the chat is started so
+              the run-mode trio + Stop can take over the same row. */}
+          {!chatStarted && (
+            <Button
+              type="submit"
+              size="icon"
+              variant="default"
+              disabled={!input.trim() || !client?.isConnected}
+              onClick={handleSubmit}
+              className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
+              title="Send (Enter)"
+              data-testid="send-submit"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
+
           {/* Send-mode buttons. btw is the new default send (Enter also
               routes here). steer interrupts the run and redirects; addQueue
-              always enqueues, regardless of run state. */}
-          <Button
-            type="button"
-            size="icon"
-            variant="default"
-            disabled={!input.trim() || !client?.isConnected}
-            onClick={handleBtw}
-            className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
-            title={
-              isLoading ? 'btw — send without interrupting the running agent' : 'btw — send (Enter)'
-            }
-            data-testid="send-btw"
-          >
-            <Bell className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            disabled={!input.trim() || !client?.isConnected}
-            onClick={handleSteer}
-            className="h-[44px] w-[44px] rounded-lg border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
-            title={
-              isLoading
-                ? 'steer — interrupt the running agent and redirect'
-                : 'steer — send (no interrupt target while idle)'
-            }
-            data-testid="send-steer"
-          >
-            <RotateCw className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            disabled={!input.trim() || !client?.isConnected}
-            onClick={handleAddQueue}
-            className="h-[44px] w-[44px] rounded-lg border-indigo-500/50 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/10"
-            title="add queue — hold until the current run completes"
-            data-testid="send-queue"
-          >
-            <ListPlus className="h-4 w-4" />
-          </Button>
+              always enqueues, regardless of run state. Only revealed once
+              the chat has started — before the first send there's nothing
+              to interrupt, steer, or queue against. */}
+          {chatStarted && (
+            <>
+              <Button
+                type="button"
+                size="icon"
+                variant="default"
+                disabled={!input.trim() || !client?.isConnected}
+                onClick={handleBtw}
+                className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
+                title={
+                  isLoading
+                    ? 'btw — send without interrupting the running agent'
+                    : 'btw — send (Enter)'
+                }
+                data-testid="send-btw"
+              >
+                <Bell className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                disabled={!input.trim() || !client?.isConnected}
+                onClick={handleSteer}
+                className="h-[44px] w-[44px] rounded-lg border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                title={
+                  isLoading
+                    ? 'steer — interrupt the running agent and redirect'
+                    : 'steer — send (no interrupt target while idle)'
+                }
+                data-testid="send-steer"
+              >
+                <RotateCw className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                disabled={!input.trim() || !client?.isConnected}
+                onClick={handleAddQueue}
+                className="h-[44px] w-[44px] rounded-lg border-indigo-500/50 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/10"
+                title="add queue — hold until the current run completes"
+                data-testid="send-queue"
+              >
+                <ListPlus className="h-4 w-4" />
+              </Button>
+            </>
+          )}
         </div>
       </form>
     </div>

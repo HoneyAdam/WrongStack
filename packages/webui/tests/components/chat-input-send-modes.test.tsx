@@ -83,15 +83,41 @@ function typeInto(textarea: HTMLTextAreaElement, value: string) {
 }
 
 describe('ChatInput — send-mode buttons', () => {
-  it('renders the three new send-mode buttons beside the input', () => {
+  it('renders only refining + submit before the chat has started', () => {
     render(<ChatInput />);
+
+    // No run-mode trio yet — there's nothing to interrupt, steer, or
+    // queue against before the user has even sent a first prompt.
+    expect(screen.queryByTestId('send-btw')).toBeNull();
+    expect(screen.queryByTestId('send-steer')).toBeNull();
+    expect(screen.queryByTestId('send-queue')).toBeNull();
+    expect(screen.queryByTestId('stop')).toBeNull();
+    expect(screen.queryByTestId('stop-and-edit')).toBeNull();
+
+    // Only the refining toggle and the plain submit button are visible.
+    expect(screen.getByTestId('send-submit')).toBeDefined();
+  });
+
+  it('reveals btw/steer/queue once the chat has at least one message', () => {
+    useChatStore.setState({
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
+    render(<ChatInput />);
+
     expect(screen.getByTestId('send-btw')).toBeDefined();
     expect(screen.getByTestId('send-steer')).toBeDefined();
     expect(screen.getByTestId('send-queue')).toBeDefined();
+    // Submit is no longer rendered once the run-mode trio takes over.
+    expect(screen.queryByTestId('send-submit')).toBeNull();
+    // Stop stays hidden — the agent isn't currently running.
+    expect(screen.queryByTestId('stop')).toBeNull();
   });
 
   it('keeps the Stop button visible while the agent is running', () => {
-    useChatStore.setState({ isLoading: true });
+    useChatStore.setState({
+      isLoading: true,
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     expect(screen.getByTestId('stop')).toBeDefined();
@@ -104,12 +130,18 @@ describe('ChatInput — send-mode buttons', () => {
   });
 
   it('hides the Stop button while idle (no run to interrupt)', () => {
+    useChatStore.setState({
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
     expect(screen.queryByTestId('stop')).toBeNull();
     expect(screen.queryByTestId('stop-and-edit')).toBeNull();
   });
 
   it('btw while idle sends the message directly', () => {
+    useChatStore.setState({
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Message the agent/) as HTMLTextAreaElement;
@@ -122,6 +154,9 @@ describe('ChatInput — send-mode buttons', () => {
   });
 
   it('steer while idle collapses to a plain send (no abort target)', () => {
+    useChatStore.setState({
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Message the agent/) as HTMLTextAreaElement;
@@ -133,6 +168,9 @@ describe('ChatInput — send-mode buttons', () => {
   });
 
   it('addQueue while idle always enqueues (does not send)', () => {
+    useChatStore.setState({
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Message the agent/) as HTMLTextAreaElement;
@@ -145,8 +183,23 @@ describe('ChatInput — send-mode buttons', () => {
     ]);
   });
 
+  it('submit (plain send) is the only send control visible before the first message', () => {
+    render(<ChatInput />);
+
+    const textarea = screen.getByPlaceholderText(/Message the agent/) as HTMLTextAreaElement;
+    typeInto(textarea, 'hello agent');
+    fireEvent.click(screen.getByTestId('send-submit'));
+
+    expect(wsMock.sendAbort).not.toHaveBeenCalled();
+    expect(wsMock.sendMessage).toHaveBeenCalledTimes(1);
+    expect(wsMock.sendMessage).toHaveBeenCalledWith('hello agent', undefined);
+  });
+
   it('btw while running enqueues with mode "btw" (no interrupt)', () => {
-    useChatStore.setState({ isLoading: true });
+    useChatStore.setState({
+      isLoading: true,
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Type a btw/) as HTMLTextAreaElement;
@@ -161,7 +214,10 @@ describe('ChatInput — send-mode buttons', () => {
   });
 
   it('steer while running aborts first, then sends', () => {
-    useChatStore.setState({ isLoading: true });
+    useChatStore.setState({
+      isLoading: true,
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Type a btw/) as HTMLTextAreaElement;
@@ -175,7 +231,10 @@ describe('ChatInput — send-mode buttons', () => {
   });
 
   it('addQueue while running enqueues with mode "queue"', () => {
-    useChatStore.setState({ isLoading: true });
+    useChatStore.setState({
+      isLoading: true,
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Type a btw/) as HTMLTextAreaElement;
@@ -190,7 +249,10 @@ describe('ChatInput — send-mode buttons', () => {
   });
 
   it('Stop button still aborts the in-flight run', () => {
-    useChatStore.setState({ isLoading: true });
+    useChatStore.setState({
+      isLoading: true,
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     fireEvent.click(screen.getByTestId('stop'));
@@ -198,7 +260,10 @@ describe('ChatInput — send-mode buttons', () => {
     expect(wsMock.sendAbort).toHaveBeenCalledTimes(1);
   });
 
-  it('Enter (form submit) defaults to btw mode', () => {
+  it('Enter (form submit) defaults to btw mode once the chat has started', () => {
+    useChatStore.setState({
+      messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: 1 }],
+    });
     render(<ChatInput />);
 
     const textarea = screen.getByPlaceholderText(/Message the agent/) as HTMLTextAreaElement;
@@ -208,5 +273,17 @@ describe('ChatInput — send-mode buttons', () => {
     expect(wsMock.sendAbort).not.toHaveBeenCalled();
     expect(wsMock.sendMessage).toHaveBeenCalledTimes(1);
     expect(wsMock.sendMessage).toHaveBeenCalledWith('enter key test', undefined);
+  });
+
+  it('Enter (form submit) sends the first message via the submit button before the chat has started', () => {
+    render(<ChatInput />);
+
+    const textarea = screen.getByPlaceholderText(/Message the agent/) as HTMLTextAreaElement;
+    typeInto(textarea, 'first message');
+    fireEvent.submit(textarea.closest('form')!);
+
+    expect(wsMock.sendAbort).not.toHaveBeenCalled();
+    expect(wsMock.sendMessage).toHaveBeenCalledTimes(1);
+    expect(wsMock.sendMessage).toHaveBeenCalledWith('first message', undefined);
   });
 });
