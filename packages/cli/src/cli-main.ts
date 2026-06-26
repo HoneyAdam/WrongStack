@@ -2452,13 +2452,32 @@ export async function main(argv: string[]): Promise<number> {
       // disable with WRONGSTACK_SDD_WORKTREES=0 (then tasks share the tree).
       let worktrees: import('@wrongstack/core').WorktreeManager | undefined;
       if (process.env['WRONGSTACK_SDD_WORKTREES'] !== '0') {
-        const { spawnSync } = await import('node:child_process');
-        const inGit =
-          spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
-            cwd: projectRoot,
-            encoding: 'utf8',
-            windowsHide: true,
-          }).stdout?.trim() === 'true';
+        // Async git detection — replaces a synchronous spawnSync that blocked
+        // the REPL/event loop during SDD worktree setup. `git` may not be
+        // installed (CI, containers) — treat spawn failure as "not a repo"
+        // and skip worktree setup rather than aborting the run.
+        const inGit = await new Promise<boolean>((resolve) => {
+          let resolved = false;
+          const settle = (v: boolean): void => {
+            if (resolved) return;
+            resolved = true;
+            resolve(v);
+          };
+          try {
+            const child = spawn('git', ['rev-parse', '--is-inside-work-tree'], {
+              cwd: projectRoot,
+              env: process.env,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              windowsHide: true,
+            });
+            const chunks: string[] = [];
+            child.stdout?.on('data', (c: Buffer) => chunks.push(c.toString()));
+            child.on('error', () => settle(false));
+            child.on('close', (code) => settle(code === 0 && chunks.join('').trim() === 'true'));
+          } catch {
+            settle(false);
+          }
+        });
         if (inGit) worktrees = new core.WorktreeManager({ projectRoot, events });
       }
 
