@@ -672,7 +672,13 @@ export class PhaseOrchestrator {
         return dep?.status === 'completed' || dep?.status === 'skipped' || dep?.status === 'failed';
       });
 
-      if (depsDone || phase.parallelizable) {
+      // A phase is ready ONLY when its dependencies are resolved. `parallelizable`
+      // governs whether ready phases may run CONCURRENTLY (the `maxConcurrentPhases`
+      // batch in start()/tick() already enforces that) — it must NOT let a phase
+      // start before its dependencies finish. (Previously this read
+      // `depsDone || phase.parallelizable`, which let a dependent-but-parallelizable
+      // phase, e.g. a Testing phase depending on Implementation, jump the gun.)
+      if (depsDone) {
         ready.push(phase);
       }
     }

@@ -24,13 +24,13 @@ export interface AutoPhaseRunnerOptions extends AutoPhaseOptions {
   repairPhase?: PhaseExecutionContext['repairPhase'] | undefined;
   /** Optional resolver for worktree merge conflicts. */
   resolveConflict?: PhaseExecutionContext['resolveConflict'] | undefined;
-  /** Opsiyonel Brain arbiter */
+  /** Optional Brain arbiter. */
   brain?: PhaseExecutionContext['brain'] | undefined;
   /** Called when a phase completes. */
   onPhaseComplete?: ((phase: PhaseNode) => void) | undefined;
   /** Called when a phase fails. */
   onPhaseFail?: (phase: PhaseNode, error: Error) => void;
-  /** Her tick'te */
+  /** Called on every orchestrator tick. */
   onTick?: (ctx: { activePhases: PhaseNode[]; readyPhases: PhaseNode[] }) => void;
   /** Called when progress changes. */
   onProgress?: ((progress: PhaseProgress) => void) | undefined;

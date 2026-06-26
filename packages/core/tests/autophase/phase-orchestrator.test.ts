@@ -403,6 +403,59 @@ describe('PhaseOrchestrator + worktrees', () => {
     expect(wt.maxLiveMerges).toBe(1); // never two merges touching base at once
   });
 
+  it('does not start a parallelizable phase before its dependency completes (regression)', async () => {
+    // Regression for the `depsDone || phase.parallelizable` readiness bug: a
+    // parallelizable phase that DEPENDS on an earlier phase (e.g. Testing after
+    // Implementation) must still wait for that dependency — `parallelizable`
+    // only governs concurrency, not dependency bypass. The builder chains phases
+    // sequentially, so B.dependsOn = [A].
+    const graph = await new PhaseGraphBuilder({
+      title: 'Dep',
+      phases: [
+        {
+          name: 'A',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: false,
+          taskTemplates: [
+            { title: 'a', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 },
+          ],
+        },
+        {
+          name: 'B',
+          description: '',
+          priority: 'high',
+          estimateHours: 1,
+          parallelizable: true, // would have jumped its dependency under the old code
+          taskTemplates: [
+            { title: 'b', description: '', type: 'chore', priority: 'high', estimateHours: 0.5 },
+          ],
+        },
+      ],
+    }).build();
+
+    const events: string[] = [];
+    let aDone = false;
+    const orchestrator = new PhaseOrchestrator({
+      graph,
+      ctx: {
+        executeTask: async (task: TaskNode) => {
+          events.push(`start:${task.title}`);
+          if (task.title === 'b') expect(aDone).toBe(true); // B only after A finished
+          await new Promise((r) => setTimeout(r, 5));
+          if (task.title === 'a') aDone = true;
+          events.push(`done:${task.title}`);
+        },
+      },
+      autonomous: false,
+      maxConcurrentPhases: 2, // concurrency allowed; the dependency must still serialize A→B
+    });
+    await orchestrator.start();
+
+    expect(events).toEqual(['start:a', 'done:a', 'start:b', 'done:b']);
+  });
+
   it('is backward compatible with a 1-arg executeTask and no worktrees', async () => {
     const graph = await buildGraph();
     let count = 0;
