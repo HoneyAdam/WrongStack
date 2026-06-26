@@ -33,12 +33,21 @@ export async function capabilitiesFor(
   //  2. model.capabilities.maxContext      — registry getModel()
   //  3. raw model limit.context            — direct provider.models fallback
   //  4. base.maxContext                    — family default
+  // maxOutput uses the same chain against `limit.output` (the models.dev
+  // field that names the model's per-response output ceiling). It's the
+  // driver for subagent `Request.maxTokens` (Chimera etc.) — keeping it
+  // out of the family table means a fresh models.dev sync automatically
+  // picks up new model ceilings without a code change.
   const rawModel = provider?.models.find((m) => m.id === modelId);
   const catalogMaxContext =
     model?.capabilities.maxContext ||
     rawModel?.limit?.context ||
     rawModel?.limit?.output ||
     base.maxContext;
+  const catalogMaxOutput =
+    model?.capabilities.maxOutput ||
+    rawModel?.limit?.output ||
+    base.maxOutput;
 
   // Per-field priority: customCaps (if set) → model facts AND-ed with base → base.
   // AND-ing with base is conservative: a model can't have a capability the
@@ -57,6 +66,7 @@ export async function capabilitiesFor(
     reasoning: customCaps?.reasoning ?? modelReasoning,
     // Scalar fields: custom override wins, then catalog, then base
     maxContext: customCaps?.maxContext ?? catalogMaxContext,
+    maxOutput: customCaps?.maxOutput ?? catalogMaxOutput,
     streaming: customCaps?.streaming ?? base.streaming,
     promptCache: customCaps?.promptCache ?? base.promptCache,
     systemPrompt: customCaps?.systemPrompt ?? base.systemPrompt,

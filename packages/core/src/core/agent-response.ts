@@ -50,7 +50,12 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
       system: a.ctx.systemPrompt,
       messages: a.ctx.messages,
       tools: a.tools.list(),
-      maxTokens: 8192,
+      // Default to the provider's model-native output ceiling so subagents
+      // (Chimera, etc.) can run long reports up to the model's actual limit.
+      // 8192 is a conservative fallback for families that don't declare
+      // `maxOutput` — kept here so an unmigrated family can't accidentally
+      // ship without a cap.
+      maxTokens: a.ctx.provider.capabilities.maxOutput ?? 8192,
     };
     return a.pipelines.request.run(baseReq);
   }

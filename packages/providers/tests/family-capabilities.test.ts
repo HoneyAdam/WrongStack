@@ -53,6 +53,28 @@ describe('family-capabilities', () => {
       expect(u.maxContext).toBe(0);
       expect(u.cacheControl).toBe('none');
     });
+
+    it('does not hard-code maxOutput (driven by models.dev limit.output)', () => {
+      // maxOutput is intentionally absent from every family entry. The
+      // value comes from `ModelsDevModel.limit.output` at provider-init
+      // time via `capabilitiesFor()`. This keeps family-capabilities.ts
+      // from drifting out of sync with new model releases — sync models,
+      // not code. When the catalog is unavailable, agent-response's
+      // `?? 8192` fallback kicks in.
+      const allFamilies = [
+        'anthropic',
+        'anthropic-oauth',
+        'openai',
+        'openai-codex',
+        'openai-compatible',
+        'github-copilot',
+        'google',
+        'unsupported',
+      ] as const;
+      for (const family of allFamilies) {
+        expect(CAPABILITIES_BY_FAMILY[family].maxOutput).toBeUndefined();
+      }
+    });
   });
 
   describe('capabilitiesForFamily', () => {

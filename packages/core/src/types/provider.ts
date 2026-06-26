@@ -110,6 +110,15 @@ export interface Capabilities {
   jsonMode: boolean;
   reasoning: boolean;
   maxContext: number;
+  /**
+   * Maximum output tokens the model can produce in a single response.
+   * Used as the default for `Request.maxTokens` when the caller doesn't
+   * supply an explicit value — letting subagents run up to the model's
+   * native ceiling instead of a fixed 8192 cap. Omit (undefined) to fall
+   * back to a conservative default; populate per family in
+   * `family-capabilities.ts` once you know the spec.
+   */
+  maxOutput?: number | undefined;
   cacheControl: 'native' | 'auto' | 'none';
 
   // ── Extended parameter support (optional; family defaults in CAPABILITIES_BY_FAMILY) ──

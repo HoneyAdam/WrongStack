@@ -1,6 +1,13 @@
 import type { ResolvedProvider } from '@wrongstack/core';
-import { type Config, type Logger, type ModelsRegistry, ProviderRegistry } from '@wrongstack/core';
-import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
+import {
+  type Capabilities,
+  type Config,
+  type Logger,
+  mergeCustomModelDefs,
+  type ModelsRegistry,
+  ProviderRegistry,
+} from '@wrongstack/core';
+import { buildProviderFactoriesFromRegistry, capabilitiesFor, makeProviderFromConfig } from '@wrongstack/providers';
 import {
   fallbackCodexProviderModels,
   filterCurrentCodexModelIds,
@@ -126,6 +133,38 @@ export async function setupProvider(params: {
     }
   } catch (err) {
     throw new Error(`Failed to create provider: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Resolve per-model capabilities (maxOutput, maxContext, etc.) from the
+  // models.dev catalog and overlay them on the provider's family baseline.
+  // Without this step `provider.capabilities.maxOutput` stays at the
+  // family default — and Chimera / other subagents would default to a
+  // conservative 8K instead of the model's actual output ceiling.
+  if (config.features.modelsRegistry) {
+    try {
+      const mergedModels = mergeCustomModelDefs(
+        providerConfig.customModels,
+        config.models,
+      );
+      const resolvedCaps = await capabilitiesFor(
+        modelsRegistry,
+        config.provider,
+        config.model,
+        mergedModels,
+      );
+      // Provider.capabilities is declared `readonly`; replace it via the
+      // object reference. The provider already holds the family baseline
+      // — we only need to refresh the catalog-resolved fields on top.
+      (provider as { capabilities: Capabilities }).capabilities = resolvedCaps;
+    } catch (err) {
+      // Catalog lookup failure should not block boot. The family default
+      // already provides a usable maxOutput fallback.
+      logger.debug(
+        `Provider capability resolution skipped for ${config.provider}/${config.model}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   return { resolvedProvider, provider, providerRegistry };

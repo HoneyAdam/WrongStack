@@ -16,14 +16,14 @@ const SAMPLE: ModelsDevPayload = {
         name: 'Claude Sonnet',
         tool_call: true,
         modalities: { input: ['text', 'image'], output: ['text'] },
-        limit: { context: 200_000 },
+        limit: { context: 200_000, output: 64_000 },
       },
       'claude-text-only': {
         id: 'claude-text-only',
         name: 'Claude Text Only',
         tool_call: false,
         modalities: { input: ['text'], output: ['text'] },
-        limit: { context: 100_000 },
+        limit: { context: 100_000, output: 8_192 },
       },
     },
   },
@@ -38,7 +38,7 @@ const SAMPLE: ModelsDevPayload = {
         name: 'Gemini',
         tool_call: true,
         modalities: { input: ['text', 'image'], output: ['text'] },
-        limit: { context: 1_000_000 },
+        limit: { context: 1_000_000, output: 8_192 },
       },
     },
   },
@@ -149,5 +149,34 @@ describe('capabilitiesFor', () => {
     // Rest unchanged
     expect(c.tools).toBe(true);
     expect(c.maxContext).toBe(200_000);
+  });
+
+  // ---- maxOutput (drives subagent Request.maxTokens, e.g. Chimera) ----
+
+  it('reads maxOutput from models.dev limit.output', async () => {
+    // Anthropic family has no hard-coded maxOutput in family-capabilities
+    // anymore — it must come from the catalog. If the model has
+    // `limit.output`, capabilitiesFor propagates it; otherwise it's
+    // undefined and the caller (agent-response) falls back to 8192.
+    const c = await capabilitiesFor(reg(), 'anthropic', 'claude-sonnet-4-6');
+    expect(c.maxOutput).toBe(64_000);
+  });
+
+  it('returns undefined maxOutput when neither catalog nor custom supplies it', async () => {
+    // An unknown model on the anthropic family has no `limit.output`
+    // entry and no family default — must surface as undefined so
+    // agent-response applies its 8192 fallback rather than fabricating
+    // a value.
+    const c = await capabilitiesFor(reg(), 'anthropic', 'mystery-model');
+    expect(c.maxOutput).toBeUndefined();
+  });
+
+  it('custom model can override maxOutput independently of the catalog', async () => {
+    const custom: Record<string, CustomModelDefinition> = {
+      'claude-sonnet-4-6': { capabilities: { maxOutput: 32_000 } },
+    };
+    const c = await capabilitiesFor(reg(), 'anthropic', 'claude-sonnet-4-6', custom);
+    // Custom wins over the catalog's 64_000
+    expect(c.maxOutput).toBe(32_000);
   });
 });

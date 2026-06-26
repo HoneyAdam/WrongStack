@@ -44,8 +44,16 @@ afterEach(async () => {
 
 describe('resolveChimeraConfig', () => {
   it('applies defaults and honors overrides', () => {
-    expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, maxTokens: 8192 });
-    expect(resolveChimeraConfig({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, maxTokens: 99 }, 'p', 'm')).toEqual({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, maxTokens: 99 });
+    expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15 });
+    expect(resolveChimeraConfig({ enabled: false, provider: 'x', model: 'y', maxFiles: 3 }, 'p', 'm')).toEqual({ enabled: false, provider: 'x', model: 'y', maxFiles: 3 });
+  });
+
+  it('silently ignores the deprecated maxTokens override', () => {
+    // Old configs may still pass `maxTokens: 4096`. The field is read as
+    // `unknown` and dropped — output cap is now driven by the provider's
+    // capabilities.maxOutput, not by chimera config.
+    const cfg = resolveChimeraConfig({ maxTokens: 4096 }, 'p', 'm');
+    expect(cfg).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15 });
   });
 });
 

@@ -13,7 +13,14 @@ interface ChimeraConfig {
   provider?: string | undefined;
   model?: string | undefined;
   maxFiles?: number | undefined;
-  maxTokens?: number | undefined;
+  /**
+   * @deprecated Removed. The subagent's `Request.maxTokens` now defaults to
+   * the provider's `capabilities.maxOutput`, so Chimera reports can run up
+   * to the model's native ceiling (e.g. 64K for Anthropic Sonnet/Opus,
+   * 16K for GPT-4.x/5). Kept on the config interface as an `unknown` sink
+   * so old config files don't crash — but it's no longer read.
+   */
+  maxTokens?: unknown;
 }
 
 export interface ResolvedChimeraConfig {
@@ -21,11 +28,9 @@ export interface ResolvedChimeraConfig {
   provider: string;
   model: string;
   maxFiles: number;
-  maxTokens: number;
 }
 
 const DEFAULT_MAX_FILES = 15;
-const DEFAULT_MAX_TOKENS = 8192;
 
 export function resolveChimeraConfig(
   cfg: ChimeraConfig,
@@ -37,7 +42,6 @@ export function resolveChimeraConfig(
     provider: cfg.provider ?? sessionProvider,
     model: cfg.model ?? sessionModel,
     maxFiles: cfg.maxFiles ?? DEFAULT_MAX_FILES,
-    maxTokens: cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
 }
 
@@ -180,7 +184,9 @@ function buildChimeraCommand(getConfig: () => ResolvedChimeraConfig): SlashComma
       '  extensions.wstack-chimera.provider   provider id',
       '  extensions.wstack-chimera.model      model id',
       '  extensions.wstack-chimera.maxFiles   max files (default 15)',
-      '  extensions.wstack-chimera.maxTokens  output tokens (default 8192)',
+      '',
+      'Output cap: the subagent runs up to the provider\'s model-native',
+      'output ceiling (Anthropic 64K, OpenAI 16K, Gemini 8K). No manual cap.',
     ].join('\n'),
     async run() {
       const cfg = getConfig();
@@ -191,7 +197,7 @@ function buildChimeraCommand(getConfig: () => ResolvedChimeraConfig): SlashComma
           `  Provider:  ${cfg.provider}`,
           `  Model:     ${cfg.model}`,
           `  Max files: ${cfg.maxFiles}`,
-          `  Max tokens: ${cfg.maxTokens}`,
+          `  Max output: model-native (no cap)`,
           '',
           cfg.enabled
             ? 'Auto-review runs after each session. /review triggers manually.'
