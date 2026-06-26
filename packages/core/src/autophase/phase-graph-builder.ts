@@ -85,14 +85,15 @@ export class PhaseGraphBuilder {
       phases.set(phaseId, phase);
     }
 
-    // Second pass: fix nextPhases links.
-    // The next phase ID was not known while the phase was being created.
+    // Second pass: fill in the forward `nextPhases` links — the next phase id was
+    // not yet known while each phase was created. `dependsOn` (the backward link)
+    // is already correct from the first pass (the previous id always exists), so
+    // it is intentionally NOT recomputed here.
     const phaseArray = Array.from(phases.values());
     for (let i = 0; i < phaseArray.length; i++) {
       const phase = phaseArray[i];
       if (!phase) continue;
       phase.nextPhases = i < phaseArray.length - 1 ? [phaseArray[i + 1]?.id ?? ''] : [];
-      phase.dependsOn = i > 0 ? [phaseArray[i - 1]?.id ?? ''] : [];
     }
 
     const graph: PhaseGraph = {

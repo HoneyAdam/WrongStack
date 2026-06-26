@@ -76,8 +76,13 @@ function gitText(args: string[], cwd: string): Promise<{ code: number; out: stri
       return;
     }
     const chunks: string[] = [];
+    let total = 0; // running length — avoids an O(n²) chunks.join() per data event
     const emit = (c: Buffer) => {
-      if (chunks.join('').length < MAX_CMD_OUTPUT) chunks.push(c.toString());
+      if (total < MAX_CMD_OUTPUT) {
+        const s = c.toString();
+        chunks.push(s);
+        total += s.length;
+      }
     };
     child.stdout?.on('data', emit);
     child.stderr?.on('data', emit);
