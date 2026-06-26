@@ -2,7 +2,7 @@ import { expectDefined } from '@wrongstack/core';
 import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
-import { Fragment } from 'react';
+import { Fragment, isValidElement } from 'react';
 import type { ChipMeta, StatuslineItem } from './statusline-picker.js';
 import type { StatuslineMode } from './settings-picker.js';
 import { useEffect, useMemo, useState } from 'react';
@@ -116,6 +116,86 @@ function joinChips(chips: React.ReactNode[]): React.ReactNode[] {
     out.push(<Fragment key={`chip-${i}`}>{chip}</Fragment>);
   });
   return out;
+}
+
+/**
+ * Head-truncate a chip's free-text payload (branch, path, project name) with a
+ * trailing ellipsis so one long value can't blow out the line width. Mirrors
+ * the inline pattern the goal/mailbox chips already use.
+ */
+export function truncateChip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * Recover the visible plain text of a rendered chip by walking its React
+ * element tree (string/number leaves only). Used purely to estimate display
+ * width for overflow budgeting — deriving width from the SAME node we render
+ * means there's no parallel text to drift out of sync.
+ */
+export function nodeText(node: React.ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join('');
+  if (isValidElement(node)) {
+    return nodeText((node.props as { children?: React.ReactNode }).children);
+  }
+  return '';
+}
+
+/**
+ * Approximate column cost of the ` │ ` separator block between two chips: the
+ * glyph plus the `gap={2}` on each side. Conservative (over-estimating drops a
+ * touch earlier, which is the safe direction for avoiding a wrapped line).
+ */
+const SB_SEP_COST = 5;
+
+/**
+ * Decide how many leading chips fit within `budget` columns. Trailing (lowest
+ * priority) chips are dropped first, which keeps the high-value leading chips
+ * — and the columns the mouse hit-test spans assume — stable. The first chip is
+ * always kept even if it alone exceeds the budget (better one clipped chip than
+ * an empty line). Pure + exported for testing.
+ */
+export function planChipFit(widths: number[], budget: number, sepCost = SB_SEP_COST): number {
+  let used = 0;
+  let keep = 0;
+  for (const w of widths) {
+    const cost = w + (keep > 0 ? sepCost : 0);
+    if (keep > 0 && used + cost > budget) break;
+    used += cost;
+    keep += 1;
+  }
+  return keep;
+}
+
+/**
+ * Render a status-bar chip line: separator-join the chips that fit within
+ * `budget`, and append a dim `+N` marker when lower-priority chips were dropped
+ * so the line never wraps (a wrapped status bar shifts Ink's layout and strands
+ * the input row in scrollback).
+ */
+function renderChipLine(chips: React.ReactElement[], budget: number): React.ReactNode[] {
+  const keep = planChipFit(
+    chips.map((c) => nodeText(c).length),
+    budget,
+  );
+  const nodes = joinChips(chips.slice(0, keep));
+  const dropped = chips.length - keep;
+  if (dropped > 0) {
+    nodes.push(
+      <Text key="ovf-sep" dimColor>
+        │
+      </Text>,
+    );
+    nodes.push(
+      <Text key="ovf" dimColor>
+        +{dropped}
+      </Text>,
+    );
+  }
+  return nodes;
 }
 
 /** Minimum terminal width before we switch to ultra-compact mode. Exported so
@@ -791,7 +871,7 @@ export function StatusBar({
           pushes the input area into the static history scrollback. */}
       {hasSecondLine ? (
         <Box flexDirection="row" gap={2}>
-          {joinChips(
+          {renderChipLine(
             [
               yolo ? (
                 <Text color="red" bold>
@@ -810,9 +890,9 @@ export function StatusBar({
               elapsedMs !== undefined && !hiddenSet.has('elapsed') ? (
                 <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
               ) : null,
-              projectName ? <Text color="blue">📁 {projectName}</Text> : null,
+              projectName ? <Text color="blue">📁 {truncateChip(projectName, 24)}</Text> : null,
               workingDir && !hiddenSet.has('working_dir') ? (
-                <Text color="blue">📂 {workingDir}</Text>
+                <Text color="blue">📂 {truncateChip(workingDir, 28)}</Text>
               ) : null,
               goalSummary ? (
                 <Text
@@ -841,7 +921,7 @@ export function StatusBar({
               ) : null,
               git && !hiddenSet.has('git') ? (
                 <Text>
-                  <Text color="magenta">⎇ {git.branch}</Text>
+                  <Text color="magenta">⎇ {truncateChip(git.branch, 24)}</Text>
                   {git.deleted > 0 ? <Text color="red"> -{git.deleted}</Text> : null}
                   {git.untracked > 0 ? <Text dimColor> ?{git.untracked}</Text> : null}
                 </Text>
@@ -856,6 +936,7 @@ export function StatusBar({
                 <Text color="yellow" bold>💾 save</Text>
               ) : null,
             ].filter((c): c is React.ReactElement => c !== null),
+            termWidth - 6,
           )}
         </Box>
       ) : (
@@ -867,7 +948,7 @@ export function StatusBar({
       {/* Line 3 always rendered — same stability guarantee as line 2. */}
       {hasThirdLine ? (
         <Box flexDirection="row" gap={2}>
-          {joinChips(
+          {renderChipLine(
             [
               todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && !hiddenSet.has('todos') ? (
                 <Text>
@@ -955,6 +1036,7 @@ export function StatusBar({
                 </>
               ) : null,
             ].filter((c): c is React.ReactElement => c !== null),
+            termWidth - 6,
           )}
         </Box>
       ) : (
