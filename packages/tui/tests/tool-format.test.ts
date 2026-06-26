@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MULTI_DIFF_SUMMARY_THRESHOLD,
   extractDiffPreview,
+  extractMultiFileDiffs,
+  extractReplaceDiffs,
   fmtDuration,
+  formatMultiDiffSummary,
   formatToolArgs,
   formatToolOutput,
   formatToolVisualOutput,
+  summarizeMultiFileDiffs,
 } from '../src/components/history.js';
 
 describe('formatToolArgs', () => {
@@ -500,6 +505,451 @@ describe('extractDiffPreview', () => {
     // After one ctx + one del + one add, both counters should be at 12 / 22.
     expect(ctxB.oldLine).toBe(12);
     expect(ctxB.newLine).toBe(22);
+  });
+});
+
+describe('extractReplaceDiffs', () => {
+  const sampleDiffA = ['@@ -1,2 +1,2 @@', '-old a', '+new a'].join('\n');
+  const sampleDiffB = ['@@ -1,2 +1,2 @@', '-old b', '+new b'].join('\n');
+
+  it('returns one DiffFilePreview per file when results carry per-path diffs', () => {
+    const out = extractReplaceDiffs(
+      'replace',
+      JSON.stringify({
+        results: [
+          { path: 'src/a.ts', replacements: 1, diff: sampleDiffA },
+          { path: 'src/b.ts', replacements: 1, diff: sampleDiffB },
+        ],
+      }),
+    );
+    expect(out).toBeDefined();
+    expect(out!).toHaveLength(2);
+    expect(out![0]!.path).toBe('src/a.ts');
+    expect(out![1]!.path).toBe('src/b.ts');
+    expect(out![0]!.preview.added).toBe(1);
+    expect(out![1]!.preview.removed).toBe(1);
+  });
+
+  it('caps each per-file preview independently and reports hidden stats', () => {
+    const longDiff = ['@@ -1,30 +1,30 @@', ...Array.from({ length: 30 }, (_, i) => `+line ${i}`)].join(
+      '\n',
+    );
+    const out = extractReplaceDiffs(
+      'replace',
+      JSON.stringify({
+        results: [{ path: 'src/big.ts', replacements: 1, diff: longDiff }],
+      }),
+    );
+    expect(out).toBeDefined();
+    expect(out![0]!.preview.added).toBe(30);
+    expect(out![0]!.preview.hiddenAdded).toBeGreaterThan(0);
+    expect(out![0]!.preview.rows.length).toBeLessThan(31);
+  });
+
+  it('skips results without a diff field (e.g. unchanged files)', () => {
+    const out = extractReplaceDiffs(
+      'replace',
+      JSON.stringify({
+        results: [
+          { path: 'src/a.ts', replacements: 1, diff: sampleDiffA },
+          { path: 'src/unchanged.ts', replacements: 0 },
+          { path: 'src/b.ts', replacements: 1, diff: sampleDiffB },
+        ],
+      }),
+    );
+    expect(out).toBeDefined();
+    expect(out!.map((item) => item.path)).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('falls back to the input path when a result omits its own path', () => {
+    const out = extractReplaceDiffs(
+      'replace',
+      JSON.stringify({
+        results: [{ replacements: 1, diff: sampleDiffA }],
+      }),
+      { path: 'src/fallback.ts' },
+    );
+    expect(out).toBeDefined();
+    expect(out![0]!.path).toBe('src/fallback.ts');
+  });
+
+  it('returns undefined for non-replace tools', () => {
+    expect(extractReplaceDiffs('edit', JSON.stringify({ diff: sampleDiffA }))).toBeUndefined();
+    expect(extractReplaceDiffs('patch', sampleDiffA)).toBeUndefined();
+  });
+
+  it('returns undefined when output is missing, empty, or not parseable', () => {
+    expect(extractReplaceDiffs('replace', undefined)).toBeUndefined();
+    expect(extractReplaceDiffs('replace', '')).toBeUndefined();
+    expect(extractReplaceDiffs('replace', 'not json')).toBeUndefined();
+    expect(extractReplaceDiffs('replace', JSON.stringify({ results: [] }))).toBeUndefined();
+  });
+
+  it('falls back to "unknown file" when neither result path nor input path is available', () => {
+    const out = extractReplaceDiffs(
+      'replace',
+      JSON.stringify({ results: [{ replacements: 1, diff: sampleDiffA }] }),
+    );
+    expect(out).toBeDefined();
+    expect(out![0]!.path).toBe('unknown file');
+  });
+});
+
+describe('extractMultiFileDiffs', () => {
+  const gitStyleMultiDiff = [
+    'diff --git a/src/a.ts b/src/a.ts',
+    'index 111..222 100644',
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -1,2 +1,2 @@',
+    '-old a',
+    '+new a',
+    'diff --git a/src/b.ts b/src/b.ts',
+    'index 333..444 100644',
+    '--- a/src/b.ts',
+    '+++ b/src/b.ts',
+    '@@ -1,2 +1,2 @@',
+    '-old b',
+    '+new b',
+  ].join('\n');
+
+  describe('diff tool (git diff output)', () => {
+    it('splits a multi-file git-style diff into one block per file', () => {
+      const out = extractMultiFileDiffs(
+        'diff',
+        JSON.stringify({ diff: gitStyleMultiDiff, files: [], truncated: false, mode: 'unified' }),
+      );
+      expect(out).toBeDefined();
+      expect(out!.map((item) => item.path)).toEqual(['src/a.ts', 'src/b.ts']);
+      expect(out!.every((item) => item.preview.rows.some((r) => r.kind === 'add'))).toBe(true);
+      expect(out!.every((item) => item.preview.rows.some((r) => r.kind === 'del'))).toBe(true);
+    });
+
+    it('pairs the explicit `files` array with diff blocks left-to-right', () => {
+      const out = extractMultiFileDiffs(
+        'diff',
+        JSON.stringify({
+          diff: gitStyleMultiDiff,
+          files: ['custom/a.ts', 'custom/b.ts'],
+          truncated: false,
+          mode: 'unified',
+        }),
+      );
+      expect(out).toBeDefined();
+      expect(out!.map((item) => item.path)).toEqual(['custom/a.ts', 'custom/b.ts']);
+    });
+
+    it('falls back to parsed header paths when `files` is shorter than the diff', () => {
+      // Single-file diff but the JSON says `files: []` — should still
+      // resolve a path from the `diff --git` header.
+      const out = extractMultiFileDiffs(
+        'diff',
+        JSON.stringify({
+          diff: gitStyleMultiDiff.split('\ndiff --git a/src/b.ts')[0]!,
+          files: [],
+          truncated: false,
+          mode: 'unified',
+        }),
+      );
+      expect(out).toBeDefined();
+      expect(out![0]!.path).toBe('src/a.ts');
+    });
+
+    it('returns undefined for diff output without a diff body', () => {
+      expect(extractMultiFileDiffs('diff', JSON.stringify({ files: [], diff: '' }))).toBeUndefined();
+    });
+
+    it('handles paths with spaces via the lastIndexOf b/ fallback', () => {
+      const weirdDiff = [
+        'diff --git a/path with spaces/x.ts b/path with spaces/x.ts',
+        '--- a/path with spaces/x.ts',
+        '+++ b/path with spaces/x.ts',
+        '@@ -1,1 +1,1 @@',
+        '-old',
+        '+new',
+      ].join('\n');
+      const out = extractMultiFileDiffs('diff', JSON.stringify({ diff: weirdDiff, files: [] }));
+      expect(out).toBeDefined();
+      expect(out![0]!.path).toBe('path with spaces/x.ts');
+    });
+  });
+
+  describe('patch tool', () => {
+    it('splits a multi-file patch from JSON { diff, files }', () => {
+      const out = extractMultiFileDiffs(
+        'patch',
+        JSON.stringify({ applied: 2, rejected: 0, files: ['src/a.ts', 'src/b.ts'], diff: gitStyleMultiDiff }),
+      );
+      expect(out).toBeDefined();
+      expect(out!.map((item) => item.path)).toEqual(['src/a.ts', 'src/b.ts']);
+    });
+
+    it('handles a single-file patch with `--- /+++` but no `diff --git`', () => {
+      const singleFile = ['--- a/src/only.ts', '+++ b/src/only.ts', '@@ -1,1 +1,1 @@', '-old', '+new'].join(
+        '\n',
+      );
+      const out = extractMultiFileDiffs(
+        'patch',
+        JSON.stringify({ applied: 1, files: ['src/only.ts'], diff: singleFile }),
+      );
+      expect(out).toBeDefined();
+      expect(out).toHaveLength(1);
+      expect(out![0]!.path).toBe('src/only.ts');
+    });
+
+    it('parses a raw unified diff (no JSON wrapper)', () => {
+      const out = extractMultiFileDiffs('patch', gitStyleMultiDiff);
+      expect(out).toBeDefined();
+      expect(out!.map((item) => item.path)).toEqual(['src/a.ts', 'src/b.ts']);
+    });
+
+    it('returns undefined for a patch result with no diff and no @@ lines', () => {
+      expect(
+        extractMultiFileDiffs('patch', JSON.stringify({ applied: 0, files: [], message: 'no-op' })),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('tool gating', () => {
+    it('returns undefined for tools that are not multi-file diff producers', () => {
+      expect(extractMultiFileDiffs('edit', JSON.stringify({ diff: 'something' }))).toBeUndefined();
+      expect(extractMultiFileDiffs('write', JSON.stringify({ diff: 'something' }))).toBeUndefined();
+      expect(extractMultiFileDiffs('bash', 'some stdout')).toBeUndefined();
+      expect(extractMultiFileDiffs('grep', 'matches')).toBeUndefined();
+    });
+
+    it('returns undefined for missing or empty output', () => {
+      expect(extractMultiFileDiffs('diff', undefined)).toBeUndefined();
+      expect(extractMultiFileDiffs('diff', '')).toBeUndefined();
+      expect(extractMultiFileDiffs('patch', undefined)).toBeUndefined();
+    });
+
+    it('returns undefined for a diff output that is JSON but has no diff body', () => {
+      expect(
+        extractMultiFileDiffs('diff', JSON.stringify({ files: [], mode: 'unified', truncated: false })),
+      ).toBeUndefined();
+    });
+  });
+
+  describe('caps and per-file isolation', () => {
+    it('caps each per-file preview independently under a multi-file diff', () => {
+      const longA = [
+        'diff --git a/big.ts b/big.ts',
+        '--- a/big.ts',
+        '+++ b/big.ts',
+        '@@ -1,30 +1,30 @@',
+        ...Array.from({ length: 30 }, (_, i) => `+line ${i}`),
+      ].join('\n');
+      const longB = [
+        'diff --git a/bigger.ts b/bigger.ts',
+        '--- a/bigger.ts',
+        '+++ b/bigger.ts',
+        '@@ -1,40 +1,40 @@',
+        ...Array.from({ length: 40 }, (_, i) => `-drop ${i}`),
+      ].join('\n');
+      const out = extractMultiFileDiffs('diff', JSON.stringify({ diff: `${longA}\n${longB}`, files: [] }));
+      expect(out).toBeDefined();
+      expect(out![0]!.preview.added).toBe(30);
+      expect(out![1]!.preview.removed).toBe(40);
+      // Both previews are independently capped below their raw counts.
+      expect(out![0]!.preview.rows.length).toBeLessThan(31);
+      expect(out![1]!.preview.rows.length).toBeLessThan(41);
+    });
+  });
+
+  describe('multi-file summary footer', () => {
+    // Helper: build a DiffFilePreview with custom counts.
+    const preview = (
+      path: string,
+      added: number,
+      removed: number,
+      hidden = 0,
+      hiddenAdded = 0,
+      hiddenRemoved = 0,
+    ) => ({
+      path,
+      preview: {
+        rows: [],
+        hidden,
+        added,
+        removed,
+        hiddenAdded,
+        hiddenRemoved,
+      },
+    });
+
+    it('aggregates totals across the supplied files', () => {
+      const summary = summarizeMultiFileDiffs([
+        preview('src/a.ts', 10, 2),
+        preview('src/b.ts', 5, 3),
+        preview('src/c.ts', 0, 1),
+      ]);
+      expect(summary.fileCount).toBe(3);
+      expect(summary.added).toBe(15);
+      expect(summary.removed).toBe(6);
+      expect(summary.truncatedFiles).toBe(0);
+    });
+
+    it('counts truncated files based on `hidden > 0`', () => {
+      const summary = summarizeMultiFileDiffs([
+        preview('src/a.ts', 100, 0, 50, 50, 0),
+        preview('src/b.ts', 100, 0, 0, 0, 0),
+        preview('src/c.ts', 100, 0, 20, 20, 0),
+      ]);
+      expect(summary.truncatedFiles).toBe(2);
+      expect(summary.hiddenAdded).toBe(70);
+    });
+
+    it('returns null when below the threshold so the per-file footer carries the signal', () => {
+      const summary = summarizeMultiFileDiffs(
+        Array.from({ length: MULTI_DIFF_SUMMARY_THRESHOLD - 1 }, (_, i) =>
+          preview(`src/file-${i}.ts`, 1, 0),
+        ),
+      );
+      expect(summary.fileCount).toBe(MULTI_DIFF_SUMMARY_THRESHOLD - 1);
+      expect(formatMultiDiffSummary(summary)).toBeNull();
+    });
+
+    it('renders a single dim italic-style line at or above the threshold', () => {
+      const summary = summarizeMultiFileDiffs(
+        Array.from({ length: MULTI_DIFF_SUMMARY_THRESHOLD }, (_, i) =>
+          preview(`src/file-${i}.ts`, 2, 1),
+        ),
+      );
+      const line = formatMultiDiffSummary(summary);
+      expect(line).not.toBeNull();
+      expect(line).toContain(`${MULTI_DIFF_SUMMARY_THRESHOLD} files`);
+      expect(line).toContain(`+${2 * MULTI_DIFF_SUMMARY_THRESHOLD}`);
+      expect(line).toContain(`-${MULTI_DIFF_SUMMARY_THRESHOLD}`);
+      // No hidden rows in this fixture → no `… +N -M hidden across` clause.
+      expect(line).not.toContain('hidden across');
+    });
+
+    it('appends a hidden-rows clause when any file was truncated', () => {
+      const summary = summarizeMultiFileDiffs([
+        preview('src/a.ts', 100, 0, 50, 50, 0),
+        preview('src/b.ts', 100, 0, 0, 0, 0),
+        preview('src/c.ts', 100, 0, 20, 20, 0),
+        preview('src/d.ts', 100, 0, 10, 0, 10),
+        preview('src/e.ts', 100, 0, 0, 0, 0),
+      ]);
+      const line = formatMultiDiffSummary(summary);
+      expect(line).not.toBeNull();
+      expect(line).toContain('… +70 -10 hidden across 3 files');
+    });
+
+    it('uses singular "file" when only one file was truncated', () => {
+      const summary = summarizeMultiFileDiffs([
+        preview('src/a.ts', 100, 0, 5, 5, 0),
+        preview('src/b.ts', 0, 0, 0, 0, 0),
+        preview('src/c.ts', 0, 0, 0, 0, 0),
+        preview('src/d.ts', 0, 0, 0, 0, 0),
+        preview('src/e.ts', 0, 0, 0, 0, 0),
+      ]);
+      const line = formatMultiDiffSummary(summary);
+      expect(line).toContain('hidden across 1 file');
+      expect(line).not.toContain('hidden across 1 files');
+    });
+
+    it('omits add/remove segments when both are zero', () => {
+      const summary = summarizeMultiFileDiffs(
+        Array.from({ length: MULTI_DIFF_SUMMARY_THRESHOLD }, (_, i) =>
+          preview(`src/file-${i}.ts`, 0, 0),
+        ),
+      );
+      const line = formatMultiDiffSummary(summary);
+      expect(line).not.toBeNull();
+      expect(line).toBe(`${MULTI_DIFF_SUMMARY_THRESHOLD} files`);
+    });
+
+    it('handles 5+ files end-to-end via extractMultiFileDiffs + summarizer', () => {
+      // Build a real 5-file git diff and confirm the summary aggregates
+      // what the extractor produces — guards against drift between the
+      // extractor's count fields and the summarizer's expectations.
+      const blocks = Array.from({ length: 5 }, (_, i) => {
+        const path = `src/file-${i}.ts`;
+        return [
+          `diff --git a/${path} b/${path}`,
+          `--- a/${path}`,
+          `+++ b/${path}`,
+          '@@ -1,3 +1,3 @@',
+          `-old-${i}-a`,
+          `-old-${i}-b`,
+          `+new-${i}-a`,
+          `+new-${i}-b`,
+        ].join('\n');
+      }).join('\n');
+      const out = extractMultiFileDiffs('diff', JSON.stringify({ diff: blocks, files: [] }));
+      expect(out).toBeDefined();
+      expect(out!.length).toBe(5);
+      const summary = summarizeMultiFileDiffs(out!);
+      const line = formatMultiDiffSummary(summary);
+      expect(line).toContain('5 files');
+      expect(line).toContain('+10'); // 2 added per file × 5
+      expect(line).toContain('-10'); // 2 removed per file × 5
+    });
+  });
+
+  describe('user-tunable threshold', () => {
+    const preview = (path: string, added: number, removed: number) => ({
+      path,
+      preview: { rows: [], hidden: 0, added, removed, hiddenAdded: 0, hiddenRemoved: 0 },
+    });
+
+    it('threshold=3 renders the footer at 3+ files (lower than the default 5)', () => {
+      const items = [
+        preview('src/a.ts', 1, 0),
+        preview('src/b.ts', 1, 0),
+        preview('src/c.ts', 1, 0),
+      ];
+      const summary = summarizeMultiFileDiffs(items);
+      expect(formatMultiDiffSummary(summary, MULTI_DIFF_SUMMARY_THRESHOLD)).toBeNull();
+      expect(formatMultiDiffSummary(summary, 3)).not.toBeNull();
+      expect(formatMultiDiffSummary(summary, 3)).toContain('3 files');
+    });
+
+    it('threshold=10 keeps the footer suppressed at 5 files', () => {
+      const items = Array.from({ length: 5 }, (_, i) => preview(`src/f${i}.ts`, 1, 0));
+      const summary = summarizeMultiFileDiffs(items);
+      expect(formatMultiDiffSummary(summary, 10)).toBeNull();
+    });
+
+    it('threshold=0 suppresses the summary entirely', () => {
+      const items = Array.from({ length: 50 }, (_, i) => preview(`src/f${i}.ts`, 1, 0));
+      const summary = summarizeMultiFileDiffs(items);
+      expect(formatMultiDiffSummary(summary, 0)).toBeNull();
+    });
+
+    it('negative threshold falls back to the default (so undefined-coerced values work)', () => {
+      const items = Array.from({ length: MULTI_DIFF_SUMMARY_THRESHOLD }, (_, i) =>
+        preview(`src/f${i}.ts`, 1, 0),
+      );
+      const summary = summarizeMultiFileDiffs(items);
+      // Passing -1 is the documented "use default" sentinel.
+      const defaulted = formatMultiDiffSummary(summary, -1);
+      const explicit = formatMultiDiffSummary(summary, MULTI_DIFF_SUMMARY_THRESHOLD);
+      expect(defaulted).toBe(explicit);
+      expect(defaulted).not.toBeNull();
+    });
+
+    it('omitting the threshold argument uses the default', () => {
+      const items = Array.from({ length: MULTI_DIFF_SUMMARY_THRESHOLD }, (_, i) =>
+        preview(`src/f${i}.ts`, 1, 0),
+      );
+      const summary = summarizeMultiFileDiffs(items);
+      // No second argument — should match the default behavior.
+      expect(formatMultiDiffSummary(summary)).toBe(formatMultiDiffSummary(summary, MULTI_DIFF_SUMMARY_THRESHOLD));
+    });
+
+    it('threshold=2 produces a footer at exactly 2 files', () => {
+      const items = [preview('src/a.ts', 1, 0), preview('src/b.ts', 0, 1)];
+      const summary = summarizeMultiFileDiffs(items);
+      const line = formatMultiDiffSummary(summary, 2);
+      expect(line).not.toBeNull();
+      expect(line).toContain('2 files');
+      expect(line).toContain('+1');
+      expect(line).toContain('-1');
+    });
   });
 });
 

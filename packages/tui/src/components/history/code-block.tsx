@@ -24,6 +24,16 @@ export interface DiffPreview {
   hiddenRemoved: number;
 }
 
+/**
+ * A parsed diff paired with the file it belongs to. Used when a tool
+ * produces diffs for several files at once (currently `replace`); each
+ * `DiffFilePreview` renders as one labeled `DiffFileBlock`.
+ */
+export interface DiffFilePreview {
+  path: string;
+  preview: DiffPreview;
+}
+
 // ── Constants ──
 
 /** Max code-block lines rendered before a "+N more" footer. */
@@ -96,6 +106,123 @@ export function CodeBlock({
 }
 
 // ── DiffBlock ──
+
+/**
+ * Minimum number of files before a summary footer is rendered above the
+ * per-file blocks. Below this threshold each file's own `… +N -M hidden`
+ * footer carries enough signal; above it, a single aggregate line keeps
+ * the screen from being drowned in per-file tail lines.
+ *
+ * This is the default when no user-tunable value is supplied. The
+ * settings picker exposes `MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS` so
+ * users can raise the cutoff (e.g. for very wide terminals) or lower
+ * it (e.g. for tiny scrollback), or set it to 0 to suppress the
+ * summary entirely.
+ */
+export const MULTI_DIFF_SUMMARY_THRESHOLD = 5;
+
+/**
+ * Aggregate stats across a list of per-file diffs — used to print a
+ * single summary line at the top of a multi-file diff view when there
+ * are enough files to make the rollup useful.
+ */
+export interface MultiDiffSummary {
+  fileCount: number;
+  added: number;
+  removed: number;
+  hiddenAdded: number;
+  hiddenRemoved: number;
+  /** Number of files whose preview was truncated by the per-file cap. */
+  truncatedFiles: number;
+}
+
+/**
+ * Sum the totals of a list of per-file diff previews. Files that were
+ * parsed but have no rows (e.g. entirely empty after the no-op skip) are
+ * excluded from the rollup so the summary reflects what the user will
+ * actually see rendered below.
+ */
+export function summarizeMultiFileDiffs(items: DiffFilePreview[]): MultiDiffSummary {
+  let added = 0;
+  let removed = 0;
+  let hiddenAdded = 0;
+  let hiddenRemoved = 0;
+  let truncatedFiles = 0;
+  for (const item of items) {
+    added += item.preview.added;
+    removed += item.preview.removed;
+    hiddenAdded += item.preview.hiddenAdded;
+    hiddenRemoved += item.preview.hiddenRemoved;
+    if (item.preview.hidden > 0) truncatedFiles += 1;
+  }
+  return {
+    fileCount: items.length,
+    added,
+    removed,
+    hiddenAdded,
+    hiddenRemoved,
+    truncatedFiles,
+  };
+}
+
+/**
+ * Format a multi-file diff summary as a single dim italic line, suitable
+ * for rendering above the per-file blocks. Mirrors the per-file footer's
+ * `… +N -M hidden` shape so a reader who has seen the footer recognises
+ * the format. Returns `null` when there's nothing useful to surface
+ * (no files, or below the user's threshold where the per-file footer
+ * already covers the rollup).
+ *
+ * @param threshold User-tunable cutoff. Pass `MULTI_DIFF_SUMMARY_THRESHOLD`
+ *   for the default behaviour, `0` to suppress the summary entirely
+ *   (always returns null), or a positive number to set a custom cutoff.
+ *   A negative value is treated as "use default" so callers can pass an
+ *   `undefined`-coerced settings value without a separate branch.
+ */
+export function formatMultiDiffSummary(
+  summary: MultiDiffSummary,
+  threshold: number = MULTI_DIFF_SUMMARY_THRESHOLD,
+): string | null {
+  if (threshold === 0) return null;
+  const effectiveThreshold = threshold < 0 ? MULTI_DIFF_SUMMARY_THRESHOLD : threshold;
+  if (summary.fileCount < effectiveThreshold) return null;
+  const parts: string[] = [`${summary.fileCount} files`];
+  if (summary.added > 0) parts.push(`+${summary.added}`);
+  if (summary.removed > 0) parts.push(`-${summary.removed}`);
+  if (summary.hiddenAdded > 0 || summary.hiddenRemoved > 0) {
+    const hiddenParts: string[] = [];
+    if (summary.hiddenAdded > 0) hiddenParts.push(`+${summary.hiddenAdded}`);
+    if (summary.hiddenRemoved > 0) hiddenParts.push(`-${summary.hiddenRemoved}`);
+    parts.push(`… ${hiddenParts.join(' ')} hidden across ${summary.truncatedFiles} file${summary.truncatedFiles === 1 ? '' : 's'}`);
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * One labeled diff — used to render a per-file block inside multi-file
+ * diff views (e.g. when `replace` modifies several files). The path label
+ * is rendered dim and italic so the file boundary is visible without
+ * competing with the add/remove wash.
+ */
+export function DiffFileBlock({
+  path,
+  preview,
+}: {
+  path: string;
+  preview: DiffPreview;
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text dimColor italic>{path}</Text>
+      <DiffBlock
+        rows={preview.rows}
+        hidden={preview.hidden}
+        hiddenAdded={preview.hiddenAdded}
+        hiddenRemoved={preview.hiddenRemoved}
+      />
+    </Box>
+  );
+}
 
 export function DiffBlock({
   rows,
@@ -292,7 +419,7 @@ export function extractDiffPreview(
   } else if (toolName === 'replace') {
     const parsed = tryParseJson(text);
     if (parsed && typeof parsed === 'object') {
-      diff = collectReplaceDiffs(parsed as Record<string, unknown>);
+      diff = joinReplaceDiffs(parsed as Record<string, unknown>);
     }
   }
 
@@ -301,16 +428,287 @@ export function extractDiffPreview(
   return preview.rows.length > 0 ? preview : undefined;
 }
 
-function collectReplaceDiffs(obj: Record<string, unknown>): string | undefined {
-  const results = Array.isArray(obj['results']) ? (obj['results'] as unknown[]) : [];
-  const diffs = results
-    .map((result) =>
-      result && typeof result === 'object'
-        ? stringOf((result as Record<string, unknown>)['diff'])
-        : undefined,
-    )
-    .filter((diff): diff is string => Boolean(diff?.trim()));
+function joinReplaceDiffs(obj: Record<string, unknown>): string | undefined {
+  const items = splitReplaceDiffs(obj);
+  const diffs = items.map((item) => item.diff);
   return diffs.length > 0 ? diffs.join('\n') : undefined;
+}
+
+/**
+ * Pull one diff preview per file from a `replace` tool result. Each entry
+ * has a `path` (best-effort: `results[i].path`, falling back to the input
+ * argument when every result is for the same file) and a `preview` ready
+ * for `DiffFileBlock` / `DiffBlock` rendering.
+ *
+ * Returns `undefined` when no per-file diff is recoverable (e.g. an empty
+ * `results` array, no diff fields, or the result isn't a JSON object).
+ *
+ * Note: For a single entry point that handles `replace`, `diff`, and
+ * `patch` (the three tools whose output can span multiple files), use
+ * {@link extractMultiFileDiffs} instead — this function is kept for the
+ * narrower replace-specific test cases.
+ */
+export function extractReplaceDiffs(
+  toolName: string,
+  output: string | undefined,
+  input?: unknown | undefined,
+): DiffFilePreview[] | undefined {
+  if (toolName !== 'replace') return undefined;
+  return extractMultiFileDiffs(toolName, output, input);
+}
+
+interface ReplaceDiffItem {
+  path?: string | undefined;
+  diff: string;
+}
+
+function splitReplaceDiffs(obj: Record<string, unknown>): ReplaceDiffItem[] {
+  const results = Array.isArray(obj['results']) ? (obj['results'] as unknown[]) : [];
+  const items: ReplaceDiffItem[] = [];
+  for (const result of results) {
+    if (!result || typeof result !== 'object') continue;
+    const record = result as Record<string, unknown>;
+    const diff = stringOf(record['diff']);
+    if (!diff?.trim()) continue;
+    const path = stringOf(record['path']);
+    items.push(path ? { path, diff } : { diff });
+  }
+  return items;
+}
+
+interface PathedDiffItem {
+  path?: string | undefined;
+  diff: string;
+}
+
+/**
+ * Pull a list of per-file diffs from a tool result that may span multiple
+ * files. Handles:
+ *
+ * - `replace`: JSON `{ results: [{ path, diff }, …] }` (path per result,
+ *   fallback to the input path when the result omits one).
+ * - `diff`: JSON `{ diff: string }` where `diff` is a git-style multi-file
+ *   unified diff (split on `diff --git` headers).
+ * - `patch`: either JSON `{ diff: string, files: string[] }` or a raw
+ *   unified-diff string (split on `diff --git` headers, falling back to
+ *   `--- a/<path>` if no `diff --git` is present).
+ *
+ * Returns `undefined` when the tool isn't multi-file capable, the output
+ * is missing/unparseable, or no per-file diff is recoverable. Returns an
+ * empty array (not undefined) when the output parses but every entry has
+ * an empty diff after trimming — the caller treats both as "nothing to
+ * render" but the distinction is useful in tests.
+ */
+export function extractMultiFileDiffs(
+  toolName: string,
+  output: string | undefined,
+  input?: unknown | undefined,
+): DiffFilePreview[] | undefined {
+  if (!output) return undefined;
+  const items = collectMultiFileDiffItems(toolName, output, input);
+  if (items === undefined) return undefined;
+  if (items.length === 0) return undefined;
+
+  const previews: DiffFilePreview[] = [];
+  for (const item of items) {
+    const preview = parseUnifiedDiff(item.diff, DIFF_MAX_LINES);
+    if (preview.rows.length === 0) continue;
+    previews.push({ path: item.path ?? 'unknown file', preview });
+  }
+  return previews.length > 0 ? previews : undefined;
+}
+
+function collectMultiFileDiffItems(
+  toolName: string,
+  output: string,
+  // `input` is reserved for future per-tool fallbacks (e.g. `replace` paths
+  // derived from the input shape). The current dispatch derives paths from
+  // the tool output itself (`files: string[]` from `diff`/`patch`,
+  // `results[i].path` from `replace`, header lines from raw patches), so the
+  // parameter is intentionally unused here. Marking it `_input` keeps the
+  // surface stable for callers without triggering TS6133.
+  _input?: unknown | undefined,
+): PathedDiffItem[] | undefined {
+  const trimmed = output.trim();
+  if (!trimmed) return undefined;
+
+  if (toolName === 'replace') {
+    const parsed = tryParseJson(trimmed);
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const items = splitReplaceDiffs(parsed as Record<string, unknown>);
+    if (items.length === 0) return items;
+    // Fallback: if every result omitted its own path, use the input's
+    // `path` argument as the shared label (matches the previous
+    // `extractReplaceDiffs` behaviour).
+    const allMissing = items.every((item) => !item.path);
+    const fallback =
+      allMissing && _input && typeof _input === 'object' && typeof (_input as Record<string, unknown>)['path'] === 'string'
+        ? stringOf((_input as Record<string, unknown>)['path'])
+        : undefined;
+    if (fallback) {
+      return items.map((item) => ({ path: item.path ?? fallback, diff: item.diff }));
+    }
+    return items;
+  }
+
+  if (toolName === 'diff') {
+    const parsed = tryParseJson(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      const files = Array.isArray(obj['files'])
+        ? (obj['files'] as unknown[]).map(stringOf).filter((p): p is string => Boolean(p))
+        : [];
+      const diff = stringOf(obj['diff']) ?? stringOf(obj['stdout']);
+      if (!diff?.trim()) return undefined;
+      // If `files` is populated, pair it with the (possibly multi-file)
+      // diff by splitting the diff on `diff --git` headers and using the
+      // `files` list as the preferred path source (left-to-right). When
+      // the lengths disagree (e.g. empty `files`, or a diff that contains
+      // more blocks than the count suggests), fall back to the path parsed
+      // from the diff headers.
+      const blocks = splitGitStyleDiff(diff);
+      return blocks.map((block, idx) => ({
+        path: files[idx] ?? block.path,
+        diff: block.diff,
+      }));
+    }
+    // Non-JSON `diff` output — treat the whole blob as one block, no path.
+    if (trimmed.includes('@@')) return [{ diff: trimmed }];
+    return undefined;
+  }
+
+  if (toolName === 'patch') {
+    const parsed = tryParseJson(trimmed);
+    let diffText: string | undefined;
+    let explicitFiles: string[] = [];
+    if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      diffText = stringOf(obj['diff']) ?? stringOf(obj['stdout']);
+      if (Array.isArray(obj['files'])) {
+        explicitFiles = (obj['files'] as unknown[])
+          .map(stringOf)
+          .filter((p): p is string => Boolean(p));
+      }
+    } else if (trimmed.includes('@@') || trimmed.startsWith('---')) {
+      diffText = trimmed;
+    }
+    if (!diffText?.trim()) return undefined;
+    const blocks = splitGitStyleDiff(diffText);
+    if (blocks.length === 0) {
+      // A patch with no `diff --git` headers but valid `---`/`+++`
+      // headers is single-file — wrap it as one block, taking the path
+      // from the explicit `files` array if available.
+      const path = explicitFiles[0] ?? extractPatchHeaderPath(diffText);
+      return [{ path, diff: diffText }];
+    }
+    return blocks.map((block, idx) => ({
+      path: explicitFiles[idx] ?? block.path,
+      diff: block.diff,
+    }));
+  }
+
+  return undefined;
+}
+
+interface DiffBlockSplit {
+  path?: string | undefined;
+  diff: string;
+}
+
+/**
+ * Split a concatenated git-style unified diff into per-file blocks.
+ * Recognises both `diff --git a/<path> b/<path>` headers (the modern git
+ * format, also produced by `git diff` and `git format-patch`) and the
+ * older `--- a/<path> / +++ b/<path>` pair as a fallback when no
+ * `diff --git` line is present. Returns an empty array if the input
+ * doesn't look like a unified diff at all.
+ */
+function splitGitStyleDiff(diff: string): DiffBlockSplit[] {
+  const lines = diff.split('\n');
+  const blocks: DiffBlockSplit[] = [];
+  let current: { path?: string | undefined; body: string[]; hasGitHeader: boolean } | null = null;
+
+  const flush = (): void => {
+    if (!current) return;
+    const text = current.body.join('\n').trim();
+    if (text) blocks.push({ path: current.path, diff: text });
+    current = null;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith('diff --git ')) {
+      flush();
+      current = { path: parseDiffGitPath(line), body: [line], hasGitHeader: true };
+      continue;
+    }
+    if (current) {
+      current.body.push(line);
+      // Treat `--- a/` as a block boundary only when the current block
+      // has no `diff --git` header (older patch(1) format). A modern
+      // `git diff` block always starts with `diff --git` and contains
+      // its own `--- a/` lines as part of the same hunk — splitting on
+      // those would shred the block.
+      if (!current.hasGitHeader && line.startsWith('--- a/') && current.body.length > 2) {
+        const carriedBody = current.body.slice(0, -1);
+        const carriedPath = current.path;
+        const text = carriedBody.join('\n').trim();
+        if (text) blocks.push({ path: carriedPath, diff: text });
+        current = {
+          path: line.slice('--- a/'.length).trim(),
+          body: [line],
+          hasGitHeader: false,
+        };
+      }
+    } else if (line.startsWith('--- a/')) {
+      current = { path: line.slice('--- a/'.length).trim(), body: [line], hasGitHeader: false };
+    } else if (line.startsWith('+++ b/')) {
+      // Lone +++ without a preceding --- — synthesise a block with no path.
+      current = { body: [line], hasGitHeader: false };
+    }
+  }
+  flush();
+
+  // If we ended up with a single block and no path was parsed, try a
+  // last-ditch read of the `+++ b/` line in the body.
+  if (blocks.length === 1 && !blocks[0]!.path) {
+    const path = extractPatchHeaderPath(blocks[0]!.diff);
+    if (path) blocks[0] = { path, diff: blocks[0]!.diff };
+  }
+
+  return blocks;
+}
+
+function parseDiffGitPath(line: string): string | undefined {
+  // `diff --git a/<path> b/<path>` — handle paths-with-spaces by splitting
+  // on ` b/` from the right when possible, falling back to the simpler
+  // split when there's no ambiguity.
+  const rest = line.slice('diff --git '.length).trim();
+  if (!rest) return undefined;
+  const sep = rest.lastIndexOf(' b/');
+  if (sep > 0 && sep > rest.length - sep - 3) {
+    return rest.slice(sep + 3);
+  }
+  // Fallback: take the right-hand token after the last space, stripping
+  // the leading `b/`.
+  const spaceIdx = rest.lastIndexOf(' ');
+  if (spaceIdx > 0) {
+    const rhs = rest.slice(spaceIdx + 1);
+    return rhs.startsWith('b/') ? rhs.slice(2) : rhs;
+  }
+  return undefined;
+}
+
+function extractPatchHeaderPath(diffText: string): string | undefined {
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const path = line.slice(4).trim();
+      // `+++ b/<path>` is the git convention; `+++ <path>` is the patch(1)
+      // convention. Strip a leading `b/` and any trailing timestamp.
+      const cleaned = path.replace(/^b\//, '').split('\t')[0]!.trim();
+      return cleaned || undefined;
+    }
+  }
+  return undefined;
 }
 
 function newFileDiffFromWriteInput(

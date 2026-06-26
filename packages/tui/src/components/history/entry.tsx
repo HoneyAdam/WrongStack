@@ -3,7 +3,14 @@ import React, { useEffect, useMemo } from 'react';
 import { theme } from '../../theme.js';
 import { getToolVisual } from '../../tool-glyph.js';
 import { Banner } from './banner.js';
-import { DiffBlock, extractDiffPreview } from './code-block.js';
+import {
+  DiffBlock,
+  DiffFileBlock,
+  extractDiffPreview,
+  extractMultiFileDiffs,
+  formatMultiDiffSummary,
+  summarizeMultiFileDiffs,
+} from './code-block.js';
 import { parseNextSteps } from '../suggestions.js';
 import type { ParsedNextStep } from '../suggestions.js';
 import type { HistoryEntry } from './types.js';
@@ -59,6 +66,7 @@ export const Entry = React.memo(function Entry({
   setSuggestions,
   autonomyMode,
   autoSubmitCountdown,
+  multiDiffSummaryThreshold,
 }: {
   entry: HistoryEntry;
   termWidth: number;
@@ -68,6 +76,9 @@ export const Entry = React.memo(function Entry({
   autonomyMode?: string | undefined;
   /** Seconds remaining in the auto-submit countdown — shown as a live badge. */
   autoSubmitCountdown?: number | null | undefined;
+  /** User-tunable cutoff for the multi-file diff summary footer. Passes
+   *  through to `formatMultiDiffSummary`; `undefined` means "use default". */
+  multiDiffSummaryThreshold?: number | undefined;
 }): React.ReactElement {
   // Parse next steps from assistant text — computed once, used only in
   // the assistant case. Must live at the top level (hooks rules).
@@ -202,6 +213,14 @@ export const Entry = React.memo(function Entry({
       );
       const visualLines = formatToolVisualOutput(entry.name, entry.output, entry.ok, entry.input);
       const diff = entry.ok ? extractDiffPreview(entry.name, entry.output, entry.input) : undefined;
+      // Multi-file diffs (`replace`, `diff`, `patch`) — render one labeled
+      // block per file when the per-file shape is available. Falls back to
+      // the single combined `diff` only when the per-file split isn't
+      // recoverable, so single-file tools keep their existing visual weight.
+      const multiDiffs =
+        entry.ok && !diff && (entry.name === 'replace' || entry.name === 'diff' || entry.name === 'patch')
+          ? extractMultiFileDiffs(entry.name, entry.output, entry.input)
+          : undefined;
       const sizeChip = (() => {
         if (!entry.ok) return '';
         const parts: string[] = [];
@@ -234,11 +253,11 @@ export const Entry = React.memo(function Entry({
             {sizeChip ? <Text dimColor>{`  ·  ${sizeChip}`}</Text> : null}
           </Text>
           {visualLines ? (
-            <ToolOutputLines lines={visualLines} hasFollowingBlock={Boolean(diff)} />
+            <ToolOutputLines lines={visualLines} hasFollowingBlock={Boolean(diff || multiDiffs)} />
           ) : (
             outLines.map((line, i) => (
               <Text key={i}>
-                <Text dimColor>{i === outLines.length - 1 && !diff ? '  └─ ' : '  ├─ '}</Text>
+                <Text dimColor>{i === outLines.length - 1 && !diff && !multiDiffs ? '  └─ ' : '  ├─ '}</Text>
                 <Text
                   dimColor={entry.ok && !line.startsWith('!')}
                   {...(!entry.ok || line.startsWith('!') ? { color: 'red' } : {})}
@@ -248,7 +267,22 @@ export const Entry = React.memo(function Entry({
               </Text>
             ))
           )}
-          {diff ? (
+          {multiDiffs ? (
+            <Box flexDirection="column">
+              {(() => {
+                const summaryLine = formatMultiDiffSummary(
+                  summarizeMultiFileDiffs(multiDiffs),
+                  multiDiffSummaryThreshold ?? -1,
+                );
+                return summaryLine ? (
+                  <Text dimColor italic>{summaryLine}</Text>
+                ) : null;
+              })()}
+              {multiDiffs.map((item) => (
+                <DiffFileBlock key={item.path} path={item.path} preview={item.preview} />
+              ))}
+            </Box>
+          ) : diff ? (
             <DiffBlock
               rows={diff.rows}
               hidden={diff.hidden}

@@ -95,6 +95,13 @@ export interface HistoryProps {
    * fires and the final entry lands in `entries`.
    */
   toolStream?: { toolUseId: string; name: string; text: string; startedAt: number } | null;
+  /**
+   * Minimum number of files before the per-tool multi-file diff summary
+   * footer is rendered. `0` suppresses the footer entirely; any positive
+   * number sets the cutoff. When `undefined`, the code-block module's
+   * default (`MULTI_DIFF_SUMMARY_THRESHOLD`) is used.
+   */
+  multiDiffSummaryThreshold?: number | undefined;
 }
 
 export interface BodySegment {

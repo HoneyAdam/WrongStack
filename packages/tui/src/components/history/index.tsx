@@ -11,7 +11,23 @@ import type { HistoryProps } from './types.js';
 export type { HistoryEntry, HistoryProps } from './types.js';
 export type { BodySegment } from './types.js';
 export { Banner } from './banner.js';
-export { CodeBlock, DiffBlock, type DiffLineKind, type DiffLineRow, type DiffPreview, extractDiffPreview, parseUnifiedDiff } from './code-block.js';
+export {
+  CodeBlock,
+  DiffBlock,
+  DiffFileBlock,
+  type DiffFilePreview,
+  type DiffLineKind,
+  type DiffLineRow,
+  type DiffPreview,
+  type MultiDiffSummary,
+  MULTI_DIFF_SUMMARY_THRESHOLD,
+  extractDiffPreview,
+  extractMultiFileDiffs,
+  extractReplaceDiffs,
+  formatMultiDiffSummary,
+  parseUnifiedDiff,
+  summarizeMultiFileDiffs,
+} from './code-block.js';
 export { Entry } from './entry.js';
 export { MESSAGE_PANEL_BORDER_WIDTH, MESSAGE_PANEL_CHROME_WIDTH, MESSAGE_PANEL_MARGIN, AssistantBody, AssistantTail, assistantContentWidth, assistantTailRows, splitFencedBlocks } from './assistant.js';
 export {
@@ -47,7 +63,7 @@ export {
  * History component — renders committed entries via <Static> so they
  * flow into terminal scrollback, plus a live streaming assistant tail.
  */
-export function History({ entries, generation, streamingText, toolStream, setSuggestions, autonomyMode, autoSubmitCountdown }: HistoryProps): React.ReactElement {
+export function History({ entries, generation, streamingText, toolStream, setSuggestions, autonomyMode, autoSubmitCountdown, multiDiffSummaryThreshold }: HistoryProps): React.ReactElement {
   const { stdout } = useStdout();
   const [termSize, setTermSize] = useState({
     columns: stdout?.columns ?? 80,
@@ -82,7 +98,7 @@ export function History({ entries, generation, streamingText, toolStream, setSug
       <Static key={generation ?? 0} items={entries}>
         {(entry) => (
           <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0}>
-            <Entry entry={entry} termWidth={termWidth} setSuggestions={setSuggestions} autonomyMode={autonomyMode} autoSubmitCountdown={autoSubmitCountdown} />
+            <Entry entry={entry} termWidth={termWidth} setSuggestions={setSuggestions} autonomyMode={autonomyMode} autoSubmitCountdown={autoSubmitCountdown} multiDiffSummaryThreshold={multiDiffSummaryThreshold} />
           </Box>
         )}
       </Static>
