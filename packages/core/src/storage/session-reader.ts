@@ -62,8 +62,8 @@ export class DefaultSessionReader implements SessionReader {
     const matcher = buildMatcher(q);
     const allowedTypes = q.types ? new Set(q.types) : null;
 
-    // Filter sessions BEFORE loading events — avoids loading thousands of events
-    // from sessions that don't match the time/provider/model criteria.
+    // Filter sessions BEFORE scanning events — avoids touching the JSONL
+    // for sessions that don't match the time/provider/model criteria.
     let ids: string[];
     if (sessionId) {
       ids = [sessionId];
@@ -83,6 +83,44 @@ export class DefaultSessionReader implements SessionReader {
     }
 
     const hits: SessionSearchHit[] = [];
+
+    // Fast path: when the underlying store supports streaming search,
+    // walk each session's JSONL line-by-line and bail out the moment we
+    // hit `limit`. This avoids reading + parsing the entire file (which
+    // `load()` does) and never reuses `_loadCache`, so concurrent
+    // analytics queries don't churn the writer-side cache.
+    const streaming = this.store.searchEvents?.bind(this.store);
+    if (streaming) {
+      for (const id of ids) {
+        const matched = await streaming(
+          id,
+          (ev) => {
+            if (allowedTypes && !allowedTypes.has(ev.type)) return false;
+            const text = eventText(ev);
+            if (text === null) return false;
+            return matcher(text) !== null;
+          },
+          { limit: limit - hits.length },
+        );
+        for (const m of matched) {
+          const text = expectDefined(eventText(m.event));
+          const hit = expectDefined(matcher(text));
+          hits.push({
+            sessionId: id,
+            eventIndex: m.eventIndex,
+            ts: m.ts,
+            type: m.event.type,
+            snippet: snippetOf(text, hit.start, hit.end),
+          });
+          if (hits.length >= limit) return hits;
+        }
+      }
+      return hits;
+    }
+
+    // Fallback: stores that don't implement streaming. Loads the full
+    // event stream per session — necessary for in-memory or non-file
+    // stores that don't expose a streaming surface.
     for (const id of ids) {
       let data;
       try {

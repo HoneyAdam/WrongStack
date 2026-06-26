@@ -450,6 +450,119 @@ export class DefaultSessionStore implements SessionStore {
     }
   }
 
+  /**
+   * Streaming search over a session's JSONL. Walks the file once, parses
+   * each event lazily, and yields only the events that match `predicate`.
+   * Stops as soon as `opts.limit` matches are collected.
+   *
+   * Why this exists: `load()` parses the entire file into memory and
+   * rebuilds `messages`/`toolCallEnds` for every caller. `search()` only
+   * needs to know which events contain matching text — a per-line
+   * predicate is enough. The full parse work (and the `_loadCache` poll)
+   * is wasted in that case.
+   *
+   * Memory: O(hits) regardless of file size. Disk: one linear scan,
+   * terminated at `limit` if the caller asked for one.
+   *
+   * Errors: missing file yields []. Corrupt lines are skipped (same
+   * policy as `load()`). Aborting via `signal` rejects with `AbortError`.
+   */
+  async searchEvents(
+    id: string,
+    predicate: (event: SessionEvent, eventIndex: number, ts: string) => boolean,
+    opts?: { limit?: number | undefined; signal?: AbortSignal | undefined },
+  ): Promise<Array<{ event: SessionEvent; eventIndex: number; ts: string }>> {
+    const file = this.sessionPath(id, '.jsonl');
+    const limit = opts?.limit;
+    const signal = opts?.signal;
+    const out: Array<{ event: SessionEvent; eventIndex: number; ts: string }> = [];
+
+    // Try to stat first so a missing file returns [] instead of throwing
+    // — matches `load()` ENOENT semantics that callers already depend on.
+    let stat: import('node:fs').Stats;
+    try {
+      stat = await fsp.stat(file);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    if (stat.size === 0) return [];
+
+    let fh: fsp.FileHandle | undefined;
+    try {
+      fh = await fsp.open(file, 'r');
+      // Read in 64KB chunks; lines can straddle a chunk boundary so we
+      // carry the trailing partial line forward between iterations.
+      const CHUNK = 64 * 1024;
+      const buf = Buffer.alloc(CHUNK);
+      let leftover = '';
+      let eventIndex = 0;
+      for (let position = 0; ; position += buf.byteLength) {
+        if (signal?.aborted) {
+          const reason = signal.reason ?? new DOMException('Aborted', 'AbortError');
+          throw reason;
+        }
+        const { bytesRead } = await fh.read(buf, 0, CHUNK, position);
+        if (bytesRead === 0) break;
+        const text = leftover + buf.subarray(0, bytesRead).toString('utf8');
+        // Split into lines; the last element is either '' (file ended on a
+        // newline) or a partial line — keep it as the new leftover.
+        const parts = text.split('\n');
+        leftover = parts.pop() ?? '';
+        for (const line of parts) {
+          if (!line) continue;
+          let ev: SessionEvent;
+          try {
+            const parsed: unknown = JSON.parse(line);
+            if (
+              parsed === null ||
+              typeof parsed !== 'object' ||
+              typeof (parsed as { type?: unknown }).type !== 'string' ||
+              typeof (parsed as { ts?: unknown }).ts !== 'string'
+            ) {
+              // Skip lines that don't match the SessionEvent shape — same
+              // tolerance as `load()` (which silently drops non-events).
+              continue;
+            }
+            ev = parsed as SessionEvent;
+          } catch {
+            // Skip malformed JSON, matching `load()` behavior.
+            continue;
+          }
+          if (predicate(ev, eventIndex, ev.ts)) {
+            out.push({ event: ev, eventIndex, ts: ev.ts });
+            if (limit !== undefined && out.length >= limit) {
+              return out;
+            }
+          }
+          eventIndex++;
+        }
+      }
+      // Flush a trailing line that lacks a final newline.
+      if (leftover.trim()) {
+        try {
+          const parsed: unknown = JSON.parse(leftover);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            typeof (parsed as { type?: unknown }).type === 'string' &&
+            typeof (parsed as { ts?: unknown }).ts === 'string'
+          ) {
+            const ev = parsed as SessionEvent;
+            if (predicate(ev, eventIndex, ev.ts)) {
+              out.push({ event: ev, eventIndex, ts: ev.ts });
+            }
+          }
+        } catch {
+          /* partial trailing line — drop */
+        }
+      }
+      return out;
+    } finally {
+      if (fh) await fh.close().catch(() => undefined);
+    }
+  }
+
   async list(limit = 20): Promise<SessionSummary[]> {
     try {
       await ensureDir(this.dir);

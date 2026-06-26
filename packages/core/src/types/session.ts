@@ -271,6 +271,27 @@ export interface SessionStore {
    * number of sessions indexed.
    */
   rebuildIndex?(): Promise<number>;
+  /**
+   * Streaming event-level search. Walks the JSONL once without buffering
+   * the whole file, calling `predicate(event, eventIndex, ts)` for each
+   * parsed event. Stops as soon as `limit` matches are collected (when
+   * provided) and yields only the matching events back to the caller.
+   *
+   * Implementations that don't support streaming MUST omit this method;
+   * the SessionReader fallback path will then call `load()` instead. The
+   * method is intentionally non-throwing for missing files — a missing
+   * session yields an empty array, matching `load()` semantics for ENOENT.
+   *
+   * @param id  Session id (with or without the `.jsonl` suffix).
+   * @param predicate  Returns true to keep the event in the result set.
+   * @param opts.limit  Maximum number of hits to keep. Omit for unbounded.
+   * @param opts.signal  Optional AbortSignal for early termination.
+   */
+  searchEvents?(
+    id: string,
+    predicate: (event: SessionEvent, eventIndex: number, ts: string) => boolean,
+    opts?: { limit?: number | undefined; signal?: AbortSignal | undefined },
+  ): Promise<Array<{ event: SessionEvent; eventIndex: number; ts: string }>>;
 }
 
 export interface SessionWriter {
