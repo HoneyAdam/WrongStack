@@ -63,7 +63,7 @@ describe('bootConfig', () => {
     expect(written.autonomy.defaultMode).toBe('off');
     expect(written.autonomy.autoProceedDelayMs).toBe(45_000);
     expect(written.autonomy.enhanceDelayMs).toBe(60_000);
-    expect(written.modelRuntime.reasoning.effort).toBe('high');
+    expect(written.modelRuntime.reasoning.effort).toBeUndefined();
     expect(written.provider).toBeUndefined();
     expect(written.model).toBeUndefined();
   });

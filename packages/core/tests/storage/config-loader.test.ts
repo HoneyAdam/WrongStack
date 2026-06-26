@@ -80,8 +80,6 @@ describe('DefaultConfigLoader', () => {
     expect(written.autonomy.autoProceedMaxIterations).toBe(50);
     expect(written.modelRuntime.reasoning).toEqual({
       mode: 'auto',
-      effort: 'high',
-      preserve: false,
     });
   });
 
@@ -106,7 +104,7 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.autonomy?.defaultMode).toBe('auto');
     expect(cfg.autonomy?.autoProceedDelayMs).toBe(45_000);
     expect(cfg.modelRuntime?.parameters?.user).toBe('kept');
-    expect(cfg.modelRuntime?.reasoning?.effort).toBe('high');
+    expect(cfg.modelRuntime?.reasoning?.effort).toBeUndefined();
 
     const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'));
     expect(written.provider).toBe('anthropic');
@@ -115,7 +113,7 @@ describe('DefaultConfigLoader', () => {
     expect(written.autonomy.defaultMode).toBe('auto');
     expect(written.autonomy.autoProceedDelayMs).toBe(45_000);
     expect(written.modelRuntime.parameters.user).toBe('kept');
-    expect(written.modelRuntime.reasoning.effort).toBe('high');
+    expect(written.modelRuntime.reasoning.effort).toBeUndefined();
   });
 
   it('does not persist env or CLI identity overrides when seeding defaults', async () => {

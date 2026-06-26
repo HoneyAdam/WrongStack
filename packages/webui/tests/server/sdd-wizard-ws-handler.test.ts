@@ -53,7 +53,7 @@ function makeHandler(turnScript?: string[]) {
   const dir = tmp();
   const turns = [...(turnScript ?? [QUESTION, SPEC_OUTPUT, TASKS_OUTPUT])];
   const turnPrompts: string[] = [];
-  const startRunCalls: Array<{ taskCount: number }> = [];
+  const startRunCalls: Array<{ taskCount: number; opts: Record<string, unknown> }> = [];
 
   const handler = new SddWizardWebSocketHandler({
     makeDriver: () =>
@@ -67,8 +67,11 @@ function makeHandler(turnScript?: string[]) {
       turnPrompts.push(prompt);
       return turns.shift() ?? '';
     },
-    startRun: async (driver) => {
-      startRunCalls.push({ taskCount: driver.getGraph()?.nodes.size ?? 0 });
+    startRun: async (driver, opts) => {
+      startRunCalls.push({
+        taskCount: driver.getGraph()?.nodes.size ?? 0,
+        opts: opts as Record<string, unknown>,
+      });
       return { runId: 'run-xyz' };
     },
   });

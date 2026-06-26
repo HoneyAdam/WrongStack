@@ -1024,6 +1024,12 @@ export async function main(argv: string[]): Promise<number> {
       // Refresh AutoCompactionMiddleware denominator for the new model's
       // maxContext so threshold triggers (warn/soft/hard) use the correct denominator.
       await refreshMaxContextFor(providerId, modelId);
+      // Re-resolve the new model's reasoning capability so the model-runtime
+      // middleware stops gating on a stale (or missing) profile. Without this,
+      // a switch to a model that isn't in the registry leaves the warning
+      // "reasoning capabilities are unknown" firing on every subsequent
+      // request until restart.
+      await refreshActiveReasoningConfig(providerId, modelId);
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : String(err);

@@ -115,7 +115,12 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
   },
   circuitBreaker: { ...DEFAULT_CIRCUIT_BREAKER_CONFIG },
   modelRuntime: {
-    reasoning: { mode: 'auto', effort: 'high', preserve: false },
+    // `effort` is intentionally undefined by default. Leaving it unset lets
+    // each model use its provider-recommended reasoning effort (or none at
+    // all) instead of forcing an opinionated value that may be unsupported,
+    // silently omitted, and surfaced as a per-request warning. Users who
+    // want a specific effort can opt in via `/settings` or the WebUI panel.
+    reasoning: { mode: 'auto' },
     cache: {},
   },
 };

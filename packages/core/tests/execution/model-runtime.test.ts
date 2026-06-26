@@ -78,11 +78,15 @@ describe('resolveModelRuntime', () => {
     expect(r.cache).toEqual({ ttl: '1h' });
   });
 
-  it('is conservative when capabilities are unknown', () => {
-    const settings: ModelRuntimeConfig = { reasoning: { mode: 'off' } };
+  it('is conservative and silent when capabilities are unknown', () => {
+    // When the model's reasoning config is unknown, the resolver drops
+    // explicit fields rather than risk sending unsupported values to the
+    // provider. No warning is emitted: the user has no actionable response,
+    // and warning per request would be pure noise.
+    const settings: ModelRuntimeConfig = { reasoning: { mode: 'off', effort: 'high' } };
     const r = resolveModelRuntime(settings, undefined);
     expect(r.reasoning).toBeUndefined();
-    expect(r.warnings[0]).toMatch(/unknown/);
+    expect(r.warnings).toEqual([]);
   });
 
   it('mode auto never sends explicit fields', () => {

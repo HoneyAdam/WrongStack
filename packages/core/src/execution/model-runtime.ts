@@ -74,6 +74,9 @@ export function resolveReasoningForRequest(
   // Capability-unknown: be conservative. Sending explicit enabled/disabled to
   // a model that doesn't understand the field is a common source of 400s
   // (e.g. always-on Kimi code models reject `thinking: { type: "disabled" }`).
+  // Unknown-capability cases drop the field silently — the user has no
+  // actionable response, and the resolver already omits the value to avoid
+  // provider errors. Surfacing a warning every request would be pure noise.
   const capKnown = rc !== undefined;
   const supportsReasoning = rc ? rc.default !== 'disabled' || rc.disableSupported || rc.effortSupported : false;
 
@@ -88,13 +91,11 @@ export function resolveReasoningForRequest(
       );
     } else if (capKnown && rc && !rc.disableSupported) {
       warnings.push('reasoning "off" requested, but this model does not support disabling thinking; the setting was omitted.');
-    } else {
-      // Unknown capabilities — don't risk sending an unsupported field.
-      warnings.push('reasoning "off" requested, but model capabilities are unknown; the setting was omitted.');
     }
+    // capKnown === false: silently omit; field is dropped to avoid 400s.
   } else if (cfg.mode === 'on') {
     if (!capKnown) {
-      warnings.push('reasoning "on" requested, but model capabilities are unknown; the setting was omitted.');
+      // Silently omit; cannot verify the model accepts an explicit "on".
     } else if (!supportsReasoning && rc?.default === 'disabled') {
       warnings.push('reasoning "on" requested, but this model has reasoning disabled by default and does not advertise support; the setting was omitted.');
     } else {
@@ -113,9 +114,9 @@ export function resolveReasoningForRequest(
       );
     } else if (capKnown) {
       warnings.push(`reasoning effort "${effort}" requested, but this model does not support effort; the setting was omitted.`);
-    } else {
-      warnings.push(`reasoning effort "${effort}" requested, but model capabilities are unknown; the setting was omitted.`);
     }
+    // capKnown === false: silently omit; the resolver cannot tell whether
+    // the model supports effort, so it drops the field rather than guess.
   }
 
   if (cfg.preserve !== undefined) {
