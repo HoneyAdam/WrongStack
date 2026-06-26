@@ -4,11 +4,17 @@ import type { Config, Logger, ModelsRegistry, ResolvedProvider } from '@wrongsta
 
 // Mock the providers package — we test setupProvider in isolation from
 // the real provider factory chain. The factories are exercised in their
-// own package tests.
-vi.mock('@wrongstack/providers', () => ({
-  buildProviderFactoriesFromRegistry: vi.fn(),
-  makeProviderFromConfig: vi.fn(),
-}));
+// own package tests. `capabilitiesFor` is the real implementation so
+// the per-model catalog resolution path (which is what Chimera depends
+// on) actually runs.
+vi.mock('@wrongstack/providers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@wrongstack/providers')>();
+  return {
+    ...actual,
+    buildProviderFactoriesFromRegistry: vi.fn(),
+    makeProviderFromConfig: vi.fn(),
+  };
+});
 
 const providersMod = await import('@wrongstack/providers');
 const buildProviderFactoriesFromRegistry = vi.mocked(
@@ -79,10 +85,16 @@ describe('setupProvider', () => {
 
   it('falls back to savedProviderCfg.type when primary lookup misses', async () => {
     const resolved = { family: 'openai', npm: 'openai' } as ResolvedProvider;
+    // setupProvider calls getProvider twice (primary + savedCfg.type) for
+    // provider resolution, and capabilitiesFor() then calls it a third
+    // time to compute the family baseline. Mock all three to return the
+    // saved-config entry so capability resolution doesn't drop the test
+    // into the unsupported family.
     const getProvider = vi
       .fn()
       .mockImplementationOnce(() => Promise.resolve(undefined))
-      .mockImplementationOnce(() => Promise.resolve(resolved));
+      .mockImplementationOnce(() => Promise.resolve(resolved))
+      .mockImplementation(() => Promise.resolve(resolved));
     const modelsRegistry = fakeModelsRegistry({ getProvider });
 
     const out = await setupProvider({
@@ -94,7 +106,7 @@ describe('setupProvider', () => {
       logger: fakeLogger(),
     });
 
-    expect(getProvider).toHaveBeenCalledTimes(2);
+    expect(getProvider).toHaveBeenCalledTimes(3);
     expect(out.resolvedProvider).toBe(resolved);
   });
 
@@ -284,5 +296,96 @@ describe('setupProvider', () => {
         logger: fakeLogger(),
       }),
     ).rejects.toThrow(/Failed to load models\.dev registry.*registry boom/);
+  });
+
+  // ---- maxOutput resolution (drives Chimera's Request.maxTokens) ----
+  //
+  // These tests exercise the real capabilitiesFor() path, not a mock.
+  // The mock provider instance starts with no `capabilities`; setupProvider
+  // should populate maxOutput from the models.dev catalog lookup.
+
+  function providerWith(caps: Record<string, unknown>): { capabilities: Record<string, unknown> } {
+    return { capabilities: caps } as never;
+  }
+
+  it('overwrites the provider family baseline with catalog-resolved maxOutput', async () => {
+    // makeProviderFromConfig returns a stub whose `capabilities` carries
+    // only the family default (no maxOutput). setupProvider must reach
+    // the registry, call capabilitiesFor, and put the catalog value on
+    // the provider so agent-response can read it.
+    //
+    // Note: buildProviderFactoriesFromRegistry is mocked to return [] so
+    // the registry-driven path falls through to makeProviderFromConfig —
+    // that's the path the test exercises.
+    buildProviderFactoriesFromRegistry.mockResolvedValue([]);
+    makeProviderFromConfig.mockReturnValue(providerWith({ maxContext: 200_000 }) as never);
+    const getModel = vi.fn(async (providerId: string, modelId: string) => ({
+      providerId,
+      modelId,
+      capabilities: {
+        tools: true,
+        vision: true,
+        reasoning: false,
+        maxContext: 200_000,
+        maxOutput: 64_000,
+      },
+    }));
+    const modelsRegistry = fakeModelsRegistry({ getModel });
+    const logger = fakeLogger();
+
+    const { provider } = await setupProvider({
+      config: fakeConfig({ provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+      modelsRegistry,
+      logger: fakeLogger(),
+    });
+
+    expect((provider as { capabilities: { maxOutput?: number } }).capabilities.maxOutput).toBe(
+      64_000,
+    );
+  });
+
+  it('falls back to undefined maxOutput when the catalog has no entry for the model', async () => {
+    // Some user-defined providers don't show up in models.dev at all —
+    // the registry returns undefined for getModel. setupProvider must
+    // not invent a value, just leave the family default unset so
+    // agent-response applies its 8192 safety net.
+    buildProviderFactoriesFromRegistry.mockResolvedValue([]);
+    makeProviderFromConfig.mockReturnValue(providerWith({ maxContext: 8_192 }) as never);
+    const modelsRegistry = fakeModelsRegistry({
+      getModel: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const { provider } = await setupProvider({
+      config: fakeConfig({ provider: 'openai-compatible', model: 'my-fine-tune' }),
+      modelsRegistry,
+      logger: fakeLogger(),
+    });
+
+    expect(
+      (provider as { capabilities: { maxOutput?: number } }).capabilities.maxOutput,
+    ).toBeUndefined();
+  });
+
+  it('skips catalog resolution when modelsRegistry feature is disabled', async () => {
+    // Feature off → we don't even call the registry, so the provider's
+    // baseline capabilities stay intact. The 8192 fallback in
+    // agent-response covers this case.
+    const baselineCaps = { maxContext: 8_192, maxOutput: 8_192 };
+    makeProviderFromConfig.mockReturnValue(providerWith(baselineCaps) as never);
+    const getModel = vi.fn();
+    const modelsRegistry = fakeModelsRegistry({ getModel });
+
+    const { provider } = await setupProvider({
+      config: fakeConfig({
+        features: { mcp: true, plugins: true, memory: true, modelsRegistry: false, skills: true },
+      }),
+      modelsRegistry,
+      logger: fakeLogger(),
+    });
+
+    expect(getModel).not.toHaveBeenCalled();
+    expect((provider as { capabilities: { maxOutput?: number } }).capabilities.maxOutput).toBe(
+      8_192,
+    );
   });
 });

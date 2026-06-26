@@ -1,6 +1,5 @@
 import type { ResolvedProvider } from '@wrongstack/core';
 import {
-  type Capabilities,
   type Config,
   type Logger,
   mergeCustomModelDefs,
@@ -152,10 +151,20 @@ export async function setupProvider(params: {
         config.model,
         mergedModels,
       );
-      // Provider.capabilities is declared `readonly`; replace it via the
-      // object reference. The provider already holds the family baseline
-      // — we only need to refresh the catalog-resolved fields on top.
-      (provider as { capabilities: Capabilities }).capabilities = resolvedCaps;
+      // `Provider.capabilities` is declared `readonly`; the property
+      // descriptor was set with `writable: false` at construction time.
+      // `Object.defineProperty` lets us redefine it as a writable data
+      // property and assign the catalog-resolved value without the
+      // `as { capabilities: Capabilities }` type-assertion that an
+      // unrestricted assignment would need. The provider already holds
+      // the family baseline — we only need to refresh the catalog-
+      // resolved fields on top.
+      Object.defineProperty(provider, 'capabilities', {
+        value: resolvedCaps,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
     } catch (err) {
       // Catalog lookup failure should not block boot. The family default
       // already provides a usable maxOutput fallback.
