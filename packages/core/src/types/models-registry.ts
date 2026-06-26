@@ -9,6 +9,12 @@ export interface ModelsDevModel {
   id: string;
   name: string;
   family?: string | undefined;
+  /**
+   * One-line capability blurb. Not part of the upstream models.dev schema —
+   * carried by our curated overlay (`packages/cli/data/providers.json`, synced
+   * from raw GitHub) for subscription models like openai-codex.
+   */
+  description?: string | undefined;
   attachment?: boolean | undefined;
   reasoning?: boolean | undefined;
   reasoningConfig?: ReasoningConfig | undefined;

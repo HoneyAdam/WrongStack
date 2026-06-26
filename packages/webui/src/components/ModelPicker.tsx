@@ -112,17 +112,24 @@ export function ModelPicker({
                     setOpen(false);
                   }}
                   className={cn(
-                    'flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs hover:bg-muted',
+                    'flex w-full items-start gap-1.5 px-2 py-1.5 text-left text-xs hover:bg-muted',
                     selected ? 'text-violet-700 dark:text-violet-200' : 'text-foreground',
                   )}
                 >
                   {selected ? (
-                    <Check className="h-3 w-3 shrink-0 text-violet-400" />
+                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-violet-400" />
                   ) : (
                     <span className="w-3 shrink-0" />
                   )}
-                  <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                  <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{c.label}</span>
+                    {c.description && (
+                      <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                        {c.description}
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 shrink-0 font-mono text-[9px] text-muted-foreground">
                     {c.provider}
                   </span>
                 </button>

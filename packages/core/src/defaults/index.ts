@@ -305,6 +305,7 @@ export {
   describeCatalogModel,
   type ProviderModelDescriptor,
 } from '../models/provider-model-resolve.js';
+export { CODEX_MODELS, codexModelMeta, type CodexModelMeta } from '../models/codex-catalog.js';
 
 // ---- SDD ----
 export { SpecParser } from '../sdd/spec-parser.js';

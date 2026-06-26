@@ -44,7 +44,7 @@ afterEach(async () => {
 
 describe('resolveChimeraConfig', () => {
   it('applies defaults and honors overrides', () => {
-    expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, maxTokens: 4096 });
+    expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, maxTokens: 8192 });
     expect(resolveChimeraConfig({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, maxTokens: 99 }, 'p', 'm')).toEqual({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, maxTokens: 99 });
   });
 });

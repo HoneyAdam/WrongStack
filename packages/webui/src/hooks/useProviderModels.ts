@@ -8,6 +8,7 @@ export interface ModelCandidate {
   provider: string;
   model: string;
   label: string;
+  description?: string | undefined;
   contextWindow?: number | undefined;
 }
 
@@ -22,7 +23,7 @@ export function useProviderModels(active: boolean): ModelCandidate[] {
   const { listSavedProviders, listProviderModels } = useWebSocket();
   const [saved, setSaved] = useState<string[]>([]);
   const [byProvider, setByProvider] = useState<
-    Record<string, Array<{ id: string; name?: string; contextWindow?: number }>>
+    Record<string, Array<{ id: string; name?: string; description?: string; contextWindow?: number }>>
   >({});
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export function useProviderModels(active: boolean): ModelCandidate[] {
     const offModels = client.on('provider.models', (msg: WSServerMessage) => {
       const p = msg.payload as {
         provider: string;
-        models?: Array<{ id: string; name?: string; contextWindow?: number }>;
+        models?: Array<{ id: string; name?: string; description?: string; contextWindow?: number }>;
       };
       setByProvider((prev) => ({ ...prev, [p.provider]: p.models ?? [] }));
     });
@@ -57,7 +58,13 @@ export function useProviderModels(active: boolean): ModelCandidate[] {
     const out: ModelCandidate[] = [];
     for (const provider of saved) {
       for (const m of byProvider[provider] ?? []) {
-        out.push({ provider, model: m.id, label: m.name ?? m.id, contextWindow: m.contextWindow });
+        out.push({
+          provider,
+          model: m.id,
+          label: m.name ?? m.id,
+          description: m.description,
+          contextWindow: m.contextWindow,
+        });
       }
     }
     return out;

@@ -1,4 +1,5 @@
 import type { ModelsDevModel, ResolvedProvider } from '../types/models-registry.js';
+import { codexModelMeta } from './codex-catalog.js';
 
 /**
  * A model descriptor shaped for the WebUI `provider.models` message. All
@@ -8,6 +9,8 @@ import type { ModelsDevModel, ResolvedProvider } from '../types/models-registry.
 export interface ProviderModelDescriptor {
   id: string;
   name: string;
+  /** One-line capability blurb, when known (e.g. the Codex subscription models). */
+  description?: string | undefined;
   releaseDate?: string | undefined;
   contextWindow?: number | undefined;
   inputCost?: number | undefined;
@@ -20,6 +23,7 @@ export function describeCatalogModel(m: ModelsDevModel): ProviderModelDescriptor
   return {
     id: m.id,
     name: m.name,
+    ...(m.description !== undefined ? { description: m.description } : {}),
     releaseDate: m.release_date,
     contextWindow: m.limit?.context,
     inputCost: m.cost?.input,
@@ -58,8 +62,19 @@ export function resolveProviderModelList(
   if (savedModels && savedModels.length > 0) {
     const byId = new Map((catalog?.models ?? []).map((m) => [m.id, m]));
     return savedModels.map((id) => {
+      // OAuth / subscription ids (openai-codex) are absent from the models.dev
+      // catalog, so layer their canonical name + description on top: enrich a
+      // catalog hit with the blurb, or synthesize a full descriptor from it.
+      const codex = codexModelMeta(id);
       const hit = byId.get(id);
-      return hit ? describeCatalogModel(hit) : { id, name: id, capabilities: [] };
+      if (hit) {
+        const described = describeCatalogModel(hit);
+        return codex ? { ...described, description: codex.description } : described;
+      }
+      if (codex) {
+        return { id, name: codex.name, description: codex.description, capabilities: [] };
+      }
+      return { id, name: id, capabilities: [] };
     });
   }
   if (catalog) return catalog.models.map(describeCatalogModel);

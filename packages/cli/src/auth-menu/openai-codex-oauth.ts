@@ -28,6 +28,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import {
+  CODEX_MODELS,
   color,
   type ModelsRegistry,
   type ProviderApiKey,
@@ -160,16 +161,14 @@ export function extractAccountId(token: string): string | null {
 /**
  * Recommended Codex models for ChatGPT sign-in. Live backend discovery
  * wins; these values are only used when the backend/catalog cannot
- * provide a list. Single source of truth — used both by OAuth login
+ * provide a list. Derived from `CODEX_MODELS` in core (the single source of
+ * truth for Codex id/name/description) — used both by OAuth login
  * (resolveCodexModels → tier 3) and by the provider-boot synthesis
  * path (wiring/provider.ts when the catalog is unavailable).
  */
-export const FALLBACK_CODEX_MODELS: ReadonlyArray<{ id: string; name: string }> = [
-  { id: 'gpt-5.5', name: 'gpt-5.5' },
-  { id: 'gpt-5.4', name: 'gpt-5.4' },
-  { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini' },
-  { id: 'gpt-5.3-codex-spark', name: 'gpt-5.3-codex-spark' },
-];
+export const FALLBACK_CODEX_MODELS: ReadonlyArray<{ id: string; name: string }> = CODEX_MODELS.map(
+  (m) => ({ id: m.id, name: m.name }),
+);
 
 /** Families in the models.dev catalog that indicate Codex / Responses API compatibility. */
 export const CODEX_CATALOG_FAMILIES = new Set(['gpt-codex', 'gpt-codex-spark']);

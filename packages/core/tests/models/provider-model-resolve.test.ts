@@ -42,6 +42,13 @@ describe('describeCatalogModel', () => {
   it('emits no capabilities for a bare model', () => {
     expect(describeCatalogModel(catalogModel()).capabilities).toEqual([]);
   });
+
+  it('surfaces an overlay description when present, omits it otherwise', () => {
+    expect(describeCatalogModel(catalogModel({ description: 'Ultra-fast coding model.' }))).toMatchObject(
+      { description: 'Ultra-fast coding model.' },
+    );
+    expect(describeCatalogModel(catalogModel())).not.toHaveProperty('description');
+  });
 });
 
 describe('resolveProviderModelList', () => {
@@ -76,6 +83,37 @@ describe('resolveProviderModelList', () => {
       capabilities: ['tools'],
     });
     expect(list[1]).toEqual({ id: 'unknown', name: 'unknown', capabilities: [] });
+  });
+
+  it('enriches openai-codex ids with canonical name + description (no catalog)', () => {
+    const list = resolveProviderModelList(['gpt-5.5', 'gpt-5.4-mini'], undefined);
+    expect(list).toEqual([
+      {
+        id: 'gpt-5.5',
+        name: 'GPT-5.5',
+        description: 'Frontier model for complex coding, research, and real-world work.',
+        capabilities: [],
+      },
+      {
+        id: 'gpt-5.4-mini',
+        name: 'GPT-5.4 Mini',
+        description: 'Small, fast, and cost-efficient model for simpler coding tasks.',
+        capabilities: [],
+      },
+    ]);
+  });
+
+  it('layers the codex description onto a catalog hit for the same id', () => {
+    const list = resolveProviderModelList(
+      ['gpt-5.5'],
+      catalog([catalogModel({ id: 'gpt-5.5', name: 'GPT-5.5', limit: { context: 400000 } })]),
+    );
+    expect(list[0]).toMatchObject({
+      id: 'gpt-5.5',
+      name: 'GPT-5.5',
+      contextWindow: 400000,
+      description: 'Frontier model for complex coding, research, and real-world work.',
+    });
   });
 
   it('returns an empty list (never an error) for an unknown provider with no allowlist', () => {

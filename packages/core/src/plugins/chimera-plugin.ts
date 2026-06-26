@@ -25,7 +25,7 @@ export interface ResolvedChimeraConfig {
 }
 
 const DEFAULT_MAX_FILES = 15;
-const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_MAX_TOKENS = 8192;
 
 export function resolveChimeraConfig(
   cfg: ChimeraConfig,
@@ -180,7 +180,7 @@ function buildChimeraCommand(getConfig: () => ResolvedChimeraConfig): SlashComma
       '  extensions.wstack-chimera.provider   provider id',
       '  extensions.wstack-chimera.model      model id',
       '  extensions.wstack-chimera.maxFiles   max files (default 15)',
-      '  extensions.wstack-chimera.maxTokens  output tokens (default 4096)',
+      '  extensions.wstack-chimera.maxTokens  output tokens (default 8192)',
     ].join('\n'),
     async run() {
       const cfg = getConfig();

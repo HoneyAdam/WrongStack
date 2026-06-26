@@ -16,6 +16,7 @@ export {
   describeCatalogModel,
   type ProviderModelDescriptor,
 } from './provider-model-resolve.js';
+export { CODEX_MODELS, codexModelMeta, type CodexModelMeta } from './codex-catalog.js';
 
 // Model intelligence: capability profiles and auto-routing
 export {

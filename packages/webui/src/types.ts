@@ -581,6 +581,7 @@ export interface WSProviderModels {
     models: Array<{
       id: string;
       name: string;
+      description?: string | undefined;
       releaseDate?: string | undefined;
       contextWindow?: number | undefined;
       inputCost?: number | undefined;
