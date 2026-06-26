@@ -1940,31 +1940,44 @@ export async function main(argv: string[]): Promise<number> {
         return 'No fleet transcripts on disk — no subagents have been spawned for this session.';
       }
       // Collect every transcript across every run-dir for this session.
+      // Parallelize both layers: the per-run-dir readdir+stat scan is
+      // independent across runs, and within a run the per-file stat calls
+      // are independent. `Promise.all` is safe here because the workload
+      // is bounded by `runDirs.length × files-per-run` and we don't hold
+      // any shared mutable state during the scan — `found.push` only runs
+      // after the per-run promise resolves.
       const found: Array<{ runId: string; subagentId: string; file: string; size: number }> = [];
-      for (const runId of runDirs) {
-        const runDir = path.join(subagentsRoot, runId);
-        let files: string[];
-        try {
-          files = await fs.readdir(runDir);
-        } catch {
-          continue;
-        }
-        for (const f of files) {
-          if (!f.endsWith('.jsonl')) continue;
-          const full = path.join(runDir, f);
+      const runResults = await Promise.all(
+        runDirs.map(async (runId): Promise<Array<{ runId: string; subagentId: string; file: string; size: number }>> => {
+          const runDir = path.join(subagentsRoot, runId);
+          let files: string[];
           try {
-            const stat = await fs.stat(full);
-            found.push({
-              runId,
-              subagentId: f.replace(/\.jsonl$/, ''),
-              file: full,
-              size: stat.size,
-            });
+            files = await fs.readdir(runDir);
           } catch {
-            // skip
+            return [];
           }
-        }
-      }
+          // Per-file stat in parallel — bounded by files-in-this-run.
+          const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+          const fileResults = await Promise.all(
+            jsonlFiles.map(async (f) => {
+              const full = path.join(runDir, f);
+              try {
+                const stat = await fs.stat(full);
+                return {
+                  runId,
+                  subagentId: f.replace(/\.jsonl$/, ''),
+                  file: full,
+                  size: stat.size,
+                };
+              } catch {
+                return null;
+              }
+            }),
+          );
+          return fileResults.filter((r): r is NonNullable<typeof r> => r !== null);
+        }),
+      );
+      for (const runResult of runResults) found.push(...runResult);
       if (found.length === 0) {
         return 'No subagent transcripts found on disk.';
       }
