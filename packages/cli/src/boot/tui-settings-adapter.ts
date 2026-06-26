@@ -76,6 +76,22 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       reasoningEffortRaw === 'max'
         ? reasoningEffortRaw
         : 'high';
+    // Resolve the filesystem-access pair from whichever side of the
+    // duplicated config (features.allowOutsideProjectRoot vs
+    // tools.restrictToProjectRoot) the user actually wrote. They MUST
+    // round-trip as inverses of each other — otherwise the picker would
+    // show contradictory values, and saving would silently flip the
+    // user's intent. Source of truth order matches `deriveFsAccessPair`
+    // in settings-menu.ts: features.allowOutsideProjectRoot wins if set.
+    const featuresAllow = cfg.features?.allowOutsideProjectRoot;
+    const toolsRestrict = cfg.tools?.restrictToProjectRoot;
+    const resolvedAllow =
+      featuresAllow !== undefined
+        ? featuresAllow
+        : toolsRestrict !== undefined
+          ? !toolsRestrict
+          : true;
+    const resolvedRestrict = !resolvedAllow;
     return {
       mode,
       delayMs: (autonomy?.autoProceedDelayMs as number) ?? 45_000,
@@ -91,7 +107,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       featureSkills: cfg.features?.skills !== false,
       featureModelsRegistry: cfg.features?.modelsRegistry !== false,
       featureTokenSaving: normalizeTokenSavingTier(cfg.features?.tokenSavingMode),
-      allowOutsideProjectRoot: cfg.features?.allowOutsideProjectRoot ?? true,
+      allowOutsideProjectRoot: resolvedAllow,
       contextAutoCompact: cfg.context?.autoCompact !== false,
       contextStrategy: cfg.context?.strategy ?? 'hybrid',
       contextMode,
@@ -100,7 +116,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       auditLevel: cfg.session?.auditLevel ?? 'standard',
       indexOnStart: cfg.indexing?.onSessionStart !== false,
       maxIterations: cfg.tools?.maxIterations ?? 500,
-      restrictFsToRoot: cfg.tools?.restrictToProjectRoot ?? false,
+      restrictFsToRoot: resolvedRestrict,
       autoProceedMaxIterations:
         ((cfg.autonomy as Record<string, unknown> | undefined)
           ?.autoProceedMaxIterations as number) ?? 50,

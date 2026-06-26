@@ -315,4 +315,188 @@ describe('TUI settings adapter', () => {
     expect(configStore.get().context.mode).toBe('frugal');
     expect(configStore.get().modelRuntime?.reasoning?.mode).toBe('on');
   });
+
+  // ── getSettings() filesystem-access pair resolution ────────────────────
+  //
+  // The picker reads TWO knobs from the config (allowOutsideProjectRoot +
+  // restrictFsToRoot). The save side already derives them from one
+  // input — `deriveFsAccessPair`. The read side used to read them as
+  // independent values, which meant a legacy config that ONLY carried
+  // `tools.restrictToProjectRoot=true` would surface in the picker as
+  // `allow=true, restrict=true` (contradictory) and a save would silently
+  // flip the user's restriction. These tests pin the read-side fix.
+
+  it('legacy config with only tools.restrictToProjectRoot=true resolves as allow=false, restrict=true', () => {
+    const { adapter } = makeAdapter(
+      baseConfig({
+        // Force-restrict. The "new" features.allowOutsideProjectRoot is
+        // explicitly absent so the read side has to fall back to tools.
+        tools: {
+          defaultExecutionStrategy: 'smart',
+          maxIterations: 100,
+          iterationTimeoutMs: 300_000,
+          sessionTimeoutMs: 1_800_000,
+          perIterationOutputCapBytes: 100_000,
+          descriptionMode: {},
+          autoExtendLimit: true,
+          restrictToProjectRoot: true,
+        },
+        features: {
+          mcp: true,
+          plugins: true,
+          memory: true,
+          modelsRegistry: true,
+          skills: true,
+          tokenSavingMode: 'off',
+          // allowOutsideProjectRoot intentionally absent
+        },
+      }),
+    );
+
+    const s = adapter.getSettings();
+    // Both knobs must agree — the picker's whole point is that they're
+    // inverses of each other.
+    expect(s['allowOutsideProjectRoot']).toBe(false);
+    expect(s['restrictFsToRoot']).toBe(true);
+  });
+
+  it('features.allowOutsideProjectRoot=false alone overrides absent tools.restrictToProjectRoot', () => {
+    const { adapter } = makeAdapter(
+      baseConfig({
+        // allow explicitly set; tools.restrictToProjectRoot absent.
+        features: {
+          mcp: true,
+          plugins: true,
+          memory: true,
+          modelsRegistry: true,
+          skills: true,
+          tokenSavingMode: 'off',
+          allowOutsideProjectRoot: false,
+        },
+        tools: {
+          defaultExecutionStrategy: 'smart',
+          maxIterations: 100,
+          iterationTimeoutMs: 300_000,
+          sessionTimeoutMs: 1_800_000,
+          perIterationOutputCapBytes: 100_000,
+          descriptionMode: {},
+          autoExtendLimit: true,
+          // restrictToProjectRoot intentionally absent
+        },
+      }),
+    );
+
+    const s = adapter.getSettings();
+    expect(s['allowOutsideProjectRoot']).toBe(false);
+    expect(s['restrictFsToRoot']).toBe(true);
+  });
+
+  it('legacy config with both sides set consistently stays consistent after a save+getSettings', async () => {
+    // Pre-fix: this would silently flip on save because the picker would
+    // display allow=true (from default), restrict=true (from legacy).
+    // Post-fix: the read resolves allow=false, restrict=true. A save of
+    // restrictFsToRoot=true leaves both sides in agreement.
+    const { adapter, globalConfig } = makeAdapter(
+      baseConfig({
+        tools: {
+          defaultExecutionStrategy: 'smart',
+          maxIterations: 100,
+          iterationTimeoutMs: 300_000,
+          sessionTimeoutMs: 1_800_000,
+          perIterationOutputCapBytes: 100_000,
+          descriptionMode: {},
+          autoExtendLimit: true,
+          restrictToProjectRoot: true,
+        },
+        features: {
+          mcp: true,
+          plugins: true,
+          memory: true,
+          modelsRegistry: true,
+          skills: true,
+          tokenSavingMode: 'off',
+        },
+      }),
+    );
+
+    let s = adapter.getSettings();
+    expect(s['allowOutsideProjectRoot']).toBe(false);
+    expect(s['restrictFsToRoot']).toBe(true);
+
+    // Now the user saves the same intent through the picker. Both knobs
+    // must round-trip as inverses; the file must NOT regress to default.
+    const err = await adapter.saveSettings({ restrictFsToRoot: true });
+    expect(err).toBeNull();
+
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.tools.restrictToProjectRoot).toBe(true);
+    expect(written.features.allowOutsideProjectRoot).toBe(false);
+
+    s = adapter.getSettings();
+    expect(s['allowOutsideProjectRoot']).toBe(false);
+    expect(s['restrictFsToRoot']).toBe(true);
+  });
+
+  it('legacy config where both sides disagree: features.allowOutsideProjectRoot wins on read', () => {
+    // Defensive: a hand-edited config with contradictory values. The
+    // source-of-truth order matches `deriveFsAccessPair` —
+    // features.allowOutsideProjectRoot wins.
+    const { adapter } = makeAdapter(
+      baseConfig({
+        tools: {
+          defaultExecutionStrategy: 'smart',
+          maxIterations: 100,
+          iterationTimeoutMs: 300_000,
+          sessionTimeoutMs: 1_800_000,
+          perIterationOutputCapBytes: 100_000,
+          descriptionMode: {},
+          autoExtendLimit: true,
+          restrictToProjectRoot: false,
+        },
+        features: {
+          mcp: true,
+          plugins: true,
+          memory: true,
+          modelsRegistry: true,
+          skills: true,
+          tokenSavingMode: 'off',
+          allowOutsideProjectRoot: false,
+        },
+      }),
+    );
+
+    const s = adapter.getSettings();
+    expect(s['allowOutsideProjectRoot']).toBe(false);
+    expect(s['restrictFsToRoot']).toBe(true);
+  });
+
+  it('neither side set: picker defaults to allow=true, restrict=false', () => {
+    const { adapter } = makeAdapter(
+      baseConfig({
+        tools: {
+          defaultExecutionStrategy: 'smart',
+          maxIterations: 100,
+          iterationTimeoutMs: 300_000,
+          sessionTimeoutMs: 1_800_000,
+          perIterationOutputCapBytes: 100_000,
+          descriptionMode: {},
+          autoExtendLimit: true,
+          // restrictToProjectRoot intentionally absent
+        },
+        features: {
+          mcp: true,
+          plugins: true,
+          memory: true,
+          modelsRegistry: true,
+          skills: true,
+          tokenSavingMode: 'off',
+          // allowOutsideProjectRoot intentionally absent
+        },
+      }),
+    );
+
+    const s = adapter.getSettings();
+    expect(s['allowOutsideProjectRoot']).toBe(true);
+    expect(s['restrictFsToRoot']).toBe(false);
+  });
 });
