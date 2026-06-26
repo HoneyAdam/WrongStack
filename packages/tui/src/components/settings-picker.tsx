@@ -131,6 +131,10 @@ export interface SettingsPickerProps {
   // ── Reasoning ──
   /** Thinking word displayed in status bar while agent is working. */
   thinkingWord: string;
+  /** True while the user is free-text editing the thinking word (Enter on the row). */
+  thinkingWordEditing?: boolean | undefined;
+  /** In-progress text buffer shown while `thinkingWordEditing`. */
+  thinkingWordDraft?: string | undefined;
   /** Reasoning mode: auto (provider default) | on | off. */
   reasoningMode: ReasoningMode;
   /** Reasoning effort level. */
@@ -161,6 +165,34 @@ export interface SettingsPickerProps {
 /** Total number of settings rows (used for wrap-around navigation). */
 export const SETTINGS_FIELD_COUNT = 35;
 
+/**
+ * Field index of the "Thinking word" row. The reducer's per-field switch and
+ * the app.tsx key handler both branch on this, so it lives next to the row
+ * definitions to keep the three in sync. If the row order changes, update this.
+ */
+export const THINKING_WORD_FIELD = 21;
+
+/**
+ * Curated words the "Thinking word" field cycles through with ←/→. The user's
+ * own custom word (set via Enter free-text edit or config) is folded into this
+ * list at runtime so cycling never drops it. All entries must satisfy
+ * `normalizeTuiThinkingWord` (single short word, ≤16 chars).
+ */
+export const THINKING_WORD_PRESETS = [
+  'thinking',
+  'working',
+  'cooking',
+  'vibing',
+  'pondering',
+  'brewing',
+  'crunching',
+  'computing',
+  'grinding',
+  'noodling',
+  'churning',
+  'hacking',
+] as const;
+
 export const CONFIG_SCOPES = ['global', 'project'] as const;
 export type ConfigScope = (typeof CONFIG_SCOPES)[number];
 
@@ -188,6 +220,8 @@ export function SettingsPicker({
   enhanceLanguage,
   indexOnStart,
   thinkingWord,
+  thinkingWordEditing,
+  thinkingWordDraft,
   reasoningMode,
   reasoningEffort,
   reasoningPreserve,
@@ -326,8 +360,10 @@ export function SettingsPicker({
     { section: 'Reasoning' },
     {
       label: 'Thinking word',
-      value: thinkingWord,
-      detail: 'Word shown in status bar while agent works',
+      value: thinkingWordEditing ? `${thinkingWordDraft ?? ''}▏` : thinkingWord,
+      detail: thinkingWordEditing
+        ? 'type a word · Enter ✓ · Esc ✗ (≤16, letters/digits/_/-)'
+        : 'Status-bar working word · ←/→ presets · Enter to type',
     },
     {
       label: 'Reasoning mode',

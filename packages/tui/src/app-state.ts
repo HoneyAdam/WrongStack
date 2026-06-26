@@ -312,6 +312,10 @@ export type State = {
     reasoningPreserve: boolean;
     /** Single word shown in the TUI rainbow working-state chip. */
     thinkingWord: string;
+    /** True while free-text editing the thinking word (Enter on its row). */
+    thinkingWordEditing: boolean;
+    /** In-progress text buffer while `thinkingWordEditing`. */
+    thinkingWordDraft: string;
     /** Prompt cache TTL. */
     cacheTtl: CacheTtl;
     /** Where to persist settings: 'global' or 'project'. */
@@ -770,6 +774,14 @@ export type Action =
   | { type: 'settingsFieldSet'; field: number }
   | { type: 'settingsValueChange'; delta: number }
   | { type: 'settingsHint'; text?: string | undefined }
+  /** Begin free-text editing of the thinking word (Enter on its row). */
+  | { type: 'settingsThinkingEditStart' }
+  /** Replace the in-progress thinking-word draft with the given buffer. */
+  | { type: 'settingsThinkingEditChange'; draft: string }
+  /** Commit the draft as the new thinking word (validated in the reducer). */
+  | { type: 'settingsThinkingEditCommit' }
+  /** Discard the draft and leave edit mode without changing the word. */
+  | { type: 'settingsThinkingEditCancel' }
   | { type: 'statuslineOpen'; hiddenItems: StatuslineItem[] }
   | { type: 'statuslineClose' }
   | { type: 'statuslineFieldMove'; delta: number }

@@ -23,8 +23,11 @@ import {
   SETTINGS_FIELD_COUNT,
   SETTINGS_MODES,
   STATUSLINE_MODES,
+  THINKING_WORD_FIELD,
+  THINKING_WORD_PRESETS,
   TOKEN_SAVING_TIERS,
 } from './components/settings-picker.js';
+import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinking-word.js';
 import type { Action, FleetEntry, QueueItem, State } from './app-state.js';
 import type { ProjectPickerItem } from './components/project-picker.js';
 
@@ -656,6 +659,8 @@ export function reducer(state: State, action: Action): State {
           reasoningEffort: action.reasoningEffort,
           reasoningPreserve: action.reasoningPreserve,
           thinkingWord: action.thinkingWord,
+          thinkingWordEditing: false,
+          thinkingWordDraft: '',
           cacheTtl: action.cacheTtl,
           configScope: action.configScope,
           hint: undefined,
@@ -669,9 +674,17 @@ export function reducer(state: State, action: Action): State {
     case 'settingsFieldMove': {
       const next =
         (state.settingsPicker.field + action.delta + SETTINGS_FIELD_COUNT) % SETTINGS_FIELD_COUNT;
+      // Moving focus abandons any in-progress thinking-word edit so the draft
+      // can't linger on an unrelated field.
       return {
         ...state,
-        settingsPicker: { ...state.settingsPicker, field: next, hint: undefined },
+        settingsPicker: {
+          ...state.settingsPicker,
+          field: next,
+          thinkingWordEditing: false,
+          thinkingWordDraft: '',
+          hint: undefined,
+        },
       };
     }
     case 'settingsFieldSet': {
@@ -861,8 +874,23 @@ export function reducer(state: State, action: Action): State {
           ...state,
           settingsPicker: { ...sp, indexOnStart: !sp.indexOnStart, hint: bootHint },
         };
-      // Field 21: thinking word (display-only, change via /thinking command)
-      if (f === 21) return state;
+      // Field 21: thinking word — ←/→ cycles curated presets (Enter opens
+      // free-text editing, handled by the settingsThinkingEdit* actions). The
+      // current word is folded into the list so cycling never drops a custom
+      // value set via the editor or config.
+      if (f === THINKING_WORD_FIELD) {
+        const cur = sp.thinkingWord;
+        const list: string[] = (THINKING_WORD_PRESETS as readonly string[]).includes(cur)
+          ? [...THINKING_WORD_PRESETS]
+          : [cur, ...THINKING_WORD_PRESETS];
+        const i = list.indexOf(cur);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + list.length) % list.length;
+        return {
+          ...state,
+          settingsPicker: { ...sp, thinkingWord: expectDefined(list[next]), hint: undefined },
+        };
+      }
       // ── Reasoning ───────────────────────────────────────────────────────────
       // Field 22: reasoning mode (cycle auto/on/off)
       if (f === 22) {
@@ -1023,6 +1051,64 @@ export function reducer(state: State, action: Action): State {
     }
     case 'settingsHint':
       return { ...state, settingsPicker: { ...state.settingsPicker, hint: action.text } };
+    case 'settingsThinkingEditStart':
+      return {
+        ...state,
+        settingsPicker: {
+          ...state.settingsPicker,
+          thinkingWordEditing: true,
+          // Seed the draft with the current word so the user edits from it.
+          thinkingWordDraft: state.settingsPicker.thinkingWord,
+          hint: undefined,
+        },
+      };
+    case 'settingsThinkingEditChange':
+      return {
+        ...state,
+        settingsPicker: {
+          ...state.settingsPicker,
+          // Hard-cap the draft so it can't grow past the persisted limit.
+          thinkingWordDraft: action.draft.slice(0, MAX_TUI_THINKING_WORD_LENGTH),
+          hint: undefined,
+        },
+      };
+    case 'settingsThinkingEditCommit': {
+      const sp = state.settingsPicker;
+      const raw = sp.thinkingWordDraft.trim();
+      // Empty draft = cancel (keep the current word). Otherwise validate: an
+      // invalid word keeps the current value and surfaces a hint rather than
+      // silently snapping to the default.
+      if (raw.length === 0) {
+        return {
+          ...state,
+          settingsPicker: { ...sp, thinkingWordEditing: false, thinkingWordDraft: '', hint: undefined },
+        };
+      }
+      const normalized = normalizeTuiThinkingWord(raw);
+      const valid = normalized === raw; // normalize falls back to default on invalid input
+      return {
+        ...state,
+        settingsPicker: {
+          ...sp,
+          thinkingWord: valid ? normalized : sp.thinkingWord,
+          thinkingWordEditing: false,
+          thinkingWordDraft: '',
+          hint: valid
+            ? undefined
+            : `Invalid word — keep it ≤${MAX_TUI_THINKING_WORD_LENGTH} chars (letters/digits/_/-)`,
+        },
+      };
+    }
+    case 'settingsThinkingEditCancel':
+      return {
+        ...state,
+        settingsPicker: {
+          ...state.settingsPicker,
+          thinkingWordEditing: false,
+          thinkingWordDraft: '',
+          hint: undefined,
+        },
+      };
     // ── Statusline picker ───────────────────────────────────────────────
     case 'statuslineOpen':
       return {

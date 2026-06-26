@@ -124,4 +124,42 @@ describe('StatuslinePicker render', () => {
     expect(frame).toContain('auto');
     unmount();
   });
+
+  it('windows the list instead of rendering every item at once', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(StatuslinePicker, {
+        field: 0, // focus the first item — window covers only the top items
+        hiddenItems: [],
+        visibleChips: [],
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    // Focused top item is visible…
+    expect(frame).toContain('breaker');
+    // …but items far below the window are NOT rendered, and a "below" hint shows.
+    expect(frame).not.toContain('mailbox');
+    expect(frame).toContain('below');
+    expect(frame).not.toContain('above');
+    unmount();
+  });
+
+  it('scrolls the window when focus moves to the bottom of the list', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(StatuslinePicker, {
+        field: STATUSLINE_ITEMS.length - 1, // focus the last item
+        hiddenItems: [],
+        visibleChips: [],
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    // Bottom items are now visible…
+    expect(frame).toContain('mailbox');
+    // …the top items have scrolled out, and an "above" hint shows.
+    expect(frame).not.toContain('breaker');
+    expect(frame).toContain('above');
+    expect(frame).not.toContain('below');
+    unmount();
+  });
 });

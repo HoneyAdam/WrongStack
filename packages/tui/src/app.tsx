@@ -63,7 +63,7 @@ import { PlanPanel } from './components/plan-panel.js';
 import { CoordinatorPanel } from './components/coordinator-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
-import { SettingsPicker, type ContextMode, type StatuslineMode } from './components/settings-picker.js';
+import { SettingsPicker, THINKING_WORD_FIELD, type ContextMode, type StatuslineMode } from './components/settings-picker.js';
 import { StatuslinePicker, STATUSLINE_ITEMS, isChipExpired, type StatuslineItem } from './components/statusline-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
@@ -1047,7 +1047,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', cacheTtl: 'default', configScope: 'global' },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default', configScope: 'global' },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     fKeyPicker: { open: false, selected: 0 },
@@ -4020,6 +4020,33 @@ export function App({
     }
 
     if (state.settingsPicker.open) {
+      const sp = state.settingsPicker;
+      // Modal free-text editing of the thinking word: while active, the row
+      // captures every key — type to edit, Enter commits, Esc cancels (and
+      // does NOT close the picker), Backspace deletes. Everything else is
+      // swallowed so navigation can't fire mid-edit.
+      if (sp.thinkingWordEditing) {
+        if (key.escape) {
+          dispatch({ type: 'settingsThinkingEditCancel' });
+          return;
+        }
+        if (isEnter) {
+          const now = Date.now();
+          if (now - lastEnterAtRef.current < 50) return;
+          lastEnterAtRef.current = now;
+          dispatch({ type: 'settingsThinkingEditCommit' });
+          return;
+        }
+        if (key.backspace) {
+          dispatch({ type: 'settingsThinkingEditChange', draft: sp.thinkingWordDraft.slice(0, -1) });
+          return;
+        }
+        if (input && input.length === 1 && input.charCodeAt(0) >= 0x20 && input.charCodeAt(0) < 0x7f) {
+          dispatch({ type: 'settingsThinkingEditChange', draft: sp.thinkingWordDraft + input });
+          return;
+        }
+        return;
+      }
       if (key.escape || (key.ctrl && input === 's')) {
         dispatch({ type: 'settingsClose' });
         return;
@@ -4049,8 +4076,13 @@ export function App({
         const now = Date.now();
         if (now - lastEnterAtRef.current < 50) return;
         lastEnterAtRef.current = now;
-        // Enter cycles the current field's value (same as ←/→).
-        dispatch({ type: 'settingsValueChange', delta: 1 });
+        // The thinking-word row opens free-text editing on Enter; every other
+        // field cycles its value (same as ←/→).
+        if (sp.field === THINKING_WORD_FIELD) {
+          dispatch({ type: 'settingsThinkingEditStart' });
+        } else {
+          dispatch({ type: 'settingsValueChange', delta: 1 });
+        }
         return;
       }
       return;
@@ -6355,6 +6387,8 @@ export function App({
               auditLevel={state.settingsPicker.auditLevel}
               indexOnStart={state.settingsPicker.indexOnStart}
               thinkingWord={state.settingsPicker.thinkingWord}
+              thinkingWordEditing={state.settingsPicker.thinkingWordEditing}
+              thinkingWordDraft={state.settingsPicker.thinkingWordDraft}
               maxIterations={state.settingsPicker.maxIterations}
               autoProceedMaxIterations={state.settingsPicker.autoProceedMaxIterations}
               enhanceDelayMs={state.settingsPicker.enhanceDelayMs}

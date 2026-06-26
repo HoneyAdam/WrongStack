@@ -247,7 +247,18 @@ export function StatuslinePicker({
 
   const byLine = groupByLine(STATUSLINE_ITEMS);
 
-  // Build section-aware row list: section headers + items.
+  // Compute which field indices are visible in the scroll window. The window
+  // tracks the focused field so navigating past the edge scrolls the list
+  // instead of letting it overflow the terminal.
+  const VISIBLE_FIELDS = 8;
+  const windowStart = Math.max(0, Math.min(field - Math.floor(VISIBLE_FIELDS / 2), totalFields - VISIBLE_FIELDS));
+  const windowEnd = Math.min(windowStart + VISIBLE_FIELDS, totalFields);
+  const hasAbove = windowStart > 0;
+  const hasBelow = windowEnd < totalFields;
+
+  // Build section-aware row list, but only for items inside the window. A
+  // section header is emitted only when at least one of its items is visible,
+  // so groups don't render empty headers when scrolled past.
   interface Row {
     section?: string | undefined;
     item?: StatuslineItem | undefined;
@@ -256,19 +267,16 @@ export function StatuslinePicker({
 
   const rows: Row[] = [];
   for (const [line, items] of [...byLine.entries()].sort((a, b) => a[0] - b[0])) {
+    const windowedItems = items.filter((item) => {
+      const idx = STATUSLINE_ITEMS.indexOf(item);
+      return idx >= windowStart && idx < windowEnd;
+    });
+    if (windowedItems.length === 0) continue;
     rows.push({ section: `Line ${line}` });
-    for (const item of items) {
-      const fieldIdx = STATUSLINE_ITEMS.indexOf(item);
-      rows.push({ item, fieldIdx });
+    for (const item of windowedItems) {
+      rows.push({ item, fieldIdx: STATUSLINE_ITEMS.indexOf(item) });
     }
   }
-
-  // Compute which field indices are visible in the window.
-  const VISIBLE_FIELDS = 7;
-  const windowStart = Math.max(0, Math.min(field - Math.floor(VISIBLE_FIELDS / 2), totalFields - VISIBLE_FIELDS));
-  const windowEnd = Math.min(windowStart + VISIBLE_FIELDS, totalFields);
-  const hasAbove = windowStart > 0;
-  const hasBelow = windowEnd < totalFields;
 
   const boolVal = (item: StatuslineItem): string => {
     if (hiddenSet.has(item)) return 'off';
