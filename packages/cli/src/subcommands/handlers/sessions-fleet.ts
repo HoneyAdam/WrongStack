@@ -35,45 +35,45 @@ async function listFleetRuns(deps: SubcommandDeps): Promise<number> {
 
   const runs: Array<{ id: string; manifest: boolean; checkpoint: boolean; subagents: number }> = [];
 
-  for (const id of entries) {
-    const runDir = path.join(deps.paths.projectSessions, id);
-    let stat;
-    try {
-      stat = await fsp.stat(runDir);
-    } catch {
-      continue; // skip inaccessible entries
-    }
-    if (!stat.isDirectory()) continue;
-
-    let manifest = false;
-    let checkpoint = false;
-    let subagentCount = 0;
-    let subagentsDir: string;
-
-    try {
-      await fsp.access(path.join(runDir, 'fleet.json'));
-      manifest = true;
-    } catch {
-      // no manifest
-    }
-
-    try {
-      await fsp.access(path.join(runDir, 'checkpoint.json'));
-      checkpoint = true;
-    } catch {
-      // no checkpoint
-    }
-
-    try {
-      subagentsDir = path.join(runDir, 'subagents');
-      const files = await fsp.readdir(subagentsDir);
-      subagentCount = files.filter((f) => f.endsWith('.jsonl')).length;
-    } catch {
-      // no subagents dir
-    }
-
-    runs.push({ id, manifest, checkpoint, subagents: subagentCount });
-  }
+  // Per-entry inspection can run in parallel — each entry's stat +
+  // access(manifest) + access(checkpoint) + readdir(subagents) are all
+  // independent files. The Promise.all below runs all four concurrently
+  // per entry, then derives the boolean fields from the resolved
+  // outcomes. Outer parallelism (Promise.all over entries) is bounded
+  // by the number of entries, which is the number of session runs on
+  // disk — small enough that unbounded fan-out is safe.
+  const perEntry = await Promise.all(
+    entries.map(async (id): Promise<{ id: string; manifest: boolean; checkpoint: boolean; subagents: number } | null> => {
+      const runDir = path.join(deps.paths.projectSessions, id);
+      try {
+        const stat = await fsp.stat(runDir);
+        if (!stat.isDirectory()) return null;
+      } catch {
+        return null; // skip inaccessible entries
+      }
+      const [manifestResult, checkpointResult, subagentFilesResult] = await Promise.all([
+        fsp.access(path.join(runDir, 'fleet.json')).then(
+          () => true,
+          () => false,
+        ),
+        fsp.access(path.join(runDir, 'checkpoint.json')).then(
+          () => true,
+          () => false,
+        ),
+        fsp.readdir(path.join(runDir, 'subagents')).then(
+          (files) => files.filter((f) => f.endsWith('.jsonl')).length,
+          () => 0,
+        ),
+      ]);
+      return {
+        id,
+        manifest: manifestResult,
+        checkpoint: checkpointResult,
+        subagents: subagentFilesResult,
+      };
+    }),
+  );
+  for (const r of perEntry) if (r) runs.push(r);
 
   if (runs.length === 0) {
     deps.renderer.write('No fleet runs found.\n');
@@ -192,20 +192,27 @@ async function showFleetRun(runId: string, deps: SubcommandDeps): Promise<number
 
   if (subagentFiles.length > 0) {
     deps.renderer.write(`\n  Subagent transcripts (${subagentFiles.length}):\n`);
-    for (const f of subagentFiles.sort()) {
-      const filePath = path.join(subagentsDir, f);
-      let size: number;
-      try {
-        const s = await fsp.stat(filePath);
-        size = s.size;
-      } catch {
-        size = 0;
-      }
+    // Stat all transcript files in parallel — each is an independent read,
+    // bounded by the number of subagents in this run (typically <100).
+    const sortedFiles = subagentFiles.sort();
+    const sizes = await Promise.all(
+      sortedFiles.map(async (f) => {
+        const filePath = path.join(subagentsDir, f);
+        try {
+          const s = await fsp.stat(filePath);
+          return s.size;
+        } catch {
+          return 0;
+        }
+      }),
+    );
+    for (let i = 0; i < sortedFiles.length; i++) {
+      const size = sizes[i] ?? 0;
       const sizeStr =
         size > 1024 * 1024
           ? `${(size / 1024 / 1024).toFixed(1)}MB`
           : `${(size / 1024).toFixed(0)}KB`;
-      deps.renderer.write(`    ${color.dim(f)}  ${color.dim(sizeStr)}\n`);
+      deps.renderer.write(`    ${color.dim(sortedFiles[i] ?? '')}  ${color.dim(sizeStr)}\n`);
     }
   } else {
     deps.renderer.write(`\n  ${color.dim('○')} No subagent transcripts\n`);
