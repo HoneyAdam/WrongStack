@@ -52,7 +52,11 @@ export function handleIterationStarted(msg: WSServerMessage) {
 }
 
 export function handleTextDelta(msg: WSServerMessage) {
-  pipeViz(msg);
+  // Per-token viz push removed — text_delta fires dozens of times per
+  // assistant message during streaming, and a per-token viz-store update
+  // has no visible effect on the cinematic view (it scrolls past faster
+  // than any frame budget). Iteration/tool/run-result events still pipe
+  // through, so viz reflects the structural shape of the run.
   const payload = msg.payload as { text: string; messageId: string };
   streamCoalescer.flush('__thinking__');
   useChatStore.getState().clearThinking();
@@ -67,7 +71,7 @@ export function handleTextDelta(msg: WSServerMessage) {
 }
 
 export function handleThinkingDelta(msg: WSServerMessage) {
-  pipeViz(msg);
+  // Per-token viz push removed (same reasoning as handleTextDelta).
   const payload = msg.payload as { text: string };
   if (!payload.text) return;
   streamCoalescer.push('__thinking__', payload.text, (_k, text) =>
