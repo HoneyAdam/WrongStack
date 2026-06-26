@@ -52,12 +52,20 @@ export function QueuePanel({
   // Display the queue in the user's chosen order. Sorting never mutates
   // the underlying store — we only reorder a local copy for rendering.
   // The store keeps items in arrival order; only this view flips them.
+  //
+  // Thread the source index alongside each item so the render loop can use
+  // it directly for removal without an O(n) `indexOf` per row. Without
+  // this, the render loop is O(n²) for queue length.
   const sortedQueue = useMemo(() => {
     // Copy first because Array#sort mutates in place, and the store array
-    // is shared by reference with the rest of the app.
-    const copy = queue.slice();
-    copy.sort((a, b) => (sortDir === 'newest' ? b.addedAt - a.addedAt : a.addedAt - b.addedAt));
-    return copy;
+    // is shared by reference with the rest of the app. Pair each item
+    // with its index in the ORIGINAL array so removal still targets the
+    // correct entry after sort.
+    const indexed = queue.map((item, sourceIdx) => ({ item, sourceIdx }));
+    indexed.sort((a, b) =>
+      sortDir === 'newest' ? b.item.addedAt - a.item.addedAt : a.item.addedAt - b.item.addedAt,
+    );
+    return indexed;
   }, [queue, sortDir]);
 
   if (!open) return null;
@@ -146,11 +154,9 @@ export function QueuePanel({
             </div>
           ) : (
             <ul className="divide-y" data-testid="queue-list">
-              {sortedQueue.map((item, idx) => {
-                // The original index is the position the item holds in the
-                // underlying store. Sorting must not break removal — we still
-                // pass the source index to removeQueued.
-                const sourceIdx = queue.indexOf(item);
+              {sortedQueue.map(({ item, sourceIdx }, idx) => {
+                // sourceIdx was threaded through the sort so removal
+                // targets the correct entry in the underlying store.
                 const meta = MODE_META[item.mode];
                 return (
                   <li
