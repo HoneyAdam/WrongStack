@@ -220,6 +220,15 @@ export class AutoPhaseWebSocketHandler {
       this.worktrees = new WorktreeManager({ projectRoot: this.projectRoot, events: this.events });
     }
 
+    // NOTE: this interactive-board orchestrator deliberately omits the CLI host's
+    // `verifyPhase`/`repairPhase`/`resolveConflict` hooks. The WebUI run is
+    // human-supervised (live kanban + manual task moves), so it trusts the task
+    // agents + the operator rather than running an autonomous typecheck/lint gate
+    // and repair/conflict-resolver subagents. Worktree isolation + squash-merge
+    // still happen (above); an unresolved merge conflict simply parks the worktree
+    // for review (mergeOne's default). The fully-autonomous gate lives in the CLI
+    // host (`packages/cli/src/autophase-host.ts`). Keep these two in mind when
+    // changing phase-completion semantics.
     this.orchestrator = new PhaseOrchestrator({
       graph,
       ctx: {
@@ -449,6 +458,19 @@ export class AutoPhaseWebSocketHandler {
     const taskItems = activePhase ? Array.from(activePhase.taskGraph.nodes.values()).map(mapTask) : [];
 
     const completedPhases = phases.filter((p) => p.status === 'completed').length;
+    const failedPhases = phases.filter((p) => p.status === 'failed').length;
+    const failedTasks = phases.reduce(
+      (sum, p) => sum + Array.from(p.taskGraph.nodes.values()).filter((t) => t.status === 'failed').length,
+      0,
+    );
+
+    // Surface the most recent failure so the board can show it (the store keeps a
+    // `lastError` field the UI renders). Prefer the worktree integration error,
+    // else a generic phase-failure note.
+    const lastFailed = phases.filter((p) => p.status === 'failed').sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+    const lastError = lastFailed
+      ? `${lastFailed.name}: ${(lastFailed.metadata?.integrationError as string | undefined) ?? 'phase failed'}`
+      : null;
 
     return {
       title: this.graph.title,
@@ -459,6 +481,17 @@ export class AutoPhaseWebSocketHandler {
       autonomous: this.graph.autonomous,
       totalTasks,
       completedTasks,
+      // Structured progress + lastError consumed by the autophase store (were
+      // defined client-side but never sent, so they stayed null on the board).
+      progress: {
+        totalPhases: phases.length,
+        completed: completedPhases,
+        failed: failedPhases,
+        totalTasks,
+        completedTasks,
+        failedTasks,
+      },
+      lastError,
     };
   }
 

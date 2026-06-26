@@ -211,6 +211,50 @@ describe('PhaseOrchestrator — phase-level error + verify edge cases', () => {
     expect(phase.metadata?.integrationStatus).toBe('merge_failed');
   });
 
+  it('resumes an interrupted graph: a running phase + in_progress task become runnable', async () => {
+    // Simulate a graph reloaded after a crash mid-run: the phase was left
+    // `running` and its task `in_progress`, with a stale active id. A fresh
+    // orchestrator must normalize this so the stuck task actually runs and the
+    // phase completes (rather than stalling — the scheduler only runs `pending`).
+    const graph = await singlePhase();
+    const phase = Array.from(graph.phases.values())[0]!;
+    phase.status = 'running';
+    graph.activePhaseIds = [phase.id];
+    const task = Array.from(phase.taskGraph.nodes.values())[0]!;
+    task.status = 'in_progress';
+
+    const ran: string[] = [];
+    const orch = new PhaseOrchestrator({
+      graph,
+      ctx: { executeTask: async (t) => void ran.push(t.id) },
+      autonomous: false,
+    });
+    await orch.start();
+
+    expect(ran).toContain(task.id);
+    expect(phase.status).toBe('completed');
+  });
+
+  it('does not re-run already-completed tasks on resume', async () => {
+    // A phase reloaded with its only task already `completed` should finish
+    // immediately without re-executing it.
+    const graph = await singlePhase();
+    const phase = Array.from(graph.phases.values())[0]!;
+    const task = Array.from(phase.taskGraph.nodes.values())[0]!;
+    task.status = 'completed';
+
+    const ran: string[] = [];
+    const orch = new PhaseOrchestrator({
+      graph,
+      ctx: { executeTask: async (t) => void ran.push(t.id) },
+      autonomous: false,
+    });
+    await orch.start();
+
+    expect(ran).toEqual([]); // completed work is never re-run
+    expect(phase.status).toBe('completed');
+  });
+
   it('a failed merge corrects the graph: phase becomes failed, not falsely completed', async () => {
     const graph = await singlePhase();
     const failedPhases: string[] = [];

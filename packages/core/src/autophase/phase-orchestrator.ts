@@ -99,6 +99,7 @@ export class PhaseOrchestrator {
   async start(): Promise<void> {
     this.stopped = false;
     this.paused = false;
+    this.normalizeForResume();
     this.graph.startedAt = Date.now();
     this.graph.updatedAt = Date.now();
 
@@ -132,6 +133,31 @@ export class PhaseOrchestrator {
     // Autonomous tick loop for real-time monitoring.
     if (this.opts.autonomous) {
       this.tickInterval = setInterval(() => this.tick(), 1000);
+    }
+  }
+
+  /**
+   * Make a (possibly resumed) graph runnable. A graph loaded from disk after an
+   * interrupted run can carry transient state from the dead process: phases left
+   * `running` and tasks left `in_progress`. The scheduler only starts `pending`
+   * phases (getReadyPhases) and only runs `pending` tasks (getExecutableTasks),
+   * so without this a resumed phase/task would stall forever. Reset that
+   * transient state to `pending`; terminal phases (completed/failed/skipped) and
+   * already-completed tasks are untouched, so completed work is never re-run.
+   * For a freshly built graph this is a no-op.
+   */
+  private normalizeForResume(): void {
+    this.graph.activePhaseIds = []; // stale active ids from the previous process
+    for (const phase of this.graph.phases.values()) {
+      if (phase.status === 'running') {
+        phase.status = 'pending';
+        phase.updatedAt = Date.now();
+      }
+      if (phase.status === 'pending') {
+        for (const task of phase.taskGraph.nodes.values()) {
+          if (task.status === 'in_progress') task.status = 'pending';
+        }
+      }
     }
   }
 
