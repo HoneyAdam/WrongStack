@@ -22,7 +22,7 @@ import {
   noOpVault,
   normalizeTokenSavingTier,
 } from '@wrongstack/core';
-import { filterSafeForProject } from '../settings-menu.js';
+import { deriveFsAccessPair, filterSafeForProject } from '../settings-menu.js';
 import { normalizeTuiThinkingWord } from '../tui-thinking-word.js';
 import type { LiveSettingsInput } from '../execution.js';
 
@@ -47,6 +47,11 @@ export interface SettingsAdapter {
  */
 export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdapter {
   const { configStore, wpaths, fleetStreamController, applyLiveSettings } = ctx;
+
+  // Filesystem-access pair derivation is shared with the slash command
+  // and the cli-main live-apply path. See settings-menu.ts for the
+  // single source of truth and the precedence rules.
+  const deriveFsAccess = deriveFsAccessPair;
 
   function getSettings(): Record<string, unknown> {
     const cfg = configStore.get();
@@ -218,6 +223,12 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
 
         if (s.nextPrediction !== undefined) decrypted.nextPrediction = s.nextPrediction;
         if (s.yolo !== undefined) decrypted.yolo = s.yolo;
+        // Derive the filesystem-access pair ONCE here, so both the
+        // `features.allowOutsideProjectRoot` and `tools.restrictToProjectRoot`
+        // writes below stay consistent. The previous implementation had three
+        // separate write sites that could disagree when both picker knobs
+        // were set in the same save.
+        const fsAccess = deriveFsAccess(s);
         if (
           s.featureMcp !== undefined ||
           s.featurePlugins !== undefined ||
@@ -225,7 +236,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           s.featureSkills !== undefined ||
           s.featureModelsRegistry !== undefined ||
           s.featureTokenSaving !== undefined ||
-          s.allowOutsideProjectRoot !== undefined
+          fsAccess !== undefined
         ) {
           const feats = (decrypted.features as Record<string, unknown>) ?? {};
           if (s.featureMcp !== undefined) feats.mcp = s.featureMcp;
@@ -234,7 +245,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           if (s.featureSkills !== undefined) feats.skills = s.featureSkills;
           if (s.featureModelsRegistry !== undefined) feats.modelsRegistry = s.featureModelsRegistry;
           if (s.featureTokenSaving !== undefined) feats.tokenSavingMode = s.featureTokenSaving;
-          if (s.allowOutsideProjectRoot !== undefined) feats.allowOutsideProjectRoot = s.allowOutsideProjectRoot;
+          if (fsAccess !== undefined) feats.allowOutsideProjectRoot = fsAccess.allowOutsideProjectRoot;
           decrypted.features = feats;
         }
         if (
@@ -266,20 +277,13 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         }
         if (
           s.maxIterations !== undefined ||
-          s.restrictFsToRoot !== undefined ||
-          s.allowOutsideProjectRoot !== undefined
+          fsAccess !== undefined
         ) {
           const tools = (decrypted.tools as Record<string, unknown>) ?? {};
           if (s.maxIterations !== undefined) tools.maxIterations = s.maxIterations;
-          if (s.restrictFsToRoot !== undefined) tools.restrictToProjectRoot = s.restrictFsToRoot;
-          if (s.allowOutsideProjectRoot !== undefined)
-            tools.restrictToProjectRoot = !s.allowOutsideProjectRoot;
+          // Single source of truth for the inverse: deriveFsAccess above.
+          if (fsAccess !== undefined) tools.restrictToProjectRoot = fsAccess.restrictToProjectRoot;
           decrypted.tools = tools;
-        }
-        if (s.restrictFsToRoot !== undefined) {
-          const features = (decrypted.features as Record<string, unknown>) ?? {};
-          features.allowOutsideProjectRoot = !s.restrictFsToRoot;
-          decrypted.features = features;
         }
         if (s.debugStream !== undefined) {
           decrypted.debugStream = s.debugStream;
@@ -342,7 +346,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           s.featureSkills !== undefined ||
           s.featureModelsRegistry !== undefined ||
           s.featureTokenSaving !== undefined ||
-          s.allowOutsideProjectRoot !== undefined
+          fsAccess !== undefined
             ? {
                 features: {
                   ...currentConfig.features,
@@ -386,8 +390,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
               }
             : {}),
           ...(s.maxIterations !== undefined ||
-          s.restrictFsToRoot !== undefined ||
-          s.allowOutsideProjectRoot !== undefined
+          fsAccess !== undefined
             ? {
                 tools: {
                   ...currentConfig.tools,
