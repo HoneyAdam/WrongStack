@@ -8,7 +8,7 @@ const flat = () =>
 describe('helpSections', () => {
   it('always groups the areas in order', () => {
     const titles = helpSections().map((s) => s.title);
-    expect(titles).toEqual(['Navigation', 'Monitors', 'Editing', 'Commands', 'Tool Colors']);
+    expect(titles).toEqual(['Navigation', 'Monitors', 'Editing', 'Commands', 'Settings', 'Tool Colors']);
   });
 
   it('always lists the monitor + help keys', () => {
@@ -52,5 +52,40 @@ describe('helpSections', () => {
     for (const sec of helpSections()) {
       expect(sec.entries.length).toBeGreaterThan(0);
     }
+  });
+
+  describe('Settings section surfaces picker-only knobs', () => {
+    const settings = () => helpSections().find((s) => s.title === 'Settings');
+    const keys = () => settings()?.entries.map((e) => e.keys) ?? [];
+
+    it('surfaces the multi-diff summary threshold as a picker-only knob', () => {
+      expect(keys()).toContain('Multi-diff summary');
+      const entry = settings()?.entries.find((e) => e.keys === 'Multi-diff summary');
+      expect(entry?.desc).toContain('0 = off');
+      expect(entry?.desc).toContain('default 5');
+      // Surfacing the Ctrl+M jump in the overlay so the keyboard shortcut
+      // doesn't stay hidden from anyone reading the help text.
+      expect(entry?.desc).toContain('Ctrl+M');
+    });
+
+    it('surfaces the Ctrl+<letter> jump chords advertised by the picker', () => {
+      // Every chord registered in settings-picker.tsx should be discoverable
+      // from `?` — the overlay stays in sync with the keyboard handler.
+      const descriptions = (settings()?.entries ?? []).map((e) => e.desc);
+      for (const chord of [
+        'Ctrl+I', 'Ctrl+W', 'Ctrl+R', 'Ctrl+E', 'Ctrl+N', 'Ctrl+L', 'Ctrl+D',
+        'Alt+A', 'Alt+Y', 'Alt+C', 'Alt+S', 'Alt+T', 'Alt+X',
+        'Alt+Shift+L', 'Alt+Shift+A', 'Alt+Shift+B', 'Alt+Shift+G',
+      ]) {
+        expect(descriptions.some((d) => d.includes(chord))).toBe(true);
+      }
+    });
+
+    it('lists a small set of representative picker-only settings without bloating the overlay', () => {
+      // The section is allowed to grow as new chords are added, but should
+      // stay bounded so the overlay remains readable in narrow terminals.
+      expect(keys().length).toBeGreaterThanOrEqual(1);
+      expect(keys().length).toBeLessThanOrEqual(20);
+    });
   });
 });

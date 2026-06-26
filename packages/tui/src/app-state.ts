@@ -260,6 +260,13 @@ export type State = {
     open: boolean;
     /** Focused row index. */
     field: number;
+    /**
+     * Mirror of the persisted `Settings.lastSettingsField` — kept in the
+     * runtime slice so the reducer can read it during `settingsOpen`
+     * without re-loading the full Settings shape, and so the auto-save
+     * effect (see app.tsx) can write it back when the user navigates.
+     */
+    lastSettingsField: number;
     // Autonomy
     mode: SettingsMode;
     delayMs: number;
@@ -290,6 +297,8 @@ export type State = {
     auditLevel: AuditLevel;
     // Indexing
     indexOnStart: boolean;
+    /** Multi-file diff summary footer cutoff. 0 = off; positive = min file count. */
+    multiDiffSummaryThreshold: number;
     // Tools
     maxIterations: number;
     /** Maximum auto-proceed iterations (0 = unlimited). */
@@ -320,6 +329,13 @@ export type State = {
     cacheTtl: CacheTtl;
     /** Where to persist settings: 'global' or 'project'. */
     configScope: 'global' | 'project';
+    /**
+     * Live filter for the row-search modal (entered via `/`). Empty
+     * string means filter is inactive. Non-empty means the user is
+     * typing a search query and only matching rows are visible.
+     * Cleared on picker close and on Esc-out-of-filter.
+     */
+    filter: string;
     hint?: string | undefined;
   };
   /** Statusline editor — opened by `/statusline`. */
@@ -635,6 +651,16 @@ export type Settings = {
   logLevel: 'error' | 'warn' | 'info' | 'debug' | 'trace';
   auditLevel: 'minimal' | 'standard' | 'full';
   indexOnStart: boolean;
+  /** Multi-file diff summary footer cutoff. 0 = off; positive = min file count. */
+  multiDiffSummaryThreshold: number;
+  /**
+   * Settings-picker row the user last navigated to. Carried in the
+   * canonical Settings shape so reopening the picker after a session
+   * restart lands on the same row they were last tweaking, rather than
+   * always resetting to 0. Updated on every `settingsFieldMove` /
+   * `settingsFieldSet`; consumed by the `settingsOpen` action.
+   */
+  lastSettingsField: number;
   maxIterations: number;
   /** Maximum auto-proceed iterations (0 = unlimited). */
   autoProceedMaxIterations: number;
@@ -755,6 +781,12 @@ export type Action =
       logLevel: LogLevel;
       auditLevel: AuditLevel;
       indexOnStart: boolean;
+      multiDiffSummaryThreshold: number;
+      /**
+       * Persisted row index for where to land when the picker reopens.
+       * See `Settings.lastSettingsField`.
+       */
+      lastSettingsField: number;
       maxIterations: number;
       autoProceedMaxIterations: number;
       enhanceDelayMs: number;
@@ -773,6 +805,12 @@ export type Action =
   | { type: 'settingsFieldMove'; delta: number }
   | { type: 'settingsFieldSet'; field: number }
   | { type: 'settingsValueChange'; delta: number }
+  /**
+   * Update the live row-search filter. Empty string clears the filter.
+   * Setting any non-empty value while the filter is empty also implicitly
+   * activates filter mode (the picker renders only matching rows).
+   */
+  | { type: 'settingsFilterSet'; filter: string }
   | { type: 'settingsHint'; text?: string | undefined }
   /** Begin free-text editing of the thinking word (Enter on its row). */
   | { type: 'settingsThinkingEditStart' }

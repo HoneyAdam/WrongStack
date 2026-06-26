@@ -35,6 +35,7 @@ function settingsBase(overrides: Record<string, unknown> = {}) {
       enhanceEnabled: true,
       enhanceLanguage: 'original' as const,
       indexOnStart: true,
+      multiDiffSummaryThreshold: 5,
       thinkingWord: 'thinking',
       reasoningMode: 'auto' as const,
       reasoningEffort: 'high' as const,
@@ -192,7 +193,7 @@ describe('token-saving tier in settings picker', () => {
   it('max concurrent shows a next-session hint when cycled to default', () => {
     const s = reducer(
       {
-        ...settingsBase({ field: 29, maxConcurrent: 50, hint: undefined }),
+        ...settingsBase({ field: 30, maxConcurrent: 50, hint: undefined }),
       } as never as Parameters<typeof reducer>[0],
       { type: 'settingsValueChange', delta: 1 },
     );

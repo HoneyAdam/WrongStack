@@ -63,7 +63,15 @@ import { PlanPanel } from './components/plan-panel.js';
 import { CoordinatorPanel } from './components/coordinator-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
-import { SettingsPicker, THINKING_WORD_FIELD, type ContextMode, type StatuslineMode } from './components/settings-picker.js';
+import {
+  SettingsPicker,
+  THINKING_WORD_FIELD,
+  settingsPickerJumpByName,
+  settingsPickerJumpField,
+  settingsPickerJumpNames,
+  type ContextMode,
+  type StatuslineMode,
+} from './components/settings-picker.js';
 import { StatuslinePicker, STATUSLINE_ITEMS, isChipExpired, type StatuslineItem } from './components/statusline-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
@@ -100,6 +108,7 @@ import { createPsSlashCommand } from './ps-slash.js';
 import { createQueueSlashCommand } from './queue-slash.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
+import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from './thinking-word.js';
 
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
@@ -1047,7 +1056,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default', configScope: 'global' },
+    settingsPicker: { open: false, field: 0, lastSettingsField: 0, filter: '', mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, multiDiffSummaryThreshold: 5, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default', configScope: 'global' },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
     fKeyPicker: { open: false, selected: 0 },
@@ -1257,6 +1266,28 @@ export function App({
   const liveSettings = getSettings?.();
   const liveStatuslineMode = liveSettings?.statuslineMode ?? 'detailed';
   const liveThinkingWord = liveSettings?.thinkingWord ?? 'thinking';
+  // When the user hasn't pinned a word (unset, the literal default, or
+  // 'random'), surface a fresh fun word from the pool for each working spell;
+  // an explicit custom word is shown verbatim. We re-roll only on the
+  // idle→working transition so the chip stays stable while a single turn runs.
+  const [rolledThinkingWord, setRolledThinkingWord] = useState(() =>
+    pickRandomTuiThinkingWord(),
+  );
+  const thinkingWorking = state.status === 'running' || state.status === 'streaming';
+  const prevThinkingWorkingRef = useRef(false);
+  useEffect(() => {
+    if (thinkingWorking && !prevThinkingWorkingRef.current) {
+      setRolledThinkingWord((prev) => pickRandomTuiThinkingWord(prev));
+    }
+    prevThinkingWorkingRef.current = thinkingWorking;
+  }, [thinkingWorking]);
+  const displayThinkingWord = isRandomTuiThinkingWord(liveThinkingWord)
+    ? rolledThinkingWord
+    : liveThinkingWord;
+  // Mirror to a ref so the (possibly memoized) mouse handler reads the same
+  // word the statusline rendered when computing the model-chip hit span.
+  const displayThinkingWordRef = useRef(displayThinkingWord);
+  displayThinkingWordRef.current = displayThinkingWord;
   const chimeRef = useRef(chime);
   chimeRef.current = liveSettings?.chime ?? chime;
   const confirmExitRef = useRef(confirmExit);
@@ -2093,6 +2124,8 @@ export function App({
             logLevel: sp.logLevel,
             auditLevel: sp.auditLevel,
             indexOnStart: sp.indexOnStart,
+            multiDiffSummaryThreshold: sp.multiDiffSummaryThreshold,
+            lastSettingsField: sp.lastSettingsField,
             maxIterations: sp.maxIterations,
             autoProceedMaxIterations: sp.autoProceedMaxIterations,
             enhanceDelayMs: sp.enhanceDelayMs,
@@ -2621,6 +2654,8 @@ export function App({
       logLevel: s.logLevel ?? 'info',
       auditLevel: s.auditLevel ?? 'standard',
       indexOnStart: s.indexOnStart ?? true,
+      multiDiffSummaryThreshold: s.multiDiffSummaryThreshold ?? 5,
+      lastSettingsField: s.lastSettingsField ?? 0,
       maxIterations: s.maxIterations ?? 500,
       autoProceedMaxIterations: s.autoProceedMaxIterations ?? 50,
       enhanceDelayMs: s.enhanceDelayMs ?? 60_000,
@@ -2836,6 +2871,8 @@ export function App({
       logLevel: sp.logLevel,
       auditLevel: sp.auditLevel,
       indexOnStart: sp.indexOnStart,
+      multiDiffSummaryThreshold: sp.multiDiffSummaryThreshold,
+      lastSettingsField: sp.lastSettingsField,
       maxIterations: sp.maxIterations,
       autoProceedMaxIterations: sp.autoProceedMaxIterations,
       enhanceDelayMs: sp.enhanceDelayMs,
@@ -2933,15 +2970,43 @@ export function App({
   }, [slashRegistry, openFKeyPicker]);
 
   // Register the TUI-only `/settings` command — opens the interactive
-  // SettingsPicker immediately, same as Ctrl+S. Gated on the settings
-  // accessors being wired by the host (CLI passes them in).
+  // SettingsPicker immediately, same as Ctrl+S. Accepts an optional
+  // row-name argument that jumps the picker to that row on open
+  // (e.g. `/settings multi-diff` → opens the picker on the multi-diff
+  // summary row). Gated on the settings accessors being wired by the
+  // host (CLI passes them in).
   useEffect(() => {
     if (!getSettings || !saveSettings) return;
     const cmd = {
       name: 'settings',
       aliases: ['config', 'prefs'],
       description: 'Open the interactive settings editor (19 config fields across 8 sections).',
-      async run() {
+      argsHint: '[<chord>]',
+      help:
+        'Open the settings editor. With no argument, opens on the last-visited row.\n' +
+        'With a chord name, opens on that row instead.\n\n' +
+        'Available chords:\n  ' +
+        settingsPickerJumpNames().join('\n  '),
+      async run(args: string) {
+        const query = args.trim();
+        if (query === '') {
+          openSettings();
+          return { message: undefined };
+        }
+        const field = settingsPickerJumpByName(query);
+        if (field === undefined) {
+          return {
+            message:
+              `Unknown settings row "${query}".\n` +
+              `Available chords:\n  ${settingsPickerJumpNames().join('\n  ')}`,
+          };
+        }
+        // Update the runtime state so the picker lands on the right row,
+        // then open. We dispatch settingsFieldSet first (which also writes
+        // lastSettingsField — see the cross-session persistence work) so
+        // the auto-save effect persists this jump the next time the user
+        // closes the picker.
+        dispatch({ type: 'settingsFieldSet', field });
         openSettings();
         return { message: undefined };
       },
@@ -2952,7 +3017,7 @@ export function App({
     return () => {
       slashRegistry.unregister('settings');
     };
-  }, [slashRegistry, getSettings, saveSettings, openSettings]);
+  }, [slashRegistry, getSettings, saveSettings, openSettings, dispatch]);
 
   // Register the TUI-only `/statusline` command — opens the interactive
   // StatuslinePicker overlay. Arguments (item, on|off) are handled here too
@@ -4055,6 +4120,56 @@ export function App({
         dispatch({ type: 'settingsFieldMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
         return;
       }
+      // Ctrl+<letter>, Alt+<letter>, or Alt+Shift+<letter> → jump straight to the
+      // named settings-picker row. Chords are registered in
+      // SETTINGS_PICKER_JUMP_CHORDS (settings-picker.tsx) alongside the
+      // help-overlay surface so the two stay in sync. Lives after the
+      // thinking-word edit modal block so the typing shortcut never hijacks
+      // a free-text edit. Avoids every globally-bound chord
+      // (Ctrl+S/F/G/P/T/A/K and Alt+V) — see the JUMP_CHORDS docstring for
+      // the full list. The Alt+Shift variant lets the Logging rows reuse
+      // letters already taken by the Ctrl/Alt sets without colliding.
+      if (input && input.length === 1 && (key.ctrl || key.meta)) {
+        const mod: 'ctrl' | 'alt' | 'alt-shift' = key.ctrl
+          ? 'ctrl'
+          : key.shift
+            ? 'alt-shift'
+            : 'alt';
+        const field = settingsPickerJumpField(mod, input);
+        if (field !== undefined) {
+          dispatch({ type: 'settingsFieldSet', field });
+          return;
+        }
+      }
+      // Filter mode (row search). Pressing `/` on an empty filter enters
+      // filter mode; subsequent printable characters extend the query;
+      // backspace removes the last character; Esc clears the filter.
+      // The filter value always includes the leading `/` so the visual
+      // cue is consistent (`Filter: /multi`); matchers strip it.
+      if (input === '/' && sp.filter === '') {
+        dispatch({ type: 'settingsFilterSet', filter: '/' });
+        return;
+      }
+      if (sp.filter !== '') {
+        if (key.escape) {
+          dispatch({ type: 'settingsFilterSet', filter: '' });
+          return;
+        }
+        if (key.backspace) {
+          // Strip the trailing character, but keep the leading `/` so
+          // the picker knows we're still in filter mode.
+          const next = sp.filter.length > 1 ? sp.filter.slice(0, -1) : '';
+          dispatch({ type: 'settingsFilterSet', filter: next });
+          return;
+        }
+        if (input && input.length === 1 && input.charCodeAt(0) >= 0x20 && input.charCodeAt(0) < 0x7f) {
+          dispatch({ type: 'settingsFilterSet', filter: sp.filter + input });
+          return;
+        }
+        // Anything else (arrows, Enter, etc.) — fall through to the
+        // default handling below, which navigates within the filtered
+        // rows. Enter is special-cased below to "accept and clear".
+      }
       if (key.upArrow) {
         dispatch({ type: 'settingsFieldMove', delta: -1 });
         return;
@@ -4076,6 +4191,13 @@ export function App({
         const now = Date.now();
         if (now - lastEnterAtRef.current < 50) return;
         lastEnterAtRef.current = now;
+        // If the user is in filter mode, Enter accepts the current row
+        // (the cursor is already on a matching row because navigation
+        // works within the filtered set) and exits filter mode.
+        if (sp.filter !== '') {
+          dispatch({ type: 'settingsFilterSet', filter: '' });
+          return;
+        }
         // The thinking-word row opens free-text editing on Enter; every other
         // field cycles its value (same as ←/→).
         if (sp.field === THINKING_WORD_FIELD) {
@@ -4826,6 +4948,8 @@ export function App({
           logLevel: cfg.logLevel ?? 'info',
           auditLevel: cfg.auditLevel ?? 'standard',
           indexOnStart: cfg.indexOnStart ?? true,
+          multiDiffSummaryThreshold: cfg.multiDiffSummaryThreshold ?? 5,
+          lastSettingsField: cfg.lastSettingsField ?? 0,
           maxIterations: cfg.maxIterations ?? 500,
           autoProceedMaxIterations: cfg.autoProceedMaxIterations ?? 50,
           enhanceDelayMs: cfg.enhanceDelayMs ?? 60_000,
@@ -5228,7 +5352,7 @@ export function App({
             // Must match the rendered state label width — while streaming the bar
             // shows the configured thinking word, so the span shifts with it.
             // Omitting this made the model chip un-clickable mid-stream.
-            thinkingWord: liveThinkingWord,
+            thinkingWord: displayThinkingWordRef.current,
             model: `${liveProvider}/${liveModel}`,
           });
           if (inSpan(span)) {
@@ -6272,6 +6396,7 @@ export function App({
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
             autoSubmitCountdown={nextStepsAutoSubmitCountdown}
+            multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
           />
         ) : (
           <History
@@ -6282,6 +6407,7 @@ export function App({
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
             autoSubmitCountdown={nextStepsAutoSubmitCountdown}
+            multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
           />
         )}
         <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
@@ -6386,6 +6512,7 @@ export function App({
               logLevel={state.settingsPicker.logLevel}
               auditLevel={state.settingsPicker.auditLevel}
               indexOnStart={state.settingsPicker.indexOnStart}
+              multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
               thinkingWord={state.settingsPicker.thinkingWord}
               thinkingWordEditing={state.settingsPicker.thinkingWordEditing}
               thinkingWordDraft={state.settingsPicker.thinkingWordDraft}
@@ -6401,6 +6528,7 @@ export function App({
               reasoningPreserve={state.settingsPicker.reasoningPreserve}
               cacheTtl={state.settingsPicker.cacheTtl}
               configScope={state.settingsPicker.configScope}
+              filter={state.settingsPicker.filter}
               hint={state.settingsPicker.hint}
             />
           ) : null}
@@ -6569,7 +6697,7 @@ export function App({
             model={`${liveProvider}/${liveModel}`}
             version={appVersion}
             state={state.status}
-            thinkingWord={liveThinkingWord}
+            thinkingWord={displayThinkingWord}
             tokenCounter={tokenCounter}
             hint={renderRunningTools(state.runningTools) || state.hint}
             queueCount={state.queue.length}

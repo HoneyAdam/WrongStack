@@ -67,6 +67,79 @@ export function helpSections(): HelpSection[] {
       ],
     },
     {
+      // Surface user-facing knobs that don't have a key chord or slash
+      // command of their own — the only way to change them is through the
+      // settings picker. Keeping the descriptions terse so the overlay
+      // fits in narrow terminals.
+      title: 'Settings',
+      entries: [
+        {
+          keys: 'Multi-diff summary',
+          desc: 'min files before per-tool aggregate footer (Ctrl+M in picker, settings → tools, 0 = off, default 5)',
+        },
+        {
+          keys: 'Index on session start',
+          desc: 'run incremental index at startup (Ctrl+I in picker)',
+        },
+        {
+          keys: 'Thinking word',
+          desc: 'status-bar working word (Ctrl+W in picker; Enter to type your own)',
+        },
+        {
+          keys: 'Refine countdown / Refine',
+          desc: 'prompt refinement delay / on-off (Ctrl+R / Ctrl+E in picker)',
+        },
+        {
+          keys: 'Reasoning mode',
+          desc: 'auto / on / off (Ctrl+N in picker)',
+        },
+        {
+          keys: 'Max concurrent',
+          desc: 'parallel subagent cap (Ctrl+L in picker, settings → fleet)',
+        },
+        {
+          keys: 'Statusline',
+          desc: 'detailed / minimum density (Ctrl+D in picker)',
+        },
+        {
+          keys: 'Default autonomy mode',
+          desc: 'off / suggest / auto (Alt+A in picker, settings → autonomy)',
+        },
+        {
+          keys: 'YOLO mode',
+          desc: 'skip all confirmation prompts (Alt+Y in picker, settings → UX)',
+        },
+        {
+          keys: 'Token-saving mode',
+          desc: 'off / minimal / light / medium / aggressive (Alt+T in picker)',
+        },
+        {
+          keys: 'Context mode',
+          desc: 'balanced / frugal / deep / archival (Alt+X in picker, settings → context)',
+        },
+        {
+          keys: 'Confirm before exit',
+          desc: 'confirmation on Esc interrupt & Ctrl+C exit (Alt+S in picker, settings → UX)',
+        },
+        {
+          keys: 'Completion chime',
+          desc: 'play a sound when agent finishes (Alt+C in picker, settings → UX)',
+        },
+        {
+          keys: 'Log level / Audit level',
+          desc: 'console log verbosity / audit depth (Alt+Shift+L / Alt+Shift+A in picker, settings → logging)',
+        },
+        {
+          keys: 'Stream debug logging',
+          desc: 'hex-dump raw SSE bytes to stderr (Alt+Shift+B in picker, settings → debug)',
+        },
+        {
+          keys: 'Config scope',
+          desc: 'global / project (Alt+Shift+G in picker, settings → debug)',
+        },
+      ],
+    },
+    {
       title: 'Tool Colors',
       entries: toolColorLegend(),
     },

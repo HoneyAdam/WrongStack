@@ -18,6 +18,7 @@ import {
   LOG_LEVELS,
   MAX_CONCURRENT_PRESETS,
   MAX_ITERATIONS_PRESETS,
+  MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS,
   REASONING_EFFORTS,
   REASONING_MODES,
   SETTINGS_FIELD_COUNT,
@@ -625,7 +626,21 @@ export function reducer(state: State, action: Action): State {
         ...closePanels(state),
         settingsPicker: {
           open: true,
-          field: 0,
+          // The persisted `lastSettingsField` (from the canonical Settings
+          // shape) drives where the picker lands on open. The slice's
+          // `field` is a working copy that mirrors it until the user
+          // navigates again. `state.settingsPicker.lastSettingsField` is
+          // the fallback for the (rare) case where the action omits it
+          // — e.g., a tests/dispatch path that hasn't been updated yet.
+          // `||` (not `??`): a payload `lastSettingsField` of 0 means
+          // "no saved value" (the default in the canonical Settings),
+          // so we fall through to the runtime state's tracked value.
+          // This lets the in-session `settingsFieldSet`/`settingsFieldMove`
+          // preserve the field across close/reopen within the same session,
+          // while a non-zero persisted value (loaded from disk) takes
+          // priority on a fresh open.
+          field: action.lastSettingsField || state.settingsPicker.lastSettingsField || 0,
+          lastSettingsField: action.lastSettingsField || state.settingsPicker.lastSettingsField || 0,
           mode: action.mode,
           delayMs: action.delayMs,
           titleAnimation: action.titleAnimation,
@@ -648,6 +663,7 @@ export function reducer(state: State, action: Action): State {
           logLevel: action.logLevel,
           auditLevel: action.auditLevel,
           indexOnStart: action.indexOnStart,
+          multiDiffSummaryThreshold: action.multiDiffSummaryThreshold,
           maxIterations: action.maxIterations,
           autoProceedMaxIterations: action.autoProceedMaxIterations,
           enhanceDelayMs: action.enhanceDelayMs,
@@ -661,6 +677,9 @@ export function reducer(state: State, action: Action): State {
           thinkingWord: action.thinkingWord,
           thinkingWordEditing: false,
           thinkingWordDraft: '',
+          // Filter is always cleared on open — the user starts fresh.
+          // Persisted `lastSettingsField` is restored separately above.
+          filter: '',
           cacheTtl: action.cacheTtl,
           configScope: action.configScope,
           hint: undefined,
@@ -675,12 +694,15 @@ export function reducer(state: State, action: Action): State {
       const next =
         (state.settingsPicker.field + action.delta + SETTINGS_FIELD_COUNT) % SETTINGS_FIELD_COUNT;
       // Moving focus abandons any in-progress thinking-word edit so the draft
-      // can't linger on an unrelated field.
+      // can't linger on an unrelated field. `lastSettingsField` tracks the
+      // current focus so the canonical Settings shape stays in sync — the
+      // app.tsx auto-save effect writes it back to disk.
       return {
         ...state,
         settingsPicker: {
           ...state.settingsPicker,
           field: next,
+          lastSettingsField: next,
           thinkingWordEditing: false,
           thinkingWordDraft: '',
           hint: undefined,
@@ -689,8 +711,23 @@ export function reducer(state: State, action: Action): State {
     }
     case 'settingsFieldSet': {
       const field = action.field >= 0 && action.field < SETTINGS_FIELD_COUNT ? action.field : 0;
-      return { ...state, settingsPicker: { ...state.settingsPicker, field, hint: undefined } };
+      // Keep `lastSettingsField` in sync with the new focus so the
+      // canonical Settings shape reflects the user's most recent pick
+      // even if the picker is closed before the auto-save effect fires.
+      return {
+        ...state,
+        settingsPicker: { ...state.settingsPicker, field, lastSettingsField: field, hint: undefined },
+      };
     }
+    case 'settingsFilterSet':
+      // Live filter for the row-search modal. Setting a non-empty value
+      // implicitly activates filter mode; setting '' clears it. The
+      // `lastSettingsField` is intentionally untouched — a filter is
+      // navigation, not a value the user is "configuring".
+      return {
+        ...state,
+        settingsPicker: { ...state.settingsPicker, filter: action.filter },
+      };
     case 'settingsValueChange': {
       const sp = state.settingsPicker;
       const f = sp.field;
@@ -874,7 +911,21 @@ export function reducer(state: State, action: Action): State {
           ...state,
           settingsPicker: { ...sp, indexOnStart: !sp.indexOnStart, hint: bootHint },
         };
-      // Field 21: thinking word — ←/→ cycles curated presets (Enter opens
+      // Field 21: multi-diff summary threshold (cycle presets). 0 disables
+      // the summary footer; positive values set the minimum file count.
+      if (f === 21) {
+        const j = MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS.indexOf(sp.multiDiffSummaryThreshold);
+        const base = j < 0 ? 0 : j;
+        const next =
+          (base + action.delta + MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS.length) %
+          MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS.length;
+        const multiDiffSummaryThreshold = expectDefined(MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS[next]);
+        return {
+          ...state,
+          settingsPicker: { ...sp, multiDiffSummaryThreshold, hint: undefined },
+        };
+      }
+      // Field 22: thinking word — ←/→ cycles curated presets (Enter opens
       // free-text editing, handled by the settingsThinkingEdit* actions). The
       // current word is folded into the list so cycling never drops a custom
       // value set via the editor or config.
@@ -892,8 +943,8 @@ export function reducer(state: State, action: Action): State {
         };
       }
       // ── Reasoning ───────────────────────────────────────────────────────────
-      // Field 22: reasoning mode (cycle auto/on/off)
-      if (f === 22) {
+      // Field 23: reasoning mode (cycle auto/on/off)
+      if (f === 23) {
         const i = REASONING_MODES.indexOf(sp.reasoningMode as (typeof REASONING_MODES)[number]);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + REASONING_MODES.length) % REASONING_MODES.length;
@@ -906,8 +957,8 @@ export function reducer(state: State, action: Action): State {
           },
         };
       }
-      // Field 23: reasoning effort (cycle)
-      if (f === 23) {
+      // Field 24: reasoning effort (cycle)
+      if (f === 24) {
         const i = REASONING_EFFORTS.indexOf(
           sp.reasoningEffort as (typeof REASONING_EFFORTS)[number],
         );
@@ -922,14 +973,14 @@ export function reducer(state: State, action: Action): State {
           },
         };
       }
-      // Field 24: reasoning preserve (boolean toggle)
-      if (f === 24)
+      // Field 25: reasoning preserve (boolean toggle)
+      if (f === 25)
         return {
           ...state,
           settingsPicker: { ...sp, reasoningPreserve: !sp.reasoningPreserve, hint: undefined },
         };
-      // Field 25: cache TTL (cycle default/5m/1h)
-      if (f === 25) {
+      // Field 26: cache TTL (cycle default/5m/1h)
+      if (f === 26) {
         const i = CACHE_TTLS.indexOf(sp.cacheTtl as (typeof CACHE_TTLS)[number]);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + CACHE_TTLS.length) % CACHE_TTLS.length;
@@ -939,14 +990,14 @@ export function reducer(state: State, action: Action): State {
         };
       }
       // ── Context ────────────────────────────────────────────────────────────
-      // Field 26: context auto-compact (boolean)
-      if (f === 26)
+      // Field 27: context auto-compact (boolean)
+      if (f === 27)
         return {
           ...state,
           settingsPicker: { ...sp, contextAutoCompact: !sp.contextAutoCompact, hint: undefined },
         };
-      // Field 27: compactor strategy (cycle)
-      if (f === 27) {
+      // Field 28: compactor strategy (cycle)
+      if (f === 28) {
         const i = COMPACTOR_STRATEGIES.indexOf(sp.contextStrategy);
         const base = i < 0 ? 0 : i;
         const next =
@@ -960,8 +1011,8 @@ export function reducer(state: State, action: Action): State {
           },
         };
       }
-      // Field 28: context mode (cycle)
-      if (f === 28) {
+      // Field 29: context mode (cycle)
+      if (f === 29) {
         const i = CONTEXT_MODES.indexOf(sp.contextMode);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + CONTEXT_MODES.length) % CONTEXT_MODES.length;
@@ -975,8 +1026,8 @@ export function reducer(state: State, action: Action): State {
         };
       }
       // ── Fleet ──────────────────────────────────────────────────────────────
-      // Field 29: max concurrent (cycle presets)
-      if (f === 29) {
+      // Field 30: max concurrent (cycle presets)
+      if (f === 30) {
         const j = MAX_CONCURRENT_PRESETS.indexOf(sp.maxConcurrent);
         const base = j < 0 ? 0 : j;
         const next =
@@ -992,8 +1043,8 @@ export function reducer(state: State, action: Action): State {
         };
       }
       // ── Logging ────────────────────────────────────────────────────────────
-      // Field 30: log level (cycle)
-      if (f === 30) {
+      // Field 31: log level (cycle)
+      if (f === 31) {
         const i = LOG_LEVELS.indexOf(sp.logLevel);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + LOG_LEVELS.length) % LOG_LEVELS.length;
@@ -1002,8 +1053,8 @@ export function reducer(state: State, action: Action): State {
           settingsPicker: { ...sp, logLevel: expectDefined(LOG_LEVELS[next]), hint: undefined },
         };
       }
-      // Field 31: audit level (cycle)
-      if (f === 31) {
+      // Field 32: audit level (cycle)
+      if (f === 32) {
         const i = AUDIT_LEVELS.indexOf(sp.auditLevel);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + AUDIT_LEVELS.length) % AUDIT_LEVELS.length;
@@ -1013,14 +1064,14 @@ export function reducer(state: State, action: Action): State {
         };
       }
       // ── Debug ──────────────────────────────────────────────────────────────
-      // Field 32: debug stream (boolean toggle)
-      if (f === 32)
+      // Field 33: debug stream (boolean toggle)
+      if (f === 33)
         return {
           ...state,
           settingsPicker: { ...sp, debugStream: !sp.debugStream, hint: undefined },
         };
-      // Field 33: statusline mode (cycle minimum/detailed)
-      if (f === 33) {
+      // Field 34: statusline mode (cycle minimum/detailed)
+      if (f === 34) {
         const i = STATUSLINE_MODES.indexOf(sp.statuslineMode);
         const base = i < 0 ? STATUSLINE_MODES.indexOf('detailed') : i;
         const next = (base + action.delta + STATUSLINE_MODES.length) % STATUSLINE_MODES.length;
@@ -1033,8 +1084,8 @@ export function reducer(state: State, action: Action): State {
           },
         };
       }
-      // Field 34: config scope (cycle global/project)
-      if (f === 34) {
+      // Field 35: config scope (cycle global/project)
+      if (f === 35) {
         const i = CONFIG_SCOPES.indexOf(sp.configScope);
         const base = i < 0 ? 0 : i;
         const next = (base + action.delta + CONFIG_SCOPES.length) % CONFIG_SCOPES.length;

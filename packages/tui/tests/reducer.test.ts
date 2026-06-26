@@ -566,16 +566,16 @@ describe('TUI reducer', () => {
   });
 
   it('settingsValueChange flags compactor strategy (boot-only) but not auto-compact toggle (live)', () => {
-    // Auto-compact on/off (field 26) applies live → no hint.
+    // Auto-compact on/off (field 27) applies live → no hint.
     let live = openSettings(initial());
-    live = reducer(live, { type: 'settingsFieldMove', delta: 26 });
+    live = reducer(live, { type: 'settingsFieldMove', delta: 27 });
     live = reducer(live, { type: 'settingsValueChange', delta: 1 } as never);
     expect(live.settingsPicker.contextAutoCompact).toBe(false);
     expect(live.settingsPicker.hint).toBeUndefined();
 
-    // Compactor strategy (field 27) needs a restart → hint.
+    // Compactor strategy (field 28) needs a restart → hint.
     let strat = openSettings(initial());
-    strat = reducer(strat, { type: 'settingsFieldMove', delta: 27 });
+    strat = reducer(strat, { type: 'settingsFieldMove', delta: 28 });
     strat = reducer(strat, { type: 'settingsValueChange', delta: 1 } as never);
     expect(strat.settingsPicker.hint).toBe('↻ Takes effect next session');
   });
@@ -861,6 +861,8 @@ describe('settings picker reducer', () => {
       settingsPicker: {
         open: false,
         field: 0,
+        lastSettingsField: 0,
+        filter: '',
         mode: 'off' as const,
         delayMs: 0,
         titleAnimation: true,
@@ -899,6 +901,53 @@ describe('settings picker reducer', () => {
         ...over,
       },
     }) as never as Parameters<typeof reducer>[0];
+
+  // Minimal `settingsOpen` action payload — covers every required field
+  // with the same defaults `base()` uses, so tests that exercise close/reopen
+  // cycles can dispatch the open action without re-stating 30+ fields.
+  // (The reducer ignores the action's `field` — it reads the previous
+  // runtime value to preserve the last-visited row.)
+  const settingsOpenPayload = (over: Record<string, unknown> = {}) => ({
+    type: 'settingsOpen' as const,
+    mode: 'off',
+    delayMs: 0,
+    lastSettingsField: 0,
+    titleAnimation: true,
+    yolo: false,
+    streamFleet: true,
+    chime: false,
+    confirmExit: true,
+    nextPrediction: false,
+    featureMcp: true,
+    featurePlugins: true,
+    featureMemory: true,
+    featureSkills: true,
+    featureModelsRegistry: true,
+    tokenSavingTier: 'off' as const,
+    allowOutsideProjectRoot: true,
+    contextAutoCompact: true,
+    contextStrategy: 'hybrid' as const,
+    contextMode: 'balanced' as const,
+    maxConcurrent: 3,
+    logLevel: 'info' as const,
+    auditLevel: 'standard' as const,
+    indexOnStart: true,
+    multiDiffSummaryThreshold: 5,
+    maxIterations: 500,
+    autoProceedMaxIterations: 50,
+    enhanceDelayMs: 60_000,
+    enhanceEnabled: true,
+    enhanceLanguage: 'original' as const,
+    debugStream: false,
+    statuslineMode: 'detailed' as const,
+    reasoningMode: 'auto' as const,
+    reasoningEffort: 'medium' as const,
+    reasoningPreserve: false,
+    thinkingWord: 'thinking',
+    cacheTtl: 'default' as const,
+    configScope: 'global' as const,
+    ...over,
+  });
 
   it('opens with the supplied mode + delay and focuses the first field', () => {
     const s = reducer(base(), {
@@ -949,6 +998,76 @@ describe('settings picker reducer', () => {
     expect(s.settingsPicker).toMatchObject({ open: false, mode: 'suggest', delayMs: 15_000 });
   });
 
+  it('reopen after close restores the last-visited row (Ctrl+M target)', () => {
+    // Simulates: user opens picker, jumps to Multi-diff summary via
+    // Ctrl+M (field 21), closes the picker, reopens. The expected
+    // behaviour is the picker reopens on field 21 — not back on 0 — so
+    // they can keep iterating without re-navigating from the top.
+    let s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldSet', field: 21 });
+    expect(s.settingsPicker.field).toBe(21);
+    s = reducer(s, { type: 'settingsClose' });
+    expect(s.settingsPicker.open).toBe(false);
+    expect(s.settingsPicker.field).toBe(21); // survives close
+    s = reducer(s, settingsOpenPayload());
+    expect(s.settingsPicker.open).toBe(true);
+    expect(s.settingsPicker.field).toBe(21); // reopened on the last row
+  });
+
+  it('reopen honours the persisted lastSettingsField across a "session restart"', () => {
+    // Cross-session behaviour: simulate a fresh runtime (field: 0,
+    // lastSettingsField: 0 — as if the process just started and loaded
+    // settings from disk). The `settingsOpen` action carries
+    // `lastSettingsField: 17` from the canonical Settings shape, and the
+    // picker should land on row 17 even though the runtime state
+    // remembers nothing.
+    //
+    // This guards the "open action's lastSettingsField drives the open
+    // row" contract — without it, a restart would always drop the user
+    // back on row 0.
+    const s = reducer(base({ field: 0, lastSettingsField: 0 }), settingsOpenPayload({ lastSettingsField: 17 }));
+    expect(s.settingsPicker.open).toBe(true);
+    expect(s.settingsPicker.field).toBe(17);
+    expect(s.settingsPicker.lastSettingsField).toBe(17);
+  });
+
+  it('navigation keeps lastSettingsField in sync with field (single source of truth)', () => {
+    // Whether the user navigates via Ctrl+<letter> (settingsFieldSet)
+    // or arrow keys (settingsFieldMove), `lastSettingsField` must mirror
+    // `field` so the auto-save effect can write the canonical Settings
+    // shape with the most recent focus.
+    let s = reducer(base({ open: true, field: 0, lastSettingsField: 0 }), {
+      type: 'settingsFieldSet',
+      field: 22, // thinking word
+    });
+    expect(s.settingsPicker.field).toBe(22);
+    expect(s.settingsPicker.lastSettingsField).toBe(22);
+
+    s = reducer(s, { type: 'settingsFieldMove', delta: 1 });
+    expect(s.settingsPicker.field).toBe(23);
+    expect(s.settingsPicker.lastSettingsField).toBe(23);
+
+    // Wrap from field 23 back to 0 — `delta: -23` (or equivalently
+    // `delta: SETTINGS_FIELD_COUNT - 23`) is the exact wrap. Both
+    // `field` and `lastSettingsField` must land on 0 together.
+    s = reducer(s, { type: 'settingsFieldMove', delta: -23 });
+    expect(s.settingsPicker.field).toBe(0);
+    expect(s.settingsPicker.lastSettingsField).toBe(0);
+  });
+
+  it('multiple close/reopen cycles land on the most recent row', () => {
+    // User visits row 17, closes, reopens (lands on 17), moves to 30,
+    // closes, reopens (should land on 30 — not 17). Verifies that the
+    // "last visited" semantics is *last*, not *first visited this session*.
+    let s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldSet', field: 17 });
+    s = reducer(s, { type: 'settingsClose' });
+    s = reducer(s, settingsOpenPayload());
+    expect(s.settingsPicker.field).toBe(17);
+    s = reducer(s, { type: 'settingsFieldSet', field: 30 });
+    s = reducer(s, { type: 'settingsClose' });
+    s = reducer(s, settingsOpenPayload());
+    expect(s.settingsPicker.field).toBe(30);
+  });
+
   it('field move wraps between fields', () => {
     // Wrap back to 0 after the last field (SETTINGS_FIELD_COUNT fields total).
     let s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldMove', delta: 1 });
@@ -994,65 +1113,89 @@ describe('settings picker reducer', () => {
     expect(down.settingsPicker.delayMs).toBe(120_000);
   });
 
-  // New field order (reordered sections, thinkingWord added at field 21):
+  // New field order (reordered sections, thinkingWord added at field 22, multi-diff summary at field 21):
   // 0-14: Autonomy + UX + Features (unchanged)
-  // 15-20: Tools (indexOnStart moved here), 21: thinkingWord
-  // 22: reasoningMode, 23: reasoningEffort, 24: reasoningPreserve, 25: cacheTtl
-  // 26-28: Context, 29: Fleet, 30-31: Logging, 32-34: Debug
+  // 15-20: Tools (indexOnStart moved here), 21: multiDiffSummaryThreshold
+  // 22: thinkingWord, 23-26: Reasoning, 27-29: Context, 30: Fleet, 31-32: Logging, 33-35: Debug
   it('changes the setting that matches the visible tail field order', () => {
-    // Field 22: reasoningMode cycles auto → on
-    let s = reducer(base({ open: true, field: 22, reasoningMode: 'auto', thinkingWord: 'thinking' }), {
+    // Field 23: reasoningMode cycles auto → on
+    let s = reducer(base({ open: true, field: 23, reasoningMode: 'auto', thinkingWord: 'thinking' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.reasoningMode).toBe('on');
     expect(s.settingsPicker.thinkingWord).toBe('thinking'); // unaffected
 
-    // Field 23: reasoningEffort cycles medium → high
-    s = reducer(base({ open: true, field: 23, reasoningEffort: 'medium', statuslineMode: 'detailed' }), {
+    // Field 24: reasoningEffort cycles medium → high
+    s = reducer(base({ open: true, field: 24, reasoningEffort: 'medium', statuslineMode: 'detailed' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.reasoningEffort).toBe('high');
     expect(s.settingsPicker.statuslineMode).toBe('detailed'); // unaffected
 
-    // Field 24: reasoningPreserve cycles false → true
-    s = reducer(base({ open: true, field: 24, reasoningPreserve: false, reasoningMode: 'auto' }), {
+    // Field 25: reasoningPreserve cycles false → true
+    s = reducer(base({ open: true, field: 25, reasoningPreserve: false, reasoningMode: 'auto' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.reasoningPreserve).toBe(true);
     expect(s.settingsPicker.reasoningMode).toBe('auto'); // unaffected
 
-    // Field 25: cacheTtl cycles default → 5m
-    s = reducer(base({ open: true, field: 25, cacheTtl: 'default', configScope: 'global' }), {
+    // Field 26: cacheTtl cycles default → 5m
+    s = reducer(base({ open: true, field: 26, cacheTtl: 'default', configScope: 'global' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.cacheTtl).toBe('5m');
     expect(s.settingsPicker.configScope).toBe('global'); // unaffected
 
-    // Field 32: debugStream toggles false → true
-    s = reducer(base({ open: true, field: 32, debugStream: false }), {
+    // Field 33: debugStream toggles false → true
+    s = reducer(base({ open: true, field: 33, debugStream: false }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.debugStream).toBe(true);
 
-    // Field 33: statuslineMode cycles detailed → minimum
-    s = reducer(base({ open: true, field: 33, statuslineMode: 'detailed' }), {
+    // Field 34: statuslineMode cycles detailed → minimum
+    s = reducer(base({ open: true, field: 34, statuslineMode: 'detailed' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.statuslineMode).toBe('minimum');
 
-    // Field 34: configScope cycles global → project
-    s = reducer(base({ open: true, field: 34, configScope: 'global', cacheTtl: 'default' }), {
+    // Field 35: configScope cycles global → project
+    s = reducer(base({ open: true, field: 35, configScope: 'global', cacheTtl: 'default' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
     expect(s.settingsPicker.configScope).toBe('project');
     expect(s.settingsPicker.cacheTtl).toBe('default'); // unaffected
+  });
+
+  it('settingsFieldSet jumps directly to an arbitrary field (Ctrl+M target)', () => {
+    // Simulates Ctrl+M dispatching `settingsFieldSet` with the multi-diff
+    // summary row's index. Guards against drift between
+    // MULTI_DIFF_SUMMARY_THRESHOLD_FIELD (settings-picker.tsx) and the
+    // actual field order in the reducer's switch.
+    const s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldSet', field: 21 });
+    expect(s.settingsPicker.field).toBe(21);
+  });
+
+  it('settingsFieldSet clamps out-of-range fields to 0', () => {
+    const s = reducer(base({ open: true, field: 5 }), { type: 'settingsFieldSet', field: 999 });
+    expect(s.settingsPicker.field).toBe(0);
+  });
+
+  it('settingsFieldSet accepts every registered jump-chord target', () => {
+    // Each modifier+<letter> chord in settings-picker.tsx dispatches
+    // settingsFieldSet with a specific field index. This spot-checks every
+    // target so a row reorder in the picker that breaks a jump surfaces as
+    // a failing test rather than a silent land-on-row-0.
+    for (const target of [0, 3, 5, 6, 13, 17, 20, 21, 22, 23, 29, 30, 31, 32, 33, 34, 35]) {
+      const s = reducer(base({ open: true, field: 0 }), { type: 'settingsFieldSet', field: target });
+      expect(s.settingsPicker.field).toBe(target);
+    }
   });
 
 });

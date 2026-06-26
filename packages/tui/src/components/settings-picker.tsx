@@ -56,6 +56,15 @@ export const AUTO_PROCEED_MAX_PRESETS = [10, 25, 50, 100, 250, 0];
 /** Presets for prompt refinement preview countdown. */
 export const ENHANCE_DELAY_PRESETS = [15_000, 30_000, 45_000, 60_000, 90_000, 120_000];
 
+/**
+ * Presets for the multi-file diff summary footer cutoff. Each value is the
+ * minimum number of files before the aggregate `N files · +X -Y · …`
+ * line is rendered above the per-file blocks. `0` suppresses the footer
+ * entirely; `5` is the package default; values up to 15 are useful for
+ * very wide terminals where per-file footers are cheap.
+ */
+export const MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS = [3, 5, 8, 10, 15, 0];
+
 /** Language options for prompt refinement. */
 export const ENHANCE_LANGUAGES = ['original', 'english'] as const;
 export type EnhanceLanguage = (typeof ENHANCE_LANGUAGES)[number];
@@ -80,6 +89,11 @@ export function formatSettingsDelay(ms: number): string {
 
 export function formatMaxIterations(n: number): string {
   if (n === 0) return 'unlimited';
+  return String(n);
+}
+
+export function formatMultiDiffSummaryThreshold(n: number): string {
+  if (n === 0) return 'off';
   return String(n);
 }
 
@@ -128,6 +142,8 @@ export interface SettingsPickerProps {
   enhanceLanguage: EnhanceLanguage;
   /** Run incremental index at session start. */
   indexOnStart: boolean;
+  /** User-tunable cutoff for the multi-file diff summary footer. 0 = off. */
+  multiDiffSummaryThreshold: number;
   // ── Reasoning ──
   /** Thinking word displayed in status bar while agent is working. */
   thinkingWord: string;
@@ -159,27 +175,224 @@ export interface SettingsPickerProps {
   statuslineMode: StatuslineMode;
   /** Where settings are persisted. */
   configScope: ConfigScope;
+  /**
+   * Live filter for the row-search modal (entered via `/`). When non-empty,
+   * the picker renders only matching rows. The leading `/` is part of the
+   * value (matches fzf/vim convention) — the matcher strips it before
+   * matching against row labels.
+   */
+  filter?: string | undefined;
   hint?: string | undefined;
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 35;
+export const SETTINGS_FIELD_COUNT = 36;
 
 /**
  * Field index of the "Thinking word" row. The reducer's per-field switch and
  * the app.tsx key handler both branch on this, so it lives next to the row
  * definitions to keep the three in sync. If the row order changes, update this.
  */
-export const THINKING_WORD_FIELD = 21;
+export const THINKING_WORD_FIELD = 22;
+
+/**
+ * Field index of the "Multi-diff summary" row. Same rationale as
+ * {@link THINKING_WORD_FIELD}: the keyboard handler in app.tsx dispatches
+ * `settingsFieldSet` to this index when the user presses Ctrl+M inside the
+ * picker, so any reorder of the Tools section must update this constant.
+ */
+export const MULTI_DIFF_SUMMARY_THRESHOLD_FIELD = 21;
+
+/**
+ * Map of modifier+<letter> chords to settings-picker rows. While the picker
+ * is open, pressing a chord jumps the cursor straight to the target row so
+ * the user can immediately cycle its value with ←/→ (or, for the thinking
+ * word, Enter to open the free-text editor).
+ *
+ * Ctrl chords must NOT collide with global bindings:
+ *   Ctrl+S = close picker · Ctrl+G = F3 agents monitor · Ctrl+F = F2 fleet
+ *   monitor · Ctrl+P = PhaseMonitor · Ctrl+T = F4 worktree · Ctrl+A = F5 plan
+ *   panel · Ctrl+K = F9 goal panel.
+ *
+ * Alt chords must NOT collide with:
+ *   Alt+V = paste image from clipboard (chat input).
+ *
+ * Alt+Shift chords (mod+Alt in the user's framing) reuse the same letter as
+ * plain Alt or Ctrl when the plain variants are already taken — the
+ * composition distinguishes them at the keyboard level. For example, the
+ * Ctrl and Alt+Shift sets both use 'L' for the Logging rows, but Alt+L and
+ * Alt+Shift+L land on different fields.
+ *
+ * Each entry's `field` must match the actual row index at render time — the
+ * `settingsFieldSet` action clamps out-of-range values to 0, so a drift
+ * between this map and the picker row order would silently land the user on
+ * row 0 instead of jumping them to the intended target.
+ */
+export type SettingsPickerJumpMod = 'ctrl' | 'alt' | 'alt-shift';
+
+export interface SettingsPickerJumpChord {
+  /** The modifier that, combined with the letter, triggers the jump. */
+  mod: SettingsPickerJumpMod;
+  /** The lowercase letter that triggers the jump. */
+  letter: string;
+  /** Target row index. Must match the picker's actual field order. */
+  field: number;
+  /** Short label for the help overlay and any debug surfaces. */
+  label: string;
+}
+
+export const SETTINGS_PICKER_JUMP_CHORDS: ReadonlyArray<SettingsPickerJumpChord> = Object.freeze([
+  // ── Ctrl chords (Tools / Reasoning / Fleet / Debug sections) ──
+  // Most-tweaked rows first — these are the knobs users reach for daily.
+  { mod: 'ctrl', letter: 'i', field: 20, label: 'Index on session start' },
+  { mod: 'ctrl', letter: 'm', field: 21, label: 'Multi-diff summary' },
+  { mod: 'ctrl', letter: 'w', field: 22, label: 'Thinking word' },
+  { mod: 'ctrl', letter: 'r', field: 17, label: 'Refine preview countdown' },
+  { mod: 'ctrl', letter: 'e', field: 18, label: 'Refine' },
+  { mod: 'ctrl', letter: 'n', field: 23, label: 'Reasoning mode' },
+  { mod: 'ctrl', letter: 'l', field: 30, label: 'Max concurrent' },
+  { mod: 'ctrl', letter: 'd', field: 34, label: 'Statusline' },
+
+  // ── Alt chords (Autonomy / UX / Features / Context sections) ──
+  // The Ctrl set above is dominated by Tools + Reasoning rows; Alt picks up
+  // the spread-out sections to give every region of the picker a fast path.
+  { mod: 'alt', letter: 'a', field: 0, label: 'Default autonomy mode' },
+  { mod: 'alt', letter: 'y', field: 3, label: 'YOLO mode' },
+  { mod: 'alt', letter: 'c', field: 5, label: 'Completion chime' },
+  { mod: 'alt', letter: 's', field: 6, label: 'Confirm before exit' },
+  { mod: 'alt', letter: 't', field: 13, label: 'Token-saving mode' },
+  { mod: 'alt', letter: 'x', field: 29, label: 'Context mode' },
+
+  // ── Alt+Shift chords (Logging / Debug sections) ──
+  // 'L' is taken by Ctrl+L (Max concurrent), so the Logging rows get the
+  // composed Alt+Shift version. A standalone Alt+L would shadow the same
+  // letter as Max concurrent's Ctrl chord, so the composition is the
+  // disambiguator. 'A' and 'B' are both currently free as Alt+Shift
+  // letters (B is unmapped at any mod), so the Debug row's "Stream debug
+  // logging" takes B (de**B**ug, raw-**B**yte stream) rather than churn
+  // the existing Ctrl+D → Statusline binding to make room. The Config
+  // scope row uses G (**G**lobal / project) — G is free as Alt+Shift even
+  // though Ctrl+G is the agents-monitor chord, because the mod+letter
+  // composition makes them distinct at the keyboard-handler level.
+  { mod: 'alt-shift', letter: 'l', field: 31, label: 'Log level' },
+  { mod: 'alt-shift', letter: 'a', field: 32, label: 'Audit level' },
+  { mod: 'alt-shift', letter: 'b', field: 33, label: 'Stream debug logging' },
+  { mod: 'alt-shift', letter: 'g', field: 35, label: 'Config scope' },
+]);
+
+/**
+ * Lookup helper for the modifier+<letter> jump handler. Returns the
+ * target field index for the given combination, or undefined if no chord
+ * is bound. Centralised here so the help overlay and the keyboard
+ * handler share a single source of truth — adding a new chord only
+ * requires touching this array (and re-running the tests, which read it
+ * back to verify the help overlay stays in sync).
+ */
+export function settingsPickerJumpField(
+  mod: SettingsPickerJumpMod,
+  letter: string,
+): number | undefined {
+  const lower = letter.toLowerCase();
+  const chord = SETTINGS_PICKER_JUMP_CHORDS.find((c) => c.mod === mod && c.letter === lower);
+  return chord?.field;
+}
+
+/**
+ * Normalise a free-text query (from a slash command, search box, etc.)
+ * into a "slug" suitable for matching against a settings row label.
+ *
+ *   "Multi-diff summary"   → "multi-diff-summary"
+ *   "Context mode"         → "context-mode"
+ *   "Refine preview countdown" → "refine-preview-countdown"
+ *
+ * We intentionally don't strip "mode" / "level" / "summary" suffixes —
+ * the resolver tries multiple match strategies (exact, prefix, word-boundary)
+ * to handle short queries like "context" or "audit" without making the
+ * function itself responsible for fuzzy matching.
+ */
+function settingsPickerSlug(label: string): string {
+  return label.toLowerCase().replace(/\s+/g, '-');
+}
+
+/**
+ * Look up a settings-picker row by free-text name. Used by the
+ * `/settings <chord>` slash command so users can jump by label
+ * ("/settings multi-diff") in addition to the in-picker Ctrl+<letter>
+ * chords.
+ *
+ * Match strategies, in priority order:
+ *   1. Exact slug match — `/settings multi-diff-summary` → 21
+ *   2. Token-prefix match — `/settings multi-diff` → 21 (matches the
+ *      leading two tokens of "Multi-diff summary")
+ *   3. Any-token match — `/settings chime` → 5 (matches the second
+ *      token of "Completion chime"); `/settings context` → 29 (matches
+ *      the first token of "Context mode")
+ *
+ * Ties (multiple rows match) resolve to the first chord in the array,
+ * which is the most-tweaked-row-first ordering used throughout the
+ * help overlay and the keyboard handler. Returns undefined if no row
+ * matches. The caller is expected to surface a helpful error listing
+ * the available names when this returns undefined.
+ */
+export function settingsPickerJumpByName(name: string): number | undefined {
+  const query = settingsPickerSlug(name);
+  if (!query) return undefined;
+
+  // 1. Exact slug match.
+  const exact = SETTINGS_PICKER_JUMP_CHORDS.find(
+    (c) => settingsPickerSlug(c.label) === query,
+  );
+  if (exact) return exact.field;
+
+  // 2. Token-prefix match: query tokens align with the leading tokens
+  //    of the label slug. Allows `/settings multi-diff` to match
+  //    "Multi-diff summary" (three tokens), or `/settings default-autonomy`
+  //    to match "Default autonomy mode" (three tokens).
+  const queryTokens = query.split('-');
+  for (const c of SETTINGS_PICKER_JUMP_CHORDS) {
+    const labelTokens = settingsPickerSlug(c.label).split('-');
+    if (queryTokens.every((t, i) => labelTokens[i] === t)) {
+      return c.field;
+    }
+  }
+
+  // 3. Any-token match: the query is one of the label's tokens (or a
+  //    prefix of one). Allows `/settings chime` → 5 ("Completion chime"),
+  //    `/settings word` → 22 ("Thinking word"), `/settings scope` → 35
+  //    ("Config scope"). Short queries like "log" or "audit" resolve
+  //    unambiguously to a single row; longer queries that match
+  //    multiple rows resolve to the first one in the array ordering.
+  for (const c of SETTINGS_PICKER_JUMP_CHORDS) {
+    const labelTokens = settingsPickerSlug(c.label).split('-');
+    if (labelTokens.some((t) => t === query || t.startsWith(`${query}-`))) {
+      return c.field;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * All unique row names in the order they appear in the picker, formatted
+ * as slash-separated slugs. Used by the help text of `/settings` so
+ * the user can see the full vocabulary without leaving the prompt.
+ */
+export function settingsPickerJumpNames(): string[] {
+  return SETTINGS_PICKER_JUMP_CHORDS.map((c) => settingsPickerSlug(c.label));
+}
 
 /**
  * Curated words the "Thinking word" field cycles through with ←/→. The user's
  * own custom word (set via Enter free-text edit or config) is folded into this
  * list at runtime so cycling never drops it. All entries must satisfy
  * `normalizeTuiThinkingWord` (single short word, ≤16 chars).
+ *
+ * `'thinking'` (the default) and `'random'` both surface a fresh fun word from
+ * the pool on each working spell — see `isRandomTuiThinkingWord`.
  */
 export const THINKING_WORD_PRESETS = [
   'thinking',
+  'random',
   'working',
   'cooking',
   'vibing',
@@ -198,6 +411,7 @@ export type ConfigScope = (typeof CONFIG_SCOPES)[number];
 
 export function SettingsPicker({
   field,
+  filter,
   mode,
   delayMs,
   titleAnimation,
@@ -219,6 +433,7 @@ export function SettingsPicker({
   enhanceEnabled,
   enhanceLanguage,
   indexOnStart,
+  multiDiffSummaryThreshold,
   thinkingWord,
   thinkingWordEditing,
   thinkingWordDraft,
@@ -356,6 +571,12 @@ export function SettingsPicker({
       value: boolVal(indexOnStart),
       detail: 'Run incremental index at session start',
     },
+    {
+      label: 'Multi-diff summary',
+      value: formatMultiDiffSummaryThreshold(multiDiffSummaryThreshold),
+      detail:
+        'Min files before aggregate header (0 = off, default 5, 10 for big diffs)',
+    },
     // ── Reasoning ──
     { section: 'Reasoning' },
     {
@@ -363,7 +584,7 @@ export function SettingsPicker({
       value: thinkingWordEditing ? `${thinkingWordDraft ?? ''}▏` : thinkingWord,
       detail: thinkingWordEditing
         ? 'type a word · Enter ✓ · Esc ✗ (≤16, letters/digits/_/-)'
-        : 'Status-bar working word · ←/→ presets · Enter to type',
+        : 'Status-bar working word · thinking/random = surprise me · ←/→ presets · Enter to type',
     },
     {
       label: 'Reasoning mode',
@@ -448,6 +669,188 @@ export function SettingsPicker({
     if (!rows[i]?.section) fieldRowIndex.push(i);
   }
 
+  // ── Filter mode ──
+  // When the user presses `/` and types a query, the picker renders only
+  // rows whose label matches the query. Matching uses two strategies:
+  //   1. Contiguous substring (case-insensitive) — "diff" matches "Multi-diff"
+  //   2. Fuzzy scattered-character (each char appears in order) — "mds"
+  //      matches "Multi-diff Summary"
+  // Strategy 1 is tried first (higher relevance). The leading `/` from the
+  // filter value is stripped before matching.
+  const filterActive = Boolean(filter && filter.length > 1);
+  const filterQuery = filter && filter.length > 1 ? filter.slice(1).toLowerCase() : '';
+
+  /**
+   * Fuzzy-scattered match: every character of `needle` must appear in
+   * `haystack` in the same order, but not necessarily contiguously.
+   * Returns the array of matched character indices (for highlighting),
+   * or undefined when no subsequence match exists.
+   *
+   *   fuzzyMatch("multi-diff summary", "mds")
+   *     → [0, 6, 11]  (m-u-l-t-i-[-]-d-i-f-f-[ ]-s-u-m-m-a-r-y → m@0, d@6, s@11)
+   *
+   * This is the classic "command-T / fzf" subsequence filter — cheap
+   * to compute (one pass) and handles abbreviations like "mds" →
+   * "Multi-diff summary" without requiring the user to type the full
+   * word.
+   */
+  const fuzzyMatch = (haystack: string, needle: string): number[] | undefined => {
+    const lower = haystack.toLowerCase();
+    const indices: number[] = [];
+    let ni = 0;
+    for (let hi = 0; hi < lower.length && ni < needle.length; hi++) {
+      if (lower[hi] === needle[ni]) {
+        indices.push(hi);
+        ni++;
+      }
+    }
+    return ni === needle.length ? indices : undefined;
+  };
+
+  // Pre-compute fuzzy match results for every chord — used by both the
+  // filter (does it match?) and the highlighter (which characters?).
+  // Each result also carries a numeric `score` (lower = better match)
+  // so the filtered list can be ranked by relevance.
+  type FuzzyResult = {
+    chord: SettingsPickerJumpChord;
+    contiguous: boolean;
+    fuzzyIdx: number[] | undefined;
+    /** Lower = better. Contiguous always beats fuzzy. */
+    score: number;
+  };
+
+  /**
+   * Score a match for ranking. Lower is better.
+   *
+   *   - Contiguous matches always score below fuzzy matches (prefix 0
+   *     vs prefix 1000).
+   *   - Within each tier, the score combines:
+   *       - Match position (earlier = better: position 0 adds 0, position 20 adds 20)
+   *       - Label length (shorter = better: length 9 adds 0, length 30 adds 21)
+   *       - Total gap between matched chars (tighter = better: 0 gaps adds 0)
+   *
+   * This mirrors fzf/command-T scoring heuristics without the complexity
+   * of a full dynamic-programming alignment. The goal is "the row the
+   * user obviously meant" appearing at the top.
+   */
+  const scoreMatch = (
+    contiguous: boolean,
+    matchIndices: number[] | undefined,
+    labelLength: number,
+  ): number => {
+    const tier = contiguous ? 0 : 1000;
+    if (!matchIndices || matchIndices.length === 0) {
+      // Contiguous with no indices means the query is a substring but we
+      // didn't compute individual indices — estimate the first occurrence.
+      return tier;
+    }
+    const firstPos = matchIndices[0] ?? 0;
+    // Total gap = distance between first and last matched char minus the
+    // number of matched chars (a measure of how "spread out" the match is).
+    const span = (matchIndices.at(-1) ?? 0) - firstPos;
+    const gap = span - (matchIndices.length - 1);
+    // Label length penalty: longer labels are slightly worse.
+    const lengthPenalty = Math.max(0, labelLength - 8);
+    return tier + firstPos + gap * 2 + lengthPenalty;
+  };
+
+  const fuzzyResults: FuzzyResult[] = filterActive
+    ? SETTINGS_PICKER_JUMP_CHORDS.map((c) => {
+        const label = c.label;
+        const contiguous = label.toLowerCase().includes(filterQuery);
+        if (contiguous) {
+          // For contiguous matches, compute the first occurrence index
+          // for scoring (highlighting uses the full highlightSegments path).
+          const firstIdx = label.toLowerCase().indexOf(filterQuery);
+          const indices = Array.from({ length: filterQuery.length }, (_, i) => firstIdx + i);
+          return { chord: c, contiguous, fuzzyIdx: undefined, score: scoreMatch(true, indices, label.length) };
+        }
+        const fuzzyIdx = fuzzyMatch(label, filterQuery);
+        return {
+          chord: c,
+          contiguous: false,
+          fuzzyIdx,
+          score: fuzzyIdx !== undefined ? scoreMatch(false, fuzzyIdx, label.length) : Infinity,
+        };
+      })
+    : [];
+
+  // Sort matched results by score (ascending). Unmatched results have
+  // Infinity and sink to the bottom; they're filtered out below.
+  const rankedResults = fuzzyResults
+    .filter((r) => r.contiguous || r.fuzzyIdx !== undefined)
+    .sort((a, b) => a.score - b.score);
+
+  const filteredFieldIndices = rankedResults.map((r) => r.chord.field);
+
+  /**
+   * Split a label into match/non-match segments for incremental-search
+   * highlighting.
+   *
+   * **Contiguous match** (query appears as a substring): splits into
+   *   non-match / match / non-match blocks.
+   *
+   * **Fuzzy scattered match** (query chars appear in order but scattered):
+   *   marks each matched character individually, so the user sees which
+   *   individual characters contributed to the match:
+   *     "mds" → `M`·u·l·t·i·-·`d`·i·f·f· ·`s`·u·m·m·a·r·y
+   *
+   * When the filter is inactive or the query is empty, returns the whole
+   * label as a single non-match segment.
+   */
+  const highlightSegments = (label: string): Array<{ text: string; match: boolean }> => {
+    if (!filterActive || !filterQuery) return [{ text: label, match: false }];
+
+    // Find this label's match result from the pre-computed set.
+    const result = fuzzyResults.find((r) => r.chord.label === label);
+    if (!result) return [{ text: label, match: false }];
+
+    if (result.contiguous) {
+      // Contiguous substring: find all occurrences and split into blocks.
+      const lower = label.toLowerCase();
+      const segments: Array<{ text: string; match: boolean }> = [];
+      let cursor = 0;
+      while (cursor < label.length) {
+        const idx = lower.indexOf(filterQuery, cursor);
+        if (idx === -1) {
+          segments.push({ text: label.slice(cursor), match: false });
+          break;
+        }
+        if (idx > cursor) {
+          segments.push({ text: label.slice(cursor, idx), match: false });
+        }
+        segments.push({ text: label.slice(idx, idx + filterQuery.length), match: true });
+        cursor = idx + filterQuery.length;
+      }
+      return segments;
+    }
+
+    // Fuzzy scattered match: mark individual characters at the matched indices.
+    if (result.fuzzyIdx) {
+      const matchSet = new Set(result.fuzzyIdx);
+      const segments: Array<{ text: string; match: boolean }> = [];
+      let current = '';
+      let currentMatch = false;
+      for (let i = 0; i < label.length; i++) {
+        const isMatch = matchSet.has(i);
+        if (i === 0) {
+          current = label[i] ?? '';
+          currentMatch = isMatch;
+        } else if (isMatch === currentMatch) {
+          current += label[i] ?? '';
+        } else {
+          segments.push({ text: current, match: currentMatch });
+          current = label[i] ?? '';
+          currentMatch = isMatch;
+        }
+      }
+      if (current) segments.push({ text: current, match: currentMatch });
+      return segments;
+    }
+
+    return [{ text: label, match: false }];
+  };
+
   // Compute visible window. On small terminals, the picker can overflow;
   // we show at most VISIBLE_FIELDS around the current selection so every
   // field stays reachable.
@@ -489,15 +892,56 @@ export function SettingsPicker({
       <Text color="cyan" bold>
         ━━ Settings ━━
       </Text>
-      <Text dimColor>↑/↓ field · ←/→ change + autosave · F5 to close</Text>
-      {hasAbove ? (
+      {filterActive ? (
+        <Text color="yellow" bold>{`Filter: ${filter} (${filteredFieldIndices.length} match${filteredFieldIndices.length === 1 ? '' : 'es'})`}</Text>
+      ) : (
+        <Text dimColor>↑/↓ field · ←/→ change + autosave · `/` to search · F5 to close</Text>
+      )}
+      {hasAbove && !filterActive ? (
         <Text dimColor>{`  ↑ ${windowStart} field${windowStart === 1 ? '' : 's'} above`}</Text>
       ) : null}
-      {rows.map((row, i) => {
+      {filterActive && filteredFieldIndices.length === 0 ? (
+        <Text dimColor italic>No matching settings rows.</Text>
+      ) : null}
+      {filterActive
+        ? // Filter mode: render ranked rows in score order (not picker
+          // order). Each row is looked up by its field index from the
+          // `rows` array via `fieldRowIndex`.
+          rankedResults.map((result) => {
+            const fieldIdx = result.chord.field;
+            // Find the `rows` entry for this field index.
+            const rowIdx = fieldRowIndex[fieldIdx] ?? -1;
+            const row = rows[rowIdx];
+            if (!row || !row.label) return null;
+            const selected = fieldIdx === field;
+            const labelStr = row.label;
+            const segments = highlightSegments(labelStr);
+            const padNeeded = Math.max(0, 26 - labelStr.length);
+            return (
+              <Text key={`frow-${labelStr}`} inverse={selected} {...(selected ? { color: 'yellow' } : {})}>
+                {selected ? '› ' : '  '}
+                {segments.map((seg, j) => (
+                  <Text
+                    key={j}
+                    bold
+                    {...(seg.match ? { color: 'yellow' } : { dimColor: true })}
+                  >
+                    {seg.text}
+                  </Text>
+                ))}
+                <Text bold dimColor>{' '.repeat(padNeeded)}</Text>
+                <Text color="cyan">{String(row.value ?? '').padEnd(12)}</Text>
+                <Text dimColor>{row.detail ?? ''}</Text>
+              </Text>
+            );
+          })
+        : // Normal mode: render rows in picker order with windowing.
+          rows.map((row, i) => {
         const fieldAtRow = fieldRowIndex.indexOf(i);
         // Section headers are always shown when they fall between visible fields.
         // Non-section rows are only shown when their field index is in the window.
         if (fieldAtRow === -1) {
+          if (filterActive) return null; // hide section headers in filter mode
           // Section header — show when any of its fields are in the window.
           if (shouldShowSection(i)) {
             return (
@@ -508,18 +952,43 @@ export function SettingsPicker({
           }
           return null;
         }
-        if (fieldAtRow < windowStart || fieldAtRow >= windowEnd) return null;
+        // In filter mode, show only rows whose field index is in the
+        // filtered set. In normal mode, show only rows in the visible window.
+        if (filterActive) {
+          if (!filteredFieldIndices.includes(fieldAtRow)) return null;
+        } else if (fieldAtRow < windowStart || fieldAtRow >= windowEnd) return null;
         const selected = fieldAtRow === field;
+        const labelStr = row.label ?? '';
+        const segments = highlightSegments(labelStr);
+        // Pad the label to 26 chars total so the value/detail columns
+        // still align. Compute padding from the full label length (not
+        // the segmented version — segments only affect colour, not width).
+        const padNeeded = Math.max(0, 26 - labelStr.length);
         return (
           <Text key={`row-${row.label ?? fieldAtRow}`} inverse={selected} {...(selected ? { color: 'yellow' } : {})}>
             {selected ? '› ' : '  '}
-            <Text bold>{(row.label ?? '').padEnd(26)}</Text>
+            {filterActive ? (
+              <>
+                {segments.map((seg, j) => (
+                  <Text
+                    key={j}
+                    bold
+                    {...(seg.match ? { color: 'yellow' } : { dimColor: true })}
+                  >
+                    {seg.text}
+                  </Text>
+                ))}
+                <Text bold dimColor>{' '.repeat(padNeeded)}</Text>
+              </>
+            ) : (
+              <Text bold>{labelStr.padEnd(26)}</Text>
+            )}
             <Text color="cyan">{String(row.value ?? '').padEnd(12)}</Text>
             <Text dimColor>{row.detail ?? ''}</Text>
           </Text>
         );
       })}
-      {hasBelow ? (
+      {hasBelow && !filterActive ? (
         <Text dimColor>{`  ↓ ${totalFields - windowEnd} field${totalFields - windowEnd === 1 ? '' : 's'} below`}</Text>
       ) : null}
       <Text dimColor>
