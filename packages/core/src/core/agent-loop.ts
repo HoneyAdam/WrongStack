@@ -7,7 +7,7 @@ import type { Request, Response } from '../types/provider.js';
 import type { ContentBlock, TextBlock } from '../types/blocks.js';
 import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
 import { toWrongStackError } from '../types/errors.js';
-import { estimateRequestTokens, estimateRequestTokensCalibrated, getCalibrationState, recordActualUsage, type RequestTokenBreakdown } from '../utils/token-estimate.js';
+import { estimateMessageTokens, estimateRequestTokens, getCalibrationState, recordActualUsage, type RequestTokenBreakdown } from '../utils/token-estimate.js';
 import { recordUserIntentEvidence } from '../utils/context-evidence.js';
 import { toErrorMessage } from '../utils/error.js';
 import { consumeAutonomousContinue } from './continue-to-next-iteration.js';
@@ -117,6 +117,33 @@ export function createAgentLoopHandler(
   const calibrationKey = (model: string = a.ctx.model): string =>
     `${a.ctx.provider?.id ?? 'unknown'}/${model}`;
 
+  // ── System+tools overhead cache ──────────────────────────────────────────
+  // The system prompt and tool definitions change rarely (only on /model,
+  // mode switch, MCP connect/disconnect). Caching their combined token
+  // count by reference identity avoids re-walking them on every token
+  // estimation call — turning estimateRequestTokens from O(msgs+sys+tools)
+  // into O(msgs) when the references are stable.
+  let _cachedSysRef: unknown = null;
+  let _cachedToolsRef: readonly unknown[] | null = null;
+  let _cachedOverheadTokens = 0;
+
+  function systemAndToolsOverhead(): number {
+    const sysRef = a.ctx.systemPrompt;
+    const toolsRef = a.ctx.tools;
+    if (
+      sysRef === _cachedSysRef &&
+      toolsRef === _cachedToolsRef &&
+      _cachedOverheadTokens > 0
+    ) {
+      return _cachedOverheadTokens;
+    }
+    const breakdown = estimateRequestTokens([], sysRef, toolsRef ?? [], calibrationKey());
+    _cachedSysRef = sysRef;
+    _cachedToolsRef = toolsRef;
+    _cachedOverheadTokens = breakdown.systemPrompt + breakdown.tools;
+    return _cachedOverheadTokens;
+  }
+
   function stashRequestTokens(req: Request): RequestTokenBreakdown {
     const preFlight = estimateRequestTokens(
       req.messages,
@@ -132,6 +159,12 @@ export function createAgentLoopHandler(
     // calibrated figure the compaction decision was made on.
     a.ctx.lastRequestTokens = preFlight.total;
     _lastPreFlightMsgCount = req.messages.length;
+    // Track message-only tokens and populate the overhead cache so
+    // subsequent incremental estimates (emitContextPct,
+    // refreshContextRequestTokenStash) can skip the full walk.
+    _cachedSysRef = req.system;
+    _cachedToolsRef = req.tools ?? [];
+    _cachedOverheadTokens = preFlight.systemPrompt + preFlight.tools;
     // Companion meta entry: the (msg, tool) count snapshot the stash
     // was computed at, so the middleware can detect when tool results
     // were appended between pre-flight and compaction and refuse the
@@ -165,12 +198,7 @@ export function createAgentLoopHandler(
       }
     }
 
-    const refreshed = estimateRequestTokens(
-      a.ctx.messages,
-      a.ctx.systemPrompt,
-      a.ctx.tools ?? [],
-      calibrationKey(),
-    ).total;
+    const refreshed = estimateMessageTokens(a.ctx.messages) + systemAndToolsOverhead();
     a.ctx.lastRequestTokens = refreshed;
     _lastPreFlightMsgCount = msgCount;
     a.ctx.meta['lastRequestTokensAt'] = { msgCount, toolCount };
@@ -217,14 +245,26 @@ export function createAgentLoopHandler(
     _lastEmittedMaxContext = maxContext;
 
     // H1: the pre-flight stash is stale if tool results have been appended
-    // since. Recompute and refresh so the bar and the next middleware
-    // invocation see the same number.
+    // since. Instead of re-walking the entire message array + system prompt
+    // + tool defs, compute only the delta: the tokens of the newly appended
+    // messages. This turns an O(n) full re-walk into O(new_messages) —
+    // typically O(1-3) for tool result appends.
     if (msgCount !== _lastPreFlightMsgCount) {
-      a.ctx.lastRequestTokens = estimateRequestTokens(
-        a.ctx.messages,
-        a.ctx.systemPrompt,
-        a.ctx.tools ?? [],
-      ).total;
+      const stashed = a.ctx.lastRequestTokens;
+      if (
+        typeof stashed === 'number' &&
+        stashed > 0 &&
+        _lastPreFlightMsgCount >= 0 &&
+        _lastPreFlightMsgCount < msgCount
+      ) {
+        // Incremental: tool results were appended, existing messages unchanged.
+        const delta = estimateMessageTokens(a.ctx.messages.slice(_lastPreFlightMsgCount));
+        a.ctx.lastRequestTokens = stashed + delta;
+      } else {
+        // Fallback: cold start or messages were replaced (compaction).
+        a.ctx.lastRequestTokens =
+          estimateMessageTokens(a.ctx.messages) + systemAndToolsOverhead();
+      }
       _lastPreFlightMsgCount = msgCount;
       a.ctx.meta['lastRequestTokensAt'] = { msgCount, toolCount };
     }
@@ -241,13 +281,15 @@ export function createAgentLoopHandler(
         ? Math.round(stashed * Math.min(1.5, Math.max(0.5, cal.ratio)))
         : stashed;
     } else {
-      const est = estimateRequestTokensCalibrated(
-        a.ctx.messages,
-        a.ctx.systemPrompt,
-        a.ctx.tools ?? [],
-        calibrationKey(),
-      );
-      total = est.total;
+      // Cold-start fallback: compute once, then stash so the next call
+      // takes the fast path above.
+      const raw = estimateMessageTokens(a.ctx.messages) + systemAndToolsOverhead();
+      a.ctx.lastRequestTokens = raw;
+      _lastPreFlightMsgCount = msgCount;
+      const cal = getCalibrationState(calibrationKey());
+      total = cal.calibrated
+        ? Math.round(raw * Math.min(1.5, Math.max(0.5, cal.ratio)))
+        : raw;
     }
     const rawLoad = maxContext > 0 ? total / maxContext : 0;
     const load = Math.max(0, Math.min(1, rawLoad));
@@ -508,7 +550,12 @@ export function createAgentLoopHandler(
           return { status: 'aborted', iterations, abortReason: signalAbortReason(controller.signal) };
         }
 
-        await a.ctx.session
+        // Fire-and-forget: the in-flight marker is best-effort crash-
+        // recovery metadata. Don't block the iteration loop on a disk
+        // write — the .catch already swallows errors, and the marker
+        // just needs to land at some point during the iteration for
+        // SessionRecovery.detectStale to detect a crash.
+        a.ctx.session
           .writeInFlightMarker(`iteration ${i} / max ${a.maxIterations}`)
           .catch((err) => {
             (a.logger.debug ?? a.logger.warn)?.(
