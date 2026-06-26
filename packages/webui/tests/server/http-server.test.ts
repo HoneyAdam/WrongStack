@@ -71,6 +71,30 @@ describe('buildCspHeader', () => {
     const csp = buildCspHeader(3457, undefined, 'wss://wrongstack-ws.example.com/ws');
     expect(csp).toContain('wss://wrongstack-ws.example.com');
   });
+
+  it('allow-lists inline-script hashes so browser-extension content scripts can run', () => {
+    // Regression: a strict `script-src 'self'` blocks Chrome extension
+    // content-script bootstraps (the browser reports them from `content.js:74:196`
+    // with the sha256 of the offending inline bytes). Without these hashes
+    // allow-listed, extensions that page-inject scripts (password managers,
+    // dark-mode readers, dev helpers) silently fail — which in turn breaks
+    // unrelated UI flows and was reported as a "WebSocket won't connect"
+    // symptom because the extension's bootstrap is what wires up the WS.
+    const csp = buildCspHeader(3457);
+    expect(csp).toContain("'sha256-6PXDy0zrpXa6mvYOl11bZ8nubNUL7ushPUhGDZtaexg='");
+    expect(csp).toContain("'sha256-6sIdwbEBx7jj0drqSHHm7MqvmoYD3CQ4lp8Zp8blcb0='");
+    // The WrongStack app itself ships no inline scripts, so `script-src`
+    // must NOT regress to `'unsafe-inline'` (which would re-open XSS for
+    // any future first-party code that ever needs an inline script).
+    // `style-src` is allowed to keep `'unsafe-inline'` for React's runtime
+    // style mutations — assert against the script directive only.
+    const scriptSrc = csp
+      .split(';')
+      .map((s) => s.trim())
+      .find((s) => s.startsWith('script-src'));
+    expect(scriptSrc).toBeDefined();
+    expect(scriptSrc).not.toMatch(/'unsafe-inline'/);
+  });
 });
 
 describe('decodeSessionId', () => {

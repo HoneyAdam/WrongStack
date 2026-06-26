@@ -186,6 +186,23 @@ function cspSourceFromUrl(rawUrl: string): string | undefined {
   }
 }
 
+/**
+ * Inline-script hashes allow-listed in the production CSP.
+ *
+ * `script-src 'self'` blocks every inline `<script>`, including those Chrome
+ * extensions inject as their content-script bootstrap (the browser reports
+ * them from `content.js:74:196`). The hash list reported in the CSP violation
+ * message is exactly the script bytes Chrome computed — adding those hashes
+ * as `'sha256-…'` sources lets only those two extension bootstraps through
+ * (and any future hash we add here), without re-enabling `'unsafe-inline'`
+ * for the whole app. The WrongStack frontend itself ships no inline scripts,
+ * so the policy stays strict for our own code.
+ */
+const ALLOWED_INLINE_SCRIPT_HASHES: readonly string[] = [
+  "'sha256-6PXDy0zrpXa6mvYOl11bZ8nubNUL7ushPUhGDZtaexg='",
+  "'sha256-6sIdwbEBx7jj0drqSHHm7MqvmoYD3CQ4lp8Zp8blcb0='",
+];
+
 /** Build the Content-Security-Policy value for the given WS port. */
 export function buildCspHeader(
   wsPort: number,
@@ -204,8 +221,9 @@ export function buildCspHeader(
   }
   const publicWsSource = publicWsUrl ? cspSourceFromUrl(publicWsUrl) : undefined;
   if (publicWsSource) connect.add(publicWsSource);
+  const scriptSrc = ["'self'", ...ALLOWED_INLINE_SCRIPT_HASHES].join(' ');
   return (
-    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; ` +
+    `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; ` +
     `connect-src ${Array.from(connect).join(' ')}; ` +
     `img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; ` +
     `base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
