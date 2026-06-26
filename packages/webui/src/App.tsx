@@ -388,8 +388,13 @@ function AppInner() {
             {/* WorkspaceDock — one slim chip strip (AutoPhase, Goal, Fleet,
                 Work, Worktrees, Collab); at most one panel expands below it
                 instead of the old always-on vertical pile. */}
+            {/* shrink-0 + capped height + own scroll: an expanded dock section
+                (Work tasks, Fleet, AutoPhase board, …) must never grow tall
+                enough to push the chat transcript off-screen and kill its
+                scroll. The dock scrolls internally past the cap; ChatView keeps
+                the remaining height as its own scroll region. */}
             {sessionId && (
-              <div className="px-4 pt-2">
+              <div className="px-4 pt-2 shrink-0 max-h-[45vh] overflow-y-auto">
                 <WorkspaceDock sessionId={sessionId} />
               </div>
             )}
