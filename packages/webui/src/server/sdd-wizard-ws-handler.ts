@@ -49,6 +49,8 @@ export interface SddWizardDeps {
       defaultModel?: string | undefined;
       defaultProvider?: string | undefined;
       fallbackModels?: string[] | undefined;
+      /** Per-run worktree-isolation override; undefined → env default. */
+      worktrees?: boolean | undefined;
     },
   ) => Promise<{ runId: string }>;
 }
@@ -101,6 +103,7 @@ export class SddWizardWebSocketHandler {
             fallbackModels: Array.isArray(msg.payload?.fallbackModels)
               ? (msg.payload?.fallbackModels as string[])
               : undefined,
+            worktrees: typeof msg.payload?.worktrees === 'boolean' ? msg.payload.worktrees : undefined,
           });
           break;
       }
@@ -157,6 +160,7 @@ export class SddWizardWebSocketHandler {
     defaultModel?: string | undefined;
     defaultProvider?: string | undefined;
     fallbackModels?: string[] | undefined;
+    worktrees?: boolean | undefined;
   }): Promise<void> {
     if (!this.driver) {
       this.broadcast({ type: 'sdd.spec.error', payload: { message: 'No active spec session.' } });

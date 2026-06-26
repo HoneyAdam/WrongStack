@@ -21,10 +21,10 @@ export interface SSEMessage {
 }
 
 /**
- * Cap on the pending-line buffer. A malicious or buggy upstream that sends
- * megabytes without a newline could otherwise pin a worker via the prior
- * O(n²) CRLF replace + unbounded `buffer +=` pattern. 256 KB comfortably
- * accommodates any sane SSE event while ensuring we fail fast on garbage.
+ * Cap on the unconsumed buffer (pending tail + chunk list). A malicious or
+ * buggy upstream that sends megabytes without a newline could otherwise pin
+ * a worker. 256 KB comfortably accommodates any sane SSE event while
+ * ensuring we fail fast on garbage.
  */
 const MAX_BUFFER_BYTES = 256 * 1024;
 
@@ -33,7 +33,14 @@ export async function* parseSSE(
 ): AsyncIterable<SSEMessage> {
   if (!body) return;
   const decoder = new TextDecoder('utf-8');
-  let buffer = '';
+  // `pending` holds the unconsumed tail across chunks. We push new chunks
+  // onto `chunks` so we never re-copy already-buffered data; the tail is
+  // materialized into a single string for line scanning only when a
+  // newline arrives. The running `totalLen` tracks unconsumed bytes only,
+  // so the MAX_BUFFER_BYTES cap stays accurate after partial consumption.
+  const chunks: string[] = [];
+  let totalLen = 0;
+  let pending = '';
   let event = 'message';
   const dataLines: string[] = [];
 
@@ -66,18 +73,55 @@ export async function* parseSSE(
     return undefined;
   };
 
-  // Incremental CRLF normalization on each appended chunk only — previously
-  // we ran `.replace(/\r\n/g, '\n')` on the *entire* buffer per chunk, which
-  // is O(n²) in stream length. Trailing CR (split across chunks) is left
-  // in the buffer; the splitter handles it on the next round.
+  // Append without copying the existing tail: push into the chunk list and
+  // bump the length counter. The tail is only joined when we need to scan it
+  // for newlines (i.e. when a newline arrives). Trailing CR (split across
+  // chunks) is handled by the per-line endsWith('\r') strip.
   const appendChunk = (chunkStr: string): void => {
     if (chunkStr.length === 0) return;
-    buffer += chunkStr;
-    if (buffer.length > MAX_BUFFER_BYTES) {
+    totalLen += chunkStr.length;
+    if (totalLen > MAX_BUFFER_BYTES) {
       throw new Error(
         `SSE: pending line exceeds ${MAX_BUFFER_BYTES} bytes — upstream is not framing events`,
       );
     }
+    if (pending.length === 0) {
+      pending = chunkStr;
+    } else {
+      chunks.push(pending);
+      pending = chunkStr;
+    }
+  };
+
+  // Scan only the unconsumed tail once per chunk. When the chunk list has
+  // more than one entry we materialize it once (this happens only on the
+  // chunk boundaries where lines actually cross, not every chunk). For the
+  // common case of one-line-at-a-time arrivals this stays a pure indexOf
+  // walk over a single string. Returns the parsed messages to the caller
+  // because arrow functions can't yield from an enclosing generator.
+  const consumeLines = (): SSEMessage[] => {
+    const tail = chunks.length === 0 ? pending : (chunks.shift() ?? '') + pending;
+    const buf = chunks.length === 0 ? tail : tail + chunks.join('');
+    chunks.length = 0;
+    pending = '';
+    const out: SSEMessage[] = [];
+    let start = 0;
+    const len = buf.length;
+    for (let i = 0; i < len; i++) {
+      if (buf.charCodeAt(i) !== 0x0a) continue;
+      const end = i > start && buf.charCodeAt(i - 1) === 0x0d ? i - 1 : i;
+      const line = buf.slice(start, end);
+      start = i + 1;
+      const msg = processLine(line);
+      if (msg) out.push(msg);
+    }
+    if (start < len) {
+      pending = buf.slice(start);
+      totalLen = pending.length;
+    } else {
+      totalLen = 0;
+    }
+    return out;
   };
 
   // Node.js Readable stream
@@ -86,12 +130,7 @@ export async function* parseSSE(
       appendChunk(
         typeof chunk === 'string' ? chunk : decoder.decode(chunk as Buffer, { stream: true }),
       );
-      const split = splitBuffer(buffer);
-      buffer = split.tail;
-      for (const line of split.lines) {
-        const msg = processLine(line);
-        if (msg) yield msg;
-      }
+      for (const msg of consumeLines()) yield msg;
     }
   } else {
     // Web ReadableStream
@@ -101,32 +140,18 @@ export async function* parseSSE(
         const { done, value } = await reader.read();
         if (done) break;
         appendChunk(decoder.decode(value, { stream: true }));
-        const split = splitBuffer(buffer);
-        buffer = split.tail;
-        for (const line of split.lines) {
-          const msg = processLine(line);
-          if (msg) yield msg;
-        }
+        for (const msg of consumeLines()) yield msg;
       }
     } finally {
       reader.releaseLock();
     }
   }
-  // Flush any trailing buffered line
-  if (buffer.length > 0) {
-    const msg = processLine(buffer.replace(/\r$/, ''));
+  // Flush any trailing buffered line (strip a final lone CR if the stream
+  // ended without a closing newline).
+  if (pending.length > 0) {
+    const msg = processLine(pending.charCodeAt(pending.length - 1) === 0x0d ? pending.slice(0, -1) : pending);
     if (msg) yield msg;
   }
   const final = flush();
   if (final) yield final;
-}
-
-function splitBuffer(buf: string): { lines: string[]; tail: string } {
-  // Split on \n directly; strip trailing \r per-line. Avoids the O(n²)
-  // pattern of running .replace(/\r\n/g, '\n') on the entire buffer
-  // every chunk.
-  const parts = buf.split('\n');
-  const tail = parts.pop() ?? '';
-  const lines = parts.map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p));
-  return { lines, tail };
 }

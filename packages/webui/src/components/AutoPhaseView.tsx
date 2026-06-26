@@ -44,6 +44,8 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
   // resetting the form (which read as "nothing happened").
   const [planningGoal, setPlanningGoal] = useState<string | null>(null);
   const [showGraph, setShowGraph] = useState(false);
+  // Per-run git-worktree isolation (vs running phases on the current branch).
+  const [isolate, setIsolate] = useState(true);
 
   const hasPhases = phases.length > 0;
   const planning = planningGoal != null && !hasPhases;
@@ -66,8 +68,8 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
     });
     setPlanningGoal(g);
     setGoal('');
-    client?.send?.({ type: 'autophase.start', payload: { title: g, autonomous: true } });
-  }, [goal, planningGoal, client]);
+    client?.send?.({ type: 'autophase.start', payload: { title: g, autonomous: true, worktrees: isolate } });
+  }, [goal, planningGoal, client, isolate]);
 
   const handleCancelPlanning = useCallback(() => {
     client?.send?.({ type: 'autophase.stop', payload: {} });
@@ -314,6 +316,16 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               }}
             />
 
+            <label className="flex cursor-pointer items-center justify-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={isolate}
+                onChange={(e) => setIsolate(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Isolate each phase in its own git worktree
+            </label>
+
             <div className="flex items-center gap-3">
               <Button onClick={handleStart} disabled={!goal.trim()} className="flex-1 gap-2">
                 <Play className="h-4 w-4" />
@@ -322,7 +334,10 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             </div>
 
             <p className="text-xs text-muted-foreground text-center">
-              Ctrl+Enter to start · phases run in isolated worktrees with agents picking up tasks
+              Ctrl+Enter to start ·{' '}
+              {isolate
+                ? 'phases run in isolated worktrees, squash-merged back'
+                : 'phases run directly on the current branch'}
             </p>
           </div>
         </div>

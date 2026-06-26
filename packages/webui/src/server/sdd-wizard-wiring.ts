@@ -106,17 +106,22 @@ export function buildSddWizardDeps(opts: SddWizardWiringOptions): SddWizardDeps 
 
     runInterviewTurn: (prompt: string): Promise<string> => runIsolatedTurn(prompt, 'Spec Architect'),
 
-    startRun: async (driver, { parallelSlots, defaultModel, defaultProvider, fallbackModels }) => {
+    startRun: async (
+      driver,
+      { parallelSlots, defaultModel, defaultProvider, fallbackModels, worktrees: useWorktrees },
+    ) => {
       const graph = driver.getGraph();
       const tracker = driver.getTracker();
       if (!graph || !tracker) {
         throw new Error('No task graph to run — finish the interview first.');
       }
 
-      // Per-task git-worktree isolation (gated to git repos; disable with
+      // Per-task git-worktree isolation. The per-run UI toggle wins; when it is
+      // omitted we fall back to the env default (disable with
       // WRONGSTACK_SDD_WORKTREES=0). Mirrors the CLI /sdd execute path.
+      const worktreesEnabled = useWorktrees ?? process.env['WRONGSTACK_SDD_WORKTREES'] !== '0';
       let worktrees: WorktreeManager | undefined;
-      if (process.env['WRONGSTACK_SDD_WORKTREES'] !== '0') {
+      if (worktreesEnabled) {
         const inGit =
           spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
             cwd: opts.projectRoot,

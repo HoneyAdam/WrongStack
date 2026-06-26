@@ -830,7 +830,17 @@ export interface WSWorktreeEvent {
 export type WSClientMessage =
   | WSUserMessage
   | WSToolConfirmResult
-  | { type: 'autophase.start'; payload: { title: string; phases?: unknown[] | undefined; autonomous?: boolean | undefined } }
+  | {
+      type: 'autophase.start';
+      payload: {
+        title: string;
+        phases?: unknown[] | undefined;
+        autonomous?: boolean | undefined;
+        /** Per-run override of git-worktree isolation. Omitted → env default
+         *  (WRONGSTACK_AUTOPHASE_WORKTREES). false → run on the current branch. */
+        worktrees?: boolean | undefined;
+      };
+    }
   | { type: 'autophase.pause'; payload: Record<string, never> }
   | { type: 'autophase.resume'; payload: Record<string, never> }
   | { type: 'autophase.stop'; payload: Record<string, never> }
@@ -912,6 +922,9 @@ export type WSClientMessage =
         model?: string | undefined;
         provider?: string | undefined;
         fallbackModels?: string[] | undefined;
+        /** Per-run override of git-worktree isolation. Omitted → env default
+         *  (WRONGSTACK_SDD_WORKTREES). false → run on the current branch. */
+        worktrees?: boolean | undefined;
       };
     }
   | { type: 'abort'; payload: Record<string, never> }

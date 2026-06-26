@@ -65,6 +65,9 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
   const [runModel, setRunModel] = useState<string | undefined>(undefined);
   const [runProvider, setRunProvider] = useState<string | undefined>(undefined);
   const [runFallbacks, setRunFallbacks] = useState<string[]>([]);
+  // Parallel worker slots (how many tasks run at once) + worktree isolation.
+  const [runSlots, setRunSlots] = useState(4);
+  const [runWorktrees, setRunWorktrees] = useState(true);
   const modelCandidates = useProviderModels(runCfgOpen);
   const send = useCallback(
     (msg: Parameters<NonNullable<typeof client>['send']>[0]) => client?.send?.(msg),
@@ -124,6 +127,8 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
     send({
       type: 'sdd.run.start',
       payload: {
+        parallelSlots: runSlots,
+        worktrees: runWorktrees,
         ...(runModel ? { model: runModel, provider: runProvider } : {}),
         ...(runFallbacks.length ? { fallbackModels: runFallbacks } : {}),
       },
@@ -226,6 +231,41 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                   <p className="mt-2 text-[10px] text-muted-foreground">
                     Applies to every task. Override per-task from the live board after the run
                     starts.
+                  </p>
+
+                  {/* Parallelism + isolation */}
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <label htmlFor="sdd-slots" className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Parallel agents
+                    </label>
+                    <input
+                      id="sdd-slots"
+                      type="number"
+                      min={1}
+                      max={16}
+                      value={runSlots}
+                      onChange={(e) => {
+                        const n = Number.parseInt(e.target.value, 10);
+                        setRunSlots(Number.isFinite(n) ? Math.min(16, Math.max(1, n)) : 1);
+                      }}
+                      className="w-16 rounded-md border border-border bg-background px-2 py-1 text-right text-xs outline-none focus:border-violet-500"
+                    />
+                  </div>
+                  <label className="mt-2 flex cursor-pointer items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Isolate in git worktrees
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={runWorktrees}
+                      onChange={(e) => setRunWorktrees(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-violet-500"
+                    />
+                  </label>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {runWorktrees
+                      ? 'Each task runs in its own worktree, squash-merged back on completion.'
+                      : 'Tasks run directly on the current branch (no isolation).'}
                   </p>
                 </div>
               )}

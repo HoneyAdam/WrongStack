@@ -274,11 +274,16 @@ export class AutoPhaseWebSocketHandler {
     // (we swap a single context.cwd per task), so phases stay sequential —
     // but each phase still commits + squash-merges back through its own
     // worktree, and the lifecycle events drive the live swim-lane/DAG view.
+    // Per-run worktree-isolation override from the UI wins; omitted → env default
+    // (disable with WRONGSTACK_AUTOPHASE_WORKTREES=0). false → run on the current branch.
+    const useWorktrees =
+      (payload?.worktrees as boolean | undefined) ??
+      process.env['WRONGSTACK_AUTOPHASE_WORKTREES'] !== '0';
     if (
       !this.worktrees &&
       this.events &&
       this.projectRoot &&
-      process.env['WRONGSTACK_AUTOPHASE_WORKTREES'] !== '0' &&
+      useWorktrees &&
       isGitRepo(this.projectRoot)
     ) {
       this.worktrees = new WorktreeManager({ projectRoot: this.projectRoot, events: this.events });
