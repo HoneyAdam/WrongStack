@@ -41,7 +41,9 @@
 import type { Agent } from '@wrongstack/core';
 import type {
   ContentBlock,
+  PlanEntry,
   StopReason,
+  UsageCost,
 } from '../types/acp-v1.js';
 import type {
   RunTurn,
@@ -96,14 +98,9 @@ export function makeACPServerAgentTurn(
 
     try {
       const userMessage = promptToText(input.prompt);
-      // `agent.run` may take a while; we let the parent signal abort
-      // it through the agent's own internals.
       const result = await agent.run(userMessage, { signal: input.signal });
 
-      // Stream the agent's final text back as one or more
-      // `agent_message_chunk` notifications. v1 spec doesn't
-      // require multiple chunks; we emit a single chunk here
-      // (the future Renderer-based streaming hook can chunk further).
+      // Stream the agent's final text back
       const text = extractText(result);
       if (text) {
         emit({
@@ -112,10 +109,33 @@ export function makeACPServerAgentTurn(
         });
       }
 
+      // Emit plan if the agent provided one
+      const plan = extractPlan(result);
+      if (plan.length > 0) {
+        emit({
+          sessionUpdate: 'plan',
+          entries: plan,
+        });
+      }
+
+      // Emit usage if the agent provided one
+      const usage = extractUsage(result);
+      if (usage) {
+        emit({
+          sessionUpdate: 'usage_update',
+          used: usage.used,
+          size: usage.size,
+          ...(usage.cost ? { cost: usage.cost } : {}),
+        });
+      }
+
       const result_out: RunTurnResult = {
         stopReason: pickStopReason(result, input.signal),
       };
       if (text) result_out.text = text;
+      const runTurnPlan = extractPlan(result);
+      if (runTurnPlan.length > 0) result_out.plan = runTurnPlan;
+      if (usage) result_out.usage = usage;
       return result_out;
     } finally {
       clearTimeout(timer);
@@ -205,13 +225,48 @@ function pickStopReason(result: unknown, signal: AbortSignal): StopReason {
   if (typeof result !== 'object' || result === null) return 'end_turn';
   const r = result as { error?: unknown; stopReason?: unknown };
   if (r.error) {
-    // The agent run returned with an error. The wire layer will
-    // surface this as a separate log; the v1 protocol expects
-    // a stopReason of 'end_turn' or a specific reason.
     return 'end_turn';
   }
   if (typeof r.stopReason === 'string' && r.stopReason) {
     return r.stopReason as StopReason;
   }
   return 'end_turn';
+}
+
+/**
+ * Extract a plan from the agent's RunResult, if available.
+ * The plan is an array of PlanEntry objects.
+ */
+function extractPlan(result: unknown): PlanEntry[] {
+  if (typeof result !== 'object' || result === null) return [];
+  const r = result as Record<string, unknown>;
+  if (Array.isArray(r.plan)) {
+    // Agent provided a plan array
+    return r.plan.filter(
+      (e: unknown) =>
+        typeof e === 'object' && e !== null && typeof (e as { content?: unknown }).content === 'string',
+    ) as PlanEntry[];
+  }
+  return [];
+}
+
+/**
+ * Extract usage/token info from the agent's RunResult, if available.
+ */
+function extractUsage(
+  result: unknown,
+): { used: number; size: number; cost?: UsageCost | undefined } | null {
+  if (typeof result !== 'object' || result === null) return null;
+  const r = result as Record<string, unknown>;
+  if (typeof r.usage === 'object' && r.usage !== null) {
+    const u = r.usage as { used?: unknown; size?: unknown; cost?: unknown };
+    if (typeof u.used === 'number' && typeof u.size === 'number') {
+      return {
+        used: u.used,
+        size: u.size,
+        ...(typeof u.cost === 'object' && u.cost !== null ? { cost: u.cost as UsageCost } : {}),
+      };
+    }
+  }
+  return null;
 }

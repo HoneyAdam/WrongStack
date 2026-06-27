@@ -391,6 +391,10 @@ export function ChatInput({
     [submitWith],
   );
 
+  const handleSendButtonClick = useCallback(() => {
+    void submitWith('btw');
+  }, [submitWith]);
+
   const handleBtw = useCallback(() => {
     void submitWith('btw');
   }, [submitWith]);
@@ -881,24 +885,20 @@ export function ChatInput({
             </Button>
           )}
 
-          {/* Submit button — the only send control visible before the
-              chat has started. Enter on the textarea routes here via the
-              form submit handler too. Hidden once the chat is started so
-              the run-mode trio + Stop can take over the same row. */}
-          {!chatStarted && (
-            <Button
-              type="submit"
-              size="icon"
-              variant="default"
-              disabled={!input.trim() || !client?.isConnected}
-              onClick={handleSubmit}
-              className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
-              title="Send (Enter)"
-              data-testid="send-submit"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          )}
+          {/* Send button — visible both before and after chat has started.
+              Enter on the textarea routes here via the form submit handler too. */}
+          <Button
+            type="submit"
+            size="icon"
+            variant="default"
+            disabled={!input.trim() || !client?.isConnected}
+            onClick={handleSendButtonClick}
+            className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
+            title="Send (Enter)"
+            data-testid="send-submit"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
 
           {/* Send-mode buttons. btw is the new default send (Enter also
               routes here). steer interrupts the run and redirects; addQueue

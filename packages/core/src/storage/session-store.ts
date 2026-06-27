@@ -21,6 +21,9 @@ import { toErrorMessage } from '../utils/index.js';
 import { FileSessionWriter } from './file-session-writer.js';
 import { userInputTitle } from './session-helpers.js';
 import { generateSessionId } from './session-id.js';
+import { compareSessionSummaries, matchesSessionFilter } from './session-summary.js';
+import { extractToolCallEnds } from './session-tool-call-ends.js';
+import { mapWithConcurrency } from './storage-concurrency.js';
 
 export interface SessionStoreOptions {
   dir: string;
@@ -1340,82 +1343,3 @@ export class DefaultSessionStore implements SessionStore {
 
 }
 
-/**
- * Extract tool execution records from `tool_call_end` events in the JSONL.
- * These are used by the TUI to render tool entries (name, duration, ok/error)
- * when a session is resumed. Events are returned in JSONL order (the order
- * they appear in the file, which is chronological insertion order).
- */
-function extractToolCallEnds(events: SessionEvent[]): SessionData['toolCallEnds'] {
-  const result: SessionData['toolCallEnds'] = [];
-  for (const e of events) {
-    if (e.type === 'tool_call_end') {
-      result.push({
-        name: e.name,
-        id: e.id,
-        durationMs: e.durationMs,
-        ok: e.ok ?? false,
-        outputBytes: e.outputBytes,
-        outputTokens: e.outputTokens,
-        outputLines: e.outputLines,
-      });
-    }
-  }
-  return result;
-}
-
-
-function compareSessionSummaries(a: SessionSummary, b: SessionSummary): number {
-  if (a.startedAt < b.startedAt) return 1;
-  if (a.startedAt > b.startedAt) return -1;
-  return a.id.localeCompare(b.id);
-}
-
-/**
- * Shared session filter predicate — used by both `listFiltered` (push-down
- * into the store index) and `DefaultSessionReader` (in-process fallback for
- * stores that don't implement `listFiltered`).
- */
-export function matchesSessionFilter(
-  s: SessionSummary,
-  criteria: {
-    since?: string | undefined;
-    until?: string | undefined;
-    provider?: string | undefined;
-    model?: string | undefined;
-    minTokens?: number | undefined;
-    titleContains?: string | undefined;
-  },
-): boolean {
-  if (criteria.since && s.startedAt < criteria.since) return false;
-  if (criteria.until && s.startedAt > criteria.until) return false;
-  if (criteria.provider && s.provider !== criteria.provider) return false;
-  if (criteria.model && s.model !== criteria.model) return false;
-  if (criteria.minTokens !== undefined && s.tokenTotal < criteria.minTokens) return false;
-  if (criteria.titleContains) {
-    const needle = criteria.titleContains.toLowerCase();
-    if (!s.title.toLowerCase().includes(needle)) return false;
-  }
-  return true;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), items.length);
-  const workers = Array.from({ length: workerCount }, async () => {
-    for (;;) {
-      const idx = next++;
-      if (idx >= items.length) return;
-      const item = items[idx];
-      if (item !== undefined) out[idx] = await fn(item);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}

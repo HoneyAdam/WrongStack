@@ -107,8 +107,8 @@ describe('ChatInput — send-mode buttons', () => {
     expect(screen.getByTestId('send-btw')).toBeDefined();
     expect(screen.getByTestId('send-steer')).toBeDefined();
     expect(screen.getByTestId('send-queue')).toBeDefined();
-    // Submit is no longer rendered once the run-mode trio takes over.
-    expect(screen.queryByTestId('send-submit')).toBeNull();
+    // Send remains available while chat-mode controls are visible.
+    expect(screen.getByTestId('send-submit')).toBeDefined();
     // Stop stays hidden — the agent isn't currently running.
     expect(screen.queryByTestId('stop')).toBeNull();
   });

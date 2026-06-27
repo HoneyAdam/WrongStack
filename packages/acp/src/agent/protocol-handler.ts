@@ -243,10 +243,18 @@ export class ACPProtocolHandler {
           return await this.handleInitialize(id, params);
         case 'authenticate':
           return await this.handleAuthenticate(id, params);
+        case 'logout':
+          return await this.handleLogout(id, params);
         case 'session/new':
           return await this.handleSessionNew(id, params);
         case 'session/load':
           return await this.handleSessionLoad(id, params);
+        case 'session/resume':
+          return await this.handleSessionResume(id, params);
+        case 'session/close':
+          return await this.handleSessionClose(id, params);
+        case 'session/delete':
+          return await this.handleSessionDelete(id, params);
         case 'session/prompt':
           return await this.handleSessionPrompt(id, params);
         case 'session/set_mode':
@@ -270,8 +278,6 @@ export class ACPProtocolHandler {
     const p = (params ?? {}) as { protocolVersion?: unknown };
     const requested = typeof p.protocolVersion === 'number' ? p.protocolVersion : 1;
     if (requested !== ACP_PROTOCOL_VERSION) {
-      // v1 spec: "If the client requests a different protocol version, the
-      // agent SHOULD respond with an error and the version it supports."
       await this.sendError(
         id,
         -32000,
@@ -292,15 +298,25 @@ export class ACPProtocolHandler {
             audio: false,
             embeddedContext: true,
           },
+          mcpCapabilities: {
+            http: false,
+            sse: false,
+          },
+          sessionCapabilities: {
+            close: {},
+            list: {},
+            delete: {},
+            resume: {},
+          },
+          auth: {
+            logout: {},
+          },
         },
         agentInfo: {
           name: this.agentName,
           title: 'WrongStack',
           version: WRONGSTACK_VERSION,
         },
-        // Static options advertised at handshake. They are also
-        // re-sent on every `current_mode_update` / `config_option_update`
-        // notification so late-joining clients see them.
         authMethods: WRONGSTACK_AUTH_METHODS,
         modes: this.modes,
         configOptions: this.configOptions,
@@ -310,13 +326,21 @@ export class ACPProtocolHandler {
   }
 
   private async handleAuthenticate(id: string | number, _params: unknown): Promise<boolean> {
-    // WrongStack doesn't currently require auth. Per spec, a server
-    // MAY respond with an unauthenticated outcome to tell the client
-    // to proceed without credentials.
+    // WrongStack doesn't currently require auth.
     await this.transport.send(toWire({
       jsonrpc: '2.0',
       id,
       result: { outcome: 'unauthenticated' },
+    }));
+    return false;
+  }
+
+  private async handleLogout(id: string | number, _params: unknown): Promise<boolean> {
+    // WrongStack doesn't have persistent auth state, so logout is a no-op.
+    await this.transport.send(toWire({
+      jsonrpc: '2.0',
+      id,
+      result: {},
     }));
     return false;
   }
@@ -370,12 +394,113 @@ export class ACPProtocolHandler {
   }
 
   private async handleSessionLoad(id: string | number, params: unknown): Promise<boolean> {
-    // v1 spec: "If `loadSession: true` is not in the agent's
-    // capabilities, the client SHOULD NOT call this method." We
-    // declared loadSession: true in initialize, so we accept it.
-    // We don't persist sessions across restarts yet — for now,
-    // session/load is a no-op alias of session/new.
-    return this.handleSessionNew(id, params);
+    const p = (params ?? {}) as { sessionId?: unknown; cwd?: unknown; mcpServers?: unknown };
+    const sessionId = typeof p.sessionId === 'string' ? p.sessionId : null;
+    const existing = sessionId ? this.sessions.get(sessionId) : undefined;
+
+    if (existing) {
+      // Session exists in memory — restore it.
+      existing.updatedAt = new Date().toISOString();
+      // Replay the conversation: for now we emit a single info update
+      // since we don't persist full history. The client gets the mode
+      // and config state back.
+      await this.sendNotification({
+        sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          updatedAt: existing.updatedAt,
+        },
+      });
+      await this.sendNotification({
+        sessionId,
+        update: {
+          sessionUpdate: 'current_mode_update',
+          modeId: existing.modeId,
+        },
+      });
+      await this.transport.send(toWire({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          initialMode: {
+            currentModeId: existing.modeId,
+            availableModes: this.modes,
+          },
+        },
+      }));
+      return false;
+    }
+
+    // Session not found — spec says to return an error.
+    await this.sendError(id, -32000, `session not found: ${sessionId}`);
+    return false;
+  }
+
+  private async handleSessionResume(id: string | number, params: unknown): Promise<boolean> {
+    const p = (params ?? {}) as { sessionId?: unknown; cwd?: unknown; mcpServers?: unknown };
+    const sessionId = typeof p.sessionId === 'string' ? p.sessionId : null;
+    const existing = sessionId ? this.sessions.get(sessionId) : undefined;
+
+    if (existing) {
+      existing.updatedAt = new Date().toISOString();
+      await this.transport.send(toWire({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          initialMode: {
+            currentModeId: existing.modeId,
+            availableModes: this.modes,
+          },
+        },
+      }));
+      return false;
+    }
+
+    await this.sendError(id, -32000, `session not found: ${sessionId}`);
+    return false;
+  }
+
+  private async handleSessionClose(id: string | number, params: unknown): Promise<boolean> {
+    const p = (params ?? {}) as { sessionId?: unknown };
+    const sessionId = typeof p.sessionId === 'string' ? p.sessionId : null;
+    const session = sessionId ? this.sessions.get(sessionId) : undefined;
+
+    if (!session) {
+      await this.sendError(id, -32000, `session not found: ${sessionId}`);
+      return false;
+    }
+
+    // Abort any in-flight turn and remove the session.
+    session.abort.abort();
+    if (sessionId) this.sessions.delete(sessionId);
+
+    await this.transport.send(toWire({
+      jsonrpc: '2.0',
+      id,
+      result: {},
+    }));
+    return false;
+  }
+
+  private async handleSessionDelete(id: string | number, params: unknown): Promise<boolean> {
+    const p = (params ?? {}) as { sessionId?: unknown };
+    const sessionId = typeof p.sessionId === 'string' ? p.sessionId : null;
+
+    if (!sessionId || !this.sessions.has(sessionId)) {
+      await this.sendError(id, -32000, `session not found: ${sessionId}`);
+      return false;
+    }
+
+    const session = this.sessions.get(sessionId)!;
+    session.abort.abort();
+    this.sessions.delete(sessionId);
+
+    await this.transport.send(toWire({
+      jsonrpc: '2.0',
+      id,
+      result: {},
+    }));
+    return false;
   }
 
   private async handleSessionPrompt(id: string | number, params: unknown): Promise<boolean> {

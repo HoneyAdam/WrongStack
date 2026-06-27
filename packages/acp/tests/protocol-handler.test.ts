@@ -59,7 +59,7 @@ function makeHandler(opts: {
 
 describe('ACPProtocolHandler', () => {
   describe('initialization', () => {
-    it('returns v1 capabilities and marks initialized', async () => {
+    it('returns v1 capabilities with full session and auth support', async () => {
       const { handler, transport } = makeHandler();
       const terminal = await handler.handleMessage({
         id: 1,
@@ -75,6 +75,9 @@ describe('ACPProtocolHandler', () => {
         agentCapabilities: {
           loadSession: true,
           promptCapabilities: { image: false, audio: false, embeddedContext: true },
+          mcpCapabilities: { http: false, sse: false },
+          sessionCapabilities: { close: {}, list: {}, delete: {}, resume: {} },
+          auth: { logout: {} },
         },
         authMethods: [
           {
@@ -130,7 +133,6 @@ describe('ACPProtocolHandler', () => {
 
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/proj' } });
 
-      // Two new sends: notification + result
       expect(transport.sent.length).toBe(2);
       const note = transport.sent[0] as { method?: string; params?: { update?: { sessionUpdate?: string; modeId?: string } } };
       expect(note.method).toBe('session/update');
@@ -139,6 +141,112 @@ describe('ACPProtocolHandler', () => {
 
       const resp = transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } };
       expect(resp.result?.sessionId).toMatch(/^sess_/);
+    });
+  });
+
+  describe('session/load', () => {
+    it('loads an existing session from memory', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
+      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      transport.sent.length = 0;
+
+      await handler.handleMessage({ id: 3, method: 'session/load', params: { sessionId, cwd: '/x' } });
+      expect(transport.sent.length).toBeGreaterThanOrEqual(1);
+      const resp = transport.sent[transport.sent.length - 1] as { result?: { initialMode?: { currentModeId?: string } } };
+      expect(resp.result?.initialMode?.currentModeId).toBe('code');
+    });
+
+    it('returns error for a non-existent session', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      transport.sent.length = 0;
+      await handler.handleMessage({ id: 2, method: 'session/load', params: { sessionId: 'sess_nonexist', cwd: '/x' } });
+      const resp = transport.sent[0] as { error?: { code: number } };
+      expect(resp.error?.code).toBe(-32000);
+    });
+  });
+
+  describe('session/resume', () => {
+    it('resumes an existing session without history replay', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
+      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      transport.sent.length = 0;
+
+      await handler.handleMessage({ id: 3, method: 'session/resume', params: { sessionId, cwd: '/x' } });
+      const resp = transport.sent[transport.sent.length - 1] as { result?: { initialMode?: { currentModeId?: string } } };
+      expect(resp.result?.initialMode?.currentModeId).toBe('code');
+    });
+
+    it('returns error for a non-existent session', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      transport.sent.length = 0;
+      await handler.handleMessage({ id: 2, method: 'session/resume', params: { sessionId: 'sess_nonexist', cwd: '/x' } });
+      const resp = transport.sent[0] as { error?: { code: number } };
+      expect(resp.error?.code).toBe(-32000);
+    });
+  });
+
+  describe('session/close', () => {
+    it('closes an active session gracefully', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
+      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      transport.sent.length = 0;
+
+      await handler.handleMessage({ id: 3, method: 'session/close', params: { sessionId } });
+      const resp = transport.sent[transport.sent.length - 1] as { result?: {} };
+      expect(resp.result).toEqual({});
+
+      // Session should be removed from list
+      transport.sent.length = 0;
+      await handler.handleMessage({ id: 4, method: 'session/list' });
+      const listResp = transport.sent[0] as { result?: { sessions: unknown[] } };
+      expect(listResp.result?.sessions).toHaveLength(0);
+    });
+
+    it('returns error for a non-existent session', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      transport.sent.length = 0;
+      await handler.handleMessage({ id: 2, method: 'session/close', params: { sessionId: 'sess_nonexist' } });
+      const resp = transport.sent[0] as { error?: { code: number } };
+      expect(resp.error?.code).toBe(-32000);
+    });
+  });
+
+  describe('session/delete', () => {
+    it('deletes a session from the list', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
+      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      transport.sent.length = 0;
+
+      await handler.handleMessage({ id: 3, method: 'session/delete', params: { sessionId } });
+      const resp = transport.sent[transport.sent.length - 1] as { result?: {} };
+      expect(resp.result).toEqual({});
+
+      transport.sent.length = 0;
+      await handler.handleMessage({ id: 4, method: 'session/list' });
+      const listResp = transport.sent[0] as { result?: { sessions: unknown[] } };
+      expect(listResp.result?.sessions).toHaveLength(0);
+    });
+  });
+
+  describe('logout', () => {
+    it('returns empty result', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      transport.sent.length = 0;
+      await handler.handleMessage({ id: 2, method: 'logout', params: {} });
+      const resp = transport.sent[0] as { result?: {} };
+      expect(resp.result).toEqual({});
     });
   });
 

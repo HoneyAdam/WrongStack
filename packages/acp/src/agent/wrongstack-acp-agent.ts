@@ -20,12 +20,15 @@
  * a real core `Agent` (with the right provider, model, system prompt,
  * etc.) per session.
  *
- * Startup: ACP v1 is newline-delimited JSON-RPC on stdout. The server
- * therefore writes no non-JSON stdout by default. A legacy startup marker
- * remains available for older internal harnesses via `legacyStartupMarker`.
+ * Startup: prints the legacy `[wstack-acp]\n` marker (kept for backward
+ * compatibility with the old `StdioTransport` handshake) so the client
+ * knows the protocol boundary. v1 initialize is then sent by the client
+ * and answered by `ACPProtocolHandler`.
  */
 import { fileURLToPath } from 'node:url';
+import { createServer, type Server } from 'node:http';
 import { writeErr } from '@wrongstack/core';
+import type { ACPMessage } from '../types/acp-messages.js';
 import {
   ACPProtocolHandler,
   type RunTurn,
@@ -34,29 +37,29 @@ import {
 import { StdioTransport } from './stdio-transport.js';
 
 export interface WrongStackACPServerOptions {
-  /**
-   * Per-turn implementation. If omitted, the server runs a no-op turn
-   * that just resolves with `end_turn`. The real production usage
-   * passes the result of `makeACPServerAgentTurn({ agentFor: ... })`
-   * from `./server-agent-turn.js` so each session gets a real
-   * `Agent` instance.
-   */
   runTurn?: RunTurn | undefined;
-  /** Default cwd for new sessions. Defaults to the current process cwd. */
   defaultCwd?: string | undefined;
-  /** Agent name advertised in initialize. */
   agentName?: string | undefined;
-  /** Emit the old non-standard startup marker. Defaults to false. */
-  legacyStartupMarker?: boolean | undefined;
+  /**
+   * Transport mode. 'stdio' (default) communicates over stdin/stdout.
+   * When a number is provided, the server listens as an HTTP server on
+   * that port, accepting Streamable HTTP (JSON-RPC over HTTP POST).
+   */
+  transport?: 'stdio' | number | undefined;
+  /** Host for HTTP transport. Defaults to '127.0.0.1'. */
+  host?: string | undefined;
 }
 
 export class WrongStackACPServer {
   private readonly transport: StdioTransport;
   private readonly handler: ACPProtocolHandler;
-  private readonly legacyStartupMarker: boolean;
+  private readonly options: WrongStackACPServerOptions;
+  /** HTTP server when transport mode is HTTP. */
+  private httpServer: Server | null = null;
   private running = false;
 
   constructor(opts: WrongStackACPServerOptions = {}) {
+    this.options = opts;
     this.transport = new StdioTransport();
     const runTurn: RunTurn = opts.runTurn ?? defaultEchoRunTurn;
     this.handler = new ACPProtocolHandler({
@@ -65,32 +68,121 @@ export class WrongStackACPServer {
       runTurn,
       agentName: opts.agentName,
     });
-    this.legacyStartupMarker = opts.legacyStartupMarker === true;
   }
 
   /**
-   * Start the server. Blocks until the client disconnects.
-   *
-   * Loop: read JSON-RPC messages, dispatch to the handler, until EOF / error.
+   * Start the server. Mode depends on `options.transport`:
+   * - 'stdio' (default): reads JSON-RPC from stdin, writes to stdout.
+   * - number: listens as HTTP on the given port.
    */
   async start(): Promise<void> {
-    if (this.legacyStartupMarker) {
-      this.transport.sendStartupMarker();
+    const transportMode = this.options.transport;
+    if (typeof transportMode === 'number') {
+      await this.startHttp(transportMode);
+    } else {
+      await this.startStdio();
     }
+  }
+
+  private async startStdio(): Promise<void> {
+    this.transport.sendStartupMarker();
     this.running = true;
     while (this.running) {
       const msg = await this.transport.read();
-      if (!msg) break; // EOF
+      if (!msg) break;
       const terminal = await this.handler.handleMessage(msg);
       if (terminal) break;
     }
     this.transport.close();
   }
 
+  private async startHttp(port: number): Promise<void> {
+    const host = this.options.host ?? '127.0.0.1';
+    const handler = this.handler;
+
+    this.httpServer = createServer(async (req, res) => {
+      // CORS headers for browser-based clients
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'method not allowed' }));
+        return;
+      }
+
+      // Parse JSON body
+      let body = '';
+      for await (const chunk of req) {
+        body += chunk;
+      }
+
+      let msg: unknown;
+      try {
+        msg = JSON.parse(body);
+      } catch {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: { code: -32700, message: 'Parse error' } }));
+        return;
+      }
+
+      // Process the message and return the response
+      // For HTTP transport, we buffer notifications and return them
+      // inline with the response (Streamable HTTP pattern).
+      const notifications: unknown[] = [];
+      const originalSend = this.transport.send.bind(this.transport);
+      this.transport.send = async (m: ACPMessage) => {
+        // If it's a notification (session/update), buffer it
+        if (m.method === 'session/update' && m.id === undefined) {
+          notifications.push(m.params);
+        } else {
+          // Responses go to the original send
+          await originalSend(m);
+        }
+      };
+
+      try {
+        await handler.handleMessage(msg);
+      } finally {
+        this.transport.send = originalSend;
+      }
+
+      // Get the response that was sent
+      const sent = this.transport as { lastSent?: unknown };
+      const lastResponse = (sent as { lastResponse?: unknown }).lastResponse;
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      const responseBody = {
+        result: lastResponse,
+        notifications,
+      };
+      res.end(JSON.stringify(responseBody));
+    });
+
+    return new Promise<void>((resolve) => {
+      this.httpServer!.listen(port, host, () => {
+        writeErr(`[wstack-acp] HTTP server listening on http://${host}:${port}\n`);
+        this.running = true;
+        resolve();
+      });
+    });
+  }
+
   /** Stop the server. */
   stop(): void {
     this.running = false;
     this.transport.close();
+    if (this.httpServer) {
+      this.httpServer.close();
+      this.httpServer = null;
+    }
   }
 }
 
