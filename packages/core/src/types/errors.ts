@@ -367,6 +367,43 @@ export class FsError extends WrongStackError {
 }
 
 /**
+ * HTTP fetch error — thrown when a network request returns a non-OK status.
+ * Carries the response status so {@link classifyToolError} can branch on it
+ * (429 → transient, 404 → not_found, 401 → permission) without duck-typing
+ * the error via `'response' in err`.
+ *
+ * P3 #18 (before-release.md): the previous `'response' in err` check caught
+ * any Error with a `response` property, including custom errors, proxy
+ * objects, or mocked errors in tests. `instanceof FetchError` is reliable.
+ *
+ * Tools and providers that make HTTP requests and need the executor to
+ * classify their failures should throw `new FetchError({ status, message })`
+ * instead of a bare `Error` with an ad-hoc `response` field.
+ */
+export class FetchError extends WrongStackError {
+  readonly status: number;
+
+  constructor(opts: {
+    message: string;
+    status: number;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
+  }) {
+    super({
+      message: opts.message,
+      code: ERROR_CODES.VALIDATION_ERROR,
+      subsystem: 'general',
+      severity: 'error',
+      recoverable: opts.status === 429 || opts.status >= 500,
+      context: { status: opts.status, ...opts.context },
+      cause: opts.cause,
+    });
+    this.name = 'FetchError';
+    this.status = opts.status;
+  }
+}
+
+/**
  * Tool input validation error — thrown when a tool's input fails a validation
  * check that the JSON Schema cannot express (e.g. `old_string === new_string`
  * in edit, or a cross-field invariant). Use this instead of a bare
@@ -434,6 +471,10 @@ export function isFsError(err: unknown): err is FsError {
 
 export function isToolValidationError(err: unknown): err is ToolValidationError {
   return err instanceof ToolValidationError;
+}
+
+export function isFetchError(err: unknown): err is FetchError {
+  return err instanceof FetchError;
 }
 
 export function isSddError(err: unknown): err is SddError {

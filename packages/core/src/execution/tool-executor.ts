@@ -22,7 +22,7 @@ import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
-import { ToolValidationError } from '../types/errors.js';
+import { FetchError, ToolValidationError } from '../types/errors.js';
 import { MALFORMED_ARG_MARKERS } from '../types/tool-markers.js';
 export class ToolExecutor {
   /** Minimum gap between coalesced `partial_output` tool.progress emits. */
@@ -757,23 +757,20 @@ function classifyToolError(err: unknown): { category: ToolErrorCategory; retryab
     }
   }
 
-  // HTTP response errors (fetch failed with non-OK status)
+  // HTTP response errors (fetch failed with non-OK status).
+  // P3 #18 (before-release.md): prefer the structured FetchError subclass
+  // (instanceof is reliable) over the duck-typing `'response' in err` check,
+  // which catches any Error with a `response` property — custom errors,
+  // proxies, mocks. The duck-typing arm stays as a fallback for code that
+  // still throws bare Error objects with an ad-hoc `response` field.
+  if (err instanceof FetchError) {
+    return httpStatusToCategory(err.status);
+  }
   if (err instanceof Error && 'response' in err) {
     const response = (err as { response: { status?: number } }).response;
     const status = response?.status;
     if (status !== undefined) {
-      if (status === 429 || status === 503 || status === 502 || status === 504) {
-        return { category: ToolErrorCategoryEnum.TRANSIENT, retryable: true, detail: `HTTP ${status}` };
-      }
-      if (status === 404 || status === 410) {
-        return { category: ToolErrorCategoryEnum.NOT_FOUND, retryable: false, detail: `HTTP ${status}` };
-      }
-      if (status === 401 || status === 403) {
-        return { category: ToolErrorCategoryEnum.PERMISSION, retryable: false, detail: `HTTP ${status}` };
-      }
-      if (status === 400) {
-        return { category: ToolErrorCategoryEnum.VALIDATION, retryable: false, detail: `HTTP ${status}` };
-      }
+      return httpStatusToCategory(status);
     }
   }
 
@@ -795,6 +792,26 @@ function classifyToolError(err: unknown): { category: ToolErrorCategory; retryab
     retryable: false,
     detail: err instanceof Error ? err.message.slice(0, 100) : String(err).slice(0, 100),
   };
+}
+
+/**
+ * Map an HTTP status code to a ToolErrorCategory. Shared by the FetchError
+ * and duck-typed-response paths in classifyToolError.
+ */
+function httpStatusToCategory(status: number): { category: ToolErrorCategory; retryable: boolean; detail: string } {
+  if (status === 429 || status === 503 || status === 502 || status === 504) {
+    return { category: ToolErrorCategoryEnum.TRANSIENT, retryable: true, detail: `HTTP ${status}` };
+  }
+  if (status === 404 || status === 410) {
+    return { category: ToolErrorCategoryEnum.NOT_FOUND, retryable: false, detail: `HTTP ${status}` };
+  }
+  if (status === 401 || status === 403) {
+    return { category: ToolErrorCategoryEnum.PERMISSION, retryable: false, detail: `HTTP ${status}` };
+  }
+  if (status === 400) {
+    return { category: ToolErrorCategoryEnum.VALIDATION, retryable: false, detail: `HTTP ${status}` };
+  }
+  return { category: ToolErrorCategoryEnum.FATAL, retryable: false, detail: `HTTP ${status}` };
 }
 
 async function maybePersistLargeToolOutput(
