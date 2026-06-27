@@ -6,6 +6,7 @@ import type { Tool } from '../types/tool.js';
 import { getDangerousCapabilities, hasCapability, ToolCapabilities } from './capabilities.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { matchAny, matchGlob } from '../utils/glob-match.js';
+import { LruCache } from '../utils/lru-cache.js';
 import { safeParse } from '../utils/safe-json.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import {
@@ -106,11 +107,13 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
    * (step 7 in `evaluate()`) is not cached since `ctx.hasRead()` changes
    * dynamically within a session.
    *
-   * LRU eviction is not needed — the cache is cleared on state changes
-   * that are rare (trust file ops, user confirm) and the number of unique
-   * tool+subject pairs per iteration is small (<50).
+   * P3 #17 (before-release.md): capped at 500 entries via LRU eviction. An
+   * iteration that evaluates thousands of unique tool+subject combinations
+   * (e.g. repeated `tool-help` or `bash` with different commands) can grow
+   * the cache without bound. 500 is far more than any single iteration needs;
+   * the LRU evicts the least-recently-used entries first.
    */
-  private _evalCache = new Map<string, PermissionDecision>();
+  private _evalCache = new LruCache<string, PermissionDecision>(500);
 
   constructor(opts: PermissionPolicyOptions) {
     this.trustFile = opts.trustFile;
