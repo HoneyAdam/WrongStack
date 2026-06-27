@@ -358,15 +358,15 @@ full payload/outcome schema and the security model.
 | `minimal` | 10 (TIER1 only) | 40 chars | ~2.5–2.7k tokens |
 | `light` | 10 (TIER1 only) | 50 chars | ~2.3–2.4k tokens |
 | `medium` | 25 (TIER1 + TIER2) | 60 chars | ~1.4–1.5k tokens |
-| `aggressive` | 35 (TIER1 + TIER2 − task + TIER3 − setWorkingDir) | 70 chars | ~60 tokens ⚠ |
+| `aggressive` | 35 (TIER1 + TIER2 − task + TIER3 − setWorkingDir) | 70 chars | ~1.0k tokens |
 
 The `aggressive` estimate is the empirical value from
-`packages/cli/tests/token-saving-measurement.test.ts`. The original design
-doc claim of "~4–5k tokens" was not borne out by the implementation — at
-`aggressive` the prompt still emits the full Delegation, Mailbox, Context
-Management, Commit Hygiene, MCP, and Common Patterns sections. Only tool
-descriptions and skill bodies are compacted relative to `off`. The
-measurement test will catch any future drift.
+`packages/cli/tests/token-saving-measurement.test.ts`. `aggressive` now skips
+the Common Patterns, Delegation, Mailbox, and MCP guidance sections — the
+same compact one-liners used at `minimal`/`light`. Context Management and
+Commit Hygiene remain at `aggressive` (the former is most useful under
+context pressure; the latter is a small safety net against cross-agent git
+commits). The measurement test will catch any future drift.
 
 Memory tools (`remember`, `forget`, `searchMemory`, `relatedMemory`) are gated on
 `features.memory`, not on the tier — they appear at every tier when memory is enabled

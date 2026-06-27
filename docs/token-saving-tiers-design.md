@@ -27,11 +27,12 @@ type TokenSavingTier =
 |---------|-----|---------|-------|--------|------------|
 | **Tools** | All 37 | TIER1 (10) | TIER1 (10) | TIER1+TIER2 (25) | TIER1+TIER2+TIER3 (35, minus `task`/`setWorkingDir`) |
 | **Tool desc length** | 80 chars | 40 chars | 50 chars | 60 chars | 70 chars |
-| **Common patterns** | ✅ | ❌ | ✅ | ✅ | ✅ |
-| **Delegation guidance** | Full | ❌ | Minimal | Minimal | Full |
-| **Mailbox guidance** | Full | ❌ | Minimal | Minimal | Full |
-| **Context management** | ✅ | ❌ | ❌ | Minimal | ✅ |
-| **MCP guidance** | Full | Minimal | Minimal | Full | Full |
+| **Common patterns** | ✅ | ❌ | ✅ | ✅ | ❌ |
+| **Delegation guidance** | Full | ❌ | Minimal | Minimal | Minimal |
+| **Mailbox guidance** | Full | ❌ | Minimal | Minimal | Minimal |
+| **Context management** | ✅ | ❌ | ❌ | Minimal | ✅ (carve-out) |
+| **Commit hygiene** | ✅ | ❌ | ❌ | ✅ | ✅ (carve-out) |
+| **MCP guidance** | Full | Minimal | Minimal | Full | Minimal |
 | **Skill bodies** | Full | Compact | Compact | Compact | Compact |
 | **Environment details** | Full | Git+date only | +platform | +languages | +capabilities |
 | **Online agents** | Full list | Count only | Count only | Full list | Full list |
@@ -55,17 +56,14 @@ Empirical measurements (project heuristic 3.5 chars/token, run via
 | `minimal` | ~2,500–2,700 tokens | ~3,000–4,000 | Quick fixes, single-file edits |
 | `light` | ~2,300–2,400 tokens | ~2,000–3,000 | Standard development, most tasks |
 | `medium` | ~1,400–1,500 tokens | ~1,500–2,000 | When extra tools are needed |
-| `aggressive` | ~60 tokens ⚠ | ~4,000–5,000 | **Doc claim wrong — see note** |
+| `aggressive` | ~1,000 tokens | ~4,000–5,000 | Many tools, trimmed prompt |
 
-> ⚠ **`aggressive` produces essentially the same prompt as `off`** (only ~60
-> tokens saved at 3.5c heuristic). The original design intent was "Maximum
-> savings before tools become unusable (~4-5k tokens)" but the current
-> implementation only trims tool descriptions (80→70 chars) and compacts skill
-> bodies — all guidance sections (Delegation, Mailbox, Context Management,
-> Commit Hygiene, MCP, Common Patterns) are emitted in full at `aggressive`.
-> The doc claim is wrong; either the implementation needs to actually skip
-> these sections at `aggressive`, or the doc needs to drop the estimate.
-> Tracked as a follow-up; the measurement test will catch any future drift.
+`aggressive` now actually skips the same guidance sections as `minimal`/`light`
+(Common Patterns, Delegation, Mailbox, MCP). Context Management and Commit
+Hygiene remain at `aggressive` because the former is most useful when context
+is the bottleneck and the latter is a small (~200 token) safety net. The full
+guidance still occupies ~3,500 tokens; the remaining ~1,500 over `off` is the
+tool surface area (44 tools at `aggressive` vs 25 at `medium`).
 
 ---
 
