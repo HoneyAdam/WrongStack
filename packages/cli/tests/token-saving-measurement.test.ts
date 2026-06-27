@@ -190,6 +190,15 @@ describe('token-saving measurement (empirical)', () => {
       if (r.tier === 'off') continue;
       expect(r.promptChars).toBeLessThan(offChars);
     }
+
+    // Regression: `aggressive` must be meaningfully smaller than `off`.
+    // Pre-fix (commit 145cdc23) measured a 62-token delta — essentially no
+    // savings. The fix gates Common Patterns, Delegation, Mailbox, and MCP
+    // guidance on tier !== 'aggressive'. We expect at least 800 tokens of
+    // savings; pinning it at >= 500 to leave headroom for future tool/skill
+    // growth while still catching a full revert.
+    const aggressiveDelta = results.find((r) => r.tier === 'aggressive')!.deltaTokens35VsOff;
+    expect(aggressiveDelta).toBeLessThanOrEqual(-500);
   });
 
   it('cross-checks getToolsForTier counts against the real builtinTools array', () => {

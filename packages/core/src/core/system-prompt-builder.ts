@@ -438,8 +438,9 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     // Common tool chain patterns — teaches model how to compose tools effectively.
-    // Skipped in minimal tier — model already knows these patterns.
-    if (this.tier !== 'minimal') {
+    // Skipped in minimal and aggressive tiers — model already knows these patterns
+    // and aggressive users are under context pressure.
+    if (this.tier !== 'minimal' && this.tier !== 'aggressive') {
       lines.push(`
 ## Common patterns
 
@@ -474,9 +475,11 @@ When unsure about a file's current state, read it first rather than assuming.`);
       const roleList = enumValues.length > 0 ? enumValues.join(', ') : '(no roster configured)';
       if (this.tier === 'minimal') {
         // Skip — don't emit any delegation guidance
-      } else if (this.tier === 'light' || this.tier === 'medium') {
+      } else if (this.tier === 'light' || this.tier === 'medium' || this.tier === 'aggressive') {
         // Token-saving tiers get the compact one-liner instead of the full
-        // multi-paragraph guidance (reserved for 'off'/'aggressive').
+        // multi-paragraph guidance. `aggressive` joins the compact group —
+        // a user under context pressure doesn't need a 600-token essay on
+        // subagent scoping.
         lines.push(`## Delegation\n\nUse \`delegate\` to hand work to a subagent (roles: ${roleList}).`);
       } else {
         lines.push(`
@@ -558,8 +561,11 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
       // agents list changes at join/leave pace (seconds to minutes) while
       // the prompt builds happen every iteration (hundreds of ms).
       const onlineAgentsInfo = this.renderOnlineAgents(ctx.onlineAgents);
-      if (this.tier === 'light' || this.tier === 'medium') {
+      if (this.tier === 'light' || this.tier === 'medium' || this.tier === 'aggressive') {
         // Minimal: keep just the header and agent count.
+        // `aggressive` joins `light`/`medium` — the 400-token mailbox essay
+        // is the largest single guidance section; users under context pressure
+        // don't need it.
         lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}\n\nUse \`mail_inbox\` for new messages, \`mail_send\` to communicate with other agents.`);
       } else {
         lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}
@@ -665,8 +671,10 @@ editing this SAME working tree while you run. Before you commit:
     const hasMcpControl = tools.some((t) => t.name === 'mcp_control');
     const hasMcpUse = tools.some((t) => t.name === 'mcp_use');
     if (hasMcpControl) {
-      if (this.tier === 'minimal' || this.tier === 'light') {
-        // Minimal one-liner
+      if (this.tier === 'minimal' || this.tier === 'light' || this.tier === 'aggressive') {
+        // Minimal one-liner — `aggressive` joins `minimal`/`light`. The full
+        // MCP workflow (activate → use → deactivate) is documented elsewhere
+        // and the meta-tool `mcp_use` is sufficient at any tier that has it.
         lines.push(
           hasMcpUse
             ? `\n## MCP tools (lazy-loaded)\n\nUse \`mcp_use({ server: "<name>", tool: "<bare-tool>", input: { ... } })\` to activate and call MCP tools.`

@@ -76,10 +76,10 @@ export type TokenSavingTierTui = (typeof TOKEN_SAVING_TIERS)[number];
 
 export const TOKEN_SAVING_TIER_DESCS: Record<TokenSavingTierTui, string> = {
   off: 'All tools enabled (full prompt)',
-  minimal: '~3–4k tokens — core tools only',
-  light: '~2–3k tokens — core + patterns',
-  medium: '~1.5–2k tokens — most tools enabled',
-  aggressive: '~4–5k tokens — trimmed prompt',
+  minimal: '~2.5–2.7k tokens — core tools only',
+  light: '~2.3–2.4k tokens — core + patterns',
+  medium: '~1.4–1.5k tokens — most tools enabled',
+  aggressive: '~1k tokens — many tools, trimmed prompt',
 };
 
 export function formatSettingsDelay(ms: number): string {
