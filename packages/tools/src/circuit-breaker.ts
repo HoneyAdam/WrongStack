@@ -259,6 +259,13 @@ export class CircuitBreaker {
     if (this.state === 'open') return; // already open
     this.state = 'open';
     this.openedAt = Date.now();
+    // P3 #23 (before-release.md): clear the window on trip. Old records are
+    // irrelevant once tripped — the breaker starts fresh after cooldown
+    // (half-open → closed resets the counters). Without this the window array
+    // holds onto CallRecord entries for its lifetime if no new afterCall()
+    // arrives (which is the case when the breaker stays open and no new calls
+    // are attempted).
+    this.window = [];
     // Best-effort: never let a listener failure corrupt breaker state.
     try {
       this.onTrip?.();
