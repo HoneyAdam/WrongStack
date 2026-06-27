@@ -556,6 +556,30 @@ export class ACPSession {
     return result;
   }
 
+  /**
+   * Set the active provider for the agent.
+   */
+  async setProvider(providerId: string, config?: Record<string, unknown>): Promise<void> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'providers/set', { providerId, ...(config ?? {}) });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `providers/set failed: ${result.message}`, result);
+    }
+  }
+
+  /**
+   * Disable the current provider.
+   */
+  async disableProvider(): Promise<void> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'providers/disable', {});
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `providers/disable failed: ${result.message}`, result);
+    }
+  }
+
   // ──────────────────────────────────────────────────────────────────────
   // Prompt
   // ──────────────────────────────────────────────────────────────────────
@@ -897,6 +921,8 @@ export class ACPSession {
       case 'config_option_update':
       case 'session_info_update':
       case 'user_message_chunk':
+      case 'next_edit_suggestions':
+      case 'elicitation':
         return;
       default:
         return;

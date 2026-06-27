@@ -686,6 +686,10 @@ export class ACPProtocolHandler {
         }
         return false;
       }
+      case '$/cancel_request': {
+        // Protocol-level request cancellation — no-op for now.
+        return false;
+      }
       case 'exit':
         // Client is shutting down. Best-effort: abort all sessions.
         this.close();
