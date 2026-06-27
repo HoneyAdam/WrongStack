@@ -151,6 +151,22 @@ export interface Tool<I = unknown, O = unknown> {
   icon?: ToolIconId | undefined;
   execute(input: I, ctx: Context, opts: { signal: AbortSignal }): Promise<O>;
   /**
+   * Optional cross-field validation hook. Called by the executor AFTER
+   * JSON Schema validation passes and AFTER PreToolUse hooks may have
+   * rewritten the input, but BEFORE permission checks and execution.
+   *
+   * Use this for invariants the JSON Schema cannot express — e.g.
+   * `old_string !== new_string` in edit, or `end > start` in a range tool.
+   * Return an array of validation errors (empty = valid). The executor
+   * surfaces them to the model just like schema validation errors, so the
+   * model can self-correct without the tool's `execute()` running.
+   *
+   * P3 #16 (before-release.md): tools that implement cross-field checks
+   * inside `execute()` can migrate them here for earlier rejection and
+   * consistent error formatting.
+   */
+  validate?(input: I): string[];
+  /**
    * Optional streaming variant. When defined, the executor prefers this
    * over `execute` — yielded events become `tool.progress` EventBus events
    * and the terminal `final` event provides the output. Tools that don't

@@ -153,6 +153,28 @@ export class ToolExecutor {
         }
       }
 
+      // P3 #16 (before-release.md): cross-field validation. Called after
+      // schema validation and PreToolUse hooks (which may have rewritten
+      // the input) but before permission checks and execution. Lets tools
+      // express invariants the JSON Schema cannot (e.g. old_string !==
+      // new_string) and get them rejected with the same error formatting.
+      if (typeof tool.validate === 'function') {
+        const crossFieldErrors = tool.validate(use.input);
+        if (crossFieldErrors.length > 0) {
+          const errorDetails = crossFieldErrors.map((e) => `  - ${e}`).join('\n');
+          const result = {
+            type: 'tool_result' as const,
+            tool_use_id: use.id,
+            content:
+              `Invalid arguments for tool "${tool.name}".\n\n` +
+              `Validation errors:\n${errorDetails}`,
+            is_error: true,
+          };
+          budget = this.budgetForString(result.content, budget);
+          return { result, tool, durationMs: Date.now() - start };
+        }
+      }
+
       const decision = await this.opts.permissionPolicy.evaluate(tool, use.input, ctx);
 
       // Post-permission dangerous capability enforcement (B-side guarantee).
