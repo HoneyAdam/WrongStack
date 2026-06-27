@@ -190,8 +190,14 @@ export {
   MAILBOX_HEALTH_DEFAULT_TIMEOUT_MS,
   MAILBOX_HEALTH_DEFAULT_FAILURE_THRESHOLD,
   MAILBOX_HEALTH_DEFAULT_FROM,
+  buildDownAlert,
+  buildRecoveryAlert,
+  validateWatchdogOptions,
   type MailboxHealthWatchdogOptions,
   type MailboxHealthEvent,
+  type DownAlertInput,
+  type RecoveryAlertInput,
+  type WatchdogConfig,
 } from './mailbox-health.js';
 export { makeMailboxTool, resolveMailboxIdentity, mailboxSessionTag, type MailboxToolOptions, type MailboxResolver } from './mailbox-tool.js';
 export { makeMailSendTool, makeMailInboxTool, type MailToolsOptions } from './mail-tools.js';

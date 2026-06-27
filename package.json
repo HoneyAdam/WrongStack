@@ -27,6 +27,7 @@
     "version:major": "node scripts/bump-version.mjs major",
     "version:set": "node scripts/bump-version.mjs set",
     "sync:models": "node scripts/sync-models.mjs",
+    "lint:scripts": "bash -n scripts/install-mailbox-bridge-skills.sh",
     "release:check": "pnpm audit --audit-level=moderate && pnpm typecheck && pnpm build && pnpm test",
     "release:dry": "pnpm publish -r --dry-run --no-git-checks --force",
     "release": "pnpm release:check && pnpm publish -r --access public --no-git-checks",

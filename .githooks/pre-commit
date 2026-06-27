@@ -7,11 +7,20 @@ node scripts/lint-console-logging.mjs --verbose
 # ── Mailbox-bridge integrity ─────────────────────────────────────
 # If any mailbox-bridge source file is staged, run the route-table +
 # source-union guard. Cheap to skip when nothing relevant is staged.
-mb_staged=$(git diff --cached --name-only --diff-filter=ACM \
-  | grep -E '^packages/(cli/src/subcommands/(handlers/mailbox-serve\.ts|index\.ts)|core/src/(coordination/(mailbox-types|index)|hq/protocol))\.ts$' \
-  || true)
+mb_staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^packages/(cli/src/subcommands/(handlers/mailbox-serve\.ts|index\.ts)|core/src/(coordination/(mailbox-types|index)|hq/protocol))\.ts$' || true)
 if [ -n "$mb_staged" ]; then
   node scripts/guard-mailbox-bridge.mjs --verbose
+fi
+
+# ── Mailbox-bridge install-helper script guard ──────────────────
+# If the bash script that copies the bundled wrongstack-mailbox/SKILL.md
+# into a target agent's skills directory is being modified or deleted,
+# run the script-specific guard. Catches the install helper losing
+# `set -e`, the wrong shebang, or the path to the bundled skill
+# drifting out of sync.
+mb_script_staged=$(git diff --cached --name-only --diff-filter=ADM | grep -E '^scripts/install-mailbox-bridge-skills\.sh$' || true)
+if [ -n "$mb_script_staged" ]; then
+  node scripts/guard-mailbox-bridge-scripts.mjs --verbose
 fi
 
 # ── Typecheck gate ───────────────────────────────────────────────────

@@ -27,6 +27,7 @@
  */
 
 import type { GlobalMailbox } from './global-mailbox.js';
+import type { MailboxSendInput } from './mailbox-types.js';
 
 export interface MailboxHealthWatchdogOptions {
   /** Project mailbox to probe-and-report on. Required. */
@@ -89,6 +90,11 @@ export class MailboxHealthWatchdog {
     this.failureThreshold = opts.failureThreshold ?? MAILBOX_HEALTH_DEFAULT_FAILURE_THRESHOLD;
     this.from = opts.from ?? MAILBOX_HEALTH_DEFAULT_FROM;
     this.onAlert = opts.onAlert;
+    validateWatchdogOptions({
+      probeIntervalMs: this.intervalMs,
+      probeTimeoutMs: this.timeoutMs,
+      failureThreshold: this.failureThreshold,
+    });
   }
 
   /** Start probing on `intervalMs`. Idempotent — second call is a no-op. */
@@ -194,44 +200,122 @@ export class MailboxHealthWatchdog {
   }
 
   private async postDown(): Promise<void> {
-    await this.mailbox.send({
-      from: this.from,
-      to: '*',
-      type: 'status',
-      subject: 'mailbox-bridge-down: HTTP /healthz not responding',
-      body: [
-        `The mailbox HTTP bridge at ${this.url} failed ${this.consecutiveFailures} consecutive /healthz probes.`,
-        '',
-        'Consequences:',
-        '- External agents (Claude Code, Aider, scripts) cannot read or send messages.',
-        '- WrongStack-internal agents continue to work — they use GlobalMailbox directly, not the HTTP bridge.',
-        '',
-        'Likely causes:',
-        '- The `wstack mailbox serve` (or `/mailbox-serve` slash command) process exited.',
-        '- The bridge was killed or restarted on a different port.',
-        '- Loopback network issue.',
-        '',
-        'Fix: re-run `wstack mailbox serve` (or `/mailbox-serve` in REPL).',
-      ].join('\n'),
-      priority: 'high',
-    });
+    await this.mailbox.send(
+      buildDownAlert({
+        from: this.from,
+        url: this.url,
+        consecutiveFailures: this.consecutiveFailures,
+      }),
+    );
   }
 
   private async postRecovery(downtimeMs: number): Promise<void> {
-    await this.mailbox.send({
-      from: this.from,
-      to: '*',
-      type: 'status',
-      subject: `mailbox-bridge-up: recovered after ${Math.round(downtimeMs / 1000)}s`,
-      body: [
-        `The mailbox HTTP bridge at ${this.url} is responding to /healthz again.`,
-        '',
-        `Downtime: ${Math.round(downtimeMs / 1000)}s`,
-        `Consecutive failures before recovery: ${this.consecutiveFailures}.`,
-        '',
-        'External agents can resume mailbox traffic.',
-      ].join('\n'),
-      priority: 'normal',
-    });
+    await this.mailbox.send(
+      buildRecoveryAlert({
+        from: this.from,
+        url: this.url,
+        downtimeMs,
+        consecutiveFailures: this.consecutiveFailures,
+      }),
+    );
+  }
+}
+
+// ── Pure builders ─────────────────────────────────────────────────────────
+//
+// Exported so snapshot tests can pin the exact subject + body an
+// external dashboard or alert consumer parses. Changing this string
+// is a breaking change for downstream tooling — run the snapshot test
+// first, update consumers, then commit.
+
+export interface DownAlertInput {
+  from: string;
+  url: string;
+  consecutiveFailures: number;
+}
+
+export function buildDownAlert(input: DownAlertInput): MailboxSendInput {
+  return {
+    from: input.from,
+    to: '*',
+    type: 'status',
+    subject: 'mailbox-bridge-down: HTTP /healthz not responding',
+    body: [
+      `The mailbox HTTP bridge at ${input.url} failed ${input.consecutiveFailures} consecutive /healthz probes.`,
+      '',
+      'Consequences:',
+      '- External agents (Claude Code, Aider, scripts) cannot read or send messages.',
+      '- WrongStack-internal agents continue to work — they use GlobalMailbox directly, not the HTTP bridge.',
+      '',
+      'Likely causes:',
+      '- The `wstack mailbox serve` (or `/mailbox-serve` slash command) process exited.',
+      '- The bridge was killed or restarted on a different port.',
+      '- Loopback network issue.',
+      '',
+      'Fix: re-run `wstack mailbox serve` (or `/mailbox-serve` in REPL).',
+    ].join('\n'),
+    priority: 'high',
+  };
+}
+
+export interface RecoveryAlertInput {
+  from: string;
+  url: string;
+  downtimeMs: number;
+  consecutiveFailures: number;
+}
+
+export function buildRecoveryAlert(input: RecoveryAlertInput): MailboxSendInput {
+  const downtimeSec = Math.round(input.downtimeMs / 1000);
+  return {
+    from: input.from,
+    to: '*',
+    type: 'status',
+    subject: `mailbox-bridge-up: recovered after ${downtimeSec}s`,
+    body: [
+      `The mailbox HTTP bridge at ${input.url} is responding to /healthz again.`,
+      '',
+      `Downtime: ${downtimeSec}s`,
+      `Consecutive failures before recovery: ${input.consecutiveFailures}.`,
+      '',
+      'External agents can resume mailbox traffic.',
+    ].join('\n'),
+    priority: 'normal',
+  };
+}
+
+// ── Config validation ─────────────────────────────────────────────────────
+
+export interface WatchdogConfig {
+  probeIntervalMs: number;
+  probeTimeoutMs: number;
+  failureThreshold: number;
+}
+
+/**
+ * Throws if the watchdog config is invalid. Called from the
+ * MailboxHealthWatchdog constructor so misconfiguration fails fast
+ * (at startup), not silently after the first probe.
+ */
+export function validateWatchdogOptions(cfg: WatchdogConfig): void {
+  if (!Number.isFinite(cfg.probeIntervalMs) || cfg.probeIntervalMs <= 0) {
+    throw new RangeError(
+      `MailboxHealthWatchdog: probeIntervalMs must be a positive finite number, got ${cfg.probeIntervalMs}`,
+    );
+  }
+  if (!Number.isFinite(cfg.probeTimeoutMs) || cfg.probeTimeoutMs <= 0) {
+    throw new RangeError(
+      `MailboxHealthWatchdog: probeTimeoutMs must be a positive finite number, got ${cfg.probeTimeoutMs}`,
+    );
+  }
+  if (cfg.probeTimeoutMs >= cfg.probeIntervalMs) {
+    throw new RangeError(
+      `MailboxHealthWatchdog: probeTimeoutMs (${cfg.probeTimeoutMs}) must be less than probeIntervalMs (${cfg.probeIntervalMs}) — otherwise the watchdog races against itself`,
+    );
+  }
+  if (!Number.isInteger(cfg.failureThreshold) || cfg.failureThreshold < 1) {
+    throw new RangeError(
+      `MailboxHealthWatchdog: failureThreshold must be a positive integer, got ${cfg.failureThreshold}`,
+    );
   }
 }
