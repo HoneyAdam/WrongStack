@@ -59,6 +59,29 @@ export class HookRegistry {
     }
   }
 
+  /**
+   * Atomically replace the shell-hook set: drop every currently-registered
+   * shell entry, then load the supplied `config.hooks` map. In-process
+   * hooks (and their plugin owners) are untouched — only shell entries
+   * are touched, because they are the only entries sourced from
+   * `config.hooks`.
+   *
+   * Designed for hot-reload via `ConfigStore.watch`: when the operator
+   * edits `config.json` and the store fires its watcher, the CLI calls
+   * this with the new `config.hooks` value. Idempotent — calling twice
+   * with the same map yields the same registry state (callers should still
+   * guard at the change-detection layer to avoid wasted work).
+   */
+  replaceShellHooks(hooks: Partial<Record<HookEvent, ShellHook[]>> | undefined): void {
+    // Drop every shell entry. Iterate in reverse so splicing doesn't
+    // invalidate the index — same pattern as `drainByOwner`.
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const e = this.entries[i];
+      if (e && e.kind === 'shell') this.entries.splice(i, 1);
+    }
+    this.loadShellHooks(hooks);
+  }
+
   /** All entries registered for an event, in registration order. */
   list(event: HookEvent): readonly HookEntry[] {
     return this.entries.filter((e) => e.event === event);

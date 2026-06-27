@@ -50,6 +50,8 @@ import {
   GlobalMailbox,
   HookRegistry,
   HookRunner,
+  countShellHooks,
+  shellHooksEqual,
   HumanEscalatingBrainArbiter,
   isStdinTTY,
   loadDirectorState,
@@ -76,6 +78,7 @@ import {
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { setOAuthTokenPersister } from '@wrongstack/providers';
+import { toErrorMessage } from '@wrongstack/core/utils/error';
 import {
   mutateConfigProviders,
   normalizeKeys,
@@ -116,6 +119,7 @@ import { CLI_VERSION } from './version.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
 import { setupMetrics } from './wiring/metrics.js';
 import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
+import { installDesignStudio } from './wiring/design-studio.js';
 import { buildProviderForId as buildProviderForIdRuntime, resolveProviderCfg as resolveProviderCfgRuntime } from './wiring/provider-runtime.js';
 import { setupPlugins } from './wiring/plugins.js';
 import { bindReplayToContainer } from './wiring/replay.js';
@@ -763,7 +767,36 @@ export async function main(argv: string[]): Promise<number> {
   });
   if (hooksEnabled) {
     pipelines.userInput.use(createUserPromptSubmitMiddleware(hookRunner));
+
+    // Hot-reload shell hooks when `config.hooks` changes at runtime
+    // (via `/config` slash command, programmatic `configStore.update`,
+    // or external file edits that the config store picks up). We compare
+    // shallowly per event — `ShellHook[]` is reference-stable and its
+    // fields (command, matcher, timeoutMs) are primitives, so a per-event
+    // array comparison is sufficient and avoids re-running on unrelated
+    // config changes (model, log level, etc.).
+    configStore.watch((next, prev) => {
+      if (!shellHooksEqual(next.hooks, prev.hooks)) {
+        try {
+          hookRegistry.replaceShellHooks(next.hooks);
+          logger.info(
+            `Shell hooks reloaded (${countShellHooks(next.hooks)} entries across ${
+              Object.keys(next.hooks ?? {}).length
+            } events)`,
+          );
+        } catch (err) {
+          // A failed reload must not crash the config watcher — keep the
+          // existing hook set in place and log so the operator can see it.
+          logger.warn(`Hook hot-reload failed: ${toErrorMessage(err)}`);
+        }
+      }
+    });
   }
+
+  // Design Studio — per-turn UI-intent detection + kit-menu injection. Installed
+  // after the live Context + pipelines exist; the `design` tool itself ships in
+  // the builtin pack independently of this.
+  installDesignStudio({ pipelines, context });
 
   const compactor = container.resolve(TOKENS.Compactor);
   const compactionSetup = await setupCompaction({

@@ -68,8 +68,10 @@ export {
 export {
   HookRegistry,
   HookRunner,
+  countShellHooks,
   hookMatcherMatches,
   runShellHook,
+  shellHooksEqual,
   type HookRunEnv,
   type HookRunnerOptions,
   type PreToolUseResult,

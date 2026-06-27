@@ -319,14 +319,30 @@ resource ownership when plugin B depends on plugin A):
 The result: **no plugin-owned hook can outlive its plugin.** Even a plugin that
 crashes during setup leaves a clean registry.
 
-### Hot reload
+### Hot reload (shell hooks)
 
-Hooks are **not** hot-reloaded. `config.hooks` is read once at boot; runtime
-changes to config (via `/config` or programmatic update) do not re-run
-`loadShellHooks` for the current session. Restart the session to pick up new
-shell hooks. In-process hooks follow plugin lifecycle: installing a plugin via
-the plugin manager runs its `setup` (registering its hooks); uninstalling runs
-its `teardown` (draining them).
+Shell hooks **are** hot-reloaded. The CLI subscribes to `ConfigStore.watch`
+at boot (`packages/cli/src/cli-main.ts`); whenever `config.hooks` changes,
+the watcher calls `HookRegistry.replaceShellHooks(next.hooks)` which:
+
+1. Drops every currently-registered shell entry (in-process entries are
+   untouched — plugin-owned closures survive the reload).
+2. Installs the new shell set from the updated config map.
+3. Logs `"Shell hooks reloaded (N entries across K events)"` at `info`
+   level so operators can confirm the reload.
+
+The watcher uses a shallow per-entry equality predicate
+(`shellHooksEqual(a, b)`) so unrelated config changes — model, log level,
+provider, etc. — do **not** trigger a redundant reload. The reload only
+fires when the shell-hook set actually changed (command, matcher,
+timeoutMs, or the event list).
+
+A failed reload never crashes the watcher — it's caught at warn level and
+the previous hook set stays in place.
+
+In-process hooks follow plugin lifecycle as before: installing a plugin via
+the plugin manager runs its `setup` (registering its hooks); uninstalling
+runs its `teardown` (draining them).
 
 ---
 
@@ -367,9 +383,13 @@ declare every subsystem they touch.
 - **Types:** `packages/core/src/types/hooks.ts` — `HookEvent`, `HookInput`,
   `HookOutcome`, `InProcessHook`, `ShellHook`, `HookEntry`.
 - **Registry:** `packages/core/src/hooks/registry.ts` — `HookRegistry` with
-  `registerInProcess`, `registerShell`, `loadShellHooks`, `list`, `has`,
-  `all`, `drainByOwner`, `countByOwner`, `clear`; plus the exported
-  `hookMatcherMatches(matcher, toolName)` predicate.
+  `registerInProcess`, `registerShell`, `loadShellHooks`, `replaceShellHooks`,
+  `list`, `has`, `all`, `drainByOwner`, `countByOwner`, `clear`; plus the
+  exported `hookMatcherMatches(matcher, toolName)` predicate.
+- **Shell-hook equality:** `packages/core/src/hooks/shell-hooks-equal.ts` —
+  `shellHooksEqual(a, b)` and `countShellHooks(hooks)` helpers used by the
+  hot-reload path to decide whether `config.hooks` actually changed before
+  re-running `replaceShellHooks`.
 - **Runner:** `packages/core/src/hooks/runner.ts` — `HookRunner` with
   `preToolUse`, `postToolUse`, `userPromptSubmit`, `sessionStart`, `stop`, and
   the cheap `has(event)` guard.
@@ -405,6 +425,8 @@ import {
   HookRunner,             // class
   runShellHook,           // (spec, input, logger?) => Promise<HookOutcome | null>
   hookMatcherMatches,     // (matcher, toolName?) => boolean
+  shellHooksEqual,        // (a, b) => boolean — shallow per-entry equality
+  countShellHooks,        // (hooks) => number — total entries across events
 } from '@wrongstack/core';
 import type {
   HookEvent,              // 'PreToolUse' | 'PostToolUse' | 'UserPromptSubmit' | 'SessionStart' | 'Stop'
