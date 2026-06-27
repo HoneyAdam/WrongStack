@@ -512,6 +512,7 @@ import { buildCoordinatorCommand } from './coordinator.js';
 import { buildMouseCommand } from './mouse.js';
 import { buildProjectCommand } from './project.js';
 import { buildReviewCommand } from './review.js';
+import { buildSecurityCommand } from './security.js';
 import { buildSettingsCommand } from './settings.js';
 import { buildHqCommand } from './hq.js';
 import { buildAgentsCommand } from './agents.js';
@@ -590,6 +591,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildModelsCommand(opts),
     buildCollabCommand(opts),
     buildReviewCommand(opts),
+    buildSecurityCommand(opts),
     buildProjectCommand(opts),
     buildWorkingDirCommand(opts),
     buildStatuslineCommand({
