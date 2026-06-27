@@ -340,7 +340,7 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
         },
       };
       // P2 #5: record the network request as a structured side effect.
-      ctx.recordSideEffect({
+      ctx.recordSideEffect?.({
         toolUseId: `fetch-${Date.now()}`,
         toolName: 'fetch',
         ts: new Date().toISOString(),
@@ -431,4 +431,3 @@ function prettyJson(s: string): string {
     return s;
   }
 }
-

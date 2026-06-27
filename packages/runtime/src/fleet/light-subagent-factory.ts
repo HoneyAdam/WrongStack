@@ -231,6 +231,7 @@ function makeSubagentSessionShim(parent: SessionWriter): SessionWriter {
     flush: () => parent.flush(),
     close: async () => {},
     recordFileChange: () => {},
+    recordSideEffect: () => {},
     writeCheckpoint: async () => {},
     writeFileSnapshot: async () => {},
     truncateToCheckpoint: async () => 0,

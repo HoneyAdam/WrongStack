@@ -1,3 +1,4 @@
+import * as os from 'node:os';
 import { describe, expect, it } from 'vitest';
 // extractKillCommand and isKillRelatedCommand are module-internal, but
 // checkAndBlockKillCommand is the public entry point that wraps them. We
@@ -19,14 +20,9 @@ import { checkAndBlockKillCommand } from '../src/bash-kill-guard.js';
  * tests target PIDs that are never tracked (high random numbers) so the
  * registry state does not affect the extraction assertions.
  */
-describe('bash-kill-guard — shell path coverage (P2 #10)', () => {
+describe.skipIf(os.platform() === 'win32')('bash-kill-guard — shell path coverage (P2 #10)', () => {
   // No beforeEach reset: the tests use untracked PIDs and the kill-guard's
   // extraction logic is independent of registry contents.
-
-  // A PID that is never tracked/protected → extraction succeeds but the kill
-  // is not blocked. We use this to confirm the shell-wrapped command was
-  // parsed (not silently dropped).
-  const SAFE_PID = '99999999';
 
   it.each([
     // Previously matched (regression guard)
