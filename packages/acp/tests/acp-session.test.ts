@@ -14,7 +14,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { ACPMessage } from '../src/types/acp-messages.js';
-import { ACPSession, ACPSessionError } from '../src/client/acp-session.js';
+import { ACPSession, ACPSessionError, textContent } from '../src/client/acp-session.js';
 
 const hoisted = vi.hoisted(() => ({ instances: [] as FakeTransport[] }));
 
@@ -118,7 +118,7 @@ describe('ACPSession', () => {
     const t = lastTransport();
 
     // Kick off the prompt (don't await yet)
-    const promptP = session.prompt('hello', new AbortController().signal);
+    const promptP = session.prompt([textContent('hello')], new AbortController().signal);
 
     // Drain session/new response
     await new Promise((r) => setImmediate(r));
@@ -161,7 +161,7 @@ describe('ACPSession', () => {
     const session = await startSession();
     const t = lastTransport();
     const ac = new AbortController();
-    const promptP = session.prompt('hello', ac.signal);
+    const promptP = session.prompt([textContent('hello')], ac.signal);
 
     await new Promise((r) => setImmediate(r));
     const newMsg = t.sent.find((m) => m.method === 'session/new');
@@ -189,7 +189,7 @@ describe('ACPSession', () => {
     const session = await startSession();
     const ac = new AbortController();
     ac.abort();
-    const result = await session.prompt('x', ac.signal);
+    const result = await session.prompt([textContent('x')], ac.signal);
     // A pre-aborted prompt is a normal cancelled outcome per spec;
     // session/cancel is only sent for in-flight prompts.
     expect(result.stopReason).toBe('cancelled');
@@ -319,7 +319,7 @@ describe('ACPSession', () => {
     const session = await startSession();
     const t = lastTransport();
 
-    const promptP = session.prompt('plan please', new AbortController().signal);
+    const promptP = session.prompt([textContent('plan please')], new AbortController().signal);
     await new Promise((r) => setImmediate(r));
     const newMsg = t.sent.find((m) => m.method === 'session/new')!;
     t.respond(newMsg.id!, 'session/new', { sessionId: 'sess_abc' });

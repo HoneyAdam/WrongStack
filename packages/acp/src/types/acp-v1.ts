@@ -48,6 +48,191 @@ export type TerminalId = string & { readonly __acpTerminalId: unique symbol };
 export type PlanEntryId = string & { readonly __acpPlanEntryId: unique symbol };
 
 // ────────────────────────────────────────────────────────────────────────────
+// Implementation metadata
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface Implementation {
+  /** Programmatic/logical name — also a display-name fallback if title is absent. */
+  name: string;
+  /** Human-readable display name for UI contexts. */
+  title?: string | undefined;
+  /** Version string (display/debug/metrics). */
+  version: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Client capabilities — sent in the initialize request
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface ClientCapabilities {
+  fs?: {
+    readTextFile?: boolean | undefined;
+    writeTextFile?: boolean | undefined;
+  } | undefined;
+  terminal?: boolean | undefined;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Agent capabilities — received in the initialize response
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface PromptCapabilities {
+  image?: boolean | undefined;
+  audio?: boolean | undefined;
+  embeddedContext?: boolean | undefined;
+}
+
+export interface McpCapabilities {
+  http?: boolean | undefined;
+  sse?: boolean | undefined;
+}
+
+export interface SessionCapabilities {
+  close?: Record<string, unknown> | undefined;
+  list?: Record<string, unknown> | undefined;
+  delete?: Record<string, unknown> | undefined;
+  resume?: Record<string, unknown> | undefined;
+  additionalDirectories?: Record<string, unknown> | undefined;
+}
+
+export interface AuthCapabilities {
+  logout?: Record<string, unknown> | undefined;
+}
+
+export interface AgentCapabilities {
+  loadSession?: boolean | undefined;
+  promptCapabilities?: PromptCapabilities | undefined;
+  mcpCapabilities?: McpCapabilities | undefined;
+  sessionCapabilities?: SessionCapabilities | undefined;
+  auth?: AuthCapabilities | undefined;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Authentication
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface AuthMethod {
+  id: string;
+  name: string;
+  description?: string | undefined;
+  type?: 'agent' | 'oauth' | 'http' | undefined;
+}
+
+export interface AuthenticateRequest {
+  methodId: string;
+}
+
+export interface AuthenticateResponse {}
+
+export interface LogoutRequest {}
+
+export interface LogoutResponse {}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MCP server configuration — sent in session lifecycle requests
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface StdioMcpServer {
+  name: string;
+  command: string;
+  args?: string[] | undefined;
+  env?: { name: string; value: string }[] | undefined;
+}
+
+export interface HttpMcpServer {
+  type: 'http';
+  name: string;
+  url: string;
+  headers?: { name: string; value: string }[] | undefined;
+}
+
+export interface SseMcpServer {
+  type: 'sse';
+  name: string;
+  url: string;
+  headers?: { name: string; value: string }[] | undefined;
+}
+
+export type McpServer = StdioMcpServer | HttpMcpServer | SseMcpServer;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Session lifecycle — request/response types
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface NewSessionRequest {
+  cwd: string;
+  mcpServers: McpServer[];
+  additionalDirectories?: string[] | undefined;
+}
+
+export interface NewSessionResponse {
+  sessionId: SessionId;
+  initialMode?: SessionModeState | null | undefined;
+  configOptions?: SessionConfigOption[] | null | undefined;
+}
+
+export interface LoadSessionRequest {
+  sessionId: SessionId;
+  cwd: string;
+  mcpServers: McpServer[];
+  additionalDirectories?: string[] | undefined;
+}
+
+export interface LoadSessionResponse {
+  initialMode?: SessionModeState | null | undefined;
+  configOptions?: SessionConfigOption[] | null | undefined;
+}
+
+export interface ResumeSessionRequest {
+  sessionId: SessionId;
+  cwd: string;
+  mcpServers: McpServer[];
+  additionalDirectories?: string[] | undefined;
+}
+
+export interface ResumeSessionResponse {
+  initialMode?: SessionModeState | null | undefined;
+  configOptions?: SessionConfigOption[] | null | undefined;
+}
+
+export interface CloseSessionRequest {
+  sessionId: SessionId;
+}
+
+export interface CloseSessionResponse {}
+
+export interface ListSessionsRequest {
+  cursor?: string | undefined;
+  cwd?: string | undefined;
+}
+
+export interface ListSessionsResponse {
+  sessions: SessionInfo[];
+  nextCursor?: string | undefined;
+}
+
+export interface DeleteSessionRequest {
+  sessionId: SessionId;
+}
+
+export interface DeleteSessionResponse {}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Session config options
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface SessionConfigOption {
+  id: string;
+  name: string;
+  description?: string | undefined;
+  category?: ConfigOptionCategory | undefined;
+  type: ConfigOptionType;
+  defaultValue?: string | undefined;
+  currentValue: string;
+  options: ConfigOptionValue[];
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Content blocks — reused from MCP per the spec
 // ────────────────────────────────────────────────────────────────────────────
 

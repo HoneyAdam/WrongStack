@@ -19,7 +19,7 @@ import type {
   SubagentRunner,
   TaskSpec,
 } from '@wrongstack/core';
-import { ACPSession, ACPSessionError } from '../client/acp-session.js';
+import { ACPSession, ACPSessionError, textContent } from '../client/acp-session.js';
 import type { ACPSessionErrorKind } from '../client/acp-session.js';
 
 export interface ACPSubagentRunnerOptions {
@@ -137,7 +137,7 @@ export async function makeACPSubagentRunnerWithStop(
     }
 
     try {
-      const result = await session.prompt(task.description, ctx.signal);
+      const result = await session.prompt([textContent(task.description)], ctx.signal);
       // We don't surface plan/usage in the simple SubagentRunOutcome;
       // a future PR can add them if the TUI/renderer wants to display
       // them. Treat "no text emitted" as a soft signal (an ACP agent
@@ -226,6 +226,9 @@ function mapACPKind(acpKind: ACPSessionErrorKind): SubagentErrorKind {
       return 'bridge_failed';
     case 'prompt_failed':
       return 'tool_failed';
+    case 'auth_failed':
+    case 'logout_failed':
+      return 'bridge_failed';
     case 'aborted':
       return 'aborted_by_parent';
     case 'closed':

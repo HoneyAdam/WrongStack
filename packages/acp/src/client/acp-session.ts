@@ -12,8 +12,13 @@ import { ClientTransport } from '../agent/stdio-transport.js';
 import type { ACPMessage } from '../types/acp-messages.js';
 import {
   ACP_PROTOCOL_VERSION,
+  type AgentCapabilities,
+  type AuthMethod,
   type ContentBlock,
+  type McpServer,
   type PlanEntry,
+  type SessionId,
+  type SessionInfo,
   type StopReason,
   type ToolCallUpdateNotification,
   type UsageCost,
@@ -43,6 +48,15 @@ export interface ACPSessionOptions {
   terminalTimeoutMs?: number | undefined;
   /** Per-terminal output byte cap, default 1 MiB. */
   terminalOutputByteLimit?: number | undefined;
+  /**
+   * MCP server configs to include in session/new, session/load, and
+   * session/resume. The agent will connect to these servers to provide
+   * additional tools.
+   *
+   * Stdio servers are always sent. HTTP/SSE servers are only sent if
+   * the agent advertises the corresponding mcpCapabilities.
+   */
+  mcpServers?: McpServer[] | undefined;
 }
 
 export interface ACPSessionRunResult {
@@ -59,6 +73,8 @@ export type ACPSessionErrorKind =
   | 'protocol_error'
   | 'session_create_failed'
   | 'prompt_failed'
+  | 'auth_failed'
+  | 'logout_failed'
   | 'aborted'
   | 'closed'
   | 'agent_died'
@@ -79,12 +95,11 @@ interface PendingRequest {
   method: string;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
-  /** Wall-clock cap for this specific request. */
   timeoutMs: number;
   timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
-type State = 'init' | 'ready' | 'sessioning' | 'prompting' | 'done' | 'closed';
+type State = 'init' | 'ready' | 'authenticated' | 'sessioning' | 'prompting' | 'done' | 'closed';
 
 interface JsonRpcError {
   code: number;
@@ -110,12 +125,17 @@ export class ACPSession {
   private readonly opts: ACPSessionOptions;
 
   private state: State = 'init';
-  private sessionId: string | null = null;
+  private sessionId: SessionId | null = null;
   /** Pending outbound requests (initialize, session/new, session/prompt, etc). */
   private readonly pending = new Map<string | number, PendingRequest>();
   private nextId = 1;
   /** True after close() has been called. */
   private closed = false;
+
+  // Agent-provided info from the initialize handshake
+  private agentCapabilities: AgentCapabilities = {};
+  private agentInfo: { name: string; title?: string | undefined; version: string } | null = null;
+  private authMethods: AuthMethod[] = [];
 
   private constructor(opts: ACPSessionOptions, transport: ClientTransport) {
     this.opts = opts;
@@ -139,6 +159,39 @@ export class ACPSession {
     this.permissionPolicy = opts.permissionPolicy ?? defaultPermissionPolicy;
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Public accessors
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** Agent capabilities advertised during initialize. */
+  getCapabilities(): AgentCapabilities {
+    return { ...this.agentCapabilities };
+  }
+
+  /** Authentication methods advertised by the agent. */
+  getAuthMethods(): AuthMethod[] {
+    return [...this.authMethods];
+  }
+
+  /** Agent info (name, title, version) from initialize. */
+  getAgentInfo(): { name: string; title?: string | undefined; version: string } | null {
+    return this.agentInfo;
+  }
+
+  /** Whether the agent requires authentication (has auth methods). */
+  requiresAuth(): boolean {
+    return this.authMethods.length > 0;
+  }
+
+  /** Current session id, if one exists. */
+  getSessionId(): SessionId | null {
+    return this.sessionId;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Lifecycle — start
+  // ──────────────────────────────────────────────────────────────────────
+
   /**
    * Spawn the child, run the initialize handshake, install the
    * message dispatch, and return a ready session.
@@ -148,10 +201,6 @@ export class ACPSession {
       command: opts.command,
       args: opts.args ? [...opts.args] : [],
       handshakeTimeoutMs: 30_000,
-      // ACPSession is the v1 CLIENT side: it speaks to external agents
-      // (Claude Code, Gemini CLI, …) that do NOT emit a `[wstack-acp]\n`
-      // startup marker. The transport should treat the child as ready
-      // as soon as the process is spawned and stdout is flowing.
       skipHandshakeMarker: true,
     };
     if (opts.env !== undefined) transportOpts.env = opts.env;
@@ -180,6 +229,10 @@ export class ACPSession {
     return session;
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Initialization
+  // ──────────────────────────────────────────────────────────────────────
+
   private async initialize(): Promise<void> {
     const id = this.allocId();
     const result = await this.sendRequest(id, 'initialize', {
@@ -187,7 +240,6 @@ export class ACPSession {
       clientCapabilities: {
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
-        promptCapabilities: { image: false, audio: false, embeddedContext: true },
       },
       clientInfo: { name: 'wrongstack', title: 'WrongStack', version: '0.263.0' },
     });
@@ -201,20 +253,242 @@ export class ACPSession {
     ) {
       throw new ACPSessionError('protocol_error', 'initialize returned no protocolVersion');
     }
-    const r = result as { protocolVersion: number };
+    const r = result as {
+      protocolVersion: number;
+      agentCapabilities?: AgentCapabilities;
+      agentInfo?: { name: string; title?: string | undefined; version: string };
+      authMethods?: AuthMethod[];
+    };
     if (r.protocolVersion !== ACP_PROTOCOL_VERSION) {
       throw new ACPSessionError(
         'unsupported_capability',
         `agent speaks protocolVersion=${r.protocolVersion}, client speaks ${ACP_PROTOCOL_VERSION}`,
       );
     }
+    // Store agent metadata
+    this.agentCapabilities = r.agentCapabilities ?? {};
+    this.agentInfo = r.agentInfo ?? null;
+    this.authMethods = r.authMethods ?? [];
     this.state = 'ready';
   }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Authentication
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Authenticate with the agent using one of the advertised auth methods.
+   * Call this AFTER start() and BEFORE any session/new call.
+   *
+   * Throws ACPSessionError('auth_failed') if the agent rejects the
+   * authentication or if the methodId is not in the advertised list.
+   */
+  async authenticate(methodId: string): Promise<void> {
+    if (this.state === 'closed') {
+      throw new ACPSessionError('closed', 'session is closed');
+    }
+    if (this.state !== 'ready') {
+      throw new ACPSessionError(
+        'protocol_error',
+        `authenticate called in state=${this.state} (expected 'ready')`,
+      );
+    }
+    if (!this.authMethods.some((m) => m.id === methodId)) {
+      throw new ACPSessionError(
+        'auth_failed',
+        `auth method "${methodId}" not in advertised methods: ${this.authMethods.map((m) => m.id).join(', ')}`,
+      );
+    }
+
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'authenticate', { methodId });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('auth_failed', `authenticate failed: ${result.message}`, result);
+    }
+    this.state = 'authenticated';
+  }
+
+  /**
+   * Log out from the current authenticated session.
+   * Only callable if the agent advertises `auth.logout` capability.
+   */
+  async logout(): Promise<void> {
+    if (this.state === 'closed') {
+      throw new ACPSessionError('closed', 'session is closed');
+    }
+    if (!this.agentCapabilities.auth?.logout) {
+      throw new ACPSessionError(
+        'unsupported_capability',
+        'agent does not support logout (auth.logout capability not advertised)',
+      );
+    }
+
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'logout', {});
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('logout_failed', `logout failed: ${result.message}`, result);
+    }
+    this.state = 'ready';
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Session management
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Load an existing session. The agent replays the conversation history
+   * via session/update notifications before responding.
+   *
+   * Only works if the agent advertises `loadSession` capability.
+   *
+   * @param sessionId - The session to load
+   * @param mcpServers - Optional MCP servers (defaults to options.mcpServers)
+   * @param cwd - Optional working directory (defaults to options.cwd or projectRoot)
+   */
+  async loadSession(
+    sessionId: SessionId,
+    mcpServers?: McpServer[],
+    cwd?: string,
+  ): Promise<void> {
+    if (this.closed) {
+      throw new ACPSessionError('closed', 'session is closed');
+    }
+    if (!this.agentCapabilities.loadSession) {
+      throw new ACPSessionError(
+        'unsupported_capability',
+        'agent does not support session/load (loadSession capability not advertised)',
+      );
+    }
+    if (this.sessionId) {
+      // Close current session first
+      await this.closeSession();
+    }
+
+    this.resetScratch();
+    const servers = this.filterMcpServers(mcpServers ?? this.opts.mcpServers);
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'session/load', {
+      sessionId,
+      cwd: cwd ?? this.opts.cwd ?? this.opts.projectRoot,
+      mcpServers: servers,
+    });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/load failed: ${result.message}`, result);
+    }
+    this.sessionId = sessionId;
+  }
+
+  /**
+   * Resume an existing session without replaying history.
+   *
+   * Only works if the agent advertises `sessionCapabilities.resume`.
+   *
+   * @param sessionId - The session to resume
+   * @param mcpServers - Optional MCP servers (defaults to options.mcpServers)
+   * @param cwd - Optional working directory (defaults to options.cwd or projectRoot)
+   */
+  async resumeSession(
+    sessionId: SessionId,
+    mcpServers?: McpServer[],
+    cwd?: string,
+  ): Promise<void> {
+    if (this.closed) {
+      throw new ACPSessionError('closed', 'session is closed');
+    }
+    if (!this.agentCapabilities.sessionCapabilities?.resume) {
+      throw new ACPSessionError(
+        'unsupported_capability',
+        'agent does not support session/resume (sessionCapabilities.resume not advertised)',
+      );
+    }
+    if (this.sessionId) {
+      await this.closeSession();
+    }
+
+    const servers = this.filterMcpServers(mcpServers ?? this.opts.mcpServers);
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'session/resume', {
+      sessionId,
+      cwd: cwd ?? this.opts.cwd ?? this.opts.projectRoot,
+      mcpServers: servers,
+    });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/resume failed: ${result.message}`, result);
+    }
+    this.sessionId = sessionId;
+  }
+
+  /**
+   * List existing sessions known to the agent.
+   *
+   * Only works if the agent advertises `sessionCapabilities.list`.
+   */
+  async listSessions(cursor?: string, cwd?: string): Promise<{ sessions: SessionInfo[]; nextCursor?: string | undefined }> {
+    if (this.closed) {
+      throw new ACPSessionError('closed', 'session is closed');
+    }
+    if (!this.agentCapabilities.sessionCapabilities?.list) {
+      throw new ACPSessionError(
+        'unsupported_capability',
+        'agent does not support session/list (sessionCapabilities.list not advertised)',
+      );
+    }
+
+    const id = this.allocId();
+    const params: Record<string, unknown> = {};
+    if (cursor !== undefined) params.cursor = cursor;
+    if (cwd !== undefined) params.cwd = cwd;
+    const result = await this.sendRequest(id, 'session/list', params);
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/list failed: ${result.message}`, result);
+    }
+    const r = result as { sessions?: SessionInfo[]; nextCursor?: string };
+    return {
+      sessions: r.sessions ?? [],
+      nextCursor: r.nextCursor,
+    };
+  }
+
+  /**
+   * Delete a session from the agent's session list.
+   *
+   * Only works if the agent advertises `sessionCapabilities.delete`.
+   */
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    if (this.closed) {
+      throw new ACPSessionError('closed', 'session is closed');
+    }
+    if (!this.agentCapabilities.sessionCapabilities?.delete) {
+      throw new ACPSessionError(
+        'unsupported_capability',
+        'agent does not support session/delete (sessionCapabilities.delete not advertised)',
+      );
+    }
+
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'session/delete', { sessionId });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/delete failed: ${result.message}`, result);
+    }
+
+    if (this.sessionId === sessionId) {
+      this.sessionId = null;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Prompt
+  // ──────────────────────────────────────────────────────────────────────
 
   /**
    * Run one prompt turn. Creates a session if needed, sends the
    * prompt, streams session/update notifications, and resolves with
    * the agent's response.
+   *
+   * @param blocks - Content blocks to send. Use `textContent()` for plain
+   *   text, or include ImageContent/AudioContent if the agent's
+   *   `promptCapabilities` allow it.
+   * @param signal - AbortSignal for cancellation.
    *
    * Cancellation: if `signal` aborts mid-prompt, we send
    * `session/cancel` (a notification per spec) and keep accepting
@@ -222,20 +496,16 @@ export class ACPSession {
    * The result is the same shape as a normal turn, with
    * `stopReason === 'cancelled'`.
    */
-  async prompt(text: string, signal: AbortSignal): Promise<ACPSessionRunResult> {
+  async prompt(blocks: ContentBlock[], signal: AbortSignal): Promise<ACPSessionRunResult> {
     if (this.closed) {
       throw new ACPSessionError('closed', 'session is closed');
     }
-    if (this.state !== 'ready' && this.state !== 'done') {
+    if (this.state !== 'ready' && this.state !== 'authenticated' && this.state !== 'done') {
       throw new ACPSessionError('protocol_error', `prompt called in state=${this.state}`);
     }
 
     // Pre-aborted signals short-circuit BEFORE we create a session
-    // and before any wire activity. Per spec, a cancelled prompt is
-    // a normal outcome and the spec's "cancel via session/cancel
-    // notification" path only applies to in-flight prompts. A
-    // never-started prompt just returns the cancelled stopReason
-    // with no text.
+    // and before any wire activity.
     if (signal.aborted) {
       return { text: '', stopReason: 'cancelled', hasText: false };
     }
@@ -252,7 +522,7 @@ export class ACPSession {
       'session/prompt',
       {
         sessionId: this.sessionId,
-        prompt: [textContent(text)] satisfies ContentBlock[],
+        prompt: blocks,
       },
       this.timeoutMs,
     );
@@ -260,9 +530,6 @@ export class ACPSession {
     let cancelled = false;
     const onAbort = (): void => {
       cancelled = true;
-      // Best-effort cancel: send a notification (no id). Per spec the
-      // agent MUST eventually respond to our session/prompt request
-      // with `stopReason: 'cancelled'`.
       this.transport
         .send({ method: 'session/cancel', params: { sessionId: this.sessionId } })
         .catch(() => {
@@ -303,10 +570,11 @@ export class ACPSession {
   }
 
   private async createSession(): Promise<void> {
+    const servers = this.filterMcpServers(this.opts.mcpServers);
     const id = this.allocId();
     const result = await this.sendRequest(id, 'session/new', {
       cwd: this.opts.cwd ?? this.opts.projectRoot,
-      mcpServers: [],
+      mcpServers: servers,
     });
     if (isJsonRpcError(result)) {
       throw new ACPSessionError(
@@ -323,8 +591,34 @@ export class ACPSession {
         result,
       );
     }
-    this.sessionId = sessionId;
+    this.sessionId = sessionId as SessionId;
   }
+
+  /**
+   * Close the current session gracefully (if the agent supports it).
+   *
+   * Sends `session/close` JSON-RPC request, then clears the local
+   * session id. Best-effort — errors are swallowed so the caller can
+   * always proceed to transport teardown.
+   */
+  private async closeSession(): Promise<void> {
+    if (!this.sessionId) return;
+    const sid = this.sessionId;
+    this.sessionId = null;
+
+    if (this.agentCapabilities.sessionCapabilities?.close) {
+      const id = this.allocId();
+      try {
+        await this.sendRequest(id, 'session/close', { sessionId: sid }, 10_000);
+      } catch {
+        // Best-effort: if close fails, we still proceed with transport stop.
+      }
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Lifecycle — close
+  // ──────────────────────────────────────────────────────────────────────
 
   /** Tear down the session and kill the child process. */
   async close(): Promise<void> {
@@ -332,6 +626,16 @@ export class ACPSession {
     this.closed = true;
     this.state = 'closed';
     this.terminalServer.releaseAll();
+
+    // Graceful session close (if session is active and agent supports it)
+    if (this.sessionId && this.agentCapabilities.sessionCapabilities?.close) {
+      try {
+        await this.closeSession();
+      } catch {
+        // best-effort
+      }
+    }
+
     // Reject any pending outbound requests so their awaits return.
     for (const [, p] of this.pending) {
       clearTimeout(p.timeoutHandle);
@@ -343,6 +647,26 @@ export class ACPSession {
     } catch {
       // best effort
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Filter MCP servers according to agent capabilities.
+   * - Stdio servers are always included.
+   * - HTTP servers are only included if agent supports mcpCapabilities.http.
+   * - SSE servers are only included if agent supports mcpCapabilities.sse.
+   */
+  private filterMcpServers(servers?: McpServer[]): McpServer[] {
+    if (!servers || servers.length === 0) return [];
+    const mcpCaps = this.agentCapabilities.mcpCapabilities ?? {};
+    return servers.filter((s) => {
+      if ('type' in s && s.type === 'http') return mcpCaps.http === true;
+      if ('type' in s && s.type === 'sse') return mcpCaps.sse === true;
+      return true; // stdio — always supported per spec
+    });
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -445,13 +769,9 @@ export class ACPSession {
         return;
       }
       case 'thought_chunk':
-        // Log only; v1 doesn't surface thoughts to the TUI yet.
         return;
       case 'tool_call':
       case 'tool_call_update':
-        // Tool calls run inside the external agent; we observe but
-        // don't proxy execution. The TUI can read these from the
-        // session JSONL if it needs to display them.
         return;
       case 'plan':
         if (Array.isArray(u.entries)) {
@@ -464,9 +784,7 @@ export class ACPSession {
             used: u.used,
             size: u.size,
             ...(typeof u.cost === 'object' && u.cost !== null
-              ? {
-                  cost: u.cost as UsageCost,
-                }
+              ? { cost: u.cost as UsageCost }
               : {}),
           });
         }
@@ -476,19 +794,13 @@ export class ACPSession {
       case 'config_option_update':
       case 'session_info_update':
       case 'user_message_chunk':
-        // Observed but not consumed in v1.
         return;
       default:
-        // _unstable_* and unknown — log once per kind.
-        // eslint-disable-next-line no-console
-        console.warn(`[acp-session] unhandled sessionUpdate: ${u.sessionUpdate}`);
         return;
     }
   }
 
-  // Per-prompt scratch state. Reset at the start of each prompt() and
-  // read at the end to assemble the ACPSessionRunResult. The stream
-  // pump writes to it via the three `accumulated*` helpers below.
+  // Per-prompt scratch state
   private scratch: {
     text: string;
     plan?: PlanEntry[];
@@ -639,8 +951,30 @@ export class ACPSession {
   }
 }
 
-function textContent(text: string): ContentBlock {
+/**
+ * Create a text ContentBlock. Convenience helper for callers of
+ * `session.prompt()`.
+ */
+export function textContent(text: string): ContentBlock {
   return { type: 'text', text };
+}
+
+/**
+ * Create an image ContentBlock. Only send this if the agent's
+ * `promptCapabilities.image` is `true` (check via
+ * `session.getCapabilities().promptCapabilities?.image`).
+ */
+export function imageContent(mimeType: string, data: string): ContentBlock {
+  return { type: 'image', mimeType, data };
+}
+
+/**
+ * Create an audio ContentBlock. Only send this if the agent's
+ * `promptCapabilities.audio` is `true` (check via
+ * `session.getCapabilities().promptCapabilities?.audio`).
+ */
+export function audioContent(mimeType: string, data: string): ContentBlock {
+  return { type: 'audio', mimeType, data };
 }
 
 function extractText(block: unknown): string {

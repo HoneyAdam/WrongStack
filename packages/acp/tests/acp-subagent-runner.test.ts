@@ -61,7 +61,7 @@ vi.mock('../src/client/acp-session.js', () => {
       return session;
     });
   }
-  return { ACPSession, ACPSessionError };
+  return { ACPSession, ACPSessionError, textContent: (t: string) => ({ type: 'text', text: t }) };
 });
 
 import {
