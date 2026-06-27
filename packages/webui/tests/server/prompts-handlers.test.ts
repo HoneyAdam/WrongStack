@@ -214,4 +214,28 @@ describe('handlePromptsCreate', () => {
     );
     expect(payloadOf(messages, 'prompts.created')).toMatchObject({ success: false });
   });
+
+  it('persists rich variables (enum + multiline) from the create payload', async () => {
+    const { ws } = openWs();
+    const loader = fakeLoader([]);
+    await handlePromptsCreate(
+      ws,
+      { promptLoader: loader },
+      {
+        payload: {
+          title: 'Rich',
+          content: 'Use {{flavor}} on {{code}}',
+          variables: [
+            { name: 'flavor', required: true, enum: ['PCRE', 'JS'] },
+            { name: 'code', required: true, multiline: true },
+            { name: '', description: 'dropped — no name' },
+          ],
+        },
+      },
+    );
+    expect(loader.saved[0]?.variables).toEqual([
+      { name: 'flavor', required: true, enum: ['PCRE', 'JS'] },
+      { name: 'code', required: true, multiline: true },
+    ]);
+  });
 });

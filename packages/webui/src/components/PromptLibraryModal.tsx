@@ -34,6 +34,31 @@ const SOURCE_GLYPH: Record<string, string> = {
   synced: '☁',
 };
 
+/** A variable row in the authoring form (enum kept as a CSV string for editing). */
+interface VarDraft {
+  name: string;
+  description: string;
+  required: boolean;
+  multiline: boolean;
+  enumCsv: string;
+}
+interface PromptDraft {
+  title: string;
+  description: string;
+  category: string;
+  tagsCsv: string;
+  content: string;
+  vars: VarDraft[];
+}
+const emptyDraft: PromptDraft = {
+  title: '',
+  description: '',
+  category: '',
+  tagsCsv: '',
+  content: '',
+  vars: [],
+};
+
 /** Fill {{name}} placeholders locally; leave unknown placeholders intact. */
 function render(content: string, values: Record<string, string>): string {
   return content.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (whole, raw: string) =>
@@ -65,6 +90,11 @@ export function PromptLibraryModal() {
   const [content, setContent] = useState('');
   const [varValues, setVarValues] = useState<Record<string, string>>({});
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // ── Authoring ("＋ New prompt") ──────────────────────────────────────────
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<PromptDraft>(emptyDraft);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Load list on open.
   useEffect(() => {
@@ -167,6 +197,61 @@ export function PromptLibraryModal() {
     [client],
   );
 
+  // Submit a new user prompt; refresh the list and return to browse on success.
+  useEffect(() => {
+    if (!open || !client) return;
+    const onCreated = (msg: unknown) => {
+      const p = (msg as { payload: { success: boolean; slug?: string; error?: string } }).payload;
+      if (p.success) {
+        setCreating(false);
+        setDraft(emptyDraft);
+        setCreateError(null);
+        client.send({ type: 'prompts.list' });
+      } else {
+        setCreateError(p.error ?? 'Could not save the prompt.');
+      }
+    };
+    client.on('prompts.created', onCreated as (m: unknown) => void);
+    return () => client.off('prompts.created', onCreated as (m: unknown) => void);
+  }, [open, client]);
+
+  const submitCreate = useCallback(() => {
+    if (!client) return;
+    if (!draft.title.trim() || !draft.content.trim()) {
+      setCreateError('Title and content are required.');
+      return;
+    }
+    const variables = draft.vars
+      .filter((v) => v.name.trim())
+      .map((v) => {
+        const enumVals = v.enumCsv
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        return {
+          name: v.name.trim(),
+          ...(v.description.trim() ? { description: v.description.trim() } : {}),
+          required: v.required,
+          ...(v.multiline ? { multiline: true } : {}),
+          ...(enumVals.length > 0 ? { enum: enumVals } : {}),
+        };
+      });
+    client.send({
+      type: 'prompts.create',
+      payload: {
+        title: draft.title.trim(),
+        content: draft.content,
+        description: draft.description.trim(),
+        category: draft.category.trim() || undefined,
+        tags: draft.tagsCsv
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean),
+        ...(variables.length > 0 ? { variables } : {}),
+      },
+    });
+  }, [client, draft]);
+
   if (!open) return null;
 
   return (
@@ -188,6 +273,17 @@ export function PromptLibraryModal() {
               placeholder="Search prompts…"
               className="w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
             />
+            <button
+              onClick={() => {
+                setCreating(true);
+                setSelected(null);
+                setCreateError(null);
+                setDraft(emptyDraft);
+              }}
+              className="mt-2 w-full rounded border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              ＋ New prompt
+            </button>
             <div className="mt-2 flex flex-wrap gap-1">
               <button
                 onClick={() => {
@@ -255,9 +351,185 @@ export function PromptLibraryModal() {
           </div>
         </div>
 
-        {/* Right: preview + variables + insert */}
+        {/* Right: preview + variables + insert, OR the authoring form */}
         <div className="flex w-1/2 flex-col">
-          {selected ? (
+          {creating ? (
+            <>
+              <div className="flex items-center justify-between border-b border-border p-3">
+                <div className="text-sm font-semibold">New prompt</div>
+                <button
+                  onClick={() => {
+                    setCreating(false);
+                    setCreateError(null);
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="flex-1 space-y-2 overflow-auto p-3 text-xs">
+                <input
+                  value={draft.title}
+                  onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                  placeholder="Title *"
+                  className="w-full rounded border border-border bg-background px-2 py-1 outline-none"
+                />
+                <input
+                  value={draft.description}
+                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+                  placeholder="One-line description"
+                  className="w-full rounded border border-border bg-background px-2 py-1 outline-none"
+                />
+                <div className="flex gap-2">
+                  <input
+                    list="prompt-category-list"
+                    value={draft.category}
+                    onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
+                    placeholder="Category"
+                    className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none"
+                  />
+                  <datalist id="prompt-category-list">
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id} />
+                    ))}
+                  </datalist>
+                  <input
+                    value={draft.tagsCsv}
+                    onChange={(e) => setDraft((d) => ({ ...d, tagsCsv: e.target.value }))}
+                    placeholder="tags, comma, separated"
+                    className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none"
+                  />
+                </div>
+                <textarea
+                  value={draft.content}
+                  onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
+                  placeholder="Prompt content * — use {{name}} for variables"
+                  rows={6}
+                  className="w-full resize-y rounded border border-border bg-background px-2 py-1 font-mono outline-none"
+                />
+                <div className="flex items-center justify-between pt-1">
+                  <span className="font-semibold text-muted-foreground">Variables</span>
+                  <button
+                    onClick={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        vars: [
+                          ...d.vars,
+                          {
+                            name: '',
+                            description: '',
+                            required: true,
+                            multiline: false,
+                            enumCsv: '',
+                          },
+                        ],
+                      }))
+                    }
+                    className="rounded border border-border px-1.5 py-0.5 hover:bg-accent"
+                  >
+                    ＋ var
+                  </button>
+                </div>
+                {draft.vars.map((v, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: editor rows are positional
+                  <div key={i} className="space-y-1 rounded border border-border/60 p-1.5">
+                    <div className="flex gap-1">
+                      <input
+                        value={v.name}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            vars: d.vars.map((x, j) =>
+                              j === i ? { ...x, name: e.target.value } : x,
+                            ),
+                          }))
+                        }
+                        placeholder="name"
+                        className="w-1/3 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
+                      />
+                      <input
+                        value={v.description}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            vars: d.vars.map((x, j) =>
+                              j === i ? { ...x, description: e.target.value } : x,
+                            ),
+                          }))
+                        }
+                        placeholder="description"
+                        className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
+                      />
+                      <button
+                        onClick={() =>
+                          setDraft((d) => ({ ...d, vars: d.vars.filter((_, j) => j !== i) }))
+                        }
+                        className="rounded border border-border px-1.5 text-muted-foreground hover:bg-accent"
+                        title="Remove variable"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1 text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={v.required}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              vars: d.vars.map((x, j) =>
+                                j === i ? { ...x, required: e.target.checked } : x,
+                              ),
+                            }))
+                          }
+                        />
+                        required
+                      </label>
+                      <label className="flex items-center gap-1 text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={v.multiline}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              vars: d.vars.map((x, j) =>
+                                j === i ? { ...x, multiline: e.target.checked } : x,
+                              ),
+                            }))
+                          }
+                        />
+                        multiline
+                      </label>
+                      <input
+                        value={v.enumCsv}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            vars: d.vars.map((x, j) =>
+                              j === i ? { ...x, enumCsv: e.target.value } : x,
+                            ),
+                          }))
+                        }
+                        placeholder="enum: a, b, c"
+                        className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-border p-3">
+                {createError && <div className="mb-2 text-xs text-red-500">{createError}</div>}
+                <button
+                  onClick={submitCreate}
+                  disabled={!draft.title.trim() || !draft.content.trim()}
+                  className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+                >
+                  Save prompt
+                </button>
+              </div>
+            </>
+          ) : selected ? (
             <>
               <div className="flex items-start justify-between border-b border-border p-3">
                 <div>

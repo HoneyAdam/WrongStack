@@ -16,8 +16,37 @@
  * input as an ordinary user turn.
  */
 
-import type { PromptEntry, PromptLoader, PromptUsageStore } from '@wrongstack/core';
+import type { PromptEntry, PromptLoader, PromptUsageStore, PromptVariable } from '@wrongstack/core';
 import { errMessage, send } from './ws-utils.js';
+
+/**
+ * Normalize a client-supplied `variables` array into clean PromptVariable[].
+ * Drops entries without a string `name`; carries description/required/multiline
+ * and a string-only `enum`. Returns undefined when nothing valid is present so
+ * the entry omits the field entirely.
+ */
+function parseVariablesPayload(raw: unknown): PromptVariable[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: PromptVariable[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o['name'] !== 'string' || !o['name'].trim()) continue;
+    const enumVals =
+      Array.isArray(o['enum']) && o['enum'].every((x) => typeof x === 'string')
+        ? (o['enum'] as string[]).map((s) => s.trim()).filter(Boolean)
+        : undefined;
+    const v: PromptVariable = { name: o['name'].trim() };
+    if (typeof o['description'] === 'string' && o['description'].trim()) {
+      v.description = o['description'].trim();
+    }
+    if (o['required'] === true) v.required = true;
+    if (o['multiline'] === true) v.multiline = true;
+    if (enumVals && enumVals.length > 0) v.enum = enumVals;
+    out.push(v);
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 export interface PromptsContext {
   /** Backs all prompt ops. Absent ⇒ feature unavailable. */
@@ -193,6 +222,7 @@ export async function handlePromptsCreate(
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 64) || 'prompt';
+    const variables = parseVariablesPayload(p['variables']);
     const entry: PromptEntry = {
       id: slug,
       slug,
@@ -206,6 +236,7 @@ export async function handlePromptsCreate(
       tags,
       source: 'user',
       favorite: false,
+      ...(variables ? { variables } : {}),
       createdAt: now,
       updatedAt: now,
     };

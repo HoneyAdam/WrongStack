@@ -1068,6 +1068,15 @@ export type WSClientMessage =
         description?: string | undefined;
         category?: string | undefined;
         tags?: string[] | undefined;
+        variables?:
+          | {
+              name: string;
+              description?: string | undefined;
+              required?: boolean | undefined;
+              multiline?: boolean | undefined;
+              enum?: string[] | undefined;
+            }[]
+          | undefined;
       };
     }
   | { type: 'diag.get' }
