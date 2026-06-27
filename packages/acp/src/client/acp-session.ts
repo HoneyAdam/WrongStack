@@ -476,6 +476,86 @@ export class ACPSession {
     }
   }
 
+  /**
+   * Fork a session — create a new session from an existing one.
+   */
+  async forkSession(
+    sourceSessionId: SessionId,
+    cwd?: string,
+    mcpServers?: McpServer[],
+  ): Promise<SessionId> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+
+    const servers = this.filterMcpServers(mcpServers ?? this.opts.mcpServers);
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'session/fork', {
+      sessionId: sourceSessionId,
+      cwd: cwd ?? this.opts.cwd ?? this.opts.projectRoot,
+      ...(servers.length > 0 ? { mcpServers: servers } : {}),
+    });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/fork failed: ${result.message}`, result);
+    }
+    const newId = (result as { sessionId?: unknown }).sessionId;
+    if (typeof newId !== 'string' || !newId) {
+      throw new ACPSessionError('protocol_error', 'session/fork returned no sessionId', result);
+    }
+    return newId as SessionId;
+  }
+
+  /**
+   * Set the active mode for a session.
+   */
+  async setMode(sessionId: SessionId, modeId: string): Promise<void> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'session/set_mode', { sessionId, modeId });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/set_mode failed: ${result.message}`, result);
+    }
+  }
+
+  /**
+   * Set a configuration option for a session.
+   */
+  async setConfigOption(sessionId: SessionId, configOptionId: string, value: string): Promise<void> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'session/set_config_option', {
+      sessionId, configOptionId, value,
+    });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `session/set_config_option failed: ${result.message}`, result);
+    }
+  }
+
+  /**
+   * List available providers and the current provider.
+   */
+  async listProviders(): Promise<{ providers: unknown[]; currentProviderId: string | null }> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'providers/list', {});
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `providers/list failed: ${result.message}`, result);
+    }
+    const r = result as { providers?: unknown[]; currentProviderId?: string | null };
+    return { providers: r.providers ?? [], currentProviderId: r.currentProviderId ?? null };
+  }
+
+  /**
+   * Send an MCP message to the agent for routing.
+   */
+  async mcpMessage(connectionId: string, message: Record<string, unknown>): Promise<unknown> {
+    if (this.closed) throw new ACPSessionError('closed', 'session is closed');
+    const id = this.allocId();
+    const result = await this.sendRequest(id, 'mcp/message', { connectionId, message });
+    if (isJsonRpcError(result)) {
+      throw new ACPSessionError('prompt_failed', `mcp/message failed: ${result.message}`, result);
+    }
+    return result;
+  }
+
   // ──────────────────────────────────────────────────────────────────────
   // Prompt
   // ──────────────────────────────────────────────────────────────────────
@@ -748,6 +828,29 @@ export class ACPSession {
     // terminal/* requests
     if (msg.method?.startsWith('terminal/')) {
       void this.handleTerminalRequest(msg);
+      return;
+    }
+
+    // mcp/* requests from the agent
+    if (msg.method === 'mcp/connect' || msg.method === 'mcp/message' || msg.method === 'mcp/disconnect') {
+      // MCP channel management — best-effort acknowledge.
+      if (msg.id !== undefined) {
+        this.transport.send({ id: msg.id, method: msg.method, result: {} } as never as ACPMessage).catch(() => {});
+      }
+      return;
+    }
+
+    // elicitation/* requests from the agent
+    if (msg.method === 'elicitation/create' || msg.method === 'elicitation/complete') {
+      // Elicitation is a UI feedback mechanism — acknowledge and ignore.
+      if (msg.id !== undefined) {
+        this.transport.send({ id: msg.id, method: msg.method, result: {} } as never as ACPMessage).catch(() => {});
+      }
+      return;
+    }
+
+    // $/cancel_request protocol notification — no response expected.
+    if (msg.method === '$/cancel_request') {
       return;
     }
 
