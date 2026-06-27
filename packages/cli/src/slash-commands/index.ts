@@ -531,6 +531,7 @@ import { buildWorkingDirCommand } from './working-dir.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildYoloCommand } from './yolo.js';
 import { buildShadowCommand } from './shadow.js';
+import { buildAuditCommand } from './audit.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
   return [
@@ -607,5 +608,6 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
       saveStatuslineHiddenItems: opts.saveStatuslineHiddenItems ?? (async () => {}),
     }),
     buildShadowCommand(opts),
+    buildAuditCommand(opts),
   ];
 }
