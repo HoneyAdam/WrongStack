@@ -75,6 +75,7 @@ import {
   handlePromptsFavorite,
   handlePromptsCreate,
   handlePromptsUsed,
+  handlePromptsRecent,
 } from './prompts-handlers.js';
 import {
   handleDesignList,
@@ -368,6 +369,7 @@ export {
   handlePromptsFavorite,
   handlePromptsCreate,
   handlePromptsUsed,
+  handlePromptsRecent,
 } from './prompts-handlers.js';
 // Design Studio handlers — shared so the CLI's embedded server reaches parity.
 export {
@@ -2160,6 +2162,9 @@ export async function startWebUI(
         break;
       case 'prompts.used':
         await handlePromptsUsed(ws, promptsCtx, msg);
+        break;
+      case 'prompts.recent':
+        await handlePromptsRecent(ws, promptsCtx);
         break;
 
       // Design Studio — shared handlers (design-handlers.ts). agentMeta is the

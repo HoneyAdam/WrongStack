@@ -231,5 +231,19 @@ export async function handlePromptsUsed(ws: WSLike, ctx: PromptsContext, msg: un
   }
 }
 
+/** Return recently-inserted prompt slugs (most-recent first) for the modal's Recent view. */
+export async function handlePromptsRecent(ws: WSLike, ctx: PromptsContext): Promise<void> {
+  if (!ctx.promptUsage) {
+    send(ws, { type: 'prompts.recent', payload: { slugs: [] } });
+    return;
+  }
+  try {
+    const recent = await ctx.promptUsage.recent(50);
+    send(ws, { type: 'prompts.recent', payload: { slugs: recent.map((r) => r.slug) } });
+  } catch (err) {
+    send(ws, { type: 'prompts.recent', payload: { slugs: [], error: errMessage(err) } });
+  }
+}
+
 /** Minimal structural type for the ws.send sink (matches `ws` WebSocket). */
 type WSLike = Parameters<typeof send>[0];

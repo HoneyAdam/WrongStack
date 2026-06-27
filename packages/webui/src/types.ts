@@ -1059,6 +1059,7 @@ export type WSClientMessage =
   | { type: 'prompts.content'; payload: { slug: string } }
   | { type: 'prompts.favorite'; payload: { slug: string; favorite: boolean } }
   | { type: 'prompts.used'; payload: { slug: string } }
+  | { type: 'prompts.recent' }
   | {
       type: 'prompts.create';
       payload: {

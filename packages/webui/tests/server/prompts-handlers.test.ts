@@ -17,6 +17,7 @@ import {
   handlePromptsList,
   handlePromptsSearch,
   handlePromptsUsed,
+  handlePromptsRecent,
   type PromptsContext,
 } from '../../src/server/prompts-handlers.js';
 import type { WSServerMessage } from '../../src/types.js';
@@ -164,6 +165,21 @@ describe('handlePromptsUsed', () => {
     const { ws, messages } = openWs();
     await handlePromptsUsed(ws, { promptLoader: fakeLoader([]) }, { payload: { slug: 'x' } });
     expect(payloadOf(messages, 'prompts.used')).toMatchObject({ success: false });
+  });
+});
+
+describe('handlePromptsRecent', () => {
+  it('returns recent slugs from the usage store', async () => {
+    const { ws, messages } = openWs();
+    const promptUsage = { recent: async () => [{ slug: 'b' }, { slug: 'a' }] } as never;
+    await handlePromptsRecent(ws, { promptLoader: fakeLoader([]), promptUsage });
+    expect(payloadOf(messages, 'prompts.recent')).toMatchObject({ slugs: ['b', 'a'] });
+  });
+
+  it('returns an empty list when no usage store is wired', async () => {
+    const { ws, messages } = openWs();
+    await handlePromptsRecent(ws, { promptLoader: fakeLoader([]) });
+    expect(payloadOf(messages, 'prompts.recent')).toMatchObject({ slugs: [] });
   });
 });
 

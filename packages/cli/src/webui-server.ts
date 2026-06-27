@@ -122,6 +122,7 @@ import {
   handlePromptsFavorite,
   handlePromptsCreate,
   handlePromptsUsed,
+  handlePromptsRecent,
   type DesignContext,
   handleDesignList,
   handleDesignMaterialize,
@@ -2220,6 +2221,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     'prompts.favorite': (msg, ws) => handlePromptsFavorite(ws, promptsCtx, msg),
     'prompts.create': (msg, ws) => handlePromptsCreate(ws, promptsCtx, msg),
     'prompts.used': (msg, ws) => handlePromptsUsed(ws, promptsCtx, msg),
+    'prompts.recent': (_msg, ws) => handlePromptsRecent(ws, promptsCtx),
 
     // ── Design Studio ──
     'design.list': (_msg, ws) => handleDesignList(ws, designCtx),

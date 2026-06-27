@@ -57,6 +57,8 @@ export function PromptLibraryModal() {
   const [query, setQuery] = useState('');
   const [activeCat, setActiveCat] = useState<string | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [recentOnly, setRecentOnly] = useState(false);
+  const [recentSlugs, setRecentSlugs] = useState<string[]>([]);
   const [selected, setSelected] = useState<PromptMeta | null>(null);
   const [content, setContent] = useState('');
   const [varValues, setVarValues] = useState<Record<string, string>>({});
@@ -103,20 +105,40 @@ export function PromptLibraryModal() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, setOpen]);
 
+  // When Recent is active, fetch recently-used slugs and order by them.
+  useEffect(() => {
+    if (!open || !client || !recentOnly) return;
+    const onRecent = (msg: unknown) => {
+      const slugs = (msg as { payload: { slugs?: string[] } }).payload.slugs ?? [];
+      setRecentSlugs(slugs);
+    };
+    client.on('prompts.recent', onRecent as (m: unknown) => void);
+    client.send({ type: 'prompts.recent' });
+    return () => client.off('prompts.recent', onRecent as (m: unknown) => void);
+  }, [open, client, recentOnly]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const matchesQuery = (p: PromptMeta) =>
+      !q ||
+      p.title.toLowerCase().includes(q) ||
+      p.description.toLowerCase().includes(q) ||
+      p.slug.includes(q) ||
+      p.tags.some((t) => t.toLowerCase().includes(q));
+
+    if (recentOnly) {
+      const bySlug = new Map(prompts.map((p) => [p.slug, p]));
+      return recentSlugs
+        .map((s) => bySlug.get(s))
+        .filter((p): p is PromptMeta => Boolean(p))
+        .filter(matchesQuery);
+    }
     return prompts.filter((p) => {
       if (favoritesOnly && !p.favorite) return false;
       if (activeCat && p.category !== activeCat) return false;
-      if (!q) return true;
-      return (
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.slug.includes(q) ||
-        p.tags.some((t) => t.toLowerCase().includes(q))
-      );
+      return matchesQuery(p);
     });
-  }, [prompts, query, activeCat, favoritesOnly]);
+  }, [prompts, query, activeCat, favoritesOnly, recentOnly, recentSlugs]);
 
   const missing = useMemo(
     () =>
@@ -166,13 +188,31 @@ export function PromptLibraryModal() {
             />
             <div className="mt-2 flex flex-wrap gap-1">
               <button
-                onClick={() => setActiveCat(null)}
-                className={`rounded px-2 py-0.5 text-xs ${activeCat === null ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
+                onClick={() => {
+                  setActiveCat(null);
+                  setFavoritesOnly(false);
+                  setRecentOnly(false);
+                }}
+                className={`rounded px-2 py-0.5 text-xs ${activeCat === null && !favoritesOnly && !recentOnly ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
               >
                 All
               </button>
               <button
-                onClick={() => setFavoritesOnly((v) => !v)}
+                onClick={() => {
+                  setRecentOnly((v) => !v);
+                  setFavoritesOnly(false);
+                  setActiveCat(null);
+                }}
+                className={`rounded px-2 py-0.5 text-xs ${recentOnly ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
+              >
+                🕘 Recent
+              </button>
+              <button
+                onClick={() => {
+                  setFavoritesOnly((v) => !v);
+                  setRecentOnly(false);
+                  setActiveCat(null);
+                }}
                 className={`rounded px-2 py-0.5 text-xs ${favoritesOnly ? 'bg-yellow-500 text-black' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
               >
                 ★ Favorites
@@ -180,7 +220,11 @@ export function PromptLibraryModal() {
               {categories.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => setActiveCat(c.id)}
+                  onClick={() => {
+                    setActiveCat(c.id);
+                    setRecentOnly(false);
+                    setFavoritesOnly(false);
+                  }}
                   className={`rounded px-2 py-0.5 text-xs ${activeCat === c.id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
                 >
                   {c.label} ({c.count})
