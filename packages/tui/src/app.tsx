@@ -17,7 +17,7 @@ import type {
 } from '@wrongstack/core';
 import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
 import { loadGoal, resolveWstackPaths } from '@wrongstack/core';
-import { clearActiveKit, clearPersistedActiveKit, getDesignKitLoader, isDesignStack, setActiveKit } from '@wrongstack/core';
+import { applyTokenOverrides, clearActiveKit, clearPersistedActiveKit, getDesignKitLoader, isDesignStack, loadActiveKit, materializeTokens, recordOverrides, setActiveKit, setDesignOverrides } from '@wrongstack/core';
 import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wrongstack/core';
 import { enhanceUserPrompt, normalizedEqual, recentTextTurns, shouldEnhance } from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
@@ -2987,7 +2987,8 @@ export function App({
   useEffect(() => {
     const cmd = {
       name: 'design',
-      description: 'Open the Design Studio kit picker (or /design <kit> [stack] | off | foundations).',
+      description:
+        'Design Studio: /design (picker) | <kit> [stack] | off | foundations | set <k=v> | materialize [stack] [path] | verify.',
       async run(args: string) {
         const loader = getDesignKitLoader(projectRoot);
         const tokens = (args ?? '').trim().split(/\s+/).filter(Boolean);
@@ -3004,6 +3005,56 @@ export function App({
         }
         if (sub === 'foundations') {
           return { runText: 'design foundations' };
+        }
+        if (sub === 'verify') {
+          return { runText: 'design verify' };
+        }
+        if (sub === 'set') {
+          const patch: Record<string, string> = {};
+          for (const t of tokens.slice(1)) {
+            const eq = t.indexOf('=');
+            if (eq > 0) patch[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+          }
+          if (Object.keys(patch).length === 0) {
+            return { message: 'Usage: /design set primary=oklch(…) dark.bg=#111' };
+          }
+          const merged = await recordOverrides(projectRoot, patch, new Date().toISOString());
+          if (!merged) return { message: 'No active kit. Pin one first: /design <kit-id>.' };
+          setDesignOverrides(agent.ctx, merged);
+          return {
+            message: `Overrides set: ${Object.entries(merged)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(', ')}`,
+          };
+        }
+        if (sub === 'materialize') {
+          const active = await loadActiveKit(projectRoot);
+          if (!active) return { message: 'No active kit. Pin one first: /design <kit-id>.' };
+          const stackArg2 = tokens[1]?.toLowerCase();
+          const matStack = stackArg2 && isDesignStack(stackArg2)
+            ? stackArg2
+            : active.stack && isDesignStack(active.stack)
+              ? active.stack
+              : 'web';
+          const outPath = stackArg2 && !isDesignStack(stackArg2) ? tokens[1] : tokens[2];
+          const raw = await loader.readTokens(active.kit);
+          if (!raw) return { message: `Kit "${active.kit}" has no tokens.json.` };
+          const result = materializeTokens({
+            tokens: applyTokenOverrides(raw, active.overrides),
+            stack: matStack,
+            kitId: active.kit,
+            outPath,
+          });
+          const fsp = await import('node:fs/promises');
+          const nodePath = await import('node:path');
+          const abs = nodePath.join(projectRoot, result.path);
+          try {
+            await fsp.mkdir(nodePath.dirname(abs), { recursive: true });
+            await fsp.writeFile(abs, result.content);
+          } catch (e) {
+            return { message: `Failed to write ${result.path}: ${(e as Error).message}` };
+          }
+          return { message: `Wrote ${result.format} → ${result.path}` };
         }
         const kit = await loader.find(sub);
         if (!kit) {

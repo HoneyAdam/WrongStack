@@ -22,10 +22,13 @@ Design Studio activates automatically when the model is building a UI:
 ## Usage
 
 ```
-/design                     List available kits and the active one
-/design <kit-id> [stack]    Pin a kit and load its full spec next turn
-/design off                 Clear the active kit (detection stays on)
-/design foundations         Print the mandatory baseline (responsive/a11y/theming/motion)
+/design                       List available kits and the active one
+/design <kit-id> [stack]      Pin a kit and load its full spec next turn
+/design off                   Clear the active kit (detection stays on)
+/design foundations           Print the mandatory baseline (responsive/a11y/theming/motion)
+/design set <k=v> …           Override the active kit's colors/tokens
+/design materialize [stack] [path]   Write the active kit's tokens to a real theme file
+/design verify                Scan UI files for off-palette colors
 ```
 
 Stacks: `web` · `react-native` · `flutter` · `swiftui` · `compose`.
@@ -35,9 +38,33 @@ Stacks: `web` · `react-native` · `flutter` · `swiftui` · `compose`.
 ```
 /design                     # see the menu
 /design minimal-clarity web
-/design neo-brutalist
+/design set primary=oklch(62% 0.2 25) dark.bg=#111
+/design materialize web src/styles/tokens.css
+/design verify
 /design off
 ```
+
+## Enforcing a kit — overrides, materialize, verify
+
+A pinned kit is strong guidance (its full spec + exact tokens ride every turn),
+but the model can still drift. Three tools make adherence concrete:
+
+- **`set`** records structured color/token overrides into `.design/active.json`.
+  A bare key (`primary`) applies to both themes; a `light.`/`dark.` prefix scopes
+  it to one theme. Overrides win over the kit's `tokens.json` everywhere.
+- **`materialize`** writes the active kit's (override-applied) tokens to a real,
+  stack-appropriate theme file — **web** `globals.css` (`:root` / `.dark` CSS
+  variables + a Tailwind v4 `@theme inline` block, OKLCH kept verbatim), **React
+  Native** `theme.ts` (hex), **Flutter / SwiftUI / Compose** color constants
+  (OKLCH converted to sRGB). Import that file and the palette becomes the
+  codebase's source of truth, not just a prompt hint — the real guarantee.
+- **`verify`** scans UI files for off-palette hardcoded colors and generic
+  Tailwind palette utilities (`bg-blue-500`), reporting an adherence score and
+  the offending lines so you (or the model) can fix the drift.
+
+The same three actions are available to the model via the `design` tool
+(`{action:"set"|"materialize"|"verify"}`) and in the WebUI gallery (per-theme
+color pickers + a **Materialize** button).
 
 ## Bundled kits
 
