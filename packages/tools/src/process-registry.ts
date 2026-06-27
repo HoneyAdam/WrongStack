@@ -46,7 +46,7 @@ const SENSITIVE_FLAG_PATTERNS: RegExp[] = [
   /--(?:token|password|passwd|pwd|secret|api[-_]?key|api[-_]?secret|auth|credential|private[-_]?key|access[-_]?key|github[-_]?token|gh[-_]?token|bearer|jwt|oauth|pin|pincode|passphrase|access[-_]?token)(?:[=\s,][^\s]*)?/gi,
   // -f "value" style short flags
   /(?<!\w)-t(?:\s+|\s*=\s*)[^\s,]+/,
-  /(?<!\w)-p(?:ssword)?(?:\s+|\s*=\s*)[^\s,]+/gi,
+  /(?<!\w)-(?:p|password)(?:\s+|\s*=\s*)[^\s,]+/gi,
   // env var–style secrets: TOKEN=x, API_KEY=y, etc.
   /(?:TOKEN|API_KEY|API_SECRET|AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN|BEARER|JWT|OAUTH|CREDENTIAL|SECRET|PRIVATE_KEY|PASSWORD|PASSWD)\s*[=:]\s*[^\s,]+/gi,
   // Generic high-entropy look: base64 strings >32 chars or hex strings >32 digits — but only
@@ -173,6 +173,7 @@ export class ProcessRegistryImpl {
 
   /** Get a single process by PID. */
   get(pid: number): TrackedProcess | undefined {
+    this._pruneStale(pid);
     return this.processes.get(pid);
   }
 
@@ -361,6 +362,7 @@ export class ProcessRegistryImpl {
    *  Returns true if the process was found and kill was attempted.
    */
   kill(pid: number, opts: KillOpts = {}): boolean {
+    this._pruneStale(pid);
     const p = this.processes.get(pid);
     if (!p) return false;
     if (p.killed) return true; // already kill()ed, don't double-send
@@ -466,6 +468,36 @@ export class ProcessRegistryImpl {
       if (this.kill(pid, opts)) killed.push(pid);
     }
     return killed;
+  }
+
+  /**
+   * Check whether a tracked process entry is stale — the child has exited
+   * (exitCode !== null) AND it's been in the registry long enough that the
+   * OS may have reused the PID for a new, unrelated process.
+   *
+   * P3 #24 (before-release.md): on POSIX, PIDs are reused after process
+   * exit. If a tracked process exits but its 'close' event hasn't fired yet
+   * (or was missed), the registry still holds the entry. A new process
+   * gets the same PID, and PID-based lookups (get, kill, shouldBlockKill)
+   * may incorrectly protect or target the wrong process.
+   *
+   * The 60s threshold is conservative — the OS typically waits much longer
+   * before reusing a PID, but we want to clean up before that becomes a risk.
+   */
+  private _isStaleEntry(entry: TrackedProcess): boolean {
+    return entry.child.exitCode !== null && Date.now() - entry.startedAt > 60_000;
+  }
+
+  /**
+   * Remove a stale entry for a specific PID before any PID-based lookup.
+   * This prevents PID reuse from causing the registry to act on a dead
+   * process that has been replaced by a new one with the same PID.
+   */
+  private _pruneStale(pid: number): void {
+    const entry = this.processes.get(pid);
+    if (entry && this._isStaleEntry(entry)) {
+      this.processes.delete(pid);
+    }
   }
 }
 

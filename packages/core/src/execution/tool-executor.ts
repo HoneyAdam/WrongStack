@@ -530,18 +530,19 @@ export class ToolExecutor {
       });
     };
     const flushProgressTail = (force: boolean) => {
-      if (progressTail.length === 0 && progressHead.length === 0) return;
+      if (progressTail.length === 0 && !force) return;
       const now = Date.now();
       if (!force && now - lastProgressEmitAt < ToolExecutor.PROGRESS_EMIT_INTERVAL_MS) return;
       lastProgressEmitAt = now;
-      // Combine head + tail. When the head is full and there's tail content,
-      // the output was truncated in the middle — join them with a truncation
-      // marker so the subscriber can show "First N chars ... Last M chars".
+      // On the final force-flush, if we have a head AND tail (output was
+      // truncated in the middle), emit both with a truncation marker. On
+      // normal coalesced flushes, just emit the tail — matching the
+      // pre-P3-#22 per-event behavior.
       let text: string;
-      if (headComplete && progressTail.length > 0) {
+      if (force && headComplete && progressTail.length > 0) {
         text = `${progressHead}\n[...output truncated...]\n${progressTail}`;
       } else {
-        text = progressHead + progressTail;
+        text = progressTail;
       }
       progressTail = '';
       emitProgress({ type: 'partial_output', text });
@@ -557,9 +558,12 @@ export class ToolExecutor {
           break;
         }
         if (ev.type === 'partial_output' && typeof ev.text === 'string') {
-          // P3 #22: fill the head buffer first, then the tail. This keeps
-          // both the beginning and end of long output available for the
-          // live progress view.
+          // P3 #22: accumulate the head (first PROGRESS_HEAD_CHARS) for the
+          // final force-flush, while the tail follows the original per-event
+          // coalescing behavior. This preserves backward compatibility with
+          // tests that expect each partial_output to emit independently,
+          // while ensuring long outputs retain their beginning in the final
+          // flush.
           if (!headComplete) {
             const remaining = ToolExecutor.PROGRESS_HEAD_CHARS - progressHead.length;
             if (ev.text.length <= remaining) {
@@ -567,20 +571,11 @@ export class ToolExecutor {
             } else {
               progressHead += ev.text.slice(0, remaining);
               headComplete = true;
-              // Spill the rest into the tail.
-              const overflow = ev.text.slice(remaining);
-              if (overflow) {
-                progressTail += overflow;
-                if (progressTail.length > ToolExecutor.PROGRESS_TAIL_CHARS) {
-                  progressTail = progressTail.slice(-ToolExecutor.PROGRESS_TAIL_CHARS);
-                }
-              }
             }
-          } else {
-            progressTail += ev.text;
-            if (progressTail.length > ToolExecutor.PROGRESS_TAIL_CHARS) {
-              progressTail = progressTail.slice(-ToolExecutor.PROGRESS_TAIL_CHARS);
-            }
+          }
+          progressTail += ev.text;
+          if (progressTail.length > ToolExecutor.PROGRESS_TAIL_CHARS) {
+            progressTail = progressTail.slice(-ToolExecutor.PROGRESS_TAIL_CHARS);
           }
           flushProgressTail(false);
           continue;
