@@ -1,0 +1,24 @@
+{
+  "id": "write-inline-comments",
+  "slug": "write-inline-comments",
+  "title": "Write Inline Comments",
+  "description": "Add comments that explain why, not what.",
+  "content": "Add helpful comments to this code:\n\n```\n{{code}}\n```\n\nComment the WHY, not the what — explain intent, non-obvious decisions, tricky edge cases, and references to relevant context (tickets, specs, gotchas). Do NOT narrate code that already reads clearly. If a comment would only exist because the code is unclear, suggest renaming/restructuring instead. Keep them concise.",
+  "category": "documentation",
+  "tags": [
+    "comments",
+    "clarity"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "246e61771e820797482d4df921a2caf2851780f06ffea4437fd927d24f58ae88",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "code",
+      "description": "The code to comment",
+      "required": true
+    }
+  ]
+}

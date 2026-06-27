@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "required": [
+    "id",
+    "slug",
+    "title",
+    "description",
+    "content",
+    "category",
+    "tags",
+    "source",
+    "favorite",
+    "checksum",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "content": { "type": "string", "minLength": 1 },
+    "category": {
+      "type": "string",
+      "enum": [
+        "coding",
+        "debugging",
+        "refactoring",
+        "testing",
+        "code-review",
+        "architecture",
+        "devops",
+        "documentation",
+        "data-analysis",
+        "writing",
+        "research",
+        "product",
+        "agentic-workflows",
+        "meta-prompting"
+      ]
+    },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "source": { "type": "string", "enum": ["builtin"] },
+    "favorite": { "type": "boolean" },
+    "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "default": { "type": "string" },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "author": { "type": "string" },
+    "version": { "type": "string" },
+    "license": { "type": "string" }
+  }
+}

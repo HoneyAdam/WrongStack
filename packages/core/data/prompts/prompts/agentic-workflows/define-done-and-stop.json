@@ -1,0 +1,25 @@
+{
+  "id": "define-done-and-stop",
+  "slug": "define-done-and-stop",
+  "title": "Define Done and Stop",
+  "description": "Set explicit completion criteria so an agent doesn't over- or under-do it.",
+  "content": "Task: {{task}}\n\nBefore starting, state your completion criteria: exactly what 'done' means for this, and what is explicitly out of scope. Do the task to meet those criteria — no more (don't gold-plate or wander into adjacent improvements) and no less. When finished, confirm each criterion is met and then stop. If you discover the scope is wrong mid-task, surface it instead of silently expanding.",
+  "category": "agentic-workflows",
+  "tags": [
+    "completion",
+    "scope",
+    "control"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "d801448a4cf522be2589d76234b6b535ed644598dbc3d34902aa582a04b5f712",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "task",
+      "description": "The task with a defined scope",
+      "required": true
+    }
+  ]
+}

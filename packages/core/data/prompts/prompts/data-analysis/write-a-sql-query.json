@@ -1,0 +1,29 @@
+{
+  "id": "write-a-sql-query",
+  "slug": "write-a-sql-query",
+  "title": "Write a SQL Query",
+  "description": "Compose a correct, efficient SQL query from a question.",
+  "content": "Write a SQL query to answer: {{question}}\n\nSchema:\n{{schema}}\n\nRequirements:\n- Correct first: make sure joins and grouping answer the exact question.\n- Avoid common traps: fan-out from one-to-many joins, NULL handling, double counting.\n- Note which columns should be indexed for this to run well.\n- Briefly explain what the query does so I can verify the logic.",
+  "category": "data-analysis",
+  "tags": [
+    "sql",
+    "query"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "e5be37d766b12ae3ceefea4b86f304082e21a77aa9f23ee0c5a139b900117e6c",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "question",
+      "description": "The question to answer",
+      "required": true
+    },
+    {
+      "name": "schema",
+      "description": "Relevant tables and columns",
+      "required": true
+    }
+  ]
+}

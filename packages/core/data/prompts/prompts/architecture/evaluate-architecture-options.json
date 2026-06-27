@@ -1,0 +1,35 @@
+{
+  "id": "evaluate-architecture-options",
+  "slug": "evaluate-architecture-options",
+  "title": "Evaluate Architecture Options",
+  "description": "Compare candidate approaches against your real constraints.",
+  "content": "I'm choosing between approaches for: {{problem}}\n\nCandidates: {{options}}\n\nFor each, give: how it works in one line, its strengths, its weaknesses, and what it costs (complexity, latency, money, operational burden). Then recommend one for my context: {{constraints}}. Be explicit about the conditions under which your recommendation would change.",
+  "category": "architecture",
+  "tags": [
+    "trade-offs",
+    "decision",
+    "options"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "d5b7606d4b1f761bc2f4ec9a65555327b815ef3f82e17c5c550c60955c70106c",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "problem",
+      "description": "The problem",
+      "required": true
+    },
+    {
+      "name": "options",
+      "description": "The options you're weighing",
+      "required": true
+    },
+    {
+      "name": "constraints",
+      "description": "Your constraints and priorities",
+      "required": true
+    }
+  ]
+}

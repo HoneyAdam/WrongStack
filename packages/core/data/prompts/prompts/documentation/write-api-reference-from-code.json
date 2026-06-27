@@ -1,0 +1,24 @@
+{
+  "id": "write-api-reference-from-code",
+  "slug": "write-api-reference-from-code",
+  "title": "Write API Reference from Code",
+  "description": "Turn a module's public surface into reference docs.",
+  "content": "Generate API reference documentation from this code:\n\n```\n{{code}}\n```\n\nFor each public export: signature, description, parameters, return value, errors, and a minimal example. Group related items and order them by how commonly they're used, not alphabetically. Note any deprecated or experimental items clearly. Skip private/internal symbols.",
+  "category": "documentation",
+  "tags": [
+    "api-reference",
+    "docs"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "187267975c4f934bd51ad4bbc1bc3406699a0e0f21fdf5796511c8a840823937",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "code",
+      "description": "The module's public API",
+      "required": true
+    }
+  ]
+}

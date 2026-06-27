@@ -1,0 +1,25 @@
+{
+  "id": "plan-an-api-contract",
+  "slug": "plan-an-api-contract",
+  "title": "Plan an API Contract",
+  "description": "Design a clean, evolvable API surface.",
+  "content": "Design the API for: {{service}}\n\nDefine the resources/operations, request and response shapes, error model, and pagination/filtering approach. Make it: consistent, hard to misuse, and evolvable without breaking clients. Specify versioning strategy and which fields are stable vs. experimental. Show the 2-3 most important calls with example payloads.",
+  "category": "architecture",
+  "tags": [
+    "api",
+    "contract",
+    "interface"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "cfe97d46adb2484c600a3b17c2e1f50bc0fd150d3133f197a2901fcc0339f631",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "service",
+      "description": "What the API serves",
+      "required": true
+    }
+  ]
+}

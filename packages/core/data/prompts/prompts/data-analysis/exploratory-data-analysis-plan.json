@@ -1,0 +1,25 @@
+{
+  "id": "exploratory-data-analysis-plan",
+  "slug": "exploratory-data-analysis-plan",
+  "title": "Exploratory Data Analysis Plan",
+  "description": "Plan a first pass over an unfamiliar dataset.",
+  "content": "I have a dataset and want to understand it: {{dataset}}\n\nGive me an EDA plan: what to check first (shape, types, missingness, duplicates), the distributions and relationships worth plotting, the data-quality red flags to watch for, and the questions this data can and cannot answer. Prioritize the checks that most often reveal problems before they bite. Suggest concrete code if I tell you the tool.",
+  "category": "data-analysis",
+  "tags": [
+    "eda",
+    "exploration",
+    "statistics"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "19565de24bd927225b9a3ec1f8705efa91916b68a5f16ae269cee1b4d6cd4b65",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "dataset",
+      "description": "What the dataset contains",
+      "required": true
+    }
+  ]
+}

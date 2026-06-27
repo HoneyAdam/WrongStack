@@ -1,0 +1,24 @@
+{
+  "id": "reduce-cyclomatic-complexity",
+  "slug": "reduce-cyclomatic-complexity",
+  "title": "Reduce Cyclomatic Complexity",
+  "description": "Flatten deeply nested or branch-heavy logic.",
+  "content": "This function has too many branches/nesting levels:\n\n```\n{{code}}\n```\n\nReduce its complexity using guard clauses, early returns, lookup tables, polymorphism, or extraction — whichever fits. Keep behavior identical, including edge cases. Show the before/after complexity intuition and confirm every original branch is still covered.",
+  "category": "refactoring",
+  "tags": [
+    "complexity",
+    "control-flow"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "742729cc456aa7136562d4354c5e42cf3689d47e6a87605b57ade627044323a4",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "code",
+      "description": "The complex function",
+      "required": true
+    }
+  ]
+}

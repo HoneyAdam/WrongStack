@@ -1,0 +1,25 @@
+{
+  "id": "decompose-into-subtasks",
+  "slug": "decompose-into-subtasks",
+  "title": "Decompose into Subtasks",
+  "description": "Break a large task into independent, parallelizable units.",
+  "content": "Break this large task into subtasks: {{task}}\n\nFor each subtask: a clear definition of done, its dependencies on other subtasks, and whether it can run in parallel. Identify which subtasks are on the critical path and which are independent. Produce a dependency-ordered plan. Flag any subtask that's underspecified and needs clarification before work starts.",
+  "category": "agentic-workflows",
+  "tags": [
+    "decomposition",
+    "parallel",
+    "orchestration"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "3f18f2da44efe06cf21df33a862abd23fda43317db3498536c6e8156fe35a9f5",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "task",
+      "description": "The large task to decompose",
+      "required": true
+    }
+  ]
+}

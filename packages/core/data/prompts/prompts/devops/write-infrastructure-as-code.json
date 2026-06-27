@@ -1,0 +1,30 @@
+{
+  "id": "write-infrastructure-as-code",
+  "slug": "write-infrastructure-as-code",
+  "title": "Write Infrastructure as Code",
+  "description": "Provision infrastructure declaratively and safely.",
+  "content": "Write {{tool}} configuration to provision: {{infrastructure}}\n\nRequirements:\n- Parameterize environment-specific values; no hardcoded secrets or account IDs.\n- Apply least-privilege access.\n- Tag resources for ownership and cost tracking.\n- Make it idempotent and safe to re-apply.\n\nExplain what a `plan`/dry-run would show and what to double-check before applying to production.",
+  "category": "devops",
+  "tags": [
+    "iac",
+    "terraform",
+    "provisioning"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "8904bd78ccf8c7a915d814b0e6fe418466167dd7e062d5960c36ed85718dabcb",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "tool",
+      "description": "IaC tool (Terraform, Pulumi, etc.)",
+      "required": true
+    },
+    {
+      "name": "infrastructure",
+      "description": "What to provision",
+      "required": true
+    }
+  ]
+}

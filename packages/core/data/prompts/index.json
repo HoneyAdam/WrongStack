@@ -1,0 +1,1611 @@
+{
+  "datasetVersion": 1,
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "count": 112,
+  "categories": [
+    {
+      "id": "agentic-workflows",
+      "label": "agentic-workflows",
+      "count": 8
+    },
+    {
+      "id": "architecture",
+      "label": "architecture",
+      "count": 8
+    },
+    {
+      "id": "code-review",
+      "label": "code-review",
+      "count": 8
+    },
+    {
+      "id": "coding",
+      "label": "coding",
+      "count": 8
+    },
+    {
+      "id": "data-analysis",
+      "label": "data-analysis",
+      "count": 8
+    },
+    {
+      "id": "debugging",
+      "label": "debugging",
+      "count": 8
+    },
+    {
+      "id": "devops",
+      "label": "devops",
+      "count": 8
+    },
+    {
+      "id": "documentation",
+      "label": "documentation",
+      "count": 8
+    },
+    {
+      "id": "meta-prompting",
+      "label": "meta-prompting",
+      "count": 8
+    },
+    {
+      "id": "product",
+      "label": "product",
+      "count": 8
+    },
+    {
+      "id": "refactoring",
+      "label": "refactoring",
+      "count": 8
+    },
+    {
+      "id": "research",
+      "label": "research",
+      "count": 8
+    },
+    {
+      "id": "testing",
+      "label": "testing",
+      "count": 8
+    },
+    {
+      "id": "writing",
+      "label": "writing",
+      "count": 8
+    }
+  ],
+  "prompts": [
+    {
+      "id": "decompose-into-subtasks",
+      "slug": "decompose-into-subtasks",
+      "title": "Decompose into Subtasks",
+      "description": "Break a large task into independent, parallelizable units.",
+      "category": "agentic-workflows",
+      "tags": [
+        "decomposition",
+        "parallel",
+        "orchestration"
+      ],
+      "checksum": "3f18f2da44efe06cf21df33a862abd23fda43317db3498536c6e8156fe35a9f5",
+      "file": "prompts/agentic-workflows/decompose-into-subtasks.json"
+    },
+    {
+      "id": "define-done-and-stop",
+      "slug": "define-done-and-stop",
+      "title": "Define Done and Stop",
+      "description": "Set explicit completion criteria so an agent doesn't over- or under-do it.",
+      "category": "agentic-workflows",
+      "tags": [
+        "completion",
+        "scope",
+        "control"
+      ],
+      "checksum": "d801448a4cf522be2589d76234b6b535ed644598dbc3d34902aa582a04b5f712",
+      "file": "prompts/agentic-workflows/define-done-and-stop.json"
+    },
+    {
+      "id": "delegate-to-a-subagent",
+      "slug": "delegate-to-a-subagent",
+      "title": "Delegate to a Subagent",
+      "description": "Write a crisp brief for handing work to another agent.",
+      "category": "agentic-workflows",
+      "tags": [
+        "delegation",
+        "multi-agent",
+        "handoff"
+      ],
+      "checksum": "0d84f3a15cba65b7cf2d96c251388f6491c37e77fa36877c52ada9ee2a9bac94",
+      "file": "prompts/agentic-workflows/delegate-to-a-subagent.json"
+    },
+    {
+      "id": "explore-then-decide",
+      "slug": "explore-then-decide",
+      "title": "Explore Then Decide",
+      "description": "Gather evidence from the codebase before proposing a change.",
+      "category": "agentic-workflows",
+      "tags": [
+        "exploration",
+        "grounding",
+        "agent"
+      ],
+      "checksum": "6f854da335f51d113da3c1c1b511cab7279dbc1f559242052d7b05cda9b2f2af",
+      "file": "prompts/agentic-workflows/explore-then-decide.json"
+    },
+    {
+      "id": "plan-before-acting",
+      "slug": "plan-before-acting",
+      "title": "Plan Before Acting",
+      "description": "Force an explicit plan before an agent touches anything.",
+      "category": "agentic-workflows",
+      "tags": [
+        "planning",
+        "agent",
+        "safety"
+      ],
+      "checksum": "705036b1ea65e7bd1046e3a4c1d1753140f13ff716b98d3b7372e7782cfa0c1c",
+      "file": "prompts/agentic-workflows/plan-before-acting.json"
+    },
+    {
+      "id": "recover-from-a-stuck-state",
+      "slug": "recover-from-a-stuck-state",
+      "title": "Recover From a Stuck State",
+      "description": "Get an agent unstuck without thrashing.",
+      "category": "agentic-workflows",
+      "tags": [
+        "recovery",
+        "debugging",
+        "agent"
+      ],
+      "checksum": "82f98e6768a180082a36e736d4f5a2d1978e46a3b63c7a959b3c515fb71358d4",
+      "file": "prompts/agentic-workflows/recover-from-a-stuck-state.json"
+    },
+    {
+      "id": "summarize-progress-and-next-steps",
+      "slug": "summarize-progress-and-next-steps",
+      "title": "Summarize Progress and Next Steps",
+      "description": "Produce a handoff-ready status of an in-flight task.",
+      "category": "agentic-workflows",
+      "tags": [
+        "status",
+        "handoff",
+        "continuity"
+      ],
+      "checksum": "aba817a8d1094c82465d36553b1c36d5f382cdaae10866cbe0b914ae4a0a6af0",
+      "file": "prompts/agentic-workflows/summarize-progress-and-next-steps.json"
+    },
+    {
+      "id": "verify-your-own-work",
+      "slug": "verify-your-own-work",
+      "title": "Verify Your Own Work",
+      "description": "Make an agent adversarially check what it just produced.",
+      "category": "agentic-workflows",
+      "tags": [
+        "verification",
+        "self-check",
+        "quality"
+      ],
+      "checksum": "3d5674a24ecf8c393d6308407ef3a8169232efbd8e675739aa1c4332e247f485",
+      "file": "prompts/agentic-workflows/verify-your-own-work.json"
+    },
+    {
+      "id": "decompose-into-services-or-modules",
+      "slug": "decompose-into-services-or-modules",
+      "title": "Decompose into Services or Modules",
+      "description": "Find good boundaries for splitting a system.",
+      "category": "architecture",
+      "tags": [
+        "boundaries",
+        "modularity",
+        "decomposition"
+      ],
+      "checksum": "bb7e477ff2f97c69c94f2ee3f2dea89ada04f2f4b8a3cba020f7dd8320050c20",
+      "file": "prompts/architecture/decompose-into-services-or-modules.json"
+    },
+    {
+      "id": "design-a-data-model",
+      "slug": "design-a-data-model",
+      "title": "Design a Data Model",
+      "description": "Model entities, relationships, and constraints for a domain.",
+      "category": "architecture",
+      "tags": [
+        "data-model",
+        "schema",
+        "domain"
+      ],
+      "checksum": "68e85737241702dfaa4fada7f9ddf608175140a22c36de3fc71c0051c97d7a6a",
+      "file": "prompts/architecture/design-a-data-model.json"
+    },
+    {
+      "id": "design-a-system",
+      "slug": "design-a-system",
+      "title": "Design a System",
+      "description": "Produce a pragmatic high-level design for a system or feature.",
+      "category": "architecture",
+      "tags": [
+        "system-design",
+        "design"
+      ],
+      "checksum": "e4c57e0ea542cd4790b890bed627fcc237d96591c9c364ae26f9d02682657f80",
+      "file": "prompts/architecture/design-a-system.json"
+    },
+    {
+      "id": "evaluate-architecture-options",
+      "slug": "evaluate-architecture-options",
+      "title": "Evaluate Architecture Options",
+      "description": "Compare candidate approaches against your real constraints.",
+      "category": "architecture",
+      "tags": [
+        "trade-offs",
+        "decision",
+        "options"
+      ],
+      "checksum": "d5b7606d4b1f761bc2f4ec9a65555327b815ef3f82e17c5c550c60955c70106c",
+      "file": "prompts/architecture/evaluate-architecture-options.json"
+    },
+    {
+      "id": "identify-failure-modes",
+      "slug": "identify-failure-modes",
+      "title": "Identify Failure Modes",
+      "description": "Stress-test a design by enumerating how it breaks.",
+      "category": "architecture",
+      "tags": [
+        "resilience",
+        "failure-modes",
+        "reliability"
+      ],
+      "checksum": "cc3a25850edf5de46c6772227089a38d827b95b41404c1e8362030512d6a9f22",
+      "file": "prompts/architecture/identify-failure-modes.json"
+    },
+    {
+      "id": "plan-a-migration",
+      "slug": "plan-a-migration",
+      "title": "Plan a Migration",
+      "description": "Design a safe, incremental migration path.",
+      "category": "architecture",
+      "tags": [
+        "migration",
+        "incremental",
+        "rollout"
+      ],
+      "checksum": "0a2bcfc3f25eb03308a414ab2ea5845fb763c8eb78cfb60553cf92243d30e962",
+      "file": "prompts/architecture/plan-a-migration.json"
+    },
+    {
+      "id": "plan-an-api-contract",
+      "slug": "plan-an-api-contract",
+      "title": "Plan an API Contract",
+      "description": "Design a clean, evolvable API surface.",
+      "category": "architecture",
+      "tags": [
+        "api",
+        "contract",
+        "interface"
+      ],
+      "checksum": "cfe97d46adb2484c600a3b17c2e1f50bc0fd150d3133f197a2901fcc0339f631",
+      "file": "prompts/architecture/plan-an-api-contract.json"
+    },
+    {
+      "id": "write-an-adr",
+      "slug": "write-an-adr",
+      "title": "Write an ADR",
+      "description": "Capture an architecture decision in a clear, durable record.",
+      "category": "architecture",
+      "tags": [
+        "adr",
+        "documentation",
+        "decision-record"
+      ],
+      "checksum": "c998ccbc1c9dc383cc64407d83981f5839ff30d32cdfe348e1c98e2424a766b4",
+      "file": "prompts/architecture/write-an-adr.json"
+    },
+    {
+      "id": "check-naming-and-api-design",
+      "slug": "check-naming-and-api-design",
+      "title": "Check Naming and API Design",
+      "description": "Critique the names and public interface of a module.",
+      "category": "code-review",
+      "tags": [
+        "naming",
+        "api-design",
+        "ergonomics"
+      ],
+      "checksum": "bee0e93315f04577310d69b7ac365615183743c50bfe5bc92df72de94f1f44d0",
+      "file": "prompts/code-review/check-naming-and-api-design.json"
+    },
+    {
+      "id": "concurrency-review",
+      "slug": "concurrency-review",
+      "title": "Concurrency Review",
+      "description": "Review code for race conditions and concurrency bugs.",
+      "category": "code-review",
+      "tags": [
+        "concurrency",
+        "races",
+        "review"
+      ],
+      "checksum": "0e82cc791a067ba1aada5cc23774dcb2856253fa54704daa7732e1feaaa8fac8",
+      "file": "prompts/code-review/concurrency-review.json"
+    },
+    {
+      "id": "explain-review-feedback",
+      "slug": "explain-review-feedback",
+      "title": "Explain Review Feedback",
+      "description": "Understand and act on review comments you received.",
+      "category": "code-review",
+      "tags": [
+        "feedback",
+        "mentorship"
+      ],
+      "checksum": "68be151317f1848537cb782baa9969cfe449141225b522a0515f9b087212114d",
+      "file": "prompts/code-review/explain-review-feedback.json"
+    },
+    {
+      "id": "review-for-backward-compatibility",
+      "slug": "review-for-backward-compatibility",
+      "title": "Review for Backward Compatibility",
+      "description": "Check whether a change breaks existing callers or data.",
+      "category": "code-review",
+      "tags": [
+        "compatibility",
+        "breaking-change",
+        "migration"
+      ],
+      "checksum": "80ba104ba789b092f24a4a0db42f7b65a04847d1bb0d7c939c5edcfa7ece46e0",
+      "file": "prompts/code-review/review-for-backward-compatibility.json"
+    },
+    {
+      "id": "review-for-performance",
+      "slug": "review-for-performance",
+      "title": "Review for Performance",
+      "description": "Spot performance problems in a change before they ship.",
+      "category": "code-review",
+      "tags": [
+        "performance",
+        "review"
+      ],
+      "checksum": "c3aa610186fb689cffdc8d009839c9d3ebe455cb54f7e01144bac64a4e92273c",
+      "file": "prompts/code-review/review-for-performance.json"
+    },
+    {
+      "id": "review-my-own-pr",
+      "slug": "review-my-own-pr",
+      "title": "Review My Own PR",
+      "description": "Self-review a change before requesting human review.",
+      "category": "code-review",
+      "tags": [
+        "self-review",
+        "pr"
+      ],
+      "checksum": "57a0e9eed1da6d0e83ba3cfb6a88403a886acd117f558fe98d9ab5f4602ca31a",
+      "file": "prompts/code-review/review-my-own-pr.json"
+    },
+    {
+      "id": "security-focused-review",
+      "slug": "security-focused-review",
+      "title": "Security-Focused Review",
+      "description": "Audit a change specifically for security vulnerabilities.",
+      "category": "code-review",
+      "tags": [
+        "security",
+        "audit",
+        "owasp"
+      ],
+      "checksum": "561e1d50f297c5486e5bc9e8d0c966d5a74860e939686e42a8d831965d1de4e3",
+      "file": "prompts/code-review/security-focused-review.json"
+    },
+    {
+      "id": "thorough-code-review",
+      "slug": "thorough-code-review",
+      "title": "Thorough Code Review",
+      "description": "Review a diff for correctness, design, security, and maintainability.",
+      "category": "code-review",
+      "tags": [
+        "review",
+        "diff",
+        "quality"
+      ],
+      "checksum": "a573ff99a24222d844840754ddbefd05ed21d51a2f12e5eaf43b128c66dff4a5",
+      "file": "prompts/code-review/thorough-code-review.json"
+    },
+    {
+      "id": "add-feature-to-existing-code",
+      "slug": "add-feature-to-existing-code",
+      "title": "Add Feature to Existing Code",
+      "description": "Extend a codebase with a new feature while preserving existing behavior and conventions.",
+      "category": "coding",
+      "tags": [
+        "feature",
+        "integration"
+      ],
+      "checksum": "f84237bae4713441add482a6c3bea0c64baa68d7dd4f5f026150ad8fb9c7d6f2",
+      "file": "prompts/coding/add-feature-to-existing-code.json"
+    },
+    {
+      "id": "add-robust-error-handling",
+      "slug": "add-robust-error-handling",
+      "title": "Add Robust Error Handling",
+      "description": "Harden a function or module against failure with deliberate error handling.",
+      "category": "coding",
+      "tags": [
+        "errors",
+        "resilience",
+        "validation"
+      ],
+      "checksum": "9882ab3129fa94d3b821b8e417582e129de751ef7072c1c2834a1a409025291a",
+      "file": "prompts/coding/add-robust-error-handling.json"
+    },
+    {
+      "id": "concurrency-safe-implementation",
+      "slug": "concurrency-safe-implementation",
+      "title": "Concurrency-Safe Implementation",
+      "description": "Implement logic that is correct under concurrent access.",
+      "category": "coding",
+      "tags": [
+        "concurrency",
+        "threads",
+        "async"
+      ],
+      "checksum": "bb5209259e59f41c7d37007923582bbbdce835da71d35360db91d6dfe7ae0e30",
+      "file": "prompts/coding/concurrency-safe-implementation.json"
+    },
+    {
+      "id": "convert-pseudocode-to-code",
+      "slug": "convert-pseudocode-to-code",
+      "title": "Convert Pseudocode to Code",
+      "description": "Translate an algorithm or pseudocode into working, idiomatic code.",
+      "category": "coding",
+      "tags": [
+        "algorithm",
+        "translation"
+      ],
+      "checksum": "3bba88c1242288dd446c2fb27737723b0ab3de4c72dd79ba1ab71f5957f6ea98",
+      "file": "prompts/coding/convert-pseudocode-to-code.json"
+    },
+    {
+      "id": "explain-this-code",
+      "slug": "explain-this-code",
+      "title": "Explain This Code",
+      "description": "Get a clear, layered explanation of an unfamiliar piece of code.",
+      "category": "coding",
+      "tags": [
+        "explain",
+        "onboarding",
+        "comprehension"
+      ],
+      "checksum": "fa4261898badbe467df047ed1f8b9a857a77311e13fce02bf6c8d1fbef2e547a",
+      "file": "prompts/coding/explain-this-code.json"
+    },
+    {
+      "id": "implement-an-api-client",
+      "slug": "implement-an-api-client",
+      "title": "Implement an API Client",
+      "description": "Write a typed client for a REST or RPC API from its docs.",
+      "category": "coding",
+      "tags": [
+        "api",
+        "http",
+        "client"
+      ],
+      "checksum": "112e3423e866ee6837c654e535bdd801ed65ffb8dd998703480413fc6983780e",
+      "file": "prompts/coding/implement-an-api-client.json"
+    },
+    {
+      "id": "implement-function-from-spec",
+      "slug": "implement-function-from-spec",
+      "title": "Implement Function from Spec",
+      "description": "Generate a single, well-tested function from a precise specification.",
+      "category": "coding",
+      "tags": [
+        "function",
+        "implementation",
+        "tdd"
+      ],
+      "checksum": "6e30c86626df02a52fcf837c057a8e25cf57dbc5fddf9340e82496c77b3157b6",
+      "file": "prompts/coding/implement-function-from-spec.json"
+    },
+    {
+      "id": "write-a-cli-command",
+      "slug": "write-a-cli-command",
+      "title": "Write a CLI Command",
+      "description": "Build a command-line subcommand with argument parsing and good UX.",
+      "category": "coding",
+      "tags": [
+        "cli",
+        "ux",
+        "tooling"
+      ],
+      "checksum": "f6a292e2f88ebae2c77791bdcf2fbb93a0be3994dc6f34eb620e809698172e9a",
+      "file": "prompts/coding/write-a-cli-command.json"
+    },
+    {
+      "id": "build-a-data-pipeline",
+      "slug": "build-a-data-pipeline",
+      "title": "Build a Data Pipeline",
+      "description": "Design an ETL/ELT pipeline that's reliable and observable.",
+      "category": "data-analysis",
+      "tags": [
+        "pipeline",
+        "etl",
+        "data-engineering"
+      ],
+      "checksum": "ee65f3cd153d3298555cd7a9bd73c34f43f904d7ee198114326f86346a25aa70",
+      "file": "prompts/data-analysis/build-a-data-pipeline.json"
+    },
+    {
+      "id": "clean-and-validate-data",
+      "slug": "clean-and-validate-data",
+      "title": "Clean and Validate Data",
+      "description": "Design a cleaning pipeline for messy data.",
+      "category": "data-analysis",
+      "tags": [
+        "data-cleaning",
+        "validation",
+        "etl"
+      ],
+      "checksum": "9d8c65292a0f359b8a127eafe34ecbc4b0abbf6cef468ce56a42461c851498c2",
+      "file": "prompts/data-analysis/clean-and-validate-data.json"
+    },
+    {
+      "id": "design-a-metric",
+      "slug": "design-a-metric",
+      "title": "Design a Metric",
+      "description": "Define a metric that actually measures what you care about.",
+      "category": "data-analysis",
+      "tags": [
+        "metrics",
+        "kpi",
+        "measurement"
+      ],
+      "checksum": "6455d3431ebb6dea5c2c7899fa4e6294beef5d00d4c5288751b95ad9df7e4518",
+      "file": "prompts/data-analysis/design-a-metric.json"
+    },
+    {
+      "id": "explain-a-dataset-column",
+      "slug": "explain-a-dataset-column",
+      "title": "Explain a Dataset Column",
+      "description": "Reason about what a field means and how to use it.",
+      "category": "data-analysis",
+      "tags": [
+        "data-dictionary",
+        "semantics"
+      ],
+      "checksum": "2f8f6694ee81b01f0d407531580a9ac74917618fe1e915a3abcd75531f856e53",
+      "file": "prompts/data-analysis/explain-a-dataset-column.json"
+    },
+    {
+      "id": "exploratory-data-analysis-plan",
+      "slug": "exploratory-data-analysis-plan",
+      "title": "Exploratory Data Analysis Plan",
+      "description": "Plan a first pass over an unfamiliar dataset.",
+      "category": "data-analysis",
+      "tags": [
+        "eda",
+        "exploration",
+        "statistics"
+      ],
+      "checksum": "19565de24bd927225b9a3ec1f8705efa91916b68a5f16ae269cee1b4d6cd4b65",
+      "file": "prompts/data-analysis/exploratory-data-analysis-plan.json"
+    },
+    {
+      "id": "interpret-results-honestly",
+      "slug": "interpret-results-honestly",
+      "title": "Interpret Results Honestly",
+      "description": "Draw careful, caveated conclusions from an analysis.",
+      "category": "data-analysis",
+      "tags": [
+        "interpretation",
+        "statistics",
+        "rigor"
+      ],
+      "checksum": "87183876b91895ed8d017612157f668f19a04d46f4e9ee9ccf0e99dbe0411950",
+      "file": "prompts/data-analysis/interpret-results-honestly.json"
+    },
+    {
+      "id": "optimize-a-slow-query",
+      "slug": "optimize-a-slow-query",
+      "title": "Optimize a Slow Query",
+      "description": "Diagnose and speed up a slow SQL query.",
+      "category": "data-analysis",
+      "tags": [
+        "sql",
+        "performance",
+        "indexing"
+      ],
+      "checksum": "4684686fb0d718db2f0e7e45ebb1cfcbb64366ff8a797ba165de69ab421e3b3e",
+      "file": "prompts/data-analysis/optimize-a-slow-query.json"
+    },
+    {
+      "id": "write-a-sql-query",
+      "slug": "write-a-sql-query",
+      "title": "Write a SQL Query",
+      "description": "Compose a correct, efficient SQL query from a question.",
+      "category": "data-analysis",
+      "tags": [
+        "sql",
+        "query"
+      ],
+      "checksum": "e5be37d766b12ae3ceefea4b86f304082e21a77aa9f23ee0c5a139b900117e6c",
+      "file": "prompts/data-analysis/write-a-sql-query.json"
+    },
+    {
+      "id": "add-strategic-logging",
+      "slug": "add-strategic-logging",
+      "title": "Add Strategic Logging",
+      "description": "Instrument code to capture exactly the evidence a bug requires.",
+      "category": "debugging",
+      "tags": [
+        "logging",
+        "observability",
+        "diagnosis"
+      ],
+      "checksum": "5de727d551f898d370f2562266ed22385c824aa4edec6f439ccd462516917919",
+      "file": "prompts/debugging/add-strategic-logging.json"
+    },
+    {
+      "id": "bisect-a-regression",
+      "slug": "bisect-a-regression",
+      "title": "Bisect a Regression",
+      "description": "Track down which change introduced a regression.",
+      "category": "debugging",
+      "tags": [
+        "regression",
+        "git-bisect",
+        "history"
+      ],
+      "checksum": "cfff3a6dacfc44e380c915ff5b71467a7b22735ea1c3214ad5c41d026965b17c",
+      "file": "prompts/debugging/bisect-a-regression.json"
+    },
+    {
+      "id": "debug-failing-test",
+      "slug": "debug-failing-test",
+      "title": "Debug Failing Test",
+      "description": "Figure out why a specific test fails and whether the test or the code is wrong.",
+      "category": "debugging",
+      "tags": [
+        "test",
+        "ci",
+        "flaky"
+      ],
+      "checksum": "05690158a0d09815c8d694b621572b37e81b002d61a592952e87ed0c622d3a7a",
+      "file": "prompts/debugging/debug-failing-test.json"
+    },
+    {
+      "id": "explain-this-error",
+      "slug": "explain-this-error",
+      "title": "Explain This Error",
+      "description": "Decode a stack trace or error message and pinpoint the fix.",
+      "category": "debugging",
+      "tags": [
+        "error",
+        "stacktrace"
+      ],
+      "checksum": "edad090ecd2248f0862ce6ea575c607dd900376b7a3b558008f1e555af675c05",
+      "file": "prompts/debugging/explain-this-error.json"
+    },
+    {
+      "id": "heisenbug-hunt",
+      "slug": "heisenbug-hunt",
+      "title": "Heisenbug Hunt",
+      "description": "Approach a bug that disappears under observation or happens only sometimes.",
+      "category": "debugging",
+      "tags": [
+        "intermittent",
+        "race",
+        "nondeterminism"
+      ],
+      "checksum": "41865e27be0568af9c10b3a9aa457dcb22d25de04747a32cef029b5a4064c633",
+      "file": "prompts/debugging/heisenbug-hunt.json"
+    },
+    {
+      "id": "minimal-reproduction",
+      "slug": "minimal-reproduction",
+      "title": "Minimal Reproduction",
+      "description": "Reduce a bug to the smallest reliable reproduction.",
+      "category": "debugging",
+      "tags": [
+        "repro",
+        "isolation"
+      ],
+      "checksum": "57cdbdf2ec05f1732ec3b7d33828ee06dad9b918a87bbb319a8824ee89672dea",
+      "file": "prompts/debugging/minimal-reproduction.json"
+    },
+    {
+      "id": "root-cause-analysis",
+      "slug": "root-cause-analysis",
+      "title": "Root Cause Analysis",
+      "description": "Systematically find the true root cause of a bug, not just a symptom.",
+      "category": "debugging",
+      "tags": [
+        "rca",
+        "bug",
+        "investigation"
+      ],
+      "checksum": "d8d1bdd62b01a4afcf7472116d2371b59e014f7af5a340b23bce9e64a0e9bb79",
+      "file": "prompts/debugging/root-cause-analysis.json"
+    },
+    {
+      "id": "why-is-this-slow",
+      "slug": "why-is-this-slow",
+      "title": "Why Is This Slow?",
+      "description": "Diagnose a performance problem before optimizing.",
+      "category": "debugging",
+      "tags": [
+        "performance",
+        "profiling"
+      ],
+      "checksum": "2c94c5cc070dd32c922f9ae9e1c010c627790a0d9c121cbd1ff0300a143ed866",
+      "file": "prompts/debugging/why-is-this-slow.json"
+    },
+    {
+      "id": "author-a-ci-pipeline",
+      "slug": "author-a-ci-pipeline",
+      "title": "Author a CI Pipeline",
+      "description": "Design a CI workflow that catches problems fast and cheaply.",
+      "category": "devops",
+      "tags": [
+        "ci",
+        "pipeline",
+        "automation"
+      ],
+      "checksum": "17c9e735e9ca8fbeebf5466e9f907a41979dc5c13cf1c2807641722952568591",
+      "file": "prompts/devops/author-a-ci-pipeline.json"
+    },
+    {
+      "id": "debug-a-failing-deploy",
+      "slug": "debug-a-failing-deploy",
+      "title": "Debug a Failing Deploy",
+      "description": "Systematically diagnose a deployment that won't come up.",
+      "category": "devops",
+      "tags": [
+        "deploy",
+        "incident",
+        "troubleshooting"
+      ],
+      "checksum": "cd30d0d7aff2f466bd84174b5685177e5a35a1825629c7a248bf6a6c931dd262",
+      "file": "prompts/devops/debug-a-failing-deploy.json"
+    },
+    {
+      "id": "harden-a-shell-script",
+      "slug": "harden-a-shell-script",
+      "title": "Harden a Shell Script",
+      "description": "Make a shell script safe, portable, and predictable.",
+      "category": "devops",
+      "tags": [
+        "bash",
+        "scripting",
+        "safety"
+      ],
+      "checksum": "b66ce523100eedda2bbd2360afbb441e9ced74d0ed78f819361c8e6b95b60a35",
+      "file": "prompts/devops/harden-a-shell-script.json"
+    },
+    {
+      "id": "incident-response-walkthrough",
+      "slug": "incident-response-walkthrough",
+      "title": "Incident Response Walkthrough",
+      "description": "Run a calm, structured response to a live incident.",
+      "category": "devops",
+      "tags": [
+        "incident",
+        "sre",
+        "mitigation"
+      ],
+      "checksum": "c702f2dff5d83bc10d83d91c6b98f336be745564342c7387f458bb455da0f2e9",
+      "file": "prompts/devops/incident-response-walkthrough.json"
+    },
+    {
+      "id": "set-up-observability",
+      "slug": "set-up-observability",
+      "title": "Set Up Observability",
+      "description": "Instrument a service with metrics, logs, and traces that matter.",
+      "category": "devops",
+      "tags": [
+        "observability",
+        "monitoring",
+        "metrics"
+      ],
+      "checksum": "61dde105b6604a58cd1632b1de84c2fc61aeaf3ae64a4bda0712f059695960e2",
+      "file": "prompts/devops/set-up-observability.json"
+    },
+    {
+      "id": "write-a-deployment-runbook",
+      "slug": "write-a-deployment-runbook",
+      "title": "Write a Deployment Runbook",
+      "description": "Document how to deploy and roll back a service safely.",
+      "category": "devops",
+      "tags": [
+        "runbook",
+        "operations",
+        "rollback"
+      ],
+      "checksum": "b7bfb9a8aa463cc6187d169976d785da12b2daea2d054e41ed065e53a08329a7",
+      "file": "prompts/devops/write-a-deployment-runbook.json"
+    },
+    {
+      "id": "write-a-dockerfile",
+      "slug": "write-a-dockerfile",
+      "title": "Write a Dockerfile",
+      "description": "Produce a secure, small, well-layered Dockerfile.",
+      "category": "devops",
+      "tags": [
+        "docker",
+        "containers"
+      ],
+      "checksum": "74a561f89f5f6f21f4113919a4675e411d5c0a18696297aeec96db3a3c7fbe5c",
+      "file": "prompts/devops/write-a-dockerfile.json"
+    },
+    {
+      "id": "write-infrastructure-as-code",
+      "slug": "write-infrastructure-as-code",
+      "title": "Write Infrastructure as Code",
+      "description": "Provision infrastructure declaratively and safely.",
+      "category": "devops",
+      "tags": [
+        "iac",
+        "terraform",
+        "provisioning"
+      ],
+      "checksum": "8904bd78ccf8c7a915d814b0e6fe418466167dd7e062d5960c36ed85718dabcb",
+      "file": "prompts/devops/write-infrastructure-as-code.json"
+    },
+    {
+      "id": "document-a-function",
+      "slug": "document-a-function",
+      "title": "Document a Function",
+      "description": "Write clear API documentation for a function or method.",
+      "category": "documentation",
+      "tags": [
+        "api-docs",
+        "docstring"
+      ],
+      "checksum": "d0b7369c56967c6f4698177135ff636b624b09c6f19ed1c73cd639065d828bfe",
+      "file": "prompts/documentation/document-a-function.json"
+    },
+    {
+      "id": "document-an-architecture",
+      "slug": "document-an-architecture",
+      "title": "Document an Architecture",
+      "description": "Write an architecture overview that orients a new engineer.",
+      "category": "documentation",
+      "tags": [
+        "architecture",
+        "overview",
+        "onboarding"
+      ],
+      "checksum": "2377541829f4eaa3ff61c5eadbd19f8e39983572974299a3d0a12c838371ef9b",
+      "file": "prompts/documentation/document-an-architecture.json"
+    },
+    {
+      "id": "explain-a-concept-clearly",
+      "slug": "explain-a-concept-clearly",
+      "title": "Explain a Concept Clearly",
+      "description": "Teach a technical concept from intuition to detail.",
+      "category": "documentation",
+      "tags": [
+        "explainer",
+        "teaching",
+        "concept"
+      ],
+      "checksum": "2708e44985b9d3b512dcb2a69d364c66288c2092035acdfdf744183343e90209",
+      "file": "prompts/documentation/explain-a-concept-clearly.json"
+    },
+    {
+      "id": "generate-a-changelog-entry",
+      "slug": "generate-a-changelog-entry",
+      "title": "Generate a Changelog Entry",
+      "description": "Summarize a change for users in a changelog.",
+      "category": "documentation",
+      "tags": [
+        "changelog",
+        "release-notes"
+      ],
+      "checksum": "421ea8660863b8f9d1437323bd34fe60bc2e98e2d6e6ff3a455e033b839939bc",
+      "file": "prompts/documentation/generate-a-changelog-entry.json"
+    },
+    {
+      "id": "write-a-how-to-guide",
+      "slug": "write-a-how-to-guide",
+      "title": "Write a How-To Guide",
+      "description": "Produce a task-focused guide that walks a user to a goal.",
+      "category": "documentation",
+      "tags": [
+        "how-to",
+        "tutorial",
+        "guide"
+      ],
+      "checksum": "890a0817fd5d5365544d185c920f87e230881cd4014226a84f04939d14cadd62",
+      "file": "prompts/documentation/write-a-how-to-guide.json"
+    },
+    {
+      "id": "write-a-readme",
+      "slug": "write-a-readme",
+      "title": "Write a README",
+      "description": "Create a README that gets a new user productive fast.",
+      "category": "documentation",
+      "tags": [
+        "readme",
+        "docs",
+        "onboarding"
+      ],
+      "checksum": "75c7f3de406f69deb0c4e747de66f32027475eeaa7d6f5dda5cbd6365c47f32c",
+      "file": "prompts/documentation/write-a-readme.json"
+    },
+    {
+      "id": "write-api-reference-from-code",
+      "slug": "write-api-reference-from-code",
+      "title": "Write API Reference from Code",
+      "description": "Turn a module's public surface into reference docs.",
+      "category": "documentation",
+      "tags": [
+        "api-reference",
+        "docs"
+      ],
+      "checksum": "187267975c4f934bd51ad4bbc1bc3406699a0e0f21fdf5796511c8a840823937",
+      "file": "prompts/documentation/write-api-reference-from-code.json"
+    },
+    {
+      "id": "write-inline-comments",
+      "slug": "write-inline-comments",
+      "title": "Write Inline Comments",
+      "description": "Add comments that explain why, not what.",
+      "category": "documentation",
+      "tags": [
+        "comments",
+        "clarity"
+      ],
+      "checksum": "246e61771e820797482d4df921a2caf2851780f06ffea4437fd927d24f58ae88",
+      "file": "prompts/documentation/write-inline-comments.json"
+    },
+    {
+      "id": "add-few-shot-examples",
+      "slug": "add-few-shot-examples",
+      "title": "Add Few-Shot Examples",
+      "description": "Design examples that steer model output by demonstration.",
+      "category": "meta-prompting",
+      "tags": [
+        "few-shot",
+        "examples",
+        "prompt-engineering"
+      ],
+      "checksum": "37d814e65f35f7fd025ff0690d25f435051ecd4bd8534e9e650e427b91834300",
+      "file": "prompts/meta-prompting/add-few-shot-examples.json"
+    },
+    {
+      "id": "debug-a-bad-ai-response",
+      "slug": "debug-a-bad-ai-response",
+      "title": "Debug a Bad AI Response",
+      "description": "Figure out why a prompt gave a poor answer and fix it.",
+      "category": "meta-prompting",
+      "tags": [
+        "debugging",
+        "prompt-engineering",
+        "diagnosis"
+      ],
+      "checksum": "007fc542a0e2f21229d0e43e8f29b4876c18b7eccd662a15abd59835d338ce95",
+      "file": "prompts/meta-prompting/debug-a-bad-ai-response.json"
+    },
+    {
+      "id": "decompose-a-complex-prompt",
+      "slug": "decompose-a-complex-prompt",
+      "title": "Decompose a Complex Prompt",
+      "description": "Split an overloaded prompt into a reliable sequence of steps.",
+      "category": "meta-prompting",
+      "tags": [
+        "chaining",
+        "decomposition",
+        "prompt-engineering"
+      ],
+      "checksum": "a05793bfb2a34b350b4c11fc4e46c6c740d27ee58a525dbee414efba8b7edb47",
+      "file": "prompts/meta-prompting/decompose-a-complex-prompt.json"
+    },
+    {
+      "id": "design-a-role-prompt",
+      "slug": "design-a-role-prompt",
+      "title": "Design a Role Prompt",
+      "description": "Write an effective system/role prompt for a recurring task.",
+      "category": "meta-prompting",
+      "tags": [
+        "system-prompt",
+        "role",
+        "persona"
+      ],
+      "checksum": "5edda97ee531e3c77318c9cf067b5e753ffcecd98508cdc995fc7f728f9e3ee1",
+      "file": "prompts/meta-prompting/design-a-role-prompt.json"
+    },
+    {
+      "id": "improve-my-prompt",
+      "slug": "improve-my-prompt",
+      "title": "Improve My Prompt",
+      "description": "Critique and rewrite a prompt to get better results.",
+      "category": "meta-prompting",
+      "tags": [
+        "prompt-engineering",
+        "improve"
+      ],
+      "checksum": "a872c602d71ccd993a356a0c9ea67f6d17cab1852f6514e732e16c3c94a3bd9e",
+      "file": "prompts/meta-prompting/improve-my-prompt.json"
+    },
+    {
+      "id": "specify-an-output-format",
+      "slug": "specify-an-output-format",
+      "title": "Specify an Output Format",
+      "description": "Pin down a structured output the prompt should produce.",
+      "category": "meta-prompting",
+      "tags": [
+        "output-format",
+        "structure",
+        "json"
+      ],
+      "checksum": "413d802fb43f3adcc3425df4fad5e82104d7d0ce111e7e3a932ecc4f4d126958",
+      "file": "prompts/meta-prompting/specify-an-output-format.json"
+    },
+    {
+      "id": "turn-a-vague-request-into-a-spec",
+      "slug": "turn-a-vague-request-into-a-spec",
+      "title": "Turn a Vague Request into a Spec",
+      "description": "Convert a fuzzy ask into a precise, answerable prompt.",
+      "category": "meta-prompting",
+      "tags": [
+        "specification",
+        "clarify",
+        "prompt-engineering"
+      ],
+      "checksum": "8fa697dd9459b0c841b2beacecdee48241d4545bf7ff83480137205e94b62c90",
+      "file": "prompts/meta-prompting/turn-a-vague-request-into-a-spec.json"
+    },
+    {
+      "id": "write-reusable-prompt-template",
+      "slug": "write-reusable-prompt-template",
+      "title": "Write Reusable Prompt Template",
+      "description": "Generalize a one-off prompt into a parameterized template.",
+      "category": "meta-prompting",
+      "tags": [
+        "template",
+        "reuse",
+        "variables"
+      ],
+      "checksum": "ae6ef347d819537062d3908ae95dda300791b036378120da7a276032571190b8",
+      "file": "prompts/meta-prompting/write-reusable-prompt-template.json"
+    },
+    {
+      "id": "critique-a-feature-idea",
+      "slug": "critique-a-feature-idea",
+      "title": "Critique a Feature Idea",
+      "description": "Stress-test a product idea before committing to it.",
+      "category": "product",
+      "tags": [
+        "critique",
+        "product-sense",
+        "validation"
+      ],
+      "checksum": "39f6d63a6c1eedcd19106e5e5ef463d47c7e145699420bf83e0cac02f789a9db",
+      "file": "prompts/product/critique-a-feature-idea.json"
+    },
+    {
+      "id": "define-success-metrics",
+      "slug": "define-success-metrics",
+      "title": "Define Success Metrics",
+      "description": "Choose metrics that prove a feature worked.",
+      "category": "product",
+      "tags": [
+        "metrics",
+        "success",
+        "north-star"
+      ],
+      "checksum": "e5a1b0d3e6827c3b288c93df97cfbe28538c5d48bec65ae83ba0ca31bf8fcd68",
+      "file": "prompts/product/define-success-metrics.json"
+    },
+    {
+      "id": "plan-an-mvp",
+      "slug": "plan-an-mvp",
+      "title": "Plan an MVP",
+      "description": "Scope the smallest version that tests the core bet.",
+      "category": "product",
+      "tags": [
+        "mvp",
+        "scope",
+        "lean"
+      ],
+      "checksum": "e7d08fd48f1c8a09d88201b75fe4f2756ee513a59672ef827bed9c53e7bf3fbf",
+      "file": "prompts/product/plan-an-mvp.json"
+    },
+    {
+      "id": "prioritize-a-backlog",
+      "slug": "prioritize-a-backlog",
+      "title": "Prioritize a Backlog",
+      "description": "Rank competing work by value and cost transparently.",
+      "category": "product",
+      "tags": [
+        "prioritization",
+        "backlog",
+        "roadmap"
+      ],
+      "checksum": "7f488935f8eb734f2cfbd6a2fea413adabe09e830b1839f26b74b6af550980ce",
+      "file": "prompts/product/prioritize-a-backlog.json"
+    },
+    {
+      "id": "run-a-pre-mortem",
+      "slug": "run-a-pre-mortem",
+      "title": "Run a Pre-Mortem",
+      "description": "Imagine the project failed and work backward to prevent it.",
+      "category": "product",
+      "tags": [
+        "pre-mortem",
+        "risk",
+        "planning"
+      ],
+      "checksum": "c9cfa9fc2f150b3d4a175b9ec7ca24e6a05c0e19f51d3e0353aa8eeb291a5b6f",
+      "file": "prompts/product/run-a-pre-mortem.json"
+    },
+    {
+      "id": "turn-feedback-into-action",
+      "slug": "turn-feedback-into-action",
+      "title": "Turn Feedback into Action",
+      "description": "Convert raw user feedback into prioritized product changes.",
+      "category": "product",
+      "tags": [
+        "user-feedback",
+        "synthesis",
+        "action"
+      ],
+      "checksum": "5d2ef07ef0b54a61d7139448957933ad90f8f0c2705748377b303da438565d67",
+      "file": "prompts/product/turn-feedback-into-action.json"
+    },
+    {
+      "id": "write-a-prd",
+      "slug": "write-a-prd",
+      "title": "Write a PRD",
+      "description": "Draft a crisp product requirements document.",
+      "category": "product",
+      "tags": [
+        "prd",
+        "product",
+        "spec"
+      ],
+      "checksum": "6ffa423418b7b7adeb4004b52d9294caadf9ee77290337480f1965aff6802f8d",
+      "file": "prompts/product/write-a-prd.json"
+    },
+    {
+      "id": "write-a-user-story",
+      "slug": "write-a-user-story",
+      "title": "Write a User Story",
+      "description": "Capture a requirement as a clear user story with acceptance criteria.",
+      "category": "product",
+      "tags": [
+        "user-story",
+        "requirements",
+        "agile"
+      ],
+      "checksum": "62c737cce3412f43d3edf9f47e86002c23d2a00c84c6019747e12d271e57d65e",
+      "file": "prompts/product/write-a-user-story.json"
+    },
+    {
+      "id": "extract-and-decompose",
+      "slug": "extract-and-decompose",
+      "title": "Extract and Decompose",
+      "description": "Break a large function or class into well-named, focused units.",
+      "category": "refactoring",
+      "tags": [
+        "decomposition",
+        "srp"
+      ],
+      "checksum": "d9ad91490b5463914e48df426303cb11316b3c5ea0490d126c2863644a5e98cb",
+      "file": "prompts/refactoring/extract-and-decompose.json"
+    },
+    {
+      "id": "introduce-a-design-pattern",
+      "slug": "introduce-a-design-pattern",
+      "title": "Introduce a Design Pattern",
+      "description": "Apply an appropriate design pattern to untangle code — or argue against it.",
+      "category": "refactoring",
+      "tags": [
+        "patterns",
+        "design"
+      ],
+      "checksum": "428c2c0f5678020d411aba06b17fa34936b0128ea0be01c87fb944767854b2a2",
+      "file": "prompts/refactoring/introduce-a-design-pattern.json"
+    },
+    {
+      "id": "make-code-testable",
+      "slug": "make-code-testable",
+      "title": "Make Code Testable",
+      "description": "Restructure hard-to-test code to enable unit testing.",
+      "category": "refactoring",
+      "tags": [
+        "testability",
+        "di",
+        "seams"
+      ],
+      "checksum": "f8a178d293081127854ac9a67d5d3f1b799664c99174ea0f198bb6633e1f5e3c",
+      "file": "prompts/refactoring/make-code-testable.json"
+    },
+    {
+      "id": "modernize-legacy-code",
+      "slug": "modernize-legacy-code",
+      "title": "Modernize Legacy Code",
+      "description": "Bring old code up to current language idioms and APIs.",
+      "category": "refactoring",
+      "tags": [
+        "legacy",
+        "modernization"
+      ],
+      "checksum": "7499bbfb95711c96a683425299a5ab2bec7747d44b377f2983f63651b60f174a",
+      "file": "prompts/refactoring/modernize-legacy-code.json"
+    },
+    {
+      "id": "reduce-cyclomatic-complexity",
+      "slug": "reduce-cyclomatic-complexity",
+      "title": "Reduce Cyclomatic Complexity",
+      "description": "Flatten deeply nested or branch-heavy logic.",
+      "category": "refactoring",
+      "tags": [
+        "complexity",
+        "control-flow"
+      ],
+      "checksum": "742729cc456aa7136562d4354c5e42cf3689d47e6a87605b57ade627044323a4",
+      "file": "prompts/refactoring/reduce-cyclomatic-complexity.json"
+    },
+    {
+      "id": "refactor-for-readability",
+      "slug": "refactor-for-readability",
+      "title": "Refactor for Readability",
+      "description": "Improve clarity of a function without changing its behavior.",
+      "category": "refactoring",
+      "tags": [
+        "readability",
+        "clean-code"
+      ],
+      "checksum": "db92452a9dba48b0a33435f4e59f16005b0ad0980b644db223bfda60f85e5677",
+      "file": "prompts/refactoring/refactor-for-readability.json"
+    },
+    {
+      "id": "remove-duplication",
+      "slug": "remove-duplication",
+      "title": "Remove Duplication",
+      "description": "Find and consolidate duplicated logic safely.",
+      "category": "refactoring",
+      "tags": [
+        "dry",
+        "duplication"
+      ],
+      "checksum": "63f11cf2e920bebbb8afb448d5db54d6bf53366ff66428419b96b3e9e7cb118a",
+      "file": "prompts/refactoring/remove-duplication.json"
+    },
+    {
+      "id": "tidy-first-then-change",
+      "slug": "tidy-first-then-change",
+      "title": "Tidy First, Then Change",
+      "description": "Separate a structural cleanup from a behavioral change in two steps.",
+      "category": "refactoring",
+      "tags": [
+        "tidy-first",
+        "safe-change"
+      ],
+      "checksum": "46c86a98a4e88a534f9e2068dbba1cfc0424d10a6a39bae05ced78d9667d2e70",
+      "file": "prompts/refactoring/tidy-first-then-change.json"
+    },
+    {
+      "id": "compare-options",
+      "slug": "compare-options",
+      "title": "Compare Options",
+      "description": "Evaluate competing tools, libraries, or approaches against your needs.",
+      "category": "research",
+      "tags": [
+        "comparison",
+        "evaluation",
+        "decision"
+      ],
+      "checksum": "a7e434af9186602969177a5c042b8792df5c1a3ac4577ccfcab27da2ab5410ba",
+      "file": "prompts/research/compare-options.json"
+    },
+    {
+      "id": "devise-experiments-to-decide",
+      "slug": "devise-experiments-to-decide",
+      "title": "Devise Experiments to Decide",
+      "description": "Turn an open question into experiments that resolve it.",
+      "category": "research",
+      "tags": [
+        "experiment",
+        "hypothesis",
+        "validation"
+      ],
+      "checksum": "82a5f05b0fb2f00b3182a50b4f7cc04fd24bc60a0f9e26db5547de708a4975b0",
+      "file": "prompts/research/devise-experiments-to-decide.json"
+    },
+    {
+      "id": "evaluate-a-claim-s-evidence",
+      "slug": "evaluate-a-claim-s-evidence",
+      "title": "Evaluate a Claim's Evidence",
+      "description": "Assess how well-supported a claim actually is.",
+      "category": "research",
+      "tags": [
+        "evidence",
+        "skepticism",
+        "verification"
+      ],
+      "checksum": "ddb9f094cb67d53f1cc96d21f0326431368b03bb862a7072befa12ab5ddd3be9",
+      "file": "prompts/research/evaluate-a-claim-s-evidence.json"
+    },
+    {
+      "id": "learn-a-new-topic-fast",
+      "slug": "learn-a-new-topic-fast",
+      "title": "Learn a New Topic Fast",
+      "description": "Build an efficient learning path for an unfamiliar topic.",
+      "category": "research",
+      "tags": [
+        "learning",
+        "onboarding",
+        "study-plan"
+      ],
+      "checksum": "2a50201e0b71a2a0aa2add92551d334631183deda2fd6d00c149298c29260dd6",
+      "file": "prompts/research/learn-a-new-topic-fast.json"
+    },
+    {
+      "id": "literature-prior-art-scan",
+      "slug": "literature-prior-art-scan",
+      "title": "Literature/Prior-Art Scan",
+      "description": "Map what's already known or built before you start.",
+      "category": "research",
+      "tags": [
+        "prior-art",
+        "survey",
+        "research"
+      ],
+      "checksum": "000062ff4ec35e6a02f6b24cf65d18116016935091ddb5cc43fa111a043523c1",
+      "file": "prompts/research/literature-prior-art-scan.json"
+    },
+    {
+      "id": "question-decomposition",
+      "slug": "question-decomposition",
+      "title": "Question Decomposition",
+      "description": "Break a big, fuzzy question into answerable sub-questions.",
+      "category": "research",
+      "tags": [
+        "decomposition",
+        "analysis"
+      ],
+      "checksum": "38bcf5c5c52a0320d556f4f334185086be09d31504d3f794007eb97fa54afe07",
+      "file": "prompts/research/question-decomposition.json"
+    },
+    {
+      "id": "steelman-and-critique",
+      "slug": "steelman-and-critique",
+      "title": "Steelman and Critique",
+      "description": "Pressure-test an idea by arguing both sides well.",
+      "category": "research",
+      "tags": [
+        "critical-thinking",
+        "steelman",
+        "debate"
+      ],
+      "checksum": "88ee3a2c3779e1112783f14a5a5f27372932bdb8128594e89966ad5609071385",
+      "file": "prompts/research/steelman-and-critique.json"
+    },
+    {
+      "id": "synthesize-multiple-sources",
+      "slug": "synthesize-multiple-sources",
+      "title": "Synthesize Multiple Sources",
+      "description": "Reconcile several sources into a coherent, honest picture.",
+      "category": "research",
+      "tags": [
+        "synthesis",
+        "sources",
+        "reconciliation"
+      ],
+      "checksum": "b8619d2f3bb0eecca7d3ad9def1e2f02391a9415398871f5cffd937a8c4a6d1d",
+      "file": "prompts/research/synthesize-multiple-sources.json"
+    },
+    {
+      "id": "diagnose-a-flaky-test",
+      "slug": "diagnose-a-flaky-test",
+      "title": "Diagnose a Flaky Test",
+      "description": "Find and fix the source of test flakiness.",
+      "category": "testing",
+      "tags": [
+        "flaky",
+        "determinism",
+        "ci"
+      ],
+      "checksum": "2517ed6d3a696dd4a4de55ded4793f4ba6be6874188ebd32f019373bae241785",
+      "file": "prompts/testing/diagnose-a-flaky-test.json"
+    },
+    {
+      "id": "edge-case-enumeration",
+      "slug": "edge-case-enumeration",
+      "title": "Edge Case Enumeration",
+      "description": "Brainstorm the edge cases a piece of functionality must handle.",
+      "category": "testing",
+      "tags": [
+        "edge-cases",
+        "boundaries"
+      ],
+      "checksum": "dbf460f30429663d9923a30a06b5fff4b85f39d304ac8f8dee09caada4524f6b",
+      "file": "prompts/testing/edge-case-enumeration.json"
+    },
+    {
+      "id": "increase-test-coverage",
+      "slug": "increase-test-coverage",
+      "title": "Increase Test Coverage",
+      "description": "Find untested branches and add the tests that matter.",
+      "category": "testing",
+      "tags": [
+        "coverage",
+        "gaps"
+      ],
+      "checksum": "f6a03585aa4dc96ac57bf614edba381bde63183c0cc177caf85d1cb9ea9231cf",
+      "file": "prompts/testing/increase-test-coverage.json"
+    },
+    {
+      "id": "property-based-tests",
+      "slug": "property-based-tests",
+      "title": "Property-Based Tests",
+      "description": "Design property-based tests that assert invariants over generated inputs.",
+      "category": "testing",
+      "tags": [
+        "property-based",
+        "invariants",
+        "fuzzing"
+      ],
+      "checksum": "21d0c4508d7af66ca0d8d8bff4fe8e6a0a55dc3e534cfd3bded051b68f7d6811",
+      "file": "prompts/testing/property-based-tests.json"
+    },
+    {
+      "id": "review-test-quality",
+      "slug": "review-test-quality",
+      "title": "Review Test Quality",
+      "description": "Critique a test suite for what it actually guarantees.",
+      "category": "testing",
+      "tags": [
+        "test-review",
+        "assertions"
+      ],
+      "checksum": "b67fcd4d09432f89714a013c26ef651588b8fc2cacf15a2ca1401816b6b77854",
+      "file": "prompts/testing/review-test-quality.json"
+    },
+    {
+      "id": "test-driven-development",
+      "slug": "test-driven-development",
+      "title": "Test-Driven Development",
+      "description": "Drive an implementation from tests, red-green-refactor.",
+      "category": "testing",
+      "tags": [
+        "tdd",
+        "red-green-refactor"
+      ],
+      "checksum": "04c024c8572af80740827198cd1b009069c022adc712605edf6ba85f24133621",
+      "file": "prompts/testing/test-driven-development.json"
+    },
+    {
+      "id": "write-an-integration-test",
+      "slug": "write-an-integration-test",
+      "title": "Write an Integration Test",
+      "description": "Test how components work together against real-ish dependencies.",
+      "category": "testing",
+      "tags": [
+        "integration",
+        "e2e"
+      ],
+      "checksum": "7ad4d7bbd68ef1af35b827bdad1305d60b6c407b9260b9e22de26ce15868444b",
+      "file": "prompts/testing/write-an-integration-test.json"
+    },
+    {
+      "id": "write-unit-tests",
+      "slug": "write-unit-tests",
+      "title": "Write Unit Tests",
+      "description": "Generate focused unit tests for a function, including edge cases.",
+      "category": "testing",
+      "tags": [
+        "unit-tests",
+        "coverage"
+      ],
+      "checksum": "4f213264f5507a97239982c58c6535b731d191de2e94c37ebc02599e0ee09e5c",
+      "file": "prompts/testing/write-unit-tests.json"
+    },
+    {
+      "id": "adjust-tone",
+      "slug": "adjust-tone",
+      "title": "Adjust Tone",
+      "description": "Rewrite text to hit a specific tone and audience.",
+      "category": "writing",
+      "tags": [
+        "tone",
+        "rewrite",
+        "audience"
+      ],
+      "checksum": "c81eddcd73c898e1b4b2ef5ab4d6f9b55066b88044bf1d6363bb38d54e03b886",
+      "file": "prompts/writing/adjust-tone.json"
+    },
+    {
+      "id": "draft-a-technical-email",
+      "slug": "draft-a-technical-email",
+      "title": "Draft a Technical Email",
+      "description": "Write a clear, actionable email about a technical matter.",
+      "category": "writing",
+      "tags": [
+        "email",
+        "communication"
+      ],
+      "checksum": "6f5b7d5496c7721fb421c563c7dd827bcf9bd30d16da66f28d7b20341da83992",
+      "file": "prompts/writing/draft-a-technical-email.json"
+    },
+    {
+      "id": "edit-for-clarity-and-concision",
+      "slug": "edit-for-clarity-and-concision",
+      "title": "Edit for Clarity and Concision",
+      "description": "Tighten prose without losing meaning or voice.",
+      "category": "writing",
+      "tags": [
+        "editing",
+        "clarity",
+        "concision"
+      ],
+      "checksum": "29d273481e2e3e1143ba6344f37c5cfe7623066d2b5aa92d482386500c5a6b6e",
+      "file": "prompts/writing/edit-for-clarity-and-concision.json"
+    },
+    {
+      "id": "give-constructive-feedback",
+      "slug": "give-constructive-feedback",
+      "title": "Give Constructive Feedback",
+      "description": "Phrase critique so it's heard and actionable.",
+      "category": "writing",
+      "tags": [
+        "feedback",
+        "communication"
+      ],
+      "checksum": "5c5034fdf69a5bf51ff80a78a85812c52db8b0493c0ba4f42ffc4314d028d115",
+      "file": "prompts/writing/give-constructive-feedback.json"
+    },
+    {
+      "id": "rewrite-to-remove-jargon",
+      "slug": "rewrite-to-remove-jargon",
+      "title": "Rewrite to Remove Jargon",
+      "description": "Make specialist text accessible without dumbing it down.",
+      "category": "writing",
+      "tags": [
+        "plain-language",
+        "accessibility"
+      ],
+      "checksum": "dfbce6c2486efc2be4d626c2d88e05ec757fe18820e49a79b599c8d4220c90d3",
+      "file": "prompts/writing/rewrite-to-remove-jargon.json"
+    },
+    {
+      "id": "summarize-a-document",
+      "slug": "summarize-a-document",
+      "title": "Summarize a Document",
+      "description": "Produce a faithful, useful summary at the right altitude.",
+      "category": "writing",
+      "tags": [
+        "summary",
+        "tldr"
+      ],
+      "checksum": "61ac70c14f36c2a742ffc8fe513a02187a29ccd8e80d3bc4a66c1a1233532537",
+      "file": "prompts/writing/summarize-a-document.json"
+    },
+    {
+      "id": "write-a-commit-message",
+      "slug": "write-a-commit-message",
+      "title": "Write a Commit Message",
+      "description": "Craft a clear, conventional commit message from a change.",
+      "category": "writing",
+      "tags": [
+        "git",
+        "commit",
+        "conventions"
+      ],
+      "checksum": "884dca2bbccfc842349d84f966d0aaa8d47075199cc706e30d64339db90402e9",
+      "file": "prompts/writing/write-a-commit-message.json"
+    },
+    {
+      "id": "write-a-proposal",
+      "slug": "write-a-proposal",
+      "title": "Write a Proposal",
+      "description": "Make a persuasive, well-structured case for an idea.",
+      "category": "writing",
+      "tags": [
+        "proposal",
+        "persuasion"
+      ],
+      "checksum": "0de0954b480f98742c6b76ae990c6e6c1a81b9297dfb46823c070328a3c4d309",
+      "file": "prompts/writing/write-a-proposal.json"
+    }
+  ]
+}

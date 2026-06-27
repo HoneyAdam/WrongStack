@@ -1,0 +1,29 @@
+{
+  "id": "explain-review-feedback",
+  "slug": "explain-review-feedback",
+  "title": "Explain Review Feedback",
+  "description": "Understand and act on review comments you received.",
+  "content": "I got this review feedback and want to understand it fully:\n\n{{feedback}}\n\nOn this code:\n\n```\n{{code}}\n```\n\nExplain what the reviewer is really concerned about, why it matters, and show the change that addresses it. If the feedback is debatable, give me the counter-argument too so I can respond thoughtfully.",
+  "category": "code-review",
+  "tags": [
+    "feedback",
+    "mentorship"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "68be151317f1848537cb782baa9969cfe449141225b522a0515f9b087212114d",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "feedback",
+      "description": "The review comment",
+      "required": true
+    },
+    {
+      "name": "code",
+      "description": "The code in question",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "implement-function-from-spec",
+  "slug": "implement-function-from-spec",
+  "title": "Implement Function from Spec",
+  "description": "Generate a single, well-tested function from a precise specification.",
+  "content": "Implement a {{language}} function named `{{name}}` that satisfies this specification:\n\n{{spec}}\n\nRequirements:\n- Handle all edge cases explicitly (empty input, nulls, boundaries, overflow).\n- No external dependencies unless I name them.\n- Add a short docstring describing parameters, return value, and thrown errors.\n- Follow idiomatic style and naming for {{language}}.\n\nAfter the implementation, list the edge cases you handled and any assumptions you made.",
+  "category": "coding",
+  "tags": [
+    "function",
+    "implementation",
+    "tdd"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "6e30c86626df02a52fcf837c057a8e25cf57dbc5fddf9340e82496c77b3157b6",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "language",
+      "description": "Programming language",
+      "required": true
+    },
+    {
+      "name": "name",
+      "description": "Function name",
+      "required": true
+    },
+    {
+      "name": "spec",
+      "description": "What the function must do",
+      "required": true
+    }
+  ]
+}
