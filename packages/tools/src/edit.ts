@@ -139,7 +139,10 @@ export const editTool: Tool<EditInput, EditOutput> = {
 
     await atomicWrite(absPath, newFile, { mode: updated.mode & 0o777 });
     const written = await fs.stat(absPath);
-    ctx.recordRead(absPath, written.mtimeMs);
+    // Record mtime so a later edit detects external modification, but tag as
+    // 'write' so the permission policy's write-smart-bypass does NOT treat
+    // this as "user already saw the content" (P1 #1).
+    ctx.recordRead(absPath, written.mtimeMs, 'write');
 
     // Record for session rewind
     ctx.session.recordFileChange({

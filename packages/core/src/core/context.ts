@@ -88,7 +88,25 @@ export interface ContextInit {
 export class Context implements RunEnv {
   messages: Message[] = [];
   todos: TodoItem[] = [];
+  /**
+   * Files whose content the **user / model has explicitly seen** via the
+   * `read` tool (or an edit's auto-read, which surfaces the content to the
+   * model). This is the set the permission policy's write-smart-bypass
+   * (step 7) checks — writing a file the model has already read is treated
+   * as "no new content to approve". It must NEVER contain files only touched
+   * by `edit`/`write`, otherwise the model could repeatedly overwrite a file
+   * whose content the user never saw (P1 #1, before-release.md).
+   *
+   * Tool-driven mutations record via `writtenFiles` + `recordRead(..., 'write')`
+   * so mtime tracking still works without widening the bypass.
+   */
   readFiles = new Set<string>();
+  /**
+   * Files written by `edit`/`write` in this session. Tracked for observability
+   * and to keep `readFiles` (the permission-bypass source of truth) clean.
+   * `recordRead(path, mtime, 'write')` adds here instead of `readFiles`.
+   */
+  writtenFiles = new Set<string>();
   fileMtimes = new Map<string, number>();
   contextEvidence: ContextEvidenceState = createContextEvidenceState();
   systemPrompt: TextBlock[];
@@ -211,9 +229,29 @@ export class Context implements RunEnv {
     }
   }
 
-  recordRead(absPath: string, mtimeMs: number): void {
-    this.readFiles.add(absPath);
+  /**
+   * Record that a file's content was seen / mtime was observed.
+   *
+   * `source` controls which tracking set is populated — and therefore whether
+   * the permission policy's write-smart-bypass (step 7) will auto-approve a
+   * subsequent `write` to this path:
+   *
+   * - `'user'` (default): the model/user saw the content (via `read`, or an
+   *   edit's auto-read that surfaced it). Adds to `readFiles` → bypass applies.
+   * - `'write'`: a tool wrote the file (`edit`/`write`) and is recording the
+   *   new mtime so subsequent edits detect external modification. Adds to
+   *   `writtenFiles` only — the bypass does NOT apply, because the user never
+   *   approved the new content (P1 #1, before-release.md).
+   *
+   * `fileMtimes` is updated in both cases so mtime-based staleness checks work.
+   */
+  recordRead(absPath: string, mtimeMs: number, source: 'user' | 'write' = 'user'): void {
     this.fileMtimes.set(absPath, mtimeMs);
+    if (source === 'write') {
+      this.writtenFiles.add(absPath);
+    } else {
+      this.readFiles.add(absPath);
+    }
   }
 
   /** Clear accumulated file-read metadata after compaction or at boundaries
@@ -221,11 +259,22 @@ export class Context implements RunEnv {
    *  The agent re-populates this naturally on the next file access. */
   clearFileTracking(): void {
     this.readFiles.clear();
+    this.writtenFiles.clear();
     this.fileMtimes.clear();
   }
 
+  /**
+   * True if the model/user has explicitly seen this file's content via `read`
+   * (or an edit auto-read). Tool-only writes (`source: 'write'`) do NOT count
+   * — this is the source of truth for the permission policy's write bypass.
+   */
   hasRead(absPath: string): boolean {
     return this.readFiles.has(absPath);
+  }
+
+  /** True if `edit`/`write` wrote this file in the current session. */
+  hasWritten(absPath: string): boolean {
+    return this.writtenFiles.has(absPath);
   }
 
   lastReadMtime(absPath: string): number | undefined {

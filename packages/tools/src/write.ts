@@ -62,9 +62,11 @@ export const writeTool: Tool<WriteInput, WriteOutput> = {
           // User approved this write (confirm → yes/always) but ctx has no
           // read record. The model may call write without a prior explicit
           // read. Read the file now so we can compute the diff and honor
-          // the user's intent to overwrite.
+          // the user's intent to overwrite. Tag as 'write' (NOT 'user') so
+          // this internal read-for-diff does not widen the permission bypass
+          // — the user never saw the old content (P1 #1).
           prev = await fs.readFile(absPath, 'utf8');
-          ctx.recordRead(absPath, stat.mtimeMs);
+          ctx.recordRead(absPath, stat.mtimeMs, 'write');
         } else {
           prev = await fs.readFile(absPath, 'utf8');
         }
@@ -82,7 +84,10 @@ export const writeTool: Tool<WriteInput, WriteOutput> = {
       : `+++ ${input.path}\n+ (new file, ${input.content.split('\n').length} lines)`;
 
     const stat = await fs.stat(absPath);
-    ctx.recordRead(absPath, stat.mtimeMs);
+    // Tag as 'write' so the permission bypass does not auto-approve a later
+    // write to this path — the user approved THIS write, not future ones
+    // (P1 #1).
+    ctx.recordRead(absPath, stat.mtimeMs, 'write');
 
     // Record for session rewind
     ctx.session.recordFileChange({
