@@ -365,6 +365,7 @@ export class WorktreeManager {
     await this.runGit(['worktree', 'prune'], this.projectRoot).catch(() => undefined);
     // Drop any in-memory handles too, so a still-live manager forgets them.
     this.handles.clear();
+    this.usedSlugs.clear();
     this.emit('worktree.released', {
       handleId: 'cleanup-all',
       ownerId: 'cleanup-all',
@@ -372,6 +373,47 @@ export class WorktreeManager {
       kept: false,
     });
     return { removed };
+  }
+
+  /**
+   * Detect and clean up stale worktrees left behind by crashed subagents.
+   *
+   * P2 #B6 (sprint2 audit): when a subagent crashes (OOM, SIGKILL), its
+   * worktree checkout and branch remain on disk. `cleanupAllManaged()`
+   * sweeps everything, but is never called automatically — only via
+   * `/worktree clean`. This method runs on Director boot (or any other
+   * entry point) to clean up leftovers from a previous crashed run.
+   *
+   * Unlike `cleanupAllManaged()`, this method is a no-op when no stale
+   * worktrees are detected — it doesn't clear in-memory handles or emit
+   * events unnecessarily. When stale worktrees ARE found, it delegates
+   * to `cleanupAllManaged()` for the actual removal.
+   *
+   * Returns the number of stale worktrees removed (0 = clean).
+   */
+  async cleanupStale(): Promise<{ removed: number; detected: number }> {
+    const root = resolve(this.worktreesRoot());
+    let detected = 0;
+    try {
+      const listed = await this.runGit(['worktree', 'list', '--porcelain'], this.projectRoot);
+      for (const line of listed.stdout.split('\n')) {
+        const m = line.match(/^worktree\s+(.+?)\s*$/);
+        if (!m?.[1]) continue;
+        const dir = resolve(m[1]);
+        if (dir !== root && (dir === root || dir.startsWith(root + sep))) {
+          detected++;
+        }
+      }
+    } catch {
+      // git not available or not a repo — nothing to clean
+      return { removed: 0, detected: 0 };
+    }
+    if (detected === 0) {
+      return { removed: 0, detected: 0 };
+    }
+    // Stale worktrees found — delegate to the full sweep.
+    const { removed } = await this.cleanupAllManaged();
+    return { removed, detected };
   }
 
   /**

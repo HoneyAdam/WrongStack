@@ -19,6 +19,19 @@ export async function cleanupSddWorktrees(projectRoot: string): Promise<{ remove
   return wt.cleanupAllManaged();
 }
 
+/**
+ * Detect and clean up stale worktrees from a crashed previous run.
+ * No-op when the project is clean. Called on SDD/Director boot to
+ * prevent orphaned worktrees from conflicting with the next run's
+ * `allocate()`.
+ *
+ * P2 #B6 (sprint2 audit).
+ */
+export async function cleanupStaleWorktrees(projectRoot: string): Promise<{ removed: number; detected: number }> {
+  const wt = new WorktreeManager({ projectRoot });
+  return wt.cleanupStale();
+}
+
 export interface RollbackFromDiskOptions {
   projectRoot: string;
   /** Directory holding persisted board snapshots (`wpaths.projectSddBoards`). */

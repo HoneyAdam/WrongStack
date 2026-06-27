@@ -67,6 +67,7 @@ export {
 } from './start-sdd-run.js';
 export {
   cleanupSddWorktrees,
+  cleanupStaleWorktrees,
   rollbackSddRunFromDisk,
   destroySddProject,
   type RollbackFromDiskOptions,
