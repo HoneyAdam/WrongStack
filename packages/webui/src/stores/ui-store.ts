@@ -82,7 +82,7 @@ interface UIState {
   /** Bottom inspector panel open (DevTools-style docked panel). */
   inspectorOpen: boolean;
   /** Active tab inside the bottom inspector panel. */
-  inspectorTab: 'fleet' | 'agents';
+  inspectorTab: 'fleet' | 'agents' | 'sideEffects';
   /** Process Monitor overlay — triggered by /kill slash command. */
   processMonitorOpen: boolean;
   /** Queue Panel overlay — triggered by /queue slash command. */
@@ -166,7 +166,7 @@ interface UIState {
   setFleetMonitorOpen: (open: boolean) => void;
   setAgentsMonitorOpen: (open: boolean) => void;
   setInspectorOpen: (open: boolean) => void;
-  setInspectorTab: (tab: 'fleet' | 'agents') => void;
+  setInspectorTab: (tab: 'fleet' | 'agents' | 'sideEffects') => void;
   toggleInspector: () => void;
 }
 
@@ -294,7 +294,7 @@ export const useUIStore = create<UIState>()(
       setFleetMonitorOpen: (open: boolean) => set({ fleetMonitorOpen: open }),
       setAgentsMonitorOpen: (open: boolean) => set({ agentsMonitorOpen: open }),
       setInspectorOpen: (open: boolean) => set({ inspectorOpen: open }),
-      setInspectorTab: (tab: 'fleet' | 'agents') => set({ inspectorTab: tab }),
+      setInspectorTab: (tab: 'fleet' | 'agents' | 'sideEffects') => set({ inspectorTab: tab }),
       toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
       setProcessMonitorOpen: (open: boolean) => set({ processMonitorOpen: open }),
       setQueuePanelOpen: (open: boolean) => set({ queuePanelOpen: open }),

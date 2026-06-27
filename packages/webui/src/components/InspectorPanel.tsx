@@ -11,13 +11,14 @@
  * Tabs: Fleet (agent list + stats) | Agents (per-agent detail card).
  */
 
-import { Bot, ChevronDown, ChevronUp, Users } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, Users, Activity } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { AgentCard } from './AgentsMonitor';
 import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
 import { FleetAgentRow } from './FleetMonitor';
+import { SideEffectTimeline } from './SideEffectTimeline';
 import { cn } from '@/lib/utils';
-import { useFleetStore, useUIStore } from '@/stores';
+import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
 import type { FleetTimelineEvent, SubagentView } from '@/stores';
 
 /** Expanded panel height (px). Tall enough for a useful agent list without
@@ -88,6 +89,9 @@ export function InspectorPanel() {
 
   const openFleetTab = () => setInspectorTab('fleet');
   const openAgentsTab = () => setInspectorTab('agents');
+  const openSideEffectsTab = () => setInspectorTab('sideEffects');
+
+  const sideEffectCount = useSideEffectStore((s) => s.sideEffects.length);
 
   // Clicking a row in the fleet list jumps to that agent's detail card.
   const handleSelectAgent = (agent: SubagentView) => {
@@ -105,7 +109,7 @@ export function InspectorPanel() {
           'group w-full flex items-center justify-between gap-2 px-3 h-7 text-[11px]',
           'text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors',
         )}
-        title={inspectorOpen ? 'Hide inspector panel' : 'Show inspector panel (Fleet / Agents)'}
+        title={inspectorOpen ? 'Hide inspector panel' : 'Show inspector panel (Fleet / Agents / Audit)'}
       >
         <span className="flex items-center gap-2 min-w-0">
           {inspectorOpen ? (
@@ -139,6 +143,7 @@ export function InspectorPanel() {
         <span className="flex items-center gap-1 shrink-0 opacity-70 group-hover:opacity-100">
           <Bot className="h-3 w-3" />
           <Users className="h-3 w-3" />
+          <Activity className="h-3 w-3" />
         </span>
       </button>
 
@@ -166,6 +171,13 @@ export function InspectorPanel() {
               icon={<Users className="h-3.5 w-3.5" />}
               label="Agents"
               count={fleetTotal}
+            />
+            <TabButton
+              active={inspectorTab === 'sideEffects'}
+              onClick={openSideEffectsTab}
+              icon={<Activity className="h-3.5 w-3.5" />}
+              label="Audit"
+              count={sideEffectCount}
             />
             <div className="flex-1" />
             <button
@@ -195,7 +207,7 @@ export function InspectorPanel() {
                 eventTimeline={eventTimeline}
                 onSelectAgent={handleSelectAgent}
               />
-            ) : (
+            ) : inspectorTab === 'agents' ? (
               <AgentsTabContent
                 fleetList={fleetList}
                 selectedAgent={selectedAgent}
@@ -203,6 +215,8 @@ export function InspectorPanel() {
                 selectedAgentId={selectedAgent?.id ?? null}
                 onSelectAgent={setSelectedAgentId}
               />
+            ) : (
+              <SideEffectTimeline />
             )}
           </div>
         </div>
