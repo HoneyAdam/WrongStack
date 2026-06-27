@@ -8,6 +8,7 @@ export interface PromptPickEntry {
   category: string;
   source: string;
   content: string;
+  favorite: boolean;
 }
 
 const MAX_VISIBLE = 12;
@@ -27,7 +28,10 @@ function getVisibleWindow(selected: number, total: number): { start: number; end
   return { start, end };
 }
 
-/** Apply the picker's category filter. catIndex 0 (= "all") returns everything. */
+/**
+ * Apply the picker's category filter. catIndex 0 (= "all") returns everything;
+ * the special "★ favorites" pseudo-category filters by the favorite flag.
+ */
 export function filterPromptPicker(
   all: PromptPickEntry[],
   categories: string[],
@@ -35,6 +39,7 @@ export function filterPromptPicker(
 ): PromptPickEntry[] {
   const cat = categories[catIndex];
   if (!cat || cat === 'all') return all;
+  if (cat === '★ favorites') return all.filter((e) => e.favorite);
   return all.filter((e) => e.category === cat);
 }
 
@@ -73,8 +78,8 @@ export function PromptPicker({ entries, selected, category, total }: PromptPicke
           return (
             <Text key={e.slug} inverse={isSel} {...(isSel ? { color: 'cyan' } : {})}>
               {isSel ? '› ' : '  '}
-              {glyph(e.source)} <Text bold>{e.title}</Text>{' '}
-              <Text dimColor>{e.description.slice(0, 52)}</Text>
+              {glyph(e.source)} {e.favorite ? '★ ' : ''}
+              <Text bold>{e.title}</Text> <Text dimColor>{e.description.slice(0, 52)}</Text>
             </Text>
           );
         })

@@ -1161,8 +1161,14 @@ export function App({
       category: e.category,
       source: e.source,
       content: e.content,
+      favorite: e.favorite,
     }));
-    const cats = ['all', ...Array.from(new Set(entries.map((e) => e.category))).sort()];
+    const hasFavorites = entries.some((e) => e.favorite);
+    const cats = [
+      'all',
+      ...(hasFavorites ? ['★ favorites'] : []),
+      ...Array.from(new Set(entries.map((e) => e.category))).sort(),
+    ];
     dispatch({ type: 'promptPickerOpen', all: entries, categories: cats });
   };
 

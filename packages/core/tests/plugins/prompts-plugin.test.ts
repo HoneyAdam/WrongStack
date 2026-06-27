@@ -203,6 +203,15 @@ describe('/prompt and /prompt-gen', () => {
     expect(out.runText).toBe('Deploy api now');
   });
 
+  it('/prompt favorites lists only starred prompts', async () => {
+    const { search, loader } = await withLoaderCommands();
+    expect((await search.run!('favorites', ctx())).message).toContain('No favorites yet');
+    await loader.setFavorite('deploy-helper', true);
+    const out = await search.run!('fav', ctx());
+    expect(out.message).toContain('Deploy Helper');
+    expect(out.message).toContain('Favorites (1)');
+  });
+
   it('/prompt with no loader reports unavailable', async () => {
     const { api, registered } = makeApi();
     createPromptsPlugin({ store }).setup!(api);

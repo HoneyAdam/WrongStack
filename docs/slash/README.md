@@ -71,7 +71,9 @@ These commands are enabled by default when plugins are enabled and their host de
 
 | Command | Source | What it does |
 |---|---|---|
-| `/prompts` | `packages/core/src/plugins/prompts-plugin.ts` | Manage the personal prompt library |
+| `/prompts` | `packages/core/src/plugins/prompts-plugin.ts` | Manage the prompt library (list/view/add/edit/delete/favorite/extend) |
+| `/prompt` | `packages/core/src/plugins/prompts-plugin.ts` | Search the merged library (builtin + user + project) and insert a prompt |
+| `/prompt-gen` | `packages/core/src/plugins/prompts-plugin.ts` | LLM-guided prompt authoring |
 | `/sync` | `packages/core/src/plugins/sync-plugin.ts` | GitHub-backed sync for prompts, skills, settings, memory, and history |
 | `/commit` | `packages/core/src/plugins/git-plugin.ts` | Stage all changes and commit with an auto-generated message; `/gc` alias |
 | `/gitcheck` | `packages/core/src/plugins/git-plugin.ts` | Silent uncommitted-change check; `/gcstatus` alias |
@@ -97,7 +99,7 @@ REPL input "/<command> <args>"
   -> returns { message?: string, runText?: string, exit?: boolean }
 ```
 
-`runText` is a special field: when a slash command returns it, the REPL injects that text into the next agent turn. `/goal`, `/sdd`, `/autonomy`, `/fix`, and `/skill-gen` use this to steer the AI conversation without the user typing the full prompt.
+`runText` is a special field: when a slash command returns it, the REPL injects that text into the next agent turn. `/goal`, `/sdd`, `/autonomy`, `/fix`, `/skill-gen`, `/prompt-gen`, and `/prompt insert` use this to steer the AI conversation without the user typing the full prompt.
 
 ## Adding a core slash command
 

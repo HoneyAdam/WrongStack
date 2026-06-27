@@ -255,6 +255,18 @@ function buildPromptSearchCommand(getLoader: () => PromptLoader | null): SlashCo
         return { message: `Inserted "${entry.title}".`, runText: text };
       }
 
+      // /prompt favorites — list starred prompts only
+      if (trimmed === 'favorites' || trimmed === 'fav' || trimmed === 'starred') {
+        const favs = (await loader.list()).filter((e) => e.favorite);
+        if (favs.length === 0) {
+          return { message: 'No favorites yet. Star one with /prompts favorite <slug>.' };
+        }
+        const lines = favs.map(
+          (e) => `  ${sourceGlyph(e)} ★ ${e.title}  ${dim(e.slug)}  ${dim(`[${e.category}]`)}`,
+        );
+        return { message: `Favorites (${favs.length}):\n${lines.join('\n')}\n\nInsert: /prompt insert <slug>` };
+      }
+
       // /prompt  (no query) → overview
       if (!trimmed) {
         const cats = await loader.categories();
@@ -265,7 +277,7 @@ function buildPromptSearchCommand(getLoader: () => PromptLoader | null): SlashCo
             `Prompt library: ${total} prompts.`,
             catLine,
             '',
-            'Search: /prompt <query>   ·   Insert: /prompt insert <slug>',
+            'Search: /prompt <query>   ·   Favorites: /prompt favorites   ·   Insert: /prompt insert <slug>',
           ].join('\n'),
         };
       }

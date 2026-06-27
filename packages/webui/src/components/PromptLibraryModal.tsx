@@ -56,6 +56,7 @@ export function PromptLibraryModal() {
   const [categories, setCategories] = useState<CategoryCount[]>([]);
   const [query, setQuery] = useState('');
   const [activeCat, setActiveCat] = useState<string | null>(null);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selected, setSelected] = useState<PromptMeta | null>(null);
   const [content, setContent] = useState('');
   const [varValues, setVarValues] = useState<Record<string, string>>({});
@@ -105,6 +106,7 @@ export function PromptLibraryModal() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return prompts.filter((p) => {
+      if (favoritesOnly && !p.favorite) return false;
       if (activeCat && p.category !== activeCat) return false;
       if (!q) return true;
       return (
@@ -114,7 +116,7 @@ export function PromptLibraryModal() {
         p.tags.some((t) => t.toLowerCase().includes(q))
       );
     });
-  }, [prompts, query, activeCat]);
+  }, [prompts, query, activeCat, favoritesOnly]);
 
   const missing = useMemo(
     () =>
@@ -167,6 +169,12 @@ export function PromptLibraryModal() {
                 className={`rounded px-2 py-0.5 text-xs ${activeCat === null ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
               >
                 All
+              </button>
+              <button
+                onClick={() => setFavoritesOnly((v) => !v)}
+                className={`rounded px-2 py-0.5 text-xs ${favoritesOnly ? 'bg-yellow-500 text-black' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
+              >
+                ★ Favorites
               </button>
               {categories.map((c) => (
                 <button
