@@ -355,7 +355,7 @@ export class ACPProtocolHandler {
     await this.transport.send(toWire({
       jsonrpc: '2.0',
       id,
-      result: { configOptions: [...this.configOptions] },
+      result: {},
     }));
     return false;
   }
@@ -507,7 +507,7 @@ export class ACPProtocolHandler {
     }
 
     if (!this.sessions.has(sessionId)) {
-      await this.transport.send(toWire({ jsonrpc: '2.0', id, result: {} }));
+      await this.transport.send(toWire({ jsonrpc: '2.0', id, result: { configOptions: [...this.configOptions] } }));
       return false;
     }
     const session = this.sessions.get(sessionId)!;
@@ -653,7 +653,7 @@ export class ACPProtocolHandler {
         configOptions: [...this.configOptions],
       },
     });
-    await this.transport.send(toWire({ jsonrpc: '2.0', id, result: {} }));
+    await this.transport.send(toWire({ jsonrpc: '2.0', id, result: { configOptions: [...this.configOptions] } }));
     return false;
   }
 
