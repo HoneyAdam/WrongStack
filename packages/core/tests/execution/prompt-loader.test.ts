@@ -109,6 +109,18 @@ describe('DefaultPromptLoader', () => {
     expect(filtered.map((e) => e.slug)).toEqual(['deploy-script']);
   });
 
+  it('fuzzy-matches abbreviations/typos when no substring matches', async () => {
+    await writeBuiltin(entry('deploy-script', { title: 'Deploy Script', category: 'devops' }));
+    await writeBuiltin(entry('review', { title: 'Code Review', category: 'code-review' }));
+    const loader = new DefaultPromptLoader({ paths, bundledDir });
+
+    // "dpl" is a subsequence of "deploy" but not a substring of anything.
+    const fuzzy = await loader.search('dpl');
+    expect(fuzzy.map((e) => e.slug)).toContain('deploy-script');
+    // A non-subsequence query still returns nothing.
+    expect(await loader.search('zzzq')).toEqual([]);
+  });
+
   it('categories() returns counts with labels', async () => {
     await writeBuiltin(entry('a', { category: 'coding' }));
     await writeBuiltin(entry('b', { category: 'coding' }));

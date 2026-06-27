@@ -234,11 +234,28 @@ function scorePrompt(e: PromptEntry, tokens: string[]): number {
     if (desc.includes(tok)) hit += 2;
     if (cat.includes(tok)) hit += 2;
     if (content.includes(tok)) hit += 1;
+    // Fuzzy fallback: a typo / abbreviation ("dpl" → "deploy") still matches if
+    // the token's characters appear in order in the most relevant fields. Scored
+    // low so exact substring hits always rank above fuzzy ones.
+    if (hit === 0 && tok.length >= 3) {
+      if (isSubsequence(tok, title)) hit += 2;
+      else if (isSubsequence(tok, slug)) hit += 2;
+      else if (tags.some((t) => isSubsequence(tok, t))) hit += 1;
+    }
     if (hit === 0) return 0; // every token must match somewhere (AND semantics)
     score += hit;
   }
   if (e.favorite) score += 1; // gentle tiebreak toward favorites
   return score;
+}
+
+/** True when every char of `needle` appears in `hay`, in order (subsequence). */
+function isSubsequence(needle: string, hay: string): boolean {
+  let i = 0;
+  for (let j = 0; j < hay.length && i < needle.length; j++) {
+    if (hay[j] === needle[i]) i++;
+  }
+  return i === needle.length;
 }
 
 /**
