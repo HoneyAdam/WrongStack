@@ -352,13 +352,21 @@ full payload/outcome schema and the security model.
 
 `tokenSavingMode` replaces the old boolean `--token-saving-mode` flag with a multi-level system:
 
-| Tier | Tools | Tool descriptions | Est. savings |
-|------|-------|-----------------|-------------|
-| `off` | All 37 | 80 chars | 0 tokens |
-| `minimal` | 10 (TIER1 only) | 40 chars | ~3–4k tokens |
-| `light` | 10 (TIER1 only) | 50 chars | ~2–3k tokens |
-| `medium` | 25 (TIER1 + TIER2) | 60 chars | ~1.5–2k tokens |
-| `aggressive` | 35 (TIER1 + TIER2 − task + TIER3 − setWorkingDir) | 70 chars | ~4–5k tokens |
+| Tier | Tools | Tool descriptions | Measured savings |
+|------|-------|-----------------|------------------|
+| `off` | All 37 | 80 chars | 0 tokens (baseline) |
+| `minimal` | 10 (TIER1 only) | 40 chars | ~2.5–2.7k tokens |
+| `light` | 10 (TIER1 only) | 50 chars | ~2.3–2.4k tokens |
+| `medium` | 25 (TIER1 + TIER2) | 60 chars | ~1.4–1.5k tokens |
+| `aggressive` | 35 (TIER1 + TIER2 − task + TIER3 − setWorkingDir) | 70 chars | ~60 tokens ⚠ |
+
+The `aggressive` estimate is the empirical value from
+`packages/cli/tests/token-saving-measurement.test.ts`. The original design
+doc claim of "~4–5k tokens" was not borne out by the implementation — at
+`aggressive` the prompt still emits the full Delegation, Mailbox, Context
+Management, Commit Hygiene, MCP, and Common Patterns sections. Only tool
+descriptions and skill bodies are compacted relative to `off`. The
+measurement test will catch any future drift.
 
 Memory tools (`remember`, `forget`, `searchMemory`, `relatedMemory`) are gated on
 `features.memory`, not on the tier — they appear at every tier when memory is enabled

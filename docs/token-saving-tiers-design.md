@@ -46,13 +46,26 @@ type TokenSavingTier =
 
 ### Estimated Token Savings by Tier
 
-| Tier | Est. Prompt Reduction | Use Case |
-|------|----------------------|----------|
-| `off` | 0 tokens | Complex tasks, multi-file refactors |
-| `minimal` | ~3,000–4,000 tokens | Quick fixes, single-file edits |
-| `light` | ~2,000–3,000 tokens | Standard development, most tasks |
-| `medium` | ~1,500–2,000 tokens | When extra tools are needed |
-| `aggressive` | ~4,000–5,000 tokens | Extreme context pressure |
+Empirical measurements (project heuristic 3.5 chars/token, run via
+`packages/cli/tests/token-saving-measurement.test.ts`):
+
+| Tier | Measured Δ vs `off` | Doc claim | Use Case |
+|------|---------------------|-----------|----------|
+| `off` | 0 tokens | 0 tokens | Complex tasks, multi-file refactors |
+| `minimal` | ~2,500–2,700 tokens | ~3,000–4,000 | Quick fixes, single-file edits |
+| `light` | ~2,300–2,400 tokens | ~2,000–3,000 | Standard development, most tasks |
+| `medium` | ~1,400–1,500 tokens | ~1,500–2,000 | When extra tools are needed |
+| `aggressive` | ~60 tokens ⚠ | ~4,000–5,000 | **Doc claim wrong — see note** |
+
+> ⚠ **`aggressive` produces essentially the same prompt as `off`** (only ~60
+> tokens saved at 3.5c heuristic). The original design intent was "Maximum
+> savings before tools become unusable (~4-5k tokens)" but the current
+> implementation only trims tool descriptions (80→70 chars) and compacts skill
+> bodies — all guidance sections (Delegation, Mailbox, Context Management,
+> Commit Hygiene, MCP, Common Patterns) are emitted in full at `aggressive`.
+> The doc claim is wrong; either the implementation needs to actually skip
+> these sections at `aggressive`, or the doc needs to drop the estimate.
+> Tracked as a follow-up; the measurement test will catch any future drift.
 
 ---
 
