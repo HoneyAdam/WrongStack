@@ -7,6 +7,7 @@ import {
   DefaultModeStore,
   DefaultPermissionPolicy,
   DefaultRetryPolicy,
+  DefaultPromptLoader,
   DefaultSecretScrubber,
   DefaultSessionStore,
   DefaultSkillLoader,
@@ -50,6 +51,8 @@ export interface CreateContainerOptions {
   systemPrompt?: Partial<DefaultSystemPromptBuilderOptions> | undefined;
   /** Bundled skills directory path (resolved at boot time). */
   bundledSkillsDir?: string | undefined;
+  /** Bundled prompt dataset directory path (`<core>/data/prompts`, resolved at boot). */
+  bundledPromptsDir?: string | undefined;
 }
 
 /**
@@ -104,6 +107,9 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
 
   const skillLoader = new DefaultSkillLoader({ paths: wpaths, bundledDir: opts.bundledSkillsDir });
   container.bind(TOKENS.SkillLoader, () => skillLoader);
+
+  const promptLoader = new DefaultPromptLoader({ paths: wpaths, bundledDir: opts.bundledPromptsDir });
+  container.bind(TOKENS.PromptLoader, () => promptLoader);
 
   if (opts.systemPrompt) {
     container.bind(

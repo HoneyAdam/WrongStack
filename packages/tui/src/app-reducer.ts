@@ -2,6 +2,7 @@ import { expectDefined } from '@wrongstack/core';
 // Reducer — pure state transformation. Types are in app-state.ts.
 // This file has NO React or Ink dependencies.
 import type { HistoryEntry } from './components/history.js';
+import { filterPromptPicker } from './components/prompt-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
 import { STATUSLINE_FIELD_COUNT, type ChipMeta } from './components/statusline-picker.js';
 
@@ -594,6 +595,40 @@ export function reducer(state: State, action: Action): State {
         ...state,
         designPicker: { ...state.designPicker, stack: action.stack },
       };
+    case 'promptPickerOpen':
+      return {
+        ...state,
+        ...closePanels(state),
+        promptPicker: {
+          open: true,
+          all: action.all,
+          categories: action.categories,
+          catIndex: 0,
+          selected: 0,
+        },
+      };
+    case 'promptPickerClose':
+      return {
+        ...state,
+        promptPicker: { ...state.promptPicker, open: false },
+      };
+    case 'promptPickerMove': {
+      const filt = filterPromptPicker(
+        state.promptPicker.all,
+        state.promptPicker.categories,
+        state.promptPicker.catIndex,
+      );
+      const n = filt.length;
+      if (n === 0) return state;
+      const next = (state.promptPicker.selected + action.delta + n) % n;
+      return { ...state, promptPicker: { ...state.promptPicker, selected: next } };
+    }
+    case 'promptPickerCategory': {
+      const m = state.promptPicker.categories.length;
+      if (m === 0) return state;
+      const catIndex = (state.promptPicker.catIndex + action.delta + m) % m;
+      return { ...state, promptPicker: { ...state.promptPicker, catIndex, selected: 0 } };
+    }
     case 'resumePickerOpen':
       return {
         ...state,

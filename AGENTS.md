@@ -47,7 +47,7 @@ apps/wrongstack/      — bin entry (wrongstack / wstack)
 TOKENS.Logger · TOKENS.TokenCounter · TOKENS.SessionStore · TOKENS.MemoryStore
 TOKENS.PermissionPolicy · TOKENS.Compactor · TOKENS.PathResolver · TOKENS.ConfigLoader
 TOKENS.ConfigStore · TOKENS.Renderer · TOKENS.InputReader · TOKENS.ErrorHandler
-TOKENS.RetryPolicy · TOKENS.SkillLoader · TOKENS.SystemPromptBuilder · TOKENS.SecretScrubber
+TOKENS.RetryPolicy · TOKENS.SkillLoader · TOKENS.PromptLoader · TOKENS.SystemPromptBuilder · TOKENS.SecretScrubber
 TOKENS.ModelsRegistry · TOKENS.ModeStore · TOKENS.ProviderRunner · TOKENS.WorktreeManager
 TOKENS.BrainArbiter · TOKENS.HookRegistry
 ```
@@ -517,6 +517,18 @@ One-line description of what this skill does.
 Bundled skills: `api-design`, `audit-log`, `bug-hunter`, `docker-deploy`, `git-flow`, `multi-agent`, `node-modern`, `observability`, `prompt-engineering`, `react-modern`, `refactor-planner`, `sdd`, `security-scanner`, `skill-creator`, `testing`, `typescript-strict`.
 
 See `docs/skills.md` for the full authoring guide.
+
+## Prompt library
+
+Reusable prompts loaded by `DefaultPromptLoader` (`execution/prompt-loader.ts`, bound at `TOKENS.PromptLoader`) from three layers, de-duplicated by `slug` (higher priority shadows lower):
+
+| Priority | Location | source |
+|---|---|---|
+| 1 | `<project>/.wrongstack/prompts/` (`inProjectPrompts`) | `project` |
+| 2 | `~/.wrongstack/prompts/` (`globalPrompts`) | `user` / `synced` |
+| 3 | `packages/core/data/prompts/` (bundled, read-only) | `builtin` |
+
+`PromptEntry` is v2 (`{id(ULID), slug, title, description, content, category, tags, source, favorite, variables?, checksum?, forkedFrom?, …}`); legacy v1 files are upgraded lazily on read by `migratePromptEntry` (`storage/prompt-store.ts`) and only rewritten as v2 on next `save()`. Builtin/project layers are written file-per-JSON; favoriting or editing a builtin **copies it down** into the user layer (`source:'user'`, `forkedFrom:<slug>`) so the bundled dataset is never mutated. `renderPrompt(entry, values)` fills `{{variable}}` placeholders and reports missing required vars. The bundled dataset ships as `packages/core/data/prompts/` (built by `scripts/build-prompts.mjs`); its `index.json` mirrors the remote-registry manifest shape (`types/prompt-registry.ts`) so builtin and synced prompts flow through one path. Surfaced via the `wstack-prompts` plugin (`/prompt`, `/prompts`, `/prompt-gen`).
 
 ## Domain knowledge
 

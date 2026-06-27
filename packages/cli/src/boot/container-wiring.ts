@@ -42,6 +42,7 @@ import { DefaultPathResolver, EventBus as CoreEventBus, TOKENS } from '@wrongsta
 import { createDefaultContainer } from '@wrongstack/runtime';
 import { makePromptDelegate } from '../permission-prompt.js';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
+import { resolveBundledPromptsDir } from '../cli-bundled-prompts.js';
 
 export interface WireContainerDeps {
   config: Config;
@@ -94,6 +95,7 @@ export function wireContainer(deps: WireContainerDeps): {
       eliseThreshold: deps.config.context.eliseThreshold,
     },
     bundledSkillsDir: deps.config.features.skills ? resolveBundledSkillsDir() : undefined,
+    bundledPromptsDir: resolveBundledPromptsDir(),
   });
 
   // Bootstrap-level overrides on top of `createDefaultContainer`'s

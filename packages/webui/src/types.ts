@@ -1054,6 +1054,20 @@ export type WSClientMessage =
   | { type: 'memory.forget'; payload: { text: string; scope?: MemoryScope | undefined } }
   | { type: 'skills.list' }
   | { type: 'skills.content'; payload: { name: string; source: string } }
+  | { type: 'prompts.list' }
+  | { type: 'prompts.search'; payload: { query?: string | undefined; category?: string | undefined } }
+  | { type: 'prompts.content'; payload: { slug: string } }
+  | { type: 'prompts.favorite'; payload: { slug: string; favorite: boolean } }
+  | {
+      type: 'prompts.create';
+      payload: {
+        title: string;
+        content: string;
+        description?: string | undefined;
+        category?: string | undefined;
+        tags?: string[] | undefined;
+      };
+    }
   | { type: 'diag.get' }
   | { type: 'stats.get' }
   | { type: 'session.save' }

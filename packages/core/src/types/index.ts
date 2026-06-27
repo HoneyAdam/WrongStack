@@ -21,6 +21,8 @@ export * from '../infrastructure/path-resolver.js';
 export * from '../execution/error-handler.js';
 export * from '../execution/retry-policy.js';
 export * from './skill.js';
+export * from './prompt.js';
+export * from './prompt-registry.js';
 export * from './design-kit.js';
 export * from './system-prompt.js';
 export * from '../security/secret-scrubber.js';

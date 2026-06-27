@@ -98,16 +98,19 @@
     },
     "./package.json": "./package.json",
     "./skills/*": "./skills/*",
-    "./design-kits/*": "./design-kits/*"
+    "./design-kits/*": "./design-kits/*",
+    "./data/*": "./data/*"
   },
   "files": [
     "dist",
     "skills",
-    "design-kits"
+    "design-kits",
+    "data"
   ],
   "wrongstackApiVersion": "0.1.10",
   "scripts": {
     "build": "tsup",
+    "build:prompts": "node scripts/build-prompts.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },

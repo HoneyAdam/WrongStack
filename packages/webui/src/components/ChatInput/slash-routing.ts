@@ -154,6 +154,10 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
     case '/skills':
       ws.listSkills();
       return true;
+    case '/prompt':
+    case '/prompts':
+      useUIStore.getState().setPromptLibraryOpen(true);
+      return true;
     case '/diag':
       ws.getDiag();
       return true;

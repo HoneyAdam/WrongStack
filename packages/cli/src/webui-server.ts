@@ -51,6 +51,7 @@ import type {
   MemoryStore,
   ModelsRegistry,
   ModeStore,
+  PromptLoader,
   SessionStore,
   SessionWriter,
   SkillLoader,
@@ -113,6 +114,12 @@ import {
   handleSkillsUninstall,
   handleSkillsUpdate,
   type SkillsContext,
+  type PromptsContext,
+  handlePromptsList,
+  handlePromptsSearch,
+  handlePromptsContent,
+  handlePromptsFavorite,
+  handlePromptsCreate,
   type DesignContext,
   handleDesignList,
   handleDesignMaterialize,
@@ -336,6 +343,8 @@ interface CliWebUIOptions {
   memoryStore?: MemoryStore | undefined;
   /** Skill loader — enables the SkillsPanel (skills.list). */
   skillLoader?: SkillLoader | undefined;
+  /** Prompt loader — enables the prompt library (prompts.list/search/content/favorite/create). */
+  promptLoader?: PromptLoader | undefined;
   /** Mode store — enables the ModePicker (modes.list, mode.switch). */
   modeStore?: ModeStore | undefined;
   /** Active agent mode id passed to the frontend via session.start. */
@@ -1516,6 +1525,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     projectRoot: skillsProjectRoot,
   };
 
+  // Prompt library context — shared handlers, one source of truth with the
+  // standalone server. Absent promptLoader ⇒ handlers respond "unavailable".
+  const promptsCtx: PromptsContext = {
+    promptLoader: opts.promptLoader,
+  };
+
   // Design Studio context — same project root, live agent ctx so design.use
   // pins the active kit for the next turn.
   const designCtx: DesignContext = {
@@ -2194,6 +2209,13 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     'skills.create': (msg, ws) => handleSkillsCreate(ws, skillsCtx, msg),
     'skills.edit': (msg, ws) => handleSkillsEdit(ws, skillsCtx, msg),
     'skills.export': (_msg, ws) => handleSkillsExport(ws, skillsCtx),
+
+    // ── Prompt library ──
+    'prompts.list': (_msg, ws) => handlePromptsList(ws, promptsCtx),
+    'prompts.search': (msg, ws) => handlePromptsSearch(ws, promptsCtx, msg),
+    'prompts.content': (msg, ws) => handlePromptsContent(ws, promptsCtx, msg),
+    'prompts.favorite': (msg, ws) => handlePromptsFavorite(ws, promptsCtx, msg),
+    'prompts.create': (msg, ws) => handlePromptsCreate(ws, promptsCtx, msg),
 
     // ── Design Studio ──
     'design.list': (_msg, ws) => handleDesignList(ws, designCtx),

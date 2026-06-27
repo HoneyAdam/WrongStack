@@ -30,6 +30,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/todos', category: 'Inspect', description: 'List current todos' },
   { name: '/stats', category: 'Inspect', description: 'Session stats: tokens, cost, elapsed' },
   { name: '/skill', category: 'Inspect', aliases: ['/skills'], description: 'List active skills' },
+  { name: '/prompt', category: 'Inspect', aliases: ['/prompts'], description: 'Browse & insert prompts from the library' },
   { name: '/diag', category: 'Inspect', description: 'Runtime diagnostics (provider, tools, mode, usage)' },
   { name: '/agents', category: 'Inspect', description: 'Show status of spawned subagents' },
   { name: '/brain', category: 'Inspect', description: 'Brain status, risk ceiling (risk <level>), or decision support (ask <question>)' },

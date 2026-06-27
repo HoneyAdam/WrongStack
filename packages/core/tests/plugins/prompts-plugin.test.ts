@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPromptsPlugin } from '../../src/plugins/prompts-plugin.js';
+import { DefaultPromptLoader } from '../../src/execution/prompt-loader.js';
 import { DefaultPromptStore } from '../../src/storage/prompt-store.js';
 import type { Context } from '../../src/index.js';
 import type { SlashCommand } from '../../src/index.js';
@@ -135,6 +136,90 @@ describe('/prompts command verbs', () => {
   it('unknown subcommand reports the available verbs', async () => {
     const { cmd } = await withCommand();
     expect((await cmd.run!('frobnicate', ctx())).message).toContain('Unknown subcommand');
+  });
+});
+
+describe('/prompts add structured flags', () => {
+  it('parses --category, --description, --tags and --var', async () => {
+    const { cmd } = await withCommand();
+    const out = await cmd.run!(
+      'add --category coding --description "does a thing" --tags a,b --var name:who "Greet" "Hello {{name}}"',
+      ctx(),
+    );
+    expect(out.message).toContain('Added prompt "Greet"');
+    const entry = (await store.list())[0]!;
+    expect(entry.category).toBe('coding');
+    expect(entry.description).toBe('does a thing');
+    expect(entry.tags).toEqual(['a', 'b']);
+    expect(entry.variables).toEqual([{ name: 'name', description: 'who', required: true }]);
+  });
+
+  it('favorite verb sets favorite via the store fallback', async () => {
+    const { cmd } = await withCommand();
+    await store.save(store.createNew('Star Me', 'x'));
+    const out = await cmd.run!('favorite Star Me', ctx());
+    expect(out.message).toContain('Favorited');
+    expect((await store.find('Star Me'))[0]?.favorite).toBe(true);
+  });
+});
+
+describe('/prompt and /prompt-gen', () => {
+  async function withLoaderCommands(): Promise<{ search: SlashCommand; gen: SlashCommand; loader: DefaultPromptLoader }> {
+    // Point the loader's user layer at the same dir the store writes to.
+    const loader = new DefaultPromptLoader({
+      paths: { globalPrompts: dir, inProjectPrompts: path.join(dir, '__noproject') } as never,
+    });
+    // seed a user-layer prompt with a variable
+    await store.save(
+      store.createNew('Deploy Helper', 'Deploy {{service}} now', ['devops'], {
+        category: 'devops',
+        description: 'Ship a service',
+        variables: [{ name: 'service', required: true }],
+      }),
+    );
+    loader.invalidateCache();
+    const { api, registered } = makeApi();
+    createPromptsPlugin({ store, loader }).setup!(api);
+    return { search: registered[1]!, gen: registered[2]!, loader };
+  }
+
+  it('/prompt with a query returns ranked results', async () => {
+    const { search } = await withLoaderCommands();
+    const out = await search.run!('deploy', ctx());
+    expect(out.message).toContain('Deploy Helper');
+    expect(out.message).toContain('deploy-helper');
+  });
+
+  it('/prompt insert reports missing required variables', async () => {
+    const { search } = await withLoaderCommands();
+    const out = await search.run!('insert deploy-helper', ctx());
+    expect(out.message).toContain('needs values for: service');
+    expect(out.runText).toBeUndefined();
+  });
+
+  it('/prompt insert renders and returns runText when vars supplied', async () => {
+    const { search } = await withLoaderCommands();
+    const out = await search.run!('insert deploy-helper service=api', ctx());
+    expect(out.runText).toBe('Deploy api now');
+  });
+
+  it('/prompt with no loader reports unavailable', async () => {
+    const { api, registered } = makeApi();
+    createPromptsPlugin({ store }).setup!(api);
+    expect((await registered[1]!.run!('anything', ctx())).message).toContain('not available');
+  });
+
+  it('/prompt-gen returns runText to drive the agent', async () => {
+    const { gen } = await withLoaderCommands();
+    const out = await gen.run!('', ctx());
+    expect(out.runText).toContain('prompt-engineering');
+    expect(out.runText).toContain('/prompts add');
+  });
+
+  it('/prompt-gen list shows library entries', async () => {
+    const { gen } = await withLoaderCommands();
+    const out = await gen.run!('list', ctx());
+    expect(out.message).toContain('Deploy Helper');
   });
 });
 

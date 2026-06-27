@@ -123,6 +123,14 @@ interface UIState {
     resolve: (decision: 'refined' | 'english' | 'original' | 'edit') => void;
   } | null;
 
+  /** Prompt library modal (browse/search/insert prompts) open state. */
+  promptLibraryOpen: boolean;
+  setPromptLibraryOpen: (open: boolean) => void;
+  /** Text the prompt library wants pushed into the chat input. ChatInput consumes + clears it. */
+  promptInsertRequest: string | null;
+  requestPromptInsert: (text: string) => void;
+  clearPromptInsert: () => void;
+
   /** Select an activity. If clicking the already-active icon, closes the sidebar. */
   selectActivity: (activity: Activity) => void;
   toggleSidebar: () => void;
@@ -187,6 +195,8 @@ export const useUIStore = create<UIState>()(
       fileExplorerWidth: 220,
       refineEnabled: true,
       refinePanel: null,
+      promptLibraryOpen: false,
+      promptInsertRequest: null,
       dockSection: null,
       workDashboardTab: 'todos',
       hiddenChips: [],
@@ -262,6 +272,9 @@ export const useUIStore = create<UIState>()(
         set({ fileExplorerWidth: Math.max(160, Math.min(400, Math.round(px))) }),
       toggleRefineEnabled: () => set((s) => ({ refineEnabled: !s.refineEnabled })),
       setRefinePanel: (panel) => set({ refinePanel: panel }),
+      setPromptLibraryOpen: (open) => set({ promptLibraryOpen: open }),
+      requestPromptInsert: (text) => set({ promptInsertRequest: text, promptLibraryOpen: false }),
+      clearPromptInsert: () => set({ promptInsertRequest: null }),
       setDockSection: (section) => set({ dockSection: section }),
       setWorkDashboardTab: (tab) => set({ workDashboardTab: tab }),
       toggleDockSection: (section) =>

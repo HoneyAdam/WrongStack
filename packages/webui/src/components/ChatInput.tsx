@@ -18,6 +18,7 @@ import {
 import { runChatSlashCommand } from './ChatInput/slash-routing.js';
 import { usePasteDrop } from './ChatInput/use-paste-drop.js';
 import { RefinePanel } from './RefinePanel.js';
+import { PromptLibraryModal } from './PromptLibraryModal.js';
 import { Button } from './ui/button';
 
 export function ChatInput({
@@ -45,6 +46,8 @@ export function ChatInput({
   const { sendMessage, sendAbort, client, refineModel } = ws;
   const refineEnabled = useUIStore((s) => s.refineEnabled);
   const refinePanel = useUIStore((s) => s.refinePanel);
+  const promptInsertRequest = useUIStore((s) => s.promptInsertRequest);
+  const clearPromptInsert = useUIStore((s) => s.clearPromptInsert);
   const toggleRefineEnabled = useUIStore((s) => s.toggleRefineEnabled);
   const setRefinePanel = useUIStore((s) => s.setRefinePanel);
   const setProcessMonitorOpen = useUIStore((s) => s.setProcessMonitorOpen);
@@ -82,6 +85,14 @@ export function ChatInput({
     clearPendingImage,
     setPasteHint,
   } = usePasteDrop({ input, textareaRef, setInput, setAtMention });
+
+  // Prompt library "Insert" pushes its rendered text here; fold it into the input.
+  useEffect(() => {
+    if (promptInsertRequest == null) return;
+    setInput((prev) => (prev.trim() ? `${prev}\n${promptInsertRequest}` : promptInsertRequest));
+    clearPromptInsert();
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [promptInsertRequest, clearPromptInsert]);
 
   const runSlashCommand = useCallback(
     (raw: string): boolean =>
@@ -541,6 +552,7 @@ export function ChatInput({
 
   return (
     <div className="flex flex-col gap-2">
+      <PromptLibraryModal />
       {/* Smart paste hint — shows when code is auto-fenced (with undo)
           or when a large text block is pasted. Auto-dismisses. */}
       {pasteHint && (

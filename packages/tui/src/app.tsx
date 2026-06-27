@@ -1,5 +1,6 @@
-import { expectDefined, projectSlug } from '@wrongstack/core';
+import { DefaultPromptLoader, expectDefined, projectSlug } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
@@ -36,6 +37,7 @@ import { readClipboardImage, readClipboardText } from './clipboard.js';
 import { AgentsMonitor } from './components/agents-monitor.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { DesignPicker } from './components/design-picker.js';
+import { PromptPicker, filterPromptPicker, type PromptPickEntry } from './components/prompt-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
@@ -950,6 +952,9 @@ export function App({
   // Stream chip auto-expiration code lives after useReducer (see below).
 
   const projectRoot = agent.ctx.projectRoot;
+  // Lazily-built prompt loader for the TUI `/prompt` visual picker (declared
+  // here; the opener that uses `dispatch` lives after useReducer).
+  const promptLoaderRef = useRef<DefaultPromptLoader | null>(null);
 
   // Read the single canonical goal.json — the per-project file under
   // ~/.wrongstack/projects/<slug>/ (resolveWstackPaths → projectGoal), the SAME
@@ -1062,6 +1067,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
+    promptPicker: { open: false, all: [], categories: [], catIndex: 0, selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
     settingsPicker: { open: false, field: 0, lastSettingsField: 0, filter: '', mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, multiDiffSummaryThreshold: 5, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default', configScope: 'global' },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
@@ -1121,6 +1127,44 @@ export function App({
     debugStreamStats: null,
     countdown: null,
   });
+
+  // Prompt library picker opener (declared after useReducer: it dispatches).
+  const getPromptLoader = (): DefaultPromptLoader | null => {
+    if (!promptLoaderRef.current && projectRoot) {
+      let bundledDir: string | undefined;
+      try {
+        const req = createRequire(import.meta.url);
+        bundledDir = path.join(
+          path.dirname(req.resolve('@wrongstack/core/package.json')),
+          'data',
+          'prompts',
+        );
+      } catch {
+        bundledDir = undefined;
+      }
+      promptLoaderRef.current = new DefaultPromptLoader({
+        paths: resolveWstackPaths({ projectRoot }),
+        bundledDir,
+      });
+    }
+    return promptLoaderRef.current;
+  };
+  const openPromptPicker = async (): Promise<void> => {
+    const loader = getPromptLoader();
+    if (!loader) return;
+    loader.invalidateCache();
+    const all = await loader.list();
+    const entries: PromptPickEntry[] = all.map((e) => ({
+      slug: e.slug,
+      title: e.title,
+      description: e.description,
+      category: e.category,
+      source: e.source,
+      content: e.content,
+    }));
+    const cats = ['all', ...Array.from(new Set(entries.map((e) => e.category))).sort()];
+    dispatch({ type: 'promptPickerOpen', all: entries, categories: cats });
+  };
 
   // Sync picker toggles instantly to the status bar — when the user toggles an
   // item in the statusline picker, the reducer updates
@@ -2082,6 +2126,7 @@ export function App({
       if (stateRef.current.modelPicker.open) dispatch({ type: 'modelPickerClose' });
       if (stateRef.current.autonomyPicker.open) dispatch({ type: 'autonomyPickerClose' });
       if (stateRef.current.designPicker.open) dispatch({ type: 'designPickerClose' });
+      if (stateRef.current.promptPicker.open) dispatch({ type: 'promptPickerClose' });
       if (stateRef.current.resumePicker.open) dispatch({ type: 'resumePickerClose' });
       if (stateRef.current.slashPicker.open) dispatch({ type: 'slashPickerClose' });
       if (stateRef.current.picker.open) dispatch({ type: 'pickerClose' });
@@ -4319,6 +4364,51 @@ export function App({
       return;
     }
 
+    // Prompt library picker — ↑/↓ navigate, ←/→ cycle category, Enter inserts
+    // the chosen prompt's content into the input buffer ({{variables}} left for
+    // the user to fill inline), Esc cancels.
+    if (state.promptPicker.open) {
+      if (key.escape) {
+        dispatch({ type: 'promptPickerClose' });
+        return;
+      }
+      if (key.mouse?.kind === 'wheel') {
+        dispatch({ type: 'promptPickerMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
+        return;
+      }
+      if (key.upArrow) {
+        dispatch({ type: 'promptPickerMove', delta: -1 });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: 'promptPickerMove', delta: 1 });
+        return;
+      }
+      if (key.leftArrow) {
+        dispatch({ type: 'promptPickerCategory', delta: -1 });
+        return;
+      }
+      if (key.rightArrow) {
+        dispatch({ type: 'promptPickerCategory', delta: 1 });
+        return;
+      }
+      if (isEnter) {
+        const now = Date.now();
+        if (now - lastEnterAtRef.current < 50) return;
+        lastEnterAtRef.current = now;
+        const filtered = filterPromptPicker(
+          state.promptPicker.all,
+          state.promptPicker.categories,
+          state.promptPicker.catIndex,
+        );
+        const entry = filtered[state.promptPicker.selected];
+        dispatch({ type: 'promptPickerClose' });
+        if (entry) dispatch({ type: 'setBuffer', buffer: entry.content, cursor: entry.content.length });
+        return;
+      }
+      return;
+    }
+
     // Resume picker takes absolute precedence while open.
     if (state.resumePicker.open) {
       if (key.escape) {
@@ -6186,6 +6276,15 @@ export function App({
       return;
     }
 
+    // Bare `/prompt` opens the visual library picker (TUI-only). `/prompt <args>`
+    // (search / insert) falls through to the plugin command below.
+    if (trimmed === '/prompt' || trimmed === '/prompts-browse') {
+      pushSubmittedHistory();
+      clearDraft();
+      void openPromptPicker();
+      return;
+    }
+
     // Slash commands always dispatch immediately, even mid-iteration —
     // they don't conflict with a running agent.
     if (trimmed.startsWith('/')) {
@@ -6769,6 +6868,18 @@ export function App({
               kits={state.designPicker.kits}
               selected={state.designPicker.selected}
               stack={state.designPicker.stack}
+            />
+          ) : null}
+          {state.promptPicker.open ? (
+            <PromptPicker
+              entries={filterPromptPicker(
+                state.promptPicker.all,
+                state.promptPicker.categories,
+                state.promptPicker.catIndex,
+              )}
+              selected={state.promptPicker.selected}
+              category={state.promptPicker.categories[state.promptPicker.catIndex] ?? 'all'}
+              total={state.promptPicker.all.length}
             />
           ) : null}
           {state.resumePicker.open ? (

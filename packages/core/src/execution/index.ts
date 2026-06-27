@@ -77,6 +77,7 @@ export {
 export { DefaultRetryPolicy } from './retry-policy.js';
 export { SelectiveCompactor, type SelectiveCompactorOptions } from './selective-compactor.js';
 export { DefaultSkillLoader, type SkillLoaderOptions } from './skill-loader.js';
+export { DefaultPromptLoader, type PromptLoaderOptions, renderPrompt } from './prompt-loader.js';
 export {
   type CompactorStrategy,
   createStrategyCompactor,

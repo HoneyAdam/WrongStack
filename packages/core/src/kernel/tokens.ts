@@ -15,6 +15,7 @@ import type { Renderer } from '../types/renderer.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type { SessionStore } from '../types/session.js';
+import type { PromptLoader } from '../types/prompt.js';
 import type { SkillLoader } from '../types/skill.js';
 import type { SystemPromptBuilder } from '../types/system-prompt.js';
 import type { TokenCounter } from '../types/token-counter.js';
@@ -49,6 +50,7 @@ export const TOKENS = {
   ErrorHandler: t<ErrorHandler>('ErrorHandler'),
   RetryPolicy: t<RetryPolicy>('RetryPolicy'),
   SkillLoader: t<SkillLoader>('SkillLoader'),
+  PromptLoader: t<PromptLoader>('PromptLoader'),
   SystemPromptBuilder: t<SystemPromptBuilder>('SystemPromptBuilder'),
   SecretScrubber: t<SecretScrubber>('SecretScrubber'),
   ModelsRegistry: t<ModelsRegistry>('ModelsRegistry'),

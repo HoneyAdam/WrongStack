@@ -3,6 +3,7 @@ export * from './types/index.js';
 export * from './utils/index.js';
 export * from './defaults/index.js';
 export * from './skills/index.js';
+export * from './prompts/index.js';
 export * from './storage/index.js';
 export * from './hq/index.js';
 export { expectDefined } from './utils/expect-defined.js';

@@ -19,6 +19,7 @@ import {
 } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import { createHttpServer } from './http-server.js';
 import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
 import {
@@ -68,6 +69,13 @@ import {
   handleSkillsExport,
 } from './skills-handlers.js';
 import {
+  handlePromptsList,
+  handlePromptsSearch,
+  handlePromptsContent,
+  handlePromptsFavorite,
+  handlePromptsCreate,
+} from './prompts-handlers.js';
+import {
   handleDesignList,
   handleDesignMaterialize,
   handleDesignSet,
@@ -85,6 +93,7 @@ import {
   DefaultSessionReader,
   DefaultSessionStore,
   DefaultSkillLoader,
+  DefaultPromptLoader,
   DefaultSystemPromptBuilder,
   DefaultTokenCounter,
   AnnotationsStore,
@@ -348,6 +357,15 @@ export {
   handleSkillsEdit,
   handleSkillsExport,
 } from './skills-handlers.js';
+// Shared prompt-library handlers — one source of truth for both servers.
+export {
+  type PromptsContext,
+  handlePromptsList,
+  handlePromptsSearch,
+  handlePromptsContent,
+  handlePromptsFavorite,
+  handlePromptsCreate,
+} from './prompts-handlers.js';
 // Design Studio handlers — shared so the CLI's embedded server reaches parity.
 export {
   type DesignContext,
@@ -787,6 +805,17 @@ export async function startWebUI(
         skillLoader,
       })
     : undefined;
+  // Prompt library — always available. Resolve the bundled dataset shipped with
+  // @wrongstack/core (sibling of dist) so the 100+ builtin prompts show up.
+  const bundledPromptsDir = (() => {
+    try {
+      const req = createRequire(import.meta.url);
+      return path.join(path.dirname(req.resolve('@wrongstack/core/package.json')), 'data', 'prompts');
+    } catch {
+      return undefined;
+    }
+  })();
+  const promptLoader = new DefaultPromptLoader({ paths: wpaths, bundledDir: bundledPromptsDir });
   const systemPromptBuilder = new DefaultSystemPromptBuilder({
     memoryStore,
     skillLoader,
@@ -2106,6 +2135,23 @@ export async function startWebUI(
         break;
       case 'skills.export':
         await handleSkillsExport(ws, { skillLoader, skillInstaller, projectRoot });
+        break;
+
+      // Prompt library — shared handlers (prompts-handlers.ts).
+      case 'prompts.list':
+        await handlePromptsList(ws, { promptLoader });
+        break;
+      case 'prompts.search':
+        await handlePromptsSearch(ws, { promptLoader }, msg);
+        break;
+      case 'prompts.content':
+        await handlePromptsContent(ws, { promptLoader }, msg);
+        break;
+      case 'prompts.favorite':
+        await handlePromptsFavorite(ws, { promptLoader }, msg);
+        break;
+      case 'prompts.create':
+        await handlePromptsCreate(ws, { promptLoader }, msg);
         break;
 
       // Design Studio — shared handlers (design-handlers.ts). agentMeta is the

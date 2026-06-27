@@ -309,6 +309,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const memoryStore = container.resolve(TOKENS.MemoryStore);
   const skillLoader = container.resolve(TOKENS.SkillLoader);
+  const promptLoader = container.resolve(TOKENS.PromptLoader);
   const sessionRef: { current: import('@wrongstack/core').SessionWriter | undefined } = { current: undefined };
   // Forward declaration: the autonomy mode state lives later in this
   // function but the SystemPromptBuilder needs a reference to it NOW so
@@ -946,6 +947,7 @@ export async function main(argv: string[]): Promise<number> {
     metricsSink,
     healthRegistry,
     skillLoader: config.features.skills ? skillLoader : undefined,
+    promptLoader,
     configStore,
     vault,
     paths: wpaths,
@@ -2952,6 +2954,7 @@ export async function main(argv: string[]): Promise<number> {
       return false;
     },
     skillLoader: config.features.skills ? skillLoader : undefined,
+    promptLoader,
     modeId,
     sessionStore,
     memoryStore,

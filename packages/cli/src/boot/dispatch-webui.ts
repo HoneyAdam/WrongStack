@@ -38,6 +38,7 @@ export interface WebUIDispatchContext {
   sessionStore: SessionStore | undefined;
   memoryStore: MemoryStore | undefined;
   skillLoader: SkillLoader | undefined;
+  promptLoader: import('@wrongstack/core').PromptLoader | undefined;
   modeStore: ModeStore | undefined;
   modeId: string | undefined;
   needsSetup: boolean | undefined;
@@ -76,6 +77,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     sessionStore,
     memoryStore,
     skillLoader,
+    promptLoader,
     modeStore,
     modeId,
     needsSetup,
@@ -208,6 +210,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     onModelContextResolved,
     memoryStore,
     skillLoader,
+    promptLoader,
     modeStore,
     modeId,
     needsSetup,

@@ -331,6 +331,8 @@ export interface ExecutionDeps {
   onCountdownTick?: ((remainingSeconds: number) => boolean | void) | undefined;
   /** Skill loader for the skill generator wizard. */
   skillLoader?: import('@wrongstack/core').SkillLoader | undefined;
+  /** Prompt loader for the prompt library (webui prompts.* handlers). */
+  promptLoader?: import('@wrongstack/core').PromptLoader | undefined;
   /** Active agent mode id shown in the status bar (e.g. "teach", "brief"). */
   modeId?: string | undefined;
   /** Session store — used by WebUI for session.resume, session.delete, sessions.list. */
@@ -432,6 +434,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     subscribeEternalIteration,
     subscribeEternalStage,
     skillLoader,
+    promptLoader,
     modeId,
     sessionStore,
     memoryStore,
@@ -1068,6 +1071,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         sessionStore: activeSessionStore,
         memoryStore,
         skillLoader,
+        promptLoader,
         modeStore,
         modeId,
         needsSetup,

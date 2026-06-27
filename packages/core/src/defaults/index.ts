@@ -223,6 +223,11 @@ export {
 } from '../execution/selective-compactor.js';
 export { DefaultSkillLoader, type SkillLoaderOptions } from '../execution/skill-loader.js';
 export {
+  DefaultPromptLoader,
+  type PromptLoaderOptions,
+  renderPrompt,
+} from '../execution/prompt-loader.js';
+export {
   type CompactorStrategy,
   createStrategyCompactor,
   type StrategyCompactorOptions,

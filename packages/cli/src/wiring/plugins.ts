@@ -9,6 +9,7 @@ import type {
   Logger,
   MetricsSinkView,
   Plugin,
+  PromptLoader,
   ProviderRegistry,
   SessionWriter,
   SkillLoader,
@@ -39,6 +40,8 @@ export interface PluginsWiringDeps {
   healthRegistry?: HealthRegistry | undefined;
   /** Skill loader — injected so the skills built-in can list/read skills. */
   skillLoader?: SkillLoader | undefined;
+  /** Prompt loader — injected so the prompts built-in can list/search/save prompts. */
+  promptLoader?: PromptLoader | undefined;
   configStore: ConfigStore;
   /** Secret vault — injected so sync plugin can encrypt the GitHub token. */
   vault?: { encrypt(plaintext: string): string; decrypt?(value: string): string };
@@ -128,6 +131,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
     metricsSink,
     healthRegistry,
     skillLoader,
+    promptLoader,
     configStore,
     pipelines,
     paths,
@@ -199,6 +203,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
     metricsSink,
     healthRegistry,
     skillLoader,
+    promptLoader,
   } as Partial<Config>);
 
   await loadPlugins(allPlugins, {

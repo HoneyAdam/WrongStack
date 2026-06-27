@@ -155,6 +155,8 @@ export {
 } from './goal-store.js';
 export {
   DefaultPromptStore,
+  migratePromptEntry,
+  promptChecksum,
   type PromptStore,
   type PromptEntry,
 } from './prompt-store.js';

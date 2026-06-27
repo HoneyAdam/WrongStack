@@ -17,6 +17,7 @@ import type {
 } from './components/settings-picker.js';
 import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
 import type { ProjectPickerItem } from './components/project-picker.js';
+import type { PromptPickEntry } from './components/prompt-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
 
 export interface QueueItem {
@@ -252,6 +253,15 @@ export type State = {
     selected: number;
     /** Target stack applied on selection. */
     stack: string;
+  };
+  /** Prompt library picker — opened by a bare `/prompt`. Browse + category filter + insert. */
+  promptPicker: {
+    open: boolean;
+    all: PromptPickEntry[];
+    /** ['all', ...distinct categories]. */
+    categories: string[];
+    catIndex: number;
+    selected: number;
   };
   /** Session resume picker — opened by `/resume`. Lists recent sessions with metadata. */
   resumePicker: {
@@ -762,6 +772,10 @@ export type Action =
   | { type: 'designPickerClose' }
   | { type: 'designPickerMove'; delta: number }
   | { type: 'designPickerStack'; stack: string }
+  | { type: 'promptPickerOpen'; all: PromptPickEntry[]; categories: string[] }
+  | { type: 'promptPickerClose' }
+  | { type: 'promptPickerMove'; delta: number }
+  | { type: 'promptPickerCategory'; delta: number }
   | { type: 'resumePickerOpen'; sessions: ResumeSessionEntry[] }
   | { type: 'resumePickerClose' }
   | { type: 'resumePickerMove'; delta: number }

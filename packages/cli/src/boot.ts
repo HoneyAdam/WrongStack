@@ -93,6 +93,16 @@ function resolveBundledSkillsDir(): string | undefined {
   }
 }
 
+function resolveBundledPromptsDir(): string | undefined {
+  try {
+    const req = createRequire(import.meta.url);
+    const corePkg = req.resolve('@wrongstack/core/package.json');
+    return path.join(path.dirname(corePkg), 'data', 'prompts');
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Boot the CLI: parse args, load config, handle subcommand dispatch
  * (early exit), run interactive prompts (project check, provider picker,
@@ -223,6 +233,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       logger,
       modelsRegistry,
       bundledSkillsDir: config.features.skills ? resolveBundledSkillsDir() : undefined,
+      bundledPromptsDir: resolveBundledPromptsDir(),
     });
     const sessionStore = container.resolve(TOKENS.SessionStore);
     const skillLoader = container.resolve(TOKENS.SkillLoader);

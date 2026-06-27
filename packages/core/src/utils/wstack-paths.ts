@@ -68,6 +68,8 @@ export interface WstackPaths {
   inProjectAgentsFile: string;
   /** <project>/.wrongstack/skills — committed project skills. */
   inProjectSkills: string;
+  /** <project>/.wrongstack/prompts — committed project prompt library. */
+  inProjectPrompts: string;
   /** <project>/.wrongstack/design-kits — committed project Design Studio kits. */
   inProjectDesignKits: string;
   /** <project>/.wrongstack/worktrees — git worktrees for per-phase isolation (gitignored). */
@@ -179,6 +181,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     inProjectConfig: path.join(opts.projectRoot, '.wrongstack', 'config.json'),
     inProjectAgentsFile: path.join(opts.projectRoot, '.wrongstack', 'AGENTS.md'),
     inProjectSkills: path.join(opts.projectRoot, '.wrongstack', 'skills'),
+    inProjectPrompts: path.join(opts.projectRoot, '.wrongstack', 'prompts'),
     inProjectDesignKits: path.join(opts.projectRoot, '.wrongstack', 'design-kits'),
     inProjectWorktrees: path.join(opts.projectRoot, '.wrongstack', 'worktrees'),
     projectHash: hash,
