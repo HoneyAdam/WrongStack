@@ -8,10 +8,27 @@
  *
  * Handles:
  * - Direct kill commands: kill -9 12345
- * - Shell -c wrapped: bash -c "kill -9 12345"
+ * - Shell -c wrapped: bash -c "kill -9 12345" (any shell path — see P2 #10)
  * - Full path kills: /bin/kill -9 12345
  * - Name-based kills: pkill, killall, pgrep
  * - Windows equivalents: taskkill
+ *
+ * Known bypasses (NOT handled — this is a static regex parser, not a shell):
+ * Static analysis of shell strings is inherently defeatable by obfuscation.
+ * This guard is one defense-in-depth layer behind the permission policy and
+ * the project-escape checks, not the sole gate. Treat a miss here as expected,
+ * not as a hole to plug with ever-more-clever regexes. The patterns below are
+ * known to evade detection:
+ * - Base64 / decode pipes: `echo bCAtOSAxMjM0NQ== | base64 -d | sh`
+ * - Variable indirection: `sig=-9; target=12345; kill $sig $target`
+ * - Command substitution: `$(printf kill) -9 12345`
+ * - String concatenation / quote-splitting: `ki''ll -9 12345`, `k"i"ll 12345`
+ * - Aliases and functions: `alias x=kill; x -9 12345`
+ * - eval / source: `eval "ki""ll -9 12345"`
+ *
+ * Mitigation: rely on the permission policy (confirm/deny gate) and YOLO
+ * destructive detection as the primary controls; this guard is a best-effort
+ * fast path for the common non-obfuscated forms.
  */
 
 import * as os from 'node:os';
