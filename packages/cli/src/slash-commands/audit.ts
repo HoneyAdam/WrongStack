@@ -11,6 +11,7 @@ import type { SlashCommandContext } from './index.js';
 export function buildAuditCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'audit',
+    aliases: ['sideeffects', 'side'],
     category: 'Inspect',
     description: 'Show the side-effect audit trail (bash, install, fetch).',
     async run() {
