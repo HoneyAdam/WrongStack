@@ -1,0 +1,25 @@
+{
+  "id": "choose-sync-vs-async",
+  "slug": "choose-sync-vs-async",
+  "title": "Choose Sync vs Async",
+  "description": "Decide whether work should be synchronous or queued.",
+  "content": "Should this be synchronous or asynchronous: {{operation}}\n\nDecide based on: latency the caller can tolerate, whether the work can fail and be retried, ordering needs, and backpressure. If async, specify the queue, the retry and dead-letter policy, idempotency, and how the caller learns the result. If sync is fine, say so and avoid the complexity. Name the failure mode each choice introduces.",
+  "category": "architecture",
+  "tags": [
+    "async",
+    "queue",
+    "design"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "c4095b84a3c3a6cbaa9a9c92c0eace8c05bfd3b2990b46f0cbe20ceb135f5bb4",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "operation",
+      "description": "The operation to place",
+      "required": true
+    }
+  ]
+}

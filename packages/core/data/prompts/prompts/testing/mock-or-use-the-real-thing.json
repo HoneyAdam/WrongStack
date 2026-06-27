@@ -1,0 +1,29 @@
+{
+  "id": "mock-or-use-the-real-thing",
+  "slug": "mock-or-use-the-real-thing",
+  "title": "Mock or Use the Real Thing",
+  "description": "Decide what to fake in a test and what to keep real.",
+  "content": "I am testing {{unit}} which depends on {{dependencies}}.\n\nFor each dependency, advise: use the real thing, a fake or stub, or a mock, and why. Keep the thing under test real; fake what is slow, non-deterministic, or external. Warn me where over-mocking would make the test pass while the code is broken (testing the mock, not the behavior). Suggest the minimal test double that still proves the behavior.",
+  "category": "testing",
+  "tags": [
+    "mocking",
+    "test-design"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "43575a13e4a8de35cb3f6333bd4f8c6c8769241441a5f386e0172ec9fdfa7af9",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "unit",
+      "description": "The unit under test",
+      "required": true
+    },
+    {
+      "name": "dependencies",
+      "description": "Its dependencies",
+      "required": true
+    }
+  ]
+}

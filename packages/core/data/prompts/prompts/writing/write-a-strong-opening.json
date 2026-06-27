@@ -1,0 +1,29 @@
+{
+  "id": "write-a-strong-opening",
+  "slug": "write-a-strong-opening",
+  "title": "Write a Strong Opening",
+  "description": "Draft openings that earn the reader's attention.",
+  "content": "I'm writing {{piece}} about {{topic}}.\n\nDraft 3 distinct openings that earn attention without clickbait or throat-clearing. Vary the move: one that opens on a concrete specific, one on tension or a question, one on a surprising claim. For each, one line on who it suits and the risk it carries. Then recommend one and say why it fits the piece and audience best.",
+  "category": "writing",
+  "tags": [
+    "openings",
+    "hooks"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "bc8d70d9e86cf3df04cfb18fe4512a91b91807ce18480fbfbacdbda86cb131f0",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "piece",
+      "description": "Type of piece (essay, post, email)",
+      "required": true
+    },
+    {
+      "name": "topic",
+      "description": "What it's about",
+      "required": true
+    }
+  ]
+}

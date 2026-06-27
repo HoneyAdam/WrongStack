@@ -1,0 +1,24 @@
+{
+  "id": "write-a-test-plan",
+  "slug": "write-a-test-plan",
+  "title": "Write a Test Plan",
+  "description": "Plan what to test before writing any tests.",
+  "content": "I am about to test: {{feature}}\n\nWrite a test plan first. List what to verify, grouped by level (unit, integration, e2e), and what NOT to test at each level. Identify the highest-risk areas that deserve the most coverage and the boring parts that need little. Note any test data, fixtures, or environment needed. The goal is confidence per unit of effort, not maximal coverage.",
+  "category": "testing",
+  "tags": [
+    "test-plan",
+    "strategy"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "985ed19267a5c9623eafe08e3f87e2fbd8c391f9fb735622d179105b564838ce",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "feature",
+      "description": "What you are testing",
+      "required": true
+    }
+  ]
+}

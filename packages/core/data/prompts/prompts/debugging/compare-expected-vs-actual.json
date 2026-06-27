@@ -1,0 +1,29 @@
+{
+  "id": "compare-expected-vs-actual",
+  "slug": "compare-expected-vs-actual",
+  "title": "Compare Expected vs Actual",
+  "description": "Systematically find where two outputs diverge.",
+  "content": "Expected:\n{{expected}}\n\nActual:\n{{actual}}\n\nFind exactly where and why they diverge. Point to the first MEANINGFUL difference, not just the first textual one. Hypothesize the cause of that difference, then tell me what to inspect to confirm it. Ignore differences that are downstream effects of the first one.",
+  "category": "debugging",
+  "tags": [
+    "diff",
+    "comparison"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "f9004ddea178e55a9efdcfa446e5145d9169367b018f8cb9d037a07687e613ea",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "expected",
+      "description": "What you expected",
+      "required": true
+    },
+    {
+      "name": "actual",
+      "description": "What you got",
+      "required": true
+    }
+  ]
+}

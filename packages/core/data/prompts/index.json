@@ -1,80 +1,94 @@
 {
   "datasetVersion": 1,
   "generatedAt": "2026-01-01T00:00:00.000Z",
-  "count": 112,
+  "count": 168,
   "categories": [
     {
       "id": "agentic-workflows",
       "label": "agentic-workflows",
-      "count": 8
+      "count": 12
     },
     {
       "id": "architecture",
       "label": "architecture",
-      "count": 8
+      "count": 12
     },
     {
       "id": "code-review",
       "label": "code-review",
-      "count": 8
+      "count": 12
     },
     {
       "id": "coding",
       "label": "coding",
-      "count": 8
+      "count": 12
     },
     {
       "id": "data-analysis",
       "label": "data-analysis",
-      "count": 8
+      "count": 12
     },
     {
       "id": "debugging",
       "label": "debugging",
-      "count": 8
+      "count": 12
     },
     {
       "id": "devops",
       "label": "devops",
-      "count": 8
+      "count": 12
     },
     {
       "id": "documentation",
       "label": "documentation",
-      "count": 8
+      "count": 12
     },
     {
       "id": "meta-prompting",
       "label": "meta-prompting",
-      "count": 8
+      "count": 12
     },
     {
       "id": "product",
       "label": "product",
-      "count": 8
+      "count": 12
     },
     {
       "id": "refactoring",
       "label": "refactoring",
-      "count": 8
+      "count": 12
     },
     {
       "id": "research",
       "label": "research",
-      "count": 8
+      "count": 12
     },
     {
       "id": "testing",
       "label": "testing",
-      "count": 8
+      "count": 12
     },
     {
       "id": "writing",
       "label": "writing",
-      "count": 8
+      "count": 12
     }
   ],
   "prompts": [
+    {
+      "id": "decompose-a-goal-into-agent-tasks",
+      "slug": "decompose-a-goal-into-agent-tasks",
+      "title": "Decompose a Goal into Agent Tasks",
+      "description": "Break a goal into tasks an agent fleet can execute.",
+      "category": "agentic-workflows",
+      "tags": [
+        "decomposition",
+        "planning",
+        "multi-agent"
+      ],
+      "checksum": "a4f41812e226baf7ef3f2d9d20f34fcc9ba6e38874be6d6e23e8a8e0c60c2907",
+      "file": "prompts/agentic-workflows/decompose-a-goal-into-agent-tasks.json"
+    },
     {
       "id": "decompose-into-subtasks",
       "slug": "decompose-into-subtasks",
@@ -118,6 +132,20 @@
       "file": "prompts/agentic-workflows/delegate-to-a-subagent.json"
     },
     {
+      "id": "design-a-verification-loop",
+      "slug": "design-a-verification-loop",
+      "title": "Design a Verification Loop",
+      "description": "Make an agent check its own work before declaring done.",
+      "category": "agentic-workflows",
+      "tags": [
+        "verification",
+        "self-check",
+        "reliability"
+      ],
+      "checksum": "be6079fe57632a10b3a24d21c84409f7cbe10f9212d51cbbe73b5d7e481e7174",
+      "file": "prompts/agentic-workflows/design-a-verification-loop.json"
+    },
+    {
       "id": "explore-then-decide",
       "slug": "explore-then-decide",
       "title": "Explore Then Decide",
@@ -130,6 +158,20 @@
       ],
       "checksum": "6f854da335f51d113da3c1c1b511cab7279dbc1f559242052d7b05cda9b2f2af",
       "file": "prompts/agentic-workflows/explore-then-decide.json"
+    },
+    {
+      "id": "plan-a-multi-agent-fan-out",
+      "slug": "plan-a-multi-agent-fan-out",
+      "title": "Plan a Multi-Agent Fan-out",
+      "description": "Decide how to split work across parallel agents.",
+      "category": "agentic-workflows",
+      "tags": [
+        "multi-agent",
+        "parallelism",
+        "orchestration"
+      ],
+      "checksum": "ab77d213cc339e82d45bd125ea22d38ca7beadc0bcc102984d3cf85fec074e96",
+      "file": "prompts/agentic-workflows/plan-a-multi-agent-fan-out.json"
     },
     {
       "id": "plan-before-acting",
@@ -188,6 +230,33 @@
       "file": "prompts/agentic-workflows/verify-your-own-work.json"
     },
     {
+      "id": "write-a-tool-use-policy",
+      "slug": "write-a-tool-use-policy",
+      "title": "Write a Tool-Use Policy",
+      "description": "Tell an agent which tool to reach for and when.",
+      "category": "agentic-workflows",
+      "tags": [
+        "tool-use",
+        "policy"
+      ],
+      "checksum": "c5ebec562769338d5dfe5c3ef5b425546d8a497df20f1f2c380d0cf073371af6",
+      "file": "prompts/agentic-workflows/write-a-tool-use-policy.json"
+    },
+    {
+      "id": "choose-sync-vs-async",
+      "slug": "choose-sync-vs-async",
+      "title": "Choose Sync vs Async",
+      "description": "Decide whether work should be synchronous or queued.",
+      "category": "architecture",
+      "tags": [
+        "async",
+        "queue",
+        "design"
+      ],
+      "checksum": "c4095b84a3c3a6cbaa9a9c92c0eace8c05bfd3b2990b46f0cbe20ceb135f5bb4",
+      "file": "prompts/architecture/choose-sync-vs-async.json"
+    },
+    {
       "id": "decompose-into-services-or-modules",
       "slug": "decompose-into-services-or-modules",
       "title": "Decompose into Services or Modules",
@@ -200,6 +269,20 @@
       ],
       "checksum": "bb7e477ff2f97c69c94f2ee3f2dea89ada04f2f4b8a3cba020f7dd8320050c20",
       "file": "prompts/architecture/decompose-into-services-or-modules.json"
+    },
+    {
+      "id": "define-service-boundaries",
+      "slug": "define-service-boundaries",
+      "title": "Define Service Boundaries",
+      "description": "Specify what a service owns and how others talk to it.",
+      "category": "architecture",
+      "tags": [
+        "boundaries",
+        "contracts",
+        "api"
+      ],
+      "checksum": "8c6545f96bf1b7f1e48440ed449404261d7eb1848f2dc733e7090db1056e8ff2",
+      "file": "prompts/architecture/define-service-boundaries.json"
     },
     {
       "id": "design-a-data-model",
@@ -227,6 +310,33 @@
       ],
       "checksum": "e4c57e0ea542cd4790b890bed627fcc237d96591c9c364ae26f9d02682657f80",
       "file": "prompts/architecture/design-a-system.json"
+    },
+    {
+      "id": "design-for-idempotency",
+      "slug": "design-for-idempotency",
+      "title": "Design for Idempotency",
+      "description": "Make an operation safe to retry.",
+      "category": "architecture",
+      "tags": [
+        "idempotency",
+        "reliability"
+      ],
+      "checksum": "0f1d597a92603165a9c18aecdfa3e9d0be96fa5a5e7f0ac408e952e56ca1115f",
+      "file": "prompts/architecture/design-for-idempotency.json"
+    },
+    {
+      "id": "estimate-capacity-and-cost",
+      "slug": "estimate-capacity-and-cost",
+      "title": "Estimate Capacity and Cost",
+      "description": "Sanity-check scale and cost before building.",
+      "category": "architecture",
+      "tags": [
+        "capacity",
+        "scale",
+        "cost"
+      ],
+      "checksum": "4e91e8c0a05e709fde1b5075963b9a1d46c38073e8b640a179d29e6802312252",
+      "file": "prompts/architecture/estimate-capacity-and-cost.json"
     },
     {
       "id": "evaluate-architecture-options",
@@ -299,6 +409,20 @@
       "file": "prompts/architecture/write-an-adr.json"
     },
     {
+      "id": "assess-change-risk",
+      "slug": "assess-change-risk",
+      "title": "Assess Change Risk",
+      "description": "Gauge how risky a change is and what to do about it.",
+      "category": "code-review",
+      "tags": [
+        "risk",
+        "review",
+        "rollout"
+      ],
+      "checksum": "2446c74121af0f77177a461c5c863c07545324bdb84624281c4e752168795229",
+      "file": "prompts/code-review/assess-change-risk.json"
+    },
+    {
       "id": "check-naming-and-api-design",
       "slug": "check-naming-and-api-design",
       "title": "Check Naming and API Design",
@@ -340,6 +464,35 @@
       "file": "prompts/code-review/explain-review-feedback.json"
     },
     {
+      "id": "review-a-database-migration",
+      "slug": "review-a-database-migration",
+      "title": "Review a Database Migration",
+      "description": "Catch problems in a schema migration before it ships.",
+      "category": "code-review",
+      "tags": [
+        "database",
+        "migration",
+        "review"
+      ],
+      "checksum": "3ce7c1dbcf724566bd1f940c3ca4c8ea146c47453cd8cc250ac5629c4ed446fd",
+      "file": "prompts/code-review/review-a-database-migration.json"
+    },
+    {
+      "id": "review-for-accessibility",
+      "slug": "review-for-accessibility",
+      "title": "Review for Accessibility",
+      "description": "Check a UI change for accessibility issues.",
+      "category": "code-review",
+      "tags": [
+        "accessibility",
+        "a11y",
+        "ui",
+        "review"
+      ],
+      "checksum": "5cd783c53b9fd5f0919bbfcae6ca1338d63feb2ee98c50f193d22ae6228426e0",
+      "file": "prompts/code-review/review-for-accessibility.json"
+    },
+    {
       "id": "review-for-backward-compatibility",
       "slug": "review-for-backward-compatibility",
       "title": "Review for Backward Compatibility",
@@ -365,6 +518,19 @@
       ],
       "checksum": "c3aa610186fb689cffdc8d009839c9d3ebe455cb54f7e01144bac64a4e92273c",
       "file": "prompts/code-review/review-for-performance.json"
+    },
+    {
+      "id": "review-for-test-quality",
+      "slug": "review-for-test-quality",
+      "title": "Review for Test Quality",
+      "description": "Assess whether a change is adequately tested.",
+      "category": "code-review",
+      "tags": [
+        "tests",
+        "review"
+      ],
+      "checksum": "22b889f28d2bdb836f3c101d15c7e0cc343086d35769e0f869127dc9e682818e",
+      "file": "prompts/code-review/review-for-test-quality.json"
     },
     {
       "id": "review-my-own-pr",
@@ -408,6 +574,19 @@
       "file": "prompts/code-review/thorough-code-review.json"
     },
     {
+      "id": "add-a-caching-layer",
+      "slug": "add-a-caching-layer",
+      "title": "Add a Caching Layer",
+      "description": "Introduce caching to a hot path correctly.",
+      "category": "coding",
+      "tags": [
+        "caching",
+        "performance"
+      ],
+      "checksum": "2d9fbfc17df02b93b9c41a87b85bff4c1e1f4df98acd292d0deef054432ee3d0",
+      "file": "prompts/coding/add-a-caching-layer.json"
+    },
+    {
       "id": "add-feature-to-existing-code",
       "slug": "add-feature-to-existing-code",
       "title": "Add Feature to Existing Code",
@@ -433,6 +612,19 @@
       ],
       "checksum": "9882ab3129fa94d3b821b8e417582e129de751ef7072c1c2834a1a409025291a",
       "file": "prompts/coding/add-robust-error-handling.json"
+    },
+    {
+      "id": "choose-a-data-structure",
+      "slug": "choose-a-data-structure",
+      "title": "Choose a Data Structure",
+      "description": "Pick the right data structure for an access pattern.",
+      "category": "coding",
+      "tags": [
+        "data-structures",
+        "performance"
+      ],
+      "checksum": "1b3a74bcae1aec4ee46ffa3993f2b7398d902fd8d9c4fbe92eefa68ded97e4b4",
+      "file": "prompts/coding/choose-a-data-structure.json"
     },
     {
       "id": "concurrency-safe-implementation",
@@ -462,6 +654,19 @@
       "file": "prompts/coding/convert-pseudocode-to-code.json"
     },
     {
+      "id": "design-a-regular-expression",
+      "slug": "design-a-regular-expression",
+      "title": "Design a Regular Expression",
+      "description": "Build and explain a regex for a specific matching task.",
+      "category": "coding",
+      "tags": [
+        "regex",
+        "parsing"
+      ],
+      "checksum": "8ad68afcf850b52b609cfbdf4afa3bda68cc53f2c806fd06cb3d3b08fcf15b32",
+      "file": "prompts/coding/design-a-regular-expression.json"
+    },
+    {
       "id": "explain-this-code",
       "slug": "explain-this-code",
       "title": "Explain This Code",
@@ -474,6 +679,19 @@
       ],
       "checksum": "fa4261898badbe467df047ed1f8b9a857a77311e13fce02bf6c8d1fbef2e547a",
       "file": "prompts/coding/explain-this-code.json"
+    },
+    {
+      "id": "implement-a-state-machine",
+      "slug": "implement-a-state-machine",
+      "title": "Implement a State Machine",
+      "description": "Model a process as an explicit finite state machine.",
+      "category": "coding",
+      "tags": [
+        "state-machine",
+        "modeling"
+      ],
+      "checksum": "14d80a6bba316f8224ccfdfd45087de2540a20d369faacbb0d924018e8679590",
+      "file": "prompts/coding/implement-a-state-machine.json"
     },
     {
       "id": "implement-an-api-client",
@@ -532,6 +750,45 @@
       "file": "prompts/data-analysis/build-a-data-pipeline.json"
     },
     {
+      "id": "build-an-analysis-plan",
+      "slug": "build-an-analysis-plan",
+      "title": "Build an Analysis Plan",
+      "description": "Decide how to answer a question before touching the data.",
+      "category": "data-analysis",
+      "tags": [
+        "analysis",
+        "planning"
+      ],
+      "checksum": "9b6874cc3d085c6d6d26fc541f56c609f9b28416e1276d540b023219071996af",
+      "file": "prompts/data-analysis/build-an-analysis-plan.json"
+    },
+    {
+      "id": "choose-the-right-chart",
+      "slug": "choose-the-right-chart",
+      "title": "Choose the Right Chart",
+      "description": "Pick a visualization that fits the data and message.",
+      "category": "data-analysis",
+      "tags": [
+        "visualization",
+        "charts"
+      ],
+      "checksum": "792eca93424416acc65e3adad701039d5545368e4a7b90550855d96510cfedad",
+      "file": "prompts/data-analysis/choose-the-right-chart.json"
+    },
+    {
+      "id": "clean-a-messy-dataset",
+      "slug": "clean-a-messy-dataset",
+      "title": "Clean a Messy Dataset",
+      "description": "Plan the cleaning a dataset needs before analysis.",
+      "category": "data-analysis",
+      "tags": [
+        "cleaning",
+        "data-quality"
+      ],
+      "checksum": "f39a46b12ef49bc9aaaf3b6af85c5c155d4a14a06455ba1cf4ec92dc4abb9e3a",
+      "file": "prompts/data-analysis/clean-a-messy-dataset.json"
+    },
+    {
       "id": "clean-and-validate-data",
       "slug": "clean-and-validate-data",
       "title": "Clean and Validate Data",
@@ -585,6 +842,19 @@
       ],
       "checksum": "19565de24bd927225b9a3ec1f8705efa91916b68a5f16ae269cee1b4d6cd4b65",
       "file": "prompts/data-analysis/exploratory-data-analysis-plan.json"
+    },
+    {
+      "id": "interpret-a-statistical-result",
+      "slug": "interpret-a-statistical-result",
+      "title": "Interpret a Statistical Result",
+      "description": "Understand what a result does and doesn't say.",
+      "category": "data-analysis",
+      "tags": [
+        "statistics",
+        "interpretation"
+      ],
+      "checksum": "7d491597a833f0a80853d93e35b90512d1a1f2382e2ed5b7c78bbd13423a3f7f",
+      "file": "prompts/data-analysis/interpret-a-statistical-result.json"
     },
     {
       "id": "interpret-results-honestly",
@@ -656,6 +926,19 @@
       "file": "prompts/debugging/bisect-a-regression.json"
     },
     {
+      "id": "compare-expected-vs-actual",
+      "slug": "compare-expected-vs-actual",
+      "title": "Compare Expected vs Actual",
+      "description": "Systematically find where two outputs diverge.",
+      "category": "debugging",
+      "tags": [
+        "diff",
+        "comparison"
+      ],
+      "checksum": "f9004ddea178e55a9efdcfa446e5145d9169367b018f8cb9d037a07687e613ea",
+      "file": "prompts/debugging/compare-expected-vs-actual.json"
+    },
+    {
       "id": "debug-failing-test",
       "slug": "debug-failing-test",
       "title": "Debug Failing Test",
@@ -668,6 +951,33 @@
       ],
       "checksum": "05690158a0d09815c8d694b621572b37e81b002d61a592952e87ed0c622d3a7a",
       "file": "prompts/debugging/debug-failing-test.json"
+    },
+    {
+      "id": "diagnose-a-deadlock",
+      "slug": "diagnose-a-deadlock",
+      "title": "Diagnose a Deadlock",
+      "description": "Find why concurrent code hangs.",
+      "category": "debugging",
+      "tags": [
+        "deadlock",
+        "concurrency"
+      ],
+      "checksum": "bd3a54cc32fcbb175c2a4a5a17ec05d859ca70b6b4a2f7b3d4b8cde0c8cd5900",
+      "file": "prompts/debugging/diagnose-a-deadlock.json"
+    },
+    {
+      "id": "diagnose-a-memory-leak",
+      "slug": "diagnose-a-memory-leak",
+      "title": "Diagnose a Memory Leak",
+      "description": "Find what is retaining memory that should be freed.",
+      "category": "debugging",
+      "tags": [
+        "memory",
+        "leak",
+        "profiling"
+      ],
+      "checksum": "f0b235ec5027dbc41659fb0b876632adf0be4e2b90eccd47a4dafa16b0cfda66",
+      "file": "prompts/debugging/diagnose-a-memory-leak.json"
     },
     {
       "id": "explain-this-error",
@@ -724,6 +1034,19 @@
       "file": "prompts/debugging/root-cause-analysis.json"
     },
     {
+      "id": "validate-an-assumption",
+      "slug": "validate-an-assumption",
+      "title": "Validate an Assumption",
+      "description": "Test a belief you are relying on while debugging.",
+      "category": "debugging",
+      "tags": [
+        "assumptions",
+        "verification"
+      ],
+      "checksum": "519dd2178be5f4cb93ff83386563aef3b32f04f923b2772bb29871e61aab9ff6",
+      "file": "prompts/debugging/validate-an-assumption.json"
+    },
+    {
       "id": "why-is-this-slow",
       "slug": "why-is-this-slow",
       "title": "Why Is This Slow?",
@@ -765,6 +1088,20 @@
       "file": "prompts/devops/debug-a-failing-deploy.json"
     },
     {
+      "id": "design-a-backup-and-restore-plan",
+      "slug": "design-a-backup-and-restore-plan",
+      "title": "Design a Backup and Restore Plan",
+      "description": "Plan backups you can actually restore from.",
+      "category": "devops",
+      "tags": [
+        "backup",
+        "restore",
+        "disaster-recovery"
+      ],
+      "checksum": "0cb666f040fb59c11428cfc9fa3480a26f84b84c4a5628312e807e82e2f69a8b",
+      "file": "prompts/devops/design-a-backup-and-restore-plan.json"
+    },
+    {
       "id": "harden-a-shell-script",
       "slug": "harden-a-shell-script",
       "title": "Harden a Shell Script",
@@ -793,6 +1130,20 @@
       "file": "prompts/devops/incident-response-walkthrough.json"
     },
     {
+      "id": "right-size-resource-limits",
+      "slug": "right-size-resource-limits",
+      "title": "Right-size Resource Limits",
+      "description": "Set CPU and memory requests and limits sensibly.",
+      "category": "devops",
+      "tags": [
+        "resources",
+        "tuning",
+        "cost"
+      ],
+      "checksum": "523d7764dd760c6648bd1cde0470f9d9decd0ca74d025fa5362fd3ad4a7b5594",
+      "file": "prompts/devops/right-size-resource-limits.json"
+    },
+    {
       "id": "set-up-observability",
       "slug": "set-up-observability",
       "title": "Set Up Observability",
@@ -805,6 +1156,20 @@
       ],
       "checksum": "61dde105b6604a58cd1632b1de84c2fc61aeaf3ae64a4bda0712f059695960e2",
       "file": "prompts/devops/set-up-observability.json"
+    },
+    {
+      "id": "speed-up-a-slow-ci-pipeline",
+      "slug": "speed-up-a-slow-ci-pipeline",
+      "title": "Speed Up a Slow CI Pipeline",
+      "description": "Make CI faster without losing safety.",
+      "category": "devops",
+      "tags": [
+        "ci",
+        "performance",
+        "caching"
+      ],
+      "checksum": "ff7a394b7f2219496cecf3d358aa5e66dfcb8bf80fb51c73d2dabe0eec2edf78",
+      "file": "prompts/devops/speed-up-a-slow-ci-pipeline.json"
     },
     {
       "id": "write-a-deployment-runbook",
@@ -834,6 +1199,20 @@
       "file": "prompts/devops/write-a-dockerfile.json"
     },
     {
+      "id": "write-a-kubernetes-manifest",
+      "slug": "write-a-kubernetes-manifest",
+      "title": "Write a Kubernetes Manifest",
+      "description": "Produce a sound Kubernetes deployment for a service.",
+      "category": "devops",
+      "tags": [
+        "kubernetes",
+        "k8s",
+        "deploy"
+      ],
+      "checksum": "d2aa7d2431f271cdb611f5717ad6542bdd47f1f8b2328f562a87bb334f7e85e2",
+      "file": "prompts/devops/write-a-kubernetes-manifest.json"
+    },
+    {
       "id": "write-infrastructure-as-code",
       "slug": "write-infrastructure-as-code",
       "title": "Write Infrastructure as Code",
@@ -846,6 +1225,20 @@
       ],
       "checksum": "8904bd78ccf8c7a915d814b0e6fe418466167dd7e062d5960c36ed85718dabcb",
       "file": "prompts/devops/write-infrastructure-as-code.json"
+    },
+    {
+      "id": "document-a-configuration-reference",
+      "slug": "document-a-configuration-reference",
+      "title": "Document a Configuration Reference",
+      "description": "Produce a complete, scannable config reference.",
+      "category": "documentation",
+      "tags": [
+        "config",
+        "reference",
+        "docs"
+      ],
+      "checksum": "da1728f7752a89f65a2488c2016e9c98926d1c6cde584f3ca8e09c4b60f9b528",
+      "file": "prompts/documentation/document-a-configuration-reference.json"
     },
     {
       "id": "document-a-function",
@@ -889,6 +1282,20 @@
       "file": "prompts/documentation/explain-a-concept-clearly.json"
     },
     {
+      "id": "explain-a-decision-for-newcomers",
+      "slug": "explain-a-decision-for-newcomers",
+      "title": "Explain a Decision for Newcomers",
+      "description": "Write down why something is the way it is.",
+      "category": "documentation",
+      "tags": [
+        "onboarding",
+        "rationale",
+        "docs"
+      ],
+      "checksum": "db9a1a71dc3f8436ea6d0ced9356492152ddd9a9900c854e1f066ef82ac93592",
+      "file": "prompts/documentation/explain-a-decision-for-newcomers.json"
+    },
+    {
       "id": "generate-a-changelog-entry",
       "slug": "generate-a-changelog-entry",
       "title": "Generate a Changelog Entry",
@@ -930,6 +1337,20 @@
       "file": "prompts/documentation/write-a-readme.json"
     },
     {
+      "id": "write-a-troubleshooting-guide",
+      "slug": "write-a-troubleshooting-guide",
+      "title": "Write a Troubleshooting Guide",
+      "description": "Help users diagnose common failures themselves.",
+      "category": "documentation",
+      "tags": [
+        "troubleshooting",
+        "docs",
+        "support"
+      ],
+      "checksum": "926e942e3d737d03d1e2b6df282478fcb9b9ca1d99b169047ae042c2bd25f4e2",
+      "file": "prompts/documentation/write-a-troubleshooting-guide.json"
+    },
+    {
       "id": "write-api-reference-from-code",
       "slug": "write-api-reference-from-code",
       "title": "Write API Reference from Code",
@@ -956,6 +1377,20 @@
       "file": "prompts/documentation/write-inline-comments.json"
     },
     {
+      "id": "write-release-notes",
+      "slug": "write-release-notes",
+      "title": "Write Release Notes",
+      "description": "Summarize a release for the people who use it.",
+      "category": "documentation",
+      "tags": [
+        "release-notes",
+        "changelog",
+        "communication"
+      ],
+      "checksum": "3969731ecb10c6e41243e3a445c961fa4624ba1a69d344291062b7de9535566a",
+      "file": "prompts/documentation/write-release-notes.json"
+    },
+    {
       "id": "add-few-shot-examples",
       "slug": "add-few-shot-examples",
       "title": "Add Few-Shot Examples",
@@ -968,6 +1403,32 @@
       ],
       "checksum": "37d814e65f35f7fd025ff0690d25f435051ecd4bd8534e9e650e427b91834300",
       "file": "prompts/meta-prompting/add-few-shot-examples.json"
+    },
+    {
+      "id": "convert-instructions-to-a-system-prompt",
+      "slug": "convert-instructions-to-a-system-prompt",
+      "title": "Convert Instructions to a System Prompt",
+      "description": "Turn ad-hoc guidance into a reusable system prompt.",
+      "category": "meta-prompting",
+      "tags": [
+        "system-prompt",
+        "reuse"
+      ],
+      "checksum": "202667d608498b693d26195d1efa7408f073acf68636029a69d17ed2b86db6ef",
+      "file": "prompts/meta-prompting/convert-instructions-to-a-system-prompt.json"
+    },
+    {
+      "id": "critique-and-improve-a-prompt",
+      "slug": "critique-and-improve-a-prompt",
+      "title": "Critique and Improve a Prompt",
+      "description": "Diagnose why a prompt underperforms and fix it.",
+      "category": "meta-prompting",
+      "tags": [
+        "prompt-engineering",
+        "critique"
+      ],
+      "checksum": "338de0cec7f82b3339e012adae2488b16ff407c2f9facbc8667416dccd7f90bc",
+      "file": "prompts/meta-prompting/critique-and-improve-a-prompt.json"
     },
     {
       "id": "debug-a-bad-ai-response",
@@ -1023,6 +1484,33 @@
       ],
       "checksum": "a872c602d71ccd993a356a0c9ea67f6d17cab1852f6514e732e16c3c94a3bd9e",
       "file": "prompts/meta-prompting/improve-my-prompt.json"
+    },
+    {
+      "id": "make-a-prompt-robust-to-edge-cases",
+      "slug": "make-a-prompt-robust-to-edge-cases",
+      "title": "Make a Prompt Robust to Edge Cases",
+      "description": "Harden a prompt against the inputs that break it.",
+      "category": "meta-prompting",
+      "tags": [
+        "robustness",
+        "edge-cases"
+      ],
+      "checksum": "53f1fd7c2b6e8978678caa95e008bed90bdf27852f17ec37a7e47534388a9638",
+      "file": "prompts/meta-prompting/make-a-prompt-robust-to-edge-cases.json"
+    },
+    {
+      "id": "reduce-a-prompt-s-token-cost",
+      "slug": "reduce-a-prompt-s-token-cost",
+      "title": "Reduce a Prompt's Token Cost",
+      "description": "Cut a prompt's token footprint without losing quality.",
+      "category": "meta-prompting",
+      "tags": [
+        "tokens",
+        "cost",
+        "optimization"
+      ],
+      "checksum": "5e9e10e2e25edf92d7d0a842b353fccad0c41465cefc623ead80bab895934700",
+      "file": "prompts/meta-prompting/reduce-a-prompt-s-token-cost.json"
     },
     {
       "id": "specify-an-output-format",
@@ -1081,6 +1569,20 @@
       "file": "prompts/product/critique-a-feature-idea.json"
     },
     {
+      "id": "decide-build-vs-buy",
+      "slug": "decide-build-vs-buy",
+      "title": "Decide Build vs Buy",
+      "description": "Reason through building something yourself versus adopting it.",
+      "category": "product",
+      "tags": [
+        "build-vs-buy",
+        "decision",
+        "tradeoffs"
+      ],
+      "checksum": "df20ea2f6d46785980131647ffa9a439efa0d963d839934e1721bc6fd731e921",
+      "file": "prompts/product/decide-build-vs-buy.json"
+    },
+    {
       "id": "define-success-metrics",
       "slug": "define-success-metrics",
       "title": "Define Success Metrics",
@@ -1121,6 +1623,19 @@
       ],
       "checksum": "7f488935f8eb734f2cfbd6a2fea413adabe09e830b1839f26b74b6af550980ce",
       "file": "prompts/product/prioritize-a-backlog.json"
+    },
+    {
+      "id": "prioritize-with-rice",
+      "slug": "prioritize-with-rice",
+      "title": "Prioritize with RICE",
+      "description": "Rank competing initiatives objectively.",
+      "category": "product",
+      "tags": [
+        "prioritization",
+        "rice"
+      ],
+      "checksum": "da3ce2842f6f9586a75ee0b424e6a04d2a4a735a3856b1afd41b5309b69cf717",
+      "file": "prompts/product/prioritize-with-rice.json"
     },
     {
       "id": "run-a-pre-mortem",
@@ -1165,6 +1680,19 @@
       "file": "prompts/product/write-a-prd.json"
     },
     {
+      "id": "write-a-problem-statement",
+      "slug": "write-a-problem-statement",
+      "title": "Write a Problem Statement",
+      "description": "Sharpen a vague problem before proposing solutions.",
+      "category": "product",
+      "tags": [
+        "problem-framing",
+        "discovery"
+      ],
+      "checksum": "d26d94d0efa57a2afd665864f181526a41dfe7839fa17c9b0f2f86100bc5f591",
+      "file": "prompts/product/write-a-problem-statement.json"
+    },
+    {
       "id": "write-a-user-story",
       "slug": "write-a-user-story",
       "title": "Write a User Story",
@@ -1177,6 +1705,19 @@
       ],
       "checksum": "62c737cce3412f43d3edf9f47e86002c23d2a00c84c6019747e12d271e57d65e",
       "file": "prompts/product/write-a-user-story.json"
+    },
+    {
+      "id": "write-a-user-story-with-acceptance-criteria",
+      "slug": "write-a-user-story-with-acceptance-criteria",
+      "title": "Write a User Story with Acceptance Criteria",
+      "description": "Turn a feature idea into a buildable, testable story.",
+      "category": "product",
+      "tags": [
+        "user-story",
+        "acceptance-criteria"
+      ],
+      "checksum": "3c8131bc8166dae686ccc138398373d990cb491cada71fbfaa69bbd4edb3b07b",
+      "file": "prompts/product/write-a-user-story-with-acceptance-criteria.json"
     },
     {
       "id": "extract-and-decompose",
@@ -1271,6 +1812,45 @@
       "file": "prompts/refactoring/remove-duplication.json"
     },
     {
+      "id": "rename-for-clarity",
+      "slug": "rename-for-clarity",
+      "title": "Rename for Clarity",
+      "description": "Propose better names for confusing identifiers.",
+      "category": "refactoring",
+      "tags": [
+        "naming",
+        "readability"
+      ],
+      "checksum": "97acab4068f6faec1d4db0d630187fa1408e0e78afcf54383cf3533871f5c8d5",
+      "file": "prompts/refactoring/rename-for-clarity.json"
+    },
+    {
+      "id": "replace-conditional-with-polymorphism",
+      "slug": "replace-conditional-with-polymorphism",
+      "title": "Replace Conditional with Polymorphism",
+      "description": "Turn a sprawling type-switch into polymorphic dispatch, or leave it.",
+      "category": "refactoring",
+      "tags": [
+        "polymorphism",
+        "conditionals"
+      ],
+      "checksum": "d8ea156d8bc7ac4192270694b77ad992b33e363e959aaacb3387099a1af81d47",
+      "file": "prompts/refactoring/replace-conditional-with-polymorphism.json"
+    },
+    {
+      "id": "simplify-a-boolean-expression",
+      "slug": "simplify-a-boolean-expression",
+      "title": "Simplify a Boolean Expression",
+      "description": "Make complex conditional logic readable and correct.",
+      "category": "refactoring",
+      "tags": [
+        "boolean-logic",
+        "conditionals"
+      ],
+      "checksum": "2e7d99a0d99ceb1f5ac1fc0add02d531163c522c68e5fd2c522b161843eff879",
+      "file": "prompts/refactoring/simplify-a-boolean-expression.json"
+    },
+    {
       "id": "tidy-first-then-change",
       "slug": "tidy-first-then-change",
       "title": "Tidy First, Then Change",
@@ -1282,6 +1862,19 @@
       ],
       "checksum": "46c86a98a4e88a534f9e2068dbba1cfc0424d10a6a39bae05ced78d9667d2e70",
       "file": "prompts/refactoring/tidy-first-then-change.json"
+    },
+    {
+      "id": "untangle-a-circular-dependency",
+      "slug": "untangle-a-circular-dependency",
+      "title": "Untangle a Circular Dependency",
+      "description": "Break a cycle between modules.",
+      "category": "refactoring",
+      "tags": [
+        "dependencies",
+        "modularity"
+      ],
+      "checksum": "be70c8038ca107b3d558de0c2040a2795c81409a1be2cf23b7855d300aaf3e42",
+      "file": "prompts/refactoring/untangle-a-circular-dependency.json"
     },
     {
       "id": "compare-options",
@@ -1296,6 +1889,20 @@
       ],
       "checksum": "a7e434af9186602969177a5c042b8792df5c1a3ac4577ccfcab27da2ab5410ba",
       "file": "prompts/research/compare-options.json"
+    },
+    {
+      "id": "compare-options-with-a-decision-matrix",
+      "slug": "compare-options-with-a-decision-matrix",
+      "title": "Compare Options with a Decision Matrix",
+      "description": "Evaluate choices against weighted criteria.",
+      "category": "research",
+      "tags": [
+        "decision",
+        "comparison",
+        "tradeoffs"
+      ],
+      "checksum": "494d4947eb40cef5633ec4e7fa2454fb4f46ea6f35b3c59b0a82bc6a50a14a2a",
+      "file": "prompts/research/compare-options-with-a-decision-matrix.json"
     },
     {
       "id": "devise-experiments-to-decide",
@@ -1326,6 +1933,19 @@
       "file": "prompts/research/evaluate-a-claim-s-evidence.json"
     },
     {
+      "id": "find-the-strongest-counterargument",
+      "slug": "find-the-strongest-counterargument",
+      "title": "Find the Strongest Counterargument",
+      "description": "Stress-test a position by steelmanning the other side.",
+      "category": "research",
+      "tags": [
+        "critical-thinking",
+        "steelman"
+      ],
+      "checksum": "8d64d118bf2dba24b062950c14ec5c98427a0577a989083090b682173607fa14",
+      "file": "prompts/research/find-the-strongest-counterargument.json"
+    },
+    {
       "id": "learn-a-new-topic-fast",
       "slug": "learn-a-new-topic-fast",
       "title": "Learn a New Topic Fast",
@@ -1354,6 +1974,19 @@
       "file": "prompts/research/literature-prior-art-scan.json"
     },
     {
+      "id": "plan-a-literature-search",
+      "slug": "plan-a-literature-search",
+      "title": "Plan a Literature Search",
+      "description": "Find what's known about a topic systematically.",
+      "category": "research",
+      "tags": [
+        "search",
+        "literature"
+      ],
+      "checksum": "28a1a1a5feb17dddcc0cea6c7e849accd5aa2af0486cafb9edf601735d2831cd",
+      "file": "prompts/research/plan-a-literature-search.json"
+    },
+    {
       "id": "question-decomposition",
       "slug": "question-decomposition",
       "title": "Question Decomposition",
@@ -1379,6 +2012,19 @@
       ],
       "checksum": "88ee3a2c3779e1112783f14a5a5f27372932bdb8128594e89966ad5609071385",
       "file": "prompts/research/steelman-and-critique.json"
+    },
+    {
+      "id": "summarize-a-source-for-a-goal",
+      "slug": "summarize-a-source-for-a-goal",
+      "title": "Summarize a Source for a Goal",
+      "description": "Extract from a text only what serves your purpose.",
+      "category": "research",
+      "tags": [
+        "summarizing",
+        "synthesis"
+      ],
+      "checksum": "a593bdcd017d9cedeea277a2c715587318c452bdda96b1a26279a61e1a109977",
+      "file": "prompts/research/summarize-a-source-for-a-goal.json"
     },
     {
       "id": "synthesize-multiple-sources",
@@ -1435,6 +2081,19 @@
       "file": "prompts/testing/increase-test-coverage.json"
     },
     {
+      "id": "mock-or-use-the-real-thing",
+      "slug": "mock-or-use-the-real-thing",
+      "title": "Mock or Use the Real Thing",
+      "description": "Decide what to fake in a test and what to keep real.",
+      "category": "testing",
+      "tags": [
+        "mocking",
+        "test-design"
+      ],
+      "checksum": "43575a13e4a8de35cb3f6333bd4f8c6c8769241441a5f386e0172ec9fdfa7af9",
+      "file": "prompts/testing/mock-or-use-the-real-thing.json"
+    },
+    {
       "id": "property-based-tests",
       "slug": "property-based-tests",
       "title": "Property-Based Tests",
@@ -1462,6 +2121,20 @@
       "file": "prompts/testing/review-test-quality.json"
     },
     {
+      "id": "snapshot-vs-assertion",
+      "slug": "snapshot-vs-assertion",
+      "title": "Snapshot vs Assertion",
+      "description": "Choose the right testing technique for an output.",
+      "category": "testing",
+      "tags": [
+        "snapshot",
+        "assertions",
+        "test-design"
+      ],
+      "checksum": "560a6e7fd18201d2ca8793973f14d33eedcc6f180c1c3aee492e68fc7b442523",
+      "file": "prompts/testing/snapshot-vs-assertion.json"
+    },
+    {
       "id": "test-driven-development",
       "slug": "test-driven-development",
       "title": "Test-Driven Development",
@@ -1473,6 +2146,32 @@
       ],
       "checksum": "04c024c8572af80740827198cd1b009069c022adc712605edf6ba85f24133621",
       "file": "prompts/testing/test-driven-development.json"
+    },
+    {
+      "id": "test-error-paths",
+      "slug": "test-error-paths",
+      "title": "Test Error Paths",
+      "description": "Write tests for the failure cases, not just the happy path.",
+      "category": "testing",
+      "tags": [
+        "error-paths",
+        "negative-tests"
+      ],
+      "checksum": "72a027dc8fa45048cc2f448d29ea90535744343f7161b7fcf0f5068ced1aa4e8",
+      "file": "prompts/testing/test-error-paths.json"
+    },
+    {
+      "id": "write-a-test-plan",
+      "slug": "write-a-test-plan",
+      "title": "Write a Test Plan",
+      "description": "Plan what to test before writing any tests.",
+      "category": "testing",
+      "tags": [
+        "test-plan",
+        "strategy"
+      ],
+      "checksum": "985ed19267a5c9623eafe08e3f87e2fbd8c391f9fb735622d179105b564838ce",
+      "file": "prompts/testing/write-a-test-plan.json"
     },
     {
       "id": "write-an-integration-test",
@@ -1499,6 +2198,19 @@
       ],
       "checksum": "4f213264f5507a97239982c58c6535b731d191de2e94c37ebc02599e0ee09e5c",
       "file": "prompts/testing/write-unit-tests.json"
+    },
+    {
+      "id": "adapt-tone-for-an-audience",
+      "slug": "adapt-tone-for-an-audience",
+      "title": "Adapt Tone for an Audience",
+      "description": "Rewrite the same content for a different reader.",
+      "category": "writing",
+      "tags": [
+        "tone",
+        "audience"
+      ],
+      "checksum": "d5b4214e7dd83a324b863352e4168c6813ada9db10a4073092dbeef8542b8553",
+      "file": "prompts/writing/adapt-tone-for-an-audience.json"
     },
     {
       "id": "adjust-tone",
@@ -1568,6 +2280,19 @@
       "file": "prompts/writing/rewrite-to-remove-jargon.json"
     },
     {
+      "id": "structure-a-long-document",
+      "slug": "structure-a-long-document",
+      "title": "Structure a Long Document",
+      "description": "Find the right outline for a sprawling piece.",
+      "category": "writing",
+      "tags": [
+        "structure",
+        "outline"
+      ],
+      "checksum": "1afa1db8a8e40aa42452451d704c8106f472766723c04ac866ba1eafa9fe1201",
+      "file": "prompts/writing/structure-a-long-document.json"
+    },
+    {
       "id": "summarize-a-document",
       "slug": "summarize-a-document",
       "title": "Summarize a Document",
@@ -1579,6 +2304,19 @@
       ],
       "checksum": "61ac70c14f36c2a742ffc8fe513a02187a29ccd8e80d3bc4a66c1a1233532537",
       "file": "prompts/writing/summarize-a-document.json"
+    },
+    {
+      "id": "tighten-wordy-prose",
+      "slug": "tighten-wordy-prose",
+      "title": "Tighten Wordy Prose",
+      "description": "Cut a passage down without losing meaning.",
+      "category": "writing",
+      "tags": [
+        "editing",
+        "concision"
+      ],
+      "checksum": "197626a22eeff96d77527a73acb768acd2a66c595127b46c7d55a487080fa1a6",
+      "file": "prompts/writing/tighten-wordy-prose.json"
     },
     {
       "id": "write-a-commit-message",
@@ -1606,6 +2344,19 @@
       ],
       "checksum": "0de0954b480f98742c6b76ae990c6e6c1a81b9297dfb46823c070328a3c4d309",
       "file": "prompts/writing/write-a-proposal.json"
+    },
+    {
+      "id": "write-a-strong-opening",
+      "slug": "write-a-strong-opening",
+      "title": "Write a Strong Opening",
+      "description": "Draft openings that earn the reader's attention.",
+      "category": "writing",
+      "tags": [
+        "openings",
+        "hooks"
+      ],
+      "checksum": "bc8d70d9e86cf3df04cfb18fe4512a91b91807ce18480fbfbacdbda86cb131f0",
+      "file": "prompts/writing/write-a-strong-opening.json"
     }
   ]
 }

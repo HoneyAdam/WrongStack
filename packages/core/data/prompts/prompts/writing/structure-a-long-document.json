@@ -1,0 +1,24 @@
+{
+  "id": "structure-a-long-document",
+  "slug": "structure-a-long-document",
+  "title": "Structure a Long Document",
+  "description": "Find the right outline for a sprawling piece.",
+  "content": "I need to structure a long piece covering: {{material}}\n\nPropose an outline that gives the reader a clear path. Decide the organizing principle (chronological, by theme, problem-then-solution, general-to-specific) and justify it for this material. Show the section flow and what each section must accomplish. Flag where a reader would get lost or lose momentum, and what to cut or move. Lead with what the reader most needs first.",
+  "category": "writing",
+  "tags": [
+    "structure",
+    "outline"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "1afa1db8a8e40aa42452451d704c8106f472766723c04ac866ba1eafa9fe1201",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "material",
+      "description": "What the piece must cover",
+      "required": true
+    }
+  ]
+}
