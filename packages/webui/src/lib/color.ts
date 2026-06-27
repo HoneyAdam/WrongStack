@@ -22,8 +22,9 @@ function parseOklch(value: string): [number, number, number] | null {
   const L = parts[0].endsWith('%')
     ? Number.parseFloat(parts[0]) / 100
     : Number.parseFloat(parts[0]);
+  // Chroma percentage reference (CSS Color 4): 100% → 0.4. L stays 100% → 1.0.
   const C = parts[1].endsWith('%')
-    ? Number.parseFloat(parts[1]) / 100
+    ? (Number.parseFloat(parts[1]) / 100) * 0.4
     : Number.parseFloat(parts[1]);
   const H = Number.parseFloat(parts[2].replace(/deg$/i, ''));
   if (![L, C, H].every(Number.isFinite)) return null;

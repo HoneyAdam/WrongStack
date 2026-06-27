@@ -10,6 +10,15 @@ describe('design-color — OKLCH conversion', () => {
     expect(parseOklch('#fff')).toBeNull();
   });
 
+  it('scales chroma percentage by the CSS Color 4 reference (100% → 0.4)', () => {
+    // Chroma `50%` must parse to 0.20, not 0.50 — L & alpha stay 100% → 1.0.
+    expect(parseOklch('oklch(62% 50% 145)')).toEqual([0.62, 0.2, 145, 1]);
+    // A percent-chroma token must convert identically to its bare-number twin.
+    expect(oklchToHex('oklch(62.79% 64.43% 29.23)')).toBe(
+      oklchToHex('oklch(62.79% 0.2577 29.23)'),
+    );
+  });
+
   it('converts achromatic endpoints exactly', () => {
     expect(oklchToHex('oklch(0% 0 0)')).toBe('#000000');
     expect(oklchToHex('oklch(100% 0 0)')).toBe('#ffffff');

@@ -38,12 +38,19 @@ export function parseOklch(value: string): [number, number, number, number] | nu
   return [clamp(L, 0, 1), Math.max(0, C), H, a];
 }
 
-/** Parse a lightness/chroma/alpha component: `62%` → 0.62, `0.62` → 0.62. */
+/**
+ * Parse a lightness/chroma/alpha component. `percentIsFraction` selects the
+ * percentage reference range (CSS Color 4):
+ *   - L & alpha (`true`):  100% → 1.0   (`62%` → 0.62)
+ *   - chroma   (`false`):  100% → 0.4   (`50%` → 0.20)
+ * A bare number passes through unchanged for all three.
+ */
 function parseComponent(s: string, percentIsFraction: boolean): number | null {
   s = s.trim();
   if (s.endsWith('%')) {
     const n = Number.parseFloat(s.slice(0, -1));
-    return Number.isFinite(n) ? (percentIsFraction ? n / 100 : n / 100) : null;
+    if (!Number.isFinite(n)) return null;
+    return percentIsFraction ? n / 100 : (n / 100) * 0.4;
   }
   const n = Number.parseFloat(s);
   return Number.isFinite(n) ? n : null;
