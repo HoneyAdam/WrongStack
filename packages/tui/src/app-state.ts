@@ -258,8 +258,10 @@ export type State = {
   promptPicker: {
     open: boolean;
     all: PromptPickEntry[];
-    /** ['all', ...distinct categories]. */
+    /** ['all', '🕘 recent'?, '★ favorites'?, ...distinct categories]. */
     categories: string[];
+    /** Recently-used slugs (most-recent first) backing the "🕘 recent" view. */
+    recentSlugs: string[];
     catIndex: number;
     selected: number;
   };
@@ -772,7 +774,7 @@ export type Action =
   | { type: 'designPickerClose' }
   | { type: 'designPickerMove'; delta: number }
   | { type: 'designPickerStack'; stack: string }
-  | { type: 'promptPickerOpen'; all: PromptPickEntry[]; categories: string[] }
+  | { type: 'promptPickerOpen'; all: PromptPickEntry[]; categories: string[]; recentSlugs: string[] }
   | { type: 'promptPickerClose' }
   | { type: 'promptPickerMove'; delta: number }
   | { type: 'promptPickerCategory'; delta: number }

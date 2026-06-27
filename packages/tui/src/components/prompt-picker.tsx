@@ -30,16 +30,22 @@ function getVisibleWindow(selected: number, total: number): { start: number; end
 
 /**
  * Apply the picker's category filter. catIndex 0 (= "all") returns everything;
- * the special "★ favorites" pseudo-category filters by the favorite flag.
+ * "★ favorites" filters by the favorite flag; "🕘 recent" orders by the
+ * recently-used slug list (most-recent first).
  */
 export function filterPromptPicker(
   all: PromptPickEntry[],
   categories: string[],
   catIndex: number,
+  recentSlugs: string[] = [],
 ): PromptPickEntry[] {
   const cat = categories[catIndex];
   if (!cat || cat === 'all') return all;
   if (cat === '★ favorites') return all.filter((e) => e.favorite);
+  if (cat === '🕘 recent') {
+    const bySlug = new Map(all.map((e) => [e.slug, e]));
+    return recentSlugs.map((s) => bySlug.get(s)).filter((e): e is PromptPickEntry => Boolean(e));
+  }
   return all.filter((e) => e.category === cat);
 }
 

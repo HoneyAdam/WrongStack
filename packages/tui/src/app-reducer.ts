@@ -603,6 +603,7 @@ export function reducer(state: State, action: Action): State {
           open: true,
           all: action.all,
           categories: action.categories,
+          recentSlugs: action.recentSlugs,
           catIndex: 0,
           selected: 0,
         },
@@ -617,6 +618,7 @@ export function reducer(state: State, action: Action): State {
         state.promptPicker.all,
         state.promptPicker.categories,
         state.promptPicker.catIndex,
+        state.promptPicker.recentSlugs,
       );
       const n = filt.length;
       if (n === 0) return state;

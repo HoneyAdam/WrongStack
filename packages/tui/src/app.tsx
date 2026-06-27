@@ -1068,7 +1068,7 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
-    promptPicker: { open: false, all: [], categories: [], catIndex: 0, selected: 0 },
+    promptPicker: { open: false, all: [], categories: [], recentSlugs: [], catIndex: 0, selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
     settingsPicker: { open: false, field: 0, lastSettingsField: 0, filter: '', mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, multiDiffSummaryThreshold: 5, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default', configScope: 'global' },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
@@ -1163,13 +1163,15 @@ export function App({
       content: e.content,
       favorite: e.favorite,
     }));
+    const recentSlugs = (await promptUsageRef.current?.recent(50).catch(() => []))?.map((r) => r.slug) ?? [];
     const hasFavorites = entries.some((e) => e.favorite);
     const cats = [
       'all',
+      ...(recentSlugs.length > 0 ? ['🕘 recent'] : []),
       ...(hasFavorites ? ['★ favorites'] : []),
       ...Array.from(new Set(entries.map((e) => e.category))).sort(),
     ];
-    dispatch({ type: 'promptPickerOpen', all: entries, categories: cats });
+    dispatch({ type: 'promptPickerOpen', all: entries, categories: cats, recentSlugs });
   };
 
   // Sync picker toggles instantly to the status bar — when the user toggles an
@@ -4406,6 +4408,7 @@ export function App({
           state.promptPicker.all,
           state.promptPicker.categories,
           state.promptPicker.catIndex,
+          state.promptPicker.recentSlugs,
         );
         const entry = filtered[state.promptPicker.selected];
         dispatch({ type: 'promptPickerClose' });
@@ -6885,6 +6888,7 @@ export function App({
                 state.promptPicker.all,
                 state.promptPicker.categories,
                 state.promptPicker.catIndex,
+                state.promptPicker.recentSlugs,
               )}
               selected={state.promptPicker.selected}
               category={state.promptPicker.categories[state.promptPicker.catIndex] ?? 'all'}
