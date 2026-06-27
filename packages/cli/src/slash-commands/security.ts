@@ -27,7 +27,7 @@ const SUBCOMMANDS = ['audit-deps', 'scan', 'redact-test', 'help'] as const;
 export function buildSecurityCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'security',
-    category: 'Diagnostics',
+    category: 'App',
     description: 'Security diagnostics (audit-deps / scan / redact-test).',
     async run(args) {
       const { cmd } = parseSubcommand(args);
@@ -141,15 +141,15 @@ async function redactTestCommand(): Promise<{ message: string }> {
     githubToken: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
     env: {
       ANTHROPIC_API_KEY: 'ant-1234567890abcdef',
-      WRONGSTACK_HQ_TOKEN: 'random-hex-string',
+      WRONGSTACK_HQ_TOKEN: 'a1b2c3d4e5f6a1b2c3d4e5f6',
     },
-    url: 'https://example.com/?token=secretvalue',
+    url: 'mongodb+srv://user:p4ssw0rd@cluster.mongodb.net/db',
     nested: {
       auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature',
     },
     normal: 'this is not sensitive',
   };
-  const scrubbed = scrubber.scrub(sample);
+  const scrubbed = scrubber.scrubObject(sample);
   // Walk both objects in parallel and report which fields changed.
   const lines: string[] = [
     color.bold('/security redact-test — DefaultSecretScrubber dry run'),
