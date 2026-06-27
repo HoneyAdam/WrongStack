@@ -60,7 +60,7 @@ describe('WrongStackACPServer', () => {
     expect(() => new WrongStackACPServer({ agentName: 'acme' })).not.toThrow();
   });
 
-  it('start dispatches messages and stops at EOF without non-JSON stdout by default', async () => {
+  it('start dispatches messages and stops at EOF', async () => {
     const server = new WrongStackACPServer();
     const t = lastTransport();
     const handler = lastHandler();
@@ -71,7 +71,7 @@ describe('WrongStackACPServer', () => {
 
     await server.start();
 
-    expect(t.sendStartupMarker).not.toHaveBeenCalled();
+    expect(t.sendStartupMarker).toHaveBeenCalledTimes(1);
     expect(handler.handleMessage).toHaveBeenCalledTimes(2);
     expect(t.close).toHaveBeenCalledTimes(1);
   });
