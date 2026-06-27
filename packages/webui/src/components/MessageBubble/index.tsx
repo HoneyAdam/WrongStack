@@ -222,7 +222,8 @@ export const MessageBubble = memo(function MessageBubble({
 
         <div className={cn('rounded-2xl', compactMode ? 'px-3 py-1.5' : 'px-4 py-3',
           isUser ? 'bg-primary text-primary-foreground rounded-br-md' : isTool ? message.isError ? 'bg-destructive/5 border border-destructive/20 text-destructive' : 'bg-muted/80 text-foreground' : 'bg-card border text-foreground',
-          message.isError && !isTool && 'border-destructive/20')}>
+          message.isError && !isTool && 'border-destructive/20',
+          isUser && message.status === 'failed' && 'opacity-60 ring-1 ring-destructive/30')}>
           {isTool ? (() => {
             const expanded = !!expandedTools[message.id];
             const inputSummary = message.toolInput !== undefined ? summarizeToolInput(message.toolName, message.toolInput) : '';
@@ -347,6 +348,13 @@ export const MessageBubble = memo(function MessageBubble({
             );
           })()}
         </div>
+
+        {/* Failed delivery indicator for optimistic user messages */}
+        {isUser && message.status === 'failed' && (
+          <span className="text-[10px] font-medium text-destructive flex items-center gap-1 px-1">
+            ⚠ Failed to send
+          </span>
+        )}
 
         {/* Next steps — parse <next_steps> / "💡 Next steps" from assistant output */}
         {nextStepsResult && nextStepsResult.steps.length > 0 && (

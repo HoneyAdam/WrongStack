@@ -67,6 +67,18 @@ export interface ChatMessage {
     durationMs: number;
     replayed?: boolean | undefined;
   } | undefined;
+  /**
+   * Delivery status for user messages. `'sent'` (default) means the WS
+   * round-trip succeeded. `'failed'` means the message could not be
+   * delivered (WS disconnected, server error) — rendered with a visual
+   * error indicator so the user can distinguish it from successfully
+   * delivered messages.
+   *
+   * P3 #D4 (sprint2 audit): optimistic entries that fail delivery stay
+   * in the chat list; this flag lets the UI mark them visually instead
+   * of leaving them indistinguishable from sent messages.
+   */
+  status?: 'sent' | 'failed' | undefined;
 }
 
 export interface SessionInfo {
