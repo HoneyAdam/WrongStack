@@ -1038,8 +1038,15 @@ summarize it, and let the tool result hold only the summary.`);
           try {
             const raw = await this.opts.skillLoader!.readBody(s.name);
             const body = stripFrontmatter(raw);
-            if (body.trim()) {
-              bodies.push(`## Skill: ${s.name}\n\n${body.trim()}`);
+            const trimmed = body.trim();
+            if (trimmed) {
+              // I5 audit (Sprint 3): cap each skill body at
+              // MAX_SKILL_BODY_CHARS so a misconfigured multi-MB
+              // skill file can't bloat the prompt. Real-world
+              // SKILL.md files are <5 KB; 16 KB is generous.
+              bodies.push(
+                `## Skill: ${s.name}\n\n${capSkillBody(trimmed)}`,
+              );
             }
           } catch {
             // skip unreadable skill
@@ -1192,6 +1199,40 @@ function stripFrontmatter(raw: string): string {
   let body = raw.slice(end + 4);
   if (body.startsWith('\n')) body = body.slice(1);
   return body;
+}
+
+/**
+ * Maximum number of characters of a skill body to inject into the
+ * prompt when building the full (token-saving OFF) Active Skills block.
+ *
+ * Real-world SKILL.md files are <5 KB; 16 KB is generous headroom.
+ * Without a cap, a misconfigured multi-MB skill file can bloat the
+ * prompt by tens of thousands of tokens. This cap matches the
+ * bash `MAX_OUTPUT` (32 KB) at a smaller scale and keeps the full
+ * path comparable in size to the compact path's natural output.
+ *
+ * I5 audit (Sprint 3). See
+ * `packages/core/tests/core/system-prompt-builder-i-skills.test.ts`.
+ */
+const MAX_SKILL_BODY_CHARS = 16_000;
+
+/**
+ * Cap a skill body at MAX_SKILL_BODY_CHARS, truncating at a paragraph
+ * boundary when possible to preserve readability. Appends an
+ * ellipsis marker when truncated so the model can detect the cap.
+ */
+function capSkillBody(body: string): string {
+  if (body.length <= MAX_SKILL_BODY_CHARS) return body;
+  // Try to cut at the last paragraph break (`\n\n`) within the
+  // budget so the truncated body ends cleanly. Fall back to a
+  // hard cut if no paragraph break exists.
+  const budget = MAX_SKILL_BODY_CHARS - 1; // reserve 1 char for ellipsis
+  const cut = body.lastIndexOf('\n\n', budget);
+  const truncated =
+    cut > budget / 2
+      ? body.slice(0, cut)
+      : body.slice(0, budget);
+  return truncated + '…';
 }
 
 /**
