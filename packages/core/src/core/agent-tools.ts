@@ -67,6 +67,26 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     toolUseId: string;
     suggestedPattern: string;
   }): Promise<'yes' | 'no' | 'always' | 'deny'> {
+    // Headless deadlock guard (P1 #4, before-release.md): if no UI layer has
+    // subscribed to `tool.confirm_needed`, emitting the event leaves the
+    // resolver promise pending forever — the tool neither executes nor fails
+    // and the agent appears stuck. This happens in headless/CI/test runs that
+    // construct a minimal agent without wiring a TUI/WebUI confirm handler.
+    // Fall back to `deny` so the tool surfaces an error the model can react
+    // to, instead of hanging silently.
+    if (a.events.listenerCount('tool.confirm_needed') === 0) {
+      // Structured warning to stdout — matches the observability skill's JSON
+      // log convention. Kept off the session store to avoid coupling the
+      // permission fallback to SessionWriter availability.
+      console.log(JSON.stringify({
+        level: 'warn',
+        event: 'confirm.headless_fallback',
+        tool: info.tool.name,
+        toolUseId: info.toolUseId,
+        message: `No tool.confirm_needed listener — auto-denying "${info.tool.name}" to avoid headless deadlock.`,
+      }));
+      return Promise.resolve('deny' as const);
+    }
     return new Promise((resolve) => {
       a.events.emit('tool.confirm_needed', {
         tool: info.tool,
