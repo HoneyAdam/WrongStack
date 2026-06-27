@@ -50,8 +50,16 @@ export interface ShellOpenResult {
 
 /** Metacharacters that would let a path slip past an argv-array
  *  spawn and into a shell re-parse on Windows. Real directory
- *  paths virtually never contain these. */
-const METACHAR_REGEX = /[&|<>^"'`\n\r]/;
+ *  paths virtually never contain these. Single-quote is included
+ *  because an unescaped ' inside a single-quoted shell string
+ *  (e.g. cd '$path') breaks the literal and enables injection. */
+const METACHAR_REGEX = /[&|<>^"'`'\n\r]/;
+
+/** Escape a string for safe use as a single-quoted shell argument.
+ *  Replaces ' -> '\'' (end quote, escaped quote, restart quote). */
+function shellQuote(s: string): string {
+  return s.replaceAll("'", "'\"'\"'");
+}
 
 export async function handleShellOpen(
   req: ShellOpenRequest,
@@ -100,7 +108,9 @@ export async function handleShellOpen(
         // Try several terminal emulators
         launch('x-terminal-emulator', [`--working-directory=${resolved}`], () =>
           launch('gnome-terminal', [`--working-directory=${resolved}`], () =>
-            launch('xterm', ['-e', `cd '${resolved}' && ${process.env['SHELL'] ?? 'sh'}`]),
+            // Pass argv array so sh -c sees a literal string, not an interpolated one.
+            // shellQuote() guards against paths that somehow slipped the METACHAR_REGEX.
+            launch('xterm', ['-e', 'sh', '-c', `cd ${shellQuote(resolved)} && ${process.env['SHELL'] ?? 'sh'}`]),
           ),
         );
       }
