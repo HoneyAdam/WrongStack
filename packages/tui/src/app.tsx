@@ -7159,6 +7159,7 @@ export function App({
             mailbox={mailboxStatus}
             tokenSavingMode={getSettings ? getSettings().featureTokenSaving !== 'off' : tokenSavingMode}
             toolCount={toolCount}
+            sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
           />
           </Box>
           {/* Mailbox panel — toggled via /mailbox slash command */}

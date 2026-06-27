@@ -503,6 +503,12 @@ export interface StatusBarProps {
   toolCount?: number | undefined;
   /** Visible stream chips (brain, mailbox, enhance, debug_stream) for expiration tracking. */
   visibleChips?: ChipMeta[] | undefined;
+  /**
+   * Number of structured side effects (bash/install/fetch) recorded in the
+   * current session. Rendered as a compact "⚠ N" chip on line 2 when > 0.
+   * Clicking opens /audit (TUI) — in the REPL it's informational.
+   */
+  sideEffectCount?: number | undefined;
 }
 
 /**
@@ -554,6 +560,7 @@ export function StatusBar({
   tokenSavingMode,
   toolCount,
   visibleChips = [],
+  sideEffectCount = 0,
 }: StatusBarProps): React.ReactElement {
   // Track terminal width so we can adapt layout on narrow terminals.
   // We snapshot into state so that renders are stable — we don't want
@@ -956,6 +963,9 @@ export function StatusBar({
               ) : null,
               tokenSavingMode && showChip('token_saving') ? (
                 <Text color="yellow" bold>💾 save</Text>
+              ) : null,
+              sideEffectCount > 0 ? (
+                <Text color="yellow">⚠ {sideEffectCount} audit{sideEffectCount === 1 ? '' : 's'}</Text>
               ) : null,
             ].filter((c): c is React.ReactElement => c !== null),
             termWidth - 6,
