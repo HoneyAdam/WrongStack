@@ -11,6 +11,18 @@ import type { TerminalRenderer } from './renderer.js';
 const theme = { primary: color.amber };
 
 /**
+ * The ChatGPT sign-in provider. The openai-codex picker mirrors the official
+ * Codex CLI header ("Select Model and Effort") plus a legacy-models note; both
+ * render paths (live TTY + numbered) append the same block so a TTY user and a
+ * piped/CI user see identical copy for this provider. Keep the wording in one
+ * place so the two paths can't drift.
+ */
+const CODEX_PROVIDER_ID = 'openai-codex';
+const CODEX_PICKER_HEADER = 'Select Model and Effort';
+const CODEX_LEGACY_NOTE =
+  'Access legacy models by running `wstack -m <model_name>` or in your `config.json`.';
+
+/**
  * Filter providers by a free-text query: case-insensitive substring match
  * against the provider id OR display name. An empty/whitespace query returns
  * all providers (as a copy). Input order is preserved. Powers the live
@@ -196,6 +208,17 @@ export function renderLiveModelList(
   }
   out += '  ↑↓ move · Enter select · Esc clear · Ctrl+C quit';
   return out;
+}
+
+/**
+ * openai-codex picker preamble — the "Select Model and Effort" header + the
+ * legacy-models note, rendered above the live type-to-filter list (and mirrored
+ * by the numbered picker's codex block). Returns an empty string for any other
+ * provider. Pure so it can be unit-tested without a TTY.
+ */
+export function codexPickerPreamble(provider: ResolvedProvider): string {
+  if (provider.id !== CODEX_PROVIDER_ID) return '';
+  return `  ${color.bold(CODEX_PICKER_HEADER)}\n${color.dim(`  ${CODEX_LEGACY_NOTE}`)}\n\n`;
 }
 
 /**
@@ -605,13 +628,11 @@ async function runLiveModelPicker(
   const out = process.stdout;
   if (!stdin.isTTY || !out.isTTY) return undefined;
 
-  // openai-codex is the ChatGPT sign-in family; mirror the official Codex
-  // picker header, and surface that the list only shows current models —
-  // legacy ids are still usable via the flag/config, just not listed here.
-  const isCodex = provider.id === 'openai-codex';
-  const header = isCodex
-    ? `Select Model and Effort`
-    : `${provider.name} (${provider.id}) models:`;
+  // openai-codex mirrors the official Codex CLI header. Both render paths
+  // (live TTY + numbered) keep the generic "<name> (<id>) models:" line and
+  // append the same codex block, so a TTY user and a piped/CI user see the
+  // identical copy. See CODEX_PICKER_HEADER / CODEX_LEGACY_NOTE.
+  const header = `${provider.name} (${provider.id}) models:`;
   const byNewest = (a: ModelsDevModel, b: ModelsDevModel): number =>
     (b.release_date ?? '').localeCompare(a.release_date ?? '');
   // Pre-select the default model (if any) in newest-first order.
@@ -632,6 +653,12 @@ async function runLiveModelPicker(
     if (state.selected >= visibleCount()) state.selected = Math.max(0, visibleCount() - 1);
   };
   clamp();
+  // openai-codex: write the codex header + legacy note once, above the live
+  // frame. The repaint loop only rewinds over `frame` (not this preamble), so
+  // it persists correctly above the type-to-filter list — mirroring the
+  // numbered picker, which renders the same block below the generic header.
+  const preamble = codexPickerPreamble(provider);
+  if (preamble) writeOut(preamble);
   let frame = renderLiveModelList(state.query, ordered, state.selected, header);
   writeOut(frame);
 
@@ -695,12 +722,9 @@ async function pickModel(
   renderer.write(`\n  ${color.bold(provider.name)} ${color.dim(`(${provider.id})`)} models:\n\n`);
   // openai-codex picker mirrors the official Codex CLI header; only current
   // models are listed, but legacy ids remain usable via --model / config.json.
-  if (provider.id === 'openai-codex') {
-    renderer.write(
-      `  ${color.bold('Select Model and Effort')}\n` +
-        `${color.dim('  Access legacy models by running `wstack -m <model_name>` or in your `config.json`.')}\n\n`,
-    );
-  }
+  // Uses the same helper as the live-TTY preamble so the two paths can't drift.
+  const codexBlock = codexPickerPreamble(provider);
+  if (codexBlock) renderer.write(codexBlock);
 
   const models = [...provider.models].sort((a, b) =>
     (b.release_date ?? '').localeCompare(a.release_date ?? ''),

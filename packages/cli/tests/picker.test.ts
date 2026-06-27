@@ -3,6 +3,7 @@ import type { ModelsDevModel, ResolvedProvider } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyPickerKey,
+  codexPickerPreamble,
   filterModels,
   filterProviders,
   type ProviderPickerState,
@@ -465,6 +466,28 @@ describe('openai-codex picker header', () => {
     expect(out.buf).not.toContain('wstack -m');
     // The generic header should still be present.
     expect(out.buf).toContain('Anthropic (anthropic) models:');
+  });
+});
+
+describe('codexPickerPreamble', () => {
+  // The live-TTY picker writes codexPickerPreamble(provider) once above its
+  // repainting frame; the numbered picker renders the same string below the
+  // generic header. Both must produce identical copy so a TTY user and a
+  // piped/CI user see the same openai-codex chrome.
+
+  it('returns the "Select Model and Effort" header + legacy note for openai-codex', () => {
+    const out = codexPickerPreamble(fakeProvider({ id: 'openai-codex', name: 'OpenAI Codex' }));
+    expect(out).toContain('Select Model and Effort');
+    expect(out).toContain('wstack -m <model_name>');
+    expect(out).toContain('config.json');
+    // Two trailing newlines — keeps spacing consistent with the generic header.
+    expect(out.endsWith('\n\n')).toBe(true);
+  });
+
+  it('returns an empty string for any non-codex provider', () => {
+    expect(codexPickerPreamble(fakeProvider({ id: 'anthropic' }))).toBe('');
+    expect(codexPickerPreamble(fakeProvider({ id: 'openai' }))).toBe('');
+    expect(codexPickerPreamble(fakeProvider({ id: 'github-copilot' }))).toBe('');
   });
 });
 
