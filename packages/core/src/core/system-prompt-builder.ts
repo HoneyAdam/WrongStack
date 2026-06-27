@@ -560,9 +560,15 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
 
     // Mailbox guidance — included when any mailbox tool is present.
     // Tier behaviour:
-    // - 'off' / 'aggressive' → full block
-    // - 'light' / 'medium' → minimal one-liner
+    // - 'off' → full block
+    // - 'light' / 'medium' / 'aggressive' → minimal one-liner
     // - 'minimal' → skipped
+    //
+    // Note: 'aggressive' was previously listed with 'off' for the
+    // full block, but per the parallel-session decision (Option H,
+    // `leader@1b68eb14`): at aggressive, the 400-token mailbox essay
+    // is the largest single guidance section and users under context
+    // pressure don't need it. The compact one-liner is enough.
     const hasMailbox = tools.some(
       (t) => t.name === 'mailbox' || t.name === 'mail_send' || t.name === 'mail_inbox',
     );
@@ -676,8 +682,14 @@ editing this SAME working tree while you run. Before you commit:
 
     // MCP lazy-loading guidance — shown whenever mcp_control is registered.
     // Tier behaviour:
-    // - 'off' / 'medium' / 'aggressive' → full guidance block
-    // - 'minimal' / 'light' → minimal one-liner
+    // - 'off' / 'medium' → full guidance block
+    // - 'minimal' / 'light' / 'aggressive' → minimal one-liner
+    //
+    // Note: 'aggressive' was previously listed with 'off' for the
+    // full block, but per the parallel-session decision (Option H):
+    // at aggressive, the full MCP workflow (activate → use →
+    // deactivate) is documented elsewhere and the meta-tool
+    // `mcp_use` is sufficient. The one-liner is enough.
     const hasMcpControl = tools.some((t) => t.name === 'mcp_control');
     const hasMcpUse = tools.some((t) => t.name === 'mcp_use');
     if (hasMcpControl) {
