@@ -1,0 +1,24 @@
+{
+  "id": "design-an-a-b-test",
+  "slug": "design-an-a-b-test",
+  "title": "Design an A/B Test",
+  "description": "Set up an experiment that gives a trustworthy answer.",
+  "content": "I want to A/B test: {{change}}\n\nDesign it properly. Define the hypothesis, the primary metric, and the guardrail metrics that catch harm. Work out the sample size and runtime needed to detect a meaningful effect (and what effect size is meaningful). Plan randomization and how to avoid contamination between groups. Decide the stopping rule up front to avoid peeking. Flag the ways this test could mislead — novelty effects, seasonality, and underpowered results read as null.",
+  "category": "data-analysis",
+  "tags": [
+    "ab-test",
+    "experiment"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "2ccc188c8a6a7c6b9c1257d38630b1be4cbeec9880f2f68f9d1d720eb15cd134",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "change",
+      "description": "The change to test",
+      "required": true
+    }
+  ]
+}

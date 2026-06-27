@@ -1,0 +1,25 @@
+{
+  "id": "design-for-observability",
+  "slug": "design-for-observability",
+  "title": "Design for Observability",
+  "description": "Decide what to log, measure, and trace before building.",
+  "content": "For this system or feature: {{system}}\n\nDesign its observability up front. Define the key metrics (the few that reveal health and the user-facing SLIs), the logs worth keeping (and at what level), and where traces would untangle a cross-service request. Decide what a good dashboard shows at a glance and what alert would page someone — tied to symptoms users feel, not noisy internals. Flag what you would wish you had logged the first time this breaks.",
+  "category": "architecture",
+  "tags": [
+    "observability",
+    "monitoring",
+    "design"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "e6660c372dad0db6df2725bced045a89767b0c87cbeb59b960939d26ebfa06a3",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "system",
+      "description": "The system or feature",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "choose-a-consistency-model",
+  "slug": "choose-a-consistency-model",
+  "title": "Choose a Consistency Model",
+  "description": "Decide between strong and eventual consistency.",
+  "content": "For this data and these operations: {{scenario}}\n\nDecide what consistency you actually need. Where would a stale or out-of-order read cause real harm (money, safety, correctness) versus merely look odd briefly? Recommend strong, eventual, or a mix per operation, and the mechanism (transactions, quorums, versioning, CRDTs). State the latency and availability cost of the choice. Flag where developers will assume stronger guarantees than the system provides.",
+  "category": "architecture",
+  "tags": [
+    "consistency",
+    "distributed"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "9b47650c3a173e7591c2ac37c693c5ecfe88f75d4c8bfb98930f87d63c065864",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "scenario",
+      "description": "The data and operations",
+      "required": true
+    }
+  ]
+}

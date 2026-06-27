@@ -1,0 +1,31 @@
+{
+  "id": "triangulate-conflicting-sources",
+  "slug": "triangulate-conflicting-sources",
+  "title": "Triangulate Conflicting Sources",
+  "description": "Reconcile sources that disagree.",
+  "content": "These sources disagree about: {{question}}\n\n{{sources}}\n\nFigure out where the truth likely lies. Identify exactly what they disagree on versus where they actually agree. For each, consider its credibility, recency, incentives, and method. Explain WHY they differ — different definitions, data, timeframes, or bias. Give your best-supported synthesis, the confidence it deserves, and what evidence would settle it. Don't just average them or pick the one you like.",
+  "category": "research",
+  "tags": [
+    "sources",
+    "synthesis",
+    "conflict"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "7cdb2932fb8a30f88f38ed211d7506a31734b7af7752bc032529ce69fce3c788",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "question",
+      "description": "The disputed question",
+      "required": true
+    },
+    {
+      "name": "sources",
+      "description": "The conflicting sources",
+      "required": true,
+      "multiline": true
+    }
+  ]
+}

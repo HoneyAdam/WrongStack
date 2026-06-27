@@ -1,0 +1,24 @@
+{
+  "id": "design-an-evaluation-rubric",
+  "slug": "design-an-evaluation-rubric",
+  "title": "Design an Evaluation Rubric",
+  "description": "Define how to judge whether an AI output is good.",
+  "content": "I need to judge outputs for this task: {{task}}\n\nDesign a rubric. List the dimensions that actually matter (correctness, completeness, format, tone, safety), each with concrete pass/fail or scored criteria a second person would apply the same way. Separate must-haves from nice-to-haves. Include an example of a passing and a failing output. Make it usable both for human review and as an LLM-as-judge prompt. Flag any criterion too vague to score consistently.",
+  "category": "meta-prompting",
+  "tags": [
+    "evaluation",
+    "rubric"
+  ],
+  "source": "builtin",
+  "favorite": false,
+  "checksum": "29b1971db28843dbfa3fe9b3e6931fe92929f4e609e262f6b39f741f82ddeeeb",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "variables": [
+    {
+      "name": "task",
+      "description": "The task whose outputs you judge",
+      "required": true
+    }
+  ]
+}
