@@ -5,6 +5,12 @@ Agent Client Protocol (ACP) v1 implementation for WrongStack, wrapping the offic
 
 **100% spec coverage.** Both client and server sides fully implemented.
 
+## Compliance
+
+[![ACP v1 Compliant](https://img.shields.io/badge/ACP%20v1-100%25%20compliant-2ea44f)](COMPLIANCE.md)
+
+**143 compliance checks — 0 failures.** See [COMPLIANCE.md](COMPLIANCE.md) for the full audit report.
+
 ## Installation
 
 ```bash
@@ -280,8 +286,15 @@ const result = await agent.run(prompt, { signal });
 | `session/close` | `session.close()` | ✅ |
 | `session/delete` | `session.deleteSession(id)` | ✅ |
 | `session/list` | `session.listSessions()` | ✅ |
+| `session/fork` | `session.forkSession(id)` | ✅ |
 | `session/prompt` | `session.prompt(blocks, signal)` | ✅ |
 | `session/cancel` | Via `AbortSignal` | ✅ |
+| `session/set_mode` | `session.setMode(sessionId, modeId)` | ✅ |
+| `session/set_config_option` | `session.setConfigOption(sessionId, optionId, value)` | ✅ |
+| `providers/list` | `session.listProviders()` | ✅ |
+| `providers/set` | `session.setProvider(providerId, config?)` | ✅ |
+| `providers/disable` | `session.disableProvider()` | ✅ |
+| `mcp/message` | `session.mcpMessage(connectionId, message)` | ✅ |
 
 ### Agent → Client (handled by ACPSession)
 
@@ -322,6 +335,7 @@ const result = await agent.run(prompt, { signal });
 | `document/*` | Auto-acknowledged | ✅ |
 | `nes/*` | Auto-acknowledged | ✅ |
 | `elicitation/*` | Auto-acknowledged | ✅ |
+| `$/cancel_request` | Notification handler | ✅ |
 
 ## Transport
 
