@@ -22,6 +22,7 @@ import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
+import { ToolValidationError } from '../types/errors.js';
 export class ToolExecutor {
   /** Minimum gap between coalesced `partial_output` tool.progress emits. */
   static readonly PROGRESS_EMIT_INTERVAL_MS = 100;
@@ -772,7 +773,14 @@ function classifyToolError(err: unknown): { category: ToolErrorCategory; retryab
     }
   }
 
-  // Validation errors from schema validation
+  // Validation errors. Prefer the structured ValidationError subclass
+  // (P2 #6) — instanceof is locale-independent and cannot misclassify an
+  // unrelated error whose message happens to contain "validation". The
+  // legacy string-match arm stays as a fallback for tools that still throw
+  // bare Error('...validation...') and have not yet migrated.
+  if (err instanceof ToolValidationError) {
+    return { category: ToolErrorCategoryEnum.VALIDATION, retryable: false, detail: 'validation' };
+  }
   if (err instanceof Error && err.message.includes('validation')) {
     return { category: ToolErrorCategoryEnum.VALIDATION, retryable: false, detail: 'validation' };
   }

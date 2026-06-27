@@ -366,6 +366,42 @@ export class FsError extends WrongStackError {
   }
 }
 
+/**
+ * Tool input validation error — thrown when a tool's input fails a validation
+ * check that the JSON Schema cannot express (e.g. `old_string === new_string`
+ * in edit, or a cross-field invariant). Use this instead of a bare
+ * `throw new Error('...validation...')` so {@link classifyToolError} can
+ * match on `instanceof` rather than a locale-dependent message substring.
+ *
+ * P2 #6 (before-release.md): the previous `err.message.includes('validation')`
+ * check misclassified any error whose message happened to contain "validation"
+ * (e.g. a third-party "input validation timeout") as a VALIDATION error.
+ *
+ * Named `ToolValidationError` (not `ValidationError`) to avoid colliding with
+ * the existing `ValidationError` interface exported by json-schema-validate.ts
+ * (a validation-result shape, not an Error subclass).
+ */
+export class ToolValidationError extends WrongStackError {
+  constructor(opts: {
+    message: string;
+    /** Field path or tool name that failed validation, for diagnostics. */
+    field?: string | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
+  }) {
+    super({
+      message: opts.message,
+      code: ERROR_CODES.VALIDATION_ERROR,
+      subsystem: 'general',
+      severity: 'error',
+      recoverable: false,
+      context: { field: opts.field, ...opts.context },
+      cause: opts.cause,
+    });
+    this.name = 'ToolValidationError';
+  }
+}
+
 // ── Type guards ──────────────────────────────────────────────────────
 
 export function isWrongStackError(err: unknown): err is WrongStackError {
@@ -394,6 +430,10 @@ export function isAgentError(err: unknown): err is AgentError {
 
 export function isFsError(err: unknown): err is FsError {
   return err instanceof FsError;
+}
+
+export function isToolValidationError(err: unknown): err is ToolValidationError {
+  return err instanceof ToolValidationError;
 }
 
 export function isSddError(err: unknown): err is SddError {
