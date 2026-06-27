@@ -186,4 +186,70 @@ describe('json-schema-validate / validateAgainstSchema', () => {
       expect(r.ok).toBe(true);
     });
   });
+
+  describe('recursion depth limit (P2 #8)', () => {
+    // Build a deeply nested object schema { a: { a: { a: ... } } } and a
+    // matching value, then assert the validator does NOT crash with
+    // RangeError and instead reports a clean validation error once the cap
+    // is exceeded.
+
+    function nestedObjectSchema(depth: number): JSONSchema {
+      // { type: 'object', properties: { a: <depth-1 more levels> } }
+      let schema: JSONSchema = { type: 'string' };
+      for (let i = 0; i < depth; i++) {
+        schema = { type: 'object', properties: { a: schema } };
+      }
+      return schema;
+    }
+
+    function nestedObjectValue(depth: number): unknown {
+      let v: unknown = 'leaf';
+      for (let i = 0; i < depth; i++) {
+        v = { a: v };
+      }
+      return v;
+    }
+
+    function nestedArraySchema(depth: number): JSONSchema {
+      let schema: JSONSchema = { type: 'string' };
+      for (let i = 0; i < depth; i++) {
+        schema = { type: 'array', items: schema };
+      }
+      return schema;
+    }
+
+    it('accepts normally-nested objects (depth well under the cap)', () => {
+      const schema = nestedObjectSchema(10);
+      const value = nestedObjectValue(10);
+      const r = validateAgainstSchema(value, schema);
+      expect(r.ok).toBe(true);
+    });
+
+    it('accepts normally-nested arrays (depth well under the cap)', () => {
+      const schema = nestedArraySchema(10);
+      let value: unknown = 'leaf';
+      for (let i = 0; i < 10; i++) value = [value];
+      const r = validateAgainstSchema(value, schema);
+      expect(r.ok).toBe(true);
+    });
+
+    it('does NOT crash on a pathologically deep object (depth > 64)', () => {
+      // Before the fix this hit `RangeError: Maximum call stack size exceeded`.
+      const schema = nestedObjectSchema(200);
+      const value = nestedObjectValue(200);
+      // Must not throw — the validator caps recursion and returns a result.
+      const r = validateAgainstSchema(value, schema);
+      expect(r.ok).toBe(false);
+      expect(r.errors.some((e) => e.message.includes('maximum depth'))).toBe(true);
+    });
+
+    it('does NOT crash on a pathologically deep array (depth > 64)', () => {
+      const schema = nestedArraySchema(200);
+      let value: unknown = 'leaf';
+      for (let i = 0; i < 200; i++) value = [value];
+      const r = validateAgainstSchema(value, schema);
+      expect(r.ok).toBe(false);
+      expect(r.errors.some((e) => e.message.includes('maximum depth'))).toBe(true);
+    });
+  });
 });

@@ -22,11 +22,40 @@ export interface ValidationResult {
 
 export function validateAgainstSchema(value: unknown, schema: JSONSchema): ValidationResult {
   const errors: ValidationError[] = [];
-  walk(value, schema, '', errors);
+  walk(value, schema, '', errors, 0);
   return { ok: errors.length === 0, errors };
 }
 
-function walk(value: unknown, schema: JSONSchema, path: string, errors: ValidationError[]): void {
+/**
+ * Maximum nesting depth before the validator stops recursing and reports a
+ * "schema too deep" error. Deeply nested input (e.g. batch_tool_use with 100
+ * nested calls → tool_use → input) can otherwise hit `RangeError: Maximum
+ * call stack size exceeded` and crash the tool executor.
+ *
+ * 64 is generous: real-world tool schemas rarely nest beyond 5-6 levels, and
+ * even pathological inputs (deeply recursive JSON) stay well under this.
+ * The limit is a safety net against unbounded recursion, not a tight bound.
+ */
+const MAX_SCHEMA_DEPTH = 64;
+
+function walk(
+  value: unknown,
+  schema: JSONSchema,
+  path: string,
+  errors: ValidationError[],
+  depth: number,
+): void {
+  // P2 #8 (before-release.md): cap recursion depth to prevent
+  // `RangeError: Maximum call stack size exceeded` on deeply nested input.
+  // Push a validation error and stop descending — the caller still gets a
+  // usable (ok: false) result instead of a crash.
+  if (depth > MAX_SCHEMA_DEPTH) {
+    errors.push({
+      path: path || '<root>',
+      message: `schema nesting exceeds maximum depth (${MAX_SCHEMA_DEPTH})`,
+    });
+    return;
+  }
   if (schema.enum !== undefined) {
     if (!schema.enum.some((e) => deepEqual(e, value))) {
       errors.push({
@@ -57,7 +86,7 @@ function walk(value: unknown, schema: JSONSchema, path: string, errors: Validati
     if (schema.properties) {
       for (const [key, subSchema] of Object.entries(schema.properties)) {
         if (key in obj) {
-          walk(obj[key], subSchema, joinPath(path, key), errors);
+          walk(obj[key], subSchema, joinPath(path, key), errors, depth + 1);
         }
       }
     }
@@ -65,7 +94,7 @@ function walk(value: unknown, schema: JSONSchema, path: string, errors: Validati
 
   if (schema.type === 'array' && Array.isArray(value) && schema.items) {
     for (let i = 0; i < value.length; i++) {
-      walk(value[i], schema.items as JSONSchema, `${path}[${i}]`, errors);
+      walk(value[i], schema.items as JSONSchema, `${path}[${i}]`, errors, depth + 1);
     }
   }
 }
