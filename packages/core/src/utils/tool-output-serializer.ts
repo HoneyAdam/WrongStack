@@ -11,6 +11,12 @@ export interface ToolOutputSerializerOptions {
 export interface ToolOutputSerializeContext {
   toolName?: string | undefined;
   input?: unknown;
+  /**
+   * Optional reference to the Tool object. When present and the tool defines
+   * a `serialize()` method, the serializer delegates to it instead of the
+   * central `renderToolObject()` switch (P3 #21).
+   */
+  tool?: { serialize?: (output: unknown, input: unknown) => string } | undefined;
 }
 
 type RecordValue = Record<string, unknown>;
@@ -36,6 +42,17 @@ export function createToolOutputSerializer(opts: ToolOutputSerializerOptions = {
     if (value === null || value === undefined) return '';
     if (typeof value === 'object') {
       if (Array.isArray(value)) return value.map((item) => serialize(item)).join('\n');
+      // P3 #21 (before-release.md): prefer the tool's own serialize() method
+      // when it defines one — lets tools own their output formatting without
+      // adding a branch to the central renderToolObject() god function.
+      if (context.tool?.serialize) {
+        try {
+          return context.tool.serialize(value, context.input);
+        } catch {
+          // Fall through to the central renderer if the tool's serializer
+          // throws — never let a formatting error break the tool result.
+        }
+      }
       if (context.toolName) {
         const compact = renderToolObject(context.toolName, value as RecordValue, context.input);
         if (compact !== undefined) return compact;

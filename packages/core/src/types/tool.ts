@@ -222,6 +222,21 @@ export interface Tool<I = unknown, O = unknown> {
    * teardown channel per resource.
    */
   cleanup?(input: I, ctx: Context): Promise<void>;
+  /**
+   * Optional custom output serializer. When present, the executor's output
+   * serializer calls this INSTEAD of the central `renderToolObject()` switch
+   * — the tool owns its own pretty-printing.
+   *
+   * Return a string representation of the output that the model will see in
+   * its tool_result block. The serializer applies the iteration output cap
+   * AFTER this runs, so don't worry about truncation.
+   *
+   * P3 #21 (before-release.md): `renderToolObject()` is a god function with
+   * 30+ per-tool branches, far from each tool's definition. New tools that
+   * want custom output no longer need to add a branch there — they implement
+   * this method instead. Existing branches stay until migrated incrementally.
+   */
+  serialize?(output: O, input: I): string;
 }
 
 export interface ToolCallContext {

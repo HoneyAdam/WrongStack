@@ -408,7 +408,7 @@ export class ToolExecutor {
     });
     this.opts.renderer?.writeToolCall(tool.name, use.input);
     const output = await this.runWithTimeout(tool, use.input, ctx.signal, ctx, use.id);
-    const text = this.serializer.serialize(output, { toolName: tool.name, input: use.input });
+    const text = this.serializer.serialize(output, { toolName: tool.name, input: use.input, tool });
     const scrubbed = this.opts.secretScrubber.scrub(text);
     const withArtifact = await maybePersistLargeToolOutput(tool.name, scrubbed, budget);
     // enforceCap already walks the text to compute bytes for the budget
