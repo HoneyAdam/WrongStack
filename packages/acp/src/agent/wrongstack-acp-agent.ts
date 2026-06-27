@@ -101,10 +101,28 @@ export class WrongStackACPServer {
     const handler = this.handler;
 
     this.httpServer = createServer(async (req, res) => {
-      // CORS headers for browser-based clients
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      // Origin guard. Real ACP/MCP clients (Zed, JetBrains, curl, the MCP SDK)
+      // are non-browser and send no `Origin` header, so they are unaffected. A
+      // browser making a cross-origin request DOES send `Origin`; reject it so a
+      // malicious web page the user visits cannot reach this loopback agent and
+      // drive it (a real `runTurn` executes tools/commands — i.e. RCE). This
+      // replaces the previous `Access-Control-Allow-Origin: *`, which let any
+      // site read responses from, and POST to, this server.
+      const selfOrigin = `http://${host}:${port}`;
+      const reqOrigin = Array.isArray(req.headers.origin)
+        ? req.headers.origin[0]
+        : req.headers.origin;
+      if (reqOrigin && reqOrigin !== selfOrigin) {
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'cross-origin request forbidden' }));
+        return;
+      }
+      // Never reflect a wildcard — only echo our own origin back (for same-origin
+      // browser tooling). `Authorization` is intentionally omitted from the
+      // allow-list: it is not enforced here, so advertising it would mislead.
+      if (reqOrigin) res.setHeader('Access-Control-Allow-Origin', reqOrigin);
       res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
