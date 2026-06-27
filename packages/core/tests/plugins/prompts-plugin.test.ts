@@ -218,6 +218,31 @@ describe('/prompt and /prompt-gen', () => {
     expect((await registered[1]!.run!('anything', ctx())).message).toContain('not available');
   });
 
+  it('/prompts export then import round-trips user prompts', async () => {
+    const loader = new DefaultPromptLoader({
+      paths: { globalPrompts: dir, inProjectPrompts: path.join(dir, '__noproject') } as never,
+    });
+    await store.save(store.createNew('Backup Me', 'keep {{x}}', ['t'], { category: 'coding' }));
+    loader.invalidateCache();
+    const { api, registered } = makeApi();
+    createPromptsPlugin({ store, loader }).setup!(api);
+    const prompts = registered[0]!;
+
+    const exp = await prompts.run!('export backup.json', ctx({ projectRoot: dir }));
+    expect(exp.message).toContain('Exported 1 prompt');
+
+    // Wipe the user store, then import the backup back in.
+    for (const e of await store.list()) await store.delete(e.id);
+    loader.invalidateCache();
+    expect((await loader.list()).filter((e) => e.source !== 'builtin')).toHaveLength(0);
+
+    const imp = await prompts.run!('import backup.json', ctx({ projectRoot: dir }));
+    expect(imp.message).toContain('Imported 1 prompt');
+    const restored = (await loader.list()).find((e) => e.slug === 'backup-me');
+    expect(restored?.content).toBe('keep {{x}}');
+    expect(restored?.category).toBe('coding');
+  });
+
   it('/prompt-gen returns runText to drive the agent', async () => {
     const { gen } = await withLoaderCommands();
     const out = await gen.run!('', ctx());

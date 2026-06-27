@@ -17,6 +17,8 @@ existing prompt.
 | `/prompts add --category <c> --description "<d>" --tags <a,b> --var <name:desc> "title" "content"` | Add with structured fields + `{{variables}}` |
 | `/prompts new "title" "content"` | Alias for `add` |
 | `/prompts favorite <slug-or-title>` | Mark a prompt favorite (copies a builtin into your user layer) |
+| `/prompts export [path]` | Write your user prompts to a JSON file (default `wrongstack-prompts.json`) |
+| `/prompts import <path>` | Import prompts from a JSON file into your user layer (overwrites by slug) |
 | `/prompts delete <title>` | Delete the best matching prompt |
 | `/prompts rm <title>` | Alias for `delete` |
 | `/prompts edit "title" "new content"` | Replace prompt content |

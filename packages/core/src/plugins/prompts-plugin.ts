@@ -1,5 +1,7 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { DefaultPromptLoader, renderPrompt } from '../execution/prompt-loader.js';
-import { DefaultPromptStore } from '../storage/prompt-store.js';
+import { DefaultPromptStore, migratePromptEntry } from '../storage/prompt-store.js';
 import type { PromptEntry, PromptLoader, PromptVariable } from '../types/prompt.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import { expectDefined } from '../utils/expect-defined.js';
@@ -212,9 +214,68 @@ function buildPromptsCommand(
           return { message: `Extended "${exact.title}".\n\n${dim('New content:')}\n${exact.content}` };
         }
 
+        case 'export': {
+          if (!loader) return { message: 'Prompt library not available.' };
+          // Export only user-authored prompts (builtins are shipped already).
+          const own = (await loader.list()).filter((e) => e.source !== 'builtin');
+          if (own.length === 0) {
+            return { message: 'No user prompts to export. (Builtin prompts ship with WrongStack.)' };
+          }
+          const target = resolveIoPath(restJoined || 'wrongstack-prompts.json', ctx);
+          const payload = JSON.stringify(
+            { version: 2, exportedAt: new Date().toISOString(), prompts: own },
+            null,
+            2,
+          );
+          try {
+            await fs.writeFile(target, payload, 'utf8');
+            return { message: `Exported ${own.length} prompt(s) → ${target}` };
+          } catch (err) {
+            return { message: `Export failed: ${err instanceof Error ? err.message : String(err)}` };
+          }
+        }
+
+        case 'import': {
+          if (!loader) return { message: 'Prompt library not available.' };
+          if (!restJoined) return { message: 'Usage: /prompts import <path-to.json>' };
+          const src = resolveIoPath(restJoined, ctx);
+          let raw: unknown;
+          try {
+            raw = JSON.parse(await fs.readFile(src, 'utf8'));
+          } catch (err) {
+            return { message: `Import failed: ${err instanceof Error ? err.message : String(err)}` };
+          }
+          const list = Array.isArray(raw)
+            ? raw
+            : Array.isArray((raw as { prompts?: unknown }).prompts)
+              ? (raw as { prompts: unknown[] }).prompts
+              : null;
+          if (!list) return { message: 'Import failed: expected a JSON array or { prompts: [...] }.' };
+
+          let imported = 0;
+          let skipped = 0;
+          for (const item of list) {
+            const entry = migratePromptEntry(item);
+            if (!entry) {
+              skipped++;
+              continue;
+            }
+            entry.source = 'user';
+            entry.updatedAt = new Date().toISOString();
+            // Overwrite an existing same-slug user/project prompt in place.
+            const existing = await loader.find(entry.slug);
+            if (existing && existing.source !== 'builtin') entry.id = existing.id;
+            await loader.save(entry);
+            imported++;
+          }
+          return {
+            message: `Imported ${imported} prompt(s)${skipped ? ` (${skipped} skipped — invalid)` : ''} from ${src}.`,
+          };
+        }
+
         default:
           return {
-            message: `Unknown subcommand "${verb}". Try: list | view | add | edit | delete | favorite | extend`,
+            message: `Unknown subcommand "${verb}". Try: list | view | add | edit | delete | favorite | export | import | extend`,
           };
       }
     },
@@ -372,6 +433,14 @@ function formatPrompt(entry: PromptEntry): string {
     `\n${entry.content}${vars}`,
     `\n${dim(`slug: ${entry.slug} | category: ${entry.category} | source: ${entry.source}`)}`,
   ].join('\n');
+}
+
+/** Resolve a user-supplied export/import path against the project root (or cwd). */
+function resolveIoPath(p: string, ctx: Context): string {
+  const cleaned = p.trim().replace(/^["']|["']$/g, '');
+  if (path.isAbsolute(cleaned)) return cleaned;
+  const base = (ctx as { projectRoot?: string }).projectRoot ?? process.cwd();
+  return path.resolve(base, cleaned);
 }
 
 function sourceGlyph(e: PromptEntry): string {
