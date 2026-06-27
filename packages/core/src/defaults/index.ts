@@ -157,6 +157,7 @@ export {
   makeDesignDetectToolCallMiddleware,
   makeDesignDetectUserInputMiddleware,
   makeDesignStudioRequestMiddleware,
+  makeDesignVerifyToolCallMiddleware,
   setActiveKit,
   setDesignOverrides,
 } from '../execution/design-detect.js';

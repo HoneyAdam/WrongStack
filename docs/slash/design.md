@@ -66,6 +66,11 @@ The same three actions are available to the model via the `design` tool
 (`{action:"set"|"materialize"|"verify"}`) and in the WebUI gallery (per-theme
 color pickers + a **Materialize** button).
 
+**Automatic check:** once a kit is pinned, every write/edit to a frontend file
+is scanned in the background — if it introduces off-palette colors, a short
+warning is appended to that tool's result so the model self-corrects on the next
+turn (no manual `verify` needed). It's silent when the file is on-palette.
+
 ## Bundled kits
 
 **50 curated kits** ship bundled — run `/design` (or open the WebUI gallery) to

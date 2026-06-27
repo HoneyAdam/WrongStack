@@ -28,7 +28,8 @@ import type { DesignKitLoader, DesignStack, DesignStudioState } from '../types/d
 import { isDesignStack } from '../types/design-kit.js';
 import type { Request } from '../types/provider.js';
 import { getDesignKitLoader } from './design-kit-loader.js';
-import { loadActiveKit, loadProjectDesignRules } from './design-project-store.js';
+import { applyTokenOverrides, loadActiveKit, loadProjectDesignRules } from './design-project-store.js';
+import { verifyFiles } from './design-verify.js';
 
 const META_KEY = 'designStudio';
 
@@ -188,6 +189,65 @@ export function makeDesignDetectToolCallMiddleware(): Middleware<ToolCallPipelin
   };
 }
 
+const WRITE_TOOLS = new Set(['write', 'edit', 'replace', 'patch']);
+
+/**
+ * toolCall middleware: after a frontend file is written/edited AND a kit is
+ * pinned, scan the file for off-palette colors and append a non-blocking
+ * warning to the tool result. This makes adherence PASSIVE — the model is
+ * nudged toward kit tokens the moment it drifts, without anyone running
+ * `design verify` by hand. Best-effort: any failure leaves the result untouched.
+ */
+export function makeDesignVerifyToolCallMiddleware(): Middleware<ToolCallPipelinePayload> {
+  return {
+    name: 'DesignStudioVerifyWrite',
+    owner: 'core',
+    async handler(payload, next) {
+      const out = await next(payload);
+      try {
+        const name = out.toolUse?.name;
+        if (!name || !WRITE_TOOLS.has(name)) return out;
+        if (out.result?.is_error) return out;
+        const state = getDesignState(out.ctx);
+        if (!state?.activeKit) return out; // no pinned palette → nothing to check
+        const input = out.toolUse.input as { path?: unknown } | undefined;
+        const p = typeof input?.path === 'string' ? input.path : '';
+        if (!p || !detectFrontendFile(p)) return out;
+
+        const ctx = out.ctx;
+        const { default: fs } = await import('node:fs/promises');
+        const { default: nodePath } = await import('node:path');
+        const abs = nodePath.isAbsolute(p) ? p : nodePath.join(ctx.projectRoot, p);
+        const text = await fs.readFile(abs, 'utf8').catch(() => '');
+        if (!text) return out;
+
+        const loader = getDesignKitLoader(ctx.projectRoot);
+        const rawTokens = await loader.readTokens(state.activeKit);
+        if (!rawTokens) return out;
+        const persisted = await loadActiveKit(ctx.projectRoot).catch(() => undefined);
+        const tokens = applyTokenOverrides(rawTokens, persisted?.overrides ?? state.overrides);
+        const rel = nodePath.relative(ctx.projectRoot, abs);
+        const report = verifyFiles(tokens, [{ path: rel, text }]);
+        if (report.violations.length === 0) return out;
+
+        const top = report.violations
+          .slice(0, 5)
+          .map((v) => `  L${v.line}: ${v.snippet} — ${v.reason}`)
+          .join('\n');
+        const more =
+          report.violations.length > 5 ? `\n  …and ${report.violations.length - 5} more` : '';
+        out.result.content +=
+          `\n\n⚠️ Design Studio (kit "${state.activeKit}"): ${report.violations.length} ` +
+          `off-palette color(s) in ${rel}. Use the kit's tokens (or the materialized CSS ` +
+          `vars / token utilities) instead:\n${top}${more}`;
+      } catch {
+        // best-effort — never break a tool result
+      }
+      return out;
+    },
+  };
+}
+
 const BASELINE = [
   '**Non-negotiable baseline (every UI you write):**',
   '- Mobile-first & fully responsive; respect safe-area insets on native.',
@@ -288,6 +348,7 @@ export function installDesignStudioMiddleware(deps: {
   const loader = getDesignKitLoader(deps.ctx.projectRoot);
   deps.pipelines.userInput.prepend(makeDesignDetectUserInputMiddleware());
   deps.pipelines.toolCall.prepend(makeDesignDetectToolCallMiddleware());
+  deps.pipelines.toolCall.prepend(makeDesignVerifyToolCallMiddleware());
   deps.pipelines.request.prepend(makeDesignStudioRequestMiddleware({ ctx: deps.ctx, loader }));
 
   // Restore a previously pinned kit from `.design/active.json` so a design
