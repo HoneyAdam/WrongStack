@@ -32,17 +32,31 @@ agent) how to talk to it.
 
 ## What this skill assumes
 
-- A WrongStack user is already running `wstack mailbox serve` in the
-  project. Confirm with the user before assuming the bridge is up.
-- Two environment variables are set:
-  - `WRONGSTACK_MAILBOX_URL` — e.g. `http://127.0.0.1:34827`
-  - `WRONGSTACK_MAILBOX_TOKEN` — the bearer token from
-    `~/.wrongstack/projects/<slug>/.mailbox.token`
+Since commit `46427ea4` (feat/mailbox-daemon), every WrongStack CLI
+surface (REPL/TUI/eternal-autonomy) **auto-bootstraps** the mailbox
+bridge on startup. The first surface to come up for a given project
+joins an existing instance or spawns a fresh `wstack mailbox serve`
+child process; a second surface on the same project joins the first's
+bridge rather than spawning a duplicate. The per-project lock
+(`.mailbox-bridge.lock`) and token file (`.mailbox.token`) make
+discovery trivial.
 
-If either is missing, **stop and ask the user**. Do not invent a URL or
-token, and do not assume defaults — a wrong token returns 401 and a
-wrong URL returns connection-refused, both of which are easy to
-misdiagnose.
+So the realistic scenarios for an external agent are:
+
+1. **A WrongStack surface is already running for the project** (most
+   common). Read the bridge URL + token from the per-project files —
+   no env vars, no manual `wstack mailbox serve`, no user prompt.
+2. **No WrongStack surface is running, but `wstack` is on PATH.**
+   `mbWithBootstrap()` (see Patterns below) spawns the bridge itself
+   for the duration of the agent's session and cleans up at exit.
+3. **Nothing is running and `wstack` is NOT on PATH.** Fall back to
+   asking the user to start a surface (`wstack --repl`,
+   `wstack --webui`) or to run `wstack mailbox serve` manually.
+
+Environment variables (`WRONGSTACK_MAILBOX_URL`,
+`WRONGSTACK_MAILBOX_TOKEN`) still work as overrides — useful for
+pointing at a non-default bridge (a remote one, a CI bridge) — but
+they're no longer required for the common case.
 
 ## When to use this skill
 
@@ -71,6 +85,8 @@ request. The token is rotated every time the bridge starts; read it
 freshly from the token file or accept it from the user — never hardcode
 it into prompts or committed code.
 
+If you're working with explicit env vars:
+
 ```ts
 const URL = process.env.WRONGSTACK_MAILBOX_URL;
 const TOKEN = process.env.WRONGSTACK_MAILBOX_TOKEN;
@@ -78,11 +94,16 @@ const TOKEN = process.env.WRONGSTACK_MAILBOX_TOKEN;
 if (!URL || !TOKEN) {
   throw new Error(
     'WRONGSTACK_MAILBOX_URL and WRONGSTACK_MAILBOX_TOKEN must be set ' +
-    'before talking to the WrongStack mailbox bridge. Ask the user to ' +
-    'run `wstack mailbox serve` and pass you the printed URL + token.',
+    'before talking to the WrongStack mailbox bridge. (Or use ' +
+    '`mbWithBootstrap()` to discover an already-running bridge from ' +
+    'the per-project lock file — see "Discovering the bridge" below.)',
   );
 }
 ```
+
+If you don't have env vars, skip this guard and use `mbWithBootstrap()`
+from the next section instead — it discovers the bridge from
+`.mailbox-bridge.lock` (and spawns one if none is running).
 
 ## The single helper
 
@@ -123,7 +144,181 @@ async function mb(path: string, body?: unknown): Promise<unknown> {
 Always use `AbortSignal.timeout` — never let a request hang forever.
 The mailbox is local; 10 s is generous.
 
+## Discovering the bridge: `mbWithBootstrap()`
+
+The plain `mb()` helper above assumes `WRONGSTACK_MAILBOX_URL` and
+`WRONGSTACK_MAILBOX_TOKEN` are set. After the auto-bootstrap wiring,
+external agents usually don't have those env vars — they need to
+discover the bridge from the per-project lock file (or spawn one).
+
+`mbWithBootstrap()` handles all three scenarios from the
+"What this skill assumes" section:
+
+1. **Env vars set** → use them directly.
+2. **No env vars, but a WrongStack surface is running** → read the
+   `.mailbox-bridge.lock` and `.mailbox.token` files from the project
+   directory to discover the running bridge.
+3. **No env vars, no surface running, but `wstack` is on PATH** →
+   spawn `wstack mailbox serve` as a child process and wait for the
+   lock to appear (the bootstrap helper writes it within ~200 ms of
+   `listen()` returning). Use this when you want full self-service.
+
+The helper takes a `projectDir` (the absolute path to the user's
+WrongStack project root) and returns a configured `mb(path, body)`
+function. Call it once at agent startup; use the returned `mb` for
+every subsequent route call.
+
+```ts
+/**
+ * Returns a configured `mb(path, body)` function for talking to
+ * the WrongStack mailbox bridge, spawning one if necessary.
+ *
+ * Discovery order:
+ *   1. WRONGSTACK_MAILBOX_URL + WRONGSTACK_MAILBOX_TOKEN env vars
+ *      (highest precedence — used as-is).
+ *   2. <projectDir>/.mailbox-bridge.lock  (the per-project lock file
+ *      written by every running WrongStack surface — read its
+ *      `url` + `token` fields).
+ *   3. <projectDir>/.mailbox.token         (the token file, in case
+ *      the URL is set in env but the token isn't, or vice versa).
+ *   4. Spawn `wstack mailbox serve` via spawnSync with a 5 s timeout
+ *      and re-read the lock file. Used as a last resort when no
+ *      WrongStack surface is running yet.
+ *
+ * Throws only when ALL three fail (no env vars, no lock file, no
+ * `wstack` on PATH). The caller decides whether to surface that
+ * to the user or fall back to manual setup.
+ */
+async function mbWithBootstrap(
+  projectDir: string,
+): Promise<(path: string, body?: unknown) => Promise<unknown>> {
+  // 1. Env vars win outright.
+  if (process.env.WRONGSTACK_MAILBOX_URL && process.env.WRONGSTACK_MAILBOX_TOKEN) {
+    return mb;
+  }
+
+  // 2-3. Lock + token files.
+  const lockPath = path.join(projectDir, '.mailbox-bridge.lock');
+  const tokenPath = path.join(projectDir, '.mailbox.token');
+  let url = process.env.WRONGSTACK_MAILBOX_URL;
+  let token = process.env.WRONGSTACK_MAILBOX_TOKEN;
+
+  try {
+    const lockRaw = await fs.readFile(lockPath, 'utf8');
+    const lock = JSON.parse(lockRaw) as { url: string; token: string };
+    if (lock.url && lock.token) {
+      url = url ?? lock.url;
+      token = token ?? lock.token;
+    }
+  } catch {
+    // lock file absent — fall through to spawn step
+  }
+  if (token === undefined) {
+    try {
+      token = (await fs.readFile(tokenPath, 'utf8')).trim();
+    } catch {
+      // token file absent — fall through to spawn step
+    }
+  }
+
+  // 4. Last resort — spawn `wstack mailbox serve` ourselves.
+  if (url === undefined || token === undefined) {
+    try {
+      const { spawnSync } = await import('node:child_process');
+      const result = spawnSync('wstack', ['mailbox', 'serve'], {
+        cwd: projectDir,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      if (result.error) throw result.error;
+      // Poll for the lock file for up to 5 s.
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 200));
+        try {
+          const raw = await fs.readFile(lockPath, 'utf8');
+          const lock = JSON.parse(raw) as { url: string; token: string };
+          if (lock.url && lock.token) {
+            url = lock.url;
+            token = lock.token;
+            break;
+          }
+        } catch {
+          // not yet — keep polling
+        }
+      }
+    } catch (err) {
+      throw new Error(
+        `Could not find or start a WrongStack mailbox bridge for ` +
+        `${projectDir}. Tried env vars, the per-project lock + token ` +
+        `files, and spawning \`wstack mailbox serve\`. Last error: ` +
+        (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }
+
+  // Set env vars for the inner `mb` helper so it picks them up
+  // without further branching. (Strictly optional — could also
+  // close over `url` and `token` directly.)
+  process.env.WRONGSTACK_MAILBOX_URL = url;
+  process.env.WRONGSTACK_MAILBOX_TOKEN = token;
+  return mb;
+}
+```
+
+Usage:
+
+```ts
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
+const mb = await mbWithBootstrap('/path/to/wrongstack/project');
+const { data } = await mb('/mailbox/query', {
+  to: agentId,
+  incompleteOnly: true,
+  limit: 50,
+}) as { data: MailboxMessage[] };
+```
+
+### When to prefer `mb()` over `mbWithBootstrap()`
+
+If you've already been given a URL + token (env vars, CLI args, a
+config file), use plain `mb()`. The bootstrap path is for
+discovery-first integrations — agents that want to "just connect to
+whatever's running" without asking the user.
+
 ## Patterns
+
+### Discover a running bridge without env vars
+
+The recommended pattern for an agent that doesn't have
+`WRONGSTACK_MAILBOX_URL` / `WRONGSTACK_MAILBOX_TOKEN` pre-set:
+
+```ts
+import * as path from 'node:path';
+
+async function findBridge(projectDir: string): Promise<{ url: string; token: string } | null> {
+  const lockPath = path.join(projectDir, '.mailbox-bridge.lock');
+  try {
+    const raw = await fs.readFile(lockPath, 'utf8');
+    const lock = JSON.parse(raw) as { url: string; token: string; pid: number };
+    if (!lock.url || !lock.token) return null;
+    // Optional: ping /healthz to confirm the PID is actually serving
+    // (a crashed-but-not-cleaned-up lock would still parse).
+    const res = await fetch(`${lock.url}/healthz`, {
+      signal: AbortSignal.timeout(500),
+    });
+    return res.ok ? { url: lock.url, token: lock.token } : null;
+  } catch {
+    return null;
+  }
+}
+```
+
+For the "no env vars AND no running surface" case, fall back to
+`mbWithBootstrap()` above (which spawns `wstack mailbox serve` for
+you and waits for the lock file to appear).
 
 ### Pick a stable agent id
 
@@ -451,6 +646,18 @@ bash scripts/install-mailbox-bridge-skills.sh ~/.claude/skills
 
 The script is **idempotent** — re-running overwrites existing copies
 with the latest bundled version.
+
+After installation, the external agent can talk to any WrongStack
+project whose bridge is already running (most common case — the user
+opens `wstack --repl` or `wstack --webui` and the bridge
+auto-bootstraps). `mbWithBootstrap()` handles discovery without
+requiring the user to copy URL/token env vars around.
+
+If no WrongStack surface is running yet, the user starts one —
+`wstack --repl`, `wstack --webui`, `wstack --eternal`, or `wstack
+mailbox serve` standalone all work. The first one to come up for a
+given project starts the bridge; subsequent surfaces join it via the
+per-project lock.
 
 ## Skills in scope
 
