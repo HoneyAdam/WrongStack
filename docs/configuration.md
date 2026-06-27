@@ -360,13 +360,19 @@ full payload/outcome schema and the security model.
 | `medium` | 25 (TIER1 + TIER2) | 60 chars | ~1.4–1.5k tokens |
 | `aggressive` | 35 (TIER1 + TIER2 − task + TIER3 − setWorkingDir) | 70 chars | ~1.0k tokens |
 
-The `aggressive` estimate is the empirical value from
-`packages/cli/tests/token-saving-measurement.test.ts`. `aggressive` now skips
-the Common Patterns, Delegation, Mailbox, and MCP guidance sections — the
-same compact one-liners used at `minimal`/`light`. Context Management and
-Commit Hygiene remain at `aggressive` (the former is most useful under
-context pressure; the latter is a small safety net against cross-agent git
-commits). The measurement test will catch any future drift.
+The five tiers optimize along two different axes; pick the one that matches
+your use case rather than reading "savings" as monotonic:
+
+- **Fewer tools + lots of guidance trimmed** — `minimal` (~2.5k saved), `light` (~2.4k saved). TIER1 only (10 tools). Best for single-file edits, quick fixes, and tasks where the model already knows everything it needs.
+- **Fewer tools + full guidance** — `medium` (~1.4k saved). TIER1+TIER2 (25 tools). Best for standard development where the model benefits from explicit delegation/mailbox guidance.
+- **Many tools + compact guidance** — `aggressive` (~1k saved). TIER1+TIER2+most-TIER3 (35 tools). Best when the task needs a wider tool surface (lint/test/install/etc.) but prompt real estate is tight. Context Management and Commit Hygiene remain at full because they're most useful under context pressure.
+
+The original design doc estimated "~4-5k tokens saved at `aggressive`", but
+that estimate assumed a much smaller tool set (~22 tools). The current
+implementation keeps the wider tool set on purpose — dropping more tools at
+`aggressive` would make it indistinguishable from a stricter version of
+`medium`. The savings estimates above are empirical, measured by
+`packages/cli/tests/token-saving-measurement.test.ts`.
 
 Memory tools (`remember`, `forget`, `searchMemory`, `relatedMemory`) are gated on
 `features.memory`, not on the tier — they appear at every tier when memory is enabled

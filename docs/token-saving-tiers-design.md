@@ -50,20 +50,45 @@ type TokenSavingTier =
 Empirical measurements (project heuristic 3.5 chars/token, run via
 `packages/cli/tests/token-saving-measurement.test.ts`):
 
-| Tier | Measured Δ vs `off` | Doc claim | Use Case |
-|------|---------------------|-----------|----------|
-| `off` | 0 tokens | 0 tokens | Complex tasks, multi-file refactors |
-| `minimal` | ~2,500–2,700 tokens | ~3,000–4,000 | Quick fixes, single-file edits |
-| `light` | ~2,300–2,400 tokens | ~2,000–3,000 | Standard development, most tasks |
-| `medium` | ~1,400–1,500 tokens | ~1,500–2,000 | When extra tools are needed |
-| `aggressive` | ~1,000 tokens | ~4,000–5,000 | Many tools, trimmed prompt |
+| Tier | Measured Δ vs `off` | Use Case |
+|------|---------------------|----------|
+| `off` | 0 tokens | Complex tasks, multi-file refactors |
+| `minimal` | ~2,500–2,700 tokens | Quick fixes, single-file edits |
+| `light` | ~2,300–2,400 tokens | Standard development, most tasks |
+| `medium` | ~1,400–1,500 tokens | When extra tools are needed |
+| `aggressive` | ~1,000 tokens | Many tools, trimmed prompt |
 
-`aggressive` now actually skips the same guidance sections as `minimal`/`light`
-(Common Patterns, Delegation, Mailbox, MCP). Context Management and Commit
-Hygiene remain at `aggressive` because the former is most useful when context
-is the bottleneck and the latter is a small (~200 token) safety net. The full
-guidance still occupies ~3,500 tokens; the remaining ~1,500 over `off` is the
-tool surface area (44 tools at `aggressive` vs 25 at `medium`).
+**Savings are not monotonic across tiers.** The five tiers optimize along
+two axes (tool count × guidance detail), so the size ordering is
+`off > aggressive > medium > light ≈ minimal`, not `off > medium > light >
+aggressive > minimal`. Pick the tier that matches your use case rather
+than the one with the largest savings number:
+
+- **Fewer tools + lots of guidance trimmed** — `minimal`, `light`. TIER1 only.
+- **Fewer tools + full guidance** — `medium`. TIER1+TIER2.
+- **Many tools + compact guidance** — `aggressive`. TIER1+TIER2+most-TIER3.
+
+The original design intent for `aggressive` was "~4-5k tokens saved by
+removing tools as well as guidance", but that would require cutting the
+tool count from 35 to ~22 — making `aggressive` indistinguishable from a
+stricter version of `medium`. The implementation chose to keep the wider
+tool set (44 tools including meta-tools and one-off generators) and only
+compact the prompt's guidance sections. Users who want maximum savings
+should pick `minimal` (2.5k saved) or `light` (2.4k saved); users who want
+many tools under a tight budget should pick `aggressive` (1k saved,
+44 tools).
+
+`aggressive` skips the same guidance sections as `minimal`/`light`
+(Common Patterns, Delegation, Mailbox, MCP). Context Management and
+Commit Hygiene remain at `aggressive` because the former is most useful
+when context is the bottleneck and the latter is a small (~200 token)
+safety net. The remaining ~1,500 tokens of prompt content vs `off` is
+the tool surface area (44 tools at `aggressive` vs 25 at `medium`).
+
+If a future design wants a 6th tier that combines `aggressive`'s compact
+guidance with `minimal`'s narrow tool set, the cleanest path is to add
+a new tier (e.g., `ultra`) rather than to narrow `aggressive`. That's
+a separate decision.
 
 ---
 
