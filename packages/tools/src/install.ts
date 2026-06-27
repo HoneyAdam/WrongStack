@@ -175,7 +175,7 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
     }
 
     // P2 #5: record the package operation as a structured side effect.
-    ctx.recordSideEffect({
+    ctx.recordSideEffect?.({
       toolUseId: `install-${Date.now()}`,
       toolName: 'install',
       ts: new Date().toISOString(),

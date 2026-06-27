@@ -30,6 +30,7 @@ describe('Config.features defaults', () => {
       memory: true,
       modelsRegistry: true,
       skills: true,
+      prompts: true,
       tokenSavingMode: 'off',
       allowOutsideProjectRoot: true,
     });

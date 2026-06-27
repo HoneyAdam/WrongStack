@@ -354,7 +354,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         },
       };
       // P2 #5: record the background launch as a structured side effect.
-      ctx.recordSideEffect({
+      ctx.recordSideEffect?.({
         toolUseId: `bash-bg-${Date.now()}`,
         toolName: 'bash',
         ts: new Date().toISOString(),
@@ -587,7 +587,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
             },
           };
           // P2 #5: record the command execution as a structured side effect.
-          ctx.recordSideEffect({
+          ctx.recordSideEffect?.({
             toolUseId: `bash-${Date.now()}`,
             toolName: 'bash',
             ts: new Date().toISOString(),

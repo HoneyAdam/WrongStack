@@ -20,10 +20,9 @@
  * a real core `Agent` (with the right provider, model, system prompt,
  * etc.) per session.
  *
- * Startup: prints the legacy `[wstack-acp]\n` marker (kept for backward
- * compatibility with the old `StdioTransport` handshake) so the client
- * knows the protocol boundary. v1 initialize is then sent by the client
- * and answered by `ACPProtocolHandler`.
+ * Startup: stdout is JSON-RPC only by default. The legacy `[wstack-acp]\n`
+ * marker can be enabled for older internal harnesses with
+ * `legacyStartupMarker`, but ACP clients should rely on v1 initialize.
  */
 import { fileURLToPath } from 'node:url';
 import { createServer, type Server } from 'node:http';
@@ -48,6 +47,8 @@ export interface WrongStackACPServerOptions {
   transport?: 'stdio' | number | undefined;
   /** Host for HTTP transport. Defaults to '127.0.0.1'. */
   host?: string | undefined;
+  /** Emit the pre-v1 startup marker on stdio. Defaults to false. */
+  legacyStartupMarker?: boolean | undefined;
 }
 
 export class WrongStackACPServer {
@@ -85,7 +86,9 @@ export class WrongStackACPServer {
   }
 
   private async startStdio(): Promise<void> {
-    this.transport.sendStartupMarker();
+    if (this.options.legacyStartupMarker) {
+      this.transport.sendStartupMarker();
+    }
     this.running = true;
     while (this.running) {
       const msg = await this.transport.read();

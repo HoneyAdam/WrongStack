@@ -391,10 +391,6 @@ export function ChatInput({
     [submitWith],
   );
 
-  const handleSendButtonClick = useCallback(() => {
-    void submitWith('btw');
-  }, [submitWith]);
-
   const handleBtw = useCallback(() => {
     void submitWith('btw');
   }, [submitWith]);
@@ -892,7 +888,6 @@ export function ChatInput({
             size="icon"
             variant="default"
             disabled={!input.trim() || !client?.isConnected}
-            onClick={handleSendButtonClick}
             className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
             title="Send (Enter)"
             data-testid="send-submit"
