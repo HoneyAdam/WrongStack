@@ -72,7 +72,7 @@ The loader scans each directory for subdirectories containing `SKILL.md`. Files 
 
 ## Bundled skills
 
-WrongStack ships with 20 bundled skills:
+WrongStack ships with 22 bundled skills:
 
 | Skill | Description |
 |---|---|
@@ -82,6 +82,7 @@ WrongStack ships with 20 bundled skills:
 | `chimera` | Post-session code quality review of changed files |
 | `docker-deploy` | Docker containerization, multi-stage builds, image scanning |
 | `git-flow` | Commit message style, branch hygiene, safe history operations |
+| `mailbox-bridge` | Loopback HTTP bridge that exposes the project's shared WrongStack mailbox so external agents (Claude Code, Aider, scripts) can read, send, and acknowledge messages |
 | `multi-agent` | Leader/worker roles, task delegation, result aggregation, fleet management |
 | `node-modern` | Node.js ≥ 22 idioms: ESM-only, native fetch, AbortSignal patterns |
 | `observability` | Structured logging, traces, metrics, redaction, instrumentation |
@@ -89,7 +90,8 @@ WrongStack ships with 20 bundled skills:
 | `prompt-engineering` | System prompt design, tool descriptions, trigger sentences |
 | `react-modern` | React 19+ Server Components, useTransition, Suspense, the `use` hook |
 | `refactor-planner` | Dependency mapping, risk assessment, phased planning, migration strategy |
-| `research-web` | Web research methodology, source validation, cross-referencing |
+| `research-web` | Web research methodology — disciplined web_search + web_fetch workflow, source validation, cross-referencing, structured context-manager injection |
+| `wrongstack-mailbox` | External-facing client for the project's shared WrongStack mailbox — register as an online agent, read messages, send replies, broadcast, and stay visible in the WebUI fleet |
 | `sdd` | Spec parsing, task graph generation, dependency tracking, done-condition execution |
 | `security-scanner` | Code and configuration security vulnerability scanning |
 | `skill-creator` | Guide to creating new WrongStack skills with YAML frontmatter |
@@ -98,6 +100,33 @@ WrongStack ships with 20 bundled skills:
 | `typescript-strict` | Strict null checks, exhaustive switch, branded types, discriminated unions |
 
 Override any bundled skill by creating a project- or user-level skill with the same `name`.
+
+---
+
+## Roster roles vs. skills
+
+A skill is a passive Markdown file. A **roster role** is a TypeScript subagent definition. They reach the agent through completely different paths, which is why some names you'll see in the CLI — most notably `shadow-agent` — never appear in the bundled-skills table above.
+
+| | Skill | Roster role |
+|---|---|---|
+| What it is | `SKILL.md` with YAML frontmatter | TypeScript `SubagentConfig` object |
+| Where it lives | `packages/core/skills/<name>/SKILL.md` (or `~/.wrongstack/skills/`, `<project>/.wrongstack/skills/`) | `packages/core/src/coordination/fleet.ts` (or related agent modules) |
+| How it reaches the agent | Injected into the system prompt via `DefaultSkillLoader` when `DefaultSystemPromptBuilder` builds the prompt | Spawned via `spawn_subagent { role: '<id>' }` and runs in its own context/budget |
+| Who maintains it | Humans (with AI assistance via `/skill-gen`) | WrongStack core team — compiled into the binary |
+| Listed in `/skill` | Yes | No |
+| Listed in `fleet_status` | No | Yes |
+
+### Example: `shadow-agent`
+
+`shadow-agent` is a roster role, not a skill. Its definition lives at `packages/core/src/coordination/agents/shadow-agent-role.ts` as `export const SHADOW_AGENT: SubagentConfig = { id: 'shadow-agent', role: 'shadow-agent', ... }`. The roster catalog in `packages/core/src/coordination/fleet.ts` registers it under the key `'shadow-agent'`. You start it with:
+
+```
+spawn_subagent { role: 'shadow-agent', task: '...', maxIterations: 12 }
+```
+
+If you have ever seen a file at `<project>/.wrongstack/skills/shadow-agent/SKILL.md`, that is a **runtime side-effect** — the shadow agent writes its own SKILL.md to disk while it runs so its prompt survives session restarts. It is not how the role is *defined*; it is how the role is *persisted*. The actual source of truth is the `SHADOW_AGENT` constant in `agents/shadow-agent-role.ts`.
+
+Other roster roles follow the same pattern (see `packages/core/src/coordination/agents/`). If you're looking for "how do I make the agent smarter about X", you almost always want to write a skill. If you're looking for "how do I spawn a specialized subagent that runs X", you want a roster role.
 
 ---
 

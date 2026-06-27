@@ -21,7 +21,9 @@ const isWin = process.platform === 'win32';
 const DEFAULT_ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
   // JS / TS toolchain
   'node', 'npm', 'pnpm', 'yarn', 'npx', 'bun', 'deno',
-  'tsc', 'vitest', 'jest', 'biome', 'eslint', 'prettier',
+  'corepack', 'tsc', 'tsx', 'ts-node', 'vite', 'vitest', 'jest',
+  'biome', 'eslint', 'prettier', 'turbo', 'nx', 'webpack', 'rollup',
+  'parcel', 'next', 'astro', 'playwright', 'cypress',
   // version control
   'git',
   // Rust
@@ -29,20 +31,24 @@ const DEFAULT_ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
   // Go
   'go',
   // Python
-  'python', 'python3', 'pip', 'pip3',
+  'python', 'python3', 'pip', 'pip3', 'pytest', 'ruff', 'mypy',
+  'uv', 'uvx', 'poetry', 'hatch', 'tox',
   // Ruby
   'ruby', 'gem', 'bundle',
+  // PHP
+  'php', 'composer', 'phpunit',
   // JVM
   'java', 'javac', 'mvn', 'gradle', 'gradlew',
   // .NET
   'dotnet',
   // C / C++ / native build
   'make', 'cmake',
-  // containers / orchestration (read-only subcommands; see BLOCKED_ARG_PATTERNS)
-  'docker', 'kubectl',
+  // containers / orchestration
+  'docker', 'podman', 'kubectl',
   // common POSIX file/text utilities
-  'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'find', 'echo',
-  'mkdir', 'cp', 'mv', 'rm', 'touch',
+  'pwd', 'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find',
+  'echo', 'sort', 'uniq', 'sed', 'awk', 'mkdir', 'cp', 'mv', 'rm',
+  'touch',
 ]);
 
 // The live, effective allowlist: DEFAULT ∪ config.allow − config.deny. Replaced
@@ -93,12 +99,12 @@ const MAX_ARGS = 20;
 const MAX_OUTPUT = 200_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-// Per-command argument validation. Each entry is a list of regex patterns
-// that, if matched against any argument, will reject the invocation.
-// This blocks common injection vectors through allowlisted commands.
+// Per-command hard-blocks. Keep this list narrow: `exec` is already a
+// confirm-gated tool with argv passed as an array and cwd confined to the
+// project. These patterns should block clear sandbox escapes / destructive
+// operations, not normal development workflows that happen to execute code.
 const BLOCKED_ARG_PATTERNS: Record<string, RegExp[]> = {
-  // python -c/--command executes arbitrary code; python -m runs modules
-  python: [/-c$/, /^--command$/, /^-m$/, /^--module$/],
+  python: [],
   // git --exec=<cmd> runs arbitrary commands via upload-pack/receive-pack;
   // -C <dir> changes working directory, bypassing cwd sandbox;
   // -c/--config <k>=<v> injects config that runs commands
@@ -114,15 +120,10 @@ const BLOCKED_ARG_PATTERNS: Record<string, RegExp[]> = {
     /^--config=/,
     /^--config-env=/,
   ],
-  // node -r/--require preloads arbitrary modules; --eval executes code
-  node: [/^-r$/, /^--require$/, /^-e$/, /^--eval$/, /^--prof-process$/],
-  // go run could execute arbitrary .go files; -ldflags could inject build-time code
-  go: [/^-ldflags$/],
-  // bun --preload is similar to node --require
-  bun: [/^--preload$/, /^run$/, /^bunx$/, /^create$/, /^init$/],
-  // docker build/run can create containers with host access;
-  // only allow read-only commands (ps, images, version)
-  docker: [/^build$/, /^run$/, /^exec$/, /^push$/, /^pull$/],
+  node: [],
+  go: [],
+  bun: [],
+  docker: [],
   // find -exec/-ok/-execdir execute arbitrary commands
   find: [/^-exec$/, /^-exec;$/, /^-ok$/, /^-ok;$/, /^-execdir$/, /^-execdir;$/, /^-exec=/, /^-ok=/, /^-execdir=/],
   // rm -rf / is catastrophic — block absolute paths, home, dot-dirs,
@@ -130,16 +131,59 @@ const BLOCKED_ARG_PATTERNS: Record<string, RegExp[]> = {
   // `rm -rf ./src/*` expands to project files; `rm -rf ../../` escapes upward;
   // `rm -rf /*` targets the filesystem root. All are blocked.
   rm: [/^\//, /^~\//, /^~$/, /^\.$/, /^\.\.$/, /\*$/, /\/$/, /\/\*$/, /\.\//],
-  // npm run/exec/create/pack/publish can execute arbitrary scripts or publish malware
-  npm: [/^run$/, /^exec$/, /^create$/, /^init$/, /^pack$/, /^publish$/, /^deploy$/],
-  // pnpm run/dlx/exec/create can execute arbitrary scripts
-  pnpm: [/^run$/, /^dlx$/, /^exec$/, /^create$/, /^init$/, /^pack$/, /^publish$/, /^deploy$/],
-  // npx should only be used for --version; any package name is a vector for
-  // malicious package execution (typosquatting, dependency confusion)
-  npx: [/^[^\s]+$/],
+  // npm/pnpm subcommands are checked separately below. Matching every arg here
+  // over-blocked normal dev flows such as `pnpm vitest run ...`.
+  npm: [],
+  pnpm: [],
+  npx: [],
 };
 
+// Subcommand verbs only make sense in subcommand position. Keep externally
+// destructive actions blocked there without rejecting harmless downstream args
+// named "run", "publish", etc. passed to test runners or build tools.
+const BLOCKED_SUBCOMMANDS: Record<string, ReadonlySet<string>> = {
+  docker: new Set(['push']),
+  podman: new Set(['push']),
+  npm: new Set(['publish', 'deploy']),
+  pnpm: new Set(['publish', 'deploy']),
+  yarn: new Set(['publish']),
+};
+
+const BLOCKED_SUBCOMMAND_SEQUENCES: Record<string, readonly (readonly string[])[]> = {
+  yarn: [['npm', 'publish']],
+};
+
+function firstSubcommand(args: string[]): string | null {
+  for (const arg of args) {
+    if (arg === '--') return null;
+    if (!arg.startsWith('-')) return arg;
+  }
+  return null;
+}
+
+function subcommandArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (const arg of args) {
+    if (arg === '--') break;
+    if (!arg.startsWith('-')) out.push(arg);
+  }
+  return out;
+}
+
 function validateArgs(cmd: string, args: string[]): string | null {
+  const blockedSubcommands = BLOCKED_SUBCOMMANDS[cmd];
+  const subcommand = firstSubcommand(args);
+  if (blockedSubcommands && subcommand && blockedSubcommands.has(subcommand)) {
+    return `Blocked subcommand "${subcommand}" for command "${cmd}"`;
+  }
+
+  const blockedSequences = BLOCKED_SUBCOMMAND_SEQUENCES[cmd];
+  if (blockedSequences) {
+    const actual = subcommandArgs(args);
+    const blocked = blockedSequences.find((seq) => seq.every((part, idx) => actual[idx] === part));
+    if (blocked) return `Blocked subcommand "${blocked.join(' ')}" for command "${cmd}"`;
+  }
+
   const blocked = BLOCKED_ARG_PATTERNS[cmd];
   if (!blocked) return null;
 

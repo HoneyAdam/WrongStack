@@ -94,6 +94,55 @@ describe('execTool runCommand (faked child)', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it('allows package-manager run args when they are not dangerous subcommands', async () => {
+    const vitest = await execTool.execute(
+      { command: 'pnpm', args: ['vitest', 'run', 'packages/providers/tests/anthropic.test.ts'] },
+      ctx(),
+      opts(),
+    );
+    expect(vitest.allowed).toBe(true);
+
+    const script = await execTool.execute({ command: 'pnpm', args: ['run', 'test'] }, ctx(), opts());
+    expect(script.allowed).toBe(true);
+  });
+
+  it('allows normal code-executing development commands', async () => {
+    for (const input of [
+      { command: 'pnpm', args: ['dlx', 'tsx', 'scripts/check.ts'] },
+      { command: 'npx', args: ['tsx', 'scripts/check.ts'] },
+      { command: 'node', args: ['-e', 'console.log("ok")'] },
+      { command: 'python', args: ['-m', 'pytest'] },
+      { command: 'docker', args: ['build', '.'] },
+    ]) {
+      const result = await execTool.execute(input, ctx(), opts());
+      expect(result.allowed, `${input.command} ${input.args.join(' ')}`).toBe(true);
+    }
+  });
+
+  it('still blocks externally destructive subcommands only in subcommand position', async () => {
+    const blocked = await execTool.execute({ command: 'pnpm', args: ['publish'] }, ctx(), opts());
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.stderr).toContain('Blocked subcommand "publish"');
+
+    const dockerPush = await execTool.execute({ command: 'docker', args: ['push', 'repo/image'] }, ctx(), opts());
+    expect(dockerPush.allowed).toBe(false);
+    expect(dockerPush.stderr).toContain('Blocked subcommand "push"');
+
+    const yarnInfo = await execTool.execute({ command: 'yarn', args: ['npm', 'info', 'typescript'] }, ctx(), opts());
+    expect(yarnInfo.allowed).toBe(true);
+
+    const yarnPublish = await execTool.execute({ command: 'yarn', args: ['npm', 'publish'] }, ctx(), opts());
+    expect(yarnPublish.allowed).toBe(false);
+    expect(yarnPublish.stderr).toContain('Blocked subcommand "npm publish"');
+
+    const downstreamArg = await execTool.execute(
+      { command: 'pnpm', args: ['test', '--', 'publish'] },
+      ctx(),
+      opts(),
+    );
+    expect(downstreamArg.allowed).toBe(true);
+  });
+
   it('rejects cwd that escapes project root through a symlink', async () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-outside-'));
     const link = path.join(dir, 'outside-link');

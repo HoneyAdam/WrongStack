@@ -325,8 +325,27 @@ describe('exec command policy (configurable allowlist)', () => {
 
   afterEach(() => resetExecPolicy());
 
-  it('ships common build tools in the default allowlist (incl. go)', () => {
-    for (const cmd of ['go', 'cargo', 'make', 'dotnet', 'gradle', 'mvn', 'deno', 'yarn']) {
+  it('ships common build tools in the default allowlist (incl. modern dev runners)', () => {
+    for (const cmd of [
+      'go',
+      'cargo',
+      'make',
+      'dotnet',
+      'gradle',
+      'mvn',
+      'deno',
+      'yarn',
+      'tsx',
+      'vite',
+      'turbo',
+      'nx',
+      'rg',
+      'pytest',
+      'uv',
+      'poetry',
+      'composer',
+      'phpunit',
+    ]) {
       expect(isExecCommandAllowed(cmd)).toBe(true);
     }
   });
