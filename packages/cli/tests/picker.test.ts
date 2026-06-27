@@ -410,6 +410,64 @@ describe('runPicker', () => {
   });
 });
 
+describe('openai-codex picker header', () => {
+  // The numbered (non-TTY) picker renders an openai-codex-specific header
+  // ("Select Model and Effort") plus a legacy-models note, mirroring the
+  // official Codex CLI. Other providers keep the generic "<name> (<id>) models:"
+  // header and show no note. See picker.ts pickModel().
+
+  it('renders "Select Model and Effort" + the legacy-models note for openai-codex', async () => {
+    const { out } = mkRig();
+    // openai-codex lives only in saved config (OAuth), never in the catalog.
+    const registry = fakeRegistry([]);
+    const config = {
+      providers: {
+        'openai-codex': {
+          type: 'openai-codex',
+          family: 'openai-codex',
+          apiKeys: [{ label: 'oauth-default', apiKey: 'tok', createdAt: '2026-01-01' }],
+          activeKey: 'oauth-default',
+          models: ['gpt-5.5', 'gpt-5.4'],
+        },
+      },
+    } as never;
+    const reader = fakeReader(['1', '1', 'n']); // provider 1, model 1, don't save
+    await runPicker({
+      modelsRegistry: registry as never,
+      renderer: new TerminalRenderer({
+        out: out as never as NodeJS.WriteStream,
+        err: new CapStream() as never as NodeJS.WriteStream,
+      }),
+      reader: reader as never,
+      config,
+    });
+    expect(out.buf).toContain('Select Model and Effort');
+    expect(out.buf).toContain('wstack -m <model_name>');
+    expect(out.buf).toContain('config.json');
+  });
+
+  it('does NOT render the codex header or legacy note for other providers', async () => {
+    const { out } = mkRig();
+    const providers = [
+      fakeProvider({ models: [fakeModel({ id: 'claude-opus-4' })] }),
+    ];
+    const reader = fakeReader(['1', '1', 'n']);
+    const registry = fakeRegistry(providers);
+    await runPicker({
+      modelsRegistry: registry as never,
+      renderer: new TerminalRenderer({
+        out: out as never as NodeJS.WriteStream,
+        err: new CapStream() as never as NodeJS.WriteStream,
+      }),
+      reader: reader as never,
+    });
+    expect(out.buf).not.toContain('Select Model and Effort');
+    expect(out.buf).not.toContain('wstack -m');
+    // The generic header should still be present.
+    expect(out.buf).toContain('Anthropic (anthropic) models:');
+  });
+});
+
 describe('filterProviders', () => {
   const sample = [
     fakeProvider({ id: 'anthropic', name: 'Anthropic', family: 'anthropic', envVars: [] }),
