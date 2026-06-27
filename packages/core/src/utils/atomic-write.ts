@@ -52,6 +52,22 @@ export async function atomicWrite(
       await fs.chmod(tmp, mode);
     }
     await renameWithRetry(tmp, targetPath);
+    // P3 #20 (before-release.md): on Windows, fs.rename (MoveFileExW) does
+    // not preserve Unix permission bits — the chmod above applies to the tmp
+    // file, but the rename may reset the destination's mode to the Windows
+    // default. Re-apply the mode after rename on win32 so an edited file
+    // keeps its executable bit (or any non-default permission). On POSIX,
+    // rename preserves metadata so this is a no-op (chmod is idempotent and
+    // cheap), but we gate it on win32 to avoid the extra stat+chmod on the
+    // common path.
+    if (mode !== undefined && process.platform === 'win32') {
+      try {
+        await fs.chmod(targetPath, mode);
+      } catch {
+        // Best-effort: a transient EPERM (antivirus lock) should not fail
+        // the write — the content is already on disk.
+      }
+    }
   } catch (err) {
     try {
       await fs.unlink(tmp);
