@@ -257,6 +257,11 @@ describe('buildMailboxBlock', () => {
  * Build a minimal Mailbox stub. Only `query` and `ackMany` are wired; the
  * rest are vi.fn() no-ops because createMailboxChecker never calls them.
  * Tests inject a queue of query responses and assert on the ackMany batch.
+ *
+ * The `ackMany` mock returns the full `MailboxMessage` shape (including
+ * `readBy` and `timestamp`) so it matches the production signature —
+ * tests that don't inspect the return value still benefit from the
+ * type-level assurance that we're mocking what the contract promises.
  */
 function fakeMailbox(
   queryResponses: MailboxMessage[][],
@@ -265,7 +270,13 @@ function fakeMailbox(
     return queryResponses.shift() ?? [];
   });
   const ackManyMock = vi.fn(async (input: { acks: Array<{ messageId: string }> }) =>
-    input.acks.map((a) => msg({ id: a.messageId, type: 'note' })),
+    input.acks.map((a) =>
+      msg({
+        id: a.messageId,
+        type: 'note',
+        readBy: { [a.messageId]: '2026-06-29T00:00:00.000Z' },
+      }),
+    ),
   );
   const stub = {
     send: vi.fn(),

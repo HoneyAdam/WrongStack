@@ -152,19 +152,25 @@ function messageWidths(messages: MailboxMessage[], selfId: string): { from: numb
  * rather than rejecting the command — better to send a note tagged with the
  * wrong label than to drop the message entirely. The consumed flag is also
  * stripped from the body, so recipients never see literal `type=garbage`.
+ *
+ * Note: this list is intentionally NOT exhaustive over MailboxMessageType.
+ * New message types added to the union are accepted by the underlying
+ * mailbox but pass through this parser as the default — slash command
+ * support for them must be opted into here. This is fail-safe (rather than
+ * fail-open): the message still arrives, just with the wrong category label.
  */
 function parseTypeFlag(
   tokens: string[],
   defaultType: MailboxMessageType,
 ): { type: MailboxMessageType; body: string } {
-  const VALID: readonly MailboxMessageType[] = [
+  const VALID: ReadonlySet<MailboxMessageType> = new Set<MailboxMessageType>([
     'note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control',
-  ];
+  ]);
   let type: MailboxMessageType = defaultType;
   const rest = tokens.slice();
   if (rest[0]?.startsWith('type=')) {
     const candidate = rest[0].slice('type='.length) as MailboxMessageType;
-    if ((VALID as readonly string[]).includes(candidate)) {
+    if (VALID.has(candidate)) {
       type = candidate;
       rest.shift();
     }

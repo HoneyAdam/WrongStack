@@ -106,6 +106,20 @@ export function createMailboxChecker(
   };
 }
 
+/**
+ * Human-readable emoji prefix for each message type. Types not in this map
+ * fall through to a generic `📨 <TYPE>` prefix so a newly-added MailboxMessageType
+ * still renders sensibly without needing an immediate code change here.
+ */
+const TYPE_LABEL: Partial<Record<MailboxMessage['type'], string>> = {
+  steer: '🔄 STEER',
+  btw: '💬 BTW',
+  ask: '❓ ASK',
+  assign: '📋 ASSIGN',
+  result: '✅ RESULT',
+  review: '🔍 REVIEW',
+};
+
 export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; text: string } {
   if (messages.length === 0) throw new Error('buildMailboxBlock called with empty messages');
 
@@ -125,21 +139,17 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
   // and the model must see them before any other action items, otherwise
   // it can finish an ask/assign/result before adjusting course. We do NOT
   // mutate `messages` itself (the caller still owns it for dedup) — we
-  // build a local render order.
-  const ordered = [
-    ...messages.filter((m) => m.type === 'steer'),
-    ...messages.filter((m) => m.type !== 'steer'),
-  ];
+  // build a local render order via a single-pass partition.
+  const steers: MailboxMessage[] = [];
+  const rest: MailboxMessage[] = [];
+  for (const m of messages) {
+    if (m.type === 'steer') steers.push(m);
+    else rest.push(m);
+  }
+  const ordered = [...steers, ...rest];
 
   for (const m of ordered) {
-    const typeLabel =
-      m.type === 'steer' ? '🔄 STEER' :
-      m.type === 'btw' ? '💬 BTW' :
-      m.type === 'ask' ? '❓ ASK' :
-      m.type === 'assign' ? '📋 ASSIGN' :
-      m.type === 'result' ? '✅ RESULT' :
-      m.type === 'review' ? '🔍 REVIEW' :
-      `📨 ${m.type.toUpperCase()}`;
+    const typeLabel = TYPE_LABEL[m.type] ?? `📨 ${m.type.toUpperCase()}`;
     parts.push(`--- ${typeLabel} from ${m.from} ---`);
     parts.push(`Subject: ${m.subject}`);
     parts.push('');

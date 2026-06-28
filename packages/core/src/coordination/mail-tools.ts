@@ -78,7 +78,7 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       'Pick the type that matches the intent: note (default), ask (blocking question), ' +
       'assign (task), steer (mid-task direction), result (completion notice), review ' +
       '(passive ask), btw/status/broadcast/control (informational).',
-    usageHint: 'mail_send to="worker@b2c3" type="review" subject="skim auth refactor" body="please look at src/auth/*.ts when convenient"',
+    usageHint: 'mail_send to="<id>" type="review" body="please skim <file>"',
     category: 'coordination',
     permission: 'auto',
     mutating: true,
