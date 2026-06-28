@@ -7,7 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`ParseError` — new WrongStackError subclass.** Fills the gap between
+  `FetchError` (HTTP non-OK) and `ConfigError(CONFIG_PARSE_FAILED)` (config
+  files): thrown when a request succeeded (200 OK, valid JSON) but the
+  response body is missing required fields or has an unexpected shape.
+  Carries a `source` property identifying which upstream API failed (e.g.
+  `'anthropic-oauth-token-response'`). Includes `isParseError` type guard.
+
+- **`createGracefulShutdown` — reusable SIGINT/SIGTERM handler.**
+  `packages/cli/src/shutdown-cleanup.ts`. Idempotent guard, awaits async
+  cleanup, sets `exitCode`, gives Node a 500 ms grace to drain, then force-
+  exits. Matches the established pattern in `webui-server/lifecycle.ts` +
+  `cli-entry-point.ts`. Used by `cli-main.ts` and `acp.ts` (stdin variant).
+
+- **`OAuthRefreshCoordinator` — shared single-flight refresh machinery.**
+  `packages/providers/src/oauth-refresh-coordinator.ts`. Extracts the
+  duplicated single-flight + `onRefresh` contract from the three OAuth
+  providers (`openai-codex`, `anthropic-oauth`, `github-copilot`). Each
+  provider now holds a `refreshCoordinator` field and passes host-specific
+  callbacks (`projectTokens`, `applyTokens`, `formatPayload`) to express
+  its token shape — composition over inheritance because the three
+  providers extend different base classes.
+
+- **`expectFetchError` — test helper.**
+  `packages/cli/tests/helpers/fetch-error.ts`. Collapses the try/catch +
+  `isFetchError` + status + context boilerplate (~13 lines per site) into
+  a single helper call. Supports `status` vs `expectedStatus` split for
+  cases where the production code remaps the HTTP status before throwing.
+
+- **`classifyToolError` now recognizes all WrongStackError subclasses.**
+  A catch-all `instanceof WrongStackError` arm routes by severity +
+  recoverability: `fatal`/`error` → `FATAL`, `warning` → `TRANSIENT`.
+  Previously only `FetchError` and `ToolValidationError` were matched;
+  all other subclasses fell through to the default unclassified arm.
+
+- **Error-severity integration test.**
+  `packages/core/tests/types/error-severity.test.ts` — 41 tests verifying
+  the default severity of all 10 `WrongStackError` subclasses, including
+  code-conditional branches (`AGENT_ABORTED` → warning, etc.).
+
+- **`classifyToolError` routing test.**
+  `packages/core/tests/execution/classify-tool-error.test.ts` — 12 tests
+  covering every subclass.
+
+### Changed
+
+- **Structured-error migration: ~60 `throw new Error(...)` sites → typed
+  subclasses.** Cross-package sweep across `core`, `tools`, `providers`,
+  `runtime`, and `cli`. Every reachable `throw new Error(...)` that
+  propagates to the user or the agent loop now uses `FetchError`,
+  `FsError`, `SessionError`, `ConfigError`, `AgentError`,
+  `ToolValidationError`, or `ParseError` with structured `code`,
+  `context`, and `cause` fields. Intentionally not migrated: control-flow
+  throws in `slash-commands/helpers.ts` (ecosystem detection) and
+  locally-caught validation (`hq.ts`, `settings.ts`).
+
+- **`classifyToolError` exported for testability.** Was module-local;
+  now `export function` so the routing can be tested directly.
+
+### Fixed
+
+- **OAuth token-refresh races.** All three OAuth providers
+  (`openai-codex`, `anthropic-oauth`, `github-copilot`) had unsynchronized
+  refresh paths: concurrent requests near expiry could each mint a token
+  pair and race the `onRefresh` persistence callback. Fixed via
+  `OAuthRefreshCoordinator` single-flight — concurrent callers share one
+  upstream call, one state mutation, one `onRefresh` fire.
+
+- **SIGINT/SIGTERM shutdown race in `cli-main.ts`.** The signal handlers
+  called `void cleanup()` then `process.exit(0)` immediately, cutting off
+  `registry.markClosing()` (an awaited atomic disk write). The cross-
+  process session registry kept thinking the host was alive after Ctrl+C.
+  Fixed via `createGracefulShutdown`.
+
+- **`dispatch-webui.ts` redundant SIGINT handlers.** The dispatch installed
+  its own SIGINT/SIGTERM handlers that resolved the exit-code promise
+  without telling the WebUI server to stop — the server kept running
+  orphaned. Fixed by removing the dispatch's redundant handlers; SIGINT
+  now flows through `runWebUI`'s internal teardown chain.
+
+- **`acp.ts` (stdin variant) shutdown race.** `server.stop(); process.exit(0)`
+  back-to-back cut off the server's async teardown. Fixed via
+  `createGracefulShutdown`.
+
+- **`process-guardian.ts` swallowed fatal errors.** The
+  `uncaughtException` and `unhandledRejection` handlers logged and
+  continued, converting fatal invariant violations into silent undefined
+  execution. Now logs and exits non-zero so the host (systemd, launchd,
+  supervisor) can react.
+
+- **`fetch.ts` cause-chain loss.** `describeFetchError` returned a fresh
+  bare `Error`, severing the undici/DNS/TLS cause chain. Now returns
+  `FsError(FS_READ_FAILED)` with `cause: err` preserving the full chain.
+
+- **`read.ts` cause-chain loss.** Stat failures were wrapped via
+  `throw new Error(..., toErrorMessage(err))`, losing the cause object
+  and stack. Now throws `FsError(FS_READ_FAILED)` with `cause: err`.
+
+- **`agent.ts` plugin-teardown cause loss.** Teardown failures were
+  collapsed into `throw new Error(...)` joining all messages as strings.
+  Now throws `AgentError(AGENT_RUN_FAILED)` with `cause: errors[0]`
+  preserving the first underlying error's structured fields.
+
+### Security
+
+- **`glob.ts` symlink-escape fix (CWE-59).** The base path was checked
+  with `safeResolve` (syntactic only) instead of `safeResolveReal`
+  (realpath + containment). Symlinks encountered during the walk were
+  followed via `fs.stat` without checking whether the target was inside
+  the workspace. Both now validate via `assertRealInsideRoot`. In-
+  workspace symlinks still work; out-of-workspace symlinks are silently
+  skipped.
+
+- **`install.ts` + `update.ts` — `--ignore-scripts` default.** Package
+  installs and CLI self-updates now pass `--ignore-scripts` by default for
+  all four package managers (npm, pnpm, yarn, bun). Opt-in via
+  `lifecycleScripts: true` (install tool) or `--allow-scripts` (update
+  subcommand). A compromised `postinstall` can no longer execute arbitrary
+  code at install time without explicit opt-in.
+
+- **`vision.ts` SSRF guard on image URLs.** Vision adapters forwarded
+  `image.source.url` straight into tool payload fields without validating
+  scheme/host. A URL pointing at localhost, RFC1918, or the IMDS endpoint
+  (`169.254.169.254`) would bypass the `fetch.ts` SSRF guard. Now runs
+  `assertNotPrivateHost` on every URL before forwarding. New
+  `VisionUrlBlockedError` carries the rejected URL.
 
 ## [0.275.0] — 2026-06-28
 
