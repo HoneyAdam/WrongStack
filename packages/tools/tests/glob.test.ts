@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { globTool } from '../src/glob.js';
@@ -6,11 +7,17 @@ import { type Sandbox, mkSandbox, newSignal } from './fixtures.js';
 
 describe('glob tool', () => {
   let sb: Sandbox;
+  let outsideRoot: string;
+
   beforeEach(async () => {
     sb = await mkSandbox();
+    // A sibling tmp dir used as the destination for out-of-root symlinks.
+    // We clean it up in `afterEach` so tests can't leak files across runs.
+    outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-glob-outside-'));
   });
   afterEach(async () => {
     await sb.cleanup();
+    await fs.rm(outsideRoot, { recursive: true, force: true });
   });
 
   it('matches files with simple pattern', async () => {
@@ -95,5 +102,70 @@ describe('glob tool', () => {
     });
     expect(out.truncated).toBe(true);
     expect(out.files.length).toBeLessThanOrEqual(2);
+  });
+
+  describe('symlink containment (CWE-59)', () => {
+    it('does not recurse into a symlink whose target is outside the project root', async () => {
+      // Place files inside the sandbox and inside the sibling outsideRoot.
+      await fs.mkdir(path.join(sb.dir, 'in-root'), { recursive: true });
+      await fs.writeFile(path.join(sb.dir, 'in-root', 'safe.ts'), '');
+      await fs.mkdir(path.join(outsideRoot, 'secret'), { recursive: true });
+      await fs.writeFile(path.join(outsideRoot, 'secret', 'leaked.ts'), '');
+      // Symlink inside the workspace, pointing at the outside directory.
+      await fs.symlink(outsideRoot, path.join(sb.dir, 'escape'), 'dir');
+
+      const out = await globTool.execute({ pattern: '**/*.ts' }, sb.ctx, {
+        signal: newSignal(),
+      });
+
+      expect(out.files.some((f) => f.endsWith('safe.ts'))).toBe(true);
+      // The leak: the file under the symlinked directory must NOT be returned.
+      expect(out.files.some((f) => f.includes('leaked.ts'))).toBe(false);
+      expect(out.files.some((f) => f.includes('escape'))).toBe(false);
+    });
+
+    it('does not include a symlink file whose target is outside the project root', async () => {
+      await fs.writeFile(path.join(sb.dir, 'real.ts'), '');
+      await fs.writeFile(path.join(outsideRoot, 'passwd'), 'shadow');
+      await fs.symlink(path.join(outsideRoot, 'passwd'), path.join(sb.dir, 'alias'));
+
+      const out = await globTool.execute({ pattern: '*' }, sb.ctx, { signal: newSignal() });
+
+      expect(out.files.some((f) => f.endsWith('real.ts'))).toBe(true);
+      expect(out.files.some((f) => f.endsWith('alias'))).toBe(false);
+    });
+
+    it('still recurses into symlinks that stay inside the project root', async () => {
+      // A legitimate in-workspace symlink should continue to work — the
+      // containment check must not be so broad that it blocks real use.
+      await fs.mkdir(path.join(sb.dir, 'real'), { recursive: true });
+      await fs.writeFile(path.join(sb.dir, 'real', 'a.ts'), '');
+      await fs.symlink(path.join(sb.dir, 'real'), path.join(sb.dir, 'link'), 'dir');
+
+      const out = await globTool.execute({ pattern: '**/*.ts' }, sb.ctx, {
+        signal: newSignal(),
+      });
+
+      // Both the real path and the symlink path should surface a.ts — the
+      // walker recurses into the linked directory and matches the file.
+      const hits = out.files.filter((f) => f.endsWith('a.ts'));
+      expect(hits.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('rejects a base path that itself resolves outside the project root', async () => {
+      // The user-named base path is symlinked to outsideRoot. The base
+      // should fail the realpath-containment check loudly (like single-file
+      // tools do) rather than silently returning nothing.
+      await fs.writeFile(path.join(outsideRoot, 'elsewhere.ts'), '');
+      await fs.symlink(outsideRoot, path.join(sb.dir, 'outside-link'), 'dir');
+
+      await expect(
+        globTool.execute(
+          { pattern: '**/*.ts', path: 'outside-link' },
+          sb.ctx,
+          { signal: newSignal() },
+        ),
+      ).rejects.toThrow(/outside project root/);
+    });
   });
 });

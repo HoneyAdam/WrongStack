@@ -459,7 +459,13 @@ export async function persistTelegramConfig(
     raw = await fs.readFile(deps.globalConfigPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(`Could not read ${deps.globalConfigPath}: ${(err as Error).message}`);
+      throw new FsError({
+        message: `Could not read ${deps.globalConfigPath}: ${(err as Error).message}`,
+        code: 'FS_READ_FAILED',
+        path: deps.globalConfigPath,
+        context: { operation: 'readGlobalConfig', phase: 'read' },
+        cause: err,
+      });
     }
     fileExists = false;
     raw = '{}';
@@ -470,9 +476,12 @@ export async function persistTelegramConfig(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(
-        `Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`,
-      );
+      throw new ConfigError({
+        message: `Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+        code: 'CONFIG_PARSE_FAILED',
+        context: { filePath: deps.globalConfigPath, operation: 'readGlobalConfig' },
+        cause: err,
+      });
     }
     parsed = {};
   }

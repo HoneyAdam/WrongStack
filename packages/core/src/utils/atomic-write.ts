@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { FsError } from '../types/errors.js';
 
 export interface AtomicWriteOptions {
   mode?: number | undefined;
@@ -119,7 +120,12 @@ export async function withFileLock<T>(
         continue;
       }
       if (Date.now() - started >= timeoutMs) {
-        throw new Error(`Timed out waiting for file lock: ${targetPath}`);
+        throw new FsError({
+          message: `Timed out waiting for file lock: ${targetPath}`,
+          code: 'FS_ATOMIC_WRITE_FAILED',
+          path: targetPath,
+          context: { timeoutMs },
+        });
       }
       await new Promise((resolve) => setTimeout(resolve, 25));
     }

@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { isFsError, isToolValidationError } from '@wrongstack/core';
 import { readTool } from '../src/read.js';
 import { mkSandbox, newSignal, type Sandbox } from './fixtures.js';
 
@@ -200,5 +201,62 @@ describe('read tool', () => {
     } finally {
       await fs.rm(outside, { recursive: true, force: true });
     }
+  });
+
+  describe('structured error shape', () => {
+    it('throws ToolValidationError when path is missing', async () => {
+      let caught: unknown;
+      try {
+        await readTool.execute({ path: '' }, sb.ctx, { signal: newSignal() });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(isToolValidationError(caught)).toBe(true);
+      const ve = caught as ReturnType<typeof isToolValidationError> & {
+        code: string;
+        context?: Record<string, unknown>;
+      };
+      expect(ve.code).toBe('VALIDATION_ERROR');
+      expect(ve.context?.field).toBe('path');
+    });
+
+    it('throws FsError(FS_READ_FAILED) when the file does not exist', async () => {
+      let caught: unknown;
+      try {
+        await readTool.execute({ path: 'missing.txt' }, sb.ctx, {
+          signal: newSignal(),
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(isFsError(caught)).toBe(true);
+      const fe = caught as ReturnType<typeof isFsError> & {
+        code: string;
+        path?: string;
+        context?: Record<string, unknown>;
+      };
+      expect(fe.code).toBe('FS_READ_FAILED');
+      expect(fe.context?.errno).toBe('ENOENT');
+    });
+
+    it('throws FsError when the target is not a regular file', async () => {
+      await fs.mkdir(path.join(sb.dir, 'a-dir'));
+      let caught: unknown;
+      try {
+        await readTool.execute({ path: 'a-dir' }, sb.ctx, { signal: newSignal() });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(isFsError(caught)).toBe(true);
+      const fe = caught as ReturnType<typeof isFsError> & {
+        code: string;
+        context?: Record<string, unknown>;
+      };
+      expect(fe.code).toBe('FS_READ_FAILED');
+      expect(fe.context?.reason).toBe('not-a-regular-file');
+    });
   });
 });

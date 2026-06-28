@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Agent, createDefaultPipelines } from '../../src/core/agent.js';
 import { Context } from '../../src/core/context.js';
 import { DefaultErrorHandler } from '../../src/execution/error-handler.js';
@@ -18,6 +18,7 @@ import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js
 import { DefaultSecretScrubber } from '../../src/security/secret-scrubber.js';
 import { DefaultSessionStore } from '../../src/storage/session-store.js';
 import { ProviderError } from '../../src/types/provider.js';
+import { isAgentError } from '../../src/types/errors.js';
 import type {
   Capabilities,
   Provider,
@@ -1127,5 +1128,41 @@ describe('Agent — additional coverage', () => {
     const result = await agent.run('ping');
     expect(result.status).toBe('failed');
     expect(result.error?.message).toBe('terminal recovery decision');
+  });
+
+  it('teardown throws a structured AgentError when a plugin teardown fails', async () => {
+    const provider = new MockProvider([]);
+    const { agent, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+
+    // Register two plugins: the second throws during teardown. Agent.teardown
+    // must surface the failure as an AgentError(AGENT_RUN_FAILED) with the
+    // first underlying error preserved as `cause`, not as a bare Error.
+    const goodTeardown = vi.fn().mockResolvedValue(undefined);
+    const badTeardown = vi.fn().mockRejectedValue(new Error('plugin cleanup blew up'));
+    await agent.use({ name: 'good', apiVersion: '^0.1', setup: () => undefined, teardown: goodTeardown } as never, {} as never);
+    await agent.use({ name: 'bad', apiVersion: '^0.1', setup: () => undefined, teardown: badTeardown } as never, {} as never);
+
+    let caught: unknown;
+    try {
+      await agent.teardown();
+    } catch (err) {
+      caught = err;
+    }
+    // Both teardowns ran (bad plugin's error doesn't block good one's cleanup).
+    expect(goodTeardown).toHaveBeenCalled();
+    expect(badTeardown).toHaveBeenCalled();
+
+    expect(caught).toBeDefined();
+    expect(isAgentError(caught)).toBe(true);
+    const ae = caught as ReturnType<typeof isAgentError> & {
+      code: string;
+      context?: Record<string, unknown>;
+      cause?: unknown;
+    };
+    expect(ae.code).toBe('AGENT_RUN_FAILED');
+    expect(ae.context?.phase).toBe('plugin-teardown');
+    expect(ae.context?.failures).toBe(1);
+    expect((ae.cause as Error)?.message).toBe('plugin cleanup blew up');
   });
 });

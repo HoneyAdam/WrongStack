@@ -152,6 +152,40 @@ describe('AnthropicOAuthProvider token refresh', () => {
     expect(refreshFn).toHaveBeenCalledOnce();
     expect(res.stopReason).toBe('end_turn');
   });
+
+  it('coalesces concurrent refresh requests into a single refreshFn call', async () => {
+    let resolveRefresh!: (v: AnthropicOAuthTokens) => void;
+    const refreshFn = vi.fn(
+      () =>
+        new Promise<AnthropicOAuthTokens>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const onRefresh = vi.fn();
+
+    const p = new AnthropicOAuthProvider({
+      credentials: {
+        accessToken: 'sk-ant-oat-OLD',
+        refreshToken: 'r1',
+        expiresAt: Date.now() - 1000, // every concurrent call will hit ensureFreshToken
+      },
+      refreshFn,
+      onRefresh,
+      fetchImpl: capturingFetch(ANTHROPIC_SSE, {}),
+    });
+
+    const signals = [new AbortController(), new AbortController(), new AbortController()];
+    const requests = signals.map((c) => p.complete(baseReq, { signal: c.signal }));
+
+    await new Promise((r) => setTimeout(r, 5));
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+
+    resolveRefresh({ access: 'sk-ant-oat-NEW', refresh: 'r2', expires: Date.now() + 3_600_000 });
+    await Promise.all(requests);
+
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('AnthropicOAuthProvider Claude Code camouflage', () => {

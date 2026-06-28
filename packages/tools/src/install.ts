@@ -10,6 +10,13 @@ interface InstallInput {
   cwd?: string | undefined;
   dry_run?: boolean | undefined;
   global?: boolean | undefined;
+  /**
+   * Allow package lifecycle scripts (`preinstall`, `install`, `postinstall`,
+   * `prepare`, …) to run during the install. Defaults to `false` — installs
+   * pass `--ignore-scripts` so a malicious package cannot execute arbitrary
+   * code at install time. Setting `true` opts in to the legacy behavior.
+   */
+  lifecycleScripts?: boolean | undefined;
 }
 
 interface InstallOutput {
@@ -64,6 +71,11 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
         type: 'boolean',
         description: 'Whether to perform a global install (use with caution).',
       },
+      lifecycleScripts: {
+        type: 'boolean',
+        description:
+          'Opt in to running package lifecycle scripts (preinstall / install / postinstall / prepare / …). Default: false — installs pass --ignore-scripts so a malicious package cannot execute arbitrary code at install time. Set true to opt back in to the legacy npm/pnpm/yarn default.',
+      },
     },
   },
   async execute(input, ctx, opts) {
@@ -83,9 +95,15 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
 
     const save = input.save === 'dev' ? '-D' : input.save === 'optional' ? '-O' : '';
     const globalFlag = input.global ? ['-g'] : [];
+    // Default to ignoring lifecycle scripts. A package's `postinstall`
+    // runs with full shell access inside the project; without this gate a
+    // typo-squatted or compromised dependency can execute arbitrary code
+    // the moment it lands in `node_modules`. Opt-in only.
+    const ignoreScripts = input.lifecycleScripts !== true;
 
     const args: string[] = [];
     if (input.dry_run) args.push('--dry-run');
+    if (ignoreScripts) args.push('--ignore-scripts');
     if (pkgManager === 'pnpm') {
       if (save) args.push(save);
       args.push('add', ...globalFlag);

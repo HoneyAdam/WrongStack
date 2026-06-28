@@ -4,6 +4,7 @@ import type { EventBus } from '../kernel/events.js';
 import type { ConversationState } from '../core/conversation-state.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
+import { SessionError } from '../types/errors.js';
 
 /**
  * Plan items are the strategic counterpart to todos. Where `ctx.todos`
@@ -271,7 +272,12 @@ export async function mutatePlan(
     const updated = await fn(plan);
     const persisted = await savePlan(filePath, updated);
     if (!persisted) {
-      throw new Error(`Failed to persist plan to ${filePath} — the change was NOT saved.`);
+      throw new SessionError({
+        message: `Failed to persist plan to ${filePath} — the change was NOT saved.`,
+        code: 'SESSION_WRITE_FAILED',
+        sessionId,
+        context: { filePath, operation: 'mutatePlan' },
+      });
     }
     return updated;
   });

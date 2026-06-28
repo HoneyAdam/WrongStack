@@ -38,6 +38,7 @@ import {
   loadCachedAcpRegistry,
   refreshAcpRegistry,
 } from '../../acp-registry-cache.js';
+import { createGracefulShutdown } from '../../shutdown-cleanup.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 /** User-config ACP command overrides (never sourced from in-project config). */
@@ -280,13 +281,24 @@ async function runACPServer(deps: SubcommandDeps): Promise<number> {
     deps.renderer.writeInfo('Waiting for an ACP client connection on stdin/stdout. Press Ctrl+C to stop.\n');
   }
 
-  const shutdown = () => {
-    deps.renderer.writeWarning('\nShutting down ACP server...');
-    server.stop();
-    process.exit(0);
-  };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  // Graceful shutdown. The old code did `server.stop(); process.exit(0)`
+  // back-to-back, which cut off `server.stop()`'s async teardown (it
+  // initiates cleanup of underlying agents and the session store, but
+  // returns void rather than a promise — yet Node still has pending
+  // microtasks scheduled that `process.exit` would abandon). Use the
+  // same pattern as cli-main.ts: idempotent guard, await any cleanup,
+  // set exitCode, give Node a 500ms grace to drain, then force exit.
+  createGracefulShutdown({
+    run: async () => {
+      try {
+        server.stop();
+      } catch (err) {
+        deps.renderer.writeError(
+          `ACP stop failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+    },
+  }).install();
 
   try {
     await server.start();

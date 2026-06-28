@@ -202,7 +202,11 @@ export class ProcessGuardian {
       this.stop();
     });
 
-    // Handle uncaught exceptions - don't let them kill the process
+    // Handle uncaught exceptions - a thrown error at process scope means the
+    // event loop is in an undefined state; logging without exiting masks the
+    // bug and lets the process continue with potentially corrupted state.
+    // Flush registry state, log, and exit non-zero so the host (systemd,
+    // launchd, a supervisor) can react.
     process.on('uncaughtException', (err) => {
       console.error(JSON.stringify({
         level: 'error',
@@ -210,17 +214,29 @@ export class ProcessGuardian {
         error: err.message,
         stack: err.stack,
         instanceId: this.instanceId,
+        fatal: true,
       }));
+      this.stop();
+      process.exit(1);
     });
 
-    // Handle unhandled promise rejections
+    // Handle unhandled promise rejections - same rationale as uncaughtException:
+    // an unhandled rejection means a promise contract was violated somewhere
+    // upstream, and continuing execution risks cascading failures with no
+    // operator signal. Exit non-zero so the host can restart cleanly.
     process.on('unhandledRejection', (reason) => {
+      const err = reason instanceof Error
+        ? { message: reason.message, stack: reason.stack }
+        : { value: String(reason) };
       console.error(JSON.stringify({
         level: 'error',
         event: 'process_guardian.unhandled_rejection',
-        reason: String(reason),
+        ...err,
         instanceId: this.instanceId,
+        fatal: true,
       }));
+      this.stop();
+      process.exit(1);
     });
 
     // Prevent accidental termination via SIGTERM

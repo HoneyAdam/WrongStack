@@ -4,10 +4,12 @@ import {
   atomicWrite,
   type CustomModelDefinition,
   color,
+  ConfigError,
   decryptConfigSecrets,
   encryptConfigSecrets,
   noOpVault,
   type SlashCommand,
+  ToolValidationError,
 } from '@wrongstack/core';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
@@ -29,7 +31,12 @@ async function patchGlobalConfig(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(`Config at ${globalConfigPath} is not valid JSON: ${(err as Error).message}`);
+      throw new ConfigError({
+        message: `Config at ${globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+        code: 'CONFIG_PARSE_FAILED',
+        context: { filePath: globalConfigPath },
+        cause: err,
+      });
     }
     parsed = {};
   }
@@ -63,7 +70,11 @@ function fmtModel(id: string, def: CustomModelDefinition): string {
 
 function safeAt(arr: string[], idx: number): string {
   const v = arr[idx];
-  if (v === undefined) throw new Error(`Missing value at position ${idx}`);
+  if (v === undefined)
+    throw new ToolValidationError({
+      message: `Missing value at position ${idx}`,
+      field: `argv[${idx}]`,
+    });
   return v;
 }
 

@@ -41,6 +41,8 @@ import {
   ToolRegistry,
   WIDE_SUBAGENT_CAPABILITIES,
   AdaptiveConcurrencyController,
+  AgentError,
+  ToolValidationError,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -993,7 +995,11 @@ export class MultiAgentHost {
         };
       }
     }
-    if (!cmd) throw new Error(`Unknown ACP agent: ${subagentId}`);
+    if (!cmd) throw new ToolValidationError({
+      message: `Unknown ACP agent: ${subagentId}`,
+      field: 'subagentId',
+      context: { requested: subagentId },
+    });
     // LRU eviction: remove oldest entries if at capacity
     while (this.acpRunnerAccessOrder.length >= MultiAgentHost.ACP_CACHE_MAX) {
       const oldest = this.acpRunnerAccessOrder.shift();
@@ -1246,10 +1252,18 @@ export class MultiAgentHost {
     // Capture director reference before await to avoid TOCTOU race with
     // concurrent stopAll() — this.director is a shared mutable field.
     const director = this.director;
-    if (!director) throw new Error('Director is not initialized');
+    if (!director) throw new AgentError({
+      message: 'Director is not initialized',
+      code: 'AGENT_RUN_FAILED',
+      context: { phase: 'awaitTaskAndSpawn' },
+    });
     const results = await director.awaitTasks([taskId]);
     const result = results[0];
-    if (!result) throw new Error(`Task ${taskId} completed but no result returned`);
+    if (!result) throw new AgentError({
+      message: `Task ${taskId} completed but no result returned`,
+      code: 'AGENT_RUN_FAILED',
+      context: { taskId },
+    });
     return result;
   }
 
@@ -1273,7 +1287,11 @@ export class MultiAgentHost {
   ): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();
     // Always goes through the Director — single code path after buildDirector()
-    if (!this.director) throw new Error('Director is not initialized');
+    if (!this.director) throw new AgentError({
+      message: 'Director is not initialized',
+      code: 'AGENT_RUN_FAILED',
+      context: { phase: 'spawnAndAssign' },
+    });
     const subagentId = await this.director.spawn(subagentConfig);
     const task = { id: taskId, description, subagentId };
     if (opts?.internalTask) {
@@ -1540,7 +1558,11 @@ export class MultiAgentHost {
    */
   setMaxConcurrent(n: number): void {
     if (!Number.isFinite(n) || n < 1) {
-      throw new Error(`maxConcurrent must be a finite integer >= 1, got ${n}`);
+      throw new ToolValidationError({
+        message: `maxConcurrent must be a finite integer >= 1, got ${n}`,
+        field: 'maxConcurrent',
+        context: { received: n },
+      });
     }
     const v = Math.floor(n);
     this.opts.maxConcurrent = v;

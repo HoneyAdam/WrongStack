@@ -1,13 +1,18 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { PhaseGraph, PhaseProgress, SlashCommand } from '@wrongstack/core';
-import { PhaseStore } from '@wrongstack/core';
+import { ConfigError, PhaseStore } from '@wrongstack/core';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 
 function getStore(opts: SlashCommandContext): PhaseStore {
   // Per-project: ~/.wrongstack/projects/<hash>/autophase
-  if (!opts.paths) throw new Error('PhaseStore not available — paths not configured.');
+  if (!opts.paths)
+    throw new ConfigError({
+      message: 'PhaseStore not available — paths not configured.',
+      code: 'CONFIG_INVALID',
+      context: { missing: 'paths' },
+    });
   return new PhaseStore({ baseDir: opts.paths.projectAutophase });
 }
 

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ModelsRegistry } from '@wrongstack/core';
+import { isParseError, type ModelsRegistry } from '@wrongstack/core';
+import { expectFetchError } from './helpers/fetch-error.js';
 import {
   buildAuthorizeUrl,
   exchangeAuthorizationCode,
@@ -127,6 +128,21 @@ describe('exchangeAuthorizationCode', () => {
       vi.fn(async () => new Response('bad', { status: 400 })),
     );
     await expect(exchangeAuthorizationCode('CODE', 'V')).rejects.toThrow(/token exchange failed/i);
+  });
+
+  it('non-2xx token response throws a structured FetchError (openai-codex provider context)', async () => {
+    // Locks in the FetchError class + structured context so the migration
+    // can't accidentally regress to a bare Error.
+    const fe = await expectFetchError(() => exchangeAuthorizationCode('CODE', 'V'), {
+      status: 400,
+      body: '{"error":"invalid_grant"}',
+      context: {
+        provider: 'openai-codex',
+        op: 'exchange',
+        url: 'https://auth.openai.com/oauth/token',
+      },
+    });
+    expect(fe).toBeDefined();
   });
 });
 
@@ -324,5 +340,39 @@ describe('refreshCodexToken', () => {
     expect(params.get('refresh_token')).toBe('OLD_RT');
     expect(tokens.access).toBe('AT2');
     expect(tokens.refresh).toBe('RT2');
+  });
+
+  it('non-2xx refresh response throws a structured FetchError (openai-codex refresh context)', async () => {
+    // Same shape as the exchange path, with op: 'refresh'.
+    const fe = await expectFetchError(() => refreshCodexToken('OLD_RT'), {
+      status: 401,
+      body: '{"error":"invalid_grant"}',
+      context: {
+        provider: 'openai-codex',
+        op: 'refresh',
+        url: 'https://auth.openai.com/oauth/token',
+      },
+    });
+    expect(fe).toBeDefined();
+  });
+
+  it('2xx response with missing fields throws a structured ParseError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ access_token: 'AT' }), { status: 200 })),
+    );
+    let caught: unknown;
+    try {
+      await exchangeAuthorizationCode('CODE', 'V');
+    } catch (err) {
+      caught = err;
+    }
+    expect(isParseError(caught)).toBe(true);
+    const pe = caught as ReturnType<typeof isParseError> & {
+      source?: string;
+      context?: Record<string, unknown>;
+    };
+    expect(pe.source).toBe('openai-codex-token-response');
+    expect(pe.context?.op).toBe('exchange');
   });
 });

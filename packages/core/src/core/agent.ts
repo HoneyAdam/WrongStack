@@ -136,7 +136,17 @@ export class Agent {
     }
     this.plugins.length = 0;
     if (errors.length > 0) {
-      throw new Error(`Agent teardown failed: ${errors.map(String).join('; ')}`);
+      throw new AgentError({
+        message: `Agent teardown failed: ${errors.map(String).join('; ')}`,
+        code: 'AGENT_RUN_FAILED',
+        context: { failures: errors.length, phase: 'plugin-teardown' },
+        // Preserve the FIRST underlying failure as the cause so consumers can
+        // pull type/code off it via `instanceof` checks. The full list is
+        // flattened into the message; we don't keep the array on the error
+        // because WrongStackError.context is Record<string, unknown> and
+        // arrays of unknown Errors would lose their structured fields.
+        cause: errors[0],
+      });
     }
   }
 

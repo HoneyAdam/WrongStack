@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { isSessionError } from '../../src/types/errors.js';
 import {
   addPlanItem,
   clearPlan,
@@ -9,6 +10,7 @@ import {
   emptyPlan,
   formatPlan,
   loadPlan,
+  mutatePlan,
   removePlanItem,
   savePlan,
   setPlanItemStatus,
@@ -197,5 +199,38 @@ describe('plan-store', () => {
     const noop = attachPlanCheckpoint({} as import('../../src/core/conversation-state.js').ConversationState, '/tmp/plan.json', 'session-1');
     expect(typeof noop).toBe('function');
     expect(noop()).toBeUndefined();
+  });
+
+  it('mutatePlan throws a structured SessionError when persistence fails', async () => {
+    // Force savePlan to fail by creating a directory at the target path —
+    // atomicWrite then can't open a file at that name, savePlan returns
+    // false, and mutatePlan must throw the structured SessionError rather
+    // than a bare Error. Same trick used in plan-store-extra.test.ts.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-plan-bad-'));
+    const fileAsDir = path.join(dir, 'plan.json');
+    await fs.mkdir(fileAsDir, { recursive: true });
+    try {
+      let caught: unknown;
+      try {
+        await mutatePlan(fileAsDir, 'session-x', (p) => {
+          p.title = 'should not save';
+          return p;
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(isSessionError(caught)).toBe(true);
+      const se = caught as ReturnType<typeof isSessionError> & {
+        code: string;
+        context?: Record<string, unknown>;
+        sessionId?: string;
+      };
+      expect(se.code).toBe('SESSION_WRITE_FAILED');
+      expect(se.context?.operation).toBe('mutatePlan');
+      expect(se.sessionId).toBe('session-x');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

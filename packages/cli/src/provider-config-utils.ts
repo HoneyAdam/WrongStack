@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined, FsError } from '@wrongstack/core';
 
 export { expectDefined };
 
@@ -146,7 +146,11 @@ export async function mutateConfigProviders(
     raw = await fs.readFile(configPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(`Refusing to mutate ${configPath}: ${(err as Error).message}`, {
+      throw new FsError({
+        message: `Refusing to mutate ${configPath}: ${(err as Error).message}`,
+        code: 'FS_READ_FAILED',
+        path: configPath,
+        context: { operation: 'mutateConfigProviders', phase: 'read' },
         cause: err,
       });
     }
@@ -158,11 +162,15 @@ export async function mutateConfigProviders(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(
-        `Refusing to overwrite corrupt config at ${configPath} ` +
+      throw new FsError({
+        message:
+          `Refusing to overwrite corrupt config at ${configPath} ` +
           `(${(err as Error).message}). Fix or move the file aside before retrying.`,
-        { cause: err },
-      );
+        code: 'FS_READ_FAILED',
+        path: configPath,
+        context: { operation: 'mutateConfigProviders', phase: 'parse' },
+        cause: err,
+      });
     }
     parsed = {};
   }

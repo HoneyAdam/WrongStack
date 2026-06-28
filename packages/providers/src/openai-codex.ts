@@ -30,6 +30,7 @@ import {
 import { parseToolInput } from './_tool-input.js';
 import { parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { createSseLineFoldingTransform, parseSSE } from './sse.js';
 import { messagesToResponsesInput, toolsToResponses } from './tool-format/to-responses.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
@@ -40,8 +41,6 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 const DEFAULT_CODEX_BASE = 'https://chatgpt.com/backend-api';
-/** Refresh this many ms before the token's stated expiry. */
-const REFRESH_SKEW_MS = 60_000;
 
 export interface CodexOAuthTokens {
   access: string;
@@ -154,13 +153,16 @@ export class OpenAICodexProvider extends WireAdapter {
 
   private access: string;
   private refresh: string | undefined;
-  private expiresAt: number | undefined;
   private accountId: string | undefined;
-  private readonly onRefresh: OpenAICodexProviderOptions['onRefresh'];
   private readonly refreshFn: (
     refreshToken: string,
     signal?: AbortSignal,
   ) => Promise<CodexOAuthTokens>;
+  /** Shared OAuth refresh machinery — see packages/providers/src/oauth-refresh-coordinator.ts */
+  private readonly refreshCoordinator: OAuthRefreshCoordinator<
+    CodexOAuthTokens,
+    NonNullable<OpenAICodexProviderOptions['onRefresh']> extends (p: infer P) => void ? P : never
+  >;
   private readonly reasoningEffort: 'none' | 'minimal' | 'low' | 'medium' | 'high';
 
   constructor(opts: OpenAICodexProviderOptions) {
@@ -173,10 +175,41 @@ export class OpenAICodexProvider extends WireAdapter {
     this.id = opts.id ?? 'openai-codex';
     this.access = opts.credentials.accessToken;
     this.refresh = opts.credentials.refreshToken;
-    this.expiresAt = opts.credentials.expiresAt;
     this.accountId = opts.credentials.accountId ?? extractAccountId(this.access) ?? undefined;
-    this.onRefresh = opts.onRefresh;
     this.refreshFn = opts.refreshFn ?? refreshCodexAccessToken;
+    this.refreshCoordinator = new OAuthRefreshCoordinator<CodexOAuthTokens, {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+      accountId: string | undefined;
+    }>({
+      initialRefreshKey: opts.credentials.refreshToken,
+      initialExpiresAt: opts.credentials.expiresAt,
+      refreshFn: (key, signal) => this.refreshFn(key, signal),
+      onRefresh: opts.onRefresh,
+      formatPayload: (_tokens, derived) => ({
+        accessToken: derived.accessToken,
+        refreshToken: derived.refreshKey ?? '',
+        expiresAt: derived.expiresAt,
+        accountId: this.accountId,
+      }),
+      projectTokens: (tokens) => ({
+        accessToken: tokens.access,
+        expiresAt: tokens.expires,
+        // Codex rotates its refresh token on every refresh.
+        refreshKey: tokens.refresh,
+      }),
+      applyTokens: (derived) => {
+        this.access = derived.accessToken;
+        if (derived.refreshKey !== undefined) {
+          this.refresh = derived.refreshKey;
+        }
+        // Re-derive the ChatGPT account id from the new access token, falling
+        // back to the cached value if the new JWT lacks the claim.
+        this.accountId = extractAccountId(derived.accessToken) ?? this.accountId;
+      },
+      label: 'Codex OAuth',
+    });
     this.reasoningEffort = opts.reasoningEffort ?? 'medium';
     this.capabilities = capabilitiesForFamily('openai-codex', { ...opts.capabilities });
   }
@@ -200,24 +233,11 @@ export class OpenAICodexProvider extends WireAdapter {
   }
 
   private async ensureFreshToken(signal: AbortSignal): Promise<void> {
-    if (!this.refresh) return;
-    if (this.expiresAt !== undefined && Date.now() < this.expiresAt - REFRESH_SKEW_MS) return;
-    await this.doRefresh(signal);
+    await this.refreshCoordinator.ensureFreshToken(signal);
   }
 
   private async doRefresh(signal: AbortSignal): Promise<void> {
-    if (!this.refresh) return;
-    const t = await this.refreshFn(this.refresh, signal);
-    this.access = t.access;
-    this.refresh = t.refresh;
-    this.expiresAt = t.expires;
-    this.accountId = extractAccountId(t.access) ?? this.accountId;
-    this.onRefresh?.({
-      accessToken: t.access,
-      refreshToken: t.refresh,
-      expiresAt: t.expires,
-      accountId: this.accountId,
-    });
+    await this.refreshCoordinator.doRefresh(signal);
   }
 
   protected override buildUrl(_req: Request): string {

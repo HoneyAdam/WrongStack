@@ -75,6 +75,7 @@ export const ERROR_CODES = {
   SDD_NOT_READY: 'SDD_NOT_READY',
   // General
   VALIDATION_ERROR: 'VALIDATION_ERROR',
+  PARSE_FAILED: 'PARSE_FAILED',
   UNKNOWN: 'UNKNOWN',
 } as const;
 
@@ -439,6 +440,48 @@ export class ToolValidationError extends WrongStackError {
   }
 }
 
+/**
+ * Response / payload parse error — thrown when an upstream HTTP response,
+ * file, or data structure is well-formed at the transport layer (HTTP 200,
+ * valid JSON) but is missing required fields or has an unexpected shape.
+ *
+ * Distinct from `ConfigError(CONFIG_PARSE_FAILED)` (which is specifically
+ * for config-file parsing) and `FetchError` (which covers HTTP non-OK
+ * responses). `ParseError` fills the gap: the request succeeded but the
+ * response body couldn't be interpreted.
+ *
+ * Common sites: OAuth token responses missing `access_token`, device-code
+ * responses missing `device_code`, registry responses with unexpected
+ * schemas.
+ */
+export class ParseError extends WrongStackError {
+  readonly source?: string | undefined;
+
+  constructor(opts: {
+    message: string;
+    /**
+     * What was being parsed — e.g. `'oauth-token-response'`,
+     * `'device-code-response'`. Lets consumers distinguish parse failures
+     * from different upstream APIs without parsing the message.
+     */
+    source?: string | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
+  }) {
+    super({
+      message: opts.message,
+      code: ERROR_CODES.PARSE_FAILED,
+      subsystem: 'general',
+      severity: 'error',
+      recoverable: false,
+      context: { source: opts.source, ...opts.context },
+      cause: opts.cause,
+    });
+    this.name = 'ParseError';
+    this.source = opts.source;
+  }
+}
+
 // ── Type guards ──────────────────────────────────────────────────────
 
 export function isWrongStackError(err: unknown): err is WrongStackError {
@@ -475,6 +518,10 @@ export function isToolValidationError(err: unknown): err is ToolValidationError 
 
 export function isFetchError(err: unknown): err is FetchError {
   return err instanceof FetchError;
+}
+
+export function isParseError(err: unknown): err is ParseError {
+  return err instanceof ParseError;
 }
 
 export function isSddError(err: unknown): err is SddError {

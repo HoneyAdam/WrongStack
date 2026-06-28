@@ -6,6 +6,7 @@ import {
   type AgentPhase,
   atomicWrite,
   color,
+  ConfigError,
   decryptConfigSecrets,
   encryptConfigSecrets,
   expectDefined,
@@ -99,7 +100,12 @@ async function patchGlobalConfig(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists)
-      throw new Error(`Config at ${globalConfigPath} is not valid JSON: ${(err as Error).message}`);
+      throw new ConfigError({
+        message: `Config at ${globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+        code: 'CONFIG_PARSE_FAILED',
+        context: { filePath: globalConfigPath },
+        cause: err,
+      });
     parsed = {};
   }
   const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<string, unknown>;

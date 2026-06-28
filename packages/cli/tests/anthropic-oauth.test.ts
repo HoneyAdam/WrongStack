@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type FetchError, isParseError } from '@wrongstack/core';
+import { expectFetchError } from './helpers/fetch-error.js';
 import {
   buildAuthorizeUrl,
   exchangeAuthorizationCode,
@@ -100,5 +102,46 @@ describe('exchangeAuthorizationCode', () => {
     await expect(exchangeAuthorizationCode('C', 'S', 'V')).rejects.toThrow(
       /token exchange failed/i,
     );
+  });
+
+  it('non-2xx response throws a structured FetchError (anthropic-oauth provider context)', async () => {
+    // Locks in the structured FetchError shape so the migration can't
+    // accidentally regress to a bare Error.
+    const fe = await expectFetchError(
+      () => exchangeAuthorizationCode('C', 'S', 'V'),
+      {
+        status: 400,
+        body: '{"error":"invalid_grant"}',
+        context: {
+          provider: 'anthropic-oauth',
+          op: 'exchange',
+          // The token endpoint URL flows through `context` so consumers can
+          // distinguish a 400 from the Claude token endpoint vs. any other URL.
+          url: 'https://platform.claude.com/v1/oauth/token',
+        },
+      },
+    );
+    // `fe` returned for any additional per-test assertions (currently none).
+    expect(fe).toBeDefined();
+  });
+
+  it('2xx response with missing fields throws a structured ParseError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ access_token: 'AT' }), { status: 200 })),
+    );
+    let caught: unknown;
+    try {
+      await exchangeAuthorizationCode('C', 'S', 'V');
+    } catch (err) {
+      caught = err;
+    }
+    expect(isParseError(caught)).toBe(true);
+    const pe = caught as ReturnType<typeof isParseError> & {
+      source?: string;
+      context?: Record<string, unknown>;
+    };
+    expect(pe.source).toBe('anthropic-oauth-token-response');
+    expect(pe.context?.op).toBe('exchange');
   });
 });

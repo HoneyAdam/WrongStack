@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { assertNotPrivateHost } from '@wrongstack/core';
 import type { ContentBlock, Context, ImageBlock, Tool, ToolRegistry } from '@wrongstack/core';
 
 export interface VisionAdapterInput {
@@ -43,6 +44,26 @@ export class ImageInputUnsupportedError extends Error {
       `${target} does not support image input, and no image-understanding adapter is available for ${opts.imageCount} image${opts.imageCount === 1 ? '' : 's'}. Switch to a vision model or enable an MCP/tool adapter that can describe images.`,
     );
     this.name = 'ImageInputUnsupportedError';
+  }
+}
+
+/**
+ * Thrown when an image URL targets a private / loopback / IMDS address.
+ * Vision adapters forward URLs straight to the underlying tool, so without
+ * this check a malicious (or accidentally-malformed) `image.source.url`
+ * could turn image analysis into an SSRF vector hitting localhost, RFC1918
+ * ranges, or the cloud metadata endpoint.
+ *
+ * Carries the rejected URL so callers can log / surface it without parsing
+ * the message.
+ */
+export class VisionUrlBlockedError extends Error {
+  readonly url: string;
+
+  constructor(opts: { url: string; reason: string }) {
+    super(`vision: blocked unsafe image URL "${opts.url}" (${opts.reason})`);
+    this.name = 'VisionUrlBlockedError';
+    this.url = opts.url;
   }
 }
 
@@ -183,6 +204,25 @@ async function buildToolPayload(
   const data = image.source.data;
   const url = image.source.url;
   let cleanup: (() => Promise<void>) | undefined;
+
+  // SSRF guard: when the image is referenced by URL, validate the host
+  // BEFORE forwarding it to the underlying vision tool. The tool may
+  // itself fetch the URL (the typical case for an MCP image-understanding
+  // adapter), so a URL pointing at localhost / 127.0.0.1 / 169.254.169.254
+  // / RFC1918 ranges would otherwise become an SSRF vector. Without this
+  // gate, vision is a back-door around the fetch.ts SSRF guard (which
+  // only applies when the explicit `fetch` tool is invoked).
+  if (image.source.type === 'url' && url) {
+    try {
+      await assertNotPrivateHost(new URL(url).hostname);
+    } catch (err) {
+      const reason =
+        err instanceof Error && err.message.startsWith('fetch:')
+          ? err.message.slice('fetch:'.length).trim()
+          : 'unresolvable host';
+      throw new VisionUrlBlockedError({ url, reason });
+    }
+  }
 
   const pathKey = firstPresent(props, [
     'path',

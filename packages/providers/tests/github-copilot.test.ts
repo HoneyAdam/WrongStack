@@ -137,4 +137,38 @@ describe('GitHubCopilotProvider token refresh', () => {
     expect(refreshFn).toHaveBeenCalledOnce();
     expect(res.stopReason).toBe('end_turn');
   });
+
+  it('coalesces concurrent refresh requests into a single refreshFn call', async () => {
+    let resolveRefresh!: (v: CopilotTokenResult) => void;
+    const refreshFn = vi.fn(
+      () =>
+        new Promise<CopilotTokenResult>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const onRefresh = vi.fn();
+
+    const p = new GitHubCopilotProvider({
+      credentials: {
+        copilotToken: COPILOT_TOKEN,
+        githubToken: 'gho_x',
+        expiresAt: Date.now() - 1000, // every concurrent call will hit ensureFreshToken
+      },
+      refreshFn,
+      onRefresh,
+      fetchImpl: capturingFetch(OPENAI_SSE, {}),
+    });
+
+    const signals = [new AbortController(), new AbortController(), new AbortController()];
+    const requests = signals.map((c) => p.complete(baseReq, { signal: c.signal }));
+
+    await new Promise((r) => setTimeout(r, 5));
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+
+    resolveRefresh({ token: COPILOT_TOKEN, expires: Date.now() + 3_600_000 });
+    await Promise.all(requests);
+
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
 });

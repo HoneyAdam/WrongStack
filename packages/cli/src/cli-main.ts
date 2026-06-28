@@ -27,6 +27,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   type AutonomyStage,
+  AgentError,
   allServers,
   attachDepWatcherBridge,
   type BrainAutoRisk,
@@ -107,6 +108,7 @@ import { runPluginManagementCommand } from './plugin-management.js';
 import { buildPickableProviders } from './provider-helpers.js';
 import { SessionStats } from './session-stats.js';
 import { deriveFsAccessPair } from './settings-menu.js';
+import { createGracefulShutdown } from './shutdown-cleanup.js';
 import type { CommitLLMProvider } from './slash-commands/commit-llm.js';
 import { generateCommitMessageWithLLM } from './slash-commands/commit-llm.js';
 import { makeProviderClassifier } from './slash-commands/dispatch-llm.js';
@@ -526,27 +528,24 @@ export async function main(argv: string[]): Promise<number> {
     tracker = new AgentStatusTracker({ events, registry, onUpdate: () => fleetNotifier.notify() });
     tracker.start();
 
-    // Clean up on process exit
-    const cleanup = async () => {
-      try {
-        fleetNotifier.dispose();
-        await registry.markClosing();
-        tracker?.stop();
-      } catch {
-        /* ignore */
-      }
-    };
-    process.once('beforeExit', () => {
-      void cleanup();
-    });
-    process.once('SIGINT', () => {
-      void cleanup();
-      process.exit(0);
-    });
-    process.once('SIGTERM', () => {
-      void cleanup();
-      process.exit(0);
-    });
+    // Graceful shutdown. `registry.markClosing()` is an awaited atomic disk
+    // write; calling `process.exit(0)` immediately after `void cleanup()` cut
+    // the write off and left the cross-process registry thinking the host was
+    // still alive after Ctrl+C. `createGracefulShutdown` matches the
+    // established pattern in webui-server/lifecycle.ts + cli-entry-point.ts:
+    // await the cleanup, set `exitCode`, give Node a 500ms grace to drain,
+    // then force exit. A second signal short-circuits to immediate exit.
+    createGracefulShutdown({
+      run: async () => {
+        try {
+          fleetNotifier.dispose();
+          await registry.markClosing();
+          tracker?.stop();
+        } catch {
+          /* ignore — a stuck cleanup cannot wedge the exit path */
+        }
+      },
+    }).install();
   } catch {
     // Non-critical — session tracking degrades gracefully
   }
@@ -1965,8 +1964,13 @@ export async function main(argv: string[]): Promise<number> {
       }
     },
     onFleetSpawn: async (role) => {
-      if (!director)
-        throw new Error('No director active — start with --director or use /autonomy parallel.');
+      if (!director) {
+        throw new AgentError({
+          message: 'No director active — start with --director or use /autonomy parallel.',
+          code: 'AGENT_RUN_FAILED',
+          context: { phase: 'fleet-spawn', role },
+        });
+      }
       const cfg = FLEET_ROSTER[role] ?? {
         id: `manual-${Date.now()}`,
         name: role,

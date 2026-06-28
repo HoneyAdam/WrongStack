@@ -1,7 +1,7 @@
 import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { isPrivateIPv4, isPrivateIPv6 } from '@wrongstack/core';
+import { FsError, isPrivateIPv4, isPrivateIPv6 } from '@wrongstack/core';
 import { Agent } from 'undici';
 import TurndownService from 'turndown';
 import { truncateMiddle } from './_util.js';
@@ -404,9 +404,14 @@ async function assertNotPrivate(hostname: string): Promise<void> {
  * `code: message` link so the user sees, e.g.,
  * `fetch: GET https://x failed — UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error`.
  */
-function describeFetchError(err: unknown, url: string, timedOut: boolean): Error {
+function describeFetchError(err: unknown, url: string, timedOut: boolean): FsError {
   if (timedOut) {
-    return new Error(`fetch: GET ${url} timed out after ${TIMEOUT_MS}ms`);
+    return new FsError({
+      message: `fetch: GET ${url} timed out after ${TIMEOUT_MS}ms`,
+      code: 'FS_READ_FAILED',
+      path: url,
+      context: { timedOut: true, timeoutMs: TIMEOUT_MS },
+    });
   }
   const parts: string[] = [];
   const seen = new Set<unknown>();
@@ -421,7 +426,16 @@ function describeFetchError(err: unknown, url: string, timedOut: boolean): Error
     cur = (cur as { cause?: unknown }).cause;
   }
   const detail = parts.length > 0 ? parts.join(' → ') : 'fetch failed';
-  return new Error(`fetch: GET ${url} failed — ${detail}`);
+  return new FsError({
+    message: `fetch: GET ${url} failed — ${detail}`,
+    code: 'FS_READ_FAILED',
+    path: url,
+    context: { timedOut: false, transportErrors: parts },
+    // Preserve the original undici / DNS / TLS chain so callers can inspect
+    // it via `err.cause` and structured `instanceof` checks. The flattened
+    // text version stays in the message for human readability.
+    cause: err,
+  });
 }
 
 function prettyJson(s: string): string {

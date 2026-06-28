@@ -16,6 +16,7 @@
  */
 
 import { type Capabilities, ProviderError, type Request, type StreamEvent } from '@wrongstack/core';
+import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { anthropicWireFormat } from './presets/anthropic.js';
 import type { AnthropicStreamState } from './presets/anthropic.js';
 import { WireFormatProvider } from './wire-format.js';
@@ -27,7 +28,6 @@ const TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
 const DEFAULT_BASE = 'https://api.anthropic.com';
 const ANTHROPIC_VERSION = '2023-06-01';
 const OAUTH_BETA = 'claude-code-20250219,oauth-2025-04-20';
-const REFRESH_SKEW_MS = 60_000;
 /** Version string mimicked in the User-Agent so requests look like Claude Code. */
 const CLAUDE_CODE_VERSION = '2.1.75';
 
@@ -145,12 +145,15 @@ export class AnthropicOAuthProvider extends WireFormatProvider<AnthropicStreamSt
 
   private access: string;
   private refresh: string | undefined;
-  private expiresAt: number | undefined;
-  private readonly onRefresh: AnthropicOAuthProviderOptions['onRefresh'];
   private readonly refreshFn: (
     refreshToken: string,
     signal?: AbortSignal,
   ) => Promise<AnthropicOAuthTokens>;
+  /** Shared OAuth refresh machinery — see packages/providers/src/oauth-refresh-coordinator.ts */
+  private readonly refreshCoordinator: OAuthRefreshCoordinator<
+    AnthropicOAuthTokens,
+    NonNullable<AnthropicOAuthProviderOptions['onRefresh']> extends (p: infer P) => void ? P : never
+  >;
 
   constructor(opts: AnthropicOAuthProviderOptions) {
     super(anthropicWireFormat, {
@@ -163,9 +166,35 @@ export class AnthropicOAuthProvider extends WireFormatProvider<AnthropicStreamSt
     this.capabilities = capabilitiesForFamily('anthropic-oauth');
     this.access = opts.credentials.accessToken;
     this.refresh = opts.credentials.refreshToken;
-    this.expiresAt = opts.credentials.expiresAt;
-    this.onRefresh = opts.onRefresh;
     this.refreshFn = opts.refreshFn ?? refreshAnthropicOAuthToken;
+    this.refreshCoordinator = new OAuthRefreshCoordinator<AnthropicOAuthTokens, {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+    }>({
+      initialRefreshKey: opts.credentials.refreshToken,
+      initialExpiresAt: opts.credentials.expiresAt,
+      refreshFn: (key, signal) => this.refreshFn(key, signal),
+      onRefresh: opts.onRefresh,
+      formatPayload: (_tokens, derived) => ({
+        accessToken: derived.accessToken,
+        refreshToken: derived.refreshKey ?? '',
+        expiresAt: derived.expiresAt,
+      }),
+      projectTokens: (tokens) => ({
+        accessToken: tokens.access,
+        expiresAt: tokens.expires,
+        // Anthropic rotates its refresh token on every refresh.
+        refreshKey: tokens.refresh,
+      }),
+      applyTokens: (derived) => {
+        this.access = derived.accessToken;
+        if (derived.refreshKey !== undefined) {
+          this.refresh = derived.refreshKey;
+        }
+      },
+      label: 'Anthropic OAuth',
+    });
   }
 
   override async *stream(req: Request, opts: { signal: AbortSignal }) {
@@ -200,18 +229,11 @@ export class AnthropicOAuthProvider extends WireFormatProvider<AnthropicStreamSt
   }
 
   private async ensureFreshToken(signal: AbortSignal): Promise<void> {
-    if (!this.refresh) return;
-    if (this.expiresAt !== undefined && Date.now() < this.expiresAt - REFRESH_SKEW_MS) return;
-    await this.doRefresh(signal);
+    await this.refreshCoordinator.ensureFreshToken(signal);
   }
 
   private async doRefresh(signal: AbortSignal): Promise<void> {
-    if (!this.refresh) return;
-    const t = await this.refreshFn(this.refresh, signal);
-    this.access = t.access;
-    this.refresh = t.refresh;
-    this.expiresAt = t.expires;
-    this.onRefresh?.({ accessToken: t.access, refreshToken: t.refresh, expiresAt: t.expires });
+    await this.refreshCoordinator.doRefresh(signal);
   }
 
   protected override buildHeaders(_req: Request): Record<string, string> {

@@ -248,4 +248,43 @@ describe('OpenAICodexProvider token refresh', () => {
     expect(refreshFn).toHaveBeenCalledOnce();
     expect(res.stopReason).toBe('end_turn');
   });
+
+  it('coalesces concurrent refresh requests into a single refreshFn call', async () => {
+    const fresh = fakeJwt('acc_new');
+    let resolveRefresh!: (v: CodexOAuthTokens) => void;
+    const refreshFn = vi.fn(
+      () =>
+        new Promise<CodexOAuthTokens>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const onRefresh = vi.fn();
+
+    const p = new OpenAICodexProvider({
+      credentials: {
+        accessToken: fakeJwt('acc_old'),
+        refreshToken: 'r1',
+        expiresAt: Date.now() - 1000, // every call will hit ensureFreshToken
+      },
+      refreshFn,
+      onRefresh,
+      fetchImpl: capturingFetch(COMPLETED_SSE, {}),
+    });
+
+    const signals = [new AbortController(), new AbortController(), new AbortController()];
+    const requests = signals.map((c) => p.complete(baseReq, { signal: c.signal }));
+
+    // Give the three refresh attempts a chance to all queue up on the
+    // single-flight slot before any of them resolves.
+    await new Promise((r) => setTimeout(r, 5));
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+
+    resolveRefresh({ access: fresh, refresh: 'r2', expires: Date.now() + 3_600_000 });
+    await Promise.all(requests);
+
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+    // onRefresh also fires exactly once per actual refresh — three callers
+    // sharing one refresh must not multiply the persistence callbacks.
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
 });

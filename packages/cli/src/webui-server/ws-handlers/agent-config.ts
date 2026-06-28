@@ -5,6 +5,7 @@ import {
   type ModelsRegistry,
   type ModeStore,
   recentTextTurns,
+  ToolValidationError,
 } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -105,7 +106,13 @@ export async function handleModeSwitch(
       await ctx.modeStore.setActiveMode(null);
     } else {
       const found = await ctx.modeStore.getMode(id);
-      if (!found) throw new Error(`Unknown mode "${id}"`);
+      if (!found) {
+        throw new ToolValidationError({
+          message: `Unknown mode "${id}"`,
+          field: 'modeId',
+          context: { requestedMode: id, kind: 'mode.switch' },
+        });
+      }
       await ctx.modeStore.setActiveMode(id);
     }
     // Store the mode in context.meta so the agent sees it on the next turn.

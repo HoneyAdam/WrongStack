@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type FetchError, isParseError } from '@wrongstack/core';
+import { expectFetchError } from './helpers/fetch-error.js';
 import {
   isUsableCopilotChatModel,
   pollForGitHubToken,
@@ -42,6 +44,21 @@ describe('startDeviceFlow', () => {
     expect(body.get('scope')).toBe('read:user');
     expect(d.user_code).toBe('WXYZ-1234');
     expect(d.device_code).toBe('dc');
+  });
+
+  it('non-2xx response throws a structured FetchError (github-copilot device-code context)', async () => {
+    // Locks in the FetchError shape (provider, op, url) so the migration
+    // can't accidentally regress to a bare Error.
+    const fe = await expectFetchError(() => startDeviceFlow(), {
+      status: 429,
+      body: 'rate limit',
+      context: {
+        provider: 'github-copilot',
+        op: 'device-code',
+        url: 'https://github.com/login/device/code',
+      },
+    });
+    expect(fe).toBeDefined();
   });
 });
 
@@ -154,5 +171,62 @@ describe('pollForGitHubToken', () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow(/access_denied/);
+  });
+
+  it('device code expiry throws a structured FetchError (status 408 + reason: expired)', async () => {
+    // The "device code expired" path is unique in the OAuth flow: it's a
+    // TIMEOUT, not an HTTP error. FetchError(status: 408) with reason: 'expired'
+    // in context preserves the cause-class signal for consumers. The HTTP
+    // response from the poll is 200 (authorization_pending) but the FetchError
+    // is synthesized with status 408 — `expectedStatus` overrides the helper's
+    // status-vs-expectedStatus coupling for this case.
+    const fe = await expectFetchError(
+      () =>
+        pollForGitHubToken(
+          {
+            device_code: 'dc',
+            user_code: 'x',
+            verification_uri: 'https://github.com/login/device',
+            interval: 0,
+            expires_in: -1, // already expired
+          },
+          new AbortController().signal,
+        ),
+      {
+        // The 200 OK is what pollForGitHubToken sees for the initial pending
+        // poll — but the expires_in: -1 short-circuits the loop to the expiry
+        // branch before the next poll.
+        status: 200,
+        expectedStatus: 408,
+        body: 'authorization_pending',
+        context: {
+          provider: 'github-copilot',
+          op: 'device-code-poll',
+          reason: 'expired',
+        },
+      },
+    );
+    expect(fe).toBeDefined();
+  });
+
+  it('2xx device-code response with missing fields throws a structured ParseError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ device_code: 'dc', user_code: 'x' }), { status: 200 }),
+      ),
+    );
+    let caught: unknown;
+    try {
+      await startDeviceFlow();
+    } catch (err) {
+      caught = err;
+    }
+    expect(isParseError(caught)).toBe(true);
+    const pe = caught as ReturnType<typeof isParseError> & {
+      source?: string;
+    };
+    expect(pe.source).toBe('github-copilot-device-code-response');
   });
 });

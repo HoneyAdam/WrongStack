@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import {
   atomicWrite,
   type Capabilities,
+  ConfigError,
   type CustomModelDefinition,
   color,
   decryptConfigSecrets,
@@ -492,9 +493,11 @@ async function mutateModelsConfig(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(
-        `Refusing to overwrite corrupt config at ${configPath} (${(err as Error).message}).`,
-      );
+      throw new ConfigError({
+        message: `Refusing to overwrite corrupt config at ${configPath} (${(err as Error).message}).`,
+        code: 'CONFIG_PARSE_FAILED',
+        context: { filePath: configPath, operation: 'mutateModelsConfig' },
+      });
     }
     parsed = {};
   }

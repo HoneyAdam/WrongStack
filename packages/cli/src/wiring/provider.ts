@@ -1,5 +1,6 @@
 import type { ResolvedProvider } from '@wrongstack/core';
 import {
+  ConfigError,
   type Config,
   type Logger,
   type ModelsRegistry,
@@ -89,13 +90,13 @@ export async function setupProvider(params: {
       );
     }
   } else if (resolvedProvider.family === 'unsupported' && !savedProviderCfg?.family) {
-    throw Object.assign(
-      new Error(
+    throw new ConfigError({
+      message:
         `Provider "${config.provider}" uses an unsupported wire family (${resolvedProvider.npm}). ` +
-          `Install a plugin to enable it, or pick a different provider.`,
-      ),
-      { code: 'UNSUPPORTED_PROVIDER' },
-    );
+        `Install a plugin to enable it, or pick a different provider.`,
+      code: 'CONFIG_INVALID',
+      context: { provider: config.provider, family: resolvedProvider.npm, kind: 'unsupported' },
+    });
   }
 
   // Provider registry — populated dynamically from models.dev catalog.
@@ -108,10 +109,14 @@ export async function setupProvider(params: {
       });
       for (const f of factories) providerRegistry.register(f);
     } catch (err) {
-      throw new Error(
-        `Failed to load models.dev registry: ${err instanceof Error ? err.message : err}\n` +
+      throw new ConfigError({
+        message:
+          `Failed to load models.dev registry: ${err instanceof Error ? err.message : err}\n` +
           `Try \`wstack models refresh\` once you have network access, or run with --no-features.`,
-      );
+        code: 'CONFIG_INVALID',
+        context: { phase: 'registry-build', provider: config.provider },
+        cause: err,
+      });
     }
   }
 
@@ -130,7 +135,12 @@ export async function setupProvider(params: {
       provider = makeProviderFromConfig(config.provider, cfgWithType);
     }
   } catch (err) {
-    throw new Error(`Failed to create provider: ${err instanceof Error ? err.message : err}`);
+    throw new ConfigError({
+      message: `Failed to create provider: ${err instanceof Error ? err.message : err}`,
+      code: 'CONFIG_INVALID',
+      context: { phase: 'provider-create', provider: config.provider },
+      cause: err,
+    });
   }
 
   // Resolve per-model capabilities (maxOutput, maxContext, etc.) from the

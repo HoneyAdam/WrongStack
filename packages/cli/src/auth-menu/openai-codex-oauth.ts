@@ -30,6 +30,8 @@ import { createServer, type Server } from 'node:http';
 import {
   CODEX_MODELS,
   color,
+  FetchError,
+  ParseError,
   type ModelsRegistry,
   type ProviderApiKey,
   type ProviderConfig,
@@ -293,14 +295,22 @@ export async function fetchCodexModels(
 
 // ── Token endpoint calls ────────────────────────────────────────────────────
 
-async function readTokens(res: Response, op: string): Promise<CodexTokens> {
+async function readTokens(res: Response, op: string, url: string): Promise<CodexTokens> {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Codex token ${op} failed (${res.status}): ${text || res.statusText}`);
+    throw new FetchError({
+      message: `Codex token ${op} failed (${res.status}): ${text || res.statusText}`,
+      status: res.status,
+      context: { provider: 'openai-codex', op, url },
+    });
   }
   const json = (await res.json()) as TokenEndpointResponse | null;
   if (!json?.access_token || !json.refresh_token || typeof json.expires_in !== 'number') {
-    throw new Error(`Codex token ${op} response missing fields`);
+    throw new ParseError({
+      message: `Codex token ${op} response missing fields`,
+      source: 'openai-codex-token-response',
+      context: { op },
+    });
   }
   return {
     access: json.access_token,
@@ -329,7 +339,7 @@ export async function exchangeAuthorizationCode(
       ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
       : AbortSignal.timeout(30_000),
   });
-  return readTokens(res, 'exchange');
+  return readTokens(res, 'exchange', TOKEN_URL);
 }
 
 /**
@@ -352,7 +362,7 @@ export async function refreshCodexToken(
       ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
       : AbortSignal.timeout(30_000),
   });
-  return readTokens(res, 'refresh');
+  return readTokens(res, 'refresh', TOKEN_URL);
 }
 
 // ── Loopback callback server ────────────────────────────────────────────────

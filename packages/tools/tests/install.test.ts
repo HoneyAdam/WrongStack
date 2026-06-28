@@ -9,16 +9,23 @@ import type { ToolProgressEvent } from '@wrongstack/core';
 
 // Mock spawnStream — an AsyncGenerator<ToolProgressEvent, SpawnStreamResult>.
 // executeStream calls: const result = yield* spawnStream({...})
+//
+// Exported as a hoisted vi.fn so individual tests can inspect the args
+// (cmd/args) that installTool constructed for the package-manager call.
+const spawnStreamMock = vi.hoisted(() => vi.fn());
 vi.mock('../src/_spawn-stream.js', () => ({
-  spawnStream: (async function * (): AsyncGenerator<ToolProgressEvent, SpawnStreamResult> {
-    yield { type: 'partial_output', text: 'added 1 package\n' };
-    return {
-      stdout: 'added 1 package',
-      stderr: '',
-      exitCode: 0,
-      truncated: false,
-    };
-  }) as never as () => AsyncGenerator<ToolProgressEvent, SpawnStreamResult>,
+  spawnStream: ((opts: unknown) => {
+    spawnStreamMock(opts);
+    return (async function * (): AsyncGenerator<ToolProgressEvent, SpawnStreamResult> {
+      yield { type: 'partial_output', text: 'added 1 package\n' };
+      return {
+        stdout: 'added 1 package',
+        stderr: '',
+        exitCode: 0,
+        truncated: false,
+      };
+    })();
+  }) as never as (opts: unknown) => AsyncGenerator<ToolProgressEvent, SpawnStreamResult>,
 }));
 
 const makeCtx = (overrides?: Record<string, unknown>) => {
@@ -256,5 +263,65 @@ describe('installTool', () => {
     const result = await installTool.execute({ packages: 'vitest' }, ctx, makeOpts());
     expect(result.packages).toContain('vitest');
     expect(Core.recordPackageAction).toHaveBeenCalled();
+  });
+
+  // ── Lifecycle script gate (default --ignore-scripts) ──────────────────────
+  //
+  // Lifecycle scripts (`preinstall` / `install` / `postinstall` / `prepare`)
+  // run with shell access inside the project. Without the gate a typo-squatted
+  // or compromised package executes arbitrary code the moment it lands in
+  // node_modules. The default must therefore pass --ignore-scripts to all
+  // three package managers, and an explicit lifecycleScripts: true is the
+  // only way to opt back in.
+
+  it('passes --ignore-scripts by default to npm', async () => {
+    spawnStreamMock.mockClear();
+    await installTool.execute({ packages: 'vitest' }, makeCtx(), makeOpts());
+    expect(spawnStreamMock).toHaveBeenCalledTimes(1);
+    const call = spawnStreamMock.mock.calls[0]?.[0] as { cmd: string; args: string[] };
+    expect(call.cmd).toBe('npm');
+    expect(call.args).toContain('--ignore-scripts');
+  });
+
+  it('passes --ignore-scripts by default to pnpm', async () => {
+    spawnStreamMock.mockClear();
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'inst-pnpm-ignore-'));
+    try {
+      await fs.writeFile(path.join(dir, 'pnpm-lock.yaml'), '');
+      await installTool.execute({ packages: 'foo' }, makeCtx({ cwd: dir, projectRoot: dir }), makeOpts());
+      const call = spawnStreamMock.mock.calls[0]?.[0] as { cmd: string; args: string[] };
+      expect(call.cmd).toBe('pnpm');
+      expect(call.args).toContain('--ignore-scripts');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes --ignore-scripts by default to yarn', async () => {
+    spawnStreamMock.mockClear();
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'inst-yarn-ignore-'));
+    try {
+      await fs.writeFile(path.join(dir, 'yarn.lock'), '');
+      await installTool.execute({ packages: 'foo' }, makeCtx({ cwd: dir, projectRoot: dir }), makeOpts());
+      const call = spawnStreamMock.mock.calls[0]?.[0] as { cmd: string; args: string[] };
+      expect(call.cmd).toBe('yarn');
+      expect(call.args).toContain('--ignore-scripts');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('omits --ignore-scripts when lifecycleScripts: true is explicit', async () => {
+    spawnStreamMock.mockClear();
+    await installTool.execute({ packages: 'vitest', lifecycleScripts: true }, makeCtx(), makeOpts());
+    const call = spawnStreamMock.mock.calls[0]?.[0] as { cmd: string; args: string[] };
+    expect(call.args).not.toContain('--ignore-scripts');
+  });
+
+  it('omits --ignore-scripts when lifecycleScripts: false is explicit (no change from default)', async () => {
+    spawnStreamMock.mockClear();
+    await installTool.execute({ packages: 'vitest', lifecycleScripts: false }, makeCtx(), makeOpts());
+    const call = spawnStreamMock.mock.calls[0]?.[0] as { cmd: string; args: string[] };
+    expect(call.args).toContain('--ignore-scripts');
   });
 });

@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import { type Tool, toErrorMessage } from '@wrongstack/core';
+import { type Tool, FsError, toErrorMessage, ToolValidationError } from '@wrongstack/core';
 import { isBinaryBuffer, safeResolveReal } from './_util.js';
 
 interface ReadInput {
@@ -64,7 +64,12 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
     required: ['path'],
   },
   async execute(input, ctx) {
-    if (!input?.path) throw new Error('read: path is required');
+    if (!input?.path) {
+      throw new ToolValidationError({
+        message: 'read: path is required',
+        field: 'path',
+      });
+    }
     const absPath = await safeResolveReal(input.path, ctx);
 
     let stat: Awaited<ReturnType<typeof fs.stat>>;
@@ -72,12 +77,37 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
       stat = await fs.stat(absPath);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') throw new Error(`read: file not found "${input.path}"`);
-      throw new Error(`read: failed to stat "${input.path}": ${toErrorMessage(err)}`);
+      if (code === 'ENOENT') {
+        throw new FsError({
+          message: `read: file not found "${input.path}"`,
+          code: 'FS_READ_FAILED',
+          path: absPath,
+          context: { errno: 'ENOENT' },
+        });
+      }
+      throw new FsError({
+        message: `read: failed to stat "${input.path}": ${toErrorMessage(err)}`,
+        code: 'FS_READ_FAILED',
+        path: absPath,
+        context: { errno: code },
+        cause: err,
+      });
     }
-    if (!stat.isFile()) throw new Error(`read: "${input.path}" is not a regular file`);
+    if (!stat.isFile()) {
+      throw new FsError({
+        message: `read: "${input.path}" is not a regular file`,
+        code: 'FS_READ_FAILED',
+        path: absPath,
+        context: { reason: 'not-a-regular-file' },
+      });
+    }
     if (stat.size > MAX_BYTES) {
-      throw new Error(`read: file too large (${stat.size} bytes, limit ${MAX_BYTES})`);
+      throw new FsError({
+        message: `read: file too large (${stat.size} bytes, limit ${MAX_BYTES})`,
+        code: 'FS_READ_FAILED',
+        path: absPath,
+        context: { size: stat.size, limit: MAX_BYTES, reason: 'too-large' },
+      });
     }
 
     const offset = Math.max(1, input.offset ?? 1);

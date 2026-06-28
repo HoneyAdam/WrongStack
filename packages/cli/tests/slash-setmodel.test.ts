@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { AGENT_CATALOG, type Config } from '@wrongstack/core';
+import { AGENT_CATALOG, type Config, isConfigError } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
 import { buildSetModelCommand } from '../src/slash-commands/setmodel.js';
@@ -320,5 +320,16 @@ describe('/setmodel slash command', () => {
     const cmd = buildSetModelCommand(makeCtx(baseConfig()).ctx);
     expect(cmd.help).toContain('/setmodel resolve');
     expect(cmd.help).toContain('/setmodel doctor');
+  });
+
+  it('throws a structured ConfigError when global config is corrupt JSON', async () => {
+    // Write invalid JSON to the config file. The patchGlobalConfig helper
+    // throws ConfigError(CONFIG_PARSE_FAILED) — the slash-command runner
+    // catches it and surfaces the message.
+    fs.writeFileSync(globalConfigPath, '{not valid json');
+    const cmd = buildSetModelCommand(makeCtx(baseConfig()).ctx);
+    const res = await cmd.run!('leader anthropic claude-sonnet-4', undefined);
+    expect(res?.message).toContain('not valid JSON');
+    expect(res?.message).toContain(globalConfigPath);
   });
 });

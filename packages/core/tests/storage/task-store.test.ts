@@ -2,6 +2,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../src/kernel/events.js';
+import { isSessionError } from '../../src/types/errors.js';
 import {
   emptyTaskFile,
   loadTasks,
@@ -300,6 +301,39 @@ describe('task-store', () => {
       expect(reads[0]![1]).toMatchObject({ store: 'tasks', operation: 'load', outcome: 'success' });
       expect(writes).toHaveLength(1);
       expect(writes[0]![1]).toMatchObject({ store: 'tasks', operation: 'save', outcome: 'success' });
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('mutateTasks throws a structured SessionError when persistence fails', async () => {
+    // Same "directory-at-target" trick as plan-store.test.ts: create a
+    // directory at the file path saveTasks would write to, so atomicWrite
+    // fails and saveTasks returns false. mutateTasks must surface the
+    // structured SessionError, not a bare Error.
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-tasks-bad-'));
+    const fileAsDir = path.join(dir, 'tasks.json');
+    await fsp.mkdir(fileAsDir, { recursive: true });
+    try {
+      let caught: unknown;
+      try {
+        await mutateTasks(fileAsDir, 'session-x', (f) => {
+          f.tasks.push({ id: 'x', content: 'should not save', status: 'pending' });
+          return f;
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(isSessionError(caught)).toBe(true);
+      const se = caught as ReturnType<typeof isSessionError> & {
+        code: string;
+        context?: Record<string, unknown>;
+        sessionId?: string;
+      };
+      expect(se.code).toBe('SESSION_WRITE_FAILED');
+      expect(se.context?.operation).toBe('mutateTasks');
+      expect(se.sessionId).toBe('session-x');
     } finally {
       await fsp.rm(dir, { recursive: true, force: true });
     }

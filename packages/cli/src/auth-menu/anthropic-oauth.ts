@@ -15,7 +15,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { color, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
+import { color, FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
 import {
   mutateConfigProviders,
   normalizeKeys,
@@ -106,14 +106,22 @@ interface TokenJson {
   expires_in?: number;
 }
 
-async function readTokens(res: Response, op: string): Promise<ClaudeTokens> {
+async function readTokens(res: Response, op: string, url: string): Promise<ClaudeTokens> {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Claude token ${op} failed (${res.status}): ${text || res.statusText}`);
+    throw new FetchError({
+      message: `Claude token ${op} failed (${res.status}): ${text || res.statusText}`,
+      status: res.status,
+      context: { provider: 'anthropic-oauth', op, url },
+    });
   }
   const json = (await res.json()) as TokenJson | null;
   if (!json?.access_token || !json.refresh_token || typeof json.expires_in !== 'number') {
-    throw new Error(`Claude token ${op} response missing fields`);
+    throw new ParseError({
+      message: `Claude token ${op} response missing fields`,
+      source: 'anthropic-oauth-token-response',
+      context: { op },
+    });
   }
   return {
     access: json.access_token,
@@ -144,7 +152,7 @@ export async function exchangeAuthorizationCode(
       ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
       : AbortSignal.timeout(30_000),
   });
-  return readTokens(res, 'exchange');
+  return readTokens(res, 'exchange', TOKEN_URL);
 }
 
 /**

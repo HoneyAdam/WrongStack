@@ -10,7 +10,7 @@
  *   /shadow interval <ms>
  */
 import type { Context, SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import { color, ToolValidationError } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 const DEFAULT_SHADOW_PROVIDER = 'anthropic';
@@ -286,7 +286,11 @@ function parseProviderModelRef(model: string, defaultRef: ParsedModelRef): Parse
   }
   const slash = model.indexOf('/');
   if (slash <= 0 || slash === model.length - 1) {
-    throw new Error(`Model must be in provider/model format (e.g. anthropic/claude-3-5-sonnet), got: "${model}"`);
+    throw new ToolValidationError({
+      message: `Model must be in provider/model format (e.g. anthropic/claude-3-5-sonnet), got: "${model}"`,
+      field: 'model',
+      context: { received: model },
+    });
   }
   return {
     provider: model.slice(0, slash),
@@ -297,11 +301,18 @@ function parseProviderModelRef(model: string, defaultRef: ParsedModelRef): Parse
 
 function parseInterval(value: string | true): number {
   if (value === true || !/^\d+$/.test(value)) {
-    throw new Error(`interval must be an integer >= ${MIN_SHADOW_INTERVAL_MS}ms`);
+    throw new ToolValidationError({
+      message: `interval must be an integer >= ${MIN_SHADOW_INTERVAL_MS}ms`,
+      field: 'interval',
+    });
   }
   const ms = Number.parseInt(value, 10);
   if (!Number.isFinite(ms) || ms < MIN_SHADOW_INTERVAL_MS) {
-    throw new Error(`interval must be an integer >= ${MIN_SHADOW_INTERVAL_MS}ms`);
+    throw new ToolValidationError({
+      message: `interval must be an integer >= ${MIN_SHADOW_INTERVAL_MS}ms`,
+      field: 'interval',
+      context: { received: ms, minimum: MIN_SHADOW_INTERVAL_MS },
+    });
   }
   return ms;
 }

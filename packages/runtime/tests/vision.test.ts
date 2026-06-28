@@ -2,6 +2,7 @@ import { ToolRegistry, type Context, type Tool } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import {
   ImageInputUnsupportedError,
+  VisionUrlBlockedError,
   createToolVisionAdapters,
   routeImagesForModel,
 } from '../src/vision.js';
@@ -486,5 +487,105 @@ describe('vision routing', () => {
     const adapters = createToolVisionAdapters(registry);
     const out = await adapters[0]!.describe({ image, ctx, signal: new AbortController().signal });
     expect(out).toBe(JSON.stringify({ score: 42, label: 'cat' }));
+  });
+
+  describe('URL SSRF guard', () => {
+    // Vision adapters forward image URLs straight to the underlying tool,
+    // which typically fetches them server-side. Without an explicit check,
+    // a malicious or malformed URL like http://169.254.169.254/... would
+    // turn image analysis into an SSRF vector. The guard must run BEFORE
+    // the URL is handed to the adapter — same model as fetch.ts.
+
+    function urlTool(name: string, key: 'url' | 'image_url' | 'imageUrl'): Tool<Record<string, unknown>, string> {
+      return {
+        name,
+        description: 'Analyze an image (url input).',
+        inputSchema: { type: 'object', properties: { [key]: { type: 'string' } } },
+        permission: 'auto',
+        mutating: false,
+        async execute() {
+          return 'should-not-be-called';
+        },
+      };
+    }
+
+    function urlImage(url: string) {
+      return {
+        type: 'image' as const,
+        source: { type: 'url' as const, url, media_type: 'image/png' },
+      };
+    }
+
+    it('blocks a localhost URL', async () => {
+      const registry = new ToolRegistry();
+      registry.register(urlTool('mcp__vision__url_localhost', 'url'));
+      const adapters = createToolVisionAdapters(registry);
+      let caught: unknown;
+      try {
+        await adapters[0]!.describe({
+          image: urlImage('http://localhost/a.png'),
+          ctx,
+          signal: new AbortController().signal,
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(VisionUrlBlockedError);
+      expect((caught as VisionUrlBlockedError).url).toBe('http://localhost/a.png');
+    });
+
+    it('blocks a 127.0.0.1 URL', async () => {
+      const registry = new ToolRegistry();
+      registry.register(urlTool('mcp__vision__url_loopback', 'image_url'));
+      const adapters = createToolVisionAdapters(registry);
+      await expect(
+        adapters[0]!.describe({
+          image: urlImage('http://127.0.0.1:8080/a.png'),
+          ctx,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toBeInstanceOf(VisionUrlBlockedError);
+    });
+
+    it('blocks the cloud metadata endpoint (169.254.169.254)', async () => {
+      const registry = new ToolRegistry();
+      registry.register(urlTool('mcp__vision__url_imds', 'imageUrl'));
+      const adapters = createToolVisionAdapters(registry);
+      await expect(
+        adapters[0]!.describe({
+          image: urlImage('http://169.254.169.254/latest/meta-data/'),
+          ctx,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toBeInstanceOf(VisionUrlBlockedError);
+    });
+
+    it('allows a public URL (no false positive on a clean target)', async () => {
+      const registry = new ToolRegistry();
+      registry.register(urlTool('mcp__vision__url_public', 'url'));
+      const adapters = createToolVisionAdapters(registry);
+      const out = await adapters[0]!.describe({
+        image: urlImage('https://example.com/a.png'),
+        ctx,
+        signal: new AbortController().signal,
+      });
+      expect(out).toBe('should-not-be-called');
+    });
+
+    it('does NOT validate URL inputs when the image is base64', async () => {
+      // base64 images have no URL — the SSRF guard is a no-op, the tool
+      // receives the bytes directly. This test guards against a regression
+      // where someone wires the guard around the wrong field.
+      const registry = new ToolRegistry();
+      registry.register(urlTool('mcp__vision__b64_should_run', 'url'));
+      const adapters = createToolVisionAdapters(registry);
+      // Note: this tool's schema is `url`, but the image is base64 — so
+      // buildToolPayload can't route it through `url` and returns null,
+      // which means the adapter's describe() throws "does not expose a
+      // supported image input schema". That throw is NOT the SSRF guard.
+      await expect(
+        adapters[0]!.describe({ image, ctx, signal: new AbortController().signal }),
+      ).rejects.toThrow(/does not expose a supported image input schema/);
+    });
   });
 });

@@ -3,6 +3,7 @@ import type { EventBus } from '../kernel/events.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 import type { TaskItem } from '../utils/task-format.js';
+import { SessionError } from '../types/errors.js';
 
 // ---------------------------------------------------------------------------
 // Task file persistence — one JSON file per session in
@@ -161,7 +162,12 @@ export async function mutateTasks(
     const updated = await fn(file);
     const persisted = await saveTasks(filePath, updated, events, traceId);
     if (!persisted) {
-      throw new Error(`Failed to persist tasks to ${filePath} — the change was NOT saved.`);
+      throw new SessionError({
+        message: `Failed to persist tasks to ${filePath} — the change was NOT saved.`,
+        code: 'SESSION_WRITE_FAILED',
+        sessionId,
+        context: { filePath, operation: 'mutateTasks' },
+      });
     }
     return updated;
   });

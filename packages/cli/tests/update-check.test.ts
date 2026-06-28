@@ -2,9 +2,12 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type FetchError } from '@wrongstack/core';
+import { expectFetchError } from './helpers/fetch-error.js';
 import {
   checkForUpdate,
   currentVersion,
+  fetchLatestFromNpm,
   getUpdateNotification,
 } from '../src/update-check.js';
 
@@ -109,6 +112,34 @@ describe('update-check', () => {
 
       expect(info.checkFailed).toBe(true);
       expect(info.outdated).toBe(false);
+    });
+
+    it('non-2xx npm response throws a structured FetchError (checkForUpdate + npmjs context)', async () => {
+      // The previous test only asserted the user-facing `checkFailed: true`
+      // surface. This locks in the structured error class so the migration
+      // to FetchError can't silently regress to a bare Error. `checkForUpdate`
+      // catches the error and converts to UpdateInfo, so we exercise the
+      // exported `fetchLatestFromNpm` directly to see the raw FetchError.
+      const fe = await expectFetchError(() => fetchLatestFromNpm(), {
+        status: 404,
+        context: {
+          op: 'checkForUpdate',
+          registry: 'npmjs',
+          url: 'https://registry.npmjs.org/wrongstack/latest',
+        },
+      });
+      expect(fe).toBeDefined();
+    });
+
+    it('non-2xx npm response includes the failing status in the FetchError', async () => {
+      // A second test covers a different status code to make sure the
+      // status flows through (not just hardcoded to 404). 500 surfaces the
+      // difference between transport (transient) and protocol (permanent).
+      const fe = await expectFetchError(() => fetchLatestFromNpm(), {
+        status: 500,
+        // No context shape asserted — just verify the status flows through.
+      });
+      expect(fe.status).toBe(500);
     });
   });
 

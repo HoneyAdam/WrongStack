@@ -18,6 +18,7 @@
 import type { Capabilities, Request } from '@wrongstack/core';
 import { ProviderError } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { openaiWireFormat } from './presets/openai.js';
 import type { OpenAIStreamState } from './presets/openai.js';
 import { WireFormatProvider } from './wire-format.js';
@@ -32,7 +33,6 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Copilot-Integration-Id': 'vscode-chat',
 };
 const DEFAULT_API_BASE = 'https://api.individual.githubcopilot.com';
-const REFRESH_SKEW_MS = 60_000;
 
 /**
  * Allowed hostname suffixes for the Copilot `proxy-ep` token field.
@@ -120,13 +120,16 @@ export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState>
 
   private copilotToken: string;
   private readonly githubToken: string | undefined;
-  private expiresAt: number | undefined;
   private apiBase: string;
-  private readonly onRefresh: GitHubCopilotProviderOptions['onRefresh'];
   private readonly refreshFn: (
     githubToken: string,
     signal?: AbortSignal,
   ) => Promise<CopilotTokenResult>;
+  /** Shared OAuth refresh machinery — see packages/providers/src/oauth-refresh-coordinator.ts */
+  private readonly refreshCoordinator: OAuthRefreshCoordinator<
+    CopilotTokenResult,
+    NonNullable<GitHubCopilotProviderOptions['onRefresh']> extends (p: infer P) => void ? P : never
+  >;
 
   constructor(opts: GitHubCopilotProviderOptions) {
     const apiBase = copilotBaseUrlFromToken(opts.credentials.copilotToken);
@@ -138,10 +141,36 @@ export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState>
     });
     this.copilotToken = opts.credentials.copilotToken;
     this.githubToken = opts.credentials.githubToken;
-    this.expiresAt = opts.credentials.expiresAt;
     this.apiBase = apiBase;
-    this.onRefresh = opts.onRefresh;
     this.refreshFn = opts.refreshFn ?? refreshCopilotToken;
+    this.refreshCoordinator = new OAuthRefreshCoordinator<CopilotTokenResult, {
+      accessToken: string;
+      expiresAt: number;
+    }>({
+      // The "refresh key" here is the long-lived GitHub OAuth token, which
+      // does NOT rotate. The rotated value is the short-lived Copilot token.
+      initialRefreshKey: opts.credentials.githubToken,
+      initialExpiresAt: opts.credentials.expiresAt,
+      refreshFn: (key, signal) => this.refreshFn(key, signal),
+      onRefresh: opts.onRefresh,
+      formatPayload: (_tokens, derived) => ({
+        accessToken: derived.accessToken,
+        expiresAt: derived.expiresAt,
+      }),
+      projectTokens: (tokens) => ({
+        accessToken: tokens.token,
+        expiresAt: tokens.expires,
+        refreshKey: undefined, // GitHub OAuth token is permanent
+      }),
+      applyTokens: (derived) => {
+        this.copilotToken = derived.accessToken;
+        // The API base URL is derived from each new Copilot token's
+        // `proxy-ep=` field. Recompute on every refresh so a token
+        // pointing at a different proxy endpoint lands on the right host.
+        this.apiBase = copilotBaseUrlFromToken(derived.accessToken);
+      },
+      label: 'GitHub Copilot',
+    });
     this.capabilities = capabilitiesForFamily('github-copilot', { ...opts.capabilities });
   }
 
@@ -160,22 +189,18 @@ export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState>
   }
 
   private async ensureFreshToken(signal: AbortSignal): Promise<void> {
-    const stale = this.expiresAt === undefined || Date.now() >= this.expiresAt - REFRESH_SKEW_MS;
-    if (!this.copilotToken || (stale && this.githubToken)) {
-      await this.doRefresh(signal);
+    // Copilot starts with an empty copilot token + no expiry recorded. We
+    // have to mint on first request even when there's no expiry timestamp,
+    // so the coordinator's isStale() default (true when expiresAt is
+    // undefined) handles that naturally — but we still need the github
+    // token to actually call refreshFn, hence the explicit guard.
+    if (!this.copilotToken || this.refreshCoordinator.isStale()) {
+      await this.refreshCoordinator.doRefresh(signal);
     }
   }
 
   private async doRefresh(signal: AbortSignal): Promise<void> {
-    if (!this.githubToken) return;
-    const t = await this.refreshFn(this.githubToken, signal);
-    this.copilotToken = t.token;
-    this.expiresAt = t.expires;
-    this.apiBase = copilotBaseUrlFromToken(t.token);
-    this.onRefresh?.({
-      accessToken: t.token,
-      expiresAt: t.expires,
-    });
+    await this.refreshCoordinator.doRefresh(signal);
   }
 
   protected override buildUrl(_req: Request): string {

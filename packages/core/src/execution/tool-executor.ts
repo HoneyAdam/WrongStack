@@ -23,7 +23,7 @@ import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
-import { FetchError, ToolValidationError } from '../types/errors.js';
+import { FetchError, isWrongStackError, ToolValidationError, WrongStackError } from '../types/errors.js';
 import { MALFORMED_ARG_MARKERS } from '../types/tool-markers.js';
 import type { ToolResultRenderMode } from '../types/config.js';
 import { resolveToolResultRenderMode } from '../utils/tool-result-render-mode.js';
@@ -340,6 +340,20 @@ export class ToolExecutor {
         );
         return { result, tool, durationMs: Date.now() - start };
       } catch (err) {
+        // Preserve structured errors on the throw path. A WrongStackError
+        // carries `code`, `subsystem`, `severity`, `recoverable`, `context`,
+        // and `cause` — flattening it to `err.message` here would lose all of
+        // that before the agent loop, audit log, or recovery strategies ever
+        // see it. Re-throw so safeRun's catch can render via `describe()` and
+        // any outer handler (agent-loop.toWrongStackError, etc.) preserves the
+        // structured shape. Bare Errors and primitives keep the old behavior:
+        // there's no rich data to preserve, so the user gets a scrubbed
+        // tool_result block.
+        if (isWrongStackError(err)) {
+          if (err instanceof Error) span?.recordError(err);
+          span?.setAttribute('tool.is_error', true);
+          throw err;
+        }
         const msg = toErrorMessage(err);
         const scrubbed = this.opts.secretScrubber.scrub(msg);
         const { category, retryable, detail } = classifyToolError(err);
@@ -373,7 +387,13 @@ export class ToolExecutor {
       try {
         return await runOne(use);
       } catch (err) {
-        const msg = toErrorMessage(err);
+        // For structured errors, render via describe() so the model and user
+        // see `code: message [context...]` instead of just `message`. This is
+        // the second half of the structured-error preservation path — the
+        // first half is runOne's catch rethrowing instead of flattening.
+        // Bare errors keep the old "execution failed: <scrubbed>" prefix.
+        const isStructured = isWrongStackError(err);
+        const msg = isStructured ? err.describe() : toErrorMessage(err);
         const scrubbed = this.opts.secretScrubber.scrub(msg);
         const { category, retryable, detail } = classifyToolError(err);
         const tool = this.registry.get(use.name);
@@ -383,7 +403,9 @@ export class ToolExecutor {
         const result = {
           type: 'tool_result' as const,
           tool_use_id: use.id,
-          content: `Tool "${use.name}" execution failed: ${scrubbed}`,
+          content: isStructured
+            ? scrubbed
+            : `Tool "${use.name}" execution failed: ${scrubbed}`,
           is_error: true,
         };
         budget = this.budgetForString(result.content, budget);
@@ -765,7 +787,7 @@ const TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES = 64 * 1024;
  * Classify a tool execution error into a structured ToolErrorCategory.
  * Used for observability (span attributes) and retry strategy decisions.
  */
-function classifyToolError(err: unknown): { category: ToolErrorCategory; retryable: boolean; detail?: string } {
+export function classifyToolError(err: unknown): { category: ToolErrorCategory; retryable: boolean; detail?: string } {
   // AbortError — user cancellation, never retry
   if (err instanceof Error && err.name === 'AbortError') {
     return { category: ToolErrorCategoryEnum.FATAL, retryable: false, detail: 'aborted' };
@@ -821,6 +843,27 @@ function classifyToolError(err: unknown): { category: ToolErrorCategory; retryab
   }
   if (err instanceof Error && err.message.includes('validation')) {
     return { category: ToolErrorCategoryEnum.VALIDATION, retryable: false, detail: 'validation' };
+  }
+
+  // Structured WrongStackError catch-all: any error that is a WrongStackError
+  // subclass (FsError, SessionError, ConfigError, ParseError, PluginError,
+  // AgentError, etc.) but wasn't matched by the FetchError or
+  // ToolValidationError arms above. Route by severity + recoverability:
+  //   fatal   → FATAL (abort the loop)
+  //   error   → FATAL (surface to the user, don't retry)
+  //   warning → TRANSIENT (log and continue; the subsystem flagged it as
+  //             recoverable so the loop can proceed)
+  if (err instanceof WrongStackError) {
+    const wse = err as WrongStackError;
+    const category =
+      wse.severity === 'warning'
+        ? ToolErrorCategoryEnum.TRANSIENT
+        : ToolErrorCategoryEnum.FATAL;
+    return {
+      category,
+      retryable: wse.recoverable,
+      detail: `${wse.code} [${wse.subsystem}]`,
+    };
   }
 
   // Default: fatal/unclassified

@@ -28,6 +28,7 @@ import {
   type Tool,
   ToolCapabilities,
   ToolRegistry,
+  ToolValidationError,
   type WstackPaths,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
@@ -153,7 +154,7 @@ function makeAcpRead(base: Tool, api: RunTurnApi): Tool {
     mutating: false,
     execute: async (input: unknown) => {
       const i = (input ?? {}) as { path?: string; offset?: number; limit?: number };
-      if (!i.path) throw new Error('read: path is required');
+      if (!i.path) throw new ToolValidationError({ message: 'read: path is required', field: 'path' });
       const content = await api.readTextFile({
         path: i.path,
         ...(typeof i.offset === 'number' ? { line: i.offset } : {}),
@@ -175,7 +176,7 @@ function makeAcpWrite(base: Tool, api: RunTurnApi): Tool {
     ...base,
     execute: async (input: unknown) => {
       const i = (input ?? {}) as { path?: string; content?: string };
-      if (!i.path) throw new Error('write: path is required');
+      if (!i.path) throw new ToolValidationError({ message: 'write: path is required', field: 'path' });
       await api.writeTextFile({ path: i.path, content: i.content ?? '' });
       return { path: i.path, ok: true };
     },
@@ -192,17 +193,23 @@ function makeAcpEdit(base: Tool, api: RunTurnApi): Tool {
         new_string?: string;
         replace_all?: boolean;
       };
-      if (!i.path) throw new Error('edit: path is required');
-      if (!i.old_string) throw new Error('edit: old_string is required');
+      if (!i.path) throw new ToolValidationError({ message: 'edit: path is required', field: 'path' });
+      if (!i.old_string) throw new ToolValidationError({ message: 'edit: old_string is required', field: 'old_string' });
       const before = await api.readTextFile({ path: i.path });
       const occurrences = before.split(i.old_string).length - 1;
       if (occurrences === 0) {
-        throw new Error(`edit: old_string not found in "${i.path}"`);
+        throw new ToolValidationError({
+          message: `edit: old_string not found in "${i.path}"`,
+          field: 'old_string',
+          context: { path: i.path },
+        });
       }
       if (occurrences > 1 && !i.replace_all) {
-        throw new Error(
-          `edit: old_string appears ${occurrences} times in "${i.path}"; pass replace_all or use a more specific string`,
-        );
+        throw new ToolValidationError({
+          message: `edit: old_string appears ${occurrences} times in "${i.path}"; pass replace_all or use a more specific string`,
+          field: 'old_string',
+          context: { path: i.path, occurrences, replaceAll: false },
+        });
       }
       const after = i.replace_all
         ? before.split(i.old_string).join(i.new_string ?? '')
@@ -218,7 +225,7 @@ function makeAcpBash(base: Tool, api: RunTurnApi): Tool {
     ...base,
     execute: async (input: unknown) => {
       const i = (input ?? {}) as { command?: string; cwd?: string };
-      if (!i.command) throw new Error('bash: command is required');
+      if (!i.command) throw new ToolValidationError({ message: 'bash: command is required', field: 'command' });
       // ACP terminals run the command through the client's shell; we pass it
       // as `sh -c "<command>"` so pipelines/operators work as the model expects.
       const { output, exitCode } = await api.runTerminal({

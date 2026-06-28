@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { withFileLock, wstackGlobalRoot } from '@wrongstack/core';
+import { ConfigError, withFileLock, wstackGlobalRoot } from '@wrongstack/core';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -155,6 +155,11 @@ export async function touchProjectInManifest(opts: {
 }
 
 function expectEntry(e: ProjectEntry | undefined): ProjectEntry {
-  if (!e) throw new Error('touchProjectInManifest: entry not resolved');
+  if (!e)
+    throw new ConfigError({
+      message: 'touchProjectInManifest: entry not resolved',
+      code: 'CONFIG_INVALID',
+      context: { phase: 'manifest-resolve' },
+    });
   return e;
 }

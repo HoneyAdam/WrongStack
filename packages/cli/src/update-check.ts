@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { FetchError } from '@wrongstack/core';
 
 export interface UpdateInfo {
   current: string;
@@ -12,6 +13,9 @@ export interface UpdateInfo {
 
 type HomeDirFn = () => string;
 const defaultHomeDir: HomeDirFn = () => os.homedir();
+
+/** npm registry endpoint used for self-update version checks. */
+const NPM_REGISTRY_URL = 'https://registry.npmjs.org/wrongstack/latest';
 
 /** Cache file path — homeFn is injectable for testing */
 export function cachePath(homeFn: HomeDirFn = defaultHomeDir): string {
@@ -82,19 +86,28 @@ async function writeCache(entry: CacheEntry, homeFn: HomeDirFn = defaultHomeDir)
   }
 }
 
-/** Fetch latest version from npm registry */
-async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
+/** Fetch latest version from npm registry. Exported for testability and for
+ *  callers that want to do their own version checks. Throws a structured
+ *  `FetchError(status, context: { op: 'checkForUpdate', registry: 'npmjs', url })`
+ *  on non-2xx responses so consumers can branch on the structured shape. */
+export async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch('https://registry.npmjs.org/wrongstack/latest', {
+    const res = await fetch(NPM_REGISTRY_URL, {
       signal: controller.signal,
       headers: { Accept: 'application/json' },
     });
     clearTimeout(timer);
 
-    if (!res.ok) throw new Error(`npm registry responded ${res.status}`);
+    if (!res.ok) {
+      throw new FetchError({
+        message: `npm registry responded ${res.status}`,
+        status: res.status,
+        context: { op: 'checkForUpdate', registry: 'npmjs', url: NPM_REGISTRY_URL },
+      });
+    }
     const data = (await res.json()) as { version?: unknown | undefined };
     if (typeof data.version === 'string') return data.version;
     throw new Error('No version field in npm response');

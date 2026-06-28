@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { compileGlob } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 import { mapWithConcurrency } from './_concurrency.js';
-import { safeResolve } from './_util.js';
+import { assertRealInsideRoot, safeResolveReal } from './_util.js';
 
 interface GlobInput {
   pattern: string;
@@ -56,7 +56,11 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
   },
   async execute(input, ctx) {
     if (!input?.pattern) throw new Error('glob: pattern is required');
-    const base = input.path ? safeResolve(input.path, ctx) : ctx.cwd;
+    // `safeResolveReal` validates that the input base — even if symlinked —
+    // resolves to a real path inside the project root (or `~/.wrongstack`).
+    // Throws on escape, matching how single-file tools (`read`, `edit`,
+    // `write`) reject out-of-root paths: the caller named the base explicitly.
+    const base = input.path ? await safeResolveReal(input.path, ctx) : ctx.cwd;
     const limit = Math.max(1, Math.min(input.limit ?? 1000, 5000));
 
     const ignored = await readGitignore(base);
@@ -120,8 +124,18 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
           try {
             const st = await fs.stat(full);
             if (st.isDirectory()) {
+              // CWE-59 containment: a symlink inside the workspace can point
+              // outside it. Before recursing into it (or including the
+              // resolved file in results), realpath the symlink and verify
+              // its target is still inside the project root. Skip silently
+              // on escape so a single bad symlink doesn't poison the whole
+              // walk.
+              const real = await fs.realpath(full);
+              await assertRealInsideRoot(real, ctx);
               subdirs.push({ full, rel });
             } else if (st.isFile()) {
+              const real = await fs.realpath(full);
+              await assertRealInsideRoot(real, ctx);
               re.lastIndex = 0;
               const relMatch = re.test(rel);
               re.lastIndex = 0;
@@ -129,7 +143,8 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
               if (relMatch || nameMatch) matchedFiles.push(full);
             }
           } catch {
-            // skip broken symlink/stat error
+            // Skip broken symlink, stat error, OR out-of-root target. All
+            // three should fail the walk without aborting the whole search.
           }
         }
         if (truncated) return;

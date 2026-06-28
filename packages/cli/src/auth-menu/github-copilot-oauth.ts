@@ -13,7 +13,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { color, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
+import { color, FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
 import { copilotBaseUrlFromToken, refreshCopilotToken } from '@wrongstack/providers';
 import {
   mutateConfigProviders,
@@ -89,7 +89,13 @@ export async function startDeviceFlow(signal?: AbortSignal): Promise<DeviceCode>
       ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
       : AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`GitHub device-code request failed (${res.status})`);
+  if (!res.ok) {
+    throw new FetchError({
+      message: `GitHub device-code request failed (${res.status})`,
+      status: res.status,
+      context: { provider: 'github-copilot', op: 'device-code', url: DEVICE_CODE_URL },
+    });
+  }
   const json = (await res.json()) as Partial<DeviceCode> | null;
   if (
     !json?.device_code ||
@@ -97,7 +103,10 @@ export async function startDeviceFlow(signal?: AbortSignal): Promise<DeviceCode>
     !json.verification_uri ||
     typeof json.expires_in !== 'number'
   ) {
-    throw new Error('Invalid device-code response');
+    throw new ParseError({
+      message: 'Invalid device-code response',
+      source: 'github-copilot-device-code-response',
+    });
   }
   return {
     device_code: json.device_code,
@@ -141,7 +150,11 @@ export async function pollForGitHubToken(device: DeviceCode, signal: AbortSignal
     }
     throw new Error(`Device flow failed: ${json.error ?? 'unknown error'}`);
   }
-  throw new Error('Device code expired — please restart the login.');
+  throw new FetchError({
+    message: 'Device code expired — please restart the login.',
+    status: 408, // Request Timeout
+    context: { provider: 'github-copilot', op: 'device-code-poll', reason: 'expired' },
+  });
 }
 
 /** Shape of the fields we read from a `/models` entry (everything optional). */

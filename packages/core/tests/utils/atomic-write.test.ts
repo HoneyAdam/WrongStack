@@ -2,7 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { atomicWrite, ensureDir } from '../../src/utils/atomic-write.js';
+import { isFsError } from '../../src/types/errors.js';
+import { atomicWrite, ensureDir, withFileLock } from '../../src/utils/atomic-write.js';
 
 describe('atomicWrite', () => {
   let dir: string;
@@ -113,5 +114,49 @@ describe('ensureDir', () => {
     const target = path.join(dir, 'existing');
     await fs.mkdir(target);
     await expect(ensureDir(target)).resolves.toBeUndefined();
+  });
+});
+
+describe('withFileLock — structured FsError on timeout', () => {
+  let lockDir: string;
+  beforeEach(async () => {
+    lockDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-awlock-'));
+  });
+  afterEach(async () => {
+    await fs.rm(lockDir, { recursive: true, force: true });
+  });
+
+  it('throws FsError(FS_ATOMIC_WRITE_FAILED) when the lock cannot be acquired', async () => {
+    const target = path.join(lockDir, 'locked.json');
+    // Hold the lock in this caller's own process by holding a write handle
+    // to the lock file path. The `wx` open used by withFileLock will fail
+    // with EEXIST and the stale-lock branch will not free it (mtime is
+    // fresh), so the timeout fires.
+    const lockPath = path.join(lockDir, '.locked.json.lock');
+    const blocker = await fs.open(lockPath, 'w');
+    try {
+      let caught: unknown;
+      try {
+        await withFileLock(
+          target,
+          async () => 'should not run',
+          { timeoutMs: 50, staleMs: 60_000 },
+        );
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+      expect(isFsError(caught)).toBe(true);
+      const fe = caught as ReturnType<typeof isFsError> & {
+        code: string;
+        path?: string;
+        context?: Record<string, unknown>;
+      };
+      expect(fe.code).toBe('FS_ATOMIC_WRITE_FAILED');
+      expect(fe.path).toBe(target);
+      expect(fe.context?.timeoutMs).toBe(50);
+    } finally {
+      await blocker.close();
+    }
   });
 });

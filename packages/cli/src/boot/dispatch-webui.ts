@@ -250,25 +250,23 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
   // ports), not here — printing it up-front with the requested port lied
   // whenever the port auto-advanced.
   const webuiExit = new Promise<number>((resolve) => {
-    const onSigint = () => {
-      renderer.setSilent(false);
-      renderer.write('\n');
-      renderer.writeInfo(color.yellow('  Shutting down WebUI server…'));
-      resolve(0);
-    };
-    process.on('SIGINT', onSigint);
-    process.on('SIGTERM', onSigint);
+    // SIGINT/SIGTERM handlers are owned by `runWebUI` itself (via
+    // registerWebuiSignalHandlers + createWebuiShutdown, which does the
+    // real teardown chain: abort in-flight runs → unsubscribe events →
+    // close clients → unregister → close HTTP/WS → resolve). The dispatch
+    // does NOT install its own SIGINT handlers — doing so races the
+    // internal shutdown and was the source of the SIGINT bug where the
+    // outer promise resolved with 0 immediately while the WebUI server
+    // kept running until the parent process exited.
     webuiPromise
       .then(() => {
         renderer.setSilent(false);
-        process.off('SIGINT', onSigint);
-        process.off('SIGTERM', onSigint);
+        renderer.write('\n');
+        renderer.writeInfo(color.yellow('  Shutting down WebUI server…'));
         resolve(0);
       })
       .catch((err) => {
         renderer.setSilent(false);
-        process.off('SIGINT', onSigint);
-        process.off('SIGTERM', onSigint);
         console.debug(`[execution] webui error: ${err}`);
         resolve(1);
       });

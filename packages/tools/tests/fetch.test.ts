@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isFsError } from '@wrongstack/core';
 import { fetchTool, guardedFetch } from '../src/fetch.js';
 import { mkSandbox, newSignal } from './fixtures.js';
 
@@ -393,6 +394,53 @@ describe('fetchTool', () => {
         await expect(
           fetchTool.execute({ url: 'https://good.example/' }, sb.ctx, { signal: newSignal() }),
         ).rejects.toThrow(/no location header/);
+      } finally {
+        await sb.cleanup();
+      }
+    });
+
+    it('throws a structured FsError with cause preserved on a transport failure', async () => {
+      // Simulate undici's opaque "fetch failed" — a TypeError whose `.cause`
+      // carries the real transport reason (ENOTFOUND, ECONNREFUSED, etc.).
+      const transportCause = Object.assign(new Error('getaddrinfo ENOTFOUND'), {
+        code: 'ENOTFOUND',
+      });
+      const fetchFailed = new TypeError('fetch failed');
+      // Node stores cause via the constructor option; assign manually to
+      // keep this test free of TS-strict gymnastics.
+      (fetchFailed as { cause?: unknown }).cause = transportCause;
+      globalThis.fetch = vi.fn(async () => {
+        throw fetchFailed;
+      }) as never as typeof fetch;
+
+      const sb = await mkSandbox();
+      try {
+        let caught: unknown;
+        try {
+          await fetchTool.execute(
+            { url: 'https://broken.example/' },
+            sb.ctx,
+            { signal: newSignal() },
+          );
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeDefined();
+        expect(isFsError(caught)).toBe(true);
+        const fe = caught as ReturnType<typeof isFsError> & {
+          code: string;
+          path?: string;
+          cause?: unknown;
+          context?: Record<string, unknown>;
+        };
+        expect(fe.code).toBe('FS_READ_FAILED');
+        expect(fe.path).toBe('https://broken.example/');
+        expect(fe.context?.timedOut).toBe(false);
+        // The cause chain is preserved end-to-end so callers can introspect
+        // via `instanceof` / `.code` without parsing message text.
+        expect(fe.cause).toBeDefined();
+        const rootCause = (fe.cause as { cause?: unknown }).cause;
+        expect((rootCause as { code?: string })?.code).toBe('ENOTFOUND');
       } finally {
         await sb.cleanup();
       }

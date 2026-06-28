@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { Context, SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import { color, ToolValidationError } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -14,10 +14,13 @@ const WINDOWS_CMD_METACHARACTERS = /[;&|<>^$,(){}[\]!#%'"\\/`]/;
 function validateCommand(cmd: string): void {
   if (process.platform !== 'win32') return;
   if (WINDOWS_CMD_METACHARACTERS.test(cmd)) {
-    throw new Error(
-      `Command contains disallowed metacharacters for Windows: ${cmd.match(WINDOWS_CMD_METACHARACTERS)?.[0] ?? '?'}\n` +
+    throw new ToolValidationError({
+      message:
+        `Command contains disallowed metacharacters for Windows: ${cmd.match(WINDOWS_CMD_METACHARACTERS)?.[0] ?? '?'}\n` +
         'The following characters are not allowed: ; & | < > ^ $ , ( ) { } [ ] ! # % \' " \\ / ` * ?',
-    );
+      field: 'command',
+      context: { platform: 'win32', pattern: WINDOWS_CMD_METACHARACTERS.source },
+    });
   }
 }
 

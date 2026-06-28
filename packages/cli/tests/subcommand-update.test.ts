@@ -108,7 +108,7 @@ describe('updateCmd subcommand', () => {
     expect(updateMocks.spawn).not.toHaveBeenCalled();
   });
 
-  it('runs npm install -g wrongstack@latest and reports success', async () => {
+  it('runs npm install -g --ignore-scripts wrongstack@latest by default', async () => {
     updateMocks.checkForUpdate.mockResolvedValue({
       outdated: true,
       current: '1.0.0',
@@ -119,7 +119,7 @@ describe('updateCmd subcommand', () => {
     expect(code).toBe(0);
     expect(updateMocks.spawn).toHaveBeenCalledWith(
       process.platform === 'win32' ? 'npm.cmd' : 'npm',
-      ['install', '-g', 'wrongstack@latest'],
+      ['install', '-g', '--ignore-scripts', 'wrongstack@latest'],
       expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
     );
     const out = writes.join('');
@@ -127,7 +127,23 @@ describe('updateCmd subcommand', () => {
     expect(out).toContain('Updated to v1.2.3');
   });
 
-  it('runs the selected package manager when --pm is provided', async () => {
+  it('omits --ignore-scripts when --allow-scripts is passed', async () => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockReturnValue(makeFakeChild(0));
+    const code = await updateCmd(['--allow-scripts'], deps);
+    expect(code).toBe(0);
+    expect(updateMocks.spawn).toHaveBeenCalledWith(
+      process.platform === 'win32' ? 'npm.cmd' : 'npm',
+      ['install', '-g', 'wrongstack@latest'],
+      expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
+    );
+  });
+
+  it('runs the selected package manager when --pm is provided (with --ignore-scripts)', async () => {
     updateMocks.checkForUpdate.mockResolvedValue({
       outdated: true,
       current: '1.0.0',
@@ -138,10 +154,31 @@ describe('updateCmd subcommand', () => {
     expect(code).toBe(0);
     expect(updateMocks.spawn).toHaveBeenCalledWith(
       process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
-      ['add', '-g', 'wrongstack@latest'],
+      ['add', '-g', '--ignore-scripts', 'wrongstack@latest'],
       expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
     );
-    expect(writes.join('')).toContain('Running: pnpm add -g wrongstack@latest');
+    expect(writes.join('')).toContain('Running: pnpm add -g --ignore-scripts wrongstack@latest');
+  });
+
+  it.each([
+    { pm: 'yarn', argv: ['global', 'add', '--ignore-scripts', 'wrongstack@latest'] },
+    { pm: 'bun', argv: ['add', '-g', '--ignore-scripts', 'wrongstack@latest'] },
+  ] as const)('passes --ignore-scripts to $pm global add', async ({ pm, argv }) => {
+    updateMocks.checkForUpdate.mockResolvedValue({
+      outdated: true,
+      current: '1.0.0',
+      latest: '1.2.3',
+    });
+    updateMocks.spawn.mockReturnValue(makeFakeChild(0));
+    const code = await updateCmd(['--pm', pm], deps);
+    expect(code).toBe(0);
+    // Bun uses `bun` directly on every platform; the others get `.cmd` on win32.
+    const expectedExe = process.platform === 'win32' && pm !== 'bun' ? `${pm}.cmd` : pm;
+    expect(updateMocks.spawn).toHaveBeenCalledWith(
+      expectedExe,
+      argv,
+      expect.objectContaining({ cwd: '/tmp', stdio: 'pipe' }),
+    );
   });
 
   it('rejects an invalid --pm value before checking for updates', async () => {
@@ -185,9 +222,9 @@ describe('updateCmd subcommand', () => {
     // The underlying npm reason is now shown.
     expect(out).toContain('EACCES: permission denied');
     // And the alternative package managers are offered.
-    expect(out).toContain('pnpm add -g wrongstack@latest');
-    expect(out).toContain('yarn global add wrongstack@latest');
-    expect(out).toContain('bun add -g wrongstack@latest');
+    expect(out).toContain('pnpm add -g --ignore-scripts wrongstack@latest');
+    expect(out).toContain('yarn global add --ignore-scripts wrongstack@latest');
+    expect(out).toContain('bun add -g --ignore-scripts wrongstack@latest');
   });
 
   it('handles ENOENT (npm not installed)', async () => {

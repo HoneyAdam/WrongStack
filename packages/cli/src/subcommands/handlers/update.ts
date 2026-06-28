@@ -8,6 +8,8 @@ type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
 interface ParsedUpdateArgs {
   checkOnly: boolean;
   packageManager: PackageManager | undefined;
+  /** Default false — pass --ignore-scripts to the package manager. */
+  allowScripts: boolean;
   error: string | undefined;
 }
 
@@ -24,7 +26,9 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
   const parsed = parseUpdateArgs(args);
   if (parsed.error) {
     deps.renderer.write(`${parsed.error}\n`);
-    deps.renderer.write('Usage: wrongstack update [--check-only] [--pm npm|pnpm|yarn|bun]\n');
+    deps.renderer.write(
+      'Usage: wrongstack update [--check-only] [--pm npm|pnpm|yarn|bun] [--allow-scripts]\n',
+    );
     return 1;
   }
 
@@ -45,7 +49,7 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
   }
 
   const packageManager = parsed.packageManager ?? detectUpdatePackageManager();
-  const updateCommand = buildUpdateCommand(packageManager);
+  const updateCommand = buildUpdateCommand(packageManager, { allowScripts: parsed.allowScripts });
 
   deps.renderer.write(`Updating wrongstack from v${info.current} to v${info.latest}...\n`);
   deps.renderer.write(`Running: ${updateCommand.display}\n`);
@@ -89,7 +93,7 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
       if (detail) deps.renderer.write(`\n${detail}\n`);
       deps.renderer.write(
         `\nTry the matching global update command manually:\n  ${updateCommand.display}\n` +
-          otherManagerCommands(packageManager),
+          otherManagerCommands(packageManager, { allowScripts: parsed.allowScripts }),
       );
     }
     return result.code;
@@ -107,6 +111,7 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
 function parseUpdateArgs(args: string[]): ParsedUpdateArgs {
   let checkOnly = false;
   let packageManager: PackageManager | undefined;
+  let allowScripts = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -122,6 +127,7 @@ function parseUpdateArgs(args: string[]): ParsedUpdateArgs {
         return {
           checkOnly,
           packageManager,
+          allowScripts,
           error: `Invalid package manager: ${value ?? '<missing>'}`,
         };
       packageManager = pm;
@@ -130,7 +136,8 @@ function parseUpdateArgs(args: string[]): ParsedUpdateArgs {
     const pmEq = arg.match(/^--(?:pm|package-manager)=(.+)$/)?.[1];
     if (pmEq) {
       const pm = parsePackageManager(pmEq);
-      if (!pm) return { checkOnly, packageManager, error: `Invalid package manager: ${pmEq}` };
+      if (!pm)
+        return { checkOnly, packageManager, allowScripts, error: `Invalid package manager: ${pmEq}` };
       packageManager = pm;
       continue;
     }
@@ -138,9 +145,13 @@ function parseUpdateArgs(args: string[]): ParsedUpdateArgs {
     if (shorthand) {
       packageManager = shorthand as PackageManager;
     }
+    if (arg === '--allow-scripts' || arg === '--lifecycle-scripts') {
+      allowScripts = true;
+      continue;
+    }
   }
 
-  return { checkOnly, packageManager, error: undefined };
+  return { checkOnly, packageManager, allowScripts, error: undefined };
 }
 
 function parsePackageManager(value: string | undefined): PackageManager | undefined {
@@ -180,16 +191,45 @@ export function detectUpdatePackageManager(
   return 'npm';
 }
 
-function buildUpdateCommand(packageManager: PackageManager): UpdateCommand {
+function buildUpdateCommand(
+  packageManager: PackageManager,
+  opts: { allowScripts: boolean } = { allowScripts: false },
+): UpdateCommand {
+  // Default to --ignore-scripts so a compromised `wrongstack@latest` cannot
+  // run arbitrary code in the user's postinstall. Opt back in with
+  // --allow-scripts for the legacy behavior. The flag is supported on all
+  // four managers (`npm install -g`, `pnpm add -g`, `yarn global add`,
+  // `bun add -g`).
+  const ignoreScripts = !opts.allowScripts;
   switch (packageManager) {
     case 'pnpm':
-      return command(packageManager, ['add', '-g', 'wrongstack@latest']);
+      return command(
+        packageManager,
+        ignoreScripts
+          ? ['add', '-g', '--ignore-scripts', 'wrongstack@latest']
+          : ['add', '-g', 'wrongstack@latest'],
+      );
     case 'yarn':
-      return command(packageManager, ['global', 'add', 'wrongstack@latest']);
+      return command(
+        packageManager,
+        ignoreScripts
+          ? ['global', 'add', '--ignore-scripts', 'wrongstack@latest']
+          : ['global', 'add', 'wrongstack@latest'],
+      );
     case 'bun':
-      return command(packageManager, ['add', '-g', 'wrongstack@latest']);
+      return command(
+        packageManager,
+        ignoreScripts
+          ? ['add', '-g', '--ignore-scripts', 'wrongstack@latest']
+          : ['add', '-g', 'wrongstack@latest'],
+      );
     case 'npm':
-      return command(packageManager, ['install', '-g', 'wrongstack@latest']);
+      return command(
+        packageManager,
+        ignoreScripts
+          ? ['install', '-g', '--ignore-scripts', 'wrongstack@latest']
+          : ['install', '-g', 'wrongstack@latest'],
+      );
   }
 }
 
@@ -202,10 +242,13 @@ function command(pm: PackageManager, args: string[]): UpdateCommand {
   };
 }
 
-function otherManagerCommands(selected: PackageManager): string {
+function otherManagerCommands(
+  selected: PackageManager,
+  opts: { allowScripts: boolean } = { allowScripts: false },
+): string {
   const commands = (['npm', 'pnpm', 'yarn', 'bun'] as const)
     .filter((pm) => pm !== selected)
-    .map((pm) => `  ${buildUpdateCommand(pm).display}`);
+    .map((pm) => `  ${buildUpdateCommand(pm, opts).display}`);
   return commands.length > 0 ? `\nOther package managers:\n${commands.join('\n')}\n` : '';
 }
 

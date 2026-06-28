@@ -11,6 +11,7 @@ import {
   type SessionStore,
   type SessionWriter,
   type SkillLoader,
+  ToolValidationError,
   wstackGlobalRoot,
 } from '@wrongstack/core';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
@@ -221,7 +222,13 @@ export async function handleProjectsAdd(
   try {
     const resolved = path.resolve(addRoot);
     const stat = await fs.stat(resolved).catch(() => null);
-    if (!stat?.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
+    if (!stat?.isDirectory()) {
+      throw new ToolValidationError({
+        message: `Not a directory: ${resolved}`,
+        field: 'root',
+        context: { root: resolved, kind: 'projects.add' },
+      });
+    }
 
     const manifest = await loadManifest(ctx.opts.globalConfigPath);
     const existing = manifest.projects.find((p) => path.resolve(p.root) === resolved);
