@@ -40,6 +40,76 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(blocks[3]?.text).toContain('<next_steps>');
   });
 
+  it('loads system instructions from override files with project taking precedence', async () => {
+    const globalDir = path.join(tmp, 'global-instructions');
+    const projectDir = path.join(tmp, '.wrongstack', 'instructions');
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(path.join(globalDir, 'system.md'), 'GLOBAL IDENTITY');
+    await fs.writeFile(
+      path.join(globalDir, 'instructions.json'),
+      JSON.stringify({ system: { leaderAfterTask: 'GLOBAL LEADER' } }),
+    );
+    await fs.writeFile(path.join(projectDir, 'system.md'), 'PROJECT IDENTITY');
+    await fs.writeFile(path.join(projectDir, 'leader-after-task.md'), 'PROJECT LEADER');
+
+    const b = new DefaultSystemPromptBuilder({
+      todayIso: '2026-05-13',
+      instructionPaths: { globalDir, projectDir },
+    });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+
+    expect(blocks[0]?.text).toBe('PROJECT IDENTITY');
+    expect(blocks.at(-1)?.text).toBe('PROJECT LEADER');
+  });
+
+  it('applies in-memory instruction bundle overrides after file layers', async () => {
+    const globalDir = path.join(tmp, 'global-instructions');
+    await fs.mkdir(globalDir, { recursive: true });
+    await fs.writeFile(path.join(globalDir, 'system.md'), 'GLOBAL IDENTITY');
+
+    const b = new DefaultSystemPromptBuilder({
+      todayIso: '2026-05-13',
+      instructionPaths: { globalDir },
+      instructionBundle: { system: { identity: 'MEMORY IDENTITY', leaderAfterTask: 'MEMORY LEADER' } },
+    });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+
+    expect(blocks[0]?.text).toBe('MEMORY IDENTITY');
+    expect(blocks.at(-1)?.text).toBe('MEMORY LEADER');
+  });
+
+  it('loads section markdown overrides from nested files', async () => {
+    const projectDir = path.join(tmp, '.wrongstack', 'instructions');
+    const sectionDir = path.join(projectDir, 'sections', 'tool');
+    await fs.mkdir(sectionDir, { recursive: true });
+    await fs.writeFile(path.join(sectionDir, 'delegation-compact.md'), 'CUSTOM DELEGATE {{roleList}}');
+
+    const b = new DefaultSystemPromptBuilder({
+      todayIso: '2026-05-13',
+      tokenSavingMode: 'medium',
+      instructionPaths: { projectDir },
+    });
+    const blocks = await b.build({
+      cwd: tmp,
+      projectRoot: tmp,
+      tools: [
+        {
+          name: 'delegate',
+          description: 'delegate',
+          permission: 'auto',
+          mutating: false,
+          inputSchema: { type: 'object', properties: { role: { enum: ['coder'] } } } as never,
+          async execute() {
+            return '';
+          },
+        },
+      ],
+    });
+
+    expect(blocks.map((block) => block.text).join('\n')).toContain('CUSTOM DELEGATE coder');
+  });
+
   it('renders tool usage with usageHint or description fallback', async () => {
     const b = new DefaultSystemPromptBuilder();
     const blocks = await b.build({

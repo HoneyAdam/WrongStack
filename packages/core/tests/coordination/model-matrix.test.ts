@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AGENTS_BY_PHASE, AGENT_CATALOG } from '../../src/coordination/agents/index.js';
+import { agentPrompt } from '../../src/coordination/agents/agent-prompts.js';
+import { TECHSTACK_AGENTS } from '../../src/coordination/agents/phase3-techstack.js';
 import {
   MATRIX_PHASE_KEYS,
   isValidMatrixKey,
@@ -8,6 +10,9 @@ import {
   resolveModelMatrix,
 } from '../../src/coordination/model-matrix.js';
 import type { ModelMatrixEntry } from '../../src/types/config.js';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 // Pick a real role + its phase from the catalog so the test stays valid as
 // the catalog evolves (no hardcoded role names to drift out of sync).
@@ -76,5 +81,40 @@ describe('matrixKeyKind / isValidMatrixKey', () => {
       expect(isValidMatrixKey(p)).toBe(true);
     }
     expect(isValidMatrixKey('nope')).toBe(false);
+  });
+});
+
+describe('agent catalog prompts', () => {
+  it('loads every catalog prompt from file-backed instructions', () => {
+    for (const [role, def] of Object.entries(AGENT_CATALOG)) {
+      expect(def.config.prompt?.trim(), role).toBeTruthy();
+      expect(def.config.prompt, role).toContain('You are');
+    }
+  });
+
+  it('keeps the standalone tech-stack watchdog prompt distinct from the validator prompt', () => {
+    const watchdog = TECHSTACK_AGENTS[0]?.config.prompt ?? '';
+    const validator = AGENT_CATALOG['tech-stack']?.config.prompt ?? '';
+
+    expect(watchdog).toContain('watch dependency manifests');
+    expect(validator).toContain('single-shot validation agent');
+    expect(watchdog).not.toBe(validator);
+  });
+
+  it('allows agent prompt overrides through WRONGSTACK_AGENT_INSTRUCTIONS_DIR', async () => {
+    const old = process.env['WRONGSTACK_AGENT_INSTRUCTIONS_DIR'];
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-agent-prompts-'));
+    try {
+      await fs.writeFile(path.join(tmp, 'explore.md'), 'OVERRIDE EXPLORE');
+      process.env['WRONGSTACK_AGENT_INSTRUCTIONS_DIR'] = tmp;
+      expect(agentPrompt('explore')).toBe('OVERRIDE EXPLORE');
+    } finally {
+      if (old === undefined) {
+        delete process.env['WRONGSTACK_AGENT_INSTRUCTIONS_DIR'];
+      } else {
+        process.env['WRONGSTACK_AGENT_INSTRUCTIONS_DIR'] = old;
+      }
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 });

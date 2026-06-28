@@ -160,7 +160,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       '  /mailbox online               Only agents with a live heartbeat.',
       '  /mailbox send <id> <message>  Direct message an agent (use ids from `agents`).',
       '  /mailbox broadcast <message>  Message every agent on the project.',
-      '  /mailbox history [n]          Last n messages on the project (default 20).',
+      '  /mailbox history [n] [from <id>] [to <id>] [grep <text>]  Last n messages, optionally filtered.',
       '  /mailbox clear                 Delete all messages from the mailbox.',
       '  /mailbox purge                Remove stale/orphaned messages (completed >1d, incomplete >7d).',
       '',
@@ -231,14 +231,59 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       if (sub === 'history') {
-        const n = Number.parseInt(parts[1] ?? '20', 10) || 20;
-        const messages = await mb.query({ limit: n });
-        if (messages.length === 0) return { message: color.dim('No messages yet.') };
-        const w = messageWidths(messages, self.id);
+        // /mailbox history [n] [from <id>] [to <id>] [grep <text...>]
+        const rest = parts.slice(1);
+        let n = 20;
+        let fromFilter: string | undefined;
+        let toFilter: string | undefined;
+        const grepTerms: string[] = [];
+        for (let i = 0; i < rest.length; i++) {
+          const tok = rest[i] ?? '';
+          const low = tok.toLowerCase();
+          if (/^\d+$/.test(tok)) {
+            n = Number.parseInt(tok, 10) || 20;
+          } else if ((low === 'from' || low === '--from') && rest[i + 1]) {
+            fromFilter = (rest[++i] ?? '').toLowerCase();
+          } else if ((low === 'to' || low === '--to') && rest[i + 1]) {
+            toFilter = (rest[++i] ?? '').toLowerCase();
+          } else if (low === 'grep' || low === '--grep') {
+            grepTerms.push(...rest.slice(i + 1));
+            break;
+          } else {
+            grepTerms.push(tok);
+          }
+        }
+        const hasFilter = Boolean(fromFilter || toFilter || grepTerms.length);
+        // Over-fetch when filtering so the post-filter slice still yields n.
+        const messages = await mb.query({ limit: hasFilter ? Math.max(n, 500) : n });
+        const grep = grepTerms.join(' ').toLowerCase();
+        const filtered = messages.filter((m) => {
+          if (fromFilter && !m.from.toLowerCase().includes(fromFilter)) return false;
+          if (toFilter && !m.to.toLowerCase().includes(toFilter)) return false;
+          if (grep) {
+            const hay = `${m.subject ?? ''} ${m.body ?? ''}`.toLowerCase();
+            if (!hay.includes(grep)) return false;
+          }
+          return true;
+        });
+        const shown = filtered.slice(0, n);
+        if (shown.length === 0) {
+          return {
+            message: color.dim(hasFilter ? 'No messages match the filter.' : 'No messages yet.'),
+          };
+        }
+        const w = messageWidths(shown, self.id);
+        const filterNote = [
+          fromFilter && `from~${fromFilter}`,
+          toFilter && `to~${toFilter}`,
+          grep && `grep "${grep}"`,
+        ]
+          .filter(Boolean)
+          .join(', ');
         const lines = [
-          color.bold(`Last ${messages.length} message(s)`),
+          color.bold(`Last ${shown.length} message(s)${filterNote ? ` (${filterNote})` : ''}`),
           // query returns newest-first; show oldest-first for reading flow.
-          ...messages.reverse().map((m) => fmtMessage(m, self.id, w.from, w.to)),
+          ...shown.reverse().map((m) => fmtMessage(m, self.id, w.from, w.to)),
         ];
         return { message: lines.join('\n') };
       }

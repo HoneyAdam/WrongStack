@@ -1,0 +1,201 @@
+import { statSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export interface SystemInstructionBundle {
+  identity?: string | undefined;
+  leaderAfterTask?: string | undefined;
+}
+
+export interface InstructionBundle {
+  version?: number | undefined;
+  system?: SystemInstructionBundle | undefined;
+  sections?: Record<string, string> | undefined;
+}
+
+export interface InstructionBundlePaths {
+  /** Bundled instruction directory. Defaults to `<@wrongstack/core>/instructions`. */
+  bundledDir?: string | undefined;
+  /** User-global override directory, e.g. `~/.wrongstack/instructions`. */
+  globalDir?: string | undefined;
+  /** Project override directory, e.g. `<project>/.wrongstack/instructions`. */
+  projectDir?: string | undefined;
+  /** Extra override JSON files applied after projectDir, in order. */
+  files?: readonly string[] | undefined;
+}
+
+export async function loadInstructionBundle(
+  paths: InstructionBundlePaths | undefined,
+): Promise<InstructionBundle> {
+  let bundle: InstructionBundle = {};
+  const dirs = [
+    paths?.bundledDir ?? defaultBundledInstructionDir(),
+    paths?.globalDir,
+    paths?.projectDir,
+  ].filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+
+  for (const dir of dirs) {
+    bundle = mergeInstructionBundle(bundle, await readInstructionDir(dir));
+  }
+  for (const file of paths?.files ?? []) {
+    bundle = mergeInstructionBundle(bundle, await readInstructionJson(file));
+  }
+  return bundle;
+}
+
+export function mergeInstructionBundle(
+  base: InstructionBundle,
+  override: InstructionBundle,
+): InstructionBundle {
+  return {
+    ...base,
+    ...definedPick(override, ['version']),
+    system: {
+      ...(base.system ?? {}),
+      ...(override.system ?? {}),
+    },
+    sections: {
+      ...(base.sections ?? {}),
+      ...(override.sections ?? {}),
+    },
+  };
+}
+
+async function readInstructionDir(dir: string): Promise<InstructionBundle> {
+  const [json, identity, leaderAfterTask, sections] = await Promise.all([
+    readInstructionJson(path.join(dir, 'instructions.json')),
+    readOptionalText(path.join(dir, 'system.md')),
+    readOptionalText(path.join(dir, 'leader-after-task.md')),
+    readSections(path.join(dir, 'sections')),
+  ]);
+  const fromMarkdown: InstructionBundle = {
+    system: {
+      ...(identity !== undefined ? { identity } : {}),
+      ...(leaderAfterTask !== undefined ? { leaderAfterTask } : {}),
+    },
+    sections,
+  };
+  return mergeInstructionBundle(json, fromMarkdown);
+}
+
+async function readSections(root: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  await readSectionsInto(root, root, out);
+  return out;
+}
+
+async function readSectionsInto(
+  root: string,
+  dir: string,
+  out: Record<string, string>,
+): Promise<void> {
+  let entries: Array<import('node:fs').Dirent>;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries.map(async (entry) => {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await readSectionsInto(root, file, out);
+        return;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.md')) return;
+      const text = await readOptionalText(file);
+      if (text === undefined) return;
+      const rel = path.relative(root, file).replace(/\\/g, '/').replace(/\.md$/i, '');
+      const key = rel.split('/').join('.').replace(/-/g, '.');
+      out[key] = text;
+    }),
+  );
+}
+
+async function readInstructionJson(file: string): Promise<InstructionBundle> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(file, 'utf8');
+  } catch {
+    return {};
+  }
+  try {
+    return normalizeInstructionBundle(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+function normalizeInstructionBundle(value: unknown): InstructionBundle {
+  if (!value || typeof value !== 'object') return {};
+  const input = value as {
+    version?: unknown;
+    system?: unknown;
+    sections?: unknown;
+  };
+  const system =
+    input.system && typeof input.system === 'object'
+      ? (input.system as { identity?: unknown; leaderAfterTask?: unknown })
+      : undefined;
+  const sections =
+    input.sections && typeof input.sections === 'object'
+      ? Object.fromEntries(
+          Object.entries(input.sections as Record<string, unknown>).filter(
+            (entry): entry is [string, string] => typeof entry[1] === 'string',
+          ),
+        )
+      : undefined;
+  return {
+    ...(typeof input.version === 'number' ? { version: input.version } : {}),
+    ...(system
+      ? {
+          system: {
+            ...(typeof system.identity === 'string' ? { identity: system.identity } : {}),
+            ...(typeof system.leaderAfterTask === 'string'
+              ? { leaderAfterTask: system.leaderAfterTask }
+              : {}),
+          },
+        }
+      : {}),
+    ...(sections ? { sections } : {}),
+  };
+}
+
+async function readOptionalText(file: string): Promise<string | undefined> {
+  try {
+    const text = await fs.readFile(file, 'utf8');
+    return text.trimEnd();
+  } catch {
+    return undefined;
+  }
+}
+
+function defaultBundledInstructionDir(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return firstExistingDirSync([
+    path.resolve(here, '../../instructions'),
+    path.resolve(here, '../instructions'),
+    path.resolve(here, 'instructions'),
+  ]);
+}
+
+function definedPick<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key of keys) {
+    if (obj[key] !== undefined) out[key] = obj[key];
+  }
+  return out;
+}
+
+function firstExistingDirSync(candidates: readonly string[]): string {
+  for (const candidate of candidates) {
+    try {
+      const stat = statSync(candidate);
+      if (stat.isDirectory()) return candidate;
+    } catch {
+      // try next candidate
+    }
+  }
+  return candidates[0] ?? '';
+}

@@ -41,6 +41,7 @@ function initial() {
     enhance: null,
     enhanceEnabled: true,
     enhanceBusy: false,
+    sendModePicker: null,
     contextChipVersion: 0,
     fleet: {},
     fleetCost: 0,
@@ -1385,5 +1386,40 @@ describe('autoPhase board reducer', () => {
       s as never as { autoPhase: { phases: Record<string, { activeTasks?: unknown[] }> } }
     ).autoPhase.phases.p1.activeTasks;
     expect(active).toEqual([]);
+  });
+});
+
+describe('sendModePicker reducer', () => {
+  const openInfo = {
+    selected: 0,
+    text: 'fix the test',
+    displayText: 'fix the test',
+    blocks: [],
+    resolve: () => {},
+  };
+
+  it('open stores the picker info; close clears it', () => {
+    let s = reducer(initial() as never, { type: 'sendModePickerOpen', info: openInfo } as never);
+    expect((s as never as { sendModePicker: unknown }).sendModePicker).not.toBeNull();
+    s = reducer(s, { type: 'sendModePickerClose' } as never);
+    expect((s as never as { sendModePicker: unknown }).sendModePicker).toBeNull();
+  });
+
+  it('move wraps the selection across the 3 options', () => {
+    let s = reducer(initial() as never, { type: 'sendModePickerOpen', info: openInfo } as never);
+    const sel = () => (s as never as { sendModePicker: { selected: number } }).sendModePicker.selected;
+    s = reducer(s, { type: 'sendModePickerMove', delta: 1 } as never);
+    expect(sel()).toBe(1);
+    s = reducer(s, { type: 'sendModePickerMove', delta: 1 } as never);
+    expect(sel()).toBe(2);
+    s = reducer(s, { type: 'sendModePickerMove', delta: 1 } as never);
+    expect(sel()).toBe(0);
+    s = reducer(s, { type: 'sendModePickerMove', delta: -1 } as never);
+    expect(sel()).toBe(2);
+  });
+
+  it('move is a no-op when no picker is open', () => {
+    const s = reducer(initial() as never, { type: 'sendModePickerMove', delta: 1 } as never);
+    expect((s as never as { sendModePicker: unknown }).sendModePicker).toBeNull();
   });
 });

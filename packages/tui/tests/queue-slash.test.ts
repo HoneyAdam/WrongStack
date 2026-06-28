@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { QueueItem } from '../src/app.js';
 import { createQueueSlashCommand, handleQueueCommand } from '../src/queue-slash.js';
 
-function makeDeps(initial: QueueItem[] = []) {
+function makeDeps(initial: QueueItem[] = [], pickerInit = true) {
   let queue = [...initial];
   const cleared: number[] = [];
   const deleted: number[][] = [];
+  let picker = pickerInit;
   return {
     deps: {
       getQueue: () => queue,
@@ -18,8 +19,12 @@ function makeDeps(initial: QueueItem[] = []) {
         const drop = new Set(positions.map((p) => p - 1));
         queue = queue.filter((_, i) => !drop.has(i));
       },
+      getPickerEnabled: () => picker,
+      setPickerEnabled: (enabled: boolean) => {
+        picker = enabled;
+      },
     },
-    snapshot: () => ({ queue: [...queue], cleared, deleted }),
+    snapshot: () => ({ queue: [...queue], cleared, deleted, picker }),
   };
 }
 
@@ -100,6 +105,35 @@ describe('handleQueueCommand', () => {
     const out = handleQueueCommand('weird', deps);
     expect(out).toContain('Unknown subcommand');
     expect(out).toContain('Usage:');
+  });
+
+  it('picker status reports current state', () => {
+    const { deps } = makeDeps([], true);
+    expect(handleQueueCommand('picker', deps)).toContain('on');
+    expect(handleQueueCommand('picker status', deps)).toContain('on');
+  });
+
+  it('picker off / on flips and persists via setPickerEnabled', () => {
+    const { deps, snapshot } = makeDeps([], true);
+    expect(handleQueueCommand('picker off', deps)).toContain('off');
+    expect(snapshot().picker).toBe(false);
+    expect(handleQueueCommand('picker status', deps)).toContain('off');
+    expect(handleQueueCommand('picker on', deps)).toContain('on');
+    expect(snapshot().picker).toBe(true);
+  });
+
+  it('picker with a bad arg returns usage', () => {
+    const { deps } = makeDeps();
+    expect(handleQueueCommand('picker maybe', deps)).toMatch(/Usage: \/queue picker/);
+  });
+
+  it('picker is unavailable when deps are missing', () => {
+    const out = handleQueueCommand('picker', {
+      getQueue: () => [],
+      clear: () => {},
+      deleteAt: () => {},
+    });
+    expect(out).toContain('unavailable');
   });
 });
 

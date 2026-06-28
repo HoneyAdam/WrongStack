@@ -114,7 +114,14 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
   if (opts.systemPrompt) {
     container.bind(
       TOKENS.SystemPromptBuilder,
-      () => new DefaultSystemPromptBuilder(opts.systemPrompt as DefaultSystemPromptBuilderOptions),
+      () =>
+        new DefaultSystemPromptBuilder({
+          instructionPaths: {
+            globalDir: wpaths.globalInstructions,
+            projectDir: wpaths.inProjectInstructions,
+          },
+          ...(opts.systemPrompt as DefaultSystemPromptBuilderOptions),
+        }),
     );
   }
 

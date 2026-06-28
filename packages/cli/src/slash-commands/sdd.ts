@@ -22,7 +22,12 @@ import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 import { findSpec, gatherProjectContext } from './sdd/project-context.js';
 import { getSessionState, sddState } from './sdd/state.js';
-import { advanceToNextTask, formatElapsed, getTaskProgress } from './sdd/task-manager.js';
+import {
+  advanceToNextTask,
+  formatElapsed,
+  getTaskProgress,
+  matchTaskNode,
+} from './sdd/task-manager.js';
 
 export type { TaskProgress } from '@wrongstack/core';
 export {
@@ -582,35 +587,12 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             return { message: 'Usage: /sdd done <task title or number>' };
           }
 
-          // Try to match by number first
           const nodes = doneTracker.getAllNodes({ status: ['pending', 'in_progress'] });
-          const num = Number(restJoined);
-          let matched = false;
-
-          if (!Number.isNaN(num) && num >= 1 && num <= nodes.length) {
-            const node = nodes[num - 1];
-            if (node) {
-              doneTracker.updateNodeStatus(node.id, 'completed');
-              matched = true;
-            }
-          }
-
-          // Try fuzzy title match
-          if (!matched) {
-            const match = nodes.find(
-              (n) =>
-                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-                restJoined.toLowerCase().includes(n.title.toLowerCase()),
-            );
-            if (match) {
-              doneTracker.updateNodeStatus(match.id, 'completed');
-              matched = true;
-            }
-          }
-
-          if (!matched) {
+          const match = matchTaskNode(nodes, restJoined);
+          if (!match) {
             return { message: `No pending task matching "${restJoined}".` };
           }
+          doneTracker.updateNodeStatus(match.id, 'completed');
 
           const remaining = doneTracker.getProgress();
           return {
@@ -624,29 +606,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           if (!restJoined) return { message: 'Usage: /sdd skip <task title or number>' };
 
           const nodes = skipTracker.getAllNodes({ status: ['pending', 'in_progress', 'blocked'] });
-          const num = Number(restJoined);
-          let matched = false;
-
-          if (!Number.isNaN(num) && num >= 1 && num <= nodes.length) {
-            const node = nodes[num - 1];
-            if (node) {
-              skipTracker.updateNodeStatus(node.id, 'pending');
-              matched = true;
-            }
-          }
-          if (!matched) {
-            const match = nodes.find(
-              (n) =>
-                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-                restJoined.toLowerCase().includes(n.title.toLowerCase()),
-            );
-            if (match) {
-              skipTracker.updateNodeStatus(match.id, 'pending');
-              matched = true;
-            }
-          }
-
-          if (!matched) return { message: `No task matching "${restJoined}".` };
+          const match = matchTaskNode(nodes, restJoined);
+          if (!match) return { message: `No task matching "${restJoined}".` };
+          skipTracker.updateNodeStatus(match.id, 'pending');
 
           const progress = skipTracker.getProgress();
           return {
@@ -660,29 +622,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           if (!restJoined) return { message: 'Usage: /sdd fail <task title or number>' };
 
           const nodes = failTracker.getAllNodes({ status: ['pending', 'in_progress'] });
-          const num = Number(restJoined);
-          let matched = false;
-
-          if (!Number.isNaN(num) && num >= 1 && num <= nodes.length) {
-            const node = nodes[num - 1];
-            if (node) {
-              failTracker.updateNodeStatus(node.id, 'failed');
-              matched = true;
-            }
-          }
-          if (!matched) {
-            const match = nodes.find(
-              (n) =>
-                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-                restJoined.toLowerCase().includes(n.title.toLowerCase()),
-            );
-            if (match) {
-              failTracker.updateNodeStatus(match.id, 'failed');
-              matched = true;
-            }
-          }
-
-          if (!matched) return { message: `No pending/in-progress task matching "${restJoined}".` };
+          const match = matchTaskNode(nodes, restJoined);
+          if (!match) return { message: `No pending/in-progress task matching "${restJoined}".` };
+          failTracker.updateNodeStatus(match.id, 'failed');
 
           const progress = failTracker.getProgress();
           return {
@@ -695,12 +637,8 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           if (!reviewTracker) return { message: 'No tasks to review.' };
           if (!restJoined) return { message: 'Usage: /sdd review <task title or number>' };
 
-          const nodes = reviewTracker.getAllNodes();
-          const num = Number(restJoined);
-          let matched = false;
-
-          // Match by number (within sorted visible list)
-          const sorted = [...nodes].sort((a, b) => {
+          // Number matches the same sorted order shown by /sdd tasks.
+          const sorted = [...reviewTracker.getAllNodes()].sort((a, b) => {
             const order: Record<string, number> = {
               in_progress: 0,
               pending: 1,
@@ -711,27 +649,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
             };
             return (order[a.status] ?? 6) - (order[b.status] ?? 6);
           });
-
-          if (!Number.isNaN(num) && num >= 1 && num <= sorted.length) {
-            const node = sorted[num - 1];
-            if (node) {
-              reviewTracker.updateNodeStatus(node.id, 'review');
-              matched = true;
-            }
-          }
-          if (!matched) {
-            const match = nodes.find(
-              (n) =>
-                n.title.toLowerCase().includes(restJoined.toLowerCase()) ||
-                restJoined.toLowerCase().includes(n.title.toLowerCase()),
-            );
-            if (match) {
-              reviewTracker.updateNodeStatus(match.id, 'review');
-              matched = true;
-            }
-          }
-
-          if (!matched) return { message: `No task matching "${restJoined}".` };
+          const match = matchTaskNode(sorted, restJoined);
+          if (!match) return { message: `No task matching "${restJoined}".` };
+          reviewTracker.updateNodeStatus(match.id, 'review');
 
           const progress = reviewTracker.getProgress();
           return {

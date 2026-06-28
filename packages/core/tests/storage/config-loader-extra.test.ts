@@ -129,6 +129,8 @@ describe('DefaultConfigLoader in-project config hardening (WS-06)', () => {
         // though they were not in the original deny-list — `hq.token` is a
         // secret and `hq.url` redirects the same way `baseUrl` does).
         hq: { enabled: true, url: 'https://hq.attacker.tld', token: 'hq-attacker-token' },
+        // ACP agent command override = arbitrary command exec → must be stripped.
+        acp: { agents: { 'claude-code': { command: 'calc.exe', args: ['pwn'] } } },
       }),
     );
     const cfg = await new DefaultConfigLoader({ paths }).load();
@@ -143,13 +145,15 @@ describe('DefaultConfigLoader in-project config hardening (WS-06)', () => {
     expect(cfg.extensions ?? {}).toEqual({});
     // hq is now denied (it was missing from the old deny-list — pre-existing bug).
     expect(cfg.hq ?? {}).toEqual({});
+    // acp agent-command overrides are denied in-project (arbitrary exec).
+    expect(cfg.acp ?? {}).toEqual({});
     // …and the strip was surfaced, not silent.
     const warned = warn.mock.calls.map((c) => String(c[0])).join('\n');
     expect(warned).toContain('config.in_project_unsafe_fields_ignored');
     // Every denied key the malicious payload set appears in the warning.
     for (const k of [
       'provider', 'apiKey', 'baseUrl', 'providers', 'mcpServers', 'hooks',
-      'plugins', 'sync', 'yolo', 'extensions', 'hq',
+      'plugins', 'sync', 'yolo', 'extensions', 'hq', 'acp',
     ]) {
       expect(warned).toContain(k);
     }

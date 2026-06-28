@@ -14,6 +14,10 @@
 // recursive splitting can't run away.
 
 import type { TaskNode, TaskPriority, TaskType } from '../types/task-graph.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 import type { SddSubtaskSpec } from './sdd-parallel-run.js';
 
 const TASK_TYPES = new Set<TaskType>(['feature', 'bugfix', 'refactor', 'docs', 'test', 'chore']);
@@ -44,21 +48,13 @@ function extractJsonArray(text: string): string | null {
 }
 
 function buildPrompt(task: TaskNode, error: string, min: number, max: number): string {
-  return [
-    'You are an engineering lead triaging a software task that FAILED after every',
-    'automated retry was exhausted. Break it into smaller, independently-executable',
-    `sub-tasks (between ${min} and ${max}) so separate workers can each tackle a`,
-    'narrower slice. Each sub-task must be strictly smaller than the parent — never',
-    'restate the whole task as one sub-task.',
-    '',
-    `Parent task title: ${task.title}`,
-    `Parent description: ${task.description}`,
-    `Failure / error: ${error || '(none recorded)'}`,
-    '',
-    'Respond with ONLY a JSON array (no prose) of objects with this shape:',
-    '[{"title": "...", "description": "...", "type": "feature|bugfix|refactor|docs|test|chore", "priority": "critical|high|medium|low"}]',
-    '`type` and `priority` are optional (they default to the parent\'s).',
-  ].join('\n');
+  return renderInstructionTemplate(readBundledInstructionText('sdd/decompose-task.md'), {
+    minSubtasks: String(min),
+    maxSubtasks: String(max),
+    title: task.title,
+    description: task.description,
+    error: error || '(none recorded)',
+  });
 }
 
 /**

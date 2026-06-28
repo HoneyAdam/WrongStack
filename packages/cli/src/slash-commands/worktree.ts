@@ -20,8 +20,9 @@ export function buildWorktreeCommand(opts: SlashCommandContext): SlashCommand {
       '  prune            Remove stale worktree administrative entries.',
       '  clean            Remove all wstack-managed worktrees and branches.',
       '',
-      'AutoPhase allocates one worktree per phase under .wrongstack/worktrees/',
-      'so parallelizable phases run isolated, then merge back sequentially.',
+      'merge and clean are destructive — they prompt for confirmation. Pass',
+      '--yes (-y) to skip the prompt. AutoPhase allocates one worktree per phase',
+      'under .wrongstack/worktrees/ so parallelizable phases run isolated.',
     ].join('\n'),
 
     async run(args) {
@@ -29,20 +30,42 @@ export function buildWorktreeCommand(opts: SlashCommandContext): SlashCommand {
         return { message: '⚠ No worktree manager active in this session.' };
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
-      const sub = (parts[0] ?? 'list').toLowerCase();
+      const skipConfirm = parts.includes('--yes') || parts.includes('-y');
+      const positional = parts.filter((p) => p !== '--yes' && p !== '-y');
+      const sub = (positional[0] ?? 'list').toLowerCase();
+
+      // Confirm destructive actions when an interactive prompt is available.
+      // confirm() resolves to its default on non-TTY/EOF, so non-interactive
+      // callers (and tests) proceed without hanging.
+      const confirmDestructive = async (question: string): Promise<boolean> => {
+        if (skipConfirm || !opts.confirm) return true;
+        const answer = await opts.confirm(question, false);
+        return answer === true;
+      };
 
       switch (sub) {
         case 'list':
           return { message: await opts.onWorktree('list') };
         case 'merge': {
-          const branch = parts[1];
-          if (!branch) return { message: 'Usage: /worktree merge <branch>' };
+          const branch = positional[1];
+          if (!branch) return { message: 'Usage: /worktree merge <branch> [--yes]' };
+          if (!(await confirmDestructive(`Squash-merge "${branch}" into the current branch?`))) {
+            return { message: 'Merge cancelled.' };
+          }
           return { message: await opts.onWorktree('merge', branch) };
         }
         case 'prune':
           return { message: await opts.onWorktree('prune') };
-        case 'clean':
+        case 'clean': {
+          if (
+            !(await confirmDestructive(
+              'Remove ALL wstack-managed worktrees and their branches?',
+            ))
+          ) {
+            return { message: 'Clean cancelled.' };
+          }
           return { message: await opts.onWorktree('clean') };
+        }
         default:
           return {
             message: `Unknown subcommand "${sub}". Valid: list, merge <branch>, prune, clean.`,

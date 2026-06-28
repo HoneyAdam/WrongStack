@@ -99,12 +99,14 @@
     "./package.json": "./package.json",
     "./skills/*": "./skills/*",
     "./design-kits/*": "./design-kits/*",
+    "./instructions/*": "./instructions/*",
     "./data/*": "./data/*"
   },
   "files": [
     "dist",
     "skills",
     "design-kits",
+    "instructions",
     "data"
   ],
   "wrongstackApiVersion": "0.1.10",

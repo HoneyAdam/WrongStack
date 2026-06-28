@@ -48,6 +48,7 @@ export function buildFleetCommand(opts: SlashCommandContext): SlashCommand {
       '  /fleet usage        Token and cost breakdown across the fleet',
       '  /fleet concurrency [n]  Show or set the concurrent-subagent ceiling',
       '  /fleet journal      Show recent journal entries from /goal journal',
+      '  /fleet retry [taskId]  Re-run interrupted task(s) (director mode only)',
       '',
       'In the TUI, press Ctrl+F to open the graphical fleet monitor.',
       'Works during /autonomy parallel mode and standalone director sessions.',
@@ -379,7 +380,11 @@ async function handleDispatch(
   opts: SlashCommandContext,
   subargs: string[],
 ): Promise<{ message: string }> {
-  const task = subargs.join(' ').trim();
+  const skipConfirm = subargs.includes('--yes') || subargs.includes('-y');
+  const task = subargs
+    .filter((t) => t !== '--yes' && t !== '-y')
+    .join(' ')
+    .trim();
   if (!task) {
     const msg = `Usage: /fleet dispatch <task description> — routes the task to the best agent.`;
     opts.renderer.writeWarning(msg);
@@ -401,6 +406,21 @@ async function handleDispatch(
     lines.push(`  ${color.dim('alternatives:')} ${alts}`);
   }
   if (opts.onFleetSpawn) {
+    // Low-confidence routing is easy to get wrong — confirm before spawning
+    // unless the user passed --yes or there's no interactive prompt available.
+    const LOW_CONFIDENCE = 60;
+    if (pct < LOW_CONFIDENCE && opts.confirm && !skipConfirm) {
+      opts.renderer.write(lines.join('\n'));
+      const ok = await opts.confirm(
+        `Low confidence (${pct}%). Spawn ${decision.role} anyway?`,
+        false,
+      );
+      if (ok !== true) {
+        const msg = `${color.dim('Dispatch cancelled — re-run with a clearer task or /fleet spawn <role> to choose.')}`;
+        opts.renderer.write(msg);
+        return { message: `${lines.join('\n')}\n${msg}` };
+      }
+    }
     try {
       const id = await opts.onFleetSpawn(decision.role);
       lines.push(`  ${color.green('✓ spawned')} ${color.bold(decision.role)} as ${color.dim(id)}`);
@@ -446,6 +466,7 @@ function handleFleetHelp(opts: SlashCommandContext): { message: string } {
     `  ${color.dim('/fleet usage')}        Token and cost breakdown across the fleet`,
     `  ${color.dim('/fleet concurrency [n]')}  Show or set the concurrent-subagent ceiling`,
     `  ${color.dim('/fleet journal')}      Show recent journal entries from /goal journal`,
+    `  ${color.dim('/fleet retry [taskId]')}  Re-run interrupted task(s) (director mode only)`,
   ].join('\n');
   opts.renderer.write(msg);
   return { message: msg };

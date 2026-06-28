@@ -54,14 +54,33 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
       'Chimera subagent with full tool access (read, grep, lint).',
       '',
       'Usage:',
-      '  /review              Review all changed files',
+      '  /review                    Review all changed files (up to 30)',
+      '  /review --limit <n>        Raise/lower the file cap (1–200)',
+      '  /review --files <substr>   Only review changed files whose path contains <substr>',
     ].join('\n'),
-    async run(_args: string, ctx: Context) {
+    async run(args: string, ctx: Context) {
       const cwd = ctx.cwd;
+
+      // Parse flags: --limit <n> overrides the 30-file cap; --files <substr>
+      // filters the changed set by path substring.
+      const tokens = (args ?? '').trim().split(/\s+/).filter(Boolean);
+      let limit = 30;
+      let fileFilter: string | undefined;
+      for (let i = 0; i < tokens.length; i++) {
+        const tok = (tokens[i] ?? '').toLowerCase();
+        if ((tok === '--limit' || tok === '-n') && tokens[i + 1]) {
+          const n = Number.parseInt(tokens[++i] ?? '', 10);
+          if (Number.isFinite(n) && n > 0) limit = Math.min(200, n);
+        } else if ((tok === '--files' || tok === '--file') && tokens[i + 1]) {
+          fileFilter = (tokens[++i] ?? '').toLowerCase();
+        }
+      }
+
       const allChanged = await getChangedFiles(cwd);
       const existing: Array<{ path: string; status: 'added' | 'modified' }> = [];
       for (const f of allChanged) {
         if (f.path.startsWith('.wrongstack/')) continue;
+        if (fileFilter && !f.path.toLowerCase().includes(fileFilter)) continue;
         try {
           await fsp.access(path.join(cwd, f.path));
           existing.push(f);
@@ -71,16 +90,21 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       if (existing.length === 0) {
-        return { message: 'No changed files to review.' };
+        return {
+          message: fileFilter
+            ? `No changed files matching "${fileFilter}" to review.`
+            : 'No changed files to review.',
+        };
       }
 
+      const truncated = existing.length > limit;
       // Read files and emit chimera.review_needed event
       const filesWithContent: Array<{
         path: string;
         status: 'added' | 'modified';
         content: string;
       }> = [];
-      for (const f of existing.slice(0, 30)) {
+      for (const f of existing.slice(0, limit)) {
         try {
           const content = await fsp.readFile(path.join(cwd, f.path), 'utf8');
           filesWithContent.push({ ...f, content });
@@ -95,7 +119,7 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
           enabled: true,
           provider: ctx.provider.id,
           model: ctx.model,
-          maxFiles: 30,
+          maxFiles: limit,
           maxTokens: 4096,
         },
         cwd,
@@ -104,8 +128,11 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
 
       opts.events.emitCustom('chimera.review_needed', payload);
 
+      const note = truncated
+        ? `\n${existing.length - limit} more changed file(s) were not included — raise the cap with /review --limit ${existing.length}.`
+        : '';
       return {
-        message: `🦂 Chimera review triggered for ${filesWithContent.length} file(s).\nThe review report will appear in chat history shortly.`,
+        message: `🦂 Chimera review triggered for ${filesWithContent.length} file(s).\nThe review report will appear in chat history shortly.${note}`,
       };
     },
   };

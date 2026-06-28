@@ -6,6 +6,10 @@ import { PromptUsageStore } from '../storage/prompt-usage-store.js';
 import type { PromptEntry, PromptLoader, PromptVariable } from '../types/prompt.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import { expectDefined } from '../utils/expect-defined.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand, Context } from '../index.js';
 
@@ -200,16 +204,10 @@ function buildPromptsCommand(
 
           const enhanced = await prov.complete(
             ctx.model,
-            [
-              '[SYSTEM INSTRUCTIONS]',
-              'You are a prompt engineering assistant. Improve the following prompt by integrating the additional instructions seamlessly. Keep the same tone and format. Return only the improved prompt.',
-              '',
-              `EXISTING PROMPT:\n${exact.content}`,
-              '',
-              `ADDITIONAL INSTRUCTIONS:\n${parsed.content}`,
-              '',
-              'Respond with ONLY the improved prompt, no commentary.',
-            ].join('\n'),
+            renderInstructionTemplate(readBundledInstructionText('llm/prompt-extend.md'), {
+              existingPrompt: exact.content,
+              additionalInstructions: parsed.content,
+            }),
           );
 
           exact.content = enhanced.trim();

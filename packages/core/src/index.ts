@@ -1,6 +1,10 @@
 export * from './kernel/index.js';
 export * from './types/index.js';
 export * from './utils/index.js';
+export {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from './utils/instruction-file.js';
 export * from './defaults/index.js';
 export * from './skills/index.js';
 export * from './prompts/index.js';
@@ -141,6 +145,13 @@ export {
   LAYER_1_IDENTITY,
   type DefaultSystemPromptBuilderOptions,
 } from './core/system-prompt-builder.js';
+export {
+  loadInstructionBundle,
+  mergeInstructionBundle,
+  type InstructionBundle,
+  type InstructionBundlePaths,
+  type SystemInstructionBundle,
+} from './core/instruction-bundle.js';
 export { ToolRegistry } from './registry/tool-registry.js';
 export type { ToolWrapper } from './registry/tool-registry.js';
 export { ProviderRegistry, type ProviderFactory } from './registry/provider-registry.js';

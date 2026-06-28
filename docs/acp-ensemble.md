@@ -111,7 +111,15 @@ export interface ACPAgentDescriptor {
 }
 ```
 
-**Static, not live.** The ACP v1 spec is a moving target and the Registry RFD isn't stabilized; a typed file the maintainer refreshes in PRs is more reliable than a network dependency.
+**Bundled fallback + live sync.** `agents.catalog.ts` is now the *offline
+fallback*. The official [`agentclientprotocol/registry`](https://github.com/agentclientprotocol/registry)
+(hourly-updated, 37+ agents) is fetched on demand by `wstack acp sync` /
+`/acp sync` (`acp-registry-fetch.ts` → CDN snapshot), cached at
+`~/.wrongstack/cache/acp-registry.json`, and supersedes the bundled catalog at
+resolution time. Precedence: user override (`config.acp.agents`) → synced
+registry → legacy map → bundled catalog. Our stable ids alias to registry ids
+via `REGISTRY_ID_ALIASES`. No network is required at runtime — resolution
+degrades to the bundled catalog when no cache exists.
 
 **`EnsembleRegistry`** — probes all entries in parallel via `Promise.allSettled`, caches the result for 5 seconds, returns a `DetectedAgent[]` with `installed`, `version`, `path`, and `reason` fields.
 

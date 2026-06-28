@@ -347,6 +347,7 @@ const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = 
   { key: 'yolo', reason: 'Disables all permission confirmation prompts.' },
   { key: 'extensions', reason: 'Per-plugin config can carry command/credential fields.' },
   { key: 'hq', reason: 'Carries HQ client token credential and endpoint URL.' },
+  { key: 'acp', reason: 'Per-agent ACP command/args/env override → arbitrary command exec (RCE).' },
 ];
 
 /**
@@ -398,6 +399,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'hq',
   'sync',
   'extensions',
+  'acp',
 ]);
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   enhanceUserPrompt,
+  ENHANCER_SYSTEM_PROMPT,
   gatedEnhancerReasoning,
   normalizedEqual,
   recentTextTurns,
@@ -59,6 +60,13 @@ describe('shouldEnhance', () => {
   it('enhances genuine multi-word requests', () => {
     expect(shouldEnhance('fix the bug in the parser')).toBe(true);
     expect(shouldEnhance('make the login flow faster please')).toBe(true);
+  });
+});
+
+describe('ENHANCER_SYSTEM_PROMPT', () => {
+  it('loads the file-backed helper prompt', () => {
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('request refiner');
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('Output ONLY');
   });
 });
 

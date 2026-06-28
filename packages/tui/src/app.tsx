@@ -1,4 +1,4 @@
-import { DefaultPromptLoader, PromptUsageStore, expectDefined, projectSlug } from '@wrongstack/core';
+import { DefaultPromptLoader, PromptUsageStore, expectDefined, projectSlug, setBtwNote } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -43,6 +43,7 @@ import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
 import { EnhancePanel } from './components/enhance-panel.js';
 import { EscConfirmPrompt } from './components/esc-confirm-prompt.js';
+import { type SendMode, SendModePicker } from './components/send-mode-picker.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
@@ -76,7 +77,6 @@ import {
   resetSettingsFieldValue,
   resolveSettingsFieldValue,
   settingsPickerJumpByName,
-  settingsPickerJumpField,
   settingsPickerJumpNames,
   type ContextMode,
   type StatuslineMode,
@@ -361,6 +361,13 @@ export interface AppProps {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
   } | undefined;
+  /**
+   * When true (default), submitting a plain message while the agent is busy
+   * pops the send-mode picker (queue / by-the-way / steer) instead of silently
+   * queueing. Toggled live via `/queue picker on|off`; persisted to
+   * `autonomy.midRunSendPicker`.
+   */
+  midRunSendPicker?: boolean | undefined;
   /** Auto-send countdown (ms) for the refinement preview panel. Default 4000. */
   enhanceDelayMs?: number | undefined;
   /**
@@ -788,6 +795,7 @@ export function App({
   mouse = false,
   enhanceEnabled = true,
   enhanceController,
+  midRunSendPicker = true,
   enhanceDelayMs = 15_000,
   getEnhancerReasoning,
   getYolo,
@@ -1081,6 +1089,7 @@ export function App({
     enhanceEnabled,
     enhanceBusy: false,
     escConfirm: null,
+    sendModePicker: null,
     contextChipVersion: 0,
     fleet: {},
     leader: {
@@ -2054,6 +2063,7 @@ export function App({
       state.enhance != null ||
       state.coordinator.monitorOpen ||
       state.escConfirm != null ||
+      state.sendModePicker != null ||
       state.confirmQueue.length > 0;
     const overlayClosed = prevAnyOverlayOpen.current && !anyOpenNow;
     const newEntryCommitted = state.entries.length > prevEntriesCount.current;
@@ -2076,6 +2086,7 @@ export function App({
     state.enhance,
     state.coordinator.monitorOpen,
     state.escConfirm,
+    state.sendModePicker,
     state.confirmQueue.length,
     state.entries.length,
     state.toolStream?.text,
@@ -2476,6 +2487,14 @@ export function App({
       getQueue: () => stateRef.current.queue,
       clear: () => dispatch({ type: 'queueClear' }),
       deleteAt: (positions) => dispatch({ type: 'queueDelete', positions }),
+      getPickerEnabled: () => midRunSendPickerRef.current,
+      setPickerEnabled: (enabled) => {
+        midRunSendPickerRef.current = enabled;
+        const cur = getSettings?.();
+        if (cur && saveSettings) {
+          Promise.resolve(saveSettings({ ...cur, midRunSendPicker: enabled })).catch(() => {});
+        }
+      },
     });
     slashRegistry.register(cmd);
     return () => {
@@ -2501,6 +2520,42 @@ export function App({
       getProcessRegistry().killAll();
     };
   }, []);
+
+  // Shared steer sequence — the abort/terminate/queue-drop/preamble dance used
+  // by both `/steer` and the mid-run send-mode picker's "steer" choice. Reads
+  // the live state via refs so it stays correct regardless of which render's
+  // closure invokes it. Returns the STEERING preamble (to submit as the next
+  // turn) plus the counts each caller needs for its own status line.
+  const runSteerSequence = useCallback(
+    (text: string): { preamble: string; droppedCount: number; subagentsTerminated: number } => {
+      const s = stateRef.current;
+      const runningTools = Array.from(s.runningTools.values()).map((t) => t.name);
+      const subagents = Object.values(s.fleet)
+        .filter((e) => e.status === 'running')
+        .map((e) => ({ label: e.name, status: e.status, tool: e.currentTool?.name }));
+      const subagentsTerminated = subagents.length;
+      const partialAssistantText = streamingTextRef.current.slice(-1500);
+      const snapshot = { runningTools, subagents, subagentsTerminated, partialAssistantText };
+
+      activeCtrlRef.current?.abort('user interrupt (/steer)');
+      dispatch({ type: 'steerStart', snapshot });
+      const droppedCount = s.queue.length;
+      if (droppedCount > 0) dispatch({ type: 'queueClear' });
+      if (director && subagentsTerminated > 0) {
+        const cap = new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, 1500);
+          t.unref?.();
+        });
+        void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+      }
+      const preamble = buildSteeringPreamble(snapshot, text);
+      // Consume immediately — the preamble already carries the steering frame;
+      // the steeringPending flag would otherwise double up on the next submit.
+      dispatch({ type: 'steerConsume' });
+      return { preamble, droppedCount, subagentsTerminated };
+    },
+    [director, dispatch],
+  );
 
   // `/steer <message>` — slash-command equivalent of Esc-to-steer.
   // Useful when Esc is consumed by an outer terminal multiplexer, or
@@ -2533,40 +2588,10 @@ export function App({
         if (!text) {
           return { message: 'Usage: /steer <new direction>' };
         }
-        // Capture BEFORE mutating — same as the Esc handler.
-        const s = stateRef.current;
-        const runningTools = Array.from(s.runningTools.values()).map((t) => t.name);
-        const subagents = Object.values(s.fleet)
-          .filter((e) => e.status === 'running')
-          .map((e) => ({ label: e.name, status: e.status, tool: e.currentTool?.name }));
-        const subagentsTerminated = subagents.length;
-        const partialAssistantText = streamingTextRef.current.slice(-1500);
-
-        activeCtrlRef.current?.abort('user interrupt (/steer)');
-        dispatch({
-          type: 'steerStart',
-          snapshot: { runningTools, subagents, subagentsTerminated, partialAssistantText },
-        });
-        const droppedCount = s.queue.length;
-        if (droppedCount > 0) dispatch({ type: 'queueClear' });
-        if (director && subagentsTerminated > 0) {
-          const cap = new Promise<void>((resolve) => {
-            const t = setTimeout(resolve, 1500);
-            t.unref?.();
-          });
-          void Promise.race([director.terminateAll().catch(() => undefined), cap]);
-        }
-
-        // Build the full preamble + direction here, return it as the
-        // slash command output's `runText` so the submit pipeline
-        // sends THIS to the model instead of "/steer …".
-        const preamble = buildSteeringPreamble(
-          { runningTools, subagents, subagentsTerminated, partialAssistantText },
-          text,
-        );
-        // Consume immediately — the runText below already carries the
-        // preamble; the steeringPending flag would otherwise double up.
-        dispatch({ type: 'steerConsume' });
+        // Shared sequence: snapshot + abort + terminate fleet + drop queue +
+        // build the preamble. Returned as the slash command's `runText` so the
+        // submit pipeline sends THIS to the model instead of "/steer …".
+        const { preamble, droppedCount, subagentsTerminated } = runSteerSequence(text);
 
         const droppedTag = droppedCount > 0 ? ` · dropped ${droppedCount} queued` : '';
         const fleetTag =
@@ -2584,7 +2609,7 @@ export function App({
       slashRegistry.unregister('steer');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slashRegistry, director]);
+  }, [slashRegistry, director, runSteerSequence]);
 
   // `/rewind` — open the checkpoint timeline overlay. If a checkpoint
   // index is provided as argument, rewinds directly to it.
@@ -3771,6 +3796,10 @@ export function App({
   useEffect(() => {
     enhanceEnabledRef.current = state.enhanceEnabled;
   }, [state.enhanceEnabled]);
+  // Live mirror of the mid-run send-mode picker toggle. Seeded from the prop
+  // (config) and flipped synchronously by `/queue picker on|off` — read inside
+  // submit()'s busy branch, which can't see the latest value via its closure.
+  const midRunSendPickerRef = useRef(midRunSendPicker);
   // Abort handle for the in-flight refiner call, so Esc can cancel a slow
   // "refining..." and send the original immediately.
   const enhanceAbortRef = useRef<AbortController | null>(null);
@@ -4281,6 +4310,10 @@ export function App({
     // The ESC-interrupt confirmation dialog is modal — EscConfirmPrompt owns
     // y/n/Esc/Enter; all other keys are swallowed.
     if (state.escConfirm) return;
+
+    // The mid-run send-mode picker is modal — SendModePicker owns q/b/s/↑/↓/
+    // Enter/Esc; all other keys are swallowed so nothing leaks to the editor.
+    if (state.sendModePicker) return;
 
     // The help overlay is modal: Esc / `?` / `q` dismiss it; every other key is
     // swallowed so nothing leaks into the editor or chat behind it.
@@ -6113,38 +6146,84 @@ export function App({
     const blocks = await builder.submit();
 
     if (state.status !== 'idle' && !steering) {
-      // Agent is busy — queue this message for the drainer to pick up.
-      // Abort any next-steps auto-submit countdown since user is providing input.
-      // Only cancel autonomy if a countdown was actually running — otherwise
-      // this would override the user's explicit 'auto' selection in the
-      // autonomy picker (which also fires this handler via Enter).
-      //
-      // ── Steering override (#87) ────────────────────────────────────
-      // When the user has just confirmed an Esc interrupt (or run `/steer`),
-      // `steeringPending` is true and `state.status` is 'aborting' — the
-      // active controller is mid-settle. Without this override the message
-      // is queued behind the interrupted work and the user's "new
-      // direction" is never acted on. With the override, we fall through
-      // to the normal `runBlocks(blocks)` path below; `buildSteeringPreamble`
-      // (line ~5964) prepends the STEERING preamble using `steerSnapshot`,
-      // and `dispatch({ type: 'steerConsume' })` clears `steeringPending`
-      // so subsequent submits go through the normal queue branch again.
+      // Agent is busy. Abort any next-steps auto-submit countdown since the
+      // user is providing input. Only cancel autonomy if a countdown was
+      // actually running — otherwise this would override the user's explicit
+      // 'auto' selection in the autonomy picker (which also fires this handler
+      // via Enter). (#87: steering already short-circuits the outer `if`.)
       if (autonomyLive === 'auto' && nextStepsAutoSubmitTimerRef.current != null) {
         switchAutonomy?.('off');
       }
-      // A steering redirect is NOT a backlog item (#87). The Esc-interrupt
-      // already cleared the queue, so this becomes queue[0] and the drainer
-      // runs it the instant the aborting iteration settles — echoing it then as
-      // a clean `↯`-marked user entry (see the drain after runBlocks' finally).
-      // Adding a greyed "queued" entry here would both mislead (it reads as
-      // backlog, not the next thing to run) and double up with that drain echo.
-      // So when steering, enqueue silently and let the drainer surface it.
-      if (!steering) {
+
+      // ── Mid-run send-mode picker ───────────────────────────────────
+      // Instead of silently queueing, ask how to deliver this message:
+      //   queue  — run after the current turn (legacy behavior)
+      //   btw    — fold in at the next iteration without interrupting
+      //   steer  — abort now, drop the queue, redirect to this
+      // The picker is on by default; `/queue picker off` reverts to silent
+      // queue. Esc resolves to 'queue' so the typed text is never lost.
+      let mode: SendMode | 'cancel' = 'queue';
+      if (midRunSendPickerRef.current) {
+        mode = await new Promise<SendMode | 'cancel'>((resolve) => {
+          dispatch({
+            type: 'sendModePickerOpen',
+            info: { selected: 0, text: effectiveText, displayText, blocks, pasteContent, resolve },
+          });
+        });
+        dispatch({ type: 'sendModePickerClose' });
+      }
+
+      if (mode === 'btw') {
+        // Resolve inline chip tokens (paste/file/image) to their stored content
+        // so the note is meaningful to the model — same as the slash-command path.
+        let noteText = effectiveText;
+        for (const m of effectiveText.matchAll(new RegExp(INLINE_TOKEN_SRC, 'g'))) {
+          const token = m[0];
+          const content = tokenPreviewsRef.current.get(token);
+          if (content) noteText = noteText.replace(token, `\n<pasted>\n${content}\n</pasted>`);
+        }
+        const pending = setBtwNote(agent.ctx, noteText);
         dispatch({
           type: 'addEntry',
-          entry: { kind: 'user', text: displayText, queued: true, pasteContent },
+          entry: {
+            kind: 'info',
+            text: `↯ Noted (${pending} pending) — folded in at the agent's next step:\n  ${displayText}`,
+          },
         });
+        return;
       }
+
+      if (mode === 'steer') {
+        const { preamble } = runSteerSequence(effectiveText);
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'user', text: `↯ ${effectiveText}`, pasteContent },
+        });
+        const b = builderRef.current;
+        if (b) {
+          b.appendText(preamble);
+          const steerBlocks = await b.submit();
+          // Wait briefly for the aborting iteration to settle into 'idle' before
+          // kicking the next one — otherwise runBlocks early-returns on the busy
+          // guard. Same wait-loop the `/steer` runText path uses.
+          const start = Date.now();
+          while (stateRef.current.status !== 'idle' && Date.now() - start < 1500) {
+            await new Promise((r) => setTimeout(r, 25));
+          }
+          try {
+            await runBlocks(steerBlocks);
+          } finally {
+            clearDraft();
+          }
+        }
+        return;
+      }
+
+      // 'queue' (or 'cancel' → safest fallback): enqueue for the drainer.
+      dispatch({
+        type: 'addEntry',
+        entry: { kind: 'user', text: displayText, queued: true, pasteContent },
+      });
       dispatch({ type: 'enqueue', item: { displayText, blocks } });
       return;
     }
@@ -6571,6 +6650,24 @@ export function App({
               />
             </Box>
           ) : null}
+          {state.sendModePicker
+            ? (() => {
+                const info = state.sendModePicker;
+                let resolved = false;
+                const finish = (decision: SendMode | 'cancel') => {
+                  if (resolved) return;
+                  resolved = true;
+                  info.resolve(decision);
+                };
+                return (
+                  <SendModePicker
+                    selected={info.selected}
+                    onMove={(delta) => dispatch({ type: 'sendModePickerMove', delta })}
+                    onSelect={finish}
+                  />
+                );
+              })()
+            : null}
           {state.enhanceBusy && !state.enhance ? (
             <Box paddingX={1}>
               <Text dimColor>

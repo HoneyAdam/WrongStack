@@ -145,10 +145,11 @@ export class ToolTranslator {
     callId: string | number = crypto.randomUUID(),
   ): Promise<ACPToolCallResponse> {
     await transport.send({
+      jsonrpc: '2.0',
       method: 'tools/call',
       id: callId,
       params: {name, arguments: args},
-    });
+    } as never as ACPMessage);
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {

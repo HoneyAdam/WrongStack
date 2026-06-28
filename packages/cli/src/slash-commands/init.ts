@@ -26,6 +26,17 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
       const detected = await detectProjectFacts(root);
       const body = renderAgentsTemplate(detected);
       await fs.mkdir(dir, { recursive: true });
+      // Back up any existing AGENTS.md before overwriting so hand-written
+      // project context isn't silently lost on a re-init.
+      let backedUp = false;
+      if (!isFirstInit) {
+        try {
+          await fs.copyFile(file, `${file}.bak`);
+          backedUp = true;
+        } catch {
+          // Best-effort backup — proceed with the write regardless.
+        }
+      }
       await fs.writeFile(file, body, 'utf8');
 
       // Detect Node.js project for tech stack scan suggestion
@@ -39,6 +50,11 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
 
       const lines: string[] = [];
       lines.push(`Wrote ${file}`);
+      if (backedUp) {
+        const backupLine = `Backed up the previous AGENTS.md to ${file}.bak`;
+        opts.renderer.writeInfo(backupLine);
+        lines.push(backupLine);
+      }
 
       if (detected.hints.length > 0) {
         opts.renderer.writeInfo(`Wrote ${file}`);

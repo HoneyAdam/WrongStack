@@ -748,7 +748,11 @@ export class ACPSession {
     const onAbort = (): void => {
       cancelled = true;
       this.transport
-        .send({ method: 'session/cancel', params: { sessionId: this.sessionId } })
+        .send({
+          jsonrpc: '2.0',
+          method: 'session/cancel',
+          params: { sessionId: this.sessionId },
+        } as never as ACPMessage)
         .catch(() => {
           // transport may already be torn down — ignore
         });
@@ -933,6 +937,34 @@ export class ACPSession {
     });
   }
 
+  /**
+   * Send a JSON-RPC 2.0 success response to an agent-initiated request.
+   *
+   * Per JSON-RPC 2.0 (and the official ACP SDK's message router) a Response
+   * object MUST carry `jsonrpc: "2.0"` and MUST NOT carry a `method` field —
+   * the SDK classifies any object with a `method` key as a Request and drops
+   * it as a response, so an agent's `fs/*`, `terminal/*`, or
+   * `session/request_permission` callback would hang forever. The legacy
+   * `ACPMessage` type predates v1 (requires `method`, lacks `jsonrpc`), so we
+   * build the correct wire object and cast at the boundary.
+   */
+  private sendResult(id: string | number, result: unknown): Promise<void> {
+    return this.transport.send({ jsonrpc: '2.0', id, result } as never as ACPMessage);
+  }
+
+  /** Send a JSON-RPC 2.0 error response (no `method` field, per spec). */
+  private sendErrorResponse(
+    id: string | number,
+    code: number,
+    message: string,
+  ): Promise<void> {
+    return this.transport.send({
+      jsonrpc: '2.0',
+      id,
+      error: { code, message },
+    } as never as ACPMessage);
+  }
+
   private handleMessage(msg: ACPMessage): void {
     // Response to an outbound request (has id and either result or error)
     if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
@@ -976,7 +1008,7 @@ export class ACPSession {
     if (msg.method === 'mcp/connect' || msg.method === 'mcp/message' || msg.method === 'mcp/disconnect') {
       // MCP channel management — best-effort acknowledge.
       if (msg.id !== undefined) {
-        this.transport.send({ id: msg.id, method: msg.method, result: {} } as never as ACPMessage).catch(() => {});
+        this.sendResult(msg.id, {}).catch(() => {});
       }
       return;
     }
@@ -985,7 +1017,7 @@ export class ACPSession {
     if (msg.method === 'elicitation/create' || msg.method === 'elicitation/complete') {
       // Elicitation is a UI feedback mechanism — acknowledge and ignore.
       if (msg.id !== undefined) {
-        this.transport.send({ id: msg.id, method: msg.method, result: {} } as never as ACPMessage).catch(() => {});
+        this.sendResult(msg.id, {}).catch(() => {});
       }
       return;
     }
@@ -1150,11 +1182,7 @@ export class ACPSession {
       ? (params.options as never as Parameters<PermissionPolicy>[0]['options'])
       : [];
     if (!toolCall) {
-      await this.transport.send({
-        id,
-        method: 'session/request_permission',
-        error: { code: -32602, message: 'toolCall is required' },
-      });
+      await this.sendErrorResponse(id, -32602, 'toolCall is required');
       return;
     }
     const policyAbort = new AbortController();
@@ -1163,11 +1191,7 @@ export class ACPSession {
       options,
       signal: policyAbort.signal,
     });
-    await this.transport.send({
-      id,
-      method: 'session/request_permission',
-      result: { outcome },
-    });
+    await this.sendResult(id, { outcome });
   }
 
   private async handleFsRequest(msg: ACPMessage): Promise<void> {
@@ -1175,11 +1199,7 @@ export class ACPSession {
     if (id === undefined) return;
     const params = (msg as { params?: { sessionId?: string; path?: string; content?: string } }).params;
     if (!params?.path) {
-      await this.transport.send({
-        id,
-        method: msg.method,
-        error: { code: -32602, message: 'path is required' },
-      });
+      await this.sendErrorResponse(id, -32602, 'path is required');
       return;
     }
     try {
@@ -1188,19 +1208,19 @@ export class ACPSession {
           sessionId: params.sessionId ?? '',
           path: params.path,
         });
-        await this.transport.send({ id, method: msg.method, result });
+        await this.sendResult(id, result);
       } else {
         await this.fileServer.writeTextFile({
           sessionId: params.sessionId ?? '',
           path: params.path,
           content: params.content ?? '',
         });
-        await this.transport.send({ id, method: msg.method, result: {} });
+        await this.sendResult(id, {});
       }
     } catch (err) {
       const code = err instanceof FsError ? -32602 : -32603;
       const message = err instanceof Error ? err.message : String(err);
-      await this.transport.send({ id, method: msg.method, error: { code, message } });
+      await this.sendErrorResponse(id, code, message);
     }
   }
 
@@ -1226,47 +1246,39 @@ export class ACPSession {
             createOpts.outputByteLimit = params.outputByteLimit;
           }
           const result = this.terminalServer.create(createOpts);
-          await this.transport.send({ id, method: msg.method, result });
+          await this.sendResult(id, result);
           return;
         }
         case 'terminal/output': {
           const terminalId = String(params.terminalId ?? '');
           const out = this.terminalServer.output(terminalId);
-          await this.transport.send({ id, method: msg.method, result: out });
+          await this.sendResult(id, out);
           return;
         }
         case 'terminal/wait_for_exit': {
           const terminalId = String(params.terminalId ?? '');
           const exit = await this.terminalServer.waitForExit(terminalId);
-          await this.transport.send({ id, method: msg.method, result: exit });
+          await this.sendResult(id, exit);
           return;
         }
         case 'terminal/kill': {
           const terminalId = String(params.terminalId ?? '');
           this.terminalServer.kill(terminalId);
-          await this.transport.send({ id, method: msg.method, result: {} });
+          await this.sendResult(id, {});
           return;
         }
         case 'terminal/release': {
           const terminalId = String(params.terminalId ?? '');
           this.terminalServer.release(terminalId);
-          await this.transport.send({ id, method: msg.method, result: {} });
+          await this.sendResult(id, {});
           return;
         }
         default:
-          await this.transport.send({
-            id,
-            method: msg.method,
-            error: { code: -32601, message: `unknown method: ${msg.method}` },
-          });
+          await this.sendErrorResponse(id, -32601, `unknown method: ${msg.method}`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.transport.send({
-        id,
-        method: msg.method,
-        error: { code: -32603, message },
-      });
+      await this.sendErrorResponse(id, -32603, message);
     }
   }
 }

@@ -18,6 +18,10 @@
 import type { TextBlock } from '../types/blocks.js';
 import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import { loadGoal } from '../storage/goal-store.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 
 export interface AutonomyPromptContributorOptions {
   /** Absolute path to the project's `goal.json`. */
@@ -69,45 +73,17 @@ export function makeAutonomyPromptContributor(
       return `  #${e.iteration} [${e.status}] ${e.task}${note}`;
     });
 
-    const text = [
-      '## ETERNAL AUTONOMY — active mission',
-      '',
-      'You are inside a long-running autonomous loop. The user is asleep',
-      'and is not available to confirm decisions. Each turn you receive a',
-      'directive describing one concrete sub-task that advances the mission.',
-      '',
-      `Mission: ${goal.goal}`,
-      `Iteration: #${goal.iterations}`,
-      journalTail.length > 0
-        ? `Recent journal (last ${journalTail.length}):\n${journalTail.join('\n')}`
-        : 'Recent journal: (none — this is the first iteration)',
-      '',
-      '### Loop control markers',
-      'Emit these on their own line in your final text — case-insensitive,',
-      'whitespace-tolerant, but they must occupy the entire line:',
-      '- `[continue]` — chain to the next internal step without returning.',
-      '- `[done]` — the current sub-task is finished; return to the engine.',
-      '- `[GOAL_COMPLETE]` — emit ONLY when the OVERALL mission is',
-      '  verifiably done. Must be followed by a one-paragraph verification',
-      '  recipe (artifact path, test command, or 10-second reproduction).',
-      '  The engine halts on this marker — false positives waste real',
-      '  human time. If unsure, emit `[done]` and let the next iteration',
-      '  decide.',
-      '',
-      '### Operating principles',
-      '- YOLO is active for normal project work. Proceed with routine',
-      '  in-project tool use without pre-confirming; pick the best path and execute it.',
-      '  If the permission system raises a destructive-gated confirmation, wait',
-      '  for that flow instead of trying to bypass it.',
-      '- Use tools freely; multiple calls per turn are normal and expected.',
-      '- When working on a todo, mark it `in_progress` via the todos tool',
-      '  before tool work and `completed` (or `cancelled` with a reason)',
-      '  when done. The loop reads todo state between iterations.',
-      "- If an approach fails twice in a row, pivot. Don't grind on the",
-      '  same wall — try a different angle, file a cancel on the todo, or',
-      '  surface the obstacle via `[done]` and let the next iteration',
-      '  re-plan.',
-    ].join('\n');
+    const text = renderInstructionTemplate(
+      readBundledInstructionText('autonomy/active-mission.md'),
+      {
+        mission: goal.goal,
+        iteration: String(goal.iterations),
+        recentJournal:
+          journalTail.length > 0
+            ? `Recent journal (last ${journalTail.length}):\n${journalTail.join('\n')}`
+            : 'Recent journal: (none — this is the first iteration)',
+      },
+    );
 
     return [
       {

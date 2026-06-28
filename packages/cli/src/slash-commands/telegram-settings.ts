@@ -24,6 +24,7 @@ const HELP = [
   '  /telegram-settings long-tool <ms|off>   Notify for tools slower than <ms> (0/off = disabled)',
   '  /telegram-settings poll <seconds>       Bot polling interval (1–60)',
   '  /telegram-settings chat <chatId>        Default chat for notifications',
+  '  /telegram-settings all on|off           Toggle every event notification at once',
   '',
   'Aliases: /tg-settings',
   '',
@@ -92,6 +93,21 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
       };
 
       try {
+        if (sub === 'all') {
+          const raw = (rest[0] ?? '').toLowerCase();
+          if (!['on', 'off'].includes(raw)) {
+            return { message: `${color.amber('Usage:')} /telegram-settings all on|off` };
+          }
+          const on = raw === 'on';
+          await persistTelegramConfig(persistDeps, (tg) => {
+            tg.notifyOnSessionEnd = on;
+            tg.notifyOnDelegate = on;
+          });
+          return {
+            message: `${color.green('✓')} all event notifications → ${on ? color.cyan('on') : color.dim('off')} ${color.dim('(session-end, delegate)')}`,
+          };
+        }
+
         if (sub === 'session-end') {
           const raw = (rest[0] ?? '').toLowerCase();
           if (!['on', 'off'].includes(raw)) {
@@ -183,7 +199,7 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
         }
 
         return {
-          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['session-end', 'delegate', 'long-tool', 'poll', 'chat'], 'telegram-settings')}`,
+          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['session-end', 'delegate', 'long-tool', 'poll', 'chat', 'all'], 'telegram-settings')}`,
         };
       } catch (err) {
         return {

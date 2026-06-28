@@ -178,9 +178,10 @@ export class ClientTransport implements ACPClientTransport {
 
   async start(): Promise<void> {
     if (this.child) return;
-    const [{ spawn }, { buildChildEnv }] = await Promise.all([
+    const [{ spawn }, { buildChildEnv }, os] = await Promise.all([
       import('node:child_process'),
       import('@wrongstack/core'),
+      import('node:os'),
     ]);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -189,10 +190,19 @@ export class ClientTransport implements ACPClientTransport {
         );
       }, this.opts.handshakeTimeoutMs);
 
+      // `npx`/`uvx` resolve+install the package using the npm/pip config of
+      // the spawn cwd. Inside a repo with dependency `overrides` (WrongStack
+      // pins undici/jsdom), that install fails with EOVERRIDE and the adapter
+      // never starts → handshake timeout. Spawn package launchers from a
+      // NEUTRAL dir (home) so they install cleanly; the agent still learns the
+      // project directory via the ACP `session/new` `cwd` param, not this cwd.
+      const isPkgLauncher = this.opts.command === 'npx' || this.opts.command === 'uvx';
+      const spawnCwd = isPkgLauncher ? os.homedir() : this.opts.cwd;
+
       try {
         this.child = spawn(this.opts.command, this.opts.args ?? [], {
           env: { ...buildChildEnv(), ...this.opts.env },
-          cwd: this.opts.cwd,
+          cwd: spawnCwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
           // On Windows, most ACP-supporting tools (claude, gemini, codex,
@@ -216,21 +226,51 @@ export class ClientTransport implements ACPClientTransport {
 
       child.stdout.setEncoding('utf8');
 
+      let settled = false;
+      // Register failure handlers IMMEDIATELY, before either readiness path,
+      // so a spawn failure (ENOENT / EACCES) rejects start() instead of
+      // emitting an unhandled 'error' event that crashes the host process.
+      // This is critical for the skip-marker path (external ACP agents),
+      // which previously returned before any 'error' listener was attached.
+      const onSpawnFailure = (err: Error): void => {
+        if (settled) {
+          // Post-ready error: just tear the connection down.
+          this.closed = true;
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        reject(err);
+      };
+      child.on('error', onSpawnFailure);
+      child.stdout.on('error', onSpawnFailure);
+
+      if (this.opts.skipHandshakeMarker) {
+        // External ACP agents don't emit a startup marker. Attach the data
+        // pump right away so no early output is dropped, then resolve once
+        // the OS confirms the process actually spawned (the 'spawn' event).
+        // If the binary is missing, 'error' fires instead and rejects above.
+        child.stdout.on('data', (c: string) => this.onChildData(c));
+        child.stderr.on('data', (c: string) => this.onChildError(c));
+        child.on('close', (code: number | null) => this.onChildClose(code));
+        child.once('spawn', () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        });
+        return;
+      }
+
       const onReady = (): void => {
+        if (settled) return;
+        settled = true;
         child.stdout.on('data', (c: string) => this.onChildData(c));
         child.stderr.on('data', (c: string) => this.onChildError(c));
         child.on('close', (code: number | null) => this.onChildClose(code));
         clearTimeout(timeout);
         resolve();
       };
-
-      if (this.opts.skipHandshakeMarker) {
-        // External ACP agents don't emit a startup marker — they're
-        // ready to accept JSON-RPC immediately. Resolve as soon as
-        // the child process is spawned and stdout is flowing.
-        onReady();
-        return;
-      }
 
       const waitForMarker = (chunk: string) => {
         this.buffer += chunk;
@@ -243,14 +283,6 @@ export class ClientTransport implements ACPClientTransport {
       };
 
       child.stdout.on('data', waitForMarker);
-      child.stdout.on('error', (err: Error) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-      child.on('error', (err: Error) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
     });
   }
 

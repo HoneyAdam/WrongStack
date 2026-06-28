@@ -5,6 +5,202 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **TUI — mid-run send-mode picker.** Submitting a plain message while the agent
+  is busy now pops a 3-way picker — **Queue** (run after the current turn),
+  **By the way** (fold in at the next step via `setBtwNote`, no interrupt), or
+  **Steer** (abort now, drop the queue, redirect with a STEERING preamble) —
+  instead of silently queueing. Queue is the default highlight; `Esc` queues so
+  the typed text is never lost. Quick keys `q`/`b`/`s`, arrows to move, `Enter`
+  to pick. On by default; toggle with `/queue picker on|off` (persisted to
+  `autonomy.midRunSendPicker`). Slash commands typed while busy still dispatch
+  immediately. New `packages/tui/src/components/send-mode-picker.tsx`; the
+  `/steer` body was factored into a shared `runSteerSequence` reused by both the
+  command and the picker.
+
+## [0.275.0] — 2026-06-28
+
+> The **performance hardening, ACP v1 spec coverage, and pre-release cleanup**
+> release. Closes the top-3 hot-path bottlenecks in core storage and ACP
+> (async logger tail with `flush()`, sort-then-slice in `DefaultMailbox.query()`,
+> once-on-reload sort in `DefaultSessionStore`), completes **ACP v1 100 % spec
+> coverage** with the official `@agentclientprotocol/sdk` bridge (server: 14
+> methods; client: 12 methods; both transports; full `agentCapabilities`),
+> closes all P1 (4/4) and P2 (9/9) items from `before-release.md` plus 11 P3
+> items (2 won't-fix), and locks the token-saving tier measurements in via
+> regression tests. All workspace packages and the marketing site are aligned
+> to `0.275.0` in lockstep. Additive only — no breaking changes.
+
+### Added
+
+- **`packages/acp` — ACP v1 100 % spec coverage + SDK bridge.** The full ACP
+  v1 spec is now implemented on both server (`@wrongstack/acp`) and client
+  sides, with the official `@agentclientprotocol/sdk` v1.0.0 integrated as a
+  dependency. New `@wrongstack/acp/sdk` entry re-exports SDK classes
+  (`AcpServer`, `AgentApp`, `ClientApp`, `ActiveSession`, …) alongside
+  WrongStack's own ACP implementation. WebSocket transport via
+  `createWebSocketStream`; Node HTTP / WebSocket handlers via
+  `createNodeHttpHandler` / `createNodeWebSocketUpgradeHandler`. All
+  remaining ACP methods shipped: `session/fork`, `providers/list|set|disable`,
+  `mcp/message` (proper-error stubs), `document/*`, `nes/*`,
+  `elicitation/*` (no-op notifications), plus the full `agentCapabilities`
+  shape with `mcpCapabilities` / `sessionCapabilities` / `auth`. Server
+  gained `session/resume`, `session/close`, `session/delete`, `logout`, HTTP
+  transport mode, `ACPSessionStore` persistence, and plan/usage updates
+  through `RunTurn`. Client gained `authenticate/logout`, `session/close|load|
+  resume|list|delete`, MCP HTTP/SSE transport configs, image/audio
+  `ContentBlock` support in `prompt()`, and a fixed `promptCapabilities`
+  spec violation. CORS origin guard on the HTTP transport. Verified against
+  every page on `agentclientprotocol.com` — 143 spec checks, 0 failures; 160
+  unit tests across 14 files plus end-to-end integration tests, all green.
+
+- **`packages/cli/tests/token-saving-measurement.test.ts` — tier sizes pinned.**
+  Empirical measurement of prompt size across all 5 token-saving tiers
+  (`off` / `aggressive` / `medium` / `light` / `minimal`) using the real
+  `setupTools()` path. Asserts tool counts and that compacting tiers are
+  smaller than `off`. The accompanying docs were updated to reflect measured
+  values with a warning blockquote on the `aggressive` tier delta
+  (`~60` measured tokens, previously claimed `~4–5K`).
+
+- **`packages/cli/tests/token-saving-memory-injection-size.test.ts` — memory
+  block size pinned.** Asserts that the memory block injected into the
+  system prompt is the same size at every tier (memory is feature-gated on
+  `config.features.memory`, tier-independent). Catches an accidental
+  regression that would compact memory at `aggressive` to match
+  `minimal`-style.
+
+### Changed
+
+- **`packages/core/src/infrastructure/logger.ts` — async serialized tail.** The
+  blocking `statSync` / `rmSync` / `renameSync` / `appendFileSync` calls were
+  replaced with a serialized async `Promise<void>` chain. `mkdir` is chained
+  onto the same tail so the first append can't race a still-pending `mkdir`.
+  New public API: `flush(): Promise<void>` — await a deterministic "everything
+  on disk" guarantee. Children share the parent's tail via `_tail` getter /
+  setter; `parent.flush()` now waits for every chained child append. Tests,
+  shutdown handlers, and SIGINT sequences should `await logger.flush()` before
+  reading the log file or exiting. Behavior unchanged from the user's
+  perspective.
+
+- **`packages/core/src/coordination/mailbox.ts` — `query()` reverse-iterate.**
+  `DefaultMailbox.query()` no longer sorts the full filtered set on every
+  poll. Newest-first iteration + early cutoff replaces the per-call
+  O(M log M) sort. Priority-ordered queries still sort but only the filtered
+  subset. Result order preserved (newest-first); internal data path changed
+  from sort-then-slice to reverse-iterate-then-slice.
+
+- **`packages/core/src/storage/session-store.ts` — `list()` pure slice.**
+  `DefaultSessionStore.readIndex()` sorts the summaries once when (re)loading;
+  `list()` is now a pure slice over the already-sorted index. `append`,
+  `tombstone`, `compact`, and `rebuild` invalidate the index cache.
+
+- **`packages/acp/src/agent/session-store.ts` — memoized `init()`, sidecar
+  index.** `init()` is now memoized so repeated calls don't rebuild the
+  index. `list()` reads a sidecar `index.json` instead of scanning every
+  JSONL; full-scan rebuild is a fallback when the sidecar is missing.
+  `save()` dropped pretty-print in favor of compact JSON.
+
+- **`packages/acp/src/registry/ensemble-registry.ts` — bounded concurrency
+  on catalog probes.** New `MAX_PARALLEL_PROBES = 4` constant plus a
+  `probeWithBound` helper that preserves output order across parallel
+  probes. Replaces unbounded `Promise.all` over the catalog.
+
+- **`packages/acp/src/integration/ensemble-runner.ts` — `maxConcurrency`
+  option + `mapBound`.** New `maxConcurrency` option (default 4). New
+  `mapBound` helper replaces `Promise.allSettled(map(...))` with `Promise.all`
+  semantics (since `runOne` already swallows every error).
+
+- **`docs/token-saving-tiers-design.md` + `docs/configuration.md` — tier
+  doc reconciled.** Tier comparison matrix updated to reflect measured
+  `aggressive` behavior. The misleading "Doc claim" column was dropped from
+  the savings table; replaced with explicit measured values only. An
+  axis-by-axis guide clarifies that tiers optimize along **two** axes
+  (tool count × guidance detail), not one.
+
+- **`packages/providers/src/anthropic.ts` — preserves user-visible provider
+  id.** Configured aliases (e.g. `minimax-token-plan` with `family:
+  'anthropic'`) no longer collapse to `id === 'anthropic'` at runtime;
+  the user's chosen `id` now flows through `AnthropicProvider` like the
+  OpenAI / Google / Codex / Anthropic-OAuth branches already did. The
+  status bar, pickers, fallback chain, and provider pickers all show the
+  user-configured id instead of the wire-format id.
+
+### Performance
+
+- **`packages/core/src/storage/session-store.ts` — `readIndex()` sort
+  amortised to once-per-reload.** Repeated `list()` calls no longer pay
+  the per-call sort cost; the index is sorted on load and `list()` is a
+  slice. Cache invalidation runs on `append`, `tombstone`, `compact`,
+  and `rebuild`.
+
+- **`packages/core/src/coordination/mailbox.ts` — `query()` O(M log M) →
+  O(K) where K is the page size.** Sort-the-full-set per poll replaced
+  with reverse-iterate-and-cutoff. Priority-ordered queries still sort
+  but only the filtered subset.
+
+- **`packages/acp/src/agent/session-store.ts` — `list()` N+1 reads → 1
+  sidecar read.** Sidecar `index.json` written on `init()` (and rebuilt
+  from the full scan as fallback) means `list()` does a single file read
+  instead of one per session JSONL.
+
+- **`packages/acp/src/registry/ensemble-registry.ts` — bounded catalog
+  probes.** `MAX_PARALLEL_PROBES = 4` caps the open-probe count when
+  probing multiple catalog entries simultaneously; output order
+  preserved.
+
+### Fixed
+
+- **`packages/providers/src/anthropic.ts` — provider id collapsing on
+  aliases.** `AnthropicProvider` hardcoded `id: 'anthropic'` as a class
+  field; `makeProvider()` in `packages/providers/src/index.ts` did not
+  forward `p.id` to the Anthropic branch. Together these caused every
+  user-configured Anthropic-family alias to surface as `'anthropic'` in
+  the UI and the fallback chain. `AnthropicProvider` now accepts
+  `id?: string` via `AnthropicProviderOptions` and defaults to the
+  wire-format id when unset (backwards compatible); `makeProvider()`
+  forwards `p.id` to match the OpenAI branch. Regression tests pin both
+  behaviors in `packages/providers/tests/decoupled.test.ts`.
+
+- **`packages/core/src/infrastructure/logger.ts` — synchronous file
+  writes on the hot path.** `statSync` / `rmSync` / `renameSync` /
+  `appendFileSync` blocked the event loop on every log call. Replaced
+  with a serialized async tail. No public behavior change beyond the new
+  `flush()` API; existing callers that relied on synchronous file
+  visibility must now `await logger.flush()` (see the test updates in
+  `packages/core/tests/infrastructure/logger.test.ts`).
+
+### Changed — versions
+
+- **All workspace packages aligned to 0.275.0**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`,
+  `@wrongstack/acp`, `@wrongstack/bench`, and the umbrella `apps/wrongstack`.
+  The marketing site (`website/`) is aligned in lockstep.
+
+### Closed — `before-release.md`
+
+- **P1 (4/4 fixed):** write bypass → `readFiles`/`writtenFiles` split · bash
+  timeout cleanup → `cleanup()` method · bash backpressure → upper-bound
+  tests · headless deadlock → `listenerCount` guard.
+- **P2 (9/9 fixed):** structured side-effect recording → 4-phase
+  implementation (SideEffect type, bash/install/fetch wiring, `/diag`
+  timeline) · error classification → `ToolValidationError` subclass ·
+  pipeline swallow → structured warning logging · schema recursion → depth
+  limit (64) · readFiles separation (covered by P1 #1) · kill-guard paths →
+  broadened to any shell executable · kill-guard docs → "Known bypasses"
+  section · YOLO destructive → 88-case test suite · secret redaction →
+  36-case test suite.
+- **P3 (11 fixed, 2 won't-fix):** sentinel dedup, cross-field `validate()`,
+  LRU cache, `FetchError`, `PreToolUse` skip, atomic write on Windows,
+  `Tool.serialize()`, progress head buffer, circuit breaker cleanup, PID
+  reuse, platform filter. Won't-fix: `#15` (tool guards break direct
+  callers), `#26` (reverse-diff too broad).
+
 ## [0.274.0] — 2026-06-27
 
 > The **multi-file diff rendering, settings picker, and per-iteration

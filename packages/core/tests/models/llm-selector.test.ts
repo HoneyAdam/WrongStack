@@ -77,6 +77,8 @@ describe('LLMSelector', () => {
       ];
       await selector.select(messages, 1000);
       expect(provider.complete).toHaveBeenCalled();
+      const req = vi.mocked(provider.complete).mock.calls[0]![0];
+      expect(req.system?.[0]?.text).toContain('context pruning assistant');
     });
 
     it('returns kept and collapsed from parsed JSON', async () => {

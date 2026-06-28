@@ -126,6 +126,20 @@ describe('dispatchAgent (LLM fallback)', () => {
 });
 
 describe('makeLLMClassifier', () => {
+  it('renders the file-backed router prompt with task and candidates', async () => {
+    const complete = vi.fn(async () => '{"role":"debugger","reason":"bug"}');
+    const classify = makeLLMClassifier(complete);
+    await classify('fix the login crash', [
+      { role: 'debugger', name: 'Debugger', summary: 'Finds and fixes defects' },
+    ]);
+    const prompt = complete.mock.calls[0]?.[0] ?? '';
+    expect(prompt).toContain('You are an agent router');
+    expect(prompt).toContain('fix the login crash');
+    expect(prompt).toContain('1. debugger');
+    expect(prompt).not.toContain('{{task}}');
+    expect(prompt).not.toContain('{{agents}}');
+  });
+
   it('parses a clean JSON choice', async () => {
     const classify = makeLLMClassifier(async () => '{"role":"debugger","reason":"bug"}');
     const out = await classify('x', [{ role: 'debugger', name: 'Debugger', summary: 's' }]);

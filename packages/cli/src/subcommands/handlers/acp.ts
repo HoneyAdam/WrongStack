@@ -12,12 +12,15 @@
  */
 
 import {
-  ACP_AGENT_COMMANDS,
   type ACPProgressEvent,
+  type AcpAgentCommandOverrides,
   EnsembleRegistry,
-  findAgentDescriptor,
-  makeACPSubagentRunnerWithStop,
+  probeAcpAgents,
+  renderAcpBenchText,
+  resolveAcpAgentCommand,
+  runAcpBench,
   runEnsemble,
+  runOneAcpTask,
 } from '@wrongstack/acp';
 import {
   ACPProtocolHandler,
@@ -29,29 +32,22 @@ import {
 } from '@wrongstack/acp/agent';
 import * as path from 'node:path';
 import { WebSocketServer } from 'ws';
-import type { SubagentRunContext } from '@wrongstack/core';
-import { SubagentBudget } from '@wrongstack/core/coordination';
 import { AcpServerConfigError, buildAcpServerAgentFactory } from '../../acp-server-agent.js';
+import {
+  type LoadedAcpRegistry,
+  loadCachedAcpRegistry,
+  refreshAcpRegistry,
+} from '../../acp-registry-cache.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
-/**
- * Fallback: if an agent id is in the 12-entry catalog but not in the legacy
- * 5-entry `ACP_AGENT_COMMANDS` map, build a command from the catalog entry.
- * The legacy map is kept for backward compatibility but the catalog is the
- * source of truth for what's actually supported.
- */
-function resolveCmdFromCatalog(
-  subagentId: string,
-): { command: string; args: string[]; env?: Record<string, string>; role?: string } | null {
-  const desc = findAgentDescriptor(subagentId);
-  if (!desc) return null;
-  const out: { command: string; args: string[]; env?: Record<string, string>; role?: string } = {
-    command: desc.acp.command,
-    args: [...(desc.acp.args ?? [])],
-    role: subagentId,
-  };
-  if (desc.acp.env) out.env = desc.acp.env;
-  return out;
+/** User-config ACP command overrides (never sourced from in-project config). */
+function acpOverrides(deps: SubcommandDeps): AcpAgentCommandOverrides | undefined {
+  return deps.config.acp?.agents;
+}
+
+/** Load the synced registry cache, or null if never synced / unavailable. */
+async function loadLive(deps: SubcommandDeps): Promise<LoadedAcpRegistry | null> {
+  return deps.paths ? loadCachedAcpRegistry(deps.paths) : null;
 }
 
 export const acpCmd: SubcommandHandler = async (args, deps) => {
@@ -69,11 +65,19 @@ Usage:
   wstack acp              Start WrongStack as an ACP server (blocks)
   wstack acp server       Same as above
   wstack acp list         List available ACP agents
+  wstack acp sync         Pull the official agentclientprotocol/registry into cache
   wstack acp spawn <id> <task>
                         Spawn an ACP agent as a subagent and wait for result
   wstack acp parallel <agent-id-csv> <task>
                         Fan a task out to multiple ACP agents in parallel
                         and aggregate the results
+  wstack acp probe [agent-id-csv]
+                        Handshake-test agents (bounded concurrency). Defaults
+                        to all installed agents.
+  wstack acp bench [agent-id-csv] [--fs]
+                        End-to-end verify each agent (handshake → prompt →
+                        marker, optional fs check) and print a graded report.
+                        Defaults to all installed agents.
   wstack acp help         Show this help
 
 ACP Mode:
@@ -108,12 +112,24 @@ parallel:
     return listACPAgents(deps);
   }
 
+  if (sub === 'sync') {
+    return syncACPRegistry(deps);
+  }
+
   if (sub === 'spawn') {
     return spawnACPAgent(args.slice(1), deps);
   }
 
   if (sub === 'parallel') {
     return parallelACPAgents(args.slice(1), deps);
+  }
+
+  if (sub === 'probe') {
+    return probeACPAgents(args.slice(1), deps);
+  }
+
+  if (sub === 'bench') {
+    return benchACPAgents(args.slice(1), deps);
   }
 
   deps.renderer.writeError(`Unknown acp subcommand: ${sub}\n`);
@@ -299,8 +315,34 @@ async function listACPAgents(deps: SubcommandDeps): Promise<number> {
     deps.renderer.write(`  ✗ ${a.id.padEnd(16)} ${a.displayName}  (${a.reason ?? 'not installed'})\n`);
   }
   deps.renderer.write(`\n${installed.length} of ${detected.length} agents available.\n`);
+  const live = await loadLive(deps);
+  if (live && live.agents.length > 0) {
+    deps.renderer.write(
+      `Synced registry: ${live.agents.length} agents available (run \`wstack acp spawn <id> <task>\`).\n`,
+    );
+  } else {
+    deps.renderer.write('Run `wstack acp sync` to pull the full official registry (37+ agents).\n');
+  }
   deps.renderer.write('Use `wstack acp spawn <agent-id> <task>` to delegate a task.\n');
   return 0;
+}
+
+async function syncACPRegistry(deps: SubcommandDeps): Promise<number> {
+  if (!deps.paths) {
+    deps.renderer.writeError('Cannot sync: no cache directory available.\n');
+    return 1;
+  }
+  deps.renderer.writeInfo('Fetching the official ACP registry…\n');
+  try {
+    const { count, location } = await refreshAcpRegistry(deps.paths);
+    deps.renderer.write(`Synced ${count} agents from the official ACP registry.\n`);
+    deps.renderer.writeInfo(`Cached at ${location}\n`);
+    return 0;
+  } catch (err) {
+    deps.renderer.writeError(`ACP registry sync failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    deps.renderer.write('The bundled offline catalog is still available via `wstack acp list`.\n');
+    return 1;
+  }
 }
 
 async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<number> {
@@ -318,76 +360,47 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
     return 1;
   }
 
-  const cmd = ACP_AGENT_COMMANDS[subagentId] ?? resolveCmdFromCatalog(subagentId);
+  const live = await loadLive(deps);
+  const cmd = resolveAcpAgentCommand(subagentId, acpOverrides(deps), live?.byId);
   if (!cmd) {
     deps.renderer.writeError(`Unknown ACP agent: ${subagentId}\n`);
-    deps.renderer.write('Run `wstack acp list` to see available agents.\n');
+    deps.renderer.write('Run `wstack acp list` (or `wstack acp sync`) to see available agents.\n');
     return 1;
   }
 
   deps.renderer.writeInfo(`Spawning ACP agent '${subagentId}'…\n`);
 
-  const cleanup = () => {
-    if (stop) {
-      try {
-        stop();
-      } catch {
-        /* ignore */
-      }
-    }
-  };
-
+  // Wire Ctrl+C to an AbortSignal so a long-running external agent is
+  // cancelled (runOneAcpTask tears the child down on signal + in its finally).
+  const ac = new AbortController();
+  const cleanup = () => ac.abort();
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  let stop: (() => void) | null = null;
-
   try {
-    const { runner, stop: runStop } = await makeACPSubagentRunnerWithStop({
-      ...cmd,
+    deps.renderer.writeInfo('Running task…\n');
+    const result = await runOneAcpTask({
+      command: cmd.command,
+      ...(cmd.args !== undefined ? { args: cmd.args } : {}),
+      ...(cmd.env !== undefined ? { env: cmd.env } : {}),
+      role: subagentId,
+      task,
+      signal: ac.signal,
       onProgress: (event) => {
         const line = formatProgress(event);
         if (line) deps.renderer.writeInfo(`  ${line}\n`);
       },
     });
-    stop = runStop;
-
-    const taskId = `acp-${crypto.randomUUID()}`;
-    const budget = new SubagentBudget({
-      timeoutMs: 5 * 60 * 1000,
-      maxIterations: 2000,
-      maxToolCalls: 5000,
-    });
-
-    const ctx: SubagentRunContext = {
-      subagentId,
-      config: {
-        id: subagentId,
-        name: cmd.role ?? subagentId,
-        role: subagentId,
-        provider: 'acp',
-        prompt: '',
-      },
-      budget,
-      signal: new AbortController().signal,
-      bridge: null,
-    };
-
-    budget.start();
-
-    deps.renderer.writeInfo('Running task…\n');
-
-    const result = await runner({ id: taskId, description: task }, ctx);
 
     deps.renderer.write('\n--- Result ---\n');
-    deps.renderer.write(String(result.result ?? 'no result'));
+    deps.renderer.write(result.result.length > 0 ? result.result : 'no result');
     deps.renderer.write('\n---------------\n');
     deps.renderer.writeInfo(
       `Done. iterations=${result.iterations} toolCalls=${result.toolCalls}\n`,
     );
     return 0;
   } catch (err) {
-    // The runner throws structured SubagentError shapes; surface the
+    // runOneAcpTask throws structured SubagentError shapes; surface the
     // `kind` for clarity (e.g. aborted_by_parent, bridge_failed).
     const e = err as { kind?: string; message?: string };
     const detail = e.kind ? `[${e.kind}] ` : '';
@@ -395,7 +408,6 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
     deps.renderer.writeError(`ACP agent error: ${detail}${message}\n`);
     return 1;
   } finally {
-    cleanup();
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
   }
@@ -449,10 +461,12 @@ async function parallelACPAgents(
   process.on('SIGTERM', onSignal);
 
   try {
+    const overrides = acpOverrides(deps);
+    const live = await loadLive(deps);
     const result = await runEnsemble({
       agentIds: csv,
       task,
-      resolveCmd: resolveCmdFromCatalog,
+      resolveCmd: (id) => resolveAcpAgentCommand(id, overrides, live?.byId),
       signal: ac.signal,
       onProgress: (agentId, event) => {
         const line = formatProgress(event);
@@ -516,6 +530,99 @@ async function parallelACPAgents(
 
     // 0 if at least one agent succeeded, 1 otherwise.
     return succeeded > 0 ? 0 : 1;
+  } finally {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  }
+}
+
+async function probeACPAgents(args: string[], deps: SubcommandDeps): Promise<number> {
+  const csv = args.join(' ');
+  let ids: string[];
+  if (csv) {
+    ids = csv.split(',').flatMap((s) => s.split(/\s+/)).map((s) => s.trim()).filter(Boolean);
+  } else {
+    const detected = await new EnsembleRegistry().list();
+    ids = detected.filter((a) => a.installed).map((a) => a.id);
+  }
+  if (ids.length === 0) {
+    deps.renderer.writeError('No installed agents to probe.\n');
+    return 1;
+  }
+  const overrides = acpOverrides(deps);
+  const live = await loadLive(deps);
+  deps.renderer.writeInfo(
+    `Probing ${ids.length} agent(s)… (npx-based agents may download on first run)\n`,
+  );
+  const results = await probeAcpAgents({
+    agentIds: ids,
+    resolveCmd: (id) => resolveAcpAgentCommand(id, overrides, live?.byId),
+    projectRoot: deps.cwd ?? process.cwd(),
+    onProgress: (id, r) => deps.renderer.writeInfo(`  ${r.ok ? '✓' : '✗'} ${id} (${r.ms}ms)\n`),
+  });
+  deps.renderer.write('\nACP handshake probe:\n\n');
+  for (const r of results) {
+    if (r.ok) {
+      const info = r.agentInfo ? ` — ${r.agentInfo.name} ${r.agentInfo.version}` : '';
+      deps.renderer.write(`  ✓ ${r.id.padEnd(16)} ok  ${r.ms}ms${info}\n`);
+    } else {
+      deps.renderer.write(`  ✗ ${r.id.padEnd(16)} ${r.error ?? 'failed'}  (${r.ms}ms)\n`);
+    }
+  }
+  const ok = results.filter((r) => r.ok).length;
+  deps.renderer.write(`\n${ok} of ${results.length} agents completed the ACP handshake.\n`);
+  return ok > 0 ? 0 : 1;
+}
+
+async function benchACPAgents(args: string[], deps: SubcommandDeps): Promise<number> {
+  // `--fs` is parsed into deps.flags by the subcommand arg parser (flags never
+  // arrive in `args`); tolerate a literal token too for safety.
+  const checkFs =
+    deps.flags?.fs === true || deps.flags?.fs === 'true' || args.includes('--fs');
+  const csv = args.filter((a) => a !== '--fs').join(' ');
+
+  let ids: string[];
+  if (csv) {
+    ids = csv
+      .split(',')
+      .flatMap((s) => s.split(/\s+/))
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } else {
+    const detected = await new EnsembleRegistry().list();
+    ids = detected.filter((a) => a.installed).map((a) => a.id);
+  }
+  if (ids.length === 0) {
+    deps.renderer.writeError('No installed agents to bench.\n');
+    deps.renderer.write('Pass ids explicitly: `wstack acp bench gemini-cli,codex-cli`.\n');
+    return 1;
+  }
+
+  const ac = new AbortController();
+  const onSignal = () => ac.abort();
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+
+  try {
+    const overrides = acpOverrides(deps);
+    const live = await loadLive(deps);
+    deps.renderer.writeInfo(
+      `Benching ${ids.length} agent(s)${checkFs ? ' (with fs check)' : ''}: ${ids.join(', ')}…\n`,
+    );
+    const result = await runAcpBench({
+      agentIds: ids,
+      resolveCmd: (id) => resolveAcpAgentCommand(id, overrides, live?.byId),
+      projectRoot: deps.cwd ?? process.cwd(),
+      checkFs,
+      signal: ac.signal,
+      onProgress: (agentId, phase, r) => {
+        if (phase === 'start') deps.renderer.writeInfo(`  ▸ ${agentId}…\n`);
+        else if (r) deps.renderer.writeInfo(`  ↳ ${agentId}: ${r.status}\n`);
+      },
+    });
+    deps.renderer.write(`\n${renderAcpBenchText(result)}\n`);
+    // Exit 0 if at least one agent passed; 1 otherwise.
+    return result.summary.pass > 0 ? 0 : 1;
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);

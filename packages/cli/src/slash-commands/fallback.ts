@@ -12,6 +12,18 @@ import { smartDefaultFallbackChain } from '../fallback-model.js';
 import type { SlashCommandContext } from './index.js';
 
 /**
+ * Canonicalize a model reference so equivalent spellings dedupe:
+ * collapses whitespace around the provider/model slash and trims.
+ * `anthropic / claude-x` and `anthropic/claude-x` become the same key.
+ */
+function normalizeRef(ref: string): string {
+  return ref
+    .trim()
+    .replace(/\s*\/\s*/g, '/')
+    .replace(/\s+/g, ' ');
+}
+
+/**
  * Read the global config, apply `mutate`, write it back atomically, and
  * mirror the change into the in-memory config store. Mirrors the helper in
  * `setmodel.ts` — pure I/O, safe under both the plain REPL and the Ink TUI.
@@ -141,11 +153,11 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
 
       try {
         if (sub === 'add') {
-          const ref = parts.slice(1).join(' ').trim();
+          const ref = normalizeRef(parts.slice(1).join(' '));
           if (!ref) {
             return { message: `${color.amber('Usage:')} /fallback add <provider/model>` };
           }
-          if (explicit.includes(ref)) {
+          if (explicit.some((e) => normalizeRef(e) === ref)) {
             return { message: `${color.amber('Already in chain')}: ${color.cyan(ref)}` };
           }
           explicit.push(ref);
@@ -169,7 +181,8 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
           if (String(asNum) === target && asNum >= 1 && asNum <= explicit.length) {
             idx = asNum - 1;
           } else {
-            idx = explicit.indexOf(target);
+            const targetNorm = normalizeRef(target);
+            idx = explicit.findIndex((e) => normalizeRef(e) === targetNorm);
           }
           if (idx < 0) {
             return {

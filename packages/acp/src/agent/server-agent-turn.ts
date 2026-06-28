@@ -138,12 +138,22 @@ export function makeACPServerAgentTurn(
       }
     }
 
-    // Per-turn safety belt: even if the agent ignores the parent
-    // signal, the timer will fire and we'll surface a cancelled
-    // result. The agent's actual run is called with the parent
-    // signal so genuine cancellation propagates correctly.
+    // Per-turn safety belt: a hard wall-clock cap that actually aborts the
+    // run. We drive `agent.run` with a derived signal that fires when EITHER
+    // the parent signal (client `session/cancel`) aborts OR the timer
+    // elapses. Without this, a provider call that ignores the parent signal
+    // would hang forever despite the documented `timeoutMs` cap.
+    const turnAbort = new AbortController();
+    const abortForTimeout = (): void => turnAbort.abort();
+    const onParentAbort = (): void => turnAbort.abort();
+    if (input.signal.aborted) {
+      turnAbort.abort();
+    } else {
+      input.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
     const timer = setTimeout(() => {
       timeouts.delete(input.sessionId);
+      abortForTimeout();
     }, timeoutMs);
     timeouts.set(input.sessionId, timer);
 
@@ -186,7 +196,7 @@ export function makeACPServerAgentTurn(
 
     try {
       const userInput = promptToAgentInput(input.prompt);
-      const result = await agent.run(userInput, { signal: input.signal });
+      const result = await agent.run(userInput, { signal: turnAbort.signal });
 
       // Stream the agent's final text back
       const text = extractText(result);
@@ -229,7 +239,9 @@ export function makeACPServerAgentTurn(
       }
 
       const result_out: RunTurnResult = {
-        stopReason: pickStopReason(result, input.signal),
+        // `turnAbort.signal` covers both client cancellation and the
+        // wall-clock timeout, so either maps to stopReason 'cancelled'.
+        stopReason: pickStopReason(result, turnAbort.signal),
       };
       if (text) result_out.text = text;
       const runTurnPlan = extractPlan(result);
@@ -239,6 +251,7 @@ export function makeACPServerAgentTurn(
     } finally {
       clearTimeout(timer);
       timeouts.delete(input.sessionId);
+      input.signal.removeEventListener('abort', onParentAbort);
       for (const u of unsub) u();
     }
   };

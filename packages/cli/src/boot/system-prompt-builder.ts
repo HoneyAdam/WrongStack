@@ -70,6 +70,8 @@ export interface MutableRef<T> {
 export interface SystemPromptBuilderPaths {
   projectGoal: string;
   projectSessions: string;
+  globalInstructions?: string | undefined;
+  inProjectInstructions?: string | undefined;
 }
 
 /**
@@ -164,6 +166,10 @@ export function bindSystemPromptBuilder(deps: BindSystemPromptBuilderDeps): void
         modePrompt: deps.modePrompt,
         modelCapabilities: deps.modelCapabilities,
         tokenSavingMode: deps.tokenSavingMode,
+        instructionPaths: {
+          globalDir: deps.paths.globalInstructions,
+          projectDir: deps.paths.inProjectInstructions,
+        },
         planPath: () =>
           deps.sessionRef.current
             ? deps.pathJoiner.join(

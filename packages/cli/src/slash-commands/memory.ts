@@ -8,7 +8,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     name: 'memory',
     category: 'Inspect',
     description:
-      'Inspect or edit persistent memory: /memory [show|remember <text>|forget <query>|clear|compact|stats]',
+      'Inspect or edit persistent memory: /memory [show|remember <text>|forget <query> [--exact]|clear|compact|stats]',
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
@@ -34,10 +34,33 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'forget':
         case 'rm': {
-          if (!restJoined) return { message: 'Usage: /memory forget <query>' };
-          const n = await store.forget(restJoined);
+          const exact = rest.includes('--exact');
+          const query = rest
+            .filter((t) => t !== '--exact')
+            .join(' ')
+            .trim();
+          if (!query) return { message: 'Usage: /memory forget <query> [--exact]' };
+          if (exact) {
+            // Exact mode: refuse to delete unless the query matches whole
+            // entries and nothing else by substring — guards against a short
+            // query (e.g. "auth") silently nuking unrelated entries.
+            const entries = await store.list('project-memory');
+            const ql = query.toLowerCase();
+            const substringHits = entries.filter((e) => e.text.toLowerCase().includes(ql));
+            const exactHits = entries.filter((e) => e.text.trim() === query);
+            if (exactHits.length === 0) {
+              return { message: `No entry exactly matched "${query}".` };
+            }
+            if (substringHits.length > exactHits.length) {
+              const extra = substringHits.length - exactHits.length;
+              return {
+                message: `Refusing --exact forget: "${query}" also partially matches ${extra} other entr${extra === 1 ? 'y' : 'ies'}. Use the full entry text, or drop --exact to delete all ${substringHits.length} matches.`,
+              };
+            }
+          }
+          const n = await store.forget(query);
           return {
-            message: n === 0 ? `No entries matched "${restJoined}".` : `Forgot ${n} entries.`,
+            message: n === 0 ? `No entries matched "${query}".` : `Forgot ${n} entries.`,
           };
         }
         case 'clear': {

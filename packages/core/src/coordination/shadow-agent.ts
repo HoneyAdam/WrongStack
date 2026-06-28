@@ -14,6 +14,10 @@
  * - Cross-terminal visibility via shared mailbox
  */
 import { randomUUID } from 'node:crypto';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -332,30 +336,13 @@ export function buildAnalysisPrompt(
   fleetStatus: FleetStatusInput,
   recentEvents: Array<{ type: string; subagentId: string; ts: number }>,
 ): string {
-  return `You are the Shadow Agent analyzer. Given the current fleet state and recent events,
-determine if there are any anomalies that need attention.
-
-## Current State
-${generateStatusReport(state, fleetStatus)}
-
-## Recent FleetBus Events (last 20)
-${recentEvents.slice(-20).map(e =>
-  `[${new Date(e.ts).toISOString()}] ${e.type} on ${e.subagentId}`
-).join('\n') || 'None'}
-
-## Analysis Request
-Identify:
-1. Agents that appear stuck or unresponsive
-2. Unusual task patterns (spikes, rapid spawning)
-3. Mailbox anomalies (orphan assigns, loops)
-4. Any critical issues requiring intervention
-
-Respond with:
-- JSON array of detected anomalies (or empty array)
-- One-line summary of fleet health
-
-Example response:
-{"anomalies": [], "summary": "Fleet healthy — 3 agents running normally"}`;
+  return renderInstructionTemplate(readBundledInstructionText('llm/shadow-agent-analyzer.md'), {
+    currentState: generateStatusReport(state, fleetStatus),
+    recentEvents:
+      recentEvents.slice(-20).map(e =>
+        `[${new Date(e.ts).toISOString()}] ${e.type} on ${e.subagentId}`
+      ).join('\n') || 'None',
+  });
 }
 
 // ── Intervention Execution ──────────────────────────────────────────────────

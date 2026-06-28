@@ -26,11 +26,10 @@
  *    `finally`, so a throw in the body still tears the child down.
  */
 import { EnsembleRegistry, type DetectedAgent } from '../registry/ensemble-registry.js';
-import { findAgentDescriptor } from '../registry/agents.catalog.js';
 import { SubagentBudget } from '@wrongstack/core/coordination';
 import {
-  ACP_AGENT_COMMANDS,
   makeACPSubagentRunnerWithStop,
+  resolveAcpAgentCommand,
   type ACPSubagentRunnerOptions,
 } from './acp-subagent-runner.js';
 import type { ACPProgressEvent } from '../client/acp-session.js';
@@ -170,23 +169,12 @@ async function mapBound<T, R>(
 }
 
 /**
- * Default command resolver. Checks the legacy `ACP_AGENT_COMMANDS` map
- * first, then falls back to the 12-entry catalog. Returns `null` for
- * ids that aren't in either source.
+ * Default command resolver — delegates to `resolveAcpAgentCommand`, so the
+ * catalog's corrected invocations win over the stale legacy map (the legacy
+ * map is now only a last-resort fallback). Returns `null` for unknown ids.
  */
-export const defaultEnsembleCmdResolver: EnsembleCmdResolver = (id) => {
-  const fromMap = ACP_AGENT_COMMANDS[id];
-  if (fromMap) return fromMap;
-  const desc = findAgentDescriptor(id);
-  if (!desc) return null;
-  const out: ACPSubagentRunnerOptions = {
-    command: desc.acp.command,
-    args: [...(desc.acp.args ?? [])],
-    role: id,
-  };
-  if (desc.acp.env) out.env = desc.acp.env;
-  return out;
-};
+export const defaultEnsembleCmdResolver: EnsembleCmdResolver = (id) =>
+  resolveAcpAgentCommand(id);
 
 /**
  * Update one result in-place. Keeps the array order stable so callers

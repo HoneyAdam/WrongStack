@@ -436,11 +436,11 @@ export class ACPProtocolHandler {
         case 'mcp/message':
           return await this.handleMcpMessage(id, params);
         default:
-          if (method.startsWith('document/') || method.startsWith('nes/') || method.startsWith('elicitation/')) {
-            // Spec: notifications don't require a response.
-            // These are IDE-specific features we don't yet implement.
-            return false;
-          }
+          // Everything reaching handleRequest carries an id, so it's a
+          // JSON-RPC *request* and MUST get a response — otherwise a
+          // conformant client blocks forever awaiting it. Unimplemented
+          // IDE features (document/*, nes/*, elicitation/*) and any other
+          // unknown method get a standard method-not-found error.
           await this.sendError(id, -32601, `Unknown method: ${method}`);
           return false;
       }
@@ -456,15 +456,13 @@ export class ACPProtocolHandler {
     if (p.clientCapabilities && typeof p.clientCapabilities === 'object') {
       this.clientCapabilities = p.clientCapabilities;
     }
-    const requested = typeof p.protocolVersion === 'number' ? p.protocolVersion : 1;
-    if (requested !== ACP_PROTOCOL_VERSION) {
-      await this.sendError(
-        id,
-        -32000,
-        `server speaks protocolVersion=${ACP_PROTOCOL_VERSION}, client requested ${requested}`,
-      );
-      return false;
-    }
+    // Version negotiation per spec: the client advertises its latest
+    // supported version; the agent replies with the version it will use —
+    // the client's if supported, otherwise the agent's own latest. We must
+    // NOT error on a mismatch (that breaks a forward-compatible client that
+    // requested a newer protocol): we simply respond with the version we
+    // speak and let the client decide whether to proceed. The client side
+    // (`ACPSession.initialize`) already mirrors this lenient negotiation.
     this.initialized = true;
     await this.transport.send(toWire({
       jsonrpc: '2.0',

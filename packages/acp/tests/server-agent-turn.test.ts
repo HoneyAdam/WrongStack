@@ -387,4 +387,40 @@ describe('makeACPServerAgentTurn', () => {
     expect(createCount.value).toBe(1);
     expect(sharedRun).toHaveBeenCalledTimes(2);
   });
+
+  it('aborts a hung run when the wall-clock timeout elapses and reports cancelled', async () => {
+    // A run that never resolves on its own — it only settles when its signal
+    // aborts (a provider that respects cancellation but never returns). With
+    // the old dead timer this would hang past the test timeout; the fixed
+    // safety belt aborts the derived signal so the turn resolves 'cancelled'.
+    const hungAgent = {
+      run: vi.fn(
+        (_input: unknown, opts: { signal: AbortSignal }) =>
+          new Promise((resolve) => {
+            opts.signal.addEventListener(
+              'abort',
+              () => resolve({ text: '', stopReason: 'end_turn' }),
+              { once: true },
+            );
+          }),
+      ),
+      teardown: vi.fn(async () => {}),
+    };
+    const turn = makeACPServerAgentTurn({
+      agentFor: async () => hungAgent as never as Agent,
+      timeoutMs: 20,
+    });
+
+    const result = await turn(
+      {
+        sessionId: 's-timeout',
+        prompt: [{ type: 'text', text: 'go' }],
+        signal: new AbortController().signal,
+      },
+      () => {},
+    );
+
+    expect(hungAgent.run).toHaveBeenCalledTimes(1);
+    expect(result.stopReason).toBe('cancelled');
+  });
 });

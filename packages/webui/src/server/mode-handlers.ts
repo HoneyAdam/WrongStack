@@ -9,6 +9,7 @@ import type { WebSocket } from 'ws';
 import {
   type Context,
   DefaultSystemPromptBuilder,
+  resolveWstackPaths,
   type DefaultMemoryStore,
   type DefaultModeStore,
   type SkillLoader,
@@ -48,6 +49,7 @@ export interface ModeHandlersContext {
   toolRegistry: ToolRegistry;
   config: { provider: string; model: string };
   projectRoot: string;
+  globalRoot: string;
   clients: Map<WebSocket, ConnectedClient>;
   /** Update the outer `modeId` binding on a successful switch. */
   setModeId: (id: string) => void;
@@ -101,6 +103,7 @@ export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers 
         }
         ctx.setModeId(id);
         const modePrompt = id === 'default' ? '' : ((await ctx.modeStore.getMode(id))?.prompt ?? '');
+        const paths = resolveWstackPaths({ projectRoot: ctx.projectRoot, globalRoot: ctx.globalRoot });
         const freshBuilder = new DefaultSystemPromptBuilder({
           memoryStore: ctx.memoryStore,
           skillLoader: ctx.skillLoader,
@@ -108,6 +111,10 @@ export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers 
           modeId: id,
           modePrompt,
           modelCapabilities: ctx.modelCapabilities,
+          instructionPaths: {
+            globalDir: paths.globalInstructions,
+            projectDir: paths.inProjectInstructions,
+          },
         });
         ctx.context.systemPrompt = await freshBuilder.build({
           cwd: ctx.projectRoot,

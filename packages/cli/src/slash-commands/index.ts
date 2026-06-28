@@ -483,6 +483,7 @@ import { buildDiagCommand, buildStatsCommand } from './diag-stats.js';
 import { buildDoctorCommand } from './doctor.js';
 import { buildEnhanceCommand } from './enhance.js';
 import { buildEnsembleCommand } from './ensemble.js';
+import { buildAcpCommand } from './acp.js';
 import { buildFallbackCommand } from './fallback.js';
 import { buildFixCommand } from './fix.js';
 import { buildFleetCommand } from './fleet.js';
@@ -563,6 +564,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     ...buildFKeyAliasCommands(opts),
     buildEnhanceCommand(opts),
     buildEnsembleCommand(opts),
+    buildAcpCommand(opts),
     buildMemoryCommand(opts),
     buildTodosCommand(opts),
     buildTasksCommand(opts),

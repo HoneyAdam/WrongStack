@@ -117,6 +117,10 @@ export async function switchProjectInPlace(
       modeStore,
       modeId: modeId ?? 'default',
       modePrompt: switchMode?.prompt ?? '',
+      instructionPaths: {
+        globalDir: nextWpaths.globalInstructions,
+        projectDir: nextWpaths.inProjectInstructions,
+      },
     });
     context.systemPrompt = await switchBuilder.build({
       cwd: resolved,

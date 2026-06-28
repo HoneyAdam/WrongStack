@@ -16,6 +16,10 @@ import { readFile, readdir, mkdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { sanitizeJsonString } from '../utils/safe-json.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 export interface SecurityScannerOptions {
   projectRoot: string;
   scanOptions?: {
@@ -168,55 +172,26 @@ export class SecurityScannerOrchestrator {
     // Gather project info for LLM context
     const projectInfo = await this.gatherProjectInfo(projectRoot, techStack);
 
-    const prompt = `You are a security expert generating a customized security scanning skill for a specific project.
-
-Analyze the following project and generate a detailed security skill with:
-1. Project-specific vulnerability patterns based on the tech stack and structure
-2. Language/framework specific security concerns
-3. Common attack vectors for this type of application
-4. File patterns to scan
-
-## Project Information:
-${projectInfo}
-
-## Tech Stack:
-- Language: ${techStack.stack}
-- Package Manager: ${techStack.packageManager}
-- Manifest: ${techStack.manifestFile}
-
-## Dependencies (first 20):
-${techStack.dependencies.slice(0, 20).map(d => `- ${d.name}@${d.version}`).join('\n')}
-
-## Your Task:
-Generate a JSON security skill with the following structure:
-{
-  "name": "security-scanner-${techStack.stack}",
-  "description": "Custom security scanner for this project",
-  "techStack": "${techStack.stack}",
-  "patterns": [
-    {
-      "id": "unique-pattern-id",
-      "name": "Pattern Name",
-      "severity": "critical|high|medium|low",
-      "description": "What this detects",
-      "fileExtensions": [".ts", ".js"],
-      "remediation": "How to fix"
-    }
-  ],
-  "targetFiles": ["**/*.ts", "**/*.js"],
-  "scanInstructions": "Detailed instructions for scanning this codebase"
-}
-
-Focus on:
-- ${techStack.stack === 'nodejs' ? 'Node.js specific: eval, prototype pollution, npm script injection, express middleware issues, passport.js misconfigs' : ''}
-- ${techStack.stack === 'python' ? 'Python specific: pickle deserialization, SQL injection in ORMs, template injection, insecure Django/Flask settings' : ''}
-- Common: hardcoded secrets, SQL injection, command injection, XSS, path traversal, XXE
-
-Return ONLY the JSON object, no markdown, no explanation.`;
+    const prompt = renderInstructionTemplate(
+      readBundledInstructionText('security-scanner/generate-skill.md'),
+      {
+        projectInfo,
+        stack: techStack.stack,
+        packageManager: techStack.packageManager,
+        manifestFile: techStack.manifestFile,
+        dependencies: techStack.dependencies.slice(0, 20).map(d => `- ${d.name}@${d.version}`).join('\n'),
+        nodeFocus: techStack.stack === 'nodejs'
+          ? 'Node.js specific: eval, prototype pollution, npm script injection, express middleware issues, passport.js misconfigs'
+          : '',
+        pythonFocus: techStack.stack === 'python'
+          ? 'Python specific: pickle deserialization, SQL injection in ORMs, template injection, insecure Django/Flask settings'
+          : '',
+      },
+    );
 
     const request: Request = {
       model: model ?? 'unknown',
-      system: [{ type: 'text', text: 'You are a security expert. Return ONLY valid JSON.' }],
+      system: [{ type: 'text', text: readBundledInstructionText('security-scanner/json-system.md') }],
       messages: [{ role: 'user', content: prompt }],
       maxTokens: 4096,
     };
@@ -335,45 +310,18 @@ Return ONLY the JSON object, no markdown, no explanation.`;
 
     if (fileContents.length === 0) return [];
 
-    const prompt = `You are a security expert analyzing code for vulnerabilities.
-
-## Security Patterns to Detect (from generated skill):
-${skill.patterns.map(p => `- ${p.name} (${p.severity}): ${p.description}`).join('\n')}
-
-## Files to Analyze:
-${fileContents.join('\n')}
-
-## Your Task:
-Analyze each file for security vulnerabilities matching the patterns above.
-For each finding, provide:
-1. File path (relative path from === markers)
-2. Line number if identifiable
-3. Severity (critical/high/medium/low)
-4. Category (secrets/injection/config/dependency)
-5. Description of the issue
-6. Code snippet showing the vulnerability
-7. Remediation steps
-
-Return a JSON array of findings:
-[
-  {
-    "file": "path/to/file.ts",
-    "line": 42,
-    "severity": "high",
-    "category": "injection",
-    "title": "SQL Injection Risk",
-    "description": "...",
-    "snippet": "actual code...",
-    "remediation": "..."
-  }
-]
-
-Return ONLY the JSON array. If no issues found, return [].`;
+    const prompt = renderInstructionTemplate(
+      readBundledInstructionText('security-scanner/analyze-batch.md'),
+      {
+        patterns: skill.patterns.map(p => `- ${p.name} (${p.severity}): ${p.description}`).join('\n'),
+        files: fileContents.join('\n'),
+      },
+    );
 
     try {
       const request: Request = {
         model: model ?? 'unknown',
-        system: [{ type: 'text', text: 'You are a security expert. Return ONLY valid JSON.' }],
+        system: [{ type: 'text', text: readBundledInstructionText('security-scanner/json-system.md') }],
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 4096,
       };
@@ -433,48 +381,33 @@ Return ONLY the JSON array. If no issues found, return [].`;
     techStack: TechStackInfo,
     scanResult: ScanResult
   ): Promise<string> {
-    const prompt = `You are a security expert writing a comprehensive security report.
-
-## Scan Results:
-- Scanned Files: ${scanResult.scannedFiles}
-- Total Findings: ${scanResult.summary.total}
-- Critical: ${scanResult.summary.critical}
-- High: ${scanResult.summary.high}
-- Medium: ${scanResult.summary.medium}
-- Low: ${scanResult.summary.low}
-
-## Detailed Findings:
-${scanResult.findings.map((f, i) => `
+    const prompt = renderInstructionTemplate(
+      readBundledInstructionText('security-scanner/synthesize-report.md'),
+      {
+        scannedFiles: String(scanResult.scannedFiles),
+        totalFindings: String(scanResult.summary.total),
+        critical: String(scanResult.summary.critical),
+        high: String(scanResult.summary.high),
+        medium: String(scanResult.summary.medium),
+        low: String(scanResult.summary.low),
+        findings: scanResult.findings.map((f, i) => `
 ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
    File: ${f.file}${f.line ? `:${f.line}` : ''}
    Category: ${f.category}
    Description: ${f.description}
    ${f.snippet ? `Code: \`\`\`\n${f.snippet}\n\`\`\`` : ''}
    Remediation: ${f.remediation}
-`).join('\n')}
-
-## Project:
-- Root: ${projectRoot}
-- Tech Stack: ${techStack.stack} (${techStack.packageManager})
-
-## Your Task:
-Write a comprehensive markdown security report with:
-1. Executive Summary (overall security posture)
-2. Critical Issues (with detailed analysis and remediation)
-3. High Priority Issues
-4. Medium Priority Issues
-5. Low Priority / Informational
-6. Security Recommendations (prioritized action items)
-7. Summary Table
-
-Format with proper markdown, emojis for severity, and actionable remediation steps.
-
-Be specific about the vulnerabilities found and how to fix them.`;
+`).join('\n'),
+        projectRoot,
+        stack: techStack.stack,
+        packageManager: techStack.packageManager,
+      },
+    );
 
     try {
       const request: Request = {
         model: model ?? 'unknown',
-        system: [{ type: 'text', text: 'You are a security expert writing detailed reports.' }],
+        system: [{ type: 'text', text: readBundledInstructionText('security-scanner/report-system.md') }],
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 8192,
       };

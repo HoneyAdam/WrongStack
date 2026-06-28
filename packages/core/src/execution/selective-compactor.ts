@@ -7,6 +7,7 @@ import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
+import { readBundledInstructionText } from '../utils/instruction-file.js';
 import {
   eliseOldToolResults as coreEliseOldToolResults,
   estimateMessages,
@@ -88,7 +89,7 @@ export class SelectiveCompactor implements Compactor {
     }
     this.summarizerPrompt =
       opts.summarizerPrompt ??
-      'You are a context summarizer. Given a list of messages, produce a concise summary that preserves all factual information, decisions, file changes, and state changes. Do not add commentary or opinions.';
+      readBundledInstructionText('llm/selective-compactor-summarizer.md');
   }
 
   async compact(ctx: Context, opts: { aggressive?: boolean | undefined } = {}): Promise<CompactReport> {

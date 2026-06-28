@@ -210,6 +210,30 @@ export function getCurrentExecutingContext(): string | null {
   ].join('\n');
 }
 
+/**
+ * Resolve a `/sdd done|skip|fail|review <N|title>` argument to a single task
+ * node. Tries a 1-based index into the given (already filtered/sorted) node
+ * list first, then a bidirectional case-insensitive title-substring match.
+ * Centralizes the matching the four mutation subcommands used to duplicate.
+ */
+export function matchTaskNode<T extends { id: string; title: string }>(
+  nodes: T[],
+  query: string,
+): T | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed);
+  if (!Number.isNaN(num) && num >= 1 && num <= nodes.length) {
+    return nodes[num - 1] ?? null;
+  }
+  const q = trimmed.toLowerCase();
+  return (
+    nodes.find(
+      (n) => n.title.toLowerCase().includes(q) || q.includes(n.title.toLowerCase()),
+    ) ?? null
+  );
+}
+
 export function markTaskCompleted(taskTitle: string): boolean {
   const tracker = sddState.getTaskTracker();
   if (!tracker) return false;

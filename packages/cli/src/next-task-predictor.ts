@@ -10,7 +10,7 @@
  * The result is display-only: predictions are shown to the user, never executed.
  */
 
-import type { TodoItem } from '@wrongstack/core';
+import { readBundledInstructionText, type TodoItem } from '@wrongstack/core';
 import type { CommitLLMProvider } from './slash-commands/commit-llm.js';
 
 /** Provider shape required to predict — same structural contract as commit-llm. */
@@ -34,15 +34,7 @@ export interface PredictOpts {
   signal?: AbortSignal | undefined;
 }
 
-const SYSTEM_PROMPT =
-  "You predict the developer's most likely NEXT actions in a coding session. " +
-  'Given what they just asked and what the assistant just did, output the 1-3 most ' +
-  'probable next steps. Each must be a concrete, actionable task phrased as an ' +
-  'imperative the user could hand back to the assistant (e.g. "Add tests for the new ' +
-  'parser", "Wire the command into the CLI"). ' +
-  'Output ONLY a numbered list, one step per line, no preamble, no explanation. ' +
-  'Prefer steps that follow naturally from unfinished todos or obvious gaps. ' +
-  'If there is genuinely nothing meaningful left to do, output exactly: NONE';
+const SYSTEM_PROMPT = readBundledInstructionText('cli/next-task-predictor.md');
 
 const MAX_REQUEST_CHARS = 1200;
 const MAX_SUMMARY_CHARS = 1200;

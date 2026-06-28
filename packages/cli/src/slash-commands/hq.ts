@@ -57,6 +57,9 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
       'Saved to ~/.wrongstack/config.json (global). Telemetry connects on the',
       'NEXT session start (an already-running session keeps its connection).',
       'A locally running `wstack --hq` is auto-discovered with no config.',
+      '',
+      '/hq is the canonical HQ command. The /settings hq* entries write the same',
+      'config keys, so either works; prefer /hq for HQ connection management.',
     ].join('\n'),
     async run(args) {
       const { cmd, rest } = parseSubcommand(args);

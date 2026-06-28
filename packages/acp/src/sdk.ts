@@ -146,7 +146,14 @@ export {
   makeACPSubagentRunner,
   makeACPSubagentRunnerWithStop,
   ACP_AGENT_COMMANDS,
+  resolveAcpAgentCommand,
+  runOneAcpTask,
+  probeAcpAgent,
 } from './integration/acp-subagent-runner.js';
 export type {
   ACPSubagentRunnerOptions,
+  AcpAgentCommandOverrides,
+  RunOneAcpTaskOptions,
+  RunOneAcpTaskResult,
+  AcpProbeResult,
 } from './integration/acp-subagent-runner.js';

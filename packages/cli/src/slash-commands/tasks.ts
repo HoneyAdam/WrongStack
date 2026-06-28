@@ -103,7 +103,20 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
       // Read-only ops — no lock overhead
       if (cmd === '' || cmd === 'show' || cmd === 'list') {
         const file = await loadTasks(taskPath);
-        return { message: formatTaskList(file?.tasks ?? []) };
+        const all = file?.tasks ?? [];
+        // Optional status filter: `/tasks show <status>` or `--status <status>`.
+        const filterArg = restJoined.replace(/^--status\s+/, '').trim();
+        const statusFilter = filterArg ? validateStatus(filterArg) : null;
+        if (filterArg && !statusFilter) {
+          return {
+            message: `Invalid status "${filterArg}". Valid: pending, in_progress, blocked, failed, review, completed.`,
+          };
+        }
+        const tasks = statusFilter ? all.filter((t) => t.status === statusFilter) : all;
+        if (statusFilter && tasks.length === 0) {
+          return { message: `No tasks with status "${statusFilter}".` };
+        }
+        return { message: formatTaskList(tasks) };
       }
       if (cmd === 'progress' || cmd === 'statusline') {
         const file = await loadTasks(taskPath);
@@ -299,7 +312,14 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
                 promotedFromTask: found.item.id,
               });
             }
-            ctx.state.replaceTodos(todos);
+            // Append to the existing todo list rather than replacing it, so a
+            // /tasks promote doesn't wipe unrelated in-flight todos. Drop any
+            // todos previously promoted from this same task to stay idempotent.
+            const existing = ctx.state.todos.filter(
+              (t) =>
+                (t as { promotedFromTask?: string }).promotedFromTask !== found.item.id,
+            );
+            ctx.state.replaceTodos([...existing, ...todos]);
             outputMessage = `Promoted to ${todos.length} todo(s): "${found.item.title}"\n\n${formatTaskProgress(file.tasks)}`;
             break;
           }

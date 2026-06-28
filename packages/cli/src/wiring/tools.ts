@@ -164,6 +164,10 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
     modePrompt,
     modelCapabilities,
     tokenSavingMode: tier,
+    instructionPaths: {
+      globalDir: wpaths.globalInstructions,
+      projectDir: wpaths.inProjectInstructions,
+    },
   });
 
   const systemPrompt = promptBuilder.build({

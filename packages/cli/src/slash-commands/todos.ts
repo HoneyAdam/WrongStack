@@ -63,6 +63,17 @@ export function buildTodosCommand(opts: SlashCommandContext): SlashCommand {
           ctx.state.replaceTodos([...ctx.todos, item]);
           return { message: `Added: ${restJoined}` };
         }
+        case 'done-all':
+        case 'complete-all': {
+          const pending = ctx.todos.filter((t) => t.status !== 'completed');
+          if (pending.length === 0) return { message: 'No pending todos to complete.' };
+          ctx.state.replaceTodos(
+            ctx.todos.map((t) =>
+              t.status === 'completed' ? t : { ...t, status: 'completed' as const },
+            ),
+          );
+          return { message: `Marked ${pending.length} todo${pending.length === 1 ? '' : 's'} done.` };
+        }
         case 'done':
         case 'complete': {
           if (!restJoined) return { message: 'Usage: /todos done <id|index>' };
@@ -89,7 +100,7 @@ export function buildTodosCommand(opts: SlashCommandContext): SlashCommand {
         }
         default:
           return {
-            message: unknownSubcommand(cmd, ['show', 'clear', 'add', 'done', 'remove'], 'todos') +
+            message: unknownSubcommand(cmd, ['show', 'clear', 'add', 'done', 'done-all', 'remove'], 'todos') +
           '\n\nRelated: /plan (session-persistent roadmap) | /tasks (structured tasks with priorities)',
           };
       }

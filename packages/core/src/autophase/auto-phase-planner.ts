@@ -12,6 +12,10 @@
  */
 
 import type { TaskPriority, TaskType } from '../types/task-graph.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 import type { PhaseNode, PhaseTemplate } from './types.js';
 
 /** Single todo template, the element type of PhaseTemplate.taskTemplates. */
@@ -80,46 +84,13 @@ export class AutoPhasePlanner {
     const todos = this.opts.todosPerPhase ?? 6;
     const ctx = this.opts.projectContext?.trim();
 
-    return [
-      'You are an expert software project planner. Break the following goal into',
-      `a dependency-ordered list of ${minP}–${maxP} PHASES. Each phase must contain`,
-      `roughly ${todos} concrete, individually-actionable TODO tasks.`,
-      '',
-      `GOAL: ${this.opts.goal}`,
-      ctx ? `\nPROJECT CONTEXT:\n${ctx}\n` : '',
-      'Rules:',
-      '- Phases run in order; earlier phases are prerequisites for later ones.',
-      '- Each todo must be small enough for one focused work session.',
-      '- Each todo must be self-contained (an agent will execute it in isolation).',
-      '- Prefer concrete verbs ("Add X", "Refactor Y", "Write tests for Z").',
-      '',
-      'Respond with ONLY a JSON array inside a ```json code fence. No prose before',
-      'or after. Schema (TypeScript):',
-      '',
-      '```json',
-      '[',
-      '  {',
-      '    "name": "Phase name",',
-      '    "description": "What this phase accomplishes",',
-      '    "priority": "critical" | "high" | "medium" | "low",',
-      '    "estimateHours": number,',
-      '    "parallelizable": boolean,',
-      '    "tasks": [',
-      '      {',
-      '        "title": "Short task title",',
-      '        "description": "What to do and how to know it is done",',
-      '        "type": "feature" | "bugfix" | "refactor" | "docs" | "test" | "chore",',
-      '        "priority": "critical" | "high" | "medium" | "low",',
-      '        "estimateHours": number,',
-      '        "tags": ["optional", "labels"]',
-      '      }',
-      '    ]',
-      '  }',
-      ']',
-      '```',
-    ]
-      .filter((l) => l !== '')
-      .join('\n');
+    return renderInstructionTemplate(readBundledInstructionText('autophase/phase-planner.md'), {
+      minPhases: String(minP),
+      maxPhases: String(maxP),
+      todosPerPhase: String(todos),
+      goal: this.opts.goal,
+      projectContext: ctx ? `\nPROJECT CONTEXT:\n${ctx}\n` : '',
+    });
   }
 
   /** Extract JSON from raw output, validate it, and convert it to PhaseTemplate[]. */

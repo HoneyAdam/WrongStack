@@ -21,11 +21,11 @@ vi.mock('../src/registry/ensemble-registry.js', () => ({
 const makeACPSubagentRunnerWithStop = vi.fn();
 vi.mock('../src/integration/acp-subagent-runner.js', () => ({
   makeACPSubagentRunnerWithStop: (...a: unknown[]) => makeACPSubagentRunnerWithStop(...a),
-  // The default command resolver reads ACP_AGENT_COMMANDS at module
-  // load time. The resolver is only invoked when a test doesn't pass
-  // its own `resolveCmd`, so an empty map is fine for the tests that
-  // do override it.
   ACP_AGENT_COMMANDS: {},
+  // `defaultEnsembleCmdResolver` delegates to `resolveAcpAgentCommand`. The
+  // resolver is only hit when a test doesn't pass its own `resolveCmd`; return
+  // a trivial command so those paths resolve.
+  resolveAcpAgentCommand: (id: string) => ({ command: id, args: [], role: id }),
 }));
 
 import { runEnsemble, renderEnsembleText } from '../src/integration/ensemble-runner.js';

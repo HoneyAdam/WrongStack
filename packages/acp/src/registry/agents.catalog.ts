@@ -9,14 +9,13 @@
  *
  * Maintenance
  * ───────────
- * This is a static catalog by design. ACP v1 is a moving target: agents
- * ship ACP support, deprecate it, change invocation flags. Auto-fetching
- * a live registry sounds appealing but adds a runtime dependency on
- * network + on whatever schema the ACP team decides on for the Registry
- * RFD. A typed static file the maintainer refreshes on a known schedule
- * is more reliable, easier to diff in PRs, and keeps probe failures
- * attributable to the local machine rather than to a transient registry
- * outage.
+ * This is the OFFLINE FALLBACK catalog. The official, hourly-updated registry
+ * now lives at https://github.com/agentclientprotocol/registry (CDN snapshot
+ * in `acp-registry-fetch.ts`). `wstack acp sync` / `/acp sync` fetch it into a
+ * local cache that supersedes this file at resolution time — so this catalog
+ * only needs to carry the most-used agents with invocations that work without
+ * a network round-trip. Entries here are kept aligned to the registry's
+ * authoritative ACP-entry commands; run `/acp probe` to confirm on a host.
  *
  * Each entry tags its `integration` mechanism:
  *   - `native`       — the agent ships with a documented ACP entry flag.
@@ -49,9 +48,12 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Claude Code',
     vendor: 'anthropic',
     probe: { command: 'claude', args: ['--version'] },
-    // Native ACP entry is gated behind the SDK adapter in early releases;
-    // see https://agentclientprotocol.com/get-started/agents
-    acp: { command: 'claude', args: [] },
+    // Claude Code does not speak stdio ACP from the bare `claude` binary —
+    // it drops into its interactive TUI. The official ACP adapter
+    // (`@agentclientprotocol/claude-agent-acp`, registry id `claude-acp`)
+    // wraps the logged-in Claude Code CLI and translates ACP ↔ Claude Code.
+    // Verify with `/acp probe claude-code`; override via `config.acp.agents`.
+    acp: { command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'] },
     supports: {
       loadSession: true,
       promptImages: true,
@@ -68,7 +70,10 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Gemini CLI',
     vendor: 'google',
     probe: { command: 'gemini', args: ['--version'] },
-    acp: { command: 'gemini', args: [] },
+    // Gemini CLI (the @google/gemini-cli package, registry id `gemini`)
+    // speaks ACP behind `--acp`. We invoke the locally-installed binary so it
+    // uses the user's existing login. Confirm with `/acp probe gemini-cli`.
+    acp: { command: 'gemini', args: ['--acp'] },
     supports: {
       loadSession: true,
       promptImages: true,
@@ -85,7 +90,10 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Codex CLI',
     vendor: 'openai',
     probe: { command: 'codex', args: ['--version'] },
-    acp: { command: 'codex', args: [] },
+    // Bare `codex` has no stdio-ACP entry; the official adapter
+    // (`@agentclientprotocol/codex-acp`, registry id `codex-acp`) wraps the
+    // logged-in Codex CLI. Confirm with `/acp probe codex-cli`.
+    acp: { command: 'npx', args: ['-y', '@agentclientprotocol/codex-acp'] },
     supports: {
       loadSession: false,
       promptImages: false,
@@ -102,7 +110,9 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'GitHub Copilot CLI',
     vendor: 'github',
     probe: { command: 'gh', args: ['copilot', '--help'] },
-    acp: { command: 'gh', args: ['copilot'] },
+    // ACP is in the standalone @github/copilot CLI (registry id
+    // `github-copilot-cli`), not the `gh copilot` extension. Use the package.
+    acp: { command: 'npx', args: ['-y', '@github/copilot', '--acp'] },
     supports: {
       loadSession: false,
       promptImages: false,
@@ -119,9 +129,10 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Cline',
     vendor: 'community',
     probe: { command: 'npx', args: ['--version'] },
+    // Registry id `cline`: the `cline` npm package speaks ACP behind `--acp`.
     acp: {
       command: 'npx',
-      args: ['-y', '@agentify/cline'],
+      args: ['-y', 'cline', '--acp'],
     },
     supports: {
       loadSession: true,
@@ -137,7 +148,7 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Goose',
     vendor: 'community',
     probe: { command: 'goose', args: ['--version'] },
-    acp: { command: 'goose', args: [] },
+    acp: { command: 'goose', args: ['acp'] },
     supports: {
       loadSession: true,
       promptImages: true,
@@ -170,7 +181,8 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Qwen Code',
     vendor: 'community',
     probe: { command: 'qwen', args: ['--version'] },
-    acp: { command: 'qwen', args: [] },
+    // Qwen Code (the @qwen-code/qwen-code package) speaks ACP behind `--acp`.
+    acp: { command: 'qwen', args: ['--acp'] },
     supports: {
       loadSession: false,
       promptImages: false,
@@ -200,7 +212,8 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'OpenCode',
     vendor: 'community',
     probe: { command: 'opencode', args: ['--version'] },
-    acp: { command: 'opencode', args: [] },
+    // OpenCode speaks ACP via its `acp` subcommand (registry id `opencode`).
+    acp: { command: 'opencode', args: ['acp'] },
     supports: {
       loadSession: true,
       promptImages: true,
@@ -230,7 +243,8 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     displayName: 'Cursor',
     vendor: 'community',
     probe: { command: 'cursor', args: ['--version'] },
-    acp: { command: 'cursor', args: [] },
+    // Cursor's ACP entry is the `cursor-agent acp` binary (registry id `cursor`).
+    acp: { command: 'cursor-agent', args: ['acp'] },
     supports: {
       loadSession: true,
       promptImages: true,

@@ -45,6 +45,31 @@ Because delivery happens between tool batches, the note only reaches the model
 while the agent is still iterating (i.e. still calling tools). A note set after
 the agent has stopped is delivered on its next run.
 
+## TUI: the mid-run send-mode picker
+
+In the TUI you usually don't need to type `/btw` or `/steer` at all. When the
+agent is **busy** and you submit a plain (non-slash) message, a picker appears
+asking how to deliver it:
+
+```
+━━ Deliver this message how? ━━
+q/b/s pick · ↑/↓ move · Enter select · Esc → queue
+› [q] Queue        Run after the current turn finishes (default)
+  [b] By the way   Fold in at the next step — no restart, no interrupt
+  [s] Steer        Abort now, drop the queue, redirect to this
+```
+
+- **Queue** is the default highlight; `Enter`, `q`, or `Esc` all queue the
+  message (your text is never lost).
+- **By the way** routes through `setBtwNote` — identical to `/btw`.
+- **Steer** runs the full `/steer` sequence (abort + terminate fleet + drop
+  queue + STEERING preamble).
+
+The picker is on by default. Toggle it with `/queue picker on|off` (persisted to
+`autonomy.midRunSendPicker`); when off, plain messages typed mid-run are queued
+silently as before. Slash commands typed while busy still dispatch immediately —
+the picker only intercepts plain text.
+
 ## Code references
 
 - `packages/core/src/core/btw.ts` — `setBtwNote`, `consumeBtwNotes`,

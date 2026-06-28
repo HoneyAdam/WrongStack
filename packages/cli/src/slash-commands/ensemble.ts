@@ -38,10 +38,30 @@ export function buildEnsembleCommand(_opts: SlashCommandContext): SlashCommand {
       'are skipped with a warning. The command waits for all agents to finish',
       'and reports per-agent outcomes (success / failed / skipped / cancelled).',
       '',
+      'Flags:',
+      '  --timeout <sec>      Per-agent hard timeout (default 300s).',
+      '  --concurrency <n>    Max agents running at once (default 4).',
+      '',
       'Use /acp list (or wstack acp list) to see which agents are detected.',
     ].join('\n'),
     async run(args) {
-      const trimmed = args.trim();
+      // Pull optional flags out first so they don't get parsed into the agent
+      // CSV or the task text. The ensemble engine already supports per-agent
+      // timeout and bounded concurrency — these flags just surface them.
+      let timeoutMs: number | undefined;
+      let maxConcurrency: number | undefined;
+      const flagStripped = args
+        .replace(/--timeout(?:=|\s+)(\d+)/i, (_m, n: string) => {
+          const sec = Number.parseInt(n, 10);
+          if (Number.isFinite(sec) && sec > 0) timeoutMs = Math.min(3600, sec) * 1000;
+          return ' ';
+        })
+        .replace(/--(?:concurrency|max)(?:=|\s+)(\d+)/i, (_m, n: string) => {
+          const c = Number.parseInt(n, 10);
+          if (Number.isFinite(c) && c > 0) maxConcurrency = Math.min(16, c);
+          return ' ';
+        });
+      const trimmed = flagStripped.trim();
       if (!trimmed) {
         return {
           message:
@@ -64,7 +84,12 @@ export function buildEnsembleCommand(_opts: SlashCommandContext): SlashCommand {
       }
 
       try {
-        const result = await runEnsemble({ agentIds, task });
+        const result = await runEnsemble({
+          agentIds,
+          task,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          ...(maxConcurrency !== undefined ? { maxConcurrency } : {}),
+        });
         return { message: renderEnsembleText(result) };
       } catch (err) {
         return { message: `Ensemble failed: ${toErrorMessage(err)}` };

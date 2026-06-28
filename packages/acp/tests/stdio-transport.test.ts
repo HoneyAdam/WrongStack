@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import * as os from 'node:os';
 import type { ACPMessage } from '../src/types/acp-messages.js';
 
 // ── spawn mock for ClientTransport ──────────────────────────────────────────
@@ -247,6 +248,64 @@ describe('ClientTransport', () => {
     await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
     child.emit('error', new Error('spawn died'));
     await expect(p).rejects.toThrow('spawn died');
+  });
+
+  it('skip-marker: resolves on the child "spawn" event (no startup marker)', async () => {
+    const child = new FakeChild();
+    spawnMock.fn.mockReturnValue(child);
+    const transport = new ClientTransport({ command: 'agent', skipHandshakeMarker: true });
+    const p = transport.start();
+    await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
+    child.emit('spawn');
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it('skip-marker: rejects on a spawn error instead of crashing with an unhandled "error"', async () => {
+    const child = new FakeChild();
+    spawnMock.fn.mockReturnValue(child);
+    const transport = new ClientTransport({ command: 'missing-bin', skipHandshakeMarker: true });
+    const p = transport.start();
+    await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
+    // An ENOENT-style failure: the child emits 'error' before 'spawn'. The
+    // error listener must already be attached (regression: it previously was
+    // registered AFTER the skip-marker early-return, so this crashed).
+    const err = Object.assign(new Error('spawn missing-bin ENOENT'), { code: 'ENOENT' });
+    child.emit('error', err);
+    await expect(p).rejects.toThrow('ENOENT');
+  });
+
+  it('spawns npx/uvx package launchers from a neutral home dir (avoids repo dep-override EOVERRIDE)', async () => {
+    const child = new FakeChild();
+    spawnMock.fn.mockReturnValue(child);
+    const transport = new ClientTransport({
+      command: 'npx',
+      args: ['-y', '@x/y'],
+      cwd: '/repo/with/overrides',
+      skipHandshakeMarker: true,
+    });
+    const p = transport.start();
+    await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
+    child.emit('spawn');
+    await p;
+    const spawnOpts = spawnMock.fn.mock.calls[0]![2] as { cwd?: string };
+    expect(spawnOpts.cwd).toBe(os.homedir());
+  });
+
+  it('spawns local binaries from the requested cwd (only npx/uvx get redirected)', async () => {
+    const child = new FakeChild();
+    spawnMock.fn.mockReturnValue(child);
+    const transport = new ClientTransport({
+      command: 'gemini',
+      args: ['--acp'],
+      cwd: '/repo/project',
+      skipHandshakeMarker: true,
+    });
+    const p = transport.start();
+    await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
+    child.emit('spawn');
+    await p;
+    const spawnOpts = spawnMock.fn.mock.calls[0]![2] as { cwd?: string };
+    expect(spawnOpts.cwd).toBe('/repo/project');
   });
 
   it('start rejects on handshake timeout when no marker arrives', async () => {

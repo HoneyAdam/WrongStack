@@ -124,11 +124,13 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
 
       // /sessions kill <id> — terminate a running session by PID
       if (first === 'kill') {
-        const targetId = parts[1];
+        const positional = parts.filter((p) => p !== '--force' && p !== '-y');
+        const force = parts.includes('--force') || parts.includes('-y');
+        const targetId = positional[1];
         if (!targetId) {
-          return { message: 'Usage: /sessions kill <sessionId>' };
+          return { message: 'Usage: /sessions kill <sessionId> [--force]' };
         }
-        return killSession(targetId);
+        return killSession(targetId, force ? undefined : opts.confirm);
       }
 
       const showIncomplete = parts.includes('--incomplete') || parts.includes('-i');
@@ -466,7 +468,10 @@ async function listLiveAgents(): Promise<{ message: string }> {
   return { message: lines.join('\n') };
 }
 
-async function killSession(sessionId: string): Promise<{ message: string }> {
+async function killSession(
+  sessionId: string,
+  confirm?: (question: string, defaultYes?: boolean) => Promise<boolean | null>,
+): Promise<{ message: string }> {
   const registry = getRegistry();
   if (!registry) {
     return { message: color.dim('SessionRegistry not available.') };
@@ -505,6 +510,19 @@ async function killSession(sessionId: string): Promise<{ message: string }> {
         `Session ${sessionId} (PID ${entry.pid}) is no longer running. It will be pruned automatically.`,
       ),
     };
+  }
+
+  // Confirm before signalling another live process. confirm() resolves to its
+  // default on non-TTY/EOF, so scripted callers proceed without hanging; pass
+  // --force to skip the prompt entirely (confirm omitted).
+  if (confirm) {
+    const ok = await confirm(
+      `Terminate ${entry.projectName} (PID ${entry.pid})?`,
+      false,
+    );
+    if (ok !== true) {
+      return { message: color.dim('Kill cancelled.') };
+    }
   }
 
   // Send SIGTERM

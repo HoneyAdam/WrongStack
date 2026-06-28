@@ -142,7 +142,7 @@ describe('ToolTranslator', () => {
     t.attachToTransport(transport);
 
     const promise = t.callTool(transport, 'echo', { msg: 'hi' }, 'call-1');
-    expect(transport.sent[0]).toEqual({ method: 'tools/call', id: 'call-1', params: { name: 'echo', arguments: { msg: 'hi' } } });
+    expect(transport.sent[0]).toEqual({ jsonrpc: '2.0', method: 'tools/call', id: 'call-1', params: { name: 'echo', arguments: { msg: 'hi' } } });
 
     await flush();
     transport.emit({ method: 'tools/call', id: 'call-1', result: { content: [{ type: 'text', text: 'pong' }] } });

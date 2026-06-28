@@ -14,6 +14,13 @@ describe('acp barrels', () => {
     expect(mod.makeACPSubagentRunner).toBeDefined();
     expect(mod.makeACPSubagentRunnerWithStop).toBeDefined();
     expect(mod.ACP_AGENT_COMMANDS).toBeDefined();
+    expect(mod.resolveAcpAgentCommand).toBeDefined();
+    expect(mod.runOneAcpTask).toBeDefined();
+    expect(mod.probeAcpAgent).toBeDefined();
+    expect(mod.probeAcpAgents).toBeDefined();
+    expect(mod.fetchAcpRegistry).toBeDefined();
+    expect(mod.runAcpBench).toBeDefined();
+    expect(mod.renderAcpBenchText).toBeDefined();
   });
 
   it('agent barrel re-exports server-side classes', async () => {

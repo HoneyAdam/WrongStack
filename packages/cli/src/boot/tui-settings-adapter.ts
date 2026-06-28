@@ -133,6 +133,8 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         (cfg.autonomy as Record<string, unknown> | undefined)?.enhanceLanguage === 'english'
           ? ('english' as const)
           : ('original' as const),
+      midRunSendPicker:
+        ((cfg.autonomy as Record<string, unknown> | undefined)?.midRunSendPicker as boolean) ?? true,
       mouseMode: (autonomy?.mouseMode as boolean) ?? false,
       autonomyNextPrompt:
         ((cfg.autonomy as Record<string, unknown> | undefined)
@@ -188,6 +190,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.enhanceDelayMs !== undefined ||
         s.enhanceEnabled !== undefined ||
         s.enhanceLanguage !== undefined ||
+        s.midRunSendPicker !== undefined ||
         s.statuslineMode !== undefined ||
         s.thinkingWord !== undefined ||
         s.autonomyNextPrompt !== undefined ||
@@ -229,6 +232,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         if (s.enhanceDelayMs !== undefined) autonomy.enhanceDelayMs = s.enhanceDelayMs;
         if (s.enhanceEnabled !== undefined) autonomy.enhance = s.enhanceEnabled;
         if (s.enhanceLanguage !== undefined) autonomy.enhanceLanguage = s.enhanceLanguage;
+        if (s.midRunSendPicker !== undefined) autonomy.midRunSendPicker = s.midRunSendPicker;
         if (s.statuslineMode !== undefined) autonomy.statuslineMode = s.statuslineMode;
         if (s.thinkingWord !== undefined)
           autonomy.thinkingWord = normalizeTuiThinkingWord(s.thinkingWord);

@@ -18,6 +18,7 @@ import type {
 import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
 import type { ProjectPickerItem } from './components/project-picker.js';
 import type { PromptPickEntry } from './components/prompt-picker.js';
+import type { SendMode } from './components/send-mode-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
 
 export interface QueueItem {
@@ -426,6 +427,22 @@ export type State = {
   escConfirm: {
     snapshot: NonNullable<State['steerSnapshot']>;
   } | null;
+  /**
+   * Mid-run send-mode picker. Set when the user submits a plain message while
+   * the agent is busy and `midRunSendPicker` is enabled — the picker asks how
+   * to deliver the text (queue / by-the-way / steer). The `resolve` callback
+   * is awaited inside `submit()` (same Promise pattern as `enhance`); the
+   * caller treats `'cancel'` (Esc) as queue so the typed text is never lost.
+   * Null when no picker is pending.
+   */
+  sendModePicker: {
+    selected: number;
+    text: string;
+    displayText: string;
+    blocks: ContentBlock[];
+    pasteContent?: string | undefined;
+    resolve: (decision: SendMode | 'cancel') => void;
+  } | null;
   /** Incremented on /clear so the context chip re-reads from agent.ctx tokens. */
   contextChipVersion: number;
   /** Live fleet state: per-subagent entries from FleetBus events. Keyed by subagentId. */
@@ -693,6 +710,12 @@ export type Settings = {
   enhanceEnabled: boolean;
   /** Default language for refinement: original or english. */
   enhanceLanguage: 'original' | 'english';
+  /**
+   * When true (default), submitting a plain message while the agent is busy
+   * pops the send-mode picker (queue / by-the-way / steer). Toggled via
+   * `/queue picker on|off`; persisted to `autonomy.midRunSendPicker`.
+   */
+  midRunSendPicker?: boolean | undefined;
   /** Raw SSE stream debugging — hex-dump every byte received from providers. */
   debugStream: boolean;
   /** Statusline density mode. Defaults to detailed. */
@@ -907,6 +930,12 @@ export type Action =
   | { type: 'escConfirmOpen'; snapshot: NonNullable<State['steerSnapshot']> }
   /** Dismiss the ESC-interrupt confirmation (user cancelled). */
   | { type: 'escConfirmClose' }
+  /** Open the mid-run send-mode picker with the resolved message + resolver. */
+  | { type: 'sendModePickerOpen'; info: NonNullable<State['sendModePicker']> }
+  /** Move the send-mode highlight (wraps). */
+  | { type: 'sendModePickerMove'; delta: number }
+  /** Close the send-mode picker. */
+  | { type: 'sendModePickerClose' }
   | { type: 'resetContextChip' }
   // Fleet actions
   | { type: 'fleetSeed'; entries: FleetEntry[]; cost: number }

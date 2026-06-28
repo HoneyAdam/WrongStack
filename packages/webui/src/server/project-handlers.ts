@@ -17,6 +17,7 @@ import {
   type DefaultModeStore,
   type DefaultTokenCounter,
   getSessionRegistry,
+  resolveWstackPaths,
   type SkillLoader,
   type ToolRegistry,
 } from '@wrongstack/core';
@@ -197,6 +198,10 @@ export function createProjectHandlers(ctx: ProjectHandlersContext): ProjectRoute
         try {
           const modeId = ctx.getModeId();
           const switchMode = modeId === 'default' ? undefined : await ctx.modeStore.getMode(modeId);
+          const switchPaths = resolveWstackPaths({
+            projectRoot: resolved,
+            globalRoot: ctx.wpaths.globalRoot,
+          });
           const switchBuilder = new DefaultSystemPromptBuilder({
             memoryStore: ctx.memoryStore,
             skillLoader: ctx.skillLoader,
@@ -204,6 +209,10 @@ export function createProjectHandlers(ctx: ProjectHandlersContext): ProjectRoute
             modeId,
             modePrompt: switchMode?.prompt ?? '',
             modelCapabilities: ctx.modelCapabilities,
+            instructionPaths: {
+              globalDir: switchPaths.globalInstructions,
+              projectDir: switchPaths.inProjectInstructions,
+            },
           });
           ctx.context.systemPrompt = await switchBuilder.build({
             cwd: resolved,

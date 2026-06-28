@@ -17,6 +17,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import type { TaskNode } from '../types/task-graph.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 
 export type ConflictSide = 'incoming' | 'base';
 
@@ -153,19 +157,13 @@ export function makeLlmConflictResolver(opts: LlmConflictResolverOptions) {
       }
       if (!hasConflictMarkers(content)) continue; // already clean — nothing to do
 
-      const prompt = [
-        'You are resolving a git MERGE CONFLICT in a single file. Below is the',
-        'full file with conflict markers (<<<<<<<, =======, >>>>>>>, and possibly',
-        '||||||| for diff3). Combine both sides into the correct, complete file —',
-        'keep ALL non-conflicting content verbatim and reconcile each hunk sensibly.',
-        'Return ONLY the fully resolved file contents (no conflict markers, no',
-        'commentary), optionally wrapped in a single ``` code fence.',
-        '',
-        `File: ${rel}`,
-        '--- BEGIN ---',
-        content,
-        '--- END ---',
-      ].join('\n');
+      const prompt = renderInstructionTemplate(
+        readBundledInstructionText('sdd/merge-conflict-resolver.md'),
+        {
+          file: rel,
+          content,
+        },
+      );
 
       let out: string;
       try {

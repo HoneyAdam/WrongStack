@@ -6,6 +6,7 @@ import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
+import { readBundledInstructionText } from '../utils/instruction-file.js';
 import {
   buildLosslessDigest,
   eliseOldToolResults,
@@ -85,7 +86,7 @@ export class IntelligentCompactor implements Compactor {
     this.eliseThreshold = opts.eliseThreshold ?? 500;
     this.summarizerPrompt =
       opts.summarizerPrompt ??
-      'You are a context summarizer. Given a list of conversation messages, produce a concise but complete summary that preserves all factual information, decisions made, and any state changes (e.g. file edits, todo updates). Do not add commentary. Output only the summary.';
+      readBundledInstructionText('llm/intelligent-compactor-summarizer.md');
     this.summarizerModel = opts.summarizerModel;
   }
 

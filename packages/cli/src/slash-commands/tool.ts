@@ -375,23 +375,31 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
       const name = parts[0] ?? '';
       if (!name) return { message: formatOverrides() };
 
-      // disable <name>
+      // disable <name...> — accepts one or more tool names
       if (sub === 'disable') {
-        const target = parts[1];
-        if (!target) return { message: `${color.amber('Usage:')} /tool disable <name>` };
+        const targets = parts.slice(1);
+        if (targets.length === 0)
+          return { message: `${color.amber('Usage:')} /tool disable <name> [name...]` };
         try {
-          return { message: await cmdDisable(target) };
+          // Sequential: each call reads+persists the disabled set, so parallel
+          // runs would race on the persisted list.
+          const results: string[] = [];
+          for (const t of targets) results.push(await cmdDisable(t));
+          return { message: results.join('\n') };
         } catch (err) {
           return { message: `${color.red('Error')}: ${toErrorMessage(err)}` };
         }
       }
 
-      // enable <name>
+      // enable <name...> — accepts one or more tool names
       if (sub === 'enable') {
-        const target = parts[1];
-        if (!target) return { message: `${color.amber('Usage:')} /tool enable <name>` };
+        const targets = parts.slice(1);
+        if (targets.length === 0)
+          return { message: `${color.amber('Usage:')} /tool enable <name> [name...]` };
         try {
-          return { message: await cmdEnable(target) };
+          const results: string[] = [];
+          for (const t of targets) results.push(await cmdEnable(t));
+          return { message: results.join('\n') };
         } catch (err) {
           return { message: `${color.red('Error')}: ${toErrorMessage(err)}` };
         }

@@ -33,6 +33,8 @@ export interface WstackPaths {
   globalDesignKits: string;
   /** ~/.wrongstack/prompts — user-global prompt library. */
   globalPrompts: string;
+  /** ~/.wrongstack/instructions — user-global system instruction overrides. */
+  globalInstructions: string;
   /** ~/.wrongstack/prompt-usage.json — per-slug insert counts (recent/popular). */
   promptUsage: string;
   /** ~/.wrongstack/cache — fetched data (models.dev, etc.). */
@@ -72,6 +74,8 @@ export interface WstackPaths {
   inProjectSkills: string;
   /** <project>/.wrongstack/prompts — committed project prompt library. */
   inProjectPrompts: string;
+  /** <project>/.wrongstack/instructions — committed project instruction overrides. */
+  inProjectInstructions: string;
   /** <project>/.wrongstack/design-kits — committed project Design Studio kits. */
   inProjectDesignKits: string;
   /** <project>/.wrongstack/worktrees — git worktrees for per-phase isolation (gitignored). */
@@ -168,6 +172,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     globalSkills: path.join(globalRoot, 'skills'),
     globalDesignKits: path.join(globalRoot, 'design-kits'),
     globalPrompts: path.join(globalRoot, 'prompts'),
+    globalInstructions: path.join(globalRoot, 'instructions'),
     promptUsage: path.join(globalRoot, 'prompt-usage.json'),
     cacheDir: path.join(globalRoot, 'cache'),
     modelsCache: path.join(globalRoot, 'cache', 'models.dev.json'),
@@ -185,6 +190,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     inProjectAgentsFile: path.join(opts.projectRoot, '.wrongstack', 'AGENTS.md'),
     inProjectSkills: path.join(opts.projectRoot, '.wrongstack', 'skills'),
     inProjectPrompts: path.join(opts.projectRoot, '.wrongstack', 'prompts'),
+    inProjectInstructions: path.join(opts.projectRoot, '.wrongstack', 'instructions'),
     inProjectDesignKits: path.join(opts.projectRoot, '.wrongstack', 'design-kits'),
     inProjectWorktrees: path.join(opts.projectRoot, '.wrongstack', 'worktrees'),
     projectHash: hash,

@@ -96,6 +96,18 @@ describe('createAutonomyBrain — LLM evaluation (llmDecide)', () => {
     expect(d).toMatchObject({ type: 'answer', optionId: 'resolve', text: 'Resolve conflict' });
   });
 
+  it('sends the file-backed Autonomy Brain system prompt to the provider', async () => {
+    const provider = fakeProvider('Continue execution.');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    await brain.decide(req({ question: 'goal complete?', risk: 'medium' }));
+    const request = vi.mocked(provider.complete).mock.calls[0]?.[0] as {
+      system?: Array<{ text?: string }>;
+    };
+    const systemText = request.system?.[0]?.text ?? '';
+    expect(systemText).toContain('You are the Autonomy Brain');
+    expect(systemText).toContain('Your output is a DECISION');
+  });
+
   it('returns a free-text answer when no option matches', async () => {
     const provider = fakeProvider('Continue, progress looks good.');
     const brain = createAutonomyBrain({ provider, model: 'm' });

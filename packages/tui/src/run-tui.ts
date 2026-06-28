@@ -870,6 +870,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           interruptController: opts.interruptController,
           enhanceController: opts.enhanceController,
           enhanceEnabled: opts.enhanceController?.enabled ?? true,
+          midRunSendPicker: opts.getSettings?.().midRunSendPicker ?? true,
           statuslineHiddenItems: opts.statuslineHiddenItems,
           setStatuslineHiddenItems: opts.setStatuslineHiddenItems,
           saveStatuslineHiddenItems: opts.saveStatuslineHiddenItems,

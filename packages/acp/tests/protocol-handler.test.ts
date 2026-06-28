@@ -90,12 +90,15 @@ describe('ACPProtocolHandler', () => {
       });
     });
 
-    it('rejects a non-v1 protocol version with -32000', async () => {
+    it('negotiates down to its supported version when the client requests a newer one', async () => {
+      // Per spec the agent must NOT error on a version mismatch — it replies
+      // with the version it speaks and lets the client decide whether to
+      // proceed. Erroring would break a forward-compatible client.
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 99 } });
-      const resp = transport.sent[0] as { error?: { code: number; message: string } };
-      expect(resp.error?.code).toBe(-32000);
-      expect(resp.error?.message).toContain('protocolVersion=1');
+      const resp = transport.sent[0] as { result?: { protocolVersion?: number }; error?: unknown };
+      expect(resp.error).toBeUndefined();
+      expect(resp.result?.protocolVersion).toBe(1);
     });
 
     it('rejects non-initialize requests before initialization', async () => {

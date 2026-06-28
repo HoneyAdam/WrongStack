@@ -3,6 +3,44 @@ import { color } from '@wrongstack/core';
 import { loadConfigProviders } from '../provider-config-utils.js';
 import type { SlashCommandContext } from './index.js';
 
+/** Levenshtein distance, capped iteration for short provider ids. */
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array<number>(n + 1);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min((prev[j] ?? 0) + 1, (curr[j - 1] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n] ?? 0;
+}
+
+/**
+ * Suggest provider ids close to a mistyped query: substring overlap in either
+ * direction, or a small edit distance. Returns up to 3, best first.
+ */
+function closeMatches(query: string, ids: string[]): string[] {
+  const q = query.toLowerCase();
+  return ids
+    .map((id) => {
+      const lower = id.toLowerCase();
+      const contains = lower.includes(q) || q.includes(lower);
+      const dist = editDistance(q, lower);
+      return { id, score: contains ? 0 : dist };
+    })
+    .filter((c) => c.score <= 2)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3)
+    .map((c) => c.id);
+}
+
 /**
  * `/auth` — view API key status and manage provider credentials.
  *
@@ -97,7 +135,14 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
             }
           | undefined;
         if (!cfg) {
-          return { message: `${color.yellow('Provider')} "${pid}" not found in saved config.` };
+          const suggestions = closeMatches(pid, Object.keys(providers));
+          const hint =
+            suggestions.length > 0
+              ? ` Did you mean ${suggestions.map((s) => color.cyan(s)).join(', ')}?`
+              : ` Run ${color.dim('/auth')} to see configured providers.`;
+          return {
+            message: `${color.yellow('Provider')} "${pid}" not found in saved config.${hint}`,
+          };
         }
         const keys = cfg.apiKeys ?? [];
         const active =

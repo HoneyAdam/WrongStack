@@ -424,7 +424,7 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current release: 0.274.0.** The multi-file diff rendering, settings picker,
+**Current release: 0.275.0.** The multi-file diff rendering, settings picker,
 and per-iteration performance release. The TUI renders multi-file tool outputs
 (`replace` / `diff` / `patch` / `write`) as one **DiffFileBlock per file** with an
 independently-capped preview and a configurable summary footer; gains an 18-chord
@@ -433,7 +433,7 @@ new `/settings` inline commands; and memoizes the history + tool-entry formattin
 A per-iteration performance pass skips redundant serialization, makes the agent-loop
 in-flight marker fire-and-forget, and replaces full-history token re-walks with an
 incremental delta. The 2,095-line `session-store.ts` is split into focused modules.
-All workspace packages and the marketing site are aligned to `0.274.0` in lockstep.
+All workspace packages and the marketing site are aligned to `0.275.0` in lockstep.
 Additive only — no breaking changes.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
@@ -692,7 +692,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **9300+ tests passing** across 500+ test files in the 0.274.0 release gate
+- **9300+ tests passing** across 500+ test files in the 0.275.0 release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22+ only, ESM-only, no CommonJS bundles

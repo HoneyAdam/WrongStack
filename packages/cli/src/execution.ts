@@ -138,6 +138,8 @@ export interface LiveSettingsInput {
   enhanceDelayMs?: number | undefined;
   enhanceEnabled?: boolean | undefined;
   enhanceLanguage?: string | undefined;
+  /** Mid-run send-mode picker (queue/btw/steer) toggle. Default on. */
+  midRunSendPicker?: boolean | undefined;
   mouseMode?: boolean | undefined;
   autonomyNextPrompt?: string | undefined;
   /** Whether the process circuit breaker gates bash/exec. Default false. */

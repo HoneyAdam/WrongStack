@@ -13,31 +13,32 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // Mock @wrongstack/acp — we don't want to spawn real agents in unit tests.
-// We mock `runEnsemble` (used by parallel) and `makeACPSubagentRunnerWithStop`
-// (used by spawn) directly. The runner-level integration is tested
-// separately in packages/acp/tests/ensemble-runner.test.ts.
+// We mock `runEnsemble` (used by parallel) and `runOneAcpTask` (used by
+// spawn) directly. The runner-level integration is tested separately in
+// packages/acp/tests/{ensemble-runner,acp-subagent-runner}.test.ts.
 const runEnsemble = vi.fn();
-const makeACPSubagentRunnerWithStop = vi.fn();
+const runOneAcpTask = vi.fn();
 const ensembleList = vi.fn();
+const runAcpBench = vi.fn();
+const renderAcpBenchText = vi.fn(() => 'BENCH_TEXT');
+const probeAcpAgents = vi.fn();
 vi.mock('@wrongstack/acp', () => ({
   runEnsemble: (...a: unknown[]) => runEnsemble(...a),
-  makeACPSubagentRunnerWithStop: (...a: unknown[]) => makeACPSubagentRunnerWithStop(...a),
+  runOneAcpTask: (...a: unknown[]) => runOneAcpTask(...a),
+  runAcpBench: (...a: unknown[]) => runAcpBench(...a),
+  renderAcpBenchText: (...a: unknown[]) => renderAcpBenchText(...a),
+  probeAcpAgents: (...a: unknown[]) => probeAcpAgents(...a),
   EnsembleRegistry: class {
     list = ensembleList;
   },
-  // `spawn` uses these directly:
-  ACP_AGENT_COMMANDS: {
-    'claude-code': { command: 'claude', args: [], role: 'claude-code' },
-    'gemini-cli': { command: 'gemini', args: [], role: 'gemini-cli' },
-    'codex-cli': { command: 'codex', args: [], role: 'codex-cli' },
-  },
-  findAgentDescriptor: (id: string) => {
-    const catalog: Record<string, { acp: { command: string; args: string[]; env?: Record<string, string> } }> = {
-      'claude-code': { acp: { command: 'claude', args: [] } },
-      'gemini-cli': { acp: { command: 'gemini', args: [] } },
-      'codex-cli': { acp: { command: 'codex', args: [] } },
+  // `spawn` + `parallel` resolve agent ids through this:
+  resolveAcpAgentCommand: (id: string) => {
+    const catalog: Record<string, { command: string; args: string[]; role: string }> = {
+      'claude-code': { command: 'claude', args: [], role: 'claude-code' },
+      'gemini-cli': { command: 'gemini', args: [], role: 'gemini-cli' },
+      'codex-cli': { command: 'codex', args: [], role: 'codex-cli' },
     };
-    return catalog[id];
+    return catalog[id] ?? null;
   },
 }));
 vi.mock('@wrongstack/acp/agent', () => ({
@@ -150,8 +151,11 @@ function mockEnsembleRun(
 
 beforeEach(() => {
   runEnsemble.mockReset();
-  makeACPSubagentRunnerWithStop.mockReset();
+  runOneAcpTask.mockReset();
   ensembleList.mockReset();
+  runAcpBench.mockReset();
+  renderAcpBenchText.mockClear();
+  probeAcpAgents.mockReset();
 });
 
 describe('acpCmd — dispatch', () => {
@@ -306,6 +310,54 @@ describe('acpCmd — parallel', () => {
   });
 });
 
+describe('acpCmd — probe', () => {
+  it('probes an explicit agent list (bounded) and returns 0 when one handshakes', async () => {
+    probeAcpAgents.mockResolvedValue([
+      { id: 'gemini-cli', ok: true, ms: 120, agentInfo: { name: 'gemini', version: '1' } },
+      { id: 'codex-cli', ok: false, ms: 8000, error: 'initialize timed out' },
+    ]);
+    const deps = fakeDeps();
+    const code = await acpCmd(['probe', 'gemini-cli,codex-cli'], deps);
+    expect(code).toBe(0);
+    const arg = probeAcpAgents.mock.calls[0]![0] as { agentIds: string[] };
+    expect(arg.agentIds).toEqual(['gemini-cli', 'codex-cli']);
+    const out = flattenWriteCalls(deps);
+    expect(out).toContain('✓ gemini-cli');
+    expect(out).toContain('✗ codex-cli');
+    expect(out).toContain('1 of 2 agents completed the ACP handshake');
+  });
+
+  it('returns 1 when no agent handshakes', async () => {
+    probeAcpAgents.mockResolvedValue([{ id: 'gemini-cli', ok: false, ms: 8000, error: 'x' }]);
+    const deps = fakeDeps();
+    const code = await acpCmd(['probe', 'gemini-cli'], deps);
+    expect(code).toBe(1);
+  });
+});
+
+describe('acpCmd — bench', () => {
+  it('benches an explicit agent list and returns 0 when one passes', async () => {
+    runAcpBench.mockResolvedValue({ summary: { pass: 1, partial: 0, fail: 1, skipped: 0 } });
+    const deps = fakeDeps();
+    const code = await acpCmd(['bench', 'gemini-cli,codex-cli'], deps);
+    expect(code).toBe(0);
+    expect(runAcpBench).toHaveBeenCalledTimes(1);
+    const arg = runAcpBench.mock.calls[0]![0] as { agentIds: string[]; checkFs?: boolean };
+    expect(arg.agentIds).toEqual(['gemini-cli', 'codex-cli']);
+    expect(arg.checkFs).toBe(false);
+    expect(flattenWriteCalls(deps)).toContain('BENCH_TEXT');
+  });
+
+  it('returns 1 when no agent passes the bench', async () => {
+    runAcpBench.mockResolvedValue({ summary: { pass: 0, partial: 1, fail: 1, skipped: 0 } });
+    const deps = fakeDeps();
+    const code = await acpCmd(['bench', 'gemini-cli', '--fs'], deps);
+    expect(code).toBe(1);
+    const arg = runAcpBench.mock.calls[0]![0] as { checkFs?: boolean };
+    expect(arg.checkFs).toBe(true);
+  });
+});
+
 describe('acpCmd — spawn', () => {
   it('returns 1 with usage when no agent id', async () => {
     const deps = fakeDeps();
@@ -315,15 +367,12 @@ describe('acpCmd — spawn', () => {
   });
 
   it('runs a single agent and renders the result', async () => {
-    // `spawn` calls `makeACPSubagentRunnerWithStop` directly, so we
-    // mock that here (the `parallel` tests mock `runEnsemble`).
-    makeACPSubagentRunnerWithStop.mockResolvedValueOnce({
-      runner: async () => ({
-        result: 'analysis complete',
-        iterations: 4,
-        toolCalls: 7,
-      }),
-      stop: () => undefined,
+    // `spawn` calls `runOneAcpTask` directly, so we mock that here
+    // (the `parallel` tests mock `runEnsemble`).
+    runOneAcpTask.mockResolvedValueOnce({
+      result: 'analysis complete',
+      iterations: 4,
+      toolCalls: 7,
     });
     const deps = fakeDeps();
     const code = await acpCmd(['spawn', 'claude-code', 'explain this code'], deps);
@@ -336,12 +385,9 @@ describe('acpCmd — spawn', () => {
   });
 
   it('returns 1 with the error kind when the runner throws', async () => {
-    makeACPSubagentRunnerWithStop.mockImplementationOnce(async () => ({
-      runner: async () => {
-        throw { kind: 'bridge_failed', message: 'agent crashed' };
-      },
-      stop: () => undefined,
-    }));
+    runOneAcpTask.mockImplementationOnce(async () => {
+      throw { kind: 'bridge_failed', message: 'agent crashed' };
+    });
     const deps = fakeDeps();
     const code = await acpCmd(['spawn', 'claude-code', 'do thing'], deps);
     expect(code).toBe(1);

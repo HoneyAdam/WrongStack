@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
 import type { Context, SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import { parseNextSteps } from '@wrongstack/tui';
@@ -63,17 +65,23 @@ function buildSuggestPrompt(contextText: string): string {
   ].join('\n');
 }
 
+/** Reuse subagent-generated suggestions within this window to avoid a fresh
+ *  spawn on rapid re-invocation. `/suggest --fresh` bypasses it. */
+const SUGGEST_CACHE_TTL_MS = 60_000;
+let suggestCache: { suggestions: string[]; at: number } | null = null;
+
 export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'suggest',
     aliases: ['next-steps', 'what-next'],
     category: 'Agent',
     description: 'Generate context-aware next-step suggestions for the current session.',
-    argsHint: '[--fast]',
+    argsHint: '[--fast] [--fresh]',
     help: [
       'Usage:',
       '  /suggest           Generate suggestions using a lightweight subagent',
       '  /suggest --fast    Heuristic-only suggestions (no subagent, instant)',
+      '  /suggest --fresh   Force regeneration (ignore the recent-result cache)',
       '',
       'Analyzes the current session state (git status, working directory, recent',
       'activity) and generates 3-5 actionable next-step suggestions. Suggestions',
@@ -84,6 +92,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
     async run(args: string, _ctx: Context) {
       const trimmed = args.trim().toLowerCase();
       const fast = /\b(--fast|-f)\b/.test(trimmed);
+      const fresh = /--fresh\b/.test(trimmed);
 
       // ── Fast path: heuristic suggestions (no subagent) ──────────────────
       if (fast) {
@@ -105,6 +114,19 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
           '\n' +
           color.dim('(Heuristic fallback — multi-agent not enabled)');
         return { message: display };
+      }
+
+      // Reuse a recent result rather than spawning again, unless --fresh.
+      if (!fresh && suggestCache && Date.now() - suggestCache.at < SUGGEST_CACHE_TTL_MS) {
+        setSuggestions(suggestCache.suggestions);
+        opts.onSuggestions?.(suggestCache.suggestions);
+        const ageSec = Math.round((Date.now() - suggestCache.at) / 1000);
+        return {
+          message:
+            formatSuggestions(suggestCache.suggestions) +
+            '\n' +
+            color.dim(`(cached ${ageSec}s ago — /suggest --fresh to regenerate)`),
+        };
       }
 
       const contextText = collectContext({
@@ -132,6 +154,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
 
         setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
+        suggestCache = { suggestions, at: Date.now() };
         return { message: formatSuggestions(suggestions) };
       } catch (err) {
         const msg = `Suggestion generation failed: ${toErrorMessage(err)}`;
@@ -190,6 +213,25 @@ function generateHeuristicSuggestions(opts: SlashCommandContext): string[] {
     }
   } catch {
     // not a git repo
+  }
+
+  // Project-shape hints — detect common files and suggest relevant actions.
+  const root = opts.projectRoot;
+  const has = (...rel: string[]): boolean => rel.some((r) => existsSync(path.join(root, r)));
+  if (has('package.json')) {
+    suggestions.push('Run the npm/pnpm test suite to verify everything passes');
+  }
+  if (has('Dockerfile', 'docker-compose.yml', 'compose.yaml')) {
+    suggestions.push('Build the Docker image and verify the container starts');
+  }
+  if (has('Makefile')) {
+    suggestions.push('Run `make` (or `make test`) to exercise the build targets');
+  }
+  if (has('pyproject.toml', 'requirements.txt', 'setup.py')) {
+    suggestions.push('Run pytest and the linters for the Python package');
+  }
+  if (has('.github/workflows')) {
+    suggestions.push('Check the CI workflow status for the latest push');
   }
 
   // Generic fallback if nothing found

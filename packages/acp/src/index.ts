@@ -26,10 +26,37 @@ export type {ToolTranslatorOptions} from './client/tool-translator.js';
 export {makeACPSubagentRunner, makeACPSubagentRunnerWithStop} from './integration/acp-subagent-runner.js';
 export type {ACPSubagentRunnerOptions} from './integration/acp-subagent-runner.js';
 export {ACP_AGENT_COMMANDS} from './integration/acp-subagent-runner.js';
+export {
+  resolveAcpAgentCommand,
+  runOneAcpTask,
+  probeAcpAgent,
+  probeAcpAgents,
+  REGISTRY_ID_ALIASES,
+} from './integration/acp-subagent-runner.js';
+export type {
+  AcpAgentCommandOverrides,
+  AcpLiveCatalog,
+  RunOneAcpTaskOptions,
+  RunOneAcpTaskResult,
+  AcpProbeResult,
+  ProbeAcpAgentsOptions,
+} from './integration/acp-subagent-runner.js';
 
 // Discovery — the catalog + registry (added in feat/acp-ensemble).
 export {AGENTS_CATALOG, findAgentDescriptor} from './registry/agents.catalog.js';
 export {EnsembleRegistry} from './registry/ensemble-registry.js';
+// Live registry sync — the official agentclientprotocol/registry snapshot.
+export {
+  ACP_REGISTRY_URL,
+  currentPlatformKey,
+  fetchAcpRegistry,
+  mapRegistryEntry,
+} from './registry/acp-registry-fetch.js';
+export type {
+  FetchAcpRegistryOptions,
+  FetchAcpRegistryResult,
+  RegistryAgentEntry,
+} from './registry/acp-registry-fetch.js';
 export type {
   ACPAgentDescriptor,
   ACPAgentVendor,
@@ -71,6 +98,17 @@ export {
   type EnsembleResult,
   type EnsembleRunnerOptions,
 } from './integration/ensemble-runner.js';
+
+// ACP client bench — end-to-end per-agent verification + report.
+export { runAcpBench, renderAcpBenchText } from './integration/acp-bench.js';
+export type {
+  AcpBenchOptions,
+  AcpBenchResult,
+  AcpBenchAgentResult,
+  AcpBenchCheck,
+  AcpBenchStatus,
+  AcpBenchCmdResolver,
+} from './integration/acp-bench.js';
 
 // Types
 export * from './types/acp-messages.js';

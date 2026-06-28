@@ -13,6 +13,7 @@ import type { Action, State } from '../app-reducer.js';
 import type { KeyEvent } from '../components/input.js';
 import { settingsPickerJumpField } from '../components/settings-picker.js';
 import { STATUSLINE_ITEMS } from '../components/statusline-picker.js';
+import type { AutonomyStage } from './use-statusline-state.js';
 
 export interface PickerKeysHost {
   state: State;
@@ -23,12 +24,18 @@ export interface PickerKeysHost {
   switchProviderAndModel:
     | ((providerId: string, modelId: string) => string | null | Promise<string | null>)
     | undefined;
-  setLiveProvider: React.Dispatch<React.SetStateAction<string>> | undefined;
-  setLiveModel: React.Dispatch<React.SetStateAction<string>> | undefined;
-  setActiveMaxContext: React.Dispatch<React.SetStateAction<number | undefined>> | undefined;
+  // These mirror the plain setter signatures the app provides (from
+  // useStatuslineState); the hook only ever calls them with a concrete value,
+  // never a SetStateAction updater, so the narrow `(v) => void` form is both
+  // accurate and assignable from the real setters.
+  setLiveProvider: ((v: string) => void) | undefined;
+  setLiveModel: ((v: string) => void) | undefined;
+  setActiveMaxContext: ((v: number | undefined) => void) | undefined;
   agentCtxMaxContext: number;
 
-  switchAutonomy: ((mode: string) => string | null) | undefined;
+  // `opt.mode` is an AutonomyStage, so accept that union (not bare string) to
+  // match the app's `switchAutonomy`.
+  switchAutonomy: ((mode: AutonomyStage) => string | null) | undefined;
   submit: ((text: string) => void) | undefined;
 
   onPromptPickerEnter: (() => void) | undefined;
@@ -40,7 +47,6 @@ export interface PickerKeysHost {
   onFKeyPickerEnter: (() => void) | undefined;
   onPickerEnter: (() => Promise<void>) | undefined;
 
-  setDraft: ((buffer: string, cursor: number) => void) | undefined;
   onSlashPickerTab: (() => void) | undefined;
 }
 

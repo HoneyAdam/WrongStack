@@ -8,6 +8,7 @@ import {
 import { makeMailboxTool, makeMailSendTool, makeMailInboxTool, mailboxSessionTag } from '@wrongstack/core';
 import { toErrorMessage, wstackGlobalRoot, projectHash } from '@wrongstack/core/utils';
 import { SkillInstaller } from '@wrongstack/core/skills';
+import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
 import {
   BrainMonitor,
   DefaultBrainArbiter,
@@ -843,6 +844,10 @@ export async function startWebUI(
     modeId,
     modePrompt,
     modelCapabilities: () => modelCapabilitiesRef.current,
+    instructionPaths: {
+      globalDir: wpaths.globalInstructions,
+      projectDir: wpaths.inProjectInstructions,
+    },
   });
 
   // Fetch online agents from the shared mailbox to include in system prompt
@@ -2628,6 +2633,7 @@ export async function startWebUI(
     toolRegistry,
     config,
     projectRoot,
+    globalRoot: wpaths.globalRoot,
     clients,
     setModeId: (id) => {
       modeId = id;
@@ -2979,52 +2985,5 @@ export async function startWebUI(
  * Best-effort: never throws. A failure (missing lock dir, ENOENT,
  * etc.) logs at warn level and returns — the webui keeps running.
  */
-async function discoverMailboxBridgeForWebui(params: {
-  projectRoot: string;
-  config: { features?: { mailboxBridge?: 'auto' | 'off' | undefined } } | undefined;
-  logger: { debug: (msg: string, meta?: Record<string, unknown>) => void; warn: (msg: string, meta?: Record<string, unknown>) => void; info: (msg: string, meta?: Record<string, unknown>) => void };
-  ctx: { meta: Record<string, unknown> };
-}): Promise<void> {
-  const mode = params.config?.features?.mailboxBridge ?? 'auto';
-  if (mode === 'off') return;
+// discoverMailboxBridgeForWebui extracted → ./discover-mailbox-bridge.ts
 
-  const projectDir = resolveProjectDir(params.projectRoot, wstackGlobalRoot());
-  const result = await readLiveLock(projectDir);
-  switch (result.kind) {
-    case 'live': {
-      params.logger.debug('webui joined existing mailbox bridge', {
-        url: result.lock.url,
-        lockPath: projectDir,
-      });
-      params.ctx.meta['mailboxBridge'] = {
-        url: result.lock.url,
-        token: result.lock.token,
-        lockPath: projectDir,
-        childPid: null,
-        source: 'joined',
-      };
-      break;
-    }
-    case 'probe-failed': {
-      params.logger.warn(
-        'mailbox bridge present but /healthz unreachable; webui will start without external-agent connectivity',
-        { url: result.lock.url, lockPath: projectDir },
-      );
-      params.ctx.meta['mailboxBridge'] = {
-        url: result.lock.url,
-        token: result.lock.token,
-        lockPath: projectDir,
-        childPid: null,
-        source: 'unhealthy',
-      };
-      break;
-    }
-    case 'absent': {
-      params.logger.info(
-        'no mailbox bridge running; webui will start without external-agent connectivity. Run `wstack mailbox serve` or a CLI surface to bring one up.',
-        { projectDir },
-      );
-      break;
-    }
-  }
-}

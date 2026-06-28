@@ -4,6 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildChildEnv } from '../utils/child-env.js';
 import { PROMPT as DEFAULT_PROMPT, LEADER_AFTER_TASK_PROMPT } from './modes/default.js';
+import {
+  loadInstructionBundle,
+  mergeInstructionBundle,
+  type InstructionBundle,
+  type InstructionBundlePaths,
+} from './instruction-bundle.js';
 import type { TextBlock } from '../types/blocks.js';
 import type { MemoryStore } from '../types/memory.js';
 import type { ModeStore } from '../types/mode.js';
@@ -145,6 +151,18 @@ export interface DefaultSystemPromptBuilderOptions {
    * - `false` → 'off'
    */
   tokenSavingMode?: TokenSavingTier | boolean | undefined;
+  /**
+   * File-backed instruction layers. Builtins are loaded first, then global
+   * overrides, then project overrides, then explicit files. This lets durable
+   * system instructions live outside TypeScript while keeping the builder API
+   * stable for embedded runtimes.
+   */
+  instructionPaths?: InstructionBundlePaths | undefined;
+  /**
+   * Last-mile in-memory overrides, applied after instructionPaths. Useful for
+   * tests, embedders, and plugin-provided prompt experiments.
+   */
+  instructionBundle?: InstructionBundle | undefined;
 }
 
 export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
@@ -165,6 +183,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
   private _lastOnlineAgents?: { hash: string; text: string } | undefined;
   /** Cached full buildToolUsage output — keyed by tools array ref + agents fingerprint + tier. */
   private _toolsUsageCache?: { toolsRef: readonly Tool[]; agentsHash: string; tier: string; text: string } | undefined;
+  private _instructionBundle?: Promise<InstructionBundle> | undefined;
   constructor(private readonly opts: DefaultSystemPromptBuilderOptions = {}) {}
 
   /**
@@ -225,8 +244,9 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       }
     }
 
-    const layer1 = LAYER_1_IDENTITY;
-    const layer2 = this.buildToolUsage(ctx.tools, ctx);
+    const instructions = await this.instructions();
+    const layer1 = instructions.system?.identity ?? LAYER_1_IDENTITY;
+    const layer2 = await this.buildToolUsage(ctx.tools, ctx);
     const layer3 = await this.buildEnvironment(ctx);
     const layer3WithDir = `${layer3}\n- Project root: ${ctx.projectRoot}`;
     const layer4 = await this.buildMemoryAndSkills();
@@ -309,10 +329,37 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // specs/plans. Lives outside layer1 so the host keeps it in EVERY mode while
     // no subagent ever receives it.
     if (!ctx.subagent) {
-      blocks.push({ type: 'text', text: LEADER_AFTER_TASK_PROMPT });
+      blocks.push({
+        type: 'text',
+        text: instructions.system?.leaderAfterTask ?? LEADER_AFTER_TASK_PROMPT,
+      });
     }
 
     return blocks;
+  }
+
+  private async instructions(): Promise<InstructionBundle> {
+    if (!this._instructionBundle) {
+      this._instructionBundle = loadInstructionBundle(this.opts.instructionPaths).then((bundle) =>
+        this.opts.instructionBundle
+          ? mergeInstructionBundle(bundle, this.opts.instructionBundle)
+          : bundle,
+      );
+    }
+    return this._instructionBundle;
+  }
+
+  private instructionSection(
+    bundle: InstructionBundle,
+    key: string,
+    vars: Record<string, string | number> = {},
+  ): string {
+    const template = bundle.sections?.[key];
+    if (!template) return '';
+    return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (match, name: string) => {
+      const value = vars[name];
+      return value === undefined ? match : String(value);
+    });
   }
 
   /**
@@ -382,8 +429,9 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     return lines.join('\n');
   }
 
-  private buildToolUsage(tools: Tool[], ctx: BuildContext): string {
+  private async buildToolUsage(tools: Tool[], ctx: BuildContext): Promise<string> {
     if (tools.length === 0) return '## Tool usage\n\nNo tools registered.';
+    const instructions = await this.instructions();
 
     // Cache: tools array is stable (same reference) until a registry mutation
     // thanks to B2 (ToolRegistry snapshot). Online agents are keyed by content
@@ -451,16 +499,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // Skipped in minimal and aggressive tiers — model already knows these patterns
     // and aggressive users are under context pressure.
     if (this.tier !== 'minimal' && this.tier !== 'aggressive') {
-      lines.push(`
-## Common patterns
-
-- **Inspect before edit:** \`read\`/\`glob\`/\`grep\` → locate target → \`edit\`
-- **Search then operate:** \`grep\`/\`glob\` → identify targets → \`batch_tool_use\` or iterative \`edit\`
-- **Verify after mutate:** \`write\`/\`edit\`/\`patch\` → \`read\` back to confirm → report outcome
-- **Explore project:** \`glob\` for structure → \`read\` key files → \`grep\` for patterns
-- **Batch ops:** Use \`replace\` with glob patterns for multi-file surgical changes
-
-When unsure about a file's current state, read it first rather than assuming.`);
+      const commonPatterns = this.instructionSection(instructions, 'tool.common.patterns');
+      if (commonPatterns) lines.push(commonPatterns);
     }
 
     // Delegation guidance — included when the `delegate` tool is present.
@@ -490,71 +530,15 @@ When unsure about a file's current state, read it first rather than assuming.`);
         // multi-paragraph guidance. `aggressive` joins the compact group —
         // a user under context pressure doesn't need a 600-token essay on
         // subagent scoping.
-        lines.push(`## Delegation\n\nUse \`delegate\` to hand work to a subagent (roles: ${roleList}).`);
+        const delegation = this.instructionSection(instructions, 'tool.delegation.compact', {
+          roleList,
+        });
+        if (delegation) lines.push(delegation);
       } else {
-        lines.push(`
-## Delegation
-
-You have a \`delegate\` tool that hands a discrete piece of work to a
-dedicated subagent (its own context, its own LLM call, its own budget
-cap) and waits for the result. Use it proactively when:
-
-- **The task fans out naturally** — e.g. "audit these 5 files for
-  security issues" splits cleanly into 5 parallel \`delegate\` calls,
-  one per file or per role. Fire them through the provider's
-  parallel-tool-call surface in the same turn.
-- **A specialized role exists** — the roster has tuned prompts and
-  budgets for: ${roleList}. Reach for a role when the description
-  matches your subtask; otherwise pass \`name\` + \`provider\` + \`model\`.
-- **A subtask would blow up your context** — long log analyses, large
-  diff reviews, multi-file refactor plans. The subagent absorbs the
-  reading cost and hands back a summary.
-- **You'd otherwise switch hats mid-turn** — instead of stopping a code
-  fix to do a security pass, delegate the security pass.
-
-### Scope it tight — narrow tasks succeed, broad tasks time out
-
-A subagent has a finite iteration / tool-call budget (typically 50–80
-iterations, 200–300 tool calls). Tasks that mention "ALL files" or "the
-entire codebase" reliably exhaust that budget without producing a clean
-answer — the delegate returns with \`stopReason: budget_exhausted\` and
-no useful output.
-
-- ❌ BAD: \`"Analyze ALL .ts files in src/ for bugs"\`
-- ❌ BAD: \`"Audit the codebase for security issues"\`
-- ❌ BAD: \`"Plan a refactor of the whole project"\`
-- ✅ GOOD: \`"Audit src/auth/session.ts for null-deref bugs in the login flow"\`
-- ✅ GOOD: \`"Check packages/core/src/storage/*.ts for unhandled promise rejections (~6 files)"\`
-- ✅ GOOD: \`"Plan a phased refactor of the InMemoryBridge transport (3 files in coordination/)"\`
-
-If you need fleet-wide coverage, **fan out**: list the target files
-yourself first (one quick \`glob\` call), then fire one \`delegate\` per
-chunk of ≤5–10 files in parallel.
-
-### Reading the result
-
-\`delegate\` returns a structured object. Look at \`stopReason\`:
-
-- \`end_turn\` — subagent finished cleanly, \`result\` has the answer.
-- \`budget_exhausted\` — task was too broad; \`partial.lastAssistantText\`
-  has whatever it managed. Narrow the next try.
-- \`subagent_timeout\` / \`host_timeout\` — likewise partial; raise
-  \`timeoutMs\` only if you have a reason to believe more time would help.
-- \`aborted\` — the user or another tool stopped this worker; don't retry
-  silently.
-- \`error\` — infrastructure problem; surface it.
-
-Stay in-process (no \`delegate\`) when:
-- The task is trivial or atomic.
-- The information needed is already in your context.
-- The user is mid-conversation and expects an immediate reply from you,
-  not a research detour through a subagent.
-
-\`delegate\` auto-promotes the host into director mode the first time
-it's called — you do not need to call any setup tool. For fine-grained
-control over a long-running fleet (spawn N workers, hand them tasks
-one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
-\`await_tasks\` directly; \`delegate\` is the one-call shortcut.`);
+        const delegation = this.instructionSection(instructions, 'tool.delegation.full', {
+          roleList,
+        });
+        if (delegation) lines.push(delegation);
       }
     }
 
@@ -582,75 +566,15 @@ one by one, roll up results), use \`spawn_subagent\` + \`assign_task\` +
         // `aggressive` joins `light`/`medium` — the 400-token mailbox essay
         // is the largest single guidance section; users under context pressure
         // don't need it.
-        lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}\n\nUse \`mail_inbox\` for new messages, \`mail_send\` to communicate with other agents.`);
+        const mailbox = this.instructionSection(instructions, 'tool.mailbox.compact', {
+          onlineAgentsInfo,
+        });
+        if (mailbox) lines.push(mailbox);
       } else {
-        lines.push(`\n## Inter-agent mailbox${onlineAgentsInfo}
-
-You share a persistent project mailbox with every other agent working on
-this project — other terminals, TUIs and WebUIs included. You are
-EXPECTED to use it: announce what you do, hand work off, ask questions,
-and answer mail addressed to you. Coordination is part of the job, not
-an optional extra.
-
-### Your identity
-
-You are addressable as \`<your-name>@<session-tag>\` (your session-unique
-id — visible in the online list). Every session has its own tag, so two
-sessions running under the same name never mix. Mail sent to your bare
-base name (e.g. \`leader\`) reaches every live session running under that
-name; mail to your exact id reaches only you. When replying, use the
-sender's exact \`from\` id.
-
-### Receiving
-
-Unread mail (direct, base-name, and \`*\` broadcasts) is injected into
-your conversation automatically before each step — ALL message types
-(steer, btw, ask, assign, result, note) appear inline with a call to
-action. You do NOT need to manually check the mailbox; subagent results
-and questions reach you even while you are mid-task.
-
-When a message includes a call to action:
-- **ask**: reply to the agent directly or use \`mail_send\` to respond
-- **assign**: act on the task when your current operation allows
-- **result**: factor the outcome into your next decision
-
-To catch up explicitly:
-
-- \`mail_inbox\` — read your unread mail and mark it read
-- \`mailbox action=query from=<agent> type=result\` — find specific results
-
-### Sending
-
-- \`mail_send to=<agentId> subject="..." body="..."\` — direct message
-- \`mail_send to="*" subject="..." body="..."\` — broadcast to everyone
-  (\`to="all"\` works too)
-- Message types: \`note\` (info), \`ask\` (question), \`assign\` (task handoff),
-  \`steer\` (change approach), \`btw\` (non-urgent info), \`status\` (your current
-  task), \`result\` (task outcome)
-
-### Agent discovery
-
-- \`mailbox action=online\` — who is live right now (ids to address)
-- \`mailbox action=status\` — all agents and their current tasks. Use this
-  to find who to ask for help or who can pick up a broadcast task.
-
-### Etiquette — when to mail
-
-- **Broadcast milestones**: when you finish a significant change
-  ("refactored src/auth/*, tests green"), \`mail_send to="*"\` so parallel
-  agents don't collide with or duplicate your work.
-- **Hand off matching work**: if another agent's role fits a task better
-  (a reviewer online while you just wrote code → "can you review X?"),
-  send it to them instead of doing everything yourself.
-- **Answer your mail**: when an \`ask\` arrives, reply to the sender's
-  exact id with a \`result\` or \`note\` — silence stalls the other agent.
-- Post a \`status\` when you start something significant; post a \`result\`
-  when someone is waiting on you.
-
-### Acknowledging
-
-- \`mailbox action=ack messageId=<id> completed=true outcome="What you did"\`
-- Messages you \`check\` are auto-marked as read; use \`ack\` to mark complete.`);
+        const mailbox = this.instructionSection(instructions, 'tool.mailbox.full', {
+          onlineAgentsInfo,
+        });
+        if (mailbox) lines.push(mailbox);
       }
     }
 
@@ -660,24 +584,8 @@ To catch up explicitly:
     // their half-done work and there is no clean way to undo a shared commit.
     const hasGitTool = tools.some((t) => t.name === 'git');
     if (hasGitTool && this.tier !== 'minimal' && this.tier !== 'light') {
-      lines.push(`
-## Commit hygiene (shared working tree)
-
-Another coding agent — or a separate wrongstack process, or a human — may be
-editing this SAME working tree while you run. Before you commit:
-
-- **Never blind-stage the whole tree** (\`git add .\` / a bare \`git commit\` of
-  all staged changes) unless you are certain you are the only writer. That sweep
-  captures other agents' unfinished work into your commit.
-- **Scope to what you changed**: pass an explicit \`files\` list to the \`git\`
-  tool so the commit contains only the files you edited this session.
-- **Read \`git status\` first**. If you see changes you did not make, leave them
-  uncommitted — do not commit code you did not write or work that is half-done.
-- **Heed the \`warning\` field** on a commit result: it flags files authored by
-  another agent/session. If it fires, narrow your \`files\` list or coordinate via
-  the mailbox before committing.
-- A failed/aborted commit beats a commit that mixes your work with someone
-  else's. When in doubt, commit a smaller, self-contained slice.`);
+      const commitHygiene = this.instructionSection(instructions, 'tool.commit.hygiene');
+      if (commitHygiene) lines.push(commitHygiene);
     }
 
     // MCP lazy-loading guidance — shown whenever mcp_control is registered.
@@ -697,47 +605,18 @@ editing this SAME working tree while you run. Before you commit:
         // Minimal one-liner — `aggressive` joins `minimal`/`light`. The full
         // MCP workflow (activate → use → deactivate) is documented elsewhere
         // and the meta-tool `mcp_use` is sufficient at any tier that has it.
-        lines.push(
-          hasMcpUse
-            ? `\n## MCP tools (lazy-loaded)\n\nUse \`mcp_use({ server: "<name>", tool: "<bare-tool>", input: { ... } })\` to activate and call MCP tools.`
-            : `\n## MCP tools (lazy-loaded)\n\nUse \`mcp_control({ action: "list" })\` to see available servers, \`mcp_control({ action: "activate", server: "<name>" })\` to register tools.`,
+        const mcp = this.instructionSection(
+          instructions,
+          hasMcpUse ? 'tool.mcp.compact.use' : 'tool.mcp.compact.control',
         );
+        if (mcp) lines.push(mcp);
       } else {
         // Full block
-        lines.push(hasMcpUse ? `
-## MCP tools (lazy-loaded)
-
-MCP server tools are NOT registered by default in token-saving mode to keep
-the prompt compact. Each server's process is running in the background; only
-tool registration is deferred.
-
-**Preferred approach** — one-shot meta-tool:
-\`mcp_use({ server: "<name>", tool: "<bare-tool>", input: { ... } })\`
-This activates the server, calls the tool, returns the result, and
-deactivates — all in one call. No need to track activate/deactivate state.
-
-**Manual approach** (for exploration):
-1. \`mcp_control({ action: "list" })\` — see which servers are connected
-2. \`mcp_control({ action: "activate", server: "<name>" })\` — register tools
-3. Use the tools normally
-4. \`mcp_control({ action: "deactivate", server: "<name>" })\` — clean up
-
-Activation/deactivation is ephemeral (no config writes) and does NOT affect
-the server connection — only tool visibility changes.` : `
-## MCP tools (lazy-loaded)
-
-MCP server tools are NOT registered by default in token-saving mode to keep
-the prompt compact. Each server's process is running in the background; only
-tool registration is deferred.
-
-When you need a specific MCP server's tools:
-1. \`mcp_control({ action: "list" })\` — see which servers are connected
-2. \`mcp_control({ action: "activate", server: "<name>" })\` — register its tools
-3. Use the tools as needed
-4. \`mcp_control({ action: "deactivate", server: "<name>" })\` — unregister when done
-
-Activation/deactivation is ephemeral (no config writes) and does NOT affect
-the server connection — only tool visibility changes.`);
+        const mcp = this.instructionSection(
+          instructions,
+          hasMcpUse ? 'tool.mcp.full.use' : 'tool.mcp.full.control',
+        );
+        if (mcp) lines.push(mcp);
       }
     }
 
@@ -751,25 +630,22 @@ the server connection — only tool visibility changes.`);
       if (this.tier === 'minimal' || this.tier === 'light') {
         // Skip
       } else if (this.tier === 'medium') {
-        lines.push(`\n## Context management\n\nUse \`context_manager\` to manage context. Call \`{"action":"check"}\` to see token budget.`);
+        const contextManagement = this.instructionSection(
+          instructions,
+          'tool.context.management.compact',
+        );
+        if (contextManagement) lines.push(contextManagement);
       } else {
         // Adaptive threshold based on model context window size.
         // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
         const maxCtx = this.modelCapabilities()?.maxContextTokens ?? 128000;
         const threshold = maxCtx <= 32000 ? '50' : '70';
-        lines.push(`
-## Context management
-
-When the conversation grows long and context window usage exceeds what you can track,
-use the context_manager tool proactively — do NOT wait to be told:
-
-- Call \`context_manager\` with \`{"action":"check"}\` to see current token budget and message counts.
-- When the conversation exceeds ~${threshold}% of your context window, call \`{"action":"summary"}\` or \`{"action":"compact"}\` to reclaim space.
-- Use \`{"action":"prune"}\` to surgically remove specific irrelevant message ranges (e.g. old debug output).
-- Use \`{"action":"add_note"}\` to inject a summary note at a specific point after a complex operation.
-
-**Never** stuff redundant information into a tool result. If you summarize a file, do not paste its full content —
-summarize it, and let the tool result hold only the summary.`);
+        const contextManagement = this.instructionSection(
+          instructions,
+          'tool.context.management.full',
+          { threshold },
+        );
+        if (contextManagement) lines.push(contextManagement);
       }
     }
 

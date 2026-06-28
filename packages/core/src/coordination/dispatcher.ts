@@ -18,6 +18,10 @@
  * `executor` generalist rather than failing.
  */
 import { AGENT_CATALOG, ALL_AGENT_DEFINITIONS, type AgentDefinition } from './agents/index.js';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+} from '../utils/instruction-file.js';
 import { safeParse } from '../utils/safe-json.js';
 
 /** Default agent used when nothing else matches — the generalist builder. */
@@ -220,16 +224,10 @@ export function makeLLMClassifier(
 ): DispatchClassifier {
   return async (task, candidates) => {
     const list = candidates.map((c, i) => `${i + 1}. ${c.role} — ${c.summary}`).join('\n');
-    const prompt = `You are an agent router. Pick the single best agent for the task.
-
-Task:
-${task}
-
-Agents:
-${list}
-
-Reply with ONLY a compact JSON object: {"role":"<one role id from the list>","reason":"<short why>"}.
-Do not add prose, markdown, or code fences.`;
+    const prompt = renderInstructionTemplate(readBundledInstructionText('llm/agent-router.md'), {
+      task,
+      agents: list,
+    });
     const raw = (await complete(prompt)).trim();
     // Tolerate accidental code fences / surrounding text — extract first {...}.
     const match = raw.match(/\{[\s\S]*\}/);

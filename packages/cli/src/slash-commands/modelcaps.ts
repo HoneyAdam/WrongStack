@@ -71,17 +71,46 @@ export function buildModelCapsCommand(opts: SlashCommandContext): SlashCommand {
 
       // ── Summary: agent-type → model mapping ──
       if (trimmed === 'summary') {
-        return {
-          message: [
-            `${color.bold('Agent-Type → Model Mapping')} ${color.dim('— use /setmodel')}`,
+        const cfg = opts.configStore.get();
+        const leaderProvider = cfg?.provider ?? '(unset)';
+        const leaderModel = cfg?.model ?? '(unset)';
+        const matrix = (cfg?.modelMatrix ?? {}) as Record<
+          string,
+          { provider?: string | undefined; model: string }
+        >;
+        const keys = Object.keys(matrix).sort();
+        const lines: string[] = [
+          `${color.bold('Agent-Type → Model Mapping')}`,
+          '',
+          `  ${color.bold('leader'.padEnd(20))} ${color.cyan(`${leaderProvider}/${leaderModel}`)} ${color.dim('(fallback for every role)')}`,
+        ];
+        if (keys.length === 0) {
+          lines.push(
             '',
-            `${color.dim('Run /setmodel to see the current model matrix and resolution chain.')}`,
-            `${color.dim('Each agent role resolves its model via: role → phase → * → leader.')}`,
+            color.dim('  No matrix overrides — every role resolves to the leader model.'),
+            color.dim('  Add one with /setmodel set <role|phase|*> <provider/model>.'),
+          );
+        } else {
+          lines.push('');
+          for (const key of keys) {
+            const entry = matrix[key];
+            if (!entry) continue;
+            const prov = entry.provider ?? leaderProvider;
+            const label = key === '*' ? '* (default)' : key;
+            lines.push(
+              `  ${color.bold(label.padEnd(20))} ${color.cyan(`${prov}/${entry.model}`)}`,
+            );
+          }
+          lines.push(
             '',
-            `${color.dim('/setmodel         — show leader + matrix + resolution summary')}`,
-            `${color.dim('/setmodel resolve <role> — walk the resolution chain for one role')}`,
-          ].join('\n'),
-        };
+            color.dim('  Resolution order per role: role → phase → * → leader.'),
+          );
+        }
+        lines.push(
+          '',
+          color.dim('  /setmodel resolve <role> — walk the resolution chain for one role.'),
+        );
+        return { message: lines.join('\n') };
       }
 
       // ── Load models cache ──

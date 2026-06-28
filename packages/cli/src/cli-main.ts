@@ -338,6 +338,8 @@ export async function main(argv: string[]): Promise<number> {
     paths: {
       projectGoal: wpaths.projectGoal,
       projectSessions: wpaths.projectSessions,
+      globalInstructions: wpaths.globalInstructions,
+      inProjectInstructions: wpaths.inProjectInstructions,
     },
     pathJoiner: { join: (a, b) => path.join(a, b) },
     systemPromptBuilderToken: TOKENS.SystemPromptBuilder,

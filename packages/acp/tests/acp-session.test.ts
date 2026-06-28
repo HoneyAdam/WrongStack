@@ -282,10 +282,12 @@ describe('ACPSession', () => {
     // The handler awaits fileServer.readTextFile (which is a real fs
     // call) then awaits transport.send. Give it a real timer tick.
     await new Promise((r) => setTimeout(r, 50));
-    const response = t.sent.find(
-      (m) => m.id === id && m.method === 'fs/read_text_file',
-    );
+    // JSON-RPC responses are correlated by id alone and MUST NOT carry a
+    // `method` field (the official ACP SDK drops responses that do).
+    const response = t.sent.find((m) => m.id === id && m.result !== undefined);
     expect(response).toBeDefined();
+    expect((response as { jsonrpc?: string }).jsonrpc).toBe('2.0');
+    expect((response as { method?: string }).method).toBeUndefined();
     expect((response!.result as { content: string }).content).toBe('hi from file');
 
     await session.close();
@@ -304,10 +306,10 @@ describe('ACPSession', () => {
     } as never as ACPMessage);
 
     await new Promise((r) => setImmediate(r));
-    const response = t.sent.find(
-      (m) => m.id === id && m.method === 'fs/read_text_file',
-    );
+    const response = t.sent.find((m) => m.id === id && m.error !== undefined);
     expect(response).toBeDefined();
+    expect((response as { jsonrpc?: string }).jsonrpc).toBe('2.0');
+    expect((response as { method?: string }).method).toBeUndefined();
     expect(response!.error).toBeDefined();
     expect(response!.error!.code).toBe(-32602);
 
