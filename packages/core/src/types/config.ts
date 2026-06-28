@@ -423,7 +423,13 @@ export interface ModelMatrixEntry {
    *  the leader's provider is used with this entry's model. */
   provider?: string | undefined;
   /** Model id to run for the matched role/phase/default. */
-  model: string;
+  model?: string | undefined;
+  /**
+   * Named fallback profile to use for the matched role/phase/default. When
+   * `model` is omitted, the first model in the profile becomes the primary and
+   * the remaining entries become that subagent's fallback chain.
+   */
+  fallbackProfile?: string | undefined;
 }
 
 export interface MCPServerConfig {
@@ -698,6 +704,17 @@ export interface Config {
    * the `/setmodel` slash command; persisted to ~/.wrongstack/config.json.
    */
   modelMatrix?: Record<string, ModelMatrixEntry>;
+  /**
+   * User-curated model references shown/prioritized by model commands and used
+   * by smart fallback derivation. Entries are `model`, `provider/model`, or
+   * `provider model`.
+   */
+  favoriteModels?: string[] | undefined;
+  /**
+   * When true, auto-derived fallback chains are restricted to `favoriteModels`.
+   * Explicit fallback profiles/chains are always honored as written.
+   */
+  favoriteModelsOnly?: boolean | undefined;
   context: ContextConfig;
   tools: ToolsConfig;
   mcpServers?: Record<string, MCPServerConfig>;
@@ -724,6 +741,11 @@ export interface Config {
    * re-tried first at the start of every user turn. See `createFallbackModelExtension`.
    */
   fallbackModels?: string[] | undefined;
+  /**
+   * Named fallback chains. A profile's first entry can be used as a primary
+   * model by `/setmodel`, while the whole ordered list is used for failover.
+   */
+  fallbackProfiles?: Record<string, string[]> | undefined;
   /**
    * When `true` (the default) and `fallbackModels` is empty, a fallback chain
    * is derived automatically from the other keyed providers/models so 429s

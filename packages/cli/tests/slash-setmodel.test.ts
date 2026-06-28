@@ -90,6 +90,24 @@ describe('/setmodel slash command', () => {
     expect(readFile().model).toBe('minimax-m3');
   });
 
+  it('sets the leader from a fallback profile and uses the rest as fallbacks', async () => {
+    const initial = {
+      ...baseConfig(),
+      fallbackProfiles: {
+        fallback1: ['minimax/minimax-m3', 'anthropic/claude-haiku-4-5'],
+      },
+    };
+    fs.writeFileSync(globalConfigPath, JSON.stringify(initial, null, 2));
+    const { ctx, store } = makeCtx(initial);
+    const cmd = buildSetModelCommand(ctx);
+    const out = await cmd.run!('leader fallback1', undefined);
+    expect(out!.message).toContain('profile:fallback1');
+    expect(store.value.provider).toBe('minimax');
+    expect(store.value.model).toBe('minimax-m3');
+    expect(store.value.fallbackModels).toEqual(['anthropic/claude-haiku-4-5']);
+    expect(readFile().fallbackModels).toEqual(['anthropic/claude-haiku-4-5']);
+  });
+
   it('updated leader model becomes the shadow default on next start', async () => {
     const { ctx, store } = makeCtx(baseConfig());
     const setmodel = buildSetModelCommand(ctx);
@@ -146,6 +164,26 @@ describe('/setmodel slash command', () => {
     await cmd.run!('set * some-model', undefined);
     expect((store.value.modelMatrix as Record<string, unknown>)['*']).toEqual({
       model: 'some-model',
+    });
+  });
+
+  it('sets a matrix key to a fallback profile', async () => {
+    const initial = {
+      ...baseConfig(),
+      fallbackProfiles: {
+        fallback1: ['minimax/minimax-m3', 'anthropic/claude-haiku-4-5'],
+      },
+    };
+    fs.writeFileSync(globalConfigPath, JSON.stringify(initial, null, 2));
+    const { ctx, store } = makeCtx(initial);
+    const cmd = buildSetModelCommand(ctx);
+    const out = await cmd.run!(`set ${sampleRole} fallback1`, undefined);
+    expect(out!.message).toContain('profile:fallback1');
+    expect((store.value.modelMatrix as Record<string, unknown>)[sampleRole]).toEqual({
+      fallbackProfile: 'fallback1',
+    });
+    expect((readFile().modelMatrix as Record<string, unknown>)[sampleRole]).toEqual({
+      fallbackProfile: 'fallback1',
     });
   });
 

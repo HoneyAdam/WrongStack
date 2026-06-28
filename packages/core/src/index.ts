@@ -65,6 +65,9 @@ export {
 export { runProviderWithRetry } from './core/provider-runner.js';
 export {
   createFallbackModelExtension,
+  fallbackProfileChain,
+  formatModelRef,
+  normalizeModelRef,
   parseModelRef,
   smartDefaultFallbackChain,
   effectiveFallbackChain,
@@ -384,11 +387,13 @@ export {
 } from './coordination/agents/index.js';
 export {
   resolveModelMatrix,
+  resolveModelTargetFromEntry,
   phaseForRole,
   matrixKeyKind,
   isValidMatrixKey,
   MATRIX_PHASE_KEYS,
   type MatrixKeyKind,
+  type ResolvedModelTarget,
 } from './coordination/model-matrix.js';
 export {
   dispatchAgent,

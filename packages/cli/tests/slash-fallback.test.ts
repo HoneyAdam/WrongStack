@@ -83,6 +83,35 @@ describe('/fallback', () => {
     expect(update).toHaveBeenCalledWith({ fallbackAuto: false });
   });
 
+  it('profile set stores a named fallback chain', async () => {
+    const { ctx, readFile } = makeCtx();
+    const cmd = buildFallbackCommand(ctx);
+    const res = await cmd.run('profile set fallback1 openai/gpt-5,anthropic/claude-sonnet');
+    expect(stripAnsi(res?.message ?? '')).toContain('profile fallback1');
+    expect(readFile().fallbackProfiles).toEqual({
+      fallback1: ['openai/gpt-5', 'anthropic/claude-sonnet'],
+    });
+  });
+
+  it('profile use copies a named profile into the active chain', async () => {
+    const { ctx, readFile } = makeCtx({
+      fallbackProfiles: { fallback1: ['a/1', 'b/2'] },
+    });
+    const cmd = buildFallbackCommand(ctx);
+    const res = await cmd.run('profile use fallback1');
+    expect(stripAnsi(res?.message ?? '')).toContain('active chain');
+    expect(readFile().fallbackModels).toEqual(['a/1', 'b/2']);
+  });
+
+  it('fav add stores favorite models and only toggles strict smart fallback mode', async () => {
+    const { ctx, readFile } = makeCtx();
+    const cmd = buildFallbackCommand(ctx);
+    await cmd.run('fav add openai/gpt-5');
+    await cmd.run('fav only on');
+    expect(readFile().favoriteModels).toEqual(['openai/gpt-5']);
+    expect(readFile().favoriteModelsOnly).toBe(true);
+  });
+
   it('rejects an unknown subcommand', async () => {
     const { ctx } = makeCtx();
     const cmd = buildFallbackCommand(ctx);

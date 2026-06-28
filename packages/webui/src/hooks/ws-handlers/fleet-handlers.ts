@@ -24,6 +24,16 @@ export function handleWorktreeCleanupResult(msg: WSServerMessage) {
   useWorktreeStore.getState().setCleanResult({ ...p, at: Date.now() });
 }
 
+export function handleWorktreeMergeResult(msg: WSServerMessage) {
+  const p = msg.payload as { ok: boolean; branch: string; conflict?: boolean; conflictFiles?: string[]; reason?: string };
+  useWorktreeStore.getState().setMergeResult({ ...p, at: Date.now() });
+}
+
+export function handleWorktreeDiffResult(msg: WSServerMessage) {
+  const p = msg.payload as { dir: string; summary: import('@/types').WorktreeDiffSummary | null };
+  useWorktreeStore.getState().setDiff(p.dir, p.summary);
+}
+
 export function handleSubagentEvent(msg: WSServerMessage) {
   useFleetStore.getState().applyEvent(msg.payload as SubagentEvent);
   const vizEv = wsToVizEvent('subagent.event', msg.payload as Record<string, unknown>);
@@ -87,6 +97,8 @@ export const fleetHandlerMap: Partial<Record<string, (msg: WSServerMessage) => v
   'worktree.event': handleWorktreeEvent,
   'worktree.orphans': handleWorktreeOrphans,
   'worktree.cleanup_result': handleWorktreeCleanupResult,
+  'worktree.merge_result': handleWorktreeMergeResult,
+  'worktree.diff_result': handleWorktreeDiffResult,
   'subagent.event': handleSubagentEvent,
   'fleet.concurrency_update': handleFleetConcurrency,
   'client.status_update': handleClientStatusUpdate,

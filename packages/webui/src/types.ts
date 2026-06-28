@@ -892,6 +892,8 @@ export interface WorktreeHandleView {
   handleId: string;
   ownerId: string;
   ownerLabel: string;
+  /** Absolute checkout path (for open-in-terminal / remove). */
+  dir?: string | undefined;
   branch: string;
   baseBranch: string;
   status:
@@ -944,10 +946,36 @@ export interface WSWorktreeOrphans {
   };
 }
 
-/** Outcome of a worktree-panel orphan cleanup. */
+/** Outcome of a worktree-panel orphan cleanup (bulk or single remove). */
 export interface WSWorktreeCleanupResult {
   type: 'worktree.cleanup_result';
   payload: { ok: boolean; removed: number; reason?: string | undefined };
+}
+
+/** Compact per-worktree change summary. */
+export interface WorktreeDiffSummary {
+  files: Array<{ path: string; insertions: number; deletions: number }>;
+  insertions: number;
+  deletions: number;
+  commits: number;
+}
+
+/** Outcome of a per-worktree squash-merge into base. */
+export interface WSWorktreeMergeResult {
+  type: 'worktree.merge_result';
+  payload: {
+    ok: boolean;
+    branch: string;
+    conflict?: boolean | undefined;
+    conflictFiles?: string[] | undefined;
+    reason?: string | undefined;
+  };
+}
+
+/** Result of a per-worktree "View changes" request. */
+export interface WSWorktreeDiffResult {
+  type: 'worktree.diff_result';
+  payload: { dir: string; summary: WorktreeDiffSummary | null };
 }
 
 export type WSClientMessage =
@@ -1040,6 +1068,9 @@ export type WSClientMessage =
     }
   | { type: 'worktree.scan'; payload?: Record<string, never> }
   | { type: 'worktree.cleanup'; payload?: Record<string, never> }
+  | { type: 'worktree.remove'; payload: { dir?: string | undefined; branch?: string | undefined } }
+  | { type: 'worktree.merge'; payload: { branch: string } }
+  | { type: 'worktree.diff'; payload: { dir: string; baseBranch?: string | undefined } }
   | { type: 'sdd.spec.start'; payload: { goal: string } }
   | { type: 'sdd.spec.message'; payload: { text: string } }
   | { type: 'sdd.spec.approve'; payload?: Record<string, never> }
@@ -1319,6 +1350,8 @@ export type WSServerMessage =
   | WSWorktreeEvent
   | WSWorktreeOrphans
   | WSWorktreeCleanupResult
+  | WSWorktreeMergeResult
+  | WSWorktreeDiffResult
   | WSCollabState
   | WSCollabParticipantJoined
   | WSCollabParticipantLeft

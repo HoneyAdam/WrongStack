@@ -2013,7 +2013,11 @@ export async function startWebUI(
     if (await handleSpecsRoute(ws, msg, specsRoutes)) return;
     if (await handleSddBoardRoute(ws, msg, sddBoardRoutes)) return;
     if (await handleSddWizardRoute(ws, msg, sddWizardRoutes)) return;
-    if (msg.type.startsWith('worktree.') && (await worktreeHandler.handleMessage(msg))) return;
+    if (
+      msg.type.startsWith('worktree.') &&
+      (await worktreeHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> }))
+    )
+      return;
 
     switch (msg.type) {
       // Collaboration messages short-circuit the user/agent flow.

@@ -2317,6 +2317,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       await sddWizardHandler?.handleMessage(
         msg as { type: string; payload?: Record<string, unknown> },
       );
+    } else if (msgType.startsWith('worktree.')) {
+      await worktreeHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
     } else {
       console.debug(`[WebUI] Unhandled message type: ${msgType}`);
     }

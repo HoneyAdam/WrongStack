@@ -13,9 +13,12 @@ import {
   type ModelMatrixEntry,
   matrixKeyKind,
   noOpVault,
+  parseModelRef,
   type ProviderConfig,
   phaseForRole,
+  fallbackProfileChain,
   resolveModelMatrix,
+  resolveModelTargetFromEntry,
   type SlashCommand,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
@@ -47,12 +50,16 @@ function keyedProviderIds(config: {
  * Parse `<provider>/<model>`, `<provider> <model>`, or a bare `<model>`
  * (provider omitted → leader provider at resolve time) into a matrix entry.
  */
-function parseTarget(tokens: string[]): ModelMatrixEntry | { error: string } {
+function parseTarget(
+  tokens: string[],
+  profiles: Record<string, string[]> = {},
+): ModelMatrixEntry | { error: string } {
   if (tokens.length >= 2) {
     return { provider: tokens[0], model: tokens.slice(1).join(' ') };
   }
   const only = tokens[0];
   if (!only) return { error: 'missing <provider>/<model>' };
+  if (profiles[only]) return { fallbackProfile: only };
   if (only.includes('/')) {
     const i = only.indexOf('/');
     return { provider: only.slice(0, i), model: only.slice(i + 1) };
@@ -61,6 +68,12 @@ function parseTarget(tokens: string[]): ModelMatrixEntry | { error: string } {
 }
 
 function fmtEntry(e: ModelMatrixEntry): string {
+  if (e.fallbackProfile && !e.model) return `profile:${e.fallbackProfile}`;
+  if (e.fallbackProfile && e.model) {
+    const base = e.provider ? `${e.provider}/${e.model}` : `${e.model} ${color.dim('(leader provider)')}`;
+    return `${base} ${color.dim(`+ profile:${e.fallbackProfile}`)}`;
+  }
+  if (!e.model) return color.dim('(unset)');
   return e.provider ? `${e.provider}/${e.model}` : `${e.model} ${color.dim('(leader provider)')}`;
 }
 
@@ -118,7 +131,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
     '  /setmodel                              Show leader model + matrix + resolution summary',
     '  /setmodel list                         List keyed providers, their models, and valid keys',
     '  /setmodel leader <provider> <model>    Set the main (leader / brain) model',
+    '  /setmodel leader <fallbackProfile>     Set leader primary/fallbacks from a profile',
     '  /setmodel set <key> <provider>/<model> Pin a role/phase/* to a model',
+    '  /setmodel set <key> <fallbackProfile>  Pin a role/phase/* to a fallback profile',
     '  /setmodel set <key> <model>            Pin to a model on the leader provider',
     '  /setmodel clear <key>                  Remove a matrix entry',
     '  /setmodel resolve <role>              Walk the resolution chain for one role',
@@ -165,9 +180,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
       lines.push('');
       lines.push(`  ${color.bold('resolution')} ${color.dim('(selected roles)')}`);
       for (const role of summaryRoles) {
-        const entry = resolveModelMatrix(matrix, role);
-        const provider = entry?.provider ?? config.provider;
-        const model = entry?.model ?? config.model;
+        const target = resolveModelTargetFromEntry(config, resolveModelMatrix(matrix, role));
+        const provider = target?.provider ?? config.provider;
+        const model = target?.model ?? config.model;
         const source = resolutionSource(matrix, role);
         lines.push(
           `    ${color.dim(role.padEnd(22))} → ${color.cyan(`${provider}/${model}`)}  ${color.dim(source)}`,
@@ -306,8 +321,13 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
 
         // Final result
         if (resolved) {
-          const rp = resolved.provider ?? config.provider;
-          lines.push(`${color.green('✓ Resolved')}: ${color.cyan(`${rp}/${resolved.model}`)}`);
+          const target = resolveModelTargetFromEntry(config, resolved);
+          const rp = target?.provider ?? config.provider;
+          const rm = target?.model ?? config.model;
+          const suffix = target?.fallbackModels?.length
+            ? color.dim(`  fallbacks: ${target.fallbackModels.join(' → ')}`)
+            : '';
+          lines.push(`${color.green('✓ Resolved')}: ${color.cyan(`${rp}/${rm}`)}${suffix}`);
         } else {
           lines.push(
             `${color.green('✓ Resolved')}: ${color.cyan(`${config.provider}/${config.model}`)} ${color.dim('(leader)')}`,
@@ -348,12 +368,17 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
           // 3. Check model is in provider's model list (if list is defined)
           const effectiveProvider = entry.provider ?? config.provider;
           const provCfg = config.providers?.[effectiveProvider];
-          if (provCfg?.models && provCfg.models.length > 0) {
+          if (entry.model && provCfg?.models && provCfg.models.length > 0) {
             if (!provCfg.models.includes(entry.model)) {
               warnings.push(
                 `${color.amber('⚠')} ${color.amber(key)}: model "${entry.model}" not in ${effectiveProvider}'s model list (${provCfg.models.join(', ')})`,
               );
             }
+          }
+          if (entry.fallbackProfile && !config.fallbackProfiles?.[entry.fallbackProfile]) {
+            issues.push(
+              `${color.red('✗')} ${color.amber(key)}: fallback profile "${entry.fallbackProfile}" is not defined`,
+            );
           }
         }
 
@@ -403,10 +428,37 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
 
       try {
         if (sub === 'leader') {
+          const profiles = (config.fallbackProfiles ?? {}) as Record<string, string[]>;
+          if (parts.length === 2 && profiles[parts[1] ?? '']) {
+            const profile = parts[1]!;
+            const chain = fallbackProfileChain(config, profile);
+            const first = chain[0];
+            if (!first) return { message: `${color.red('Empty profile')}: ${color.amber(profile)}` };
+            const parsed = parseModelRef(first);
+            const provider = parsed.provider ?? config.provider;
+            if (!keyed.includes(provider)) {
+              return {
+                message: `${color.red('Provider not available')}: "${provider}". Keyed: ${keyed.join(', ') || '(none)'}. ${color.dim('/setmodel list')}`,
+              };
+            }
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              cfg.provider = provider;
+              cfg.model = parsed.model;
+              cfg.fallbackModels = chain.slice(1);
+            });
+            opts.configStore.update({
+              provider: decrypted.provider as string,
+              model: decrypted.model as string,
+              fallbackModels: decrypted.fallbackModels as string[],
+            });
+            return {
+              message: `${color.green('✓')} leader → ${color.cyan(`${provider}/${parsed.model}`)} ${color.dim(`profile:${profile}`)}`,
+            };
+          }
           const provider = parts[1];
           const model = parts.slice(2).join(' ');
           if (!provider || !model) {
-            return { message: `${color.amber('Usage:')} /setmodel leader <provider> <model>` };
+            return { message: `${color.amber('Usage:')} /setmodel leader <provider> <model> | <fallbackProfile>` };
           }
           if (!keyed.includes(provider)) {
             return {
@@ -436,7 +488,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
               message: `${color.red('Unknown key')}: "${key}". Use * , a phase (${MATRIX_PHASE_KEYS.join(', ')}), or a role. ${color.dim('/setmodel list')}`,
             };
           }
-          const parsed = parseTarget(parts.slice(2));
+          const parsed = parseTarget(parts.slice(2), (config.fallbackProfiles ?? {}) as Record<string, string[]>);
           if ('error' in parsed) {
             return { message: `${color.amber('Usage:')} /setmodel set ${key} <provider>/<model>` };
           }
@@ -447,9 +499,18 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
           }
           const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
             const matrix = { ...((cfg.modelMatrix as Record<string, ModelMatrixEntry>) ?? {}) };
-            matrix[key] = parsed.provider
-              ? { provider: parsed.provider, model: parsed.model }
-              : { model: parsed.model };
+            matrix[key] = parsed.fallbackProfile && !parsed.model
+              ? { fallbackProfile: parsed.fallbackProfile }
+              : parsed.provider
+                ? {
+                    provider: parsed.provider,
+                    model: parsed.model,
+                    ...(parsed.fallbackProfile ? { fallbackProfile: parsed.fallbackProfile } : {}),
+                  }
+                : {
+                    model: parsed.model,
+                    ...(parsed.fallbackProfile ? { fallbackProfile: parsed.fallbackProfile } : {}),
+                  };
             cfg.modelMatrix = matrix;
           });
           opts.configStore.update({

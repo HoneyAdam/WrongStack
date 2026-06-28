@@ -114,7 +114,8 @@ describe('telegram_approve tool', () => {
 
     expect(result.approved).toBe(false);
     expect(result.from).toBe('timeout');
-    expect(elapsed).toBeLessThan(500); // not 10 ms — but clamped >=1000 ms minimum
+    expect(elapsed).toBeGreaterThanOrEqual(950); // not 10 ms — clamped >=1000 ms minimum
+    expect(elapsed).toBeLessThan(1500);
   });
 
   it('resolves approved=true when a matching yes-key arrives via bot.awaitCallback', async () => {
@@ -134,19 +135,22 @@ describe('telegram_approve tool', () => {
     expect(yesMatch).not.toBeNull();
     const yesKey = yesMatch![1]!;
 
-    // Fire the callback waiter directly (this is what `dispatchCallback`
-    // would do when a real callback_query arrives).
-    const waiterPromise = bot.awaitCallback(yesKey, 1_000);
-    // The tool is racing its own waiter too — we don't have a way to
-    // inject into the racing pair, so the fastest way to validate the
-    // resolve path is to use the same `awaitCallback` API the dispatcher
-    // uses and confirm it resolves with approved=true.
-    const ok = await waiterPromise;
-    expect(ok.approved).toBe(true);
+    await (
+      bot as unknown as {
+        dispatchCallback(cq: {
+          id: string;
+          from?: { username?: string; first_name?: string };
+          data?: string;
+        }): Promise<void>;
+      }
+    ).dispatchCallback({
+      id: 'cb-approve',
+      from: { username: 'alice' },
+      data: yesKey,
+    });
 
-    // The tool's own promise will still time out (we didn't simulate the
-    // polling loop actually consuming our callback). That's fine — the
-    // contract we care about is that awaitCallback resolves correctly.
-    void execPromise.catch(() => undefined);
+    const result = await execPromise;
+    expect(result.approved).toBe(true);
+    expect(result.from).toBe('alice');
   });
 });

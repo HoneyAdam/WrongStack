@@ -1,0 +1,306 @@
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Eraser,
+  Eye,
+  FolderOpen,
+  GitBranch,
+  GitMerge,
+  Loader2,
+  RefreshCw,
+  Terminal,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { cn } from '@/lib/utils';
+import { useWorktreeStore } from '@/stores';
+import { confirmModal } from '../ConfirmModal';
+
+const shortBranch = (b?: string) => (b ? b.replace(/^wstack\/ap\//, '') : '(detached)');
+
+/** Active in-session statuses where destructive actions are blocked. */
+const LIVE_STATUSES = new Set(['allocating', 'active', 'committing', 'merging']);
+
+interface Row {
+  branch?: string;
+  dir?: string;
+  status: string; // live status, or 'orphan'
+  baseBranch?: string;
+  insertions: number;
+  deletions: number;
+  files: number;
+  owner?: string;
+  live: boolean;
+}
+
+const STATUS_TINT: Record<string, string> = {
+  active: 'text-amber-500',
+  committing: 'text-cyan-500',
+  merging: 'text-blue-500',
+  merged: 'text-emerald-500',
+  'needs-review': 'text-fuchsia-500',
+  failed: 'text-rose-500',
+  orphan: 'text-zinc-400',
+};
+
+/**
+ * WorktreesPanel — the dedicated worktree manager (left-nav). Unifies live
+ * (event-driven) worktrees with disk-scanned orphans and exposes per-row
+ * actions: open in terminal / folder, view changes, merge to base, remove.
+ * Destructive actions are refused server-side while a run owns the worktree.
+ */
+export function WorktreesPanel(): React.ReactElement {
+  const { client } = useWebSocket();
+  const live = useWorktreeStore((s) => s.worktrees);
+  const orphans = useWorktreeStore((s) => s.orphans);
+  const baseBranch = useWorktreeStore((s) => s.baseBranch);
+  const canClean = useWorktreeStore((s) => s.canClean);
+  const cleanResult = useWorktreeStore((s) => s.cleanResult);
+  const mergeResult = useWorktreeStore((s) => s.mergeResult);
+  const diffByDir = useWorktreeStore((s) => s.diffByDir);
+  const [busyBranch, setBusyBranch] = useState<string | null>(null);
+  const [openDiff, setOpenDiff] = useState<string | null>(null);
+
+  const send = client?.send;
+  useEffect(() => {
+    send?.({ type: 'worktree.scan' });
+  }, [send]);
+
+  // Clear the per-row spinner once a merge/clean result lands.
+  useEffect(() => {
+    setBusyBranch(null);
+  }, [mergeResult, cleanResult]);
+
+  const rows = useMemo<Row[]>(() => {
+    const liveBranches = new Set(live.map((w) => w.branch));
+    const out: Row[] = live.map((w) => ({
+      branch: w.branch,
+      dir: w.dir,
+      status: w.status,
+      baseBranch: w.baseBranch,
+      insertions: w.insertions,
+      deletions: w.deletions,
+      files: w.files,
+      owner: w.ownerLabel,
+      live: LIVE_STATUSES.has(w.status),
+    }));
+    for (const o of orphans) {
+      if (o.branch && liveBranches.has(o.branch)) continue; // already shown as live
+      out.push({ branch: o.branch, dir: o.dir, status: 'orphan', insertions: 0, deletions: 0, files: 0, live: false });
+    }
+    return out;
+  }, [live, orphans]);
+
+  const onOpen = (dir: string | undefined, target: 'terminal' | 'file-manager') => {
+    if (dir) send?.({ type: 'shell.open', payload: { path: dir, target } });
+  };
+  const onDiff = (dir?: string) => {
+    if (!dir) return;
+    send?.({ type: 'worktree.diff', payload: { dir } });
+    setOpenDiff((cur) => (cur === dir ? null : dir));
+  };
+  const onMerge = async (branch?: string) => {
+    if (!branch) return;
+    const ok = await confirmModal({
+      title: `Merge ${shortBranch(branch)} into ${baseBranch || 'base'}?`,
+      message: 'Squash-merges this branch onto the base branch. Aborts cleanly if it conflicts.',
+      confirmLabel: 'Merge',
+    });
+    if (!ok) return;
+    setBusyBranch(branch);
+    send?.({ type: 'worktree.merge', payload: { branch } });
+  };
+  const onRemove = async (row: Row) => {
+    const ok = await confirmModal({
+      title: `Remove ${shortBranch(row.branch)}?`,
+      message: 'Force-removes the worktree checkout and deletes its branch. Un-merged work is discarded.',
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusyBranch(row.branch ?? '');
+    send?.({ type: 'worktree.remove', payload: { dir: row.dir, branch: row.branch } });
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <span className="text-[11px] text-muted-foreground">
+          {rows.length} worktree{rows.length === 1 ? '' : 's'}
+          {baseBranch ? ` · base ${baseBranch}` : ''}
+        </span>
+        <div className="flex items-center gap-1">
+          {orphans.length > 0 && (
+            <button
+              type="button"
+              disabled={!canClean}
+              onClick={() => send?.({ type: 'worktree.cleanup' })}
+              title={canClean ? 'Remove all orphaned worktrees' : 'A run is live — stop it first'}
+              className="inline-flex items-center gap-1 rounded bg-amber-600/90 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              <Eraser className="h-3 w-3" /> Clean orphans
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => send?.({ type: 'worktree.scan' })}
+            title="Rescan"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Result banners */}
+      {cleanResult && (
+        <Banner ok={cleanResult.ok}>
+          {cleanResult.ok ? `Removed ${cleanResult.removed} worktree(s).` : cleanResult.reason ?? 'Failed'}
+        </Banner>
+      )}
+      {mergeResult && (
+        <Banner ok={mergeResult.ok}>
+          {mergeResult.ok
+            ? `Merged ${shortBranch(mergeResult.branch)} into base.`
+            : mergeResult.conflict
+              ? `Conflict merging ${shortBranch(mergeResult.branch)}: ${(mergeResult.conflictFiles ?? []).join(', ') || 'see git'}`
+              : `Merge failed: ${mergeResult.reason ?? 'unknown'}`}
+        </Banner>
+      )}
+
+      {/* List */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {rows.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-muted-foreground">
+            <GitBranch className="h-8 w-8 opacity-30" />
+            <p>No worktrees.</p>
+            <p className="max-w-[200px]">SDD / AutoPhase runs create isolated worktrees here. Orphans from crashed runs show up too.</p>
+          </div>
+        ) : (
+          rows.map((row, i) => {
+            const busy = busyBranch === (row.branch ?? '');
+            const diff = row.dir ? diffByDir[row.dir] : undefined;
+            return (
+              <div
+                key={`${row.branch ?? row.dir ?? i}`}
+                className="mb-1.5 rounded-md border border-border bg-card/60 px-2.5 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <GitBranch className={cn('h-3.5 w-3.5 shrink-0', STATUS_TINT[row.status] ?? 'text-muted-foreground')} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground" title={row.branch}>
+                    {shortBranch(row.branch)}
+                  </span>
+                  <span className={cn('shrink-0 text-[10px] uppercase', STATUS_TINT[row.status] ?? 'text-muted-foreground')}>
+                    {row.status}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex items-center gap-2 pl-5 text-[10px] text-muted-foreground">
+                  {row.owner && <span className="truncate">{row.owner}</span>}
+                  {(row.insertions > 0 || row.deletions > 0) && (
+                    <span className="shrink-0">
+                      <span className="text-emerald-500">+{row.insertions}</span>{' '}
+                      <span className="text-rose-500">−{row.deletions}</span> · {row.files}f
+                    </span>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="mt-1.5 flex items-center gap-0.5 pl-5">
+                  <Act title="Open in terminal" disabled={!row.dir} onClick={() => onOpen(row.dir, 'terminal')}>
+                    <Terminal className="h-3.5 w-3.5" />
+                  </Act>
+                  <Act title="Open folder" disabled={!row.dir} onClick={() => onOpen(row.dir, 'file-manager')}>
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </Act>
+                  <Act title="View changes" disabled={!row.dir} onClick={() => onDiff(row.dir)}>
+                    <Eye className="h-3.5 w-3.5" />
+                  </Act>
+                  <Act title="Merge to base" disabled={row.live || !row.branch} onClick={() => onMerge(row.branch)}>
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitMerge className="h-3.5 w-3.5" />}
+                  </Act>
+                  <Act title="Remove / discard" danger disabled={row.live} onClick={() => onRemove(row)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Act>
+                  {row.live && <span className="ml-1 text-[10px] text-amber-500">live</span>}
+                </div>
+
+                {/* Inline diff summary */}
+                {openDiff === row.dir && diff !== undefined && (
+                  <div className="mt-1.5 ml-5 rounded bg-muted/50 p-1.5 text-[10px]">
+                    {diff === null || diff.files.length === 0 ? (
+                      <span className="text-muted-foreground">No uncommitted changes{diff && diff.commits > 0 ? ` · ${diff.commits} commit(s) ahead` : ''}.</span>
+                    ) : (
+                      <>
+                        <div className="mb-1 text-muted-foreground">
+                          {diff.commits > 0 ? `${diff.commits} commit(s) ahead · ` : ''}
+                          <span className="text-emerald-500">+{diff.insertions}</span>{' '}
+                          <span className="text-rose-500">−{diff.deletions}</span>
+                        </div>
+                        {diff.files.slice(0, 12).map((f) => (
+                          <div key={f.path} className="truncate font-mono">
+                            <span className="text-emerald-500">+{f.insertions}</span>{' '}
+                            <span className="text-rose-500">−{f.deletions}</span> {f.path}
+                          </div>
+                        ))}
+                        {diff.files.length > 12 && <div className="text-muted-foreground">…{diff.files.length - 12} more</div>}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Act({
+  title,
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'rounded p-1 text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30',
+        danger ? 'hover:text-rose-500' : 'hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Banner({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-1.5 border-y px-3 py-1.5 text-[11px]',
+        ok
+          ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-300'
+          : 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-300',
+      )}
+    >
+      {ok ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+      <span className="min-w-0 flex-1">{children}</span>
+      {!ok && <XCircle className="mt-0.5 h-3 w-3 shrink-0 opacity-40" />}
+    </div>
+  );
+}

@@ -25,6 +25,23 @@ import * as path from 'node:path';
 interface CliWebUIOptions {
   agent: { ctx: { meta: Record<string, unknown> } };
   globalConfigPath?: string | undefined;
+  appConfig?: {
+    fallbackModels?: string[] | undefined;
+    fallbackProfiles?: Record<string, string[]> | undefined;
+    favoriteModels?: string[] | undefined;
+    favoriteModelsOnly?: boolean | undefined;
+    fallbackAuto?: boolean | undefined;
+    modelMatrix?:
+      | Record<
+          string,
+          {
+            provider?: string | undefined;
+            model?: string | undefined;
+            fallbackProfile?: string | undefined;
+          }
+        >
+      | undefined;
+  } | undefined;
 }
 
 import {
@@ -48,6 +65,10 @@ export const PREF_KEYS = [
   'streamFleet',
   'nextPrediction',
   'fallbackModels',
+  'fallbackProfiles',
+  'favoriteModels',
+  'favoriteModelsOnly',
+  'modelMatrix',
   'fallbackAuto',
   'enhanceEnabled',
   'enhanceDelayMs',
@@ -110,6 +131,13 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
     meta['nextPrediction'] = (cfg.nextPrediction as boolean) ?? false;
     meta['fallbackModels'] = (cfg.fallbackModels as string[]) ?? [];
+    meta['fallbackProfiles'] =
+      (cfg.fallbackProfiles as Record<string, string[]> | undefined) ?? {};
+    meta['favoriteModels'] = (cfg.favoriteModels as string[]) ?? [];
+    meta['favoriteModelsOnly'] = cfg.favoriteModelsOnly === true;
+    meta['modelMatrix'] =
+      (cfg.modelMatrix as Record<string, { provider?: string; model?: string; fallbackProfile?: string }> | undefined) ??
+      {};
     meta['fallbackAuto'] = cfg.fallbackAuto !== false;
     meta['featureMcp'] = features['mcp'] !== false;
     meta['featurePlugins'] = features['plugins'] !== false;
@@ -158,6 +186,11 @@ interface PrefsSeeding {
 export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
   let prefWriteLock: Promise<unknown> = Promise.resolve();
 
+  const patchLiveAppConfig = (patch: NonNullable<CliWebUIOptions['appConfig']>): void => {
+    if (!opts.appConfig) return;
+    opts.appConfig = { ...opts.appConfig, ...patch };
+  };
+
   /** Capture the current set of live preference values from agent.ctx.meta. */
   const prefSnapshot = (): PrefSnapshot => {
     const snapshot: PrefSnapshot = {};
@@ -170,6 +203,39 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
   /** Persist a preference diff back to config.json. */
   const persistPrefs = async (payload: PrefSnapshot): Promise<void> => {
     const configPath = opts.globalConfigPath;
+    if (Array.isArray(payload['fallbackModels']))
+      patchLiveAppConfig({ fallbackModels: payload['fallbackModels'] as string[] });
+    if (
+      payload['fallbackProfiles'] &&
+      typeof payload['fallbackProfiles'] === 'object' &&
+      !Array.isArray(payload['fallbackProfiles'])
+    ) {
+      patchLiveAppConfig({
+        fallbackProfiles: payload['fallbackProfiles'] as Record<string, string[]>,
+      });
+    }
+    if (Array.isArray(payload['favoriteModels']))
+      patchLiveAppConfig({ favoriteModels: payload['favoriteModels'] as string[] });
+    if (typeof payload['favoriteModelsOnly'] === 'boolean')
+      patchLiveAppConfig({ favoriteModelsOnly: payload['favoriteModelsOnly'] });
+    if (typeof payload['fallbackAuto'] === 'boolean')
+      patchLiveAppConfig({ fallbackAuto: payload['fallbackAuto'] });
+    if (
+      payload['modelMatrix'] &&
+      typeof payload['modelMatrix'] === 'object' &&
+      !Array.isArray(payload['modelMatrix'])
+    ) {
+      patchLiveAppConfig({
+        modelMatrix: payload['modelMatrix'] as Record<
+          string,
+          {
+            provider?: string | undefined;
+            model?: string | undefined;
+            fallbackProfile?: string | undefined;
+          }
+        >,
+      });
+    }
     if (!configPath) return;
 
     const write = async (): Promise<void> => {
@@ -198,6 +264,12 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       if ('enhanceLanguage' in payload) autonomy['enhanceLanguage'] = payload['enhanceLanguage'];
       if ('nextPrediction' in payload) decrypted['nextPrediction'] = payload['nextPrediction'];
       if ('fallbackModels' in payload) decrypted['fallbackModels'] = payload['fallbackModels'];
+      if ('fallbackProfiles' in payload)
+        decrypted['fallbackProfiles'] = payload['fallbackProfiles'];
+      if ('favoriteModels' in payload) decrypted['favoriteModels'] = payload['favoriteModels'];
+      if ('favoriteModelsOnly' in payload)
+        decrypted['favoriteModelsOnly'] = payload['favoriteModelsOnly'];
+      if ('modelMatrix' in payload) decrypted['modelMatrix'] = payload['modelMatrix'];
       if ('fallbackAuto' in payload) decrypted['fallbackAuto'] = payload['fallbackAuto'];
       decrypted['autonomy'] = autonomy;
 

@@ -13,6 +13,7 @@ import {
   Clock,
   Command,
   FileText,
+  GitBranch,
   GitCompare,
   FolderOpen,
   Folders,
@@ -90,6 +91,7 @@ const PANELS: PanelDef[] = [
   { id: 'projects', icon: <Folders size={16} />, label: 'Projects', shortcut: 'Ctrl+6' },
   { id: 'mailbox', icon: <Mail size={16} />, label: 'Mailbox', shortcut: 'Ctrl+7', pairedView: 'mailbox' },
   { id: 'skills', icon: <Sparkles size={16} />, label: 'Skills', shortcut: 'Ctrl+8', pairedView: 'skill' },
+  { id: 'worktrees', icon: <GitBranch size={16} />, label: 'Worktrees', shortcut: 'Ctrl+Shift+W' },
   { id: 'design', icon: <Palette size={16} />, label: 'Design Studio', shortcut: 'Ctrl+0' },
   { id: 'officemap', icon: <Building2 size={16} />, label: 'Office Map', shortcut: 'Ctrl+9', pairedView: 'officemap' },
 ];

@@ -248,10 +248,13 @@ const BOOLEAN_PREF_KEYS = new Set([
   'hqEnabled',
   'hqRawContent',
   'fallbackAuto',
+  'favoriteModelsOnly',
 ]);
 
 /** Keys whose value must be an array of strings (e.g. an ordered model list). */
-const STRING_ARRAY_PREF_KEYS = new Set(['fallbackModels']);
+const STRING_ARRAY_PREF_KEYS = new Set(['fallbackModels', 'favoriteModels']);
+const STRING_ARRAY_RECORD_PREF_KEYS = new Set(['fallbackProfiles']);
+const MODEL_MATRIX_PREF_KEYS = new Set(['modelMatrix']);
 
 const NUMBER_PREF_KEYS = new Set([
   'autonomyDelayMs',
@@ -293,6 +296,36 @@ function validatePreferenceValue(key: string, value: unknown): string | null {
     return Array.isArray(value) && value.every((v) => typeof v === 'string')
       ? null
       : `prefs.update payload.${key} must be an array of strings`;
+  }
+  if (STRING_ARRAY_RECORD_PREF_KEYS.has(key)) {
+    return isRecord(value) &&
+      Object.values(value).every(
+        (v) => Array.isArray(v) && v.every((item) => typeof item === 'string'),
+      )
+      ? null
+      : `prefs.update payload.${key} must be an object of string arrays`;
+  }
+  if (MODEL_MATRIX_PREF_KEYS.has(key)) {
+    if (!isRecord(value)) return `prefs.update payload.${key} must be an object`;
+    for (const entry of Object.values(value)) {
+      if (!isRecord(entry)) return `prefs.update payload.${key} entries must be objects`;
+      const provider = entry['provider'];
+      const model = entry['model'];
+      const fallbackProfile = entry['fallbackProfile'];
+      if (provider !== undefined && typeof provider !== 'string') {
+        return `prefs.update payload.${key}.provider must be a string when provided`;
+      }
+      if (model !== undefined && typeof model !== 'string') {
+        return `prefs.update payload.${key}.model must be a string when provided`;
+      }
+      if (fallbackProfile !== undefined && typeof fallbackProfile !== 'string') {
+        return `prefs.update payload.${key}.fallbackProfile must be a string when provided`;
+      }
+      if (model === undefined && fallbackProfile === undefined) {
+        return `prefs.update payload.${key} entries require model or fallbackProfile`;
+      }
+    }
+    return null;
   }
   const allowed = ENUM_PREF_KEYS[key];
   if (allowed) {

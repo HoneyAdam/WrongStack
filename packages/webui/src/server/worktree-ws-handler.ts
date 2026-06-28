@@ -1,3 +1,4 @@
+import { join, resolve, sep } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { EventBus, Logger } from '@wrongstack/core';
 import { cleanupStaleSddWorktrees, WorktreeManager } from '@wrongstack/core';
@@ -8,6 +9,14 @@ const MAX_ACTIVITY = 6;
 
 /** Statuses that mean a worktree is actively owned by a live in-session run. */
 const ACTIVE_STATUSES = new Set(['allocating', 'active', 'committing', 'merging']);
+
+/**
+ * Only this project's own managed branches are operable from the panel — both a
+ * safety scope (never touch `main`/arbitrary refs) AND an argv-injection guard:
+ * the strict charset forbids a leading `-`, so a client can't smuggle a value
+ * that git would parse as a flag. Mirrors `WorktreeManager`'s `wstack/ap/<slug>`.
+ */
+const MANAGED_BRANCH_RE = /^wstack\/ap\/[A-Za-z0-9._/-]+$/;
 
 export interface WorktreeManagementDeps {
   projectRoot: string;
@@ -46,14 +55,26 @@ export class WorktreeWebSocketHandler {
     void this.scanAndBroadcast();
   }
 
-  /** Handle worktree-panel control messages (scan / clean orphans). */
-  async handleMessage(msg: { type: string }): Promise<boolean> {
+  /** Handle worktree-panel control messages (scan / clean / per-row ops). */
+  async handleMessage(msg: { type: string; payload?: Record<string, unknown> }): Promise<boolean> {
     if (msg.type === 'worktree.scan') {
       await this.scanAndBroadcast();
       return true;
     }
     if (msg.type === 'worktree.cleanup') {
       await this.cleanupOrphans();
+      return true;
+    }
+    if (msg.type === 'worktree.remove') {
+      await this.removeOne(msg.payload?.['dir'] as string | undefined, msg.payload?.['branch'] as string | undefined);
+      return true;
+    }
+    if (msg.type === 'worktree.merge') {
+      await this.mergeBranch(msg.payload?.['branch'] as string | undefined);
+      return true;
+    }
+    if (msg.type === 'worktree.diff') {
+      await this.diffOne(msg.payload?.['dir'] as string | undefined, msg.payload?.['baseBranch'] as string | undefined);
       return true;
     }
     return false;
@@ -66,6 +87,18 @@ export class WorktreeWebSocketHandler {
   }
 
   // ── orphan management ─────────────────────────────────────────────────────
+
+  /** Absolute managed-worktrees root for this project. */
+  private worktreesRoot(): string {
+    return resolve(join(this.management!.projectRoot, '.wrongstack', 'worktrees'));
+  }
+
+  /** True iff `dir` resolves strictly inside the managed worktrees root. */
+  private underRoot(dir: string): boolean {
+    const abs = resolve(dir);
+    const root = this.worktreesRoot();
+    return abs !== root && abs.startsWith(root + sep);
+  }
 
   /** Branches of worktrees a live in-session run currently owns. */
   private liveActiveBranches(): Set<string> {
@@ -161,6 +194,79 @@ export class WorktreeWebSocketHandler {
     await this.scanAndBroadcast();
   }
 
+  /** Remove/discard ONE worktree + branch. Refused while a live run owns it. */
+  private async removeOne(dir?: string, branch?: string): Promise<void> {
+    if (!this.management || (!dir && !branch)) {
+      this.broadcast({ type: 'worktree.cleanup_result', payload: { ok: false, removed: 0, reason: 'nothing to remove' } });
+      return;
+    }
+    // Validate the client-supplied targets: a branch must be one of ours (the
+    // regex also blocks argv flag-smuggling) and a dir must be inside the
+    // managed worktrees root (no path traversal to arbitrary checkouts).
+    if (branch && !MANAGED_BRANCH_RE.test(branch)) {
+      this.broadcast({ type: 'worktree.cleanup_result', payload: { ok: false, removed: 0, reason: 'not a managed worktree branch' } });
+      return;
+    }
+    if (dir && !this.underRoot(dir)) {
+      this.broadcast({ type: 'worktree.cleanup_result', payload: { ok: false, removed: 0, reason: 'path is outside the managed worktrees root' } });
+      return;
+    }
+    if (branch && this.liveActiveBranches().has(branch)) {
+      this.broadcast({ type: 'worktree.cleanup_result', payload: { ok: false, removed: 0, reason: 'a run is live on this worktree — stop it first' } });
+      return;
+    }
+    let removed = false;
+    if (dir) {
+      const wt = new WorktreeManager({ projectRoot: this.management.projectRoot });
+      ({ removed } = await wt.removeOne(dir, branch));
+    }
+    // Drop our handle for this branch/dir.
+    for (const [id, h] of [...this.handles]) {
+      if ((branch && h.branch === branch) || (dir && h.handleId && dir.endsWith(h.handleId))) this.handles.delete(id);
+    }
+    this.broadcast({ type: 'worktree.cleanup_result', payload: { ok: removed, removed: removed ? 1 : 0, reason: removed ? undefined : 'remove failed (not a managed worktree?)' } });
+    this.broadcastState();
+    await this.scanAndBroadcast();
+  }
+
+  /** Squash-merge ONE branch into base. Refused while a live run owns it. */
+  private async mergeBranch(branch?: string): Promise<void> {
+    if (!this.management || !branch) {
+      this.broadcast({ type: 'worktree.merge_result', payload: { ok: false, branch: branch ?? '', reason: 'no branch' } });
+      return;
+    }
+    if (!MANAGED_BRANCH_RE.test(branch)) {
+      this.broadcast({ type: 'worktree.merge_result', payload: { ok: false, branch, reason: 'not a managed worktree branch' } });
+      return;
+    }
+    if (this.liveActiveBranches().has(branch)) {
+      this.broadcast({ type: 'worktree.merge_result', payload: { ok: false, branch, reason: 'a run is live on this worktree — stop it first' } });
+      return;
+    }
+    const wt = new WorktreeManager({ projectRoot: this.management.projectRoot });
+    const res = await wt.mergeBranch(branch);
+    this.broadcast({
+      type: 'worktree.merge_result',
+      payload: { ok: res.ok, branch, conflict: res.conflict, conflictFiles: res.conflictFiles, reason: res.reason },
+    });
+    await this.scanAndBroadcast();
+  }
+
+  /** Compact change summary for one worktree checkout. */
+  private async diffOne(dir?: string, baseBranch?: string): Promise<void> {
+    // Same path guard as removeOne — never run git in an arbitrary directory.
+    if (!this.management || !dir || !this.underRoot(dir)) {
+      this.broadcast({ type: 'worktree.diff_result', payload: { dir: dir ?? '', summary: null } });
+      return;
+    }
+    // A baseBranch is only ever a managed branch or omitted (→ detected base);
+    // reject anything that could smuggle a git flag.
+    const base = baseBranch && MANAGED_BRANCH_RE.test(baseBranch) ? baseBranch : undefined;
+    const wt = new WorktreeManager({ projectRoot: this.management.projectRoot });
+    const summary = await wt.diffSummary(resolve(dir), base);
+    this.broadcast({ type: 'worktree.diff_result', payload: { dir, summary } });
+  }
+
   // ── internals ───────────────────────────────────────────────────────────
 
   private subscribe(): void {
@@ -171,12 +277,13 @@ export class WorktreeWebSocketHandler {
 
     this.offs.push(
       on('worktree.allocated', (p) => {
-        const e = p as { handleId: string; ownerId: string; ownerLabel: string; branch: string; baseBranch: string };
+        const e = p as { handleId: string; ownerId: string; ownerLabel: string; dir?: string; branch: string; baseBranch: string };
         this.baseBranch = e.baseBranch || this.baseBranch;
         this.upsert(e.handleId, {
           handleId: e.handleId,
           ownerId: e.ownerId,
           ownerLabel: e.ownerLabel,
+          dir: e.dir,
           branch: e.branch,
           baseBranch: e.baseBranch,
           status: 'active',

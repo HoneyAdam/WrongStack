@@ -140,7 +140,7 @@ export class ModelRouter {
   pickForTask(role: string, description: string): ModelPick {
     // 1. Check user matrix
     const matrixEntry = this.resolveMatrix(role);
-    if (matrixEntry) {
+    if (matrixEntry?.model) {
       const provider = matrixEntry.provider ?? this.config.provider;
       return {
         provider,

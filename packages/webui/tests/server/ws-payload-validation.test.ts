@@ -210,6 +210,15 @@ describe('WebUI WebSocket payload validation', () => {
         tgDelegate: false,
         tgLongToolMs: 30_000,
         fallbackModels: ['anthropic/claude-haiku-4-5', 'openai/gpt-5'],
+        fallbackProfiles: {
+          default: ['anthropic/claude-sonnet', 'openai/gpt-5'],
+        },
+        favoriteModels: ['anthropic/claude-sonnet'],
+        favoriteModelsOnly: true,
+        modelMatrix: {
+          '*': { fallbackProfile: 'default' },
+          review: { provider: 'anthropic', model: 'claude-sonnet' },
+        },
         fallbackAuto: false,
       };
       expect(validatePrefsUpdatePayload(prefs)).toEqual({ ok: true, value: { prefs } });
@@ -239,6 +248,13 @@ describe('WebUI WebSocket payload validation', () => {
       { auditLevel: 'verbose' },
       { fallbackModels: 'anthropic/claude' },
       { fallbackModels: [1, 2] },
+      { fallbackProfiles: ['bad'] },
+      { fallbackProfiles: { default: 'anthropic/claude' } },
+      { favoriteModels: 'anthropic/claude' },
+      { favoriteModelsOnly: 'yes' },
+      { modelMatrix: [] },
+      { modelMatrix: { '*': { provider: 1, model: 'x' } } },
+      { modelMatrix: { '*': { provider: 'anthropic' } } },
       { fallbackAuto: 'yes' },
     ])('rejects unknown keys or invalid preference values %#', (payload) => {
       const result = validatePrefsUpdatePayload(payload);

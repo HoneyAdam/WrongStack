@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BudgetExceededError, SubagentBudget, BudgetThresholdSignal } from '../../src/coordination/subagent-budget.js';
 import { EventBus } from '../../src/kernel/events.js';
 
@@ -321,12 +321,18 @@ describe('SubagentBudget', () => {
     });
 
     it('recordToolCall counts as activity and keeps the idle clock fresh', async () => {
-      const b = new SubagentBudget({ idleTimeoutMs: 40, maxToolCalls: 100 });
-      b.start();
-      await new Promise((r) => setTimeout(r, 30));
-      b.recordToolCall(); // activity → resets idle
-      await new Promise((r) => setTimeout(r, 20));
-      expect(b.isTimedOut()).toBe(false); // only 20ms idle since the tool call
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(0);
+        const b = new SubagentBudget({ idleTimeoutMs: 40, maxToolCalls: 100 });
+        b.start();
+        vi.advanceTimersByTime(30);
+        b.recordToolCall(); // activity → resets idle
+        vi.advanceTimersByTime(20);
+        expect(b.isTimedOut()).toBe(false); // only 20ms idle since the tool call
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('idleMs reports time since the last activity, not since start', async () => {

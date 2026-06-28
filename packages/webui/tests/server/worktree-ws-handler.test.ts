@@ -149,6 +149,83 @@ describe('WorktreeWebSocketHandler — orphan management', () => {
     h.dispose();
   });
 
+  it('refuses removing a worktree owned by a live run', async () => {
+    const root = await tmpDir();
+    const events = new EventBus();
+    const h = new WorktreeWebSocketHandler(events, noopLogger, {
+      projectRoot: root,
+      boardsDir: path.join(root, 'sdd-boards'),
+    });
+    const ws = fakeWs();
+    h.addClient(ws);
+    events.emit('worktree.allocated', {
+      handleId: 'h1', ownerId: 'o1', ownerLabel: 'task', slug: 's1',
+      dir: path.join(root, '.wrongstack', 'worktrees', 's1'), branch: 'wstack/ap/s1', baseBranch: 'main',
+    } as never);
+
+    await h.handleMessage({ type: 'worktree.remove', payload: { branch: 'wstack/ap/s1', dir: path.join(root, '.wrongstack', 'worktrees', 's1') } });
+    const res = lastOf(ws, 'worktree.cleanup_result');
+    expect(res?.payload.ok).toBe(false);
+    expect(String(res?.payload.reason)).toMatch(/live/i);
+    h.dispose();
+  });
+
+  it('broadcasts a merge_result (refused for a live branch)', async () => {
+    const root = await tmpDir();
+    const events = new EventBus();
+    const h = new WorktreeWebSocketHandler(events, noopLogger, { projectRoot: root, boardsDir: path.join(root, 'sdd-boards') });
+    const ws = fakeWs();
+    h.addClient(ws);
+    events.emit('worktree.allocated', {
+      handleId: 'h1', ownerId: 'o1', ownerLabel: 'task', slug: 's1',
+      dir: path.join(root, '.wrongstack', 'worktrees', 's1'), branch: 'wstack/ap/s1', baseBranch: 'main',
+    } as never);
+    await h.handleMessage({ type: 'worktree.merge', payload: { branch: 'wstack/ap/s1' } });
+    const res = lastOf(ws, 'worktree.merge_result');
+    expect(res?.payload).toMatchObject({ ok: false, branch: 'wstack/ap/s1' });
+    h.dispose();
+  });
+
+  it('broadcasts a diff_result for a worktree dir', async () => {
+    const root = await tmpDir();
+    const h = new WorktreeWebSocketHandler(new EventBus(), noopLogger, { projectRoot: root, boardsDir: path.join(root, 'sdd-boards') });
+    const ws = fakeWs();
+    h.addClient(ws);
+    await h.handleMessage({ type: 'worktree.diff', payload: { dir: path.join(root, '.wrongstack', 'worktrees', 's1') } });
+    const res = lastOf(ws, 'worktree.diff_result');
+    expect(res?.payload).toHaveProperty('dir');
+    expect(res?.payload).toHaveProperty('summary');
+    h.dispose();
+  });
+
+  it('rejects a non-managed / flag-smuggling branch on merge', async () => {
+    const root = await tmpDir();
+    const h = new WorktreeWebSocketHandler(new EventBus(), noopLogger, { projectRoot: root, boardsDir: path.join(root, 'sdd-boards') });
+    const ws = fakeWs();
+    h.addClient(ws);
+    for (const bad of ['main', '--upload-pack=x', '-x']) {
+      await h.handleMessage({ type: 'worktree.merge', payload: { branch: bad } });
+      const res = lastOf(ws, 'worktree.merge_result');
+      expect(res?.payload.ok).toBe(false);
+      expect(String(res?.payload.reason)).toMatch(/managed/i);
+    }
+    h.dispose();
+  });
+
+  it('rejects a remove / diff path outside the managed worktrees root', async () => {
+    const root = await tmpDir();
+    const h = new WorktreeWebSocketHandler(new EventBus(), noopLogger, { projectRoot: root, boardsDir: path.join(root, 'sdd-boards') });
+    const ws = fakeWs();
+    h.addClient(ws);
+
+    await h.handleMessage({ type: 'worktree.remove', payload: { dir: '/etc' } });
+    expect(lastOf(ws, 'worktree.cleanup_result')?.payload.ok).toBe(false);
+
+    await h.handleMessage({ type: 'worktree.diff', payload: { dir: path.join(root, 'not-a-worktree') } });
+    expect(lastOf(ws, 'worktree.diff_result')?.payload.summary).toBeNull();
+    h.dispose();
+  });
+
   it('handleMessage returns false for unrelated message types', async () => {
     const root = await tmpDir();
     const h = new WorktreeWebSocketHandler(new EventBus(), noopLogger, {

@@ -5,6 +5,7 @@ import {
   color,
   decryptConfigSecrets,
   encryptConfigSecrets,
+  normalizeModelRef,
   noOpVault,
   type SlashCommand,
 } from '@wrongstack/core';
@@ -21,6 +22,13 @@ function normalizeRef(ref: string): string {
     .trim()
     .replace(/\s*\/\s*/g, '/')
     .replace(/\s+/g, ' ');
+}
+
+function splitRefs(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => normalizeRef(s))
+    .filter(Boolean);
 }
 
 /**
@@ -80,6 +88,12 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
     '  /fallback remove <n|ref>        Remove by 1-based index or exact reference',
     '  /fallback clear                 Empty the explicit chain',
     '  /fallback auto on|off           Toggle the auto-derived smart default',
+    '  /fallback profile set <name> <ref,ref,...>  Create or replace a named chain',
+    '  /fallback profile use <name>     Make a profile the leader fallback chain',
+    '  /fallback profile remove <name>  Delete a named chain',
+    '  /fallback fav add <provider/model>          Add a favorite model',
+    '  /fallback fav remove <n|ref>     Remove a favorite model',
+    '  /fallback fav only on|off        Restrict smart defaults to favorites',
     '',
     'When the explicit chain is empty and auto is on, a chain is derived from',
     'your other keyed providers/models so 429s recover without any setup.',
@@ -90,6 +104,8 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
   function currentView(): string {
     const config = opts.configStore.get();
     const explicit = config.fallbackModels ?? [];
+    const profiles = config.fallbackProfiles ?? {};
+    const favorites = config.favoriteModels ?? [];
     const auto = config.fallbackAuto !== false;
     const lines = [
       `${color.bold('WrongStack')} ${color.dim('— Fallback chain')}`,
@@ -125,8 +141,17 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
     lines.push(
       '',
       `  ${color.bold('auto')}  ${auto ? color.green('on') : color.dim('off')}  ${color.dim('/fallback auto on|off')}`,
+      `  ${color.bold('favorites only')}  ${config.favoriteModelsOnly ? color.green('on') : color.dim('off')}  ${color.dim('/fallback fav only on|off')}`,
       '',
-      color.dim('  /fallback add <provider/model> · remove <n> · clear · help'),
+      `  ${color.bold('profiles')} ${Object.keys(profiles).length ? '' : color.dim('(none)')}`,
+      ...Object.entries(profiles)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, chain]) => `    ${color.amber(name)} → ${chain.join(' → ')}`),
+      '',
+      `  ${color.bold('favorites')} ${favorites.length ? '' : color.dim('(none)')}`,
+      ...favorites.map((ref, i) => `    ${color.amber(String(i + 1).padStart(2))}. ${color.cyan(ref)}`),
+      '',
+      color.dim('  /fallback add <provider/model> · profile set fallback1 a,b · fav add a/b · help'),
     );
     return lines.join('\n');
   }
@@ -225,6 +250,116 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
           opts.configStore.update({ fallbackAuto: decrypted.fallbackAuto as boolean });
           return {
             message: `${color.green('✓')} smart default ${next ? color.green('on') : color.dim('off')}`,
+          };
+        }
+
+        if (sub === 'profile') {
+          const action = (parts[1] ?? '').toLowerCase();
+          const name = parts[2];
+          if (!['set', 'use', 'remove', 'list'].includes(action)) {
+            return {
+              message: `${color.amber('Usage:')} /fallback profile set <name> <ref,ref,...> | use <name> | remove <name>`,
+            };
+          }
+          if (action === 'list') return { message: currentView() };
+          if (!name) {
+            return { message: `${color.amber('Usage:')} /fallback profile ${action} <name>` };
+          }
+          const profiles = { ...((config.fallbackProfiles ?? {}) as Record<string, string[]>) };
+          if (action === 'set') {
+            const chain = splitRefs(parts.slice(3).join(' '));
+            if (chain.length === 0) {
+              return {
+                message: `${color.amber('Usage:')} /fallback profile set ${name} <provider/model,provider/model,...>`,
+              };
+            }
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              const next = { ...((cfg.fallbackProfiles as Record<string, string[]>) ?? {}) };
+              next[name] = chain;
+              cfg.fallbackProfiles = next;
+            });
+            opts.configStore.update({
+              fallbackProfiles: decrypted.fallbackProfiles as Record<string, string[]>,
+            });
+            return { message: `${color.green('✓')} profile ${color.amber(name)} → ${chain.join(' → ')}` };
+          }
+          if (!(name in profiles)) {
+            return { message: `${color.red('Profile not found')}: ${color.amber(name)}` };
+          }
+          if (action === 'use') {
+            const chain = profiles[name] ?? [];
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              cfg.fallbackModels = chain;
+            });
+            opts.configStore.update({ fallbackModels: decrypted.fallbackModels as string[] });
+            return { message: `${color.green('✓')} active chain ← profile ${color.amber(name)}` };
+          }
+          if (action === 'remove') {
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              const next = { ...((cfg.fallbackProfiles as Record<string, string[]>) ?? {}) };
+              delete next[name];
+              cfg.fallbackProfiles = next;
+            });
+            opts.configStore.update({
+              fallbackProfiles: decrypted.fallbackProfiles as Record<string, string[]>,
+            });
+            return { message: `${color.green('✓')} removed profile ${color.amber(name)}` };
+          }
+        }
+
+        if (sub === 'fav' || sub === 'favorite' || sub === 'favorites') {
+          const action = (parts[1] ?? '').toLowerCase();
+          const favorites = [...(config.favoriteModels ?? [])];
+          if (action === 'list' || !action) return { message: currentView() };
+          if (action === 'only') {
+            const val = (parts[2] ?? '').toLowerCase();
+            if (val !== 'on' && val !== 'off') {
+              return { message: `${color.amber('Usage:')} /fallback fav only on|off` };
+            }
+            const next = val === 'on';
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              cfg.favoriteModelsOnly = next;
+            });
+            opts.configStore.update({ favoriteModelsOnly: decrypted.favoriteModelsOnly as boolean });
+            return {
+              message: `${color.green('✓')} favorites-only smart fallback ${next ? color.green('on') : color.dim('off')}`,
+            };
+          }
+          if (action === 'add') {
+            const ref = normalizeRef(parts.slice(2).join(' '));
+            if (!ref) return { message: `${color.amber('Usage:')} /fallback fav add <provider/model>` };
+            const key = normalizeModelRef(ref, config.provider);
+            if (favorites.some((e) => normalizeModelRef(e, config.provider) === key)) {
+              return { message: `${color.amber('Already favorite')}: ${color.cyan(ref)}` };
+            }
+            favorites.push(ref);
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              cfg.favoriteModels = favorites;
+            });
+            opts.configStore.update({ favoriteModels: decrypted.favoriteModels as string[] });
+            return { message: `${color.green('✓')} favorite added ${color.cyan(ref)}` };
+          }
+          if (action === 'remove') {
+            const target = parts.slice(2).join(' ').trim();
+            if (!target) return { message: `${color.amber('Usage:')} /fallback fav remove <n|ref>` };
+            let idx = -1;
+            const asNum = Number.parseInt(target, 10);
+            if (String(asNum) === target && asNum >= 1 && asNum <= favorites.length) {
+              idx = asNum - 1;
+            } else {
+              const key = normalizeModelRef(target, config.provider);
+              idx = favorites.findIndex((e) => normalizeModelRef(e, config.provider) === key);
+            }
+            if (idx < 0) return { message: `${color.red('Favorite not found')}: "${target}"` };
+            const [removed] = favorites.splice(idx, 1);
+            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+              cfg.favoriteModels = favorites;
+            });
+            opts.configStore.update({ favoriteModels: decrypted.favoriteModels as string[] });
+            return { message: `${color.green('✓')} favorite removed ${color.cyan(removed ?? target)}` };
+          }
+          return {
+            message: `${color.red('Unknown favorite command')} "${action}". Try ${color.dim('/fallback fav add <provider/model>')}.`,
           };
         }
 

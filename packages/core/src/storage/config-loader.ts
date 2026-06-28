@@ -267,6 +267,9 @@ type PartialConfig = Partial<Config> & {
  *   - `configScope`        — where settings persist.
  *   - `maxConcurrent`      — fleet concurrency limit.
  *   - `fallbackModels`     — model references tried on 429/5xx.
+ *   - `fallbackProfiles`   — named fallback chains.
+ *   - `favoriteModels`     — model references preferred for display/routing.
+ *   - `favoriteModelsOnly` — restrict auto-derived chains to favorite models.
  *   - `fallbackAuto`       — derived-fallback toggle.
  *   - `models`             — custom model definitions (data, not code).
  *   - `modelMatrix`        — per-task model matrix.
@@ -296,6 +299,9 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'configScope',
   'maxConcurrent',
   'fallbackModels',
+  'fallbackProfiles',
+  'favoriteModels',
+  'favoriteModelsOnly',
   'fallbackAuto',
   'models',
   'modelMatrix',
@@ -378,6 +384,9 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'tools',
   'mcpServers',
   'fallbackModels',
+  'fallbackProfiles',
+  'favoriteModels',
+  'favoriteModelsOnly',
   'fallbackAuto',
   'hooks',
   'plugins',

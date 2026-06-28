@@ -67,6 +67,22 @@ export function parseModelRef(ref: string): ModelRef {
   return { model: trimmed };
 }
 
+export function formatModelRef(ref: ModelRef, defaultProvider?: string | undefined): string {
+  const provider = ref.provider ?? defaultProvider;
+  return provider ? `${provider}/${ref.model}` : ref.model;
+}
+
+export function normalizeModelRef(ref: string, defaultProvider?: string | undefined): string {
+  const parsed = parseModelRef(ref);
+  return formatModelRef(parsed, defaultProvider);
+}
+
+export function fallbackProfileChain(config: Config, profileName: string | undefined): string[] {
+  if (!profileName) return [];
+  const chain = config.fallbackProfiles?.[profileName];
+  return Array.isArray(chain) ? chain.filter((ref) => parseModelRef(ref).model) : [];
+}
+
 /**
  * Check if an error should trigger a fallback. Returns the status for
  * logging, or null if the error doesn't warrant a fallback attempt.
@@ -119,7 +135,13 @@ export function smartDefaultFallbackChain(config: Config): string[] {
   const leaderProvider = config.provider;
   const leaderModel = config.model;
   const providers = config.providers ?? {};
+  const favoriteSet = new Set(
+    (config.favoriteModels ?? []).map((ref) => normalizeModelRef(ref, leaderProvider)),
+  );
+  const hasFavorites = favoriteSet.size > 0;
+  const favoritesOnly = config.favoriteModelsOnly === true;
   const seen = new Set<string>();
+  const favoriteRefs: string[] = [];
   const sameProvider: string[] = [];
   const crossProvider: string[] = [];
 
@@ -137,10 +159,15 @@ export function smartDefaultFallbackChain(config: Config): string[] {
       const ref = `${id}/${model}`;
       if (seen.has(ref)) continue;
       seen.add(ref);
+      if (favoriteSet.has(ref)) {
+        favoriteRefs.push(ref);
+        continue;
+      }
+      if (favoritesOnly && hasFavorites) continue;
       (id === leaderProvider ? sameProvider : crossProvider).push(ref);
     }
   }
-  return [...sameProvider, ...crossProvider].slice(0, SMART_DEFAULT_MAX);
+  return [...favoriteRefs, ...sameProvider, ...crossProvider].slice(0, SMART_DEFAULT_MAX);
 }
 
 /**

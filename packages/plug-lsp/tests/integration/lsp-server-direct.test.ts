@@ -56,7 +56,8 @@ describe('LSPServer direct API', () => {
     await server.start();
     expect(ready).toHaveBeenCalledOnce();
     server.notifyDidOpen({ uri, languageId: 'typescript', version: 1, text: 'const answer = 1;' });
-    await waitFor(() => diagnostics.mock.calls.length > 0);
+    await waitFor(() => server.getDiagnostics(uri)[0]?.message === 'mock diagnostic');
+    expect(diagnostics).toHaveBeenCalled();
     expect(server.getDiagnostics(uri)[0]?.message).toBe('mock diagnostic');
     server.notifyDidChange({ uri, version: 2 }, 'const answer = 2;');
     server.notifyDidClose(uri);

@@ -432,6 +432,128 @@ export class WorktreeManager {
   }
 
   /**
+   * Force-remove ONE managed worktree + (optionally) its branch — the targeted
+   * counterpart to `cleanupAllManaged`. Used by the WebUI worktree panel's
+   * per-row Remove/Discard. Path-guarded so only checkouts under the project's
+   * worktrees root can be removed. Best-effort; never throws.
+   */
+  async removeOne(dir: string, branch?: string | undefined): Promise<{ removed: boolean }> {
+    const root = resolve(this.worktreesRoot());
+    const abs = resolve(dir);
+    // Refuse anything outside the managed worktrees root (never the main checkout).
+    if (abs === root || !abs.startsWith(root + sep)) {
+      return { removed: false };
+    }
+    let removed = false;
+    try {
+      const rm = await this.runGit(['worktree', 'remove', '--force', abs], this.projectRoot);
+      removed = rm.code === 0;
+    } catch {
+      // best-effort
+    }
+    // Defense-in-depth: never let a branch that could be parsed as a git flag
+    // through (a leading `-`). `branch -D --` terminates option parsing.
+    if (branch && !branch.startsWith('-')) {
+      await this.runGit(['branch', '-D', '--', branch], this.projectRoot).catch(() => undefined);
+    }
+    await this.runGit(['worktree', 'prune'], this.projectRoot).catch(() => undefined);
+    // Drop any in-memory handle pointing at this dir.
+    for (const [ownerId, h] of [...this.handles]) {
+      if (resolve(h.dir) === abs) this.handles.delete(ownerId);
+    }
+    return { removed };
+  }
+
+  /**
+   * Squash-merge an arbitrary `wstack/ap/*` branch into the base branch from the
+   * main checkout — the handle-free counterpart to {@link merge}, used by the
+   * WebUI worktree panel's per-row "Merge to base". On conflict it hard-resets
+   * the base tree (never leaves it dirty) and reports the conflicted paths.
+   * Refuses on a dirty base tree so uncommitted work is never clobbered.
+   */
+  async mergeBranch(
+    branch: string,
+    baseBranch?: string | undefined,
+  ): Promise<{ ok: boolean; conflict?: boolean; conflictFiles?: string[]; reason?: string }> {
+    const base = baseBranch ?? (await this.detectBaseBranch());
+    // Defense-in-depth: a ref that begins with `-` could be parsed as a git
+    // flag (argv smuggling). The WebUI boundary already restricts to managed
+    // branches; this guards every other caller too.
+    if (branch.startsWith('-') || base.startsWith('-')) {
+      return { ok: false, reason: 'invalid ref' };
+    }
+
+    const status = await this.runGit(['status', '--porcelain'], this.projectRoot);
+    if (status.stdout.trim().length > 0) {
+      return { ok: false, reason: 'working tree has uncommitted changes — commit or stash first' };
+    }
+    const co = await this.runGit(['checkout', base], this.projectRoot);
+    if (co.code !== 0) {
+      return { ok: false, reason: co.stderr || `checkout ${base} failed` };
+    }
+    const merged = await this.runGit(['merge', '--squash', branch], this.projectRoot);
+    if (merged.code !== 0) {
+      const fromOutput = parseConflictPaths(`${merged.stdout}\n${merged.stderr}`);
+      const fromIndex = await this.unmergedFiles();
+      const conflictFiles = [...new Set([...fromOutput, ...fromIndex])];
+      // `merge --squash` leaves no MERGE_HEAD — hard-reset to undo cleanly.
+      await this.runGit(['reset', '--hard', 'HEAD'], this.projectRoot).catch(() => undefined);
+      return { ok: false, conflict: true, conflictFiles, reason: merged.stderr || 'merge conflict' };
+    }
+    const idArgs = await this.identityArgs(this.projectRoot);
+    const commit = await this.runGit(
+      [...idArgs, 'commit', '-m', `merge ${branch} (squash)`],
+      this.projectRoot,
+    );
+    if (commit.code !== 0 && !/nothing to commit/i.test(commit.stdout + commit.stderr)) {
+      return { ok: false, reason: commit.stderr || 'squash commit failed' };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Compact change summary for a worktree checkout: working-tree edits
+   * (numstat vs HEAD) + commit count ahead of `baseBranch`. Powers the panel's
+   * "View changes" without streaming a full diff. Never throws.
+   */
+  async diffSummary(
+    dir: string,
+    baseBranch?: string | undefined,
+  ): Promise<{
+    files: Array<{ path: string; insertions: number; deletions: number }>;
+    insertions: number;
+    deletions: number;
+    commits: number;
+  }> {
+    const files: Array<{ path: string; insertions: number; deletions: number }> = [];
+    let insertions = 0;
+    let deletions = 0;
+    let commits = 0;
+    try {
+      const numstat = await this.runGit(['diff', '--numstat', 'HEAD'], dir);
+      for (const line of numstat.stdout.split('\n')) {
+        const m = line.trim().match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+        if (!m) continue;
+        const ins = m[1] === '-' ? 0 : Number(m[1]);
+        const del = m[2] === '-' ? 0 : Number(m[2]);
+        files.push({ path: m[3]!, insertions: ins, deletions: del });
+        insertions += ins;
+        deletions += del;
+      }
+    } catch {
+      // best-effort
+    }
+    try {
+      const base = baseBranch ?? (await this.detectBaseBranch());
+      const count = await this.runGit(['rev-list', '--count', `${base}..HEAD`], dir);
+      commits = Number(count.stdout.trim()) || 0;
+    } catch {
+      // best-effort
+    }
+    return { files, insertions, deletions, commits };
+  }
+
+  /**
    * Detect and clean up stale worktrees left behind by crashed subagents.
    *
    * P2 #B6 (sprint2 audit): when a subagent crashes (OOM, SIGKILL), its

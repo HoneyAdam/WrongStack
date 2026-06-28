@@ -31,6 +31,7 @@ import {
   type Provider,
   type ProviderRegistry,
   resolveModelMatrix,
+  resolveModelTargetFromEntry,
   type SessionWriter,
   type SubagentConfig,
   type SystemPromptBuilder,
@@ -711,8 +712,10 @@ export class MultiAgentHost {
       const matrixEntry = subCfg.model
         ? undefined
         : resolveModelMatrix(this.deps.configStore.get().modelMatrix, subCfg.role);
-      const effProvider = subCfg.provider ?? matrixEntry?.provider ?? config.provider;
-      const effModel = subCfg.model ?? matrixEntry?.model ?? config.model;
+      const matrixTarget = resolveModelTargetFromEntry(this.deps.configStore.get(), matrixEntry);
+      const effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
+      const effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
+      const matrixFallbacks = matrixTarget?.fallbackModels;
       const provider = await this.buildSubagentProvider(config, effProvider, effModel);
 
       // Per-subagent cwd (defaults to the factory cwd). AutoPhase points this
@@ -875,9 +878,9 @@ export class MultiAgentHost {
           // explicit list or smart default. Mirrors the runtime light factory.
           getConfig: () => {
             const live = this.deps.configStore.get();
-            return subCfg.fallbackModels?.length
-              ? { ...live, fallbackModels: subCfg.fallbackModels }
-              : live;
+            if (subCfg.fallbackModels?.length) return { ...live, fallbackModels: subCfg.fallbackModels };
+            if (matrixFallbacks?.length) return { ...live, fallbackModels: matrixFallbacks };
+            return live;
           },
           buildProvider: (id) => this.buildSubagentProvider(config, id, effModel),
           events,

@@ -16,7 +16,8 @@
  * Set via the `/setmodel` slash command; this module is the single source of
  * truth both that command and the spawn path use to validate + resolve keys.
  */
-import type { ModelMatrixEntry } from '../types/config.js';
+import type { Config, ModelMatrixEntry } from '../types/config.js';
+import { fallbackProfileChain, parseModelRef } from '../core/fallback-model.js';
 import { AGENTS_BY_PHASE, AGENT_CATALOG } from './agents/index.js';
 
 /** All valid phase keys, in catalog order. */
@@ -53,6 +54,43 @@ export function resolveModelMatrix(
   if (phase && matrix[phase]) return matrix[phase];
   if (matrix['*']) return matrix['*'];
   return undefined;
+}
+
+export interface ResolvedModelTarget {
+  provider?: string | undefined;
+  model?: string | undefined;
+  fallbackModels?: string[] | undefined;
+  fallbackProfile?: string | undefined;
+}
+
+/**
+ * Expand a matrix entry into a concrete primary model plus optional fallback
+ * chain. A profile-only matrix entry treats the first profile model as primary
+ * and the remaining profile entries as that subagent's fallback chain.
+ */
+export function resolveModelTargetFromEntry(
+  config: Config,
+  entry: ModelMatrixEntry | undefined,
+): ResolvedModelTarget | undefined {
+  if (!entry) return undefined;
+  if (entry.model) {
+    return {
+      provider: entry.provider,
+      model: entry.model,
+      fallbackProfile: entry.fallbackProfile,
+      fallbackModels: fallbackProfileChain(config, entry.fallbackProfile),
+    };
+  }
+  const chain = fallbackProfileChain(config, entry.fallbackProfile);
+  const first = chain[0];
+  if (!first) return undefined;
+  const parsed = parseModelRef(first);
+  return {
+    provider: parsed.provider,
+    model: parsed.model,
+    fallbackProfile: entry.fallbackProfile,
+    fallbackModels: chain.slice(1),
+  };
 }
 
 export type MatrixKeyKind = 'role' | 'phase' | 'default' | 'unknown';

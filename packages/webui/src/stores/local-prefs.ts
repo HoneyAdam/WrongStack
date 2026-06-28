@@ -28,6 +28,14 @@ export interface LocalPrefs {
   nextPrediction: boolean;
   /** Global fallback model chain (entries: `model` or `provider/model`). */
   fallbackModels: string[];
+  /** Named fallback chains selectable by setmodel/model routing. */
+  fallbackProfiles: Record<string, string[]>;
+  /** User-curated model references prioritized by pickers and smart fallbacks. */
+  favoriteModels: string[];
+  /** Restrict auto-derived fallback chains to favorite models. */
+  favoriteModelsOnly: boolean;
+  /** Per-role/phase/default model routing matrix. */
+  modelMatrix: Record<string, { provider?: string; model?: string; fallbackProfile?: string }>;
   /** Auto-derive a fallback chain from keyed providers when the list is empty. */
   fallbackAuto: boolean;
 
@@ -95,6 +103,10 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   streamFleet: true,
   nextPrediction: false,
   fallbackModels: [],
+  fallbackProfiles: {},
+  favoriteModels: [],
+  favoriteModelsOnly: false,
+  modelMatrix: {},
   fallbackAuto: true,
   featureMcp: true,
   featurePlugins: true,
@@ -136,7 +148,7 @@ export const useLocalPrefs = create<LocalPrefs>()(
     }),
     {
       name: 'wrongstack-local-prefs',
-      version: 3,
+      version: 4,
       // v1 stored option values that don't exist in core's config schema —
       // contextStrategy frugal/balanced/deep/archival (context-window modes,
       // a different setting) and auditLevel 'verbose'. Map them onto the
@@ -147,6 +159,8 @@ export const useLocalPrefs = create<LocalPrefs>()(
       // v3 added Telegram notification prefs (tgConfigured, tgSessionEnd,
       // tgDelegate, tgLongToolMs). Older stores simply get the defaults via
       // the spread of DEFAULTS; no explicit remap is needed.
+      //
+      // v4 added fallbackProfiles/favoriteModels/favoriteModelsOnly/modelMatrix.
       migrate: (persisted) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const validStrategies = ['hybrid', 'intelligent', 'selective'];
@@ -159,6 +173,14 @@ export const useLocalPrefs = create<LocalPrefs>()(
         }
         if (typeof p.autoProceedMaxIterations !== 'number') {
           p.autoProceedMaxIterations = 50;
+        }
+        if (!p.fallbackProfiles || typeof p.fallbackProfiles !== 'object' || Array.isArray(p.fallbackProfiles)) {
+          p.fallbackProfiles = {};
+        }
+        if (!Array.isArray(p.favoriteModels)) p.favoriteModels = [];
+        if (typeof p.favoriteModelsOnly !== 'boolean') p.favoriteModelsOnly = false;
+        if (!p.modelMatrix || typeof p.modelMatrix !== 'object' || Array.isArray(p.modelMatrix)) {
+          p.modelMatrix = {};
         }
         return p as never as LocalPrefs;
       },

@@ -118,7 +118,7 @@ export async function spawn(
   if (!config.model && host.modelMatrix) {
     const matrix = typeof host.modelMatrix === 'function' ? host.modelMatrix() : host.modelMatrix;
     const entry = resolveModelMatrix(matrix, config.role);
-    if (entry) {
+    if (entry?.model) {
       config.model = entry.model;
       if (entry.provider) config.provider = entry.provider;
     }

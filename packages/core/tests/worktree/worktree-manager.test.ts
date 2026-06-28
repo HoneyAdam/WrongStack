@@ -265,6 +265,78 @@ describe('WorktreeManager (stubbed git)', () => {
     expect(calls.some((c) => c.args[1] === 'remove' || c.args[1] === 'prune' || c.args[1] === '-D')).toBe(false);
   });
 
+  it('removeOne() force-removes a managed worktree + its branch, refuses paths outside root', async () => {
+    const root = path.join(path.resolve('/proj'), '.wrongstack', 'worktrees');
+    const { calls, run } = stubRunner(() => ({ code: 0, stdout: '', stderr: '' }));
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+
+    const ok = await wm.removeOne(path.join(root, 's1'), 'wstack/ap/s1');
+    expect(ok.removed).toBe(true);
+    expect(calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
+    expect(calls.some((c) => c.args[0] === 'branch' && c.args[1] === '-D')).toBe(true);
+
+    // A path outside the worktrees root is refused without any git remove.
+    calls.length = 0;
+    const bad = await wm.removeOne(path.resolve('/proj'), 'main');
+    expect(bad.removed).toBe(false);
+    expect(calls.some((c) => c.args[1] === 'remove')).toBe(false);
+  });
+
+  it('mergeBranch() squash-merges + commits on success', async () => {
+    const { calls, run } = stubRunner((args) =>
+      args[0] === 'rev-parse' ? { code: 0, stdout: 'main\n', stderr: '' } : { code: 0, stdout: '', stderr: '' },
+    );
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.mergeBranch('wstack/ap/s1', 'main');
+    expect(res.ok).toBe(true);
+    expect(calls.some((c) => c.args[0] === 'merge' && c.args.includes('--squash'))).toBe(true);
+    expect(calls.some((c) => c.args.includes('commit'))).toBe(true);
+  });
+
+  it('mergeBranch() refuses on a dirty base tree (no merge attempted)', async () => {
+    const { calls, run } = stubRunner((args) =>
+      args[0] === 'status' ? { code: 0, stdout: ' M f.ts\n', stderr: '' } : { code: 0, stdout: '', stderr: '' },
+    );
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.mergeBranch('wstack/ap/s1', 'main');
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/uncommitted/i);
+    expect(calls.some((c) => c.args[0] === 'merge')).toBe(false);
+  });
+
+  it('mergeBranch() aborts cleanly on conflict and reports paths', async () => {
+    const { calls, run } = stubRunner((args) => {
+      if (args[0] === 'merge') {
+        return { code: 1, stdout: 'CONFLICT (content): Merge conflict in db.sql\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const res = await wm.mergeBranch('wstack/ap/s1', 'main');
+    expect(res.ok).toBe(false);
+    expect(res.conflict).toBe(true);
+    expect(res.conflictFiles).toContain('db.sql');
+    // Hard-reset to undo the squash (never leave base dirty).
+    expect(calls.some((c) => c.args[0] === 'reset' && c.args.includes('--hard'))).toBe(true);
+  });
+
+  it('diffSummary() parses numstat + commit count', async () => {
+    const { run } = stubRunner((args) => {
+      if (args[0] === 'diff' && args.includes('--numstat')) {
+        return { code: 0, stdout: '4\t1\tsrc/a.ts\n-\t-\timg.png\n', stderr: '' };
+      }
+      if (args[0] === 'rev-list') return { code: 0, stdout: '3\n', stderr: '' };
+      if (args[0] === 'rev-parse') return { code: 0, stdout: 'main\n', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const s = await wm.diffSummary('/proj/.wrongstack/worktrees/s1', 'main');
+    expect(s.insertions).toBe(4);
+    expect(s.deletions).toBe(1);
+    expect(s.files).toHaveLength(2);
+    expect(s.commits).toBe(3);
+  });
+
   it('cleanupStale() is a no-op when nothing is managed', async () => {
     const { calls, run } = stubRunner((args) => {
       if (args[0] === 'worktree' && args[1] === 'list') {

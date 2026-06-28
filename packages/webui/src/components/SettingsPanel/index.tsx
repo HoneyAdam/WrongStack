@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   Cpu,
+  ListPlus,
   Globe,
   Layers,
   Monitor,
@@ -52,7 +53,7 @@ interface CatalogModel {
 
 export function SettingsPanel() {
   const { setCurrentView } = useUIStore();
-  const { provider, setProvider, setModel, setConfig, wsConnected, wsUrl } = useConfigStore();
+  const { provider, model: activeModel, setProvider, setModel, setConfig, wsConnected, wsUrl } = useConfigStore();
   const { theme, setTheme } = useTheme();
   const ws = useWebSocket();
   const wsClient = ws.client;
@@ -81,6 +82,9 @@ export function SettingsPanel() {
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
   const [providerTab, setProviderTab] = useState<ProviderTab>('catalog');
   const [catalogQuery, setCatalogQuery] = useState('');
+  const [newFallbackProfileName, setNewFallbackProfileName] = useState('');
+  const [newRouteKey, setNewRouteKey] = useState('*');
+  const [newRouteTarget, setNewRouteTarget] = useState('');
   const currentCatalogProvider = catalogProviders.find((p) => p.id === provider);
 
   // WS event subscriptions
@@ -197,6 +201,125 @@ export function SettingsPanel() {
     },
     [setModel, ws.client],
   );
+
+  const setFallbackProfiles = useCallback(
+    (next: Record<string, string[]>) => syncPref('fallbackProfiles', next),
+    [syncPref],
+  );
+
+  const addFallbackProfile = useCallback(() => {
+    const name = newFallbackProfileName.trim();
+    if (!name) return;
+    if (localPrefs.fallbackProfiles[name]) {
+      toast.error(`Fallback profile "${name}" already exists`);
+      return;
+    }
+    setFallbackProfiles({ ...localPrefs.fallbackProfiles, [name]: [] });
+    setNewFallbackProfileName('');
+  }, [localPrefs.fallbackProfiles, newFallbackProfileName, setFallbackProfiles]);
+
+  const createDefaultFallbackProfile = useCallback(() => {
+    const primary = provider && activeModel ? `${provider}/${activeModel}` : '';
+    if (!primary) {
+      toast.error('Select a provider and model first');
+      return;
+    }
+    const chain = [primary, ...localPrefs.fallbackModels].filter(
+      (ref, index, arr) => ref && arr.indexOf(ref) === index,
+    );
+    setFallbackProfiles({ ...localPrefs.fallbackProfiles, default: chain });
+    toast.success('Default fallback profile created');
+  }, [activeModel, localPrefs.fallbackModels, localPrefs.fallbackProfiles, provider, setFallbackProfiles]);
+
+  useEffect(() => {
+    if (Object.keys(localPrefs.fallbackProfiles).length > 0) return;
+    const primary = provider && activeModel ? `${provider}/${activeModel}` : '';
+    if (!primary) return;
+    const chain = [primary, ...localPrefs.fallbackModels].filter(
+      (ref, index, arr) => ref && arr.indexOf(ref) === index,
+    );
+    setFallbackProfiles({ default: chain });
+  }, [activeModel, localPrefs.fallbackModels, localPrefs.fallbackProfiles, provider, setFallbackProfiles]);
+
+  const updateFallbackProfile = useCallback(
+    (name: string, chain: string[]) => {
+      setFallbackProfiles({ ...localPrefs.fallbackProfiles, [name]: chain });
+    },
+    [localPrefs.fallbackProfiles, setFallbackProfiles],
+  );
+
+  const removeFallbackProfile = useCallback(
+    (name: string) => {
+      const { [name]: _removed, ...rest } = localPrefs.fallbackProfiles;
+      setFallbackProfiles(rest);
+    },
+    [localPrefs.fallbackProfiles, setFallbackProfiles],
+  );
+
+  const useFallbackProfileAsActive = useCallback(
+    (name: string) => {
+      const chain = localPrefs.fallbackProfiles[name] ?? [];
+      syncPref('fallbackModels', chain);
+    },
+    [localPrefs.fallbackProfiles, syncPref],
+  );
+
+  const setLeaderFromFallbackProfile = useCallback(
+    (name: string) => {
+      const chain = localPrefs.fallbackProfiles[name] ?? [];
+      const first = chain[0];
+      if (!first) {
+        toast.error(`Fallback profile "${name}" is empty`);
+        return;
+      }
+      const slash = first.indexOf('/');
+      const targetProvider = slash > 0 ? first.slice(0, slash) : provider;
+      const targetModel = slash > 0 ? first.slice(slash + 1) : first;
+      setProvider(targetProvider);
+      setModel(targetModel);
+      ws.switchModel?.(targetProvider, targetModel);
+      syncPref('fallbackModels', chain.slice(1));
+      toast.success(`Leader set from ${name}`);
+    },
+    [localPrefs.fallbackProfiles, provider, setModel, setProvider, syncPref, ws],
+  );
+
+  const setModelMatrix = useCallback(
+    (next: typeof localPrefs.modelMatrix) => syncPref('modelMatrix', next),
+    [syncPref],
+  );
+
+  const addModelRoute = useCallback(() => {
+    const key = newRouteKey.trim();
+    const target = newRouteTarget.trim();
+    if (!key || !target) return;
+    const entry = localPrefs.fallbackProfiles[target]
+      ? { fallbackProfile: target }
+      : target.includes('/')
+        ? {
+            provider: target.slice(0, target.indexOf('/')),
+            model: target.slice(target.indexOf('/') + 1),
+          }
+        : { model: target };
+    setModelMatrix({ ...localPrefs.modelMatrix, [key]: entry });
+    setNewRouteTarget('');
+  }, [localPrefs.fallbackProfiles, localPrefs.modelMatrix, newRouteKey, newRouteTarget, setModelMatrix]);
+
+  const removeModelRoute = useCallback(
+    (key: string) => {
+      const { [key]: _removed, ...rest } = localPrefs.modelMatrix;
+      setModelMatrix(rest);
+    },
+    [localPrefs.modelMatrix, setModelMatrix],
+  );
+
+  const formatRouteTarget = (entry: { provider?: string; model?: string; fallbackProfile?: string }) => {
+    if (entry.fallbackProfile && !entry.model) return `profile:${entry.fallbackProfile}`;
+    const modelRef = entry.provider && entry.model ? `${entry.provider}/${entry.model}` : entry.model;
+    return [modelRef, entry.fallbackProfile ? `profile:${entry.fallbackProfile}` : '']
+      .filter(Boolean)
+      .join(' + ');
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -523,6 +646,168 @@ export function SettingsPanel() {
                     value={localPrefs.fallbackAuto}
                     onChange={() => syncPref('fallbackAuto', !localPrefs.fallbackAuto)}
                   />
+                  <PreferenceToggle
+                    label="Favorites only"
+                    hint="When auto fallback derives a chain, restrict it to your favorite models."
+                    value={localPrefs.favoriteModelsOnly}
+                    onChange={() =>
+                      syncPref('favoriteModelsOnly', !localPrefs.favoriteModelsOnly)
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <ListPlus className="h-4 w-4 text-muted-foreground" />
+                  Fallback Profiles
+                </h3>
+                <div className="flex gap-2">
+                  <Input
+                    value={newFallbackProfileName}
+                    onChange={(e) => setNewFallbackProfileName(e.target.value)}
+                    placeholder="fallback1"
+                    className="font-mono text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') addFallbackProfile();
+                    }}
+                  />
+                  <Button type="button" variant="outline" onClick={addFallbackProfile}>
+                    Add
+                  </Button>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {Object.keys(localPrefs.fallbackProfiles).length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border p-3">
+                      <p className="text-xs text-muted-foreground">
+                        No named fallback profiles yet.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={createDefaultFallbackProfile}
+                      >
+                        Create default from active model
+                      </Button>
+                    </div>
+                  ) : (
+                    Object.entries(localPrefs.fallbackProfiles)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([name, chain]) => (
+                        <div key={name} className="rounded-md border border-border p-3">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="font-mono text-sm font-medium">{name}</span>
+                            <div className="flex gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => useFallbackProfileAsActive(name)}
+                              >
+                                Use chain
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setLeaderFromFallbackProfile(name)}
+                              >
+                                Set leader
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeFallbackProfile(name)}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                          <FallbackEditor
+                            value={chain}
+                            candidates={fallbackCandidates}
+                            placeholder="Add model to profile…"
+                            emptyHint="Profile is empty."
+                            onChange={(next) => updateFallbackProfile(name, next)}
+                          />
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                  Favorite Models
+                </h3>
+                <FallbackEditor
+                  value={localPrefs.favoriteModels}
+                  candidates={fallbackCandidates}
+                  placeholder="Add favorite model…"
+                  emptyHint="Favorites are shown first and can constrain auto fallback."
+                  onChange={(next) => syncPref('favoriteModels', next)}
+                />
+              </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-muted-foreground" />
+                  Model Routing
+                </h3>
+                <div className="grid grid-cols-[120px_1fr_auto] gap-2">
+                  <Input
+                    value={newRouteKey}
+                    onChange={(e) => setNewRouteKey(e.target.value)}
+                    placeholder="*"
+                    className="font-mono text-sm"
+                  />
+                  <Input
+                    value={newRouteTarget}
+                    onChange={(e) => setNewRouteTarget(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') addModelRoute();
+                    }}
+                    placeholder="fallback1 or provider/model"
+                    className="font-mono text-sm"
+                  />
+                  <Button type="button" variant="outline" onClick={addModelRoute}>
+                    Set
+                  </Button>
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {Object.keys(localPrefs.modelMatrix).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No model routes yet.
+                    </p>
+                  ) : (
+                    Object.entries(localPrefs.modelMatrix)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([key, entry]) => (
+                        <div
+                          key={key}
+                          className="flex items-center gap-2 rounded-md border border-border bg-muted px-2 py-1.5 text-xs"
+                        >
+                          <span className="w-28 shrink-0 font-mono text-muted-foreground">
+                            {key}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-mono">
+                            {formatRouteTarget(entry)}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeModelRoute(key)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))
+                  )}
                 </div>
               </div>
 

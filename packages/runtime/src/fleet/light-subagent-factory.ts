@@ -27,6 +27,8 @@ import {
   createDefaultPipelines,
   createFallbackModelExtension,
   EventBus,
+  resolveModelMatrix,
+  resolveModelTargetFromEntry,
   type ProviderRegistry,
   type SessionWriter,
   type SubagentConfig,
@@ -85,8 +87,12 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
     const events = new EventBus();
     const config = configStore.get();
 
-    const effProvider = subCfg.provider ?? config.provider;
-    const effModel = subCfg.model ?? config.model;
+    const matrixEntry = subCfg.model
+      ? undefined
+      : resolveModelMatrix(config.modelMatrix, subCfg.role);
+    const matrixTarget = resolveModelTargetFromEntry(config, matrixEntry);
+    const effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
+    const effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
     const provider = buildProvider(deps.providerRegistry, config, effProvider, effModel);
 
     const subCwd = subCfg.cwd ?? deps.cwd ?? deps.projectRoot;
@@ -170,11 +176,14 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
     // model — after its own retries — fails the task instead of rotating. Mirrors
     // the CLI host factory so both surfaces behave identically.
     const subFallbacks = subCfg.fallbackModels;
+    const matrixFallbacks = matrixTarget?.fallbackModels;
     agent.extensions.register(
       createFallbackModelExtension({
         getConfig: () => {
           const live = configStore.get();
-          return subFallbacks && subFallbacks.length ? { ...live, fallbackModels: subFallbacks } : live;
+          if (subFallbacks && subFallbacks.length) return { ...live, fallbackModels: subFallbacks };
+          if (matrixFallbacks && matrixFallbacks.length) return { ...live, fallbackModels: matrixFallbacks };
+          return live;
         },
         buildProvider: (id) => buildProvider(deps.providerRegistry, configStore.get(), id, effModel),
         events,

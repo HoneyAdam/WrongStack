@@ -8,6 +8,9 @@
 export {
   createFallbackModelExtension,
   parseModelRef,
+  formatModelRef,
+  normalizeModelRef,
+  fallbackProfileChain,
   smartDefaultFallbackChain,
   effectiveFallbackChain,
   type FallbackModelDeps,

@@ -1048,7 +1048,7 @@ export class Director implements ICoordinator {
     if (!config.model && this.modelMatrix) {
       const matrix = typeof this.modelMatrix === 'function' ? this.modelMatrix() : this.modelMatrix;
       const entry = resolveModelMatrix(matrix, config.role);
-      if (entry) {
+      if (entry?.model) {
         config.model = entry.model;
         if (entry.provider) config.provider = entry.provider;
       }
