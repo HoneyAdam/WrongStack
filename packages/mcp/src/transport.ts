@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as https from 'node:https';
 import * as net from 'node:net';
-import type { HttpDispatcher } from '@wrongstack/core';
+import { ConfigError, ToolError, type HttpDispatcher } from '@wrongstack/core';
 import type { ConnectionState, JsonRpcResponse, MCPTool, ToolCallResult } from './client.js';
 import { MCP_CONSTANTS } from './constants.js';
 import { normalizeMCPTools } from './tool-schema.js';
@@ -55,13 +55,19 @@ function validateTransportUrl(rawUrl: string): void {
   try {
     url = new URL(rawUrl);
   } catch {
-    throw new Error(`MCP transport: invalid URL "${rawUrl}"`);
+    throw new ConfigError({
+      message: `MCP transport: invalid URL "${rawUrl}"`,
+      code: 'CONFIG_INVALID',
+      context: { field: 'url', rawUrl },
+    });
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(
-      `MCP transport: unsupported protocol "${url.protocol}" — only http/https allowed`,
-    );
+    throw new ConfigError({
+      message: `MCP transport: unsupported protocol "${url.protocol}" — only http/https allowed`,
+      code: 'CONFIG_INVALID',
+      context: { field: 'url', rawUrl, protocol: url.protocol },
+    });
   }
 
   const hostname = url.hostname;
@@ -76,9 +82,11 @@ function validateTransportUrl(rawUrl: string): void {
     const parts = host.split('.').map(Number);
     // 169.254.x.x (link-local / IMDS)
     if (parts[0] === 169 && parts[1] === 254) {
-      throw new Error(
-        `MCP transport: blocked link-local/IMDS address "${hostname}" — likely not a valid MCP server`,
-      );
+      throw new ConfigError({
+        message: `MCP transport: blocked link-local/IMDS address "${hostname}" — likely not a valid MCP server`,
+        code: 'CONFIG_INVALID',
+        context: { field: 'url', rawUrl, hostname },
+      });
     }
   } else if (ipVersion === 6) {
     const lower = host.toLowerCase();
@@ -86,9 +94,11 @@ function validateTransportUrl(rawUrl: string): void {
     // address fd00:ec2::254 — the IPv6 counterparts of the IPv4 block above.
     const linkLocal = /^fe[89ab]/.test(lower);
     if (linkLocal || lower === 'fd00:ec2::254') {
-      throw new Error(
-        `MCP transport: blocked link-local/IMDS address "${hostname}" — likely not a valid MCP server`,
-      );
+      throw new ConfigError({
+        message: `MCP transport: blocked link-local/IMDS address "${hostname}" — likely not a valid MCP server`,
+        code: 'CONFIG_INVALID',
+        context: { field: 'url', rawUrl, hostname },
+      });
     }
   }
 
@@ -103,9 +113,11 @@ function validateTransportUrl(rawUrl: string): void {
       hostname === '::1' ||
       hostname === '[::1]';
     if (!isLoopback) {
-      throw new Error(
-        `MCP transport: http:// is only allowed for loopback addresses; use https:// for "${hostname}"`,
-      );
+      throw new ConfigError({
+        message: `MCP transport: http:// is only allowed for loopback addresses; use https:// for "${hostname}"`,
+        code: 'CONFIG_INVALID',
+        context: { field: 'url', rawUrl, hostname, protocol: url.protocol },
+      });
     }
   }
 }
@@ -152,15 +164,21 @@ export class SSEReader {
   feed(chunk: string): void {
     // Guard against a single chunk that exceeds the buffer cap.
     if (chunk.length > SSE_READER_MAX_BUFFER) {
-      throw new Error(
-        `SSE: chunk size ${chunk.length} exceeds max buffer ${SSE_READER_MAX_BUFFER} — refusing to accumulate`,
-      );
+      throw new ToolError({
+        message: `SSE: chunk size ${chunk.length} exceeds max buffer ${SSE_READER_MAX_BUFFER} — refusing to accumulate`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: 'mcp_transport_sse_reader',
+        context: { phase: 'feed', chunkLength: chunk.length, maxBuffer: SSE_READER_MAX_BUFFER },
+      });
     }
     this.buffer += chunk;
     if (this.buffer.length > SSE_READER_MAX_BUFFER) {
-      throw new Error(
-        `SSE: pending line exceeds ${SSE_READER_MAX_BUFFER} bytes — upstream is not framing events`,
-      );
+      throw new ToolError({
+        message: `SSE: pending line exceeds ${SSE_READER_MAX_BUFFER} bytes — upstream is not framing events`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: 'mcp_transport_sse_reader',
+        context: { phase: 'feed', bufferLength: this.buffer.length, maxBuffer: SSE_READER_MAX_BUFFER },
+      });
     }
     let idx = this.buffer.indexOf('\n');
     while (idx !== -1) {
@@ -189,9 +207,12 @@ export class SSEReader {
       // fields. Event names are accepted for spec compatibility.
     } else if (field === 'data') {
       if (this.dataLines.length >= SSE_READER_MAX_DATA_LINES) {
-        throw new Error(
-          `SSE: exceeded ${SSE_READER_MAX_DATA_LINES} data lines per event — upstream is not sending blank-line delimiters`,
-        );
+        throw new ToolError({
+          message: `SSE: exceeded ${SSE_READER_MAX_DATA_LINES} data lines per event — upstream is not sending blank-line delimiters`,
+          code: 'TOOL_EXECUTION_FAILED',
+          toolName: 'mcp_transport_sse_reader',
+          context: { phase: 'processLine', dataLineCount: this.dataLines.length, maxDataLines: SSE_READER_MAX_DATA_LINES },
+        });
       }
       this.dataLines.push(value);
     }
@@ -320,15 +341,28 @@ function assertMatchingJsonRpcResult(
   method: string,
 ): JsonRpcResult {
   if (!isJsonRpcResult(data)) {
-    throw new Error('Invalid JSON-RPC response: not a JSON-RPC 2.0 envelope');
+    throw new ToolError({
+      message: 'Invalid JSON-RPC response: not a JSON-RPC 2.0 envelope',
+      code: 'TOOL_EXECUTION_FAILED',
+      toolName: 'mcp_transport_jsonrpc',
+      context: { method, expectedId, reason: 'not-jsonrpc-envelope' },
+    });
   }
   if (data.id !== undefined && data.id !== expectedId) {
-    throw new Error(
-      `Invalid JSON-RPC response: id mismatch for ${method} (expected ${expectedId}, got ${data.id})`,
-    );
+    throw new ToolError({
+      message: `Invalid JSON-RPC response: id mismatch for ${method} (expected ${expectedId}, got ${data.id})`,
+      code: 'TOOL_EXECUTION_FAILED',
+      toolName: 'mcp_transport_jsonrpc',
+      context: { method, expectedId, actualId: data.id, reason: 'id-mismatch' },
+    });
   }
   if (data.id === undefined && !method.startsWith('notifications/')) {
-    throw new Error(`Invalid JSON-RPC response: missing id for ${method}`);
+    throw new ToolError({
+      message: `Invalid JSON-RPC response: missing id for ${method}`,
+      code: 'TOOL_EXECUTION_FAILED',
+      toolName: 'mcp_transport_jsonrpc',
+      context: { method, expectedId, reason: 'missing-id' },
+    });
   }
   return data;
 }
@@ -389,10 +423,13 @@ export abstract class BaseHTTPTransport {
     if (opts.tls) {
       if (opts.tls.rejectUnauthorized === false) {
         if (!isTlsUnsafeAllowed()) {
-          throw new Error(
-            `[mcp:${transportName}] TLS verification disabled — set WRONGSTACK_UNSAFE_MCP_TLS=1 ` +
-            `to allow. Rejecting insecure configuration for ${this.url}.`,
-          );
+          throw new ConfigError({
+            message:
+              `[mcp:${transportName}] TLS verification disabled — set WRONGSTACK_UNSAFE_MCP_TLS=1 ` +
+              `to allow. Rejecting insecure configuration for ${this.url}.`,
+            code: 'CONFIG_INVALID',
+            context: { field: 'tls.rejectUnauthorized', transportName, url: this.url },
+          });
         }
         console.error(
           `[mcp:${transportName}] ⚠️ TLS verification DISABLED for ${this.url}. ` +
@@ -526,11 +563,21 @@ export class SSETransport extends BaseHTTPTransport {
       const response = await fetch(sseUrl, fetchOpts);
 
       if (!response.ok) {
-        throw new Error(`SSE connect HTTP ${response.status}: ${response.statusText}`);
+        throw new ToolError({
+          message: `SSE connect HTTP ${response.status}: ${response.statusText}`,
+          code: 'TOOL_EXECUTION_FAILED',
+          toolName: 'mcp_transport_sse_connect',
+          context: { url: sseUrl, status: response.status, statusText: response.statusText },
+        });
       }
 
       if (!response.body) {
-        throw new Error('SSE response has no body');
+        throw new ToolError({
+          message: 'SSE response has no body',
+          code: 'TOOL_EXECUTION_FAILED',
+          toolName: 'mcp_transport_sse_connect',
+          context: { url: sseUrl, reason: 'missing-body' },
+        });
       }
 
       const textDecoder = new TextDecoder();
@@ -561,7 +608,12 @@ export class SSETransport extends BaseHTTPTransport {
       });
 
       if (initRes.error) {
-        throw new Error(`initialize failed: ${initRes.error.message}`);
+        throw new ToolError({
+          message: `initialize failed: ${initRes.error.message}`,
+          code: 'TOOL_EXECUTION_FAILED',
+          toolName: 'mcp_transport_initialize',
+          context: { transport: 'sse', url: this.url },
+        });
       }
 
       try {
@@ -653,17 +705,25 @@ export class SSETransport extends BaseHTTPTransport {
         const cap = MCP_CONSTANTS.REQUEST_LOG_CAP;
         const snippet =
           body.length > cap ? `${body.slice(0, cap)}… [${body.length} bytes total]` : body;
-        throw new Error(`HTTP ${res.status}: ${snippet}`);
+        throw new ToolError({
+          message: `HTTP ${res.status}: ${snippet}`,
+          code: 'TOOL_EXECUTION_FAILED',
+          toolName: method,
+          context: { transport: 'sse', url: this.url, status: res.status },
+        });
       }
 
       let data: unknown;
       try {
         data = await res.json();
       } catch (err) {
-        throw new Error(
-          `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
-          { cause: err },
-        );
+        throw new ToolError({
+          message: `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
+          code: 'TOOL_EXECUTION_FAILED',
+          toolName: method,
+          context: { transport: 'sse', url: this.url, phase: 'parse-json' },
+          cause: err,
+        });
       }
       return assertMatchingJsonRpcResult(data, id, method);
     } finally {
@@ -673,7 +733,12 @@ export class SSETransport extends BaseHTTPTransport {
 
   async callTool(name: string, input: unknown): Promise<ToolCallResult> {
     if (this.state !== 'connected') {
-      throw new Error(`SSE transport not connected (state=${this.state})`);
+      throw new ToolError({
+        message: `SSE transport not connected (state=${this.state})`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: name,
+        context: { transport: 'sse', state: this.state },
+      });
     }
     const res = await this.httpPost('tools/call', { name, arguments: input });
     if (res.error) {
@@ -708,17 +773,25 @@ export class SSETransport extends BaseHTTPTransport {
     const res = await fetch(this.url, fetchOpts);
 
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      throw new ToolError({
+        message: `HTTP ${res.status}: ${res.statusText}`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: method,
+        context: { transport: 'sse', url: this.url, status: res.status, statusText: res.statusText },
+      });
     }
 
     let data: unknown;
     try {
       data = await res.json();
     } catch (err) {
-      throw new Error(
-        `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
-        { cause: err },
-      );
+      throw new ToolError({
+        message: `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: method,
+        context: { transport: 'sse', url: this.url, phase: 'parse-json' },
+        cause: err,
+      });
     }
     const result = assertMatchingJsonRpcResult(data, id, method);
     timeoutSignal.dispose();

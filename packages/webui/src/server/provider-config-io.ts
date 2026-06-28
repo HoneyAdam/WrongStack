@@ -9,7 +9,7 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { type ProviderConfig, type SecretVault, atomicWrite } from '@wrongstack/core';
+import { ConfigError, type ProviderConfig, type SecretVault, atomicWrite } from '@wrongstack/core';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 
 /**
@@ -54,10 +54,12 @@ export async function saveProviders(
     raw = await fs.readFile(configPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(
-        `Refusing to mutate ${configPath}: ${(err as Error).message}`,
-        { cause: err },
-      );
+      throw new ConfigError({
+        message: `Refusing to mutate ${configPath}: ${(err as Error).message}`,
+        code: 'CONFIG_PARSE_FAILED',
+        context: { filePath: configPath },
+        cause: err,
+      });
     }
     fileExists = false;
     raw = '{}';
@@ -67,11 +69,14 @@ export async function saveProviders(
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (fileExists) {
-      throw new Error(
-        `Refusing to overwrite corrupt config at ${configPath} ` +
+      throw new ConfigError({
+        message:
+          `Refusing to overwrite corrupt config at ${configPath} ` +
           `(${(err as Error).message}). Fix or move the file aside before retrying.`,
-        { cause: err },
-      );
+        code: 'CONFIG_PARSE_FAILED',
+        context: { filePath: configPath },
+        cause: err,
+      });
     }
     parsed = {};
   }

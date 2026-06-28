@@ -23,7 +23,7 @@ import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
-import { FetchError, isWrongStackError, ToolValidationError, WrongStackError } from '../types/errors.js';
+import { FetchError, isWrongStackError, ToolError, ToolValidationError, WrongStackError } from '../types/errors.js';
 import { MALFORMED_ARG_MARKERS } from '../types/tool-markers.js';
 import type { ToolResultRenderMode } from '../types/config.js';
 import { resolveToolResultRenderMode } from '../utils/tool-result-render-mode.js';
@@ -562,7 +562,12 @@ export class ToolExecutor {
     let finalOutput: unknown;
     let sawFinal = false;
     if (!tool.executeStream) {
-      throw new Error(`Tool "${tool.name}" does not support streaming execution`);
+      throw new ToolError({
+        message: `Tool "${tool.name}" does not support streaming execution`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: tool.name,
+        context: { reason: 'streaming_not_supported' },
+      });
     }
     const stream = tool.executeStream(input, ctx, { signal });
     // Manual iteration so we can explicitly close the async iterator after
@@ -653,7 +658,12 @@ export class ToolExecutor {
       await iter.return?.(undefined);
     }
     if (!sawFinal) {
-      throw new Error(`tool "${tool.name}" executeStream completed without a 'final' event`);
+      throw new ToolError({
+        message: `tool "${tool.name}" executeStream completed without a 'final' event`,
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: tool.name,
+        context: { reason: 'missing_final_event' },
+      });
     }
     return finalOutput;
   }

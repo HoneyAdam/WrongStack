@@ -20,6 +20,7 @@ import {
   readBundledInstructionText,
   renderInstructionTemplate,
 } from '../utils/instruction-file.js';
+import { ConfigError } from '../types/errors.js';
 export interface SecurityScannerOptions {
   projectRoot: string;
   scanOptions?: {
@@ -126,7 +127,11 @@ export class SecurityScannerOrchestrator {
     // Step 1: Detect tech stack (static, fast)
     const detectionResult = await this.detector.detect(projectRoot);
     if (detectionResult.detectedStacks.length === 0) {
-      throw new Error(`No supported tech stack detected in ${projectRoot}`);
+      throw new ConfigError({
+        message: `No supported tech stack detected in ${projectRoot}`,
+        code: 'CONFIG_INVALID',
+        context: { projectRoot },
+      });
     }
     // Non-null assertion is intentional — guard above guarantees non-empty array.
     const techStack = expectDefined(detectionResult.detectedStacks[0]);
@@ -618,7 +623,11 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
   async quickScan(projectRoot: string): Promise<ScanResult> {
     const detectionResult = await this.detector.detect(projectRoot);
     if (detectionResult.detectedStacks.length === 0) {
-      throw new Error(`No supported tech stack detected in ${projectRoot}`);
+      throw new ConfigError({
+        message: `No supported tech stack detected in ${projectRoot}`,
+        code: 'CONFIG_INVALID',
+        context: { projectRoot },
+      });
     }
     const techStack = expectDefined(detectionResult.detectedStacks[0]);
 

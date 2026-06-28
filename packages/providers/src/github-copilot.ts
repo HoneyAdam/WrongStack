@@ -16,7 +16,7 @@
  */
 
 import type { Capabilities, Request } from '@wrongstack/core';
-import { ProviderError } from '@wrongstack/core';
+import { FetchError, ParseError, ProviderError } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { openaiWireFormat } from './presets/openai.js';
@@ -83,11 +83,18 @@ export async function refreshCopilotToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Copilot token request failed (${res.status}): ${text || res.statusText}`);
+    throw new FetchError({
+      message: `Copilot token request failed (${res.status}): ${text || res.statusText}`,
+      status: 401,
+      context: { provider: 'github-copilot' },
+    });
   }
   const json = (await res.json()) as { token?: string; expires_at?: number } | null;
   if (!json?.token || typeof json.expires_at !== 'number') {
-    throw new Error('Copilot token response missing fields');
+    throw new ParseError({
+      message: 'Copilot token response missing fields',
+      source: 'github-copilot',
+    });
   }
   return { token: json.token, expires: json.expires_at * 1000 };
 }

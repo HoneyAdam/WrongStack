@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { ConfigError, expectDefined } from '@wrongstack/core';
 import type {
   Logger,
   ModelsRegistry,
@@ -273,25 +273,28 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
   const envVars = cfg.envVars && cfg.envVars.length > 0 ? cfg.envVars : p.envVars;
   const apiKey = resolveActiveKey(cfg) ?? readFromEnv(envVars);
   if (!apiKey && family !== 'unsupported') {
-    throw new Error(
-      `Provider "${p.id}" requires an API key. Set ${
+    throw new ConfigError({
+      message: `Provider "${p.id}" requires an API key. Set ${
         envVars.join(' or ') || 'apiKey in config'
       } or run \`wstack auth ${p.id}\`.`,
-    );
+      code: 'CONFIG_INVALID',
+    });
   }
   const baseUrl = cfg.baseUrl ?? p.apiBase;
 
   if (!family || family === 'unsupported') {
     if (family === 'unsupported') {
-      throw new Error(
-        `Provider "${p.id}" uses an unsupported wire family (${p.npm ?? 'unknown'}). ` +
+      throw new ConfigError({
+        message: `Provider "${p.id}" uses an unsupported wire family (${p.npm ?? 'unknown'}). ` +
           `Register a custom factory via a plugin to enable it.`,
-      );
+        code: 'CONFIG_INVALID',
+      });
     }
-    throw new Error(
-      `Provider "${p.id}" has no wire family configured. ` +
+    throw new ConfigError({
+      message: `Provider "${p.id}" has no wire family configured. ` +
         `Set an explicit family ("anthropic" | "openai" | "openai-compatible" | "google") in config or the models.dev catalog.`,
-    );
+      code: 'CONFIG_INVALID',
+    });
   }
 
   switch (family) {
@@ -389,7 +392,10 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
     case 'google':
       return new GoogleProvider({ id: p.id, apiKey: expectDefined(apiKey), baseUrl });
     default:
-      throw new Error(`Unknown provider family: ${String(family)}`);
+      throw new ConfigError({
+        message: `Unknown provider family: ${String(family)}`,
+        code: 'CONFIG_INVALID',
+      });
   }
 }
 
@@ -399,9 +405,10 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
  */
 export function makeProviderFromConfig(id: string, cfg: ProviderConfig): Provider {
   if (!cfg.family) {
-    throw new Error(
-      `Provider "${id}" needs an explicit family ("anthropic" | "openai" | "openai-compatible" | "google") when not in the models.dev catalog.`,
-    );
+    throw new ConfigError({
+      message: `Provider "${id}" needs an explicit family ("anthropic" | "openai" | "openai-compatible" | "google") when not in the models.dev catalog.`,
+      code: 'CONFIG_INVALID',
+    });
   }
   const synthetic: ResolvedProvider = {
     id,
@@ -426,7 +433,10 @@ function readFromEnv(vars: string[]): string | undefined {
 function requireKey(cfg: ProviderConfig): string {
   const key = resolveActiveKey(cfg);
   if (key) return key;
-  throw new Error('Provider config requires apiKey (or set the corresponding env var).');
+  throw new ConfigError({
+    message: 'Provider config requires apiKey (or set the corresponding env var).',
+    code: 'CONFIG_INVALID',
+  });
 }
 
 function validateQuirks(providerId: string, quirks: unknown): CompatibilityQuirks | undefined {

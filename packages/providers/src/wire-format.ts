@@ -6,7 +6,7 @@ import type {
   StreamEvent,
   WireFamily,
 } from '@wrongstack/core';
-import type { ProviderError } from '@wrongstack/core';
+import { ConfigError, type ProviderError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { type SSEMessage, parseSSE } from './sse.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
@@ -187,7 +187,10 @@ export function createWireFormatFactory<S>(
       const c = rawCfg as { apiKey?: string | undefined; baseUrl?: string | undefined };
       const apiKey = opts.apiKey ?? c.apiKey;
       if (!apiKey) {
-        throw new Error(`Provider "${cfg.id}" requires an apiKey.`);
+        throw new ConfigError({
+          message: `Provider "${cfg.id}" requires an apiKey.`,
+          code: 'CONFIG_INVALID',
+        });
       }
       return new WireFormatProvider(cfg, {
         apiKey,

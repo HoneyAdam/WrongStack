@@ -4,6 +4,7 @@ import {
   type RegistryDiff,
   validateRegistryManifest,
 } from '../types/prompt-registry.js';
+import { FetchError, ParseError } from '../types/errors.js';
 
 /**
  * Fetch a JSON document. Injectable so the installer is testable without
@@ -13,7 +14,13 @@ export type JsonFetcher = (url: string) => Promise<unknown>;
 
 const defaultFetcher: JsonFetcher = async (url) => {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`registry fetch failed: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    throw new FetchError({
+      message: `registry fetch failed: ${res.status} ${res.statusText}`,
+      status: res.status,
+      context: { op: 'fetchManifest' },
+    });
+  }
   return res.json();
 };
 
@@ -60,7 +67,10 @@ export class PromptInstaller {
     const raw = await this.fetcher(manifestUrl);
     const validated = validateRegistryManifest(raw);
     if (!validated.ok) {
-      throw new Error(`Invalid prompt registry manifest:\n  - ${validated.errors.join('\n  - ')}`);
+      throw new ParseError({
+        message: `Invalid prompt registry manifest:\n  - ${validated.errors.join('\n  - ')}`,
+        source: 'prompt-registry-manifest',
+      });
     }
     const diff = diffRegistry(local, validated.manifest);
     return { manifest: validated.manifest, diff, dryRun: true };

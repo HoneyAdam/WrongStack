@@ -1,3 +1,4 @@
+import { ParseError } from '@wrongstack/core';
 import { isNodeReadable } from './object-utils.js';
 
 /**
@@ -151,9 +152,10 @@ export async function* parseSSE(
     const tail = chunk.subarray(lineStart);
     pending = pending.length === 0 ? new Uint8Array(tail) : concatBytes(pending, tail);
     if (pending.length > MAX_BUFFER_BYTES) {
-      throw new Error(
-        `SSE: pending line exceeds ${MAX_BUFFER_BYTES} bytes — upstream is not framing events`,
-      );
+      throw new ParseError({
+        message: `SSE: pending line exceeds ${MAX_BUFFER_BYTES} bytes — upstream is not framing events`,
+        source: 'sse',
+      });
     }
     return out;
   };

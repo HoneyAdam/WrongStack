@@ -20,6 +20,8 @@
 
 import {
   type Capabilities,
+  FetchError,
+  ParseError,
   ProviderError,
   type Request,
   type StopReason,
@@ -68,7 +70,11 @@ export async function refreshCodexAccessToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Codex token refresh failed (${res.status}): ${text || res.statusText}`);
+    throw new FetchError({
+      message: `Codex token refresh failed (${res.status}): ${text || res.statusText}`,
+      status: 401,
+      context: { provider: 'openai-codex' },
+    });
   }
   const json = (await res.json()) as {
     access_token?: string;
@@ -76,7 +82,10 @@ export async function refreshCodexAccessToken(
     expires_in?: number;
   } | null;
   if (!json?.access_token || !json.refresh_token || typeof json.expires_in !== 'number') {
-    throw new Error('Codex token refresh response missing fields');
+    throw new ParseError({
+      message: 'Codex token refresh response missing fields',
+      source: 'openai-codex',
+    });
   }
   return {
     access: json.access_token,

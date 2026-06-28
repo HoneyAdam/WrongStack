@@ -12,7 +12,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { WebSocket } from 'ws';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite, ToolValidationError } from '@wrongstack/core';
 import { SKIP_DIRS, isHiddenEntry, rankFiles } from './file-picker.js';
 import { isPathInside, resolveWorkingDirInsideProject } from './path-containment.js';
 import { send, errMessage } from './ws-utils.js';
@@ -37,7 +37,7 @@ async function resolveFileInsideProject(
   // on a path we already know is bogus. This also blocks `..` segments.
   const resolved = path.resolve(projectRoot, filePath);
   if (!isPathInside(projectRoot, resolved)) {
-    throw new Error('Path outside project root');
+    throw new ToolValidationError({ message: 'Path outside project root', field: 'path' });
   }
 
   // Canonical containment: walk the parent directory's real path and
@@ -49,7 +49,7 @@ async function resolveFileInsideProject(
   const realParent = await realpathAllowMissing(parent);
   const realFull = path.join(realParent, base);
   if (!isPathInside(realProjectRoot, realFull)) {
-    throw new Error('Path outside project root');
+    throw new ToolValidationError({ message: 'Path outside project root', field: 'path' });
   }
   return realFull;
 }
@@ -83,7 +83,7 @@ async function realpathAllowMissing(p: string): Promise<string> {
       // Hit a filesystem root and still nothing exists. The lexical
       // check above already kept us inside projectRoot, so this should
       // be unreachable; bail out conservatively.
-      throw new Error('Path outside project root');
+      throw new ToolValidationError({ message: 'Path outside project root', field: 'path' });
     }
     segments.unshift(path.basename(cursor));
     try {

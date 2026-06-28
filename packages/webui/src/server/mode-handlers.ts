@@ -14,6 +14,7 @@ import {
   type DefaultModeStore,
   type SkillLoader,
   type ToolRegistry,
+  ToolValidationError,
 } from '@wrongstack/core';
 import type { ConnectedClient } from './types.js';
 import type { ModeRouteHandlers } from './mode-routes.js';
@@ -98,7 +99,9 @@ export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers 
           await ctx.modeStore.setActiveMode(null);
         } else {
           const found = await ctx.modeStore.getMode(id);
-          if (!found) throw new Error(`Unknown mode "${id}"`);
+          if (!found) {
+            throw new ToolValidationError({ message: `Unknown mode "${id}"`, field: 'modeId' });
+          }
           await ctx.modeStore.setActiveMode(id);
         }
         ctx.setModeId(id);

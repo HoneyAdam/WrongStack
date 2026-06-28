@@ -9,6 +9,7 @@ import {
   detectNewlineStyle,
   normalizeToLf,
   toStyle,
+  ToolValidationError,
   unifiedDiff,
 } from '@wrongstack/core';
 import type { Context, Tool } from '@wrongstack/core';
@@ -69,9 +70,24 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
     required: ['pattern', 'replacement', 'files'],
   },
   async execute(input: ReplaceInput, ctx: Context) {
-    if (!input?.pattern) throw new Error('replace: pattern is required');
-    if (input.replacement === undefined) throw new Error('replace: replacement is required');
-    if (!input?.files) throw new Error('replace: files is required');
+    if (!input?.pattern) {
+      throw new ToolValidationError({
+        message: 'replace: pattern is required',
+        field: 'pattern',
+      });
+    }
+    if (input.replacement === undefined) {
+      throw new ToolValidationError({
+        message: 'replace: replacement is required',
+        field: 'replacement',
+      });
+    }
+    if (!input?.files) {
+      throw new ToolValidationError({
+        message: 'replace: files is required',
+        field: 'files',
+      });
+    }
 
     const replaceAll = input.replace_all ?? true;
     // Always compile with 'g' so matchAll() works — matchAll throws
@@ -79,7 +95,10 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
     // how many matches we act on, not whether the regex is global.
     const compiled = compileUserRegex(input.pattern, 'g');
     if (!compiled.ok) {
-      throw new Error(`replace: ${compiled.reason}`);
+      throw new ToolValidationError({
+        message: `replace: ${compiled.reason}`,
+        field: 'pattern',
+      });
     }
     const re = compiled.regex;
     const globRe = input.glob ? compileGlob(input.glob) : null;

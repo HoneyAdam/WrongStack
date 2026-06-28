@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { buildChildEnv, compileGlob } from '@wrongstack/core';
+import { buildChildEnv, compileGlob, ToolValidationError } from '@wrongstack/core';
 import { mapWithConcurrency } from './_concurrency.js';
 import { capSubject, compileUserRegex } from './_regex.js';
 import { isBinaryBuffer, safeResolve } from './_util.js';
@@ -95,13 +95,21 @@ export const grepTool: Tool<GrepInput, GrepOutput> = {
     return final;
   },
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<GrepOutput>> {
-    if (!input?.pattern) throw new Error('grep: pattern is required');
+    if (!input?.pattern) {
+      throw new ToolValidationError({
+        message: 'grep: pattern is required',
+        field: 'pattern',
+      });
+    }
     const base = input.path ? safeResolve(input.path, ctx) : ctx.cwd;
     const mode = input.output_mode ?? 'content';
     const limit = Math.max(1, Math.min(input.limit ?? 200, 2000));
     const validation = compileUserRegex(input.pattern, input.case_insensitive ? 'i' : '');
     if (!validation.ok) {
-      throw new Error(`grep: ${validation.reason}`);
+      throw new ToolValidationError({
+        message: `grep: ${validation.reason}`,
+        field: 'pattern',
+      });
     }
 
     const rgAvailable = await detectRg(opts.signal);
@@ -290,7 +298,10 @@ async function runNative(
   const flags = input.case_insensitive ? 'i' : '';
   const compiled = compileUserRegex(input.pattern, flags);
   if (!compiled.ok) {
-    throw new Error(`grep: ${compiled.reason}`);
+    throw new ToolValidationError({
+      message: `grep: ${compiled.reason}`,
+      field: 'pattern',
+    });
   }
   const re = compiled.regex;
   const globRe = input.glob ? compileGlob(input.glob) : null;

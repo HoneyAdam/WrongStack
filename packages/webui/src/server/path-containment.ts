@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { ToolValidationError } from '@wrongstack/core';
 
 export function isPathInside(root: string, target: string): boolean {
   const relative = path.relative(root, target);
@@ -13,10 +14,16 @@ export async function resolveWorkingDirInsideProject(projectRoot: string, inputP
   try {
     stat = await fs.stat(resolved);
   } catch {
-    throw new Error(`Directory not found or not accessible: ${resolved}`);
+    throw new ToolValidationError({
+      message: `Directory not found or not accessible: ${resolved}`,
+      field: 'path',
+    });
   }
   if (!stat.isDirectory()) {
-    throw new Error(`Directory not found or not accessible: ${resolved}`);
+    throw new ToolValidationError({
+      message: `Directory not found or not accessible: ${resolved}`,
+      field: 'path',
+    });
   }
 
   const [realProjectRoot, realResolved] = await Promise.all([
@@ -25,7 +32,10 @@ export async function resolveWorkingDirInsideProject(projectRoot: string, inputP
   ]);
 
   if (!isPathInside(realProjectRoot, realResolved)) {
-    throw new Error(`Path must stay inside the project root: ${projectRoot}`);
+    throw new ToolValidationError({
+      message: `Path must stay inside the project root: ${projectRoot}`,
+      field: 'path',
+    });
   }
 
   return resolved;

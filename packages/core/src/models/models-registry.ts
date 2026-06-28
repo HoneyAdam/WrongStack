@@ -11,6 +11,7 @@ import type {
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 import { mergeModelsPayload } from '../utils/merge-models-payload.js';
+import { FetchError } from '../types/errors.js';
 
 const DEFAULT_URL = 'https://models.dev/api.json';
 /** Env var to override the models.dev base URL (e.g. for self-hosted mirrors). */
@@ -206,7 +207,11 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       });
       clearTimeout(timeout);
       if (!res.ok) {
-        throw new Error(`ModelsRegistry: HTTP ${res.status} fetching ${this.url}`);
+        throw new FetchError({
+          message: `ModelsRegistry: HTTP ${res.status} fetching ${this.url}`,
+          status: res.status,
+          context: { url: this.url, op: 'refreshModels' },
+        });
       }
       const json = (await res.json()) as ModelsDevPayload;
       this.fetchedAt = new Date();
@@ -220,7 +225,11 @@ export class DefaultModelsRegistry implements ModelsRegistry {
     } catch (err) {
       clearTimeout(timeout);
       if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error(`ModelsRegistry: fetch timed out after ${this.refreshTimeoutMs}ms`);
+        throw new FetchError({
+          message: `ModelsRegistry: fetch timed out after ${this.refreshTimeoutMs}ms`,
+          status: 408,
+          context: { url: this.url, op: 'refreshModels', timedOut: true },
+        });
       }
       throw err;
     }
@@ -261,7 +270,11 @@ export class DefaultModelsRegistry implements ModelsRegistry {
         method: 'GET',
         headers: { accept: 'application/json' },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new FetchError({
+        message: `HTTP ${res.status}`,
+        status: res.status,
+        context: { url: this.url, op: 'refreshModels' },
+      });
       const json = (await res.json()) as ModelsDevPayload;
       const envelope: CacheEnvelope = {
         fetchedAt: new Date().toISOString(),

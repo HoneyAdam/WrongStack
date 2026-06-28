@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isFsError } from '@wrongstack/core';
+import { isFetchError } from '@wrongstack/core';
 import { fetchTool, guardedFetch } from '../src/fetch.js';
 import { mkSandbox, newSignal } from './fixtures.js';
 
@@ -426,15 +426,13 @@ describe('fetchTool', () => {
           caught = err;
         }
         expect(caught).toBeDefined();
-        expect(isFsError(caught)).toBe(true);
-        const fe = caught as ReturnType<typeof isFsError> & {
-          code: string;
-          path?: string;
-          cause?: unknown;
+        expect(isFetchError(caught)).toBe(true);
+        const fe = caught as ReturnType<typeof isFetchError> & {
+          status: number;
           context?: Record<string, unknown>;
         };
-        expect(fe.code).toBe('FS_READ_FAILED');
-        expect(fe.path).toBe('https://broken.example/');
+        expect(fe.status).toBe(502);
+        expect(fe.context?.url).toBe('https://broken.example/');
         expect(fe.context?.timedOut).toBe(false);
         // The cause chain is preserved end-to-end so callers can introspect
         // via `instanceof` / `.code` without parsing message text.

@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined, ToolValidationError } from '@wrongstack/core';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { guardedFetch } from './fetch.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
@@ -63,7 +63,8 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
     return final;
   },
   async *executeStream(input, _ctx, opts): AsyncGenerator<ToolStreamEvent<SearchOutput>> {
-    if (!input?.query) throw new Error('search: query is required');
+    if (!input?.query)
+      throw new ToolValidationError({ message: 'search: query is required', field: 'query' });
 
     const num = Math.max(1, Math.min(input.num_results ?? DEFAULT_NUM, MAX_RESULTS));
     const source = input.source ?? 'duckduckgo';
@@ -86,7 +87,10 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
         output = await bingSearch(input.query, num, opts.signal);
         break;
       default:
-        throw new Error(`search: unknown source "${source}"`);
+        throw new ToolValidationError({
+          message: `search: unknown source "${source}"`,
+          field: 'source',
+        });
     }
 
     yield {

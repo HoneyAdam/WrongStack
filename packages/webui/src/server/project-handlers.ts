@@ -20,6 +20,7 @@ import {
   resolveWstackPaths,
   type SkillLoader,
   type ToolRegistry,
+  ToolValidationError,
 } from '@wrongstack/core';
 import type { ConnectedClient } from './types.js';
 import type { ProjectRouteHandlers } from './project-routes.js';
@@ -102,7 +103,9 @@ export function createProjectHandlers(ctx: ProjectHandlersContext): ProjectRoute
         const resolved = path.resolve(addRoot);
         await fs.access(resolved);
         const stat = await fs.stat(resolved);
-        if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
+        if (!stat.isDirectory()) {
+          throw new ToolValidationError({ message: `Not a directory: ${resolved}`, field: 'path' });
+        }
 
         const manifest = await loadManifest(ctx.globalConfigPath);
         const existing = manifest.projects.find((p) => p.root === resolved);
@@ -153,7 +156,9 @@ export function createProjectHandlers(ctx: ProjectHandlersContext): ProjectRoute
         try {
           await fs.access(resolved);
           const stat = await fs.stat(resolved);
-          if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
+          if (!stat.isDirectory()) {
+            throw new ToolValidationError({ message: `Not a directory: ${resolved}`, field: 'path' });
+          }
         } catch (err) {
           send(ws, {
             type: 'projects.selected',

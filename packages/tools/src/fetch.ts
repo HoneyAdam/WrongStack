@@ -1,7 +1,13 @@
 import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { FsError, isPrivateIPv4, isPrivateIPv6 } from '@wrongstack/core';
+import {
+  FetchError,
+  ToolError,
+  ToolValidationError,
+  isPrivateIPv4,
+  isPrivateIPv6,
+} from '@wrongstack/core';
 import { Agent } from 'undici';
 import TurndownService from 'turndown';
 import { truncateMiddle } from './_util.js';
@@ -165,10 +171,16 @@ export async function guardedFetch(
     // or DNS can rebind between hops; checking only the initial URL is insufficient.
     const parsed = new URL(currentUrl);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      throw new Error(`fetch: redirect to unsupported protocol "${parsed.protocol}"`);
+      throw new ToolValidationError({
+        message: `fetch: redirect to unsupported protocol "${parsed.protocol}"`,
+        field: 'url',
+      });
     }
     if (parsed.protocol === 'http:' && !ALLOW_PRIVATE) {
-      throw new Error('fetch: redirect to http:// blocked (HTTPS required by default)');
+      throw new ToolValidationError({
+        message: 'fetch: redirect to http:// blocked (HTTPS required by default)',
+        field: 'url',
+      });
     }
     await assertNotPrivate(parsed.hostname);
 
@@ -190,11 +202,19 @@ export async function guardedFetch(
     }
     redirectCount++;
     if (redirectCount > maxRedirects) {
-      throw new Error(`fetch: exceeded ${maxRedirects} redirects`);
+      throw new FetchError({
+        message: `fetch: exceeded ${maxRedirects} redirects`,
+        status: res.status,
+        context: { url: currentUrl, maxRedirects, redirectCount },
+      });
     }
     const location = res.headers.get('location');
     if (!location) {
-      throw new Error('fetch: redirect status with no location header');
+      throw new FetchError({
+        message: 'fetch: redirect status with no location header',
+        status: res.status,
+        context: { url: currentUrl, redirectCount },
+      });
     }
     currentUrl = new URL(location, currentUrl).toString();
   }
@@ -243,28 +263,55 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
   async execute(input, ctx, opts) {
     let final: FetchOutput | undefined;
     const executeStream = fetchTool.executeStream;
-    if (!executeStream) throw new Error('fetchTool: stream execution unavailable');
+    if (!executeStream) {
+      throw new ToolError({
+        message: 'fetchTool: stream execution unavailable',
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: 'fetch',
+      });
+    }
     for await (const ev of executeStream(input, ctx, opts)) {
       if (ev.type === 'final') final = ev.output;
     }
-    if (!final) throw new Error('fetch: stream ended without final event');
+    if (!final) {
+      throw new ToolError({
+        message: 'fetch: stream ended without final event',
+        code: 'TOOL_EXECUTION_FAILED',
+        toolName: 'fetch',
+      });
+    }
     return final;
   },
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<FetchOutput>> {
-    if (!input?.url) throw new Error('fetch: url is required');
+    if (!input?.url) {
+      throw new ToolValidationError({
+        message: 'fetch: url is required',
+        field: 'url',
+      });
+    }
     const u = new URL(input.url);
     if (u.protocol !== 'https:' && u.protocol !== 'http:') {
-      throw new Error(`fetch: unsupported protocol "${u.protocol}"`);
+      throw new ToolValidationError({
+        message: `fetch: unsupported protocol "${u.protocol}"`,
+        field: 'url',
+      });
     }
     if (u.protocol === 'http:' && !ALLOW_PRIVATE) {
-      throw new Error('fetch: http:// blocked (HTTPS required by default)');
+      throw new ToolValidationError({
+        message: 'fetch: http:// blocked (HTTPS required by default)',
+        field: 'url',
+      });
     }
     await assertNotPrivate(u.hostname);
 
     yield { type: 'log', text: `GET ${input.url}` };
 
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(new Error('fetch timeout')), TIMEOUT_MS);
+    const timer = setTimeout(() => ctrl.abort(new ToolError({
+      message: 'fetch timeout',
+      code: 'TOOL_TIMEOUT',
+      toolName: 'fetch',
+    })), TIMEOUT_MS);
     const combined = combineSignals([opts.signal, ctrl.signal]);
 
     try {
@@ -284,7 +331,11 @@ export const fetchTool: Tool<FetchInput, FetchOutput> = {
 
       const ct = res.headers.get('content-type') ?? 'application/octet-stream';
       if (/^image\/|^audio\/|^video\/|application\/octet-stream/.test(ct)) {
-        throw new Error(`fetch: refusing to read binary content-type "${ct}"`);
+        throw new FetchError({
+          message: `fetch: refusing to read binary content-type "${ct}"`,
+          status: res.status,
+          context: { url: res.url, contentType: ct },
+        });
       }
 
       yield {
@@ -361,17 +412,26 @@ async function assertNotPrivate(hostname: string): Promise<void> {
     hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
 
   if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error('fetch: blocked localhost target');
+    throw new ToolValidationError({
+      message: 'fetch: blocked localhost target',
+      field: 'url',
+    });
   }
 
   const ipVersion = net.isIP(host);
   if (ipVersion === 4) {
     if (isPrivateIPv4(host)) {
-      throw new Error(`fetch: blocked private/loopback address "${host}"`);
+      throw new ToolValidationError({
+        message: `fetch: blocked private/loopback address "${host}"`,
+        field: 'url',
+      });
     }
   } else if (ipVersion === 6) {
     if (isPrivateIPv6(host)) {
-      throw new Error(`fetch: blocked private/loopback address "${host}"`);
+      throw new ToolValidationError({
+        message: `fetch: blocked private/loopback address "${host}"`,
+        field: 'url',
+      });
     }
   } else {
     // Hostname — pre-flight check: resolve and reject if any record is private,
@@ -386,7 +446,10 @@ async function assertNotPrivate(hostname: string): Promise<void> {
       for (const r of records) {
         const bad = r.family === 4 ? isPrivateIPv4(r.address) : isPrivateIPv6(r.address);
         if (bad) {
-          throw new Error(`fetch: resolved to private address ${r.address}`);
+          throw new ToolValidationError({
+            message: `fetch: resolved to private address ${r.address}`,
+            field: 'url',
+          });
         }
       }
     } catch (err) {
@@ -404,13 +467,14 @@ async function assertNotPrivate(hostname: string): Promise<void> {
  * `code: message` link so the user sees, e.g.,
  * `fetch: GET https://x failed — UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error`.
  */
-function describeFetchError(err: unknown, url: string, timedOut: boolean): FsError {
+function describeFetchError(err: unknown, url: string, timedOut: boolean): FetchError | ToolError {
   if (timedOut) {
-    return new FsError({
+    return new ToolError({
       message: `fetch: GET ${url} timed out after ${TIMEOUT_MS}ms`,
-      code: 'FS_READ_FAILED',
-      path: url,
-      context: { timedOut: true, timeoutMs: TIMEOUT_MS },
+      code: 'TOOL_TIMEOUT',
+      toolName: 'fetch',
+      context: { url, timedOut: true, timeoutMs: TIMEOUT_MS },
+      cause: err,
     });
   }
   const parts: string[] = [];
@@ -426,11 +490,10 @@ function describeFetchError(err: unknown, url: string, timedOut: boolean): FsErr
     cur = (cur as { cause?: unknown }).cause;
   }
   const detail = parts.length > 0 ? parts.join(' → ') : 'fetch failed';
-  return new FsError({
+  return new FetchError({
     message: `fetch: GET ${url} failed — ${detail}`,
-    code: 'FS_READ_FAILED',
-    path: url,
-    context: { timedOut: false, transportErrors: parts },
+    status: 502,
+    context: { url, timedOut: false, transportErrors: parts },
     // Preserve the original undici / DNS / TLS chain so callers can inspect
     // it via `err.cause` and structured `instanceof` checks. The flattened
     // text version stays in the message for human readability.

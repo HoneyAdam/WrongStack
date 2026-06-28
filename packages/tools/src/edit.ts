@@ -4,6 +4,7 @@ import {
   atomicWrite,
   detectNewlineStyle,
   normalizeToLf,
+  ToolValidationError,
   toStyle,
   unifiedDiff,
 } from '@wrongstack/core';
@@ -59,19 +60,45 @@ export const editTool: Tool<EditInput, EditOutput> = {
     required: ['path', 'old_string', 'new_string'],
   },
   async execute(input, ctx) {
-    if (!input?.path) throw new Error('edit: path is required');
-    if (input.old_string === undefined) throw new Error('edit: old_string is required');
-    if (input.new_string === undefined) throw new Error('edit: new_string is required');
-    if (input.old_string === '') throw new Error('edit: old_string cannot be empty');
+    if (!input?.path) {
+      throw new ToolValidationError({ message: 'edit: path is required', field: 'path' });
+    }
+    if (input.old_string === undefined) {
+      throw new ToolValidationError({
+        message: 'edit: old_string is required',
+        field: 'old_string',
+      });
+    }
+    if (input.new_string === undefined) {
+      throw new ToolValidationError({
+        message: 'edit: new_string is required',
+        field: 'new_string',
+      });
+    }
+    if (input.old_string === '') {
+      throw new ToolValidationError({
+        message: 'edit: old_string cannot be empty',
+        field: 'old_string',
+      });
+    }
 
     const absPath = await safeResolveReal(input.path, ctx);
     const stat = await fs.stat(absPath).catch((err) => {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`edit: file "${input.path}" does not exist. Use \`write\` instead.`);
+        throw new ToolValidationError({
+          message: `edit: file "${input.path}" does not exist. Use \`write\` instead.`,
+          field: 'path',
+          context: { exists: false },
+        });
       }
       throw err;
     });
-    if (!stat.isFile()) throw new Error(`edit: "${input.path}" is not a regular file`);
+    if (!stat.isFile()) {
+      throw new ToolValidationError({
+        message: `edit: "${input.path}" is not a regular file`,
+        field: 'path',
+      });
+    }
 
     const autoRead = !ctx.hasRead(absPath);
     // Read BEFORE mtime check to eliminate TOCTOU window.
@@ -83,10 +110,18 @@ export const editTool: Tool<EditInput, EditOutput> = {
     const mtimeTolerance = process.platform === 'win32' ? 2000 : 1;
     const lastReadMtime = ctx.lastReadMtime(absPath);
     if (lastReadMtime !== undefined && updated.mtimeMs > lastReadMtime + mtimeTolerance) {
-      throw new Error(`edit: file "${input.path}" was modified externally. Re-read it first.`);
+      throw new ToolValidationError({
+        message: `edit: file "${input.path}" was modified externally. Re-read it first.`,
+        field: 'path',
+        context: { reason: 'external_modification' },
+      });
     }
     if (autoRead && updated.mtimeMs > stat.mtimeMs + mtimeTolerance) {
-      throw new Error(`edit: file "${input.path}" changed while being auto-read. Retry the edit.`);
+      throw new ToolValidationError({
+        message: `edit: file "${input.path}" changed while being auto-read. Retry the edit.`,
+        field: 'path',
+        context: { reason: 'auto_read_race' },
+      });
     }
     const autoReadNote = autoRead
       ? `No prior read was recorded for "${input.path}"; edit auto-read the current file and applied the replacement only after the ambiguity checks passed.`
@@ -117,19 +152,23 @@ export const editTool: Tool<EditInput, EditOutput> = {
 
     if (count === 0) {
       const hint = findSimilarity(fileLf, oldLf);
-      throw new Error(
-        `edit: no match for old_string in "${input.path}".${
+      throw new ToolValidationError({
+        message: `edit: no match for old_string in "${input.path}".${
           hint ? ` Nearest match near line ${hint}.` : ''
         }`,
-      );
+        field: 'old_string',
+      });
     }
 
     if (count > 1 && !input.replace_all) {
       const lines = lineNumbersFor(fileLf, matches);
-      throw new Error(
-        `edit: old_string matched ${count} times in "${input.path}" (lines: ${lines.join(', ')}). ` +
+      throw new ToolValidationError({
+        message:
+          `edit: old_string matched ${count} times in "${input.path}" (lines: ${lines.join(', ')}). ` +
           `Add more context to make it unique, or set replace_all: true.`,
-      );
+        field: 'old_string',
+        context: { occurrences: count },
+      });
     }
 
     const newFileLf = input.replace_all

@@ -15,7 +15,14 @@
  * `setOAuthTokenPersister` hook the codex family uses.
  */
 
-import { type Capabilities, ProviderError, type Request, type StreamEvent } from '@wrongstack/core';
+import {
+  type Capabilities,
+  FetchError,
+  ParseError,
+  ProviderError,
+  type Request,
+  type StreamEvent,
+} from '@wrongstack/core';
 import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { anthropicWireFormat } from './presets/anthropic.js';
 import type { AnthropicStreamState } from './presets/anthropic.js';
@@ -102,7 +109,11 @@ export async function refreshAnthropicOAuthToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Claude token refresh failed (${res.status}): ${text || res.statusText}`);
+    throw new FetchError({
+      message: `Claude token refresh failed (${res.status}): ${text || res.statusText}`,
+      status: 401,
+      context: { provider: 'anthropic-oauth' },
+    });
   }
   const json = (await res.json()) as {
     access_token?: string;
@@ -110,7 +121,10 @@ export async function refreshAnthropicOAuthToken(
     expires_in?: number;
   } | null;
   if (!json?.access_token || !json.refresh_token || typeof json.expires_in !== 'number') {
-    throw new Error('Claude token refresh response missing fields');
+    throw new ParseError({
+      message: 'Claude token refresh response missing fields',
+      source: 'anthropic-oauth',
+    });
   }
   return {
     access: json.access_token,

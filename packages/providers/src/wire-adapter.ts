@@ -1,5 +1,5 @@
 import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core';
-import { ProviderError, StreamHangError } from '@wrongstack/core';
+import { ConfigError, ParseError, ProviderError, StreamHangError } from '@wrongstack/core';
 import { parseProviderHttpError } from './error-parse.js';
 import { isDebugStreamEnabled, pushDebugChunkStats } from './stream-debug-state.js';
 import { isNodeReadable } from './object-utils.js';
@@ -41,7 +41,10 @@ export interface WireAdapterStreamOptions {
 function validateResponse(res: unknown): asserts res is Response2 {
   const r = res as Record<string, unknown> | undefined;
   if (r === undefined || typeof r.ok !== 'boolean' || typeof r.status !== 'number') {
-    throw new Error('fetchImpl returned invalid response shape — expected { ok, status, text, body }');
+    throw new ParseError({
+      message: 'fetchImpl returned invalid response shape — expected { ok, status, text, body }',
+      source: 'wire-adapter',
+    });
   }
   // If body is absent, null, or undefined on a plain object (not a native Response
   // with a read-only getter), normalize it to null so callers can safely use it.
@@ -103,7 +106,12 @@ export abstract class WireAdapter implements Provider {
     public readonly fetchImpl: typeof fetch = fetch,
     streamOpts: WireAdapterStreamOptions = {},
   ) {
-    if (!apiKey) throw new Error(`${this.constructor.name}: apiKey required`);
+    if (!apiKey) {
+      throw new ConfigError({
+        message: `${this.constructor.name}: apiKey required`,
+        code: 'CONFIG_INVALID',
+      });
+    }
     this.debugStream = streamOpts.debugStream ?? false;
     this.streamHangTimeoutMs = streamOpts.streamHangTimeoutMs ?? DEFAULT_STREAM_HANG_TIMEOUT_MS;
   }

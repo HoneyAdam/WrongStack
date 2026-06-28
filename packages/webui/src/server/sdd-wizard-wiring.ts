@@ -16,6 +16,7 @@ import {
   startSddRun,
   TaskGraphStore,
   WorktreeManager,
+  ToolValidationError,
 } from '@wrongstack/core';
 import type { SddWizardDeps } from './sdd-wizard-ws-handler.js';
 
@@ -114,7 +115,10 @@ export function buildSddWizardDeps(opts: SddWizardWiringOptions): SddWizardDeps 
       const graph = driver.getGraph();
       const tracker = driver.getTracker();
       if (!graph || !tracker) {
-        throw new Error('No task graph to run — finish the interview first.');
+        throw new ToolValidationError({
+          message: 'No task graph to run — finish the interview first.',
+          field: 'taskGraph',
+        });
       }
 
       // Per-task git-worktree isolation. The per-run UI toggle wins; when it is

@@ -4,6 +4,7 @@
 // --port / PORT). Run several instances on
 // different PORT/WS_PORT pairs — `wstackui --list` shows which are open for which
 // project (registry: ~/.wrongstack/webui-instances.json).
+import { ToolValidationError } from '@wrongstack/core';
 import { startWebUI } from './index.js';
 import { formatInstances, listInstances } from './instance-registry.js';
 
@@ -17,7 +18,7 @@ function readArg(names: string[]): string | undefined {
       if (current === name) {
         const next = argv[i + 1];
         if (!next || next.startsWith('-')) {
-          throw new Error(`${name} requires a value`);
+          throw new ToolValidationError({ message: `${name} requires a value`, field: name });
         }
         return next;
       }
@@ -31,7 +32,10 @@ function parsePort(value: string | undefined, fallback: number, label: string): 
   if (value === undefined) return fallback;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
-    throw new Error(`${label} must be a port between 1 and 65535`);
+    throw new ToolValidationError({
+      message: `${label} must be a port between 1 and 65535`,
+      field: 'port',
+    });
   }
   return parsed;
 }

@@ -14,6 +14,7 @@
  */
 
 import * as net from 'node:net';
+import { ToolValidationError } from '@wrongstack/core';
 
 /** Resolve true when `port` can be bound on `host`, false on EADDRINUSE/EACCES. */
 export function isPortFree(host: string, port: number): Promise<boolean> {
@@ -59,7 +60,8 @@ export async function findFreePort(
     }
     port++;
   }
-  throw new Error(
-    `No free port found near ${startPort} on ${host} after ${maxTries} attempts.`,
-  );
+  throw new ToolValidationError({
+    message: `No free port found near ${startPort} on ${host} after ${maxTries} attempts.`,
+    field: 'port',
+  });
 }

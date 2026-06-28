@@ -1,5 +1,5 @@
 import type { MemoryScope, MemoryStore, Tool } from '@wrongstack/core';
-import type { MemoryEntry } from '@wrongstack/core';
+import { ToolValidationError, type MemoryEntry } from '@wrongstack/core';
 
 interface RememberInput {
   text: string;
@@ -83,7 +83,12 @@ export function rememberTool(memory: MemoryStore): Tool<RememberInput, RememberO
       required: ['text'],
     },
     async execute(input) {
-      if (!input?.text) throw new Error('remember: text is required');
+      if (!input?.text) {
+        throw new ToolValidationError({
+          message: 'remember: text is required',
+          field: 'text',
+        });
+      }
       const scope = input.scope ?? 'project-memory';
       await memory.remember(input.text, scope, {
         type: input.type,
@@ -118,7 +123,12 @@ export function forgetTool(memory: MemoryStore): Tool<ForgetInput, ForgetOutput>
       required: ['query'],
     },
     async execute(input) {
-      if (!input?.query) throw new Error('forget: query is required');
+      if (!input?.query) {
+        throw new ToolValidationError({
+          message: 'forget: query is required',
+          field: 'query',
+        });
+      }
       const scope = input.scope ?? 'project-memory';
       const removed = await memory.forget(input.query, scope);
       return { removed, scope };
@@ -180,7 +190,12 @@ export function searchMemoryTool(memory: MemoryStore): Tool<SearchMemoryInput, S
       required: ['query'],
     },
     async execute(input) {
-      if (!input?.query) throw new Error('search_memory: query is required');
+      if (!input?.query) {
+        throw new ToolValidationError({
+          message: 'search_memory: query is required',
+          field: 'query',
+        });
+      }
       const scope = input.scope ?? 'project-memory';
       const limit = Math.min(input.limit ?? 5, 20);
       const entries = await memory.search(input.query, scope, limit);
@@ -239,7 +254,12 @@ export function relatedMemoryTool(memory: MemoryStore): Tool<RelatedMemoryInput,
       required: ['text'],
     },
     async execute(input) {
-      if (!input?.text) throw new Error('find_related_memories: text is required');
+      if (!input?.text) {
+        throw new ToolValidationError({
+          message: 'find_related_memories: text is required',
+          field: 'text',
+        });
+      }
       const scope = input.scope ?? 'project-memory';
       const limit = Math.min(input.limit ?? 5, 20);
       const entries = memory.findRelated

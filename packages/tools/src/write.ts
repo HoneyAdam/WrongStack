@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import { atomicWrite, unifiedDiff } from '@wrongstack/core';
+import { atomicWrite, ToolValidationError, unifiedDiff } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 import { safeResolveReal } from './_util.js';
 
@@ -48,8 +48,18 @@ export const writeTool: Tool<WriteInput, WriteOutput> = {
     required: ['path', 'content'],
   },
   async execute(input, ctx) {
-    if (!input?.path) throw new Error('write: path is required');
-    if (input.content === undefined) throw new Error('write: content is required');
+    if (!input?.path) {
+      throw new ToolValidationError({
+        message: 'write: path is required',
+        field: 'path',
+      });
+    }
+    if (input.content === undefined) {
+      throw new ToolValidationError({
+        message: 'write: content is required',
+        field: 'content',
+      });
+    }
     const absPath = await safeResolveReal(input.path, ctx);
 
     let existed = false;
