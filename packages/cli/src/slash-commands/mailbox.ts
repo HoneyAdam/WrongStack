@@ -15,12 +15,12 @@
  * replies addressed to it land in your agent's next iteration.
  *
  * Usage:
- *   /mailbox                       — inbox (unread for this leader)
- *   /mailbox agents                — all registered agents on the project
- *   /mailbox online                — only agents with a live heartbeat
- *   /mailbox send <id> <message>   — direct message an agent
- *   /mailbox broadcast <message>   — message every agent ('*')
- *   /mailbox history [n]           — last n messages on the project (default 20)
+ *   /mailbox                                  — inbox (unread for this leader)
+ *   /mailbox agents                           — all registered agents on the project
+ *   /mailbox online                           — only agents with a live heartbeat
+ *   /mailbox send <id> [type=<t>] <message>   — direct message an agent (type is one of note/ask/assign/steer/btw/broadcast/status/result/review)
+ *   /mailbox broadcast <message>              — message every agent ('*')
+ *   /mailbox history [n]                      — last n messages on the project (default 20)
  */
 
 import {
@@ -28,6 +28,7 @@ import {
   GlobalMailbox,
   type MailboxAgentStatus,
   type MailboxMessage,
+  type MailboxMessageType,
   mailboxSessionTag,
   resolveMailboxIdentity,
   resolveProjectDir,
@@ -142,13 +143,42 @@ function messageWidths(messages: MailboxMessage[], selfId: string): { from: numb
   return { from, to };
 }
 
+/**
+ * Pull an optional inline `type=<value>` flag off the front of a token list
+ * and return the resolved type plus the remaining tokens as the message body.
+ *
+ * Shared by the `send` and `broadcast` subcommands so the operator-facing
+ * syntax stays consistent. Unknown `type=` values fall back to `defaultType`
+ * rather than rejecting the command — better to send a note tagged with the
+ * wrong label than to drop the message entirely. The consumed flag is also
+ * stripped from the body, so recipients never see literal `type=garbage`.
+ */
+function parseTypeFlag(
+  tokens: string[],
+  defaultType: MailboxMessageType,
+): { type: MailboxMessageType; body: string } {
+  const VALID: readonly MailboxMessageType[] = [
+    'note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control',
+  ];
+  let type: MailboxMessageType = defaultType;
+  const rest = tokens.slice();
+  if (rest[0]?.startsWith('type=')) {
+    const candidate = rest[0].slice('type='.length) as MailboxMessageType;
+    if ((VALID as readonly string[]).includes(candidate)) {
+      type = candidate;
+      rest.shift();
+    }
+  }
+  return { type, body: rest.join(' ') };
+}
+
 export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'mailbox',
     category: 'Agent',
     aliases: ['mb'],
     description:
-      'Project-wide agent mailbox: /mailbox [agents|online|send <id> <msg>|broadcast <msg>|history [n]|clear]',
+      'Project-wide agent mailbox: /mailbox [agents|online|send <id> [type=<t>] <msg>|broadcast [type=<t>] <msg>|history [n]|clear]',
     help: [
       'The human window into the shared inter-agent mailbox. Every terminal,',
       'TUI and WebUI on this project shares one inbox — agents see incoming',
@@ -158,15 +188,28 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       "  /mailbox                      Unread inbox for this session's leader.",
       '  /mailbox agents               All registered agents on the project.',
       '  /mailbox online               Only agents with a live heartbeat.',
-      '  /mailbox send <id> <message>  Direct message an agent (use ids from `agents`).',
-      '  /mailbox broadcast <message>  Message every agent on the project.',
+      '  /mailbox send <id> [type=<t>] <message>     Direct message an agent. Optional type= sets the message category.',
+      '  /mailbox broadcast [type=<t>] <message>     Message every agent on the project. Optional type= overrides the default "broadcast" category.',
       '  /mailbox history [n] [from <id>] [to <id>] [grep <text>]  Last n messages, optionally filtered.',
       '  /mailbox clear                 Delete all messages from the mailbox.',
       '  /mailbox purge                Remove stale/orphaned messages (completed >1d, incomplete >7d).',
       '',
+      'Message types (cheat sheet):',
+      '  review   A passive request — code/doc/PR review. Recipient inspects',
+      '           when convenient; an immediate reply is NOT required.',
+      '  ask      A blocking question — recipient is expected to reply.',
+      '  assign   A task assignment — recipient acts on it.',
+      '  result   A subagent completion notice — recipient factors it in.',
+      '  steer    A mid-task direction change — recipient adjusts course',
+      '           at the next stopping point.',
+      '  note/btw/status/broadcast/control  Informational, no action implied.',
+      '',
       'Examples:',
       '  /mailbox broadcast pausing deploys, hold off on main',
+      '  /mailbox broadcast type=steer stop all in-flight work, we are rolling back',
       '  /mailbox send leader@a1b2c3d4 can you take the auth refactor?',
+      '  /mailbox send worker@b2c3d4e5 type=review please skim src/auth/*.ts when you get a chance',
+      '  /mailbox send leader@a1b2c3d4 type=ask are we merging the refactor today or tomorrow?',
     ].join('\n'),
     async run(args) {
       const mb = buildMailbox(opts);
@@ -201,32 +244,48 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
 
       if (sub === 'send') {
         const to = parts[1];
-        const body = parts.slice(2).join(' ');
-        if (!to || !body) return { message: 'Usage: /mailbox send <agentId> <message>' };
+        const { type, body } = parseTypeFlag(parts.slice(2), 'note');
+        if (!to || !body) {
+          return {
+            message: 'Usage: /mailbox send <agentId> [type=<type>] <message>\nValid types: note, ask, assign, steer, btw, broadcast, status, result, review.',
+          };
+        }
         const msg = await mb.send({
           from: self.id,
           to,
-          type: 'note',
+          type,
           subject: body.slice(0, 60),
           body,
         });
-        return { message: color.green(`✓ Sent to ${to} (id ${msg.id.slice(0, 8)}…).`) };
+        const typeTag = type === 'note' ? '' : color.dim(` [${type}]`);
+        return {
+          message: color.green(`✓ Sent to ${to} (id ${msg.id.slice(0, 8)}…).`) + typeTag,
+        };
       }
 
       if (sub === 'broadcast') {
-        const body = parts.slice(1).join(' ');
-        if (!body) return { message: 'Usage: /mailbox broadcast <message>' };
+        // Default to 'broadcast' but allow overrides — an operator may need
+        // to broadcast a `steer` ("stop what you're doing") or a `review`
+        // request across the fleet, and forcing the literal `broadcast` type
+        // would lose that signal in the recipient's mailbox render.
+        const { type, body } = parseTypeFlag(parts.slice(1), 'broadcast');
+        if (!body) {
+          return {
+            message: 'Usage: /mailbox broadcast [type=<type>] <message>\nValid types: note, ask, assign, steer, btw, broadcast, status, result, review.',
+          };
+        }
         const msg = await mb.send({
           from: self.id,
           to: '*',
-          type: 'broadcast',
+          type,
           subject: body.slice(0, 60),
           body,
         });
+        const typeTag = type === 'broadcast' ? '' : color.dim(` [${type}]`);
         return {
           message: color.green(
             `✓ Broadcast to all agents on the project (id ${msg.id.slice(0, 8)}…).`,
-          ),
+          ) + typeTag,
         };
       }
 

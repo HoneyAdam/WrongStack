@@ -36,6 +36,7 @@ export type MailboxMessageType =
   | 'broadcast'  // sent to all agents
   | 'status'     // agent status update
   | 'result'     // task result / completion notice
+  | 'review'     // review request (code/doc/PR) — passive ask, no reply required
   | 'control';   // out-of-band control signal (e.g. interrupt) — handled by
                  // the agent loop, NOT folded into the conversation as content
 

@@ -57,6 +57,83 @@ describe('/mailbox slash command', () => {
     expect(all[0]!.body).toBe('please take the auth task');
   });
 
+  it('send defaults to type=note when no type= flag is given', async () => {
+    const cmd = buildMailboxCommand(opts);
+    await cmd.run('send worker#42 hello there', opts.context);
+    const all = await mailbox.query({ to: 'worker#42', limit: 10 });
+    expect(all[0]!.type).toBe('note');
+  });
+
+  it('send honors an inline type= flag and tags the outgoing message', async () => {
+    const cmd = buildMailboxCommand(opts);
+    const res = await cmd.run(
+      'send worker#42 type=review please skim src/auth/*.ts when convenient',
+      opts.context,
+    );
+    // The success line echoes the non-default type so the operator knows it took.
+    expect(stripAnsi(res?.message ?? '')).toContain('[review]');
+    expect(stripAnsi(res?.message ?? '')).toContain('Sent to worker#42');
+    const all = await mailbox.query({ to: 'worker#42', limit: 10 });
+    expect(all).toHaveLength(1);
+    expect(all[0]!.type).toBe('review');
+    expect(all[0]!.body).toBe('please skim src/auth/*.ts when convenient');
+  });
+
+  it('send falls back to type=note when type= is an unknown value', async () => {
+    // Unknown type values degrade gracefully — better to send a note tagged
+    // with a wrong label than to reject the user's command outright.
+    const cmd = buildMailboxCommand(opts);
+    await cmd.run('send worker#42 type=garbage some message', opts.context);
+    const all = await mailbox.query({ to: 'worker#42', limit: 10 });
+    expect(all[0]!.type).toBe('note');
+    // The literal "type=garbage" token is consumed as the type and dropped
+    // from the body — otherwise the recipient would see the flag text.
+    expect(all[0]!.body).not.toContain('type=garbage');
+    expect(all[0]!.body).toBe('some message');
+  });
+
+  it('broadcast defaults to type=broadcast when no type= flag is given', async () => {
+    const cmd = buildMailboxCommand(opts);
+    const res = await cmd.run('broadcast pausing deploys, hold off on main', opts.context);
+    const msg = stripAnsi(res?.message ?? '');
+    expect(msg).toContain('Broadcast to all agents on the project');
+    // Default type — no type tag in the success line.
+    expect(msg).not.toContain('[broadcast]');
+    const all = await mailbox.query({ to: '*', limit: 10 });
+    expect(all[0]!.type).toBe('broadcast');
+    expect(all[0]!.to).toBe('*');
+    expect(all[0]!.body).toBe('pausing deploys, hold off on main');
+  });
+
+  it('broadcast honors an inline type= override (e.g. type=steer)', async () => {
+    // Operator may need to fleet-wide steer ("stop what you're doing") or
+    // announce a review request across every agent — the literal "broadcast"
+    // type would lose that signal in the recipient's mailbox render.
+    const cmd = buildMailboxCommand(opts);
+    const res = await cmd.run(
+      'broadcast type=steer stop all in-flight work, we are rolling back',
+      opts.context,
+    );
+    const msg = stripAnsi(res?.message ?? '');
+    expect(msg).toContain('[steer]');
+    expect(msg).toContain('Broadcast to all agents on the project');
+    const all = await mailbox.query({ to: '*', limit: 10 });
+    expect(all).toHaveLength(1);
+    expect(all[0]!.type).toBe('steer');
+    expect(all[0]!.to).toBe('*');
+    expect(all[0]!.body).toBe('stop all in-flight work, we are rolling back');
+  });
+
+  it('broadcast falls back to type=broadcast when type= is an unknown value', async () => {
+    // Same fail-open contract as `send`: unknown type values degrade to the
+    // default rather than rejecting the command.
+    const cmd = buildMailboxCommand(opts);
+    await cmd.run('broadcast type=garbage some message', opts.context);
+    const all = await mailbox.query({ to: '*', limit: 10 });
+    expect(all[0]!.type).toBe('broadcast');
+    expect(all[0]!.body).toBe('some message');
+  });
+
   it('inbox shows messages addressed to the unique id, base alias, and broadcasts — then marks them read', async () => {
     await mailbox.send({ from: 'worker#42', to: 'leader#999', type: 'note', subject: 'direct', body: 'direct msg' });
     await mailbox.send({ from: 'worker#42', to: 'leader', type: 'note', subject: 'alias', body: 'alias msg' });

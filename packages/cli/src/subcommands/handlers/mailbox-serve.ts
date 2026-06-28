@@ -468,7 +468,7 @@ function optionalBoolean(obj: unknown, key: string): boolean | undefined {
   return v;
 }
 
-const VALID_TYPES = new Set(['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'control']);
+const VALID_TYPES = new Set(['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control']);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high']);
 
 function validateSend(body: unknown): MailboxSendInput {

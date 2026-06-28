@@ -869,4 +869,100 @@ describe('recipient "all" normalizes to the broadcast address', () => {
     expect(got.count).toBe(1);
     expect(got.messages[0]).toMatchObject({ to: '*', type: 'broadcast', subject: 'done' });
   });
+
+  it('mail_send with type="review" tags the outgoing message as review', async () => {
+    // Review is a passive type — recipient inspects when convenient, no
+    // immediate reply required. The tool must surface the explicit type
+    // (rather than falling back to "note") so mailbox-loop can render it
+    // with the 🔍 REVIEW CTA and the "Action required" footer.
+    const { makeMailSendTool } = await import('../../src/coordination/mail-tools.js');
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const ctxA = mockCtx({ meta: { agentId: 'coder' } });
+    const ctxB = mockCtx({ meta: { agentId: 'reviewer' } });
+    const uniqueB = `reviewer@${mailboxSessionTag('default')}`;
+
+    const res = await send.execute(
+      {
+        to: uniqueB,
+        subject: 'skim auth refactor',
+        body: 'please look at src/auth/*.ts when convenient',
+        type: 'review',
+      },
+      ctxA as never,
+    );
+    expect(res.ok).toBe(true);
+
+    const got = await (
+      await import('../../src/coordination/mail-tools.js')
+    ).makeMailInboxTool({ resolveMailbox: () => mailbox }).execute({}, ctxB as never);
+    expect(got.count).toBe(1);
+    expect(got.messages[0]).toMatchObject({
+      from: `coder@${mailboxSessionTag('default')}`,
+      to: uniqueB,
+      type: 'review',
+      subject: 'skim auth refactor',
+    });
+    // Body must be the full review payload, NOT truncated to 60 chars
+    // (the subject field is the truncated slice — body stays verbatim).
+    expect(got.messages[0].body).toBe('please look at src/auth/*.ts when convenient');
+  });
+
+  it('mail_send honors an explicit type="review" and surfaces it through mail_inbox', async () => {
+    // Sanity check for the round-trip: a `review`-typed message arrives at
+    // the recipient's inbox with its type intact (not coerced to "note").
+    // The actual rendering (🔍 REVIEW CTA) is exercised by buildMailboxBlock
+    // tests in tests/core/mailbox-loop.test.ts.
+    const { makeMailSendTool, makeMailInboxTool } = await import(
+      '../../src/coordination/mail-tools.js'
+    );
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const inbox = makeMailInboxTool({ resolveMailbox: () => mailbox });
+    const ctxA = mockCtx({ meta: { agentId: 'coder' } });
+    const ctxB = mockCtx({ meta: { agentId: 'reviewer' } });
+    const uniqueB = `reviewer@${mailboxSessionTag('default')}`;
+
+    const res = await send.execute(
+      {
+        to: uniqueB,
+        subject: 'skim auth refactor',
+        body: 'look at src/auth/*.ts',
+        type: 'review',
+      },
+      ctxA as never,
+    );
+    expect(res.ok).toBe(true);
+
+    const got = await inbox.execute({}, ctxB as never);
+    expect(got.count).toBe(1);
+    expect(got.messages[0].type).toBe('review');
+  });
+
+  it('mail_inbox distinguishes review-typed messages from other actionable types', async () => {
+    // The recipient must be able to filter or branch on type — e.g. a model
+    // that handles "review" differently from "ask" or "assign". The inbox
+    // payload preserves the original type field verbatim, so a caller can
+    // implement type-aware behavior.
+    const { makeMailSendTool, makeMailInboxTool } = await import(
+      '../../src/coordination/mail-tools.js'
+    );
+    const send = makeMailSendTool({ resolveMailbox: () => mailbox });
+    const inbox = makeMailInboxTool({ resolveMailbox: () => mailbox });
+    const ctxA = mockCtx({ meta: { agentId: 'coder' } });
+    const ctxB = mockCtx({ meta: { agentId: 'reviewer' } });
+    const uniqueB = `reviewer@${mailboxSessionTag('default')}`;
+
+    // Send three distinct actionable types.
+    await send.execute({ to: uniqueB, subject: 's1', body: 'b1', type: 'ask' }, ctxA as never);
+    await send.execute({ to: uniqueB, subject: 's2', body: 'b2', type: 'assign' }, ctxA as never);
+    await send.execute({ to: uniqueB, subject: 's3', body: 'b3', type: 'review' }, ctxA as never);
+
+    const got = await inbox.execute({ limit: 10 }, ctxB as never);
+    expect(got.count).toBe(3);
+    const byType = new Map<string, string>(
+      got.messages.map((m: { type: string; subject: string }) => [m.type, m.subject]),
+    );
+    expect(byType.get('ask')).toBe('s1');
+    expect(byType.get('assign')).toBe('s2');
+    expect(byType.get('review')).toBe('s3');
+  });
 });

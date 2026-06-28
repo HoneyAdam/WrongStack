@@ -303,6 +303,7 @@ export type HqMailboxMessageType =
   | 'broadcast'
   | 'status'
   | 'result'
+  | 'review'
   | 'control';
 
 export type HqMailboxPriority = 'low' | 'normal' | 'high';

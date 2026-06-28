@@ -113,11 +113,33 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
   parts.push('[MAILBOX] New message(s) from other agents:');
   parts.push('');
 
-  const hasActionable = messages.some((m) => m.type === 'ask' || m.type === 'assign' || m.type === 'result');
+  const hasActionable = messages.some(
+    (m) =>
+      m.type === 'ask' ||
+      m.type === 'assign' ||
+      m.type === 'result' ||
+      m.type === 'review',
+  );
 
-  for (const m of messages) {
+  // Steer messages always come first — they are mid-task behavior changes
+  // and the model must see them before any other action items, otherwise
+  // it can finish an ask/assign/result before adjusting course. We do NOT
+  // mutate `messages` itself (the caller still owns it for dedup) — we
+  // build a local render order.
+  const ordered = [
+    ...messages.filter((m) => m.type === 'steer'),
+    ...messages.filter((m) => m.type !== 'steer'),
+  ];
+
+  for (const m of ordered) {
     const typeLabel =
-      m.type === 'steer' ? '🔄 STEER' : m.type === 'btw' ? '💬 BTW' : m.type === 'ask' ? '❓ ASK' : m.type === 'assign' ? '📋 ASSIGN' : m.type === 'result' ? '✅ RESULT' : `📨 ${m.type.toUpperCase()}`;
+      m.type === 'steer' ? '🔄 STEER' :
+      m.type === 'btw' ? '💬 BTW' :
+      m.type === 'ask' ? '❓ ASK' :
+      m.type === 'assign' ? '📋 ASSIGN' :
+      m.type === 'result' ? '✅ RESULT' :
+      m.type === 'review' ? '🔍 REVIEW' :
+      `📨 ${m.type.toUpperCase()}`;
     parts.push(`--- ${typeLabel} from ${m.from} ---`);
     parts.push(`Subject: ${m.subject}`);
     parts.push('');
@@ -137,6 +159,10 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
     }
     if (m.type === 'result') {
       parts.push('↳ A subagent has completed its work. Factor this result into your next decision.');
+      parts.push('');
+    }
+    if (m.type === 'review') {
+      parts.push('↳ This is a review request. Inspect the referenced code/doc/PR when convenient; an immediate reply is not required.');
       parts.push('');
     }
   }

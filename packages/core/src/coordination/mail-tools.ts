@@ -71,11 +71,14 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
     name: 'mail_send',
     description:
       'Send a mail to other agents working on this project (other terminals, TUIs, WebUIs). ' +
-      'Use it to hand off work ("can you review src/auth.ts?"), ask questions, or announce ' +
-      'what you just did. to="*" broadcasts to everyone; to="leader" reaches every leader ' +
-      'process; an exact id like "leader@a1b2c3d4" reaches one agent. Recipients see your mail ' +
-      'automatically before their next step.',
-    usageHint: 'mail_send to="*" subject="auth refactor done" body="touched src/auth/*, please review"',
+      'Use it to hand off work, ask questions, announce what you just did, or request a ' +
+      'review (type="review" — passive ask, no immediate reply required). to="*" broadcasts to ' +
+      'everyone; to="leader" reaches every leader process; an exact id like "leader@a1b2c3d4" ' +
+      'reaches one agent. Recipients see your mail automatically before their next step. ' +
+      'Pick the type that matches the intent: note (default), ask (blocking question), ' +
+      'assign (task), steer (mid-task direction), result (completion notice), review ' +
+      '(passive ask), btw/status/broadcast/control (informational).',
+    usageHint: 'mail_send to="worker@b2c3" type="review" subject="skim auth refactor" body="please look at src/auth/*.ts when convenient"',
     category: 'coordination',
     permission: 'auto',
     mutating: true,
@@ -91,8 +94,13 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
         body: { type: 'string', description: 'The message.' },
         type: {
           type: 'string',
-          enum: ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result'],
-          description: 'Message intent. Default: "broadcast" when to="*", otherwise "note".',
+          enum: ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review'],
+          description:
+            'Message intent. Default: "broadcast" when to="*", otherwise "note". ' +
+            'Actionable types: ask (blocking question), assign (task), result (completion notice), ' +
+            'review (passive ask — code/doc/PR review, no immediate reply required). ' +
+            'Behavioral: steer (mid-task direction change), btw (low-priority aside). ' +
+            'Informational: note/status/broadcast/control.',
         },
         priority: { type: 'string', enum: ['low', 'normal', 'high'] },
         replyTo: { type: 'string', description: 'Message id this replies to.' },
@@ -140,7 +148,8 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
       'Read your unread mail from other agents on this project and mark it read. Covers mail ' +
       'addressed to you directly, to your base name (e.g. "leader"), and broadcasts ("*"). ' +
       'Urgent steer/btw mail is already injected automatically — use this to catch up on ' +
-      'notes, questions, handoffs and results, or after a long stretch of tool work.',
+      'notes, questions, handoffs, results, and review requests (type="review" — passive ' +
+      'asks where no reply is required). Best called after a long stretch of tool work.',
     usageHint: 'mail_inbox  (optionally: limit=10, markRead=false to peek)',
     category: 'coordination',
     permission: 'auto',
