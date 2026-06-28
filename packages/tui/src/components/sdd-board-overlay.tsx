@@ -16,6 +16,7 @@ const STATUS: Record<SddTaskDisplayStatus, { icon: string; color: string }> = {
 const RUN_STATUS: Record<string, string> = {
   running: 'yellow',
   paused: 'magenta',
+  stopped: 'gray',
   completed: 'green',
   failed: 'red',
   deadlocked: 'red',

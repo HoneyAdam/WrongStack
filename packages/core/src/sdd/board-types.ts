@@ -16,6 +16,7 @@ export type SddBoardStatus =
   | 'idle'
   | 'running'
   | 'paused'
+  | 'stopped'
   | 'completed'
   | 'failed'
   | 'deadlocked';

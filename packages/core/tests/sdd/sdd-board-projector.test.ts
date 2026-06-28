@@ -186,6 +186,23 @@ describe('SddBoardProjector', () => {
     proj.dispose();
   });
 
+  it('marks a user-stopped run as "stopped" (terminal, not the resumable "paused")', async () => {
+    const g = graph();
+    const tracker = makeTracker(g);
+    const events = new EventBus();
+    const proj = new SddBoardProjector({ runId: 'r-stop', graph: g, tracker, events, store });
+
+    events.emit('sdd.run.started', { runId: 'r-stop', graphId: 'g1', specId: 's1', total: 2 });
+    tracker.updateNodeStatus('a', 'completed'); // partial — b never ran
+    events.emit('sdd.run.finished', { runId: 'r-stop', deadlocked: false, completed: 1, failed: 0, stopped: true });
+
+    await proj.drain();
+    const saved = await store.load('r-stop');
+    // Must be 'stopped' (inactive → lifecycle controls apply), NOT 'paused'.
+    expect(saved?.status).toBe('stopped');
+    proj.dispose();
+  });
+
   it('marks deadlocked + records blocking chains (as short ids)', async () => {
     const g = graph();
     const tracker = makeTracker(g);

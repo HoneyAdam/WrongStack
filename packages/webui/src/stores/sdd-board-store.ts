@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 import type { BoardTaskItem } from './specs-store';
 
-export type SddBoardStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'deadlocked';
+export type SddBoardStatus =
+  | 'idle'
+  | 'running'
+  | 'paused'
+  | 'stopped'
+  | 'completed'
+  | 'failed'
+  | 'deadlocked';
 
 export interface SddBoardColumn {
   label: string;

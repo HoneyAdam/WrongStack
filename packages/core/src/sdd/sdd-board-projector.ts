@@ -267,7 +267,10 @@ export class SddBoardProjector {
     if (!this.finished) return this.status;
     if (this.runDeadlocked) return 'deadlocked';
     if (total > 0 && completed >= total) return 'completed';
-    if (this.runStopped) return 'paused';
+    // A user-stopped run is a TERMINAL 'stopped' — distinct from a live 'paused'
+    // run (which is still resumable). Surfaces must treat 'stopped' as inactive
+    // so the post-run lifecycle controls (clean / rollback / destroy) apply.
+    if (this.runStopped) return 'stopped';
     return 'failed';
   }
 
