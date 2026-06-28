@@ -35,26 +35,28 @@ function makeCoordinator(opts: {
   const coordinator = new OAuthRefreshCoordinator<TestTokens, { accessToken: string; refreshToken: string; expiresAt: number }>({
     initialRefreshKey: opts.initialRefresh,
     initialExpiresAt: opts.initialExpiresAt,
-    refreshFn,
-    onRefresh: opts.onRefresh,
-    formatPayload: (_tokens, derived) => ({
-      accessToken: derived.accessToken,
-      refreshToken: derived.refreshKey ?? '',
-      expiresAt: derived.expiresAt,
-    }),
-    projectTokens: (tokens) => ({
-      accessToken: tokens.access,
-      expiresAt: tokens.expires,
-      refreshKey: opts.refreshKeyReturns ? opts.refreshKeyReturns(tokens) : tokens.refresh,
-    }),
-    applyTokens: (derived) => {
-      if (opts.applyExtra) {
-        opts.applyExtra(derived.accessToken);
-        applyExtraCallsRef.value++;
-      }
-    },
     label: opts.label ?? 'Test OAuth',
     refreshSkewMs: opts.skew,
+    hooks: {
+      refreshFn,
+      onRefresh: opts.onRefresh,
+      formatPayload: (_tokens, derived) => ({
+        accessToken: derived.accessToken,
+        refreshToken: derived.refreshKey ?? '',
+        expiresAt: derived.expiresAt,
+      }),
+      projectTokens: (tokens) => ({
+        accessToken: tokens.access,
+        expiresAt: tokens.expires,
+        refreshKey: opts.refreshKeyReturns ? opts.refreshKeyReturns(tokens) : tokens.refresh,
+      }),
+      applyTokens: (derived) => {
+        if (opts.applyExtra) {
+          opts.applyExtra(derived.accessToken);
+          applyExtraCallsRef.value++;
+        }
+      },
+    },
   });
   return {
     coordinator,

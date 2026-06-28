@@ -29,6 +29,70 @@ import { createSingleFlightRefresh } from './oauth-refresh.js';
 /** Default skew applied to expiry checks — refresh this many ms before stated expiry. */
 export const DEFAULT_REFRESH_SKEW_MS = 60_000;
 
+/**
+ * Derived token shape the coordinator tracks after projecting upstream
+ * tokens. `refreshKey` is only returned if the host rotates it (Codex
+ * does; Anthropic + Copilot return the same key).
+ */
+export interface DerivedTokens {
+  accessToken: string;
+  expiresAt: number;
+  refreshKey?: string | undefined;
+}
+
+/**
+ * Host-supplied callbacks that describe how to project, apply, and
+ * persist tokens for a specific provider. Extracted from the full
+ * coordinator options so they can be documented, tested, and reused
+ * independently of the lifecycle state (`initialRefreshKey`,
+ * `initialExpiresAt`, `label`, `refreshSkewMs`).
+ *
+ * Each provider wires these callbacks to its own token fields:
+ *
+ * ```ts
+ * new OAuthRefreshCoordinator<Tokens, Payload>({
+ *   ...lifecycleState,
+ *   hooks: {
+ *     refreshFn: (key, signal) => this.refreshFn(key, signal),
+ *     projectTokens: (t) => ({ accessToken: t.access, ... }),
+ *     applyTokens: (derived) => { this.access = derived.accessToken; ... },
+ *     formatPayload: (_t, derived) => ({ accessToken: derived.accessToken, ... }),
+ *     onRefresh: opts.onRefresh,
+ *   },
+ * });
+ * ```
+ */
+export interface RefreshHooks<TTokens, TPayload> {
+  /** The upstream refresh call. */
+  refreshFn: (refreshKey: string, signal?: AbortSignal) => Promise<TTokens>;
+
+  /**
+   * Project the upstream tokens into the access token + expiry pair this
+   * coordinator tracks. Return `refreshKey` only if the host rotates it.
+   */
+  projectTokens: (tokens: TTokens) => DerivedTokens;
+
+  /**
+   * Apply the projected values back to the host's mutable state (e.g.
+   * `this.access = derived.accessToken`). Called inside the single-flight
+   * slot, exactly once per actual refresh.
+   */
+  applyTokens: (derived: DerivedTokens) => void;
+
+  /**
+   * Map the upstream's token shape into the host's payload shape. Called
+   * AFTER `applyTokens`, so the payload can read host state that was
+   * mutated by `applyTokens` (e.g. Codex's `accountId` re-derivation).
+   */
+  formatPayload: (tokens: TTokens, derived: DerivedTokens) => TPayload;
+
+  /**
+   * Persistence callback. Fires once per actual refresh (single-flighted),
+   * with the host-shaped payload derived from the new tokens.
+   */
+  onRefresh?: ((payload: TPayload) => void) | undefined;
+}
+
 export interface OAuthRefreshCoordinatorOptions<TTokens, TPayload> {
   /**
    * Initial refresh key — the value passed to `refreshFn` to mint a new
@@ -40,34 +104,6 @@ export interface OAuthRefreshCoordinatorOptions<TTokens, TPayload> {
   initialRefreshKey: string | undefined;
   /** Initial expiry in epoch ms. `undefined` means "refresh on every request". */
   initialExpiresAt: number | undefined;
-  /** The upstream refresh call. */
-  refreshFn: (refreshKey: string, signal?: AbortSignal) => Promise<TTokens>;
-  /**
-   * Persistence callback. Fires once per actual refresh (single-flighted),
-   * with the host-shaped payload derived from the new tokens.
-   */
-  onRefresh?: ((payload: TPayload) => void) | undefined;
-  /** Map the upstream's token shape into the host's payload shape. */
-  formatPayload: (
-    tokens: TTokens,
-    derived: { accessToken: string; expiresAt: number; refreshKey?: string | undefined },
-  ) => TPayload;
-  /**
-   * Project the upstream tokens into the access token + expiry pair this
-   * coordinator tracks. `refreshKey` is only returned if the host rotates
-   * it (Codex does; Anthropic + Copilot return the same key).
-   */
-  projectTokens: (tokens: TTokens) => {
-    accessToken: string;
-    expiresAt: number;
-    refreshKey?: string | undefined;
-  };
-  /** Apply the projected values back to the host's mutable state. */
-  applyTokens: (derived: {
-    accessToken: string;
-    expiresAt: number;
-    refreshKey?: string | undefined;
-  }) => void;
   /** How many ms before stated expiry we should proactively refresh. */
   refreshSkewMs?: number;
   /**
@@ -75,16 +111,14 @@ export interface OAuthRefreshCoordinatorOptions<TTokens, TPayload> {
    * missing — e.g. "Codex OAuth", "Anthropic OAuth", "GitHub Copilot".
    */
   label: string;
+  /** Host-supplied callbacks for projecting, applying, and persisting tokens. */
+  hooks: RefreshHooks<TTokens, TPayload>;
 }
 
 export class OAuthRefreshCoordinator<TTokens, TPayload> {
   /** Single-flight wrapper around the refresh call. */
   private readonly singleFlight: ReturnType<typeof createSingleFlightRefresh<TTokens>>;
-  private readonly refreshFn: OAuthRefreshCoordinatorOptions<TTokens, TPayload>['refreshFn'];
-  private readonly onRefresh: OAuthRefreshCoordinatorOptions<TTokens, TPayload>['onRefresh'];
-  private readonly formatPayload: OAuthRefreshCoordinatorOptions<TTokens, TPayload>['formatPayload'];
-  private readonly projectTokens: OAuthRefreshCoordinatorOptions<TTokens, TPayload>['projectTokens'];
-  private readonly applyTokens: OAuthRefreshCoordinatorOptions<TTokens, TPayload>['applyTokens'];
+  private readonly hooks: RefreshHooks<TTokens, TPayload>;
   private readonly refreshSkewMs: number;
   private readonly label: string;
 
@@ -95,11 +129,7 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
   private expiresAt: number | undefined;
 
   constructor(opts: OAuthRefreshCoordinatorOptions<TTokens, TPayload>) {
-    this.refreshFn = opts.refreshFn;
-    this.onRefresh = opts.onRefresh;
-    this.formatPayload = opts.formatPayload;
-    this.projectTokens = opts.projectTokens;
-    this.applyTokens = opts.applyTokens;
+    this.hooks = opts.hooks;
     this.refreshSkewMs = opts.refreshSkewMs ?? DEFAULT_REFRESH_SKEW_MS;
     this.label = opts.label;
     this.expiresAt = opts.initialExpiresAt;
@@ -175,11 +205,11 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
     if (!refreshKey) {
       throw new Error(`${this.label}: refresh key missing`);
     }
-    const tokens = await this.refreshFn(refreshKey, signal);
-    const derived = this.projectTokens(tokens);
+    const tokens = await this.hooks.refreshFn(refreshKey, signal);
+    const derived = this.hooks.projectTokens(tokens);
     this.expiresAt = derived.expiresAt;
-    this.applyTokens(derived);
-    this.onRefresh?.(this.formatPayload(tokens, derived));
+    this.hooks.applyTokens(derived);
+    this.hooks.onRefresh?.(this.hooks.formatPayload(tokens, derived));
     return tokens;
   }
 }

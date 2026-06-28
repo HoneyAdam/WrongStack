@@ -174,26 +174,28 @@ export class AnthropicOAuthProvider extends WireFormatProvider<AnthropicStreamSt
     }>({
       initialRefreshKey: opts.credentials.refreshToken,
       initialExpiresAt: opts.credentials.expiresAt,
-      refreshFn: (key, signal) => this.refreshFn(key, signal),
-      onRefresh: opts.onRefresh,
-      formatPayload: (_tokens, derived) => ({
-        accessToken: derived.accessToken,
-        refreshToken: derived.refreshKey ?? '',
-        expiresAt: derived.expiresAt,
-      }),
-      projectTokens: (tokens) => ({
-        accessToken: tokens.access,
-        expiresAt: tokens.expires,
-        // Anthropic rotates its refresh token on every refresh.
-        refreshKey: tokens.refresh,
-      }),
-      applyTokens: (derived) => {
-        this.access = derived.accessToken;
-        if (derived.refreshKey !== undefined) {
-          this.refresh = derived.refreshKey;
-        }
-      },
       label: 'Anthropic OAuth',
+      hooks: {
+        refreshFn: (key, signal) => this.refreshFn(key, signal),
+        onRefresh: opts.onRefresh,
+        formatPayload: (_tokens, derived) => ({
+          accessToken: derived.accessToken,
+          refreshToken: derived.refreshKey ?? '',
+          expiresAt: derived.expiresAt,
+        }),
+        projectTokens: (tokens) => ({
+          accessToken: tokens.access,
+          expiresAt: tokens.expires,
+          // Anthropic rotates its refresh token on every refresh.
+          refreshKey: tokens.refresh,
+        }),
+        applyTokens: (derived) => {
+          this.access = derived.accessToken;
+          if (derived.refreshKey !== undefined) {
+            this.refresh = derived.refreshKey;
+          }
+        },
+      },
     });
   }
 

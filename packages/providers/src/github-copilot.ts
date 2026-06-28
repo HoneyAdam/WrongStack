@@ -151,25 +151,27 @@ export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState>
       // does NOT rotate. The rotated value is the short-lived Copilot token.
       initialRefreshKey: opts.credentials.githubToken,
       initialExpiresAt: opts.credentials.expiresAt,
-      refreshFn: (key, signal) => this.refreshFn(key, signal),
-      onRefresh: opts.onRefresh,
-      formatPayload: (_tokens, derived) => ({
-        accessToken: derived.accessToken,
-        expiresAt: derived.expiresAt,
-      }),
-      projectTokens: (tokens) => ({
-        accessToken: tokens.token,
-        expiresAt: tokens.expires,
-        refreshKey: undefined, // GitHub OAuth token is permanent
-      }),
-      applyTokens: (derived) => {
-        this.copilotToken = derived.accessToken;
-        // The API base URL is derived from each new Copilot token's
-        // `proxy-ep=` field. Recompute on every refresh so a token
-        // pointing at a different proxy endpoint lands on the right host.
-        this.apiBase = copilotBaseUrlFromToken(derived.accessToken);
-      },
       label: 'GitHub Copilot',
+      hooks: {
+        refreshFn: (key, signal) => this.refreshFn(key, signal),
+        onRefresh: opts.onRefresh,
+        formatPayload: (_tokens, derived) => ({
+          accessToken: derived.accessToken,
+          expiresAt: derived.expiresAt,
+        }),
+        projectTokens: (tokens) => ({
+          accessToken: tokens.token,
+          expiresAt: tokens.expires,
+          refreshKey: undefined, // GitHub OAuth token is permanent
+        }),
+        applyTokens: (derived) => {
+          this.copilotToken = derived.accessToken;
+          // The API base URL is derived from each new Copilot token's
+          // `proxy-ep=` field. Recompute on every refresh so a token
+          // pointing at a different proxy endpoint lands on the right host.
+          this.apiBase = copilotBaseUrlFromToken(derived.accessToken);
+        },
+      },
     });
     this.capabilities = capabilitiesForFamily('github-copilot', { ...opts.capabilities });
   }

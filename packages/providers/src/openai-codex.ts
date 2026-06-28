@@ -185,30 +185,32 @@ export class OpenAICodexProvider extends WireAdapter {
     }>({
       initialRefreshKey: opts.credentials.refreshToken,
       initialExpiresAt: opts.credentials.expiresAt,
-      refreshFn: (key, signal) => this.refreshFn(key, signal),
-      onRefresh: opts.onRefresh,
-      formatPayload: (_tokens, derived) => ({
-        accessToken: derived.accessToken,
-        refreshToken: derived.refreshKey ?? '',
-        expiresAt: derived.expiresAt,
-        accountId: this.accountId,
-      }),
-      projectTokens: (tokens) => ({
-        accessToken: tokens.access,
-        expiresAt: tokens.expires,
-        // Codex rotates its refresh token on every refresh.
-        refreshKey: tokens.refresh,
-      }),
-      applyTokens: (derived) => {
-        this.access = derived.accessToken;
-        if (derived.refreshKey !== undefined) {
-          this.refresh = derived.refreshKey;
-        }
-        // Re-derive the ChatGPT account id from the new access token, falling
-        // back to the cached value if the new JWT lacks the claim.
-        this.accountId = extractAccountId(derived.accessToken) ?? this.accountId;
-      },
       label: 'Codex OAuth',
+      hooks: {
+        refreshFn: (key, signal) => this.refreshFn(key, signal),
+        onRefresh: opts.onRefresh,
+        formatPayload: (_tokens, derived) => ({
+          accessToken: derived.accessToken,
+          refreshToken: derived.refreshKey ?? '',
+          expiresAt: derived.expiresAt,
+          accountId: this.accountId,
+        }),
+        projectTokens: (tokens) => ({
+          accessToken: tokens.access,
+          expiresAt: tokens.expires,
+          // Codex rotates its refresh token on every refresh.
+          refreshKey: tokens.refresh,
+        }),
+        applyTokens: (derived) => {
+          this.access = derived.accessToken;
+          if (derived.refreshKey !== undefined) {
+            this.refresh = derived.refreshKey;
+          }
+          // Re-derive the ChatGPT account id from the new access token, falling
+          // back to the cached value if the new JWT lacks the claim.
+          this.accountId = extractAccountId(derived.accessToken) ?? this.accountId;
+        },
+      },
     });
     this.reasoningEffort = opts.reasoningEffort ?? 'medium';
     this.capabilities = capabilitiesForFamily('openai-codex', { ...opts.capabilities });
