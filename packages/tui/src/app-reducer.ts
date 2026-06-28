@@ -30,10 +30,11 @@ import {
   TOKEN_SAVING_TIERS,
 } from './components/settings-picker.js';
 import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinking-word.js';
-import type { Action, FleetEntry, QueueItem, State } from './app-state.js';
+import type { Action, QueueItem, State } from './app-state.js';
 import { SEND_MODE_OPTIONS, nextSendModeIndex } from './components/send-mode-picker.js';
 
-import { closePanels, clampContextLoad, pruneToolInput, firstSelectable, skipDivider, MAX_TOOL_STREAM_RETAINED_CHARS } from './reducers/helpers.js';
+import { closePanels, pruneToolInput, firstSelectable, skipDivider, MAX_TOOL_STREAM_RETAINED_CHARS } from './reducers/helpers.js';
+import { reduceFleetState } from './reducers/fleet.js';
 
 // Re-export extracted functions for backward compatibility.
 // Tests may import directly from app-reducer.js rather than reducers/helpers.js.
@@ -1280,349 +1281,39 @@ export function reducer(state: State, action: Action): State {
       return { ...state, sendModePicker: null };
     case 'resetContextChip':
       return { ...state, contextChipVersion: state.contextChipVersion + 1 };
-    // --- Fleet ---
-    case 'fleetSeed': {
-      const seeded: Record<string, FleetEntry> = {};
-      for (const e of action.entries) {
-        seeded[e.id] = {
-          ...e,
-          recentTools: e.recentTools ?? [],
-          recentMessages: e.recentMessages ?? [],
-        };
-      }
-      return { ...state, fleet: seeded, fleetCost: action.cost };
+    // fleetBatch must run BEFORE the fleet delegation because it re-dispatches
+    // individual actions through the main reducer (cannot be extracted).
+    case 'fleetBatch': {
+      let s = state;
+      for (const a of action.actions) s = reducer(s, a);
+      return s;
     }
-    case 'fleetSpawn': {
-      const existing = state.fleet[action.id];
-      const incomingName = action.name ?? action.id.slice(0, 8);
-      // Placeholder names that should be overwritten when a better name arrives.
-      // "adhoc" is what MultiAgentHost.spawn() seeds before Director.spawn()
-      // assigns the real nickname. id-prefix fallbacks also count as placeholders.
-      const isPlaceholderName = (name: string) =>
-        name === 'adhoc' ||
-        name === 'subagent' ||
-        name === 'generic' ||
-        name.startsWith('slot-') ||
-        name === action.id.slice(0, 8);
 
-      if (existing) {
-        // If we already have an entry but it has a placeholder name and the
-        // incoming name is a real improvement, update the name. This handles
-        // the race between EventBus's "subagent.spawned" (which fires before
-        // Director.spawn() assigns the nickname) and FleetBus's
-        // "subagent.assigned" (which fires after the manifest is updated).
-        if (
-          isPlaceholderName(existing.name) &&
-          !isPlaceholderName(incomingName) &&
-          incomingName !== existing.name
-        ) {
-          return {
-            ...state,
-            fleet: {
-              ...state.fleet,
-              [action.id]: { ...existing, name: incomingName },
-            },
-          };
-        }
-        return state;
-      }
-      const entry: FleetEntry = {
-        id: action.id,
-        name: incomingName,
-        provider: action.provider,
-        model: action.model,
-        status: 'idle',
-        streamingText: '',
-        iterations: 0,
-        toolCalls: 0,
-        recentTools: [],
-        recentMessages: [],
-        cost: 0,
-        startedAt: Date.now(),
-        lastEventAt: Date.now(),
-        transcriptPath: action.transcriptPath,
-      };
-      return { ...state, fleet: { ...state.fleet, [action.id]: entry } };
-    }
-    case 'fleetToolStart': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            currentTool: { name: action.name, startedAt: Date.now() },
-            lastEventAt: Date.now(),
-          },
-        },
-      };
-    }
-    case 'fleetToolEnd': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: { ...cur, currentTool: undefined, lastEventAt: Date.now() },
-        },
-      };
-    }
-    case 'fleetStart': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            status: 'running' as const,
-            streamingText: '',
-            budgetWarning: undefined, // clear on restart
-            startedAt: Date.now(),
-          },
-        },
-      };
-    }
-    case 'fleetDelta': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      // Keep last 500 chars of streaming text for display (refactor plans are verbose)
-      const appended = (cur.streamingText + action.text).slice(-500);
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: { ...cur, streamingText: appended, lastEventAt: Date.now() },
-        },
-      };
-    }
-    case 'fleetMessage': {
-      const cur = state.fleet[action.id];
-      const text = action.text.trim().replace(/\s+/g, ' ');
-      if (!cur || !text) return state;
-      const now = Date.now();
-      const recentMessages = [...(cur.recentMessages ?? []), { text, at: now }].slice(-2);
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: { ...cur, recentMessages, lastEventAt: now },
-        },
-      };
-    }
-    case 'fleetTool': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      const now = Date.now();
-      const recentTools =
-        action.name !== undefined
-          ? [
-              ...(cur.recentTools ?? []),
-              {
-                name: action.name,
-                ok: action.ok,
-                durationMs: action.durationMs,
-                outputBytes: action.outputBytes,
-                outputLines: action.outputLines,
-                at: now,
-              },
-            ].slice(-2)
-          : (cur.recentTools ?? []);
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            toolCalls: cur.toolCalls + 1,
-            recentTools,
-            lastEventAt: now,
-          },
-        },
-      };
-    }
-    case 'fleetUsage': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: { ...state.fleet, [action.id]: { ...cur, lastEventAt: Date.now() } },
-      };
-    }
-    case 'fleetDone': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            status: action.status,
-            iterations: action.iterations,
-            toolCalls: action.toolCalls,
-            streamingText: '',
-            currentTool: undefined,
-            budgetWarning: undefined, // clear on done/restart
-            lastEventAt: Date.now(),
-            failureReason: action.failureReason,
-          },
-        },
-      };
-    }
-    case 'fleetBudgetWarning': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            budgetWarning: {
-              kind: action.kind,
-              used: action.used,
-              limit: action.limit,
-              at: Date.now(),
-            },
-            lastEventAt: Date.now(),
-          },
-        },
-      };
-    }
-    case 'fleetBudgetExtended': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            // The director sends the authoritative cumulative count; trust it
-            // over a local increment so a dropped event can't desync the badge.
-            extensions: action.totalExtensions,
-            lastEventAt: Date.now(),
-          },
-        },
-      };
-    }
-    case 'fleetCtxPct': {
-      const cur = state.fleet[action.id];
-      if (!cur) return state;
-      const ctxPct = clampContextLoad(action.load);
-      return {
-        ...state,
-        fleet: {
-          ...state.fleet,
-          [action.id]: {
-            ...cur,
-            ctxPct,
-            ctxTokens: action.tokens,
-            ctxMaxTokens: action.maxContext,
-            ctxCost: action.ctxCost,
-            lastEventAt: Date.now(),
-          },
-        },
-      };
-    }
-    case 'fleetCost': {
-      // Fold per-subagent cost into each live fleet entry so the AgentsMonitor
-      // can show a per-agent `$` chip. Only touches entries we already track.
-      let fleet = state.fleet;
-      if (action.perAgent) {
-        let changed = false;
-        const next: Record<string, FleetEntry> = {};
-        for (const [id, entry] of Object.entries(state.fleet)) {
-          const cost = action.perAgent[id]?.cost;
-          if (cost !== undefined && cost !== entry.cost) {
-            next[id] = { ...entry, cost };
-            changed = true;
-          } else {
-            next[id] = entry;
-          }
-        }
-        if (changed) fleet = next;
-      }
-      return {
-        ...state,
-        fleet,
-        fleetCost: action.cost,
-        fleetTokens:
-          action.input !== undefined || action.output !== undefined
-            ? {
-                input: action.input ?? state.fleetTokens.input,
-                output: action.output ?? state.fleetTokens.output,
-              }
-            : state.fleetTokens,
-      };
-    }
-    case 'fleetConcurrency': {
-      return { ...state, fleetConcurrency: action.n };
-    }
-    case 'leaderIterStart': {
-      return {
-        ...state,
-        leader: {
-          ...state.leader,
-          iterations: state.leader.iterations + 1,
-          iterating: true,
-          lastEventAt: Date.now(),
-        },
-      };
-    }
-    case 'leaderIterEnd': {
-      return {
-        ...state,
-        leader: { ...state.leader, iterating: false, lastEventAt: Date.now() },
-      };
-    }
-    case 'leaderToolStart': {
-      return {
-        ...state,
-        leader: {
-          ...state.leader,
-          currentTool: { name: action.name, startedAt: Date.now() },
-          lastEventAt: Date.now(),
-        },
-      };
-    }
-    case 'leaderToolEnd': {
-      const now = Date.now();
-      const recentTools = [
-        ...state.leader.recentTools,
-        { name: action.name, ok: action.ok, durationMs: action.durationMs, at: now },
-      ].slice(-8);
-      return {
-        ...state,
-        leader: {
-          ...state.leader,
-          toolCalls: state.leader.toolCalls + 1,
-          currentTool: undefined,
-          recentTools,
-          lastEventAt: now,
-        },
-      };
-    }
-    case 'leaderCtxPct': {
-      const ctxPct = clampContextLoad(action.load);
-      return {
-        ...state,
-        leader: {
-          ...state.leader,
-          ctxPct,
-          ctxTokens: action.tokens,
-          ctxMaxTokens: action.maxContext,
-          lastEventAt: Date.now(),
-        },
-      };
-    }
+    // --- Fleet & leader (delegated to reducers/fleet.ts) ---
+    case 'fleetSeed':
+    case 'fleetSpawn':
+    case 'fleetToolStart':
+    case 'fleetToolEnd':
+    case 'fleetStart':
+    case 'fleetDelta':
+    case 'fleetMessage':
+    case 'fleetTool':
+    case 'fleetUsage':
+    case 'fleetDone':
+    case 'fleetBudgetWarning':
+    case 'fleetBudgetExtended':
+    case 'fleetCtxPct':
+    case 'fleetCost':
+    case 'fleetConcurrency':
+    case 'leaderIterStart':
+    case 'leaderIterEnd':
+    case 'leaderToolStart':
+    case 'leaderToolEnd':
+    case 'leaderCtxPct':
     case 'setStreamFleet': {
-      return { ...state, streamFleet: action.enabled };
+      const fleetResult = reduceFleetState(state, action);
+      if (fleetResult) return fleetResult;
+      return state;
     }
     case 'toggleMonitor': {
       const opening = !state.monitorOpen;
