@@ -23,6 +23,14 @@ const base: DelegateCompletedLike = {
   subagentId: 'bug-hunter-abcd1234',
 };
 
+// Synthetic canaries that exercise the redaction paths without using
+// shapes that look like real secrets (which trip source-level scanners
+// and would also be misleading in a test fixture). The dedicated
+// `redact.test.ts` suite covers the full regex matrix against realistic
+// inputs.
+const CANARY_A = 'CANARY_SENTINEL_AAA';
+const CANARY_B = 'CANARY_SENTINEL_BBB';
+
 describe('fmtDuration', () => {
   it('renders seconds, minutes, and hours', () => {
     expect(fmtDuration(5_000)).toBe('5s');
@@ -64,11 +72,25 @@ describe('formatDelegateCompleted', () => {
     expect(msg).toContain('(no summary)');
     expect(msg).toContain('audit src/parser.ts');
   });
-});
 
-// ---------------------------------------------------------------------------
-// fmtTokens
-// ---------------------------------------------------------------------------
+  it('redacts a --token flag in the summary body', () => {
+    const msg = formatDelegateCompleted({
+      ...base,
+      summary: `done. used --token=${CANARY_A}`,
+    });
+    expect(msg).not.toContain(CANARY_A);
+    expect(msg).toContain('[REDACTED]');
+  });
+
+  it('redacts an env-style SECRET= assignment in the summary body', () => {
+    const msg = formatDelegateCompleted({
+      ...base,
+      summary: `done. SECRET=${CANARY_B} was set`,
+    });
+    expect(msg).not.toContain(CANARY_B);
+    expect(msg).toContain('[REDACTED]');
+  });
+});
 
 describe('fmtTokens', () => {
   it('formats small numbers without commas', () => {
@@ -87,10 +109,6 @@ describe('fmtTokens', () => {
     expect(fmtTokens(0)).toBe('0');
   });
 });
-
-// ---------------------------------------------------------------------------
-// fmtToolOutput
-// ---------------------------------------------------------------------------
 
 describe('fmtToolOutput', () => {
   it('returns placeholder for undefined', () => {
@@ -124,11 +142,26 @@ describe('fmtToolOutput', () => {
     expect(result).toContain('line3');
     expect(result).toContain('+2 more lines');
   });
-});
 
-// ---------------------------------------------------------------------------
-// formatToolExecuted
-// ---------------------------------------------------------------------------
+  it('redacts a --mysecret flag value', () => {
+    const raw = `curl --mysecret=${CANARY_A} https://x`;
+    const out = fmtToolOutput(raw);
+    expect(out).not.toContain(CANARY_A);
+    expect(out).toContain('[REDACTED]');
+  });
+
+  it('redacts a SECRET= env assignment', () => {
+    const raw = `MY_SECRET=${CANARY_B} node app.js`;
+    const out = fmtToolOutput(raw);
+    expect(out).not.toContain(CANARY_B);
+    expect(out).toContain('MY_SECRET=[REDACTED]');
+  });
+
+  it('does not redact when there is nothing sensitive', () => {
+    const raw = 'line1\nline2\nline3';
+    expect(fmtToolOutput(raw)).toBe(raw);
+  });
+});
 
 describe('formatToolExecuted', () => {
   it('formats a successful tool execution with output', () => {
@@ -161,10 +194,6 @@ describe('formatToolExecuted', () => {
     expect(msg).toBe('✅ read completed in 0.1s');
   });
 });
-
-// ---------------------------------------------------------------------------
-// formatSessionEnded
-// ---------------------------------------------------------------------------
 
 describe('formatSessionEnded', () => {
   const baseSession: SessionEndedLike = {

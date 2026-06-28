@@ -40,6 +40,17 @@ interface TgUpdate {
   update_id: number;
   message?: TgMessage | undefined;
   edited_message?: TgMessage | undefined;
+  /** Inline-keyboard press. `data` carries the action key (e.g. `approve:abc`). */
+  callback_query?: TgCallbackQuery | undefined;
+}
+
+interface TgCallbackQuery {
+  id: string;
+  from?: TgUser | undefined;
+  /** Message the keyboard was attached to; preserved so we can edit/answer it. */
+  message?: { message_id: number; chat: TgChat } | undefined;
+  /** Action key chosen by the user (up to 64 bytes per Telegram docs). */
+  data?: string | undefined;
 }
 
 interface TgResponse<T> {
@@ -134,6 +145,14 @@ export class TelegramBot {
   private readonly bufferMax: number;
   private readonly buffer: TelegramIncomingMessage[] = [];
 
+  // Pending callback_query waiters keyed by the `data` string they
+  // registered. Cleared on stop(). Used by `telegram_approve` to bridge a
+  // synchronous-looking API onto the async callback event.
+  private readonly callbackWaiters = new Map<
+    string,
+    { resolve: (value: { approved: boolean; fromUser: string }) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+
   constructor(opts: TelegramBotOptions) {
     this.baseUrl = `https://api.telegram.org/bot${opts.token}`;
     this.safeBaseUrl = redactToken(this.baseUrl, opts.token);
@@ -179,6 +198,12 @@ export class TelegramBot {
     if (this.standbyTimer) {
       clearTimeout(this.standbyTimer);
       this.standbyTimer = null;
+    }
+    // Reject any pending approval requests so the host doesn't hang.
+    for (const [key, waiter] of this.callbackWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve({ approved: false, fromUser: 'shutdown' });
+      this.callbackWaiters.delete(key);
     }
     this.lock?.release();
     this.log.info('Telegram bot stopped');
@@ -309,13 +334,66 @@ export class TelegramBot {
   }
 
   // ------------------------------------------------------------------
+  // Outgoing — send a message with an inline keyboard
+  // ------------------------------------------------------------------
+
+  /**
+   * Send a message that has up to one row of inline buttons (Telegram's
+   * `inline_keyboard`). Used by `telegram_approve` to present a
+   * yes/no prompt. The keyboard payload is opaque to the bot — callers
+   * pass already-encoded `callback_data` strings (≤ 64 bytes each).
+   */
+  async sendMessageWithKeyboard(
+    chatId: string | number,
+    text: string,
+    buttons: Array<{ text: string; callback_data: string }>,
+  ): Promise<TgResponse<TgMessage>> {
+    const url = `${this.baseUrl}/sendMessage`;
+    const body = JSON.stringify({
+      chat_id: String(chatId),
+      text,
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [buttons.map((b) => ({ text: b.text, callback_data: b.callback_data }))],
+      },
+    });
+
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        });
+        const data = (await res.json()) as TgResponse<TgMessage>;
+        if (!data.ok) {
+          throw new Error(`Telegram API error ${data.error_code}: ${data.description}`);
+        }
+        return data;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 3) await sleep(1000);
+      }
+    }
+    throw lastErr;
+  }
+
+  // ------------------------------------------------------------------
   // Health
   // ------------------------------------------------------------------
 
   async health(): Promise<{ ok: boolean; username?: string | undefined; error?: string | undefined }> {
+    // Use a dedicated AbortController per call so stop() can cancel an
+    // in-flight health check, AND so the 5 s timeout timer can be cleared
+    // immediately on completion (a leaked AbortSignal.timeout timer
+    // would keep the test worker alive for up to 5 s after each call).
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
     try {
       const url = `${this.baseUrl}/getMe`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(url, { signal: ctrl.signal });
       const data = (await res.json()) as TgResponse<TgUser>;
       if (!data.ok || !data.result) {
         return { ok: false, error: data.description ?? 'Unknown error' };
@@ -323,6 +401,8 @@ export class TelegramBot {
       return { ok: true, username: data.result.username };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -368,6 +448,14 @@ export class TelegramBot {
       const updates = data.result ?? [];
       for (const upd of updates) {
         this.offset = upd.update_id + 1;
+
+        // Inline-keyboard press — must be answered within 10 s or the
+        // Telegram client shows a "loading" spinner forever.
+        if (upd.callback_query) {
+          void this.dispatchCallback(upd.callback_query);
+          continue;
+        }
+
         const raw = upd.message ?? upd.edited_message;
         if (!raw?.text) continue;
         const msg = { ...raw, text: raw.text };
@@ -415,6 +503,67 @@ export class TelegramBot {
     while (this.buffer.length > this.bufferMax) this.buffer.shift();
 
     this.onMessage(incoming);
+  }
+
+  /**
+   * Handle an inbound `callback_query` update: route it to a registered
+   * waiter (if any), and acknowledge it via `answerCallbackQuery` so the
+   * client stops spinning. Telegram requires the answer within 10 s.
+   */
+  private async dispatchCallback(cq: TgCallbackQuery): Promise<void> {
+    const key = cq.data ?? '';
+    const waiter = key !== '' ? this.callbackWaiters.get(key) : undefined;
+    const approved = key.endsWith(':yes');
+    const fromUser = cq.from?.username ?? cq.from?.first_name ?? 'unknown';
+
+    try {
+      await fetch(`${this.baseUrl}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callback_query_id: cq.id,
+          text: approved ? 'Approved ✓' : 'Denied ✗',
+          show_alert: false,
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch (err) {
+      this.log.debug(`answerCallbackQuery failed: ${(err as Error).message}`);
+    }
+
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      this.callbackWaiters.delete(key);
+      waiter.resolve({ approved, fromUser });
+    } else {
+      this.log.debug(`Unmatched callback_query data="${key}" (no pending waiter)`);
+    }
+  }
+
+  /**
+   * Register a waiter for a callback_query whose `data` field equals `key`.
+   * Resolves with `{ approved, fromUser }` when a matching press arrives, or
+   * with `{ approved: false, fromUser: 'timeout' }` after `timeoutMs`.
+   *
+   * Callers are responsible for not registering the same key twice — a
+   * second `awaitCallback` for an in-flight key is undefined.
+   */
+  awaitCallback(
+    key: string,
+    timeoutMs: number,
+  ): Promise<{ approved: boolean; fromUser: string }> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.callbackWaiters.delete(key)) {
+          resolve({ approved: false, fromUser: 'timeout' });
+        }
+      }, timeoutMs);
+      // The timer is intentionally NOT unref'd: a pending callback waiter
+      // represents an outstanding user-facing request that must resolve
+      // (or time out) before the process can safely exit. unref'ing it
+      // would let the event loop drain prematurely during long waits.
+      this.callbackWaiters.set(key, { resolve, timer });
+    });
   }
 
   private async loadOffset(): Promise<void> {

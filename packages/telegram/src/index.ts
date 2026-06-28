@@ -10,6 +10,7 @@ import { PollLock, lockPathForToken } from './poll-lock.js';
 import { registerSlashCommands } from './slash-commands/index.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
+import { makeTelegramApproveTool } from './tools/telegram-approve.js';
 // ---------------------------------------------------------------------------
 // Teardown state
 // ---------------------------------------------------------------------------
@@ -126,8 +127,15 @@ const plugin: Plugin = {
       log,
     });
     const readTool = makeTelegramReadTool({ bot });
+    const approveTool = makeTelegramApproveTool({
+      bot,
+      getDefaultChatId: () => runtimeCfg.notifyChatId,
+      maxMessageLength: runtimeCfg.maxMessageLength,
+      log,
+    });
     api.tools.register(sendTool);
     api.tools.register(readTool);
+    api.tools.register(approveTool);
 
     // ---- Event subscriptions ----
     const offs: Array<() => void> = [];
@@ -243,12 +251,26 @@ const plugin: Plugin = {
     });
     offs.push(unlistenConfig);
 
+    // ---- Startup self-test (C7) ----
+    // Verify the bot token is live before we start polling. A 401/403 here
+    // means a wrong/rotated/revoked token — fail loud so the user sees the
+    // misconfiguration immediately, rather than silently spinning and
+    // logging HTTP 401 on every poll cycle.
+    const probe = await bot.health();
+    if (!probe.ok) {
+      throw new Error(
+        `Telegram plugin startup failed: ${probe.error ?? 'unknown error'}. ` +
+          `Verify botToken in extensions.telegram (token from @BotFather, format "<id>:<35+ chars>").`,
+      );
+    }
+    log.info(`Telegram self-test ok: @${probe.username ?? 'unknown'} (api.telegram.org reachable)`);
+
     // ---- Start polling ----
     bot.start();
 
     teardownState = {
       offs,
-      toolNames: [sendTool.name, readTool.name],
+      toolNames: [sendTool.name, readTool.name, approveTool.name],
       commandNames,
       bot,
       runtimeCfg,

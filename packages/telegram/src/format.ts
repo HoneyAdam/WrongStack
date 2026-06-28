@@ -10,7 +10,12 @@
 // - Never embed raw JSON. Never concatenate object dumps.
 // - Keep messages under 2000 chars so they fit one mobile screen.
 // - Use emoji sparingly — status markers only, no decoration.
+// - Run output through `redactSecrets` before formatting — a chat
+//   notification is the highest-risk exfiltration surface for any token
+//   that happens to land in tool output (see packages/telegram/src/redact.ts).
 // ---------------------------------------------------------------------------
+
+import { redactSecrets } from './redact.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (subsets of core event shapes)
@@ -69,18 +74,22 @@ export function fmtTokens(n: number): string {
 
 /**
  * Try to render a tool's output as a short human-readable snippet.
- * Strips JSON braces/quoting, limits to ~300 chars, preserves first/last lines.
+ * Strips JSON braces/quoting, redacts secrets, limits to ~300 chars,
+ * preserves first/last lines.
  */
 export function fmtToolOutput(raw: string | undefined): string {
   if (!raw) return '(no output)';
-  const cleaned = raw
+  // Redact BEFORE the JSON-stripping pass so we don't transform the
+  // redacted marker (e.g. `[REDACTED]` survives untouched).
+  const redacted = redactSecrets(raw);
+  const cleaned = redacted
     .replace(/^[{[]\s*/, '')      // strip leading JSON opening
     .replace(/\s*[}\]]$/, '')      // strip trailing JSON closing
     .replace(/"([^"]+)":/g, '$1: ') // unquote JSON keys, add space for readability
     .replace(/\\n/g, '\n')         // expand escaped newlines
     .replace(/\\"/g, '"')          // expand escaped quotes
     .trim()
-    || raw;
+    || redacted;
 
   // Try to split into short lines; show the first 3 meaningful ones.
   const lines = cleaned.split('\n').filter((l) => l.trim().length > 0);
@@ -108,8 +117,10 @@ export function formatDelegateCompleted(e: DelegateCompletedLike): string {
   const task = e.task.length > 160 ? `${e.task.slice(0, 159)}…` : e.task;
 
   // Prefer the host's one-line summary; fall back to echoing the task when a
-  // failure produced no summary.
-  const body = e.summary?.trim() || `(no summary) — ${task}`;
+  // failure produced no summary. Both go through `redactSecrets` — a
+  // delegate summary can contain raw tool output that itself leaks tokens.
+  const rawBody = e.summary?.trim() || `(no summary) — ${task}`;
+  const body = redactSecrets(rawBody);
 
   const stats = [
     `⏱ ${fmtDuration(e.durationMs)}`,

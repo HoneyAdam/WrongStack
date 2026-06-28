@@ -51,8 +51,19 @@ function makeConfig(overrides?: Partial<TelegramPluginConfig>): TelegramPluginCo
 // ---------------------------------------------------------------------------
 
 describe('tgStatusCommand', () => {
+  // A single bot instance shared across tests so `bot.start()` (which
+  // schedules a 60 s polling timer) is paired with `bot.stop()` in
+  // afterEach — otherwise the timer keeps the test worker alive after
+  // every test completes, and vitest's exit handshake stalls.
+  const bots: TelegramBot[] = [];
+  function makeTrackedBot(): TelegramBot {
+    const b = makeBot();
+    bots.push(b);
+    return b;
+  }
+
   it('shows connected bot status', async () => {
-    const bot = makeBot();
+    const bot = makeTrackedBot();
     bot.start();
     // Mock health to return a healthy bot
     bot.health = vi.fn().mockResolvedValue({ ok: true, username: 'test_bot' });
@@ -166,6 +177,15 @@ describe('tgStatusCommand', () => {
 
     expect(res?.message).toContain('everyone (users)');
     expect(res?.message).toContain('everyone (chats)');
+  });
+
+  afterEach(() => {
+    // Stop every bot created via makeTrackedBot() so the 60 s polling
+    // timer scheduled by bot.start() is cleared. Without this, vitest's
+    // exit handshake stalls waiting for the timer to fire.
+    for (const b of bots.splice(0)) {
+      b.stop();
+    }
   });
 });
 
