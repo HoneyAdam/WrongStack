@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { type ConfigError, isConfigError, type Config, type Logger, type ModelsRegistry, type ResolvedProvider } from '@wrongstack/core';
+import { type Config, type Logger, type ModelsRegistry, type ResolvedProvider } from '@wrongstack/core';
 import { setupProvider } from '../src/wiring/provider.js';
+import { expectConfigError } from './helpers/config-error.js';
 
 // Mock the providers package — we test setupProvider in isolation from
 // the real provider factory chain. The factories are exercised in their
@@ -203,129 +204,66 @@ describe('setupProvider', () => {
       getProvider: vi.fn().mockResolvedValue(resolved),
     });
 
-    let caught: unknown;
-    try {
-      await setupProvider({
-        config: fakeConfig({ provider: 'weird' }),
-        modelsRegistry,
-        logger: fakeLogger(),
-      });
-    } catch (err) {
-      caught = err;
-    }
-    // Lock the structured error class so a future refactor that drops the
-    // ConfigError migration fails loud.
-    expect(isConfigError(caught)).toBe(true);
-    const ce = caught as ConfigError;
-    expect(ce.code).toBe('CONFIG_INVALID');
-    expect(ce.context).toMatchObject({
-      provider: 'weird',
-      family: 'weird-sdk',
-      kind: 'unsupported',
-    });
+    const ce = await expectConfigError(
+      () => setupProvider({ config: fakeConfig({ provider: 'weird' }), modelsRegistry, logger: fakeLogger() }),
+      {
+        code: 'CONFIG_INVALID',
+        context: { provider: 'weird', family: 'weird-sdk', kind: 'unsupported' },
+      },
+    );
     expect(ce.message).toContain('weird-sdk');
   });
 
   it('registry-build failure throws a structured ConfigError (phase: registry-build)', async () => {
-    // Locks in the structured error class + cause + phase + the user-facing
-    // actionable hint phrase. Supersedes the old regex-only test.
     buildProviderFactoriesFromRegistry.mockRejectedValue(new Error('ENOENT'));
 
-    let caught: unknown;
-    try {
-      await setupProvider({
-        config: fakeConfig(),
-        modelsRegistry: fakeModelsRegistry(),
-        logger: fakeLogger(),
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(isConfigError(caught)).toBe(true);
-    const ce = caught as ConfigError;
-    expect(ce.code).toBe('CONFIG_INVALID');
-    expect(ce.context).toMatchObject({ phase: 'registry-build', provider: 'anthropic' });
+    const ce = await expectConfigError(
+      () => setupProvider({ config: fakeConfig(), modelsRegistry: fakeModelsRegistry(), logger: fakeLogger() }),
+      { code: 'CONFIG_INVALID', context: { phase: 'registry-build', provider: 'anthropic' } },
+    );
     expect(ce.cause).toBeInstanceOf(Error);
     expect((ce.cause as Error).message).toBe('ENOENT');
-    // Verify the actionable hint survives the migration (was the value-add
-    // of the old regex test).
     expect(ce.message).toMatch(
       /Failed to load models\.dev registry.*ENOENT.*wstack models refresh/s,
     );
   });
 
   it('provider-create failure throws a structured ConfigError (phase: provider-create)', async () => {
-    // Locks in the structured error class + cause + phase + the
-    // descriptive message. Supersedes the old regex-only test.
-    buildProviderFactoriesFromRegistry.mockResolvedValue([]); // registry empty
+    buildProviderFactoriesFromRegistry.mockResolvedValue([]);
     makeProviderFromConfig.mockImplementation(() => {
       throw new Error('bad config');
     });
 
-    let caught: unknown;
-    try {
-      await setupProvider({
-        config: fakeConfig({ provider: 'novel' }),
-        modelsRegistry: fakeModelsRegistry(),
-        logger: fakeLogger(),
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(isConfigError(caught)).toBe(true);
-    const ce = caught as ConfigError;
-    expect(ce.code).toBe('CONFIG_INVALID');
-    expect(ce.context).toMatchObject({ phase: 'provider-create', provider: 'novel' });
+    const ce = await expectConfigError(
+      () => setupProvider({ config: fakeConfig({ provider: 'novel' }), modelsRegistry: fakeModelsRegistry(), logger: fakeLogger() }),
+      { code: 'CONFIG_INVALID', context: { phase: 'provider-create', provider: 'novel' } },
+    );
     expect(ce.cause).toBeInstanceOf(Error);
     expect((ce.cause as Error).message).toBe('bad config');
     expect(ce.message).toMatch(/Failed to create provider.*bad config/);
   });
 
   it('non-Error throw from provider-create is wrapped with cause-preserved (string cause)', async () => {
-    // Locks in the cause chain (string thrown → ConfigError with cause === the string).
-    // Also verifies the message format stays compatible with consumers that
-    // string-match on "Failed to create provider" — supersedes the old regex test.
     buildProviderFactoriesFromRegistry.mockResolvedValue([]);
     makeProviderFromConfig.mockImplementation(() => {
       throw 'plain string';
     });
 
-    let caught: unknown;
-    try {
-      await setupProvider({
-        config: fakeConfig(),
-        modelsRegistry: fakeModelsRegistry(),
-        logger: fakeLogger(),
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(isConfigError(caught)).toBe(true);
-    const ce = caught as ConfigError;
-    expect(ce.context).toMatchObject({ phase: 'provider-create' });
+    const ce = await expectConfigError(
+      () => setupProvider({ config: fakeConfig(), modelsRegistry: fakeModelsRegistry(), logger: fakeLogger() }),
+      { context: { phase: 'provider-create' } },
+    );
     expect(ce.cause).toBe('plain string');
     expect(ce.message).toMatch(/Failed to create provider.*plain string/);
   });
 
   it('non-Error throw from registry-build is wrapped with cause-preserved (string cause)', async () => {
-    // Same coverage for the registry-build path — verifies the `cause`
-    // chain works for both Error and non-Error throws. Also covers the
-    // message-format assertion the old regex test had.
     buildProviderFactoriesFromRegistry.mockRejectedValue('registry boom');
 
-    let caught: unknown;
-    try {
-      await setupProvider({
-        config: fakeConfig(),
-        modelsRegistry: fakeModelsRegistry(),
-        logger: fakeLogger(),
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(isConfigError(caught)).toBe(true);
-    const ce = caught as ConfigError;
-    expect(ce.context).toMatchObject({ phase: 'registry-build' });
+    const ce = await expectConfigError(
+      () => setupProvider({ config: fakeConfig(), modelsRegistry: fakeModelsRegistry(), logger: fakeLogger() }),
+      { context: { phase: 'registry-build' } },
+    );
     expect(ce.cause).toBe('registry boom');
     expect(ce.message).toMatch(/Failed to load models\.dev registry.*registry boom/);
   });
