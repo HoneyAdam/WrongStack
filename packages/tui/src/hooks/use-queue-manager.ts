@@ -1,7 +1,7 @@
-import { useCallback, useEffect } from 'react';
-import type { QueueStore, SlashCommandRegistry } from '@wrongstack/core';
+import { useEffect } from 'react';
+import type { ContentBlock, PersistedQueueItem, QueueStore, SlashCommandRegistry } from '@wrongstack/core';
 import type { Action, State } from '../app-reducer.js';
-import type { Settings, QueueItem } from '../app-state.js';
+import type { Settings } from '../app-state.js';
 import { createQueueSlashCommand } from '../queue-slash.js';
 
 export interface UseQueueManagerOptions {
@@ -44,7 +44,7 @@ export function useQueueManager({
     let cancelled = false;
     queueStore
       .read()
-      .then((items: QueueItem[]) => {
+      .then((items: PersistedQueueItem[]) => {
         if (cancelled || items.length === 0) return;
         for (const item of items) {
           dispatch({
@@ -71,7 +71,7 @@ export function useQueueManager({
   useEffect(() => {
     if (!queueStore) return;
     const raw = stateRef.current.queue.map(
-      ({ displayText, blocks }: { displayText: string; blocks: unknown[] }) => ({
+      ({ displayText, blocks }: { displayText: string; blocks: ContentBlock[] }) => ({
         displayText,
         blocks,
       }),
