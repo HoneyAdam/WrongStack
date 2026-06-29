@@ -246,7 +246,7 @@ flowchart TB
 
   AC -->|FleetBus events| FleetBus[FleetBus]
   FleetBus --> WebUI[WebUI handlers]
-  FleetBus --> FleetTools[fleet_status / fleet_usage]
+  FleetBus --> FleetTools[fleet (action: status) / fleet (action: usage)]
 
   Auction[TaskAuctioneer] -->|task:failed| FleetBus
   Director[Director] -->|subagent.completed| FleetBus
@@ -448,7 +448,7 @@ flowchart LR
   B --> C[/coordinator start goal]
   C --> D[Open F11 Coordinator Monitor]
   D --> E[Watch goals/tasks/knowledge]
-  E --> F[/fleet status or fleet_usage]
+  E --> F[/fleet status or fleet (action: usage)]
   F --> G[/coordinator stop when done]
 ```
 

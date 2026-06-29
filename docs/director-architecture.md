@@ -44,10 +44,10 @@
 | `ask_subagent` | Synchronous bridge request to a running subagent (e.g. "summarize progress"). |
 | `roll_up` | Aggregate completed task results into markdown or JSON. |
 | `terminate_subagent` | Forcibly abort a subagent. |
-| `fleet_status` | Snapshot of all subagents and pending/completed task counts. |
-| `fleet_usage` | Token + cost breakdown per subagent and fleet-total. |
-| `fleet_session` | Read a subagent's JSONL transcript and extract last assistant text, stop reason, and tool-use count. |
-| `fleet_health` | Per-subagent health snapshot: budget pressure, last activity timestamp, and status. |
+| `fleet (action: status)` | Snapshot of all subagents and pending/completed task counts. |
+| `fleet (action: usage)` | Token + cost breakdown per subagent and fleet-total. |
+| `fleet (action: session)` | Read a subagent's JSONL transcript and extract last assistant text, stop reason, and tool-use count. |
+| `fleet (action: health)` | Per-subagent health snapshot: budget pressure, last activity timestamp, and status. |
 
 ### Pre-built Fleet Roster
 
@@ -76,7 +76,7 @@ User Input
 │  Director Agent (LLM-driven)                                    │
 │  System Prompt: DEFAULT_DIRECTOR_PREAMBLE + leader prompt        │
 │  Tools: spawn_subagent, assign_task, await_tasks, ask_subagent,  │
-│         roll_up, terminate_subagent, fleet_status, fleet_usage  │
+│         roll_up, terminate_subagent, fleet (action: status), fleet (action: usage)  │
 └─────────────────────────────────────────────────────────────────┘
     │
     │ spawn() / assign() / awaitTasks()
@@ -135,8 +135,8 @@ User Input
 | Fleet-wide cost cap (`directorBudget.maxCostUsd`) | `FleetSpawnBudgetError` + cost check before spawn | ✅ Shipped |
 | `maxBudgetExtensions` configurable | `DirectorOptions.maxBudgetExtensions` replaces hardcoded 2 | ✅ Shipped |
 | `checkpointDebounceMs` configurable | Passed through to `DirectorStateCheckpoint` | ✅ Shipped |
-| `fleet_session` tool | Director can read subagent JSONL mid-flight | ✅ Shipped |
-| `fleet_health` tool | Per-subagent budget pressure + liveness snapshot | ✅ Shipped |
+| `fleet (action: session)` tool | Director can read subagent JSONL mid-flight | ✅ Shipped |
+| `fleet (action: health)` tool | Per-subagent budget pressure + liveness snapshot | ✅ Shipped |
 | `FleetSpawnBudgetError` surfaced in `spawn_subagent` tool | LLM sees structured `{ error, kind, limit, observed }` | ✅ Shipped |
 | `--resume <runId>` | Crash recovery: re-attach to live subagents via lock files | 🔲 Pending |
 | Hostile-prompt test pack | Verify bridge contract prevents parent-context exfiltration | 🔲 Pending |
@@ -144,7 +144,7 @@ User Input
 | TUI fleet panel | Real-time subagent status dashboard in TUI | ✅ Shipped |
 | WebUI fleet tab | Fleet observability in web UI | 🔲 Pending |
 | `wstack replay <runId>` | Replay session events from JSONL | ✅ Shipped |
-| `fleet_session` subagent-side bridge handler | Subagent responds to `session_read` bridge messages | 🔲 Pending |
+| `fleet (action: session)` subagent-side bridge handler | Subagent responds to `session_read` bridge messages | 🔲 Pending |
 | `redirect` tool | Mid-flight task reassignment | 🔲 Pending |
 | `classifySubagentError` case normalization | Use `lower` for empty_response / tool_failed regexes | 🔲 Pending |
 
@@ -154,13 +154,13 @@ User Input
 
 ### 4.1 Missing Tools
 
-#### `fleet_session` ✅ Shipped (0.1.8)
+#### `fleet (action: session)` ✅ Shipped (0.1.8)
 
-Director reads subagent JSONL directly via `Director.readSession(subagentId, tail?)` — no bridge round-trip needed. Requires `sessionsRoot` + `directorRunId` on the Director. Exposed as a first-class `fleet_session` LLM tool. Returns `lastAssistantText`, `lastStopReason`, `toolUsesObserved`, `events`, and `path`.
+Director reads subagent JSONL directly via `Director.readSession(subagentId, tail?)` — no bridge round-trip needed. Requires `sessionsRoot` + `directorRunId` on the Director. Exposed as a first-class `fleet (action: session)` LLM tool. Returns `lastAssistantText`, `lastStopReason`, `toolUsesObserved`, `events`, and `path`.
 
-#### `fleet_health` ✅ Shipped (0.1.8)
+#### `fleet (action: health)` ✅ Shipped (0.1.8)
 
-Per-subagent health snapshot: budget pressure (iterations/toolCalls/cost), last activity timestamp, and status. Returns a structured array so the director can make routing decisions without calling `fleet_usage` + `fleet_status` separately.
+Per-subagent health snapshot: budget pressure (iterations/toolCalls/cost), last activity timestamp, and status. Returns a structured array so the director can make routing decisions without calling `fleet (action: usage)` + `fleet (action: status)` separately.
 
 #### `redirect` — Mid-flight task reassignment 🔲 Pending
 
@@ -188,7 +188,7 @@ The `empty_response` and `tool_failed` regexes in `classifySubagentError` alread
 
 #### `sessionsRoot` + `directorRunId` in Director ✅ Shipped (0.1.8)
 
-Director now accepts `sessionsRoot` and `directorRunId` in its options, enabling direct JSONL reads without requiring the CLI to pass a session factory. The `fleet_session` tool works when these are set.
+Director now accepts `sessionsRoot` and `directorRunId` in its options, enabling direct JSONL reads without requiring the CLI to pass a session factory. The `fleet (action: session)` tool works when these are set.
 
 #### `sharedScratchpadPath` auto-default ✅ Shipped (0.1.8)
 
@@ -297,8 +297,8 @@ In `fleet-bus.ts` line 50-73, `FORWARDED_TYPES` is a const array listing every e
 | F2 | `directorBudget: { maxCostUsd }` option | `director.ts`, `director-tools.ts` | ✅ Done |
 | F3 | `maxBudgetExtensions` configurable | `director.ts` | ✅ Done |
 | F4 | `checkpointDebounceMs` in `DirectorOptions` | `director.ts`, `director-state.ts` | ✅ Done |
-| F6 | `fleet_session` tool | `director-tools.ts`, `director.ts` | ✅ Done |
-| F7 | `fleet_health` tool | `director-tools.ts`, `director.ts` | ✅ Done |
+| F6 | `fleet (action: session)` tool | `director-tools.ts`, `director.ts` | ✅ Done |
+| F7 | `fleet (action: health)` tool | `director-tools.ts`, `director.ts` | ✅ Done |
 | — | `FleetSpawnBudgetError` exported + surfaced in `spawn_subagent` tool | `director.ts`, `director-tools.ts` | ✅ Done |
 | — | `MultiAgentHostOptions` extended with `directorBudget`, `maxBudgetExtensions`, `checkpointDebounceMs` | `packages/cli/src/multi-agent.ts` | ✅ Done |
 
@@ -312,7 +312,7 @@ In `fleet-bus.ts` line 50-73, `FORWARDED_TYPES` is a const array listing every e
 | R4 | TUI fleet panel | `packages/tui/src/components/fleet-panel.tsx` | Shipped compact status summary; full monitor also lives in `packages/tui/src/components/fleet-monitor.tsx` |
 | R5 | WebUI fleet tab | `packages/webui/` | Fleet observability in web UI |
 | R6 | Fleet-aware replay | CLI, core | Extend existing `wstack replay` support to understand director/fleet run ids |
-| R7 | `fleet_session` subagent-side bridge handler | `agent-subagent-runner.ts` | Subagent responds to `session_read` bridge messages |
+| R7 | `fleet (action: session)` subagent-side bridge handler | `agent-subagent-runner.ts` | Subagent responds to `session_read` bridge messages |
 | R8 | `redirect` tool | `director-tools.ts` | Mid-flight task reassignment |
 | R9 | `classifySubagentError` case normalization | `multi-agent-coordinator.ts:626` | Use `lower` for `empty_response` / `tool_failed` regexes |
 
@@ -340,7 +340,7 @@ In `fleet-bus.ts` line 50-73, `FORWARDED_TYPES` is a const array listing every e
 The Director orchestration system is architecturally sound — isolation invariants are correct, the tool set is well-designed, and the state checkpoint mechanism provides a foundation for crash recovery. The primary gaps are:
 
 1. **Phase 6 items** (safety caps at tool layer, quota guard, crash recovery tests) — these are prerequisite for production reliability
-2. **Remaining bridge gaps** (`fleet_session` subagent-side bridge handler) — the Director can read JSONL directly today, but subagent-side session-read handling is still listed as future work
+2. **Remaining bridge gaps** (`fleet (action: session)` subagent-side bridge handler) — the Director can read JSONL directly today, but subagent-side session-read handling is still listed as future work
 3. **UX gaps** (`wstack sessions ls`, dedicated WebUI fleet dashboard) — the TUI has fleet/agents monitors, but CLI artifact browsing and WebUI fleet observability are still thinner than the runtime capabilities
 
 The most impactful single improvement is **F4: crash recovery test + `--resume` implementation**, because without it, any director process crash loses all in-flight task state regardless of how well the checkpoint mechanism works.

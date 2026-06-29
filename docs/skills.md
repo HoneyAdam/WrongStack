@@ -114,7 +114,7 @@ A skill is a passive Markdown file. A **roster role** is a TypeScript subagent d
 | How it reaches the agent | Injected into the system prompt via `DefaultSkillLoader` when `DefaultSystemPromptBuilder` builds the prompt | Spawned via `spawn_subagent { role: '<id>' }` and runs in its own context/budget |
 | Who maintains it | Humans (with AI assistance via `/skill-gen`) | WrongStack core team — compiled into the binary |
 | Listed in `/skill` | Yes | No |
-| Listed in `fleet_status` | No | Yes |
+| Listed in `fleet (action: status)` | No | Yes |
 
 ### Example: `shadow-agent`
 

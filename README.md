@@ -167,7 +167,7 @@ BEGIN.]
 
 ### Multi-agent fleet + Director
 
-**Fleet tools** (14 on the Director's belt from first message): `spawn_subagent`, `assign_task`, `await_tasks`, `ask_subagent`, `ask_result`, `roll_up`, `terminate_subagent`, `terminate_all`, `fleet_status`, `fleet_usage`, `fleet_health`, `fleet_session`, `fleet_emit`, `collab_debug`. Large `ask_subagent` responses (>2K chars) are stashed in a per-Director `LargeAnswerStore` and returned as a summary + key — the Director pulls the full text back with `ask_result` only when it needs it, so its context stays bounded no matter how many big asks happen.
+**Fleet tools** (12 on the Director's belt from first message): `spawn_subagent`, `assign_task`, `await_tasks`, `ask_subagent`, `ask_result`, `roll_up`, `terminate_subagent`, `terminate_all`, `fleet`, `fleet_emit`, `collab_debug`, `work_complete`. The `fleet` tool consolidates status/usage/health/session queries behind an `action` parameter. Large `ask_subagent` responses (>2K chars) are stashed in a per-Director `LargeAnswerStore` and returned as a summary + key — the Director pulls the full text back with `ask_result` only when it needs it, so its context stays bounded no matter how many big asks happen.
 
 **`/fleet`** command: `status` — task progress per subagent · `usage` — token + cost breakdown · `kill <id>` — stop one subagent · `kill` — stop all · `manifest` — full fleet snapshot · `log <id>` — transcript summary · `log <id> raw` — full JSONL dump · `journal` — recent parallel engine entries · `spawn <role> [count]` — spawn N subagents of a role · `terminate <subagentId>` — stop one · `retry <id>` — re-spawn a failed subagent · `stream on|off` — toggle live output streaming.
 
@@ -256,13 +256,13 @@ Ten ready-to-use plugins ship in one package, each available via a subpath expor
 
 | Plugin | Tools | Notes |
 |--------|-------|-------|
-| `auto-doc` | `auto_doc`, `auto_doc_preview` | JSDoc / TSDoc comment generation |
-| `git-autocommit` | `git_autocommit`, `git_stage`, `git_status_summary` | Conventional-commit messages |
-| `shell-check` | `shellcheck_run`, `shellcheck_scan` | ShellCheck wrapper |
+| `auto-doc` | `auto_doc` | JSDoc / TSDoc comment generation (dry_run for preview) |
+| `git-autocommit` | `git_autocommit` | Conventional-commit messages with auto-staging |
+| `shell-check` | `shellcheck` | ShellCheck wrapper (files or directory scan) |
 | `cost-tracker` | `cost_summary`, `cost_reset`, `cost_export` | Token usage + cost per model via `provider.response` events |
 | `file-watcher` | `watch_start`, `watch_stop`, `watch_list` | Emits `file-watcher:changed` events |
-| `web-search` | `web_search`, `web_fetch` | Cached DuckDuckGo + URL→markdown |
-| `json-path` | `jsonpath_query`, `jsonpath_mutate` | JSONPath-style queries and mutations |
+| `web-search` | _(retired)_ | Capabilities merged into built-in `search` and `fetch` tools |
+| `json-path` | _(retired)_ | Capabilities merged into built-in `json` tool (`action` param) |
 | `cron` | `cron_schedule`, `cron_list`, `cron_cancel` | Recurring actions via `beforeIteration` / `afterIteration` hooks |
 | `template-engine` | `render_template`, `template_variables` | `{{var}}` / `{{#if}}` / `{{#each}}` expansion + system-prompt contributor |
 | `semver-bump` | `semver_bump`, `changelog_update` | Conventional-commit-driven version bumps |

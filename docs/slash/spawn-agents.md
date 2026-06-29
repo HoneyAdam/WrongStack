@@ -44,7 +44,7 @@ The monitor overlay shows every known subagent with status, elapsed time, iterat
 ```
 /agents <subagent-id>
 ```
-Returns a detailed live monitor view for that specific subagent: status, current task, pending tasks, completed tasks with stats, and (when director is active) cost/iterations/toolCalls from `fleet_usage`. If the id is not found, returns an error.
+Returns a detailed live monitor view for that specific subagent: status, current task, pending tasks, completed tasks with stats, and (when director is active) cost/iterations/toolCalls from `fleet (action: usage)`. If the id is not found, returns an error.
 
 **Without an id:** Returns the summary table of all subagents.
 
@@ -64,10 +64,10 @@ When director mode is active, the leader agent gains these tools automatically:
 | `assign_task` | Hand a task to a previously spawned subagent |
 | `await_tasks` | Wait for one or more tasks to complete, with optional timeout |
 | `ask_subagent` | One-shot question to a running subagent, returns answer |
-| `fleet_status` | Snapshot of all subagent statuses and active tasks |
-| `fleet_usage` | Token + cost breakdown per subagent and fleet-wide |
-| `fleet_session` | Read a subagent's JSONL transcript (full or last N lines) |
-| `fleet_health` | Budget pressure, last activity, status per subagent |
+| `fleet (action: status)` | Snapshot of all subagent statuses and active tasks |
+| `fleet (action: usage)` | Token + cost breakdown per subagent and fleet-wide |
+| `fleet (action: session)` | Read a subagent's JSONL transcript (full or last N lines) |
+| `fleet (action: health)` | Budget pressure, last activity, status per subagent |
 | `roll_up` | Aggregate completed task results from multiple subagents |
 | `terminate_subagent` | Stop a running subagent early |
 
