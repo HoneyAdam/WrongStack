@@ -59,7 +59,7 @@ function projectSavedProviders(providers: Record<string, ProviderConfig>) {
   });
 }
 
-function broadcastSaved(ctx: WsHandlerContext, providers: Record<string, ProviderConfig>): void {
+export function broadcastSaved(ctx: WsHandlerContext, providers: Record<string, ProviderConfig>): void {
   ctx.broadcast({
     type: 'providers.saved',
     payload: { providers: projectSavedProviders(providers) },

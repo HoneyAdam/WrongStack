@@ -118,6 +118,7 @@ export {
   handleProviderProbe,
   handleProvidersList,
   handleProvidersSaved,
+  broadcastSaved,
 } from './providers.js';
 export {
   handleGoalGet,

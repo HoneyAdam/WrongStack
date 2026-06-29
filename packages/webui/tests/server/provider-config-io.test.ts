@@ -12,6 +12,17 @@ vi.mock('node:fs/promises', () => ({
 
 vi.mock('@wrongstack/core', () => ({
   atomicWrite: mockAtomicWrite,
+  // provider-config-io throws ConfigError on the corrupt / non-ENOENT paths;
+  // the mock factory must surface it or access throws "no export defined".
+  ConfigError: class ConfigError extends Error {
+    code?: string;
+    constructor(opts: { message: string; code?: string } | string) {
+      const message = typeof opts === 'string' ? opts : opts.message;
+      super(message);
+      this.name = 'ConfigError';
+      if (typeof opts !== 'string') this.code = opts.code;
+    }
+  },
 }));
 
 vi.mock('@wrongstack/core/security', () => ({

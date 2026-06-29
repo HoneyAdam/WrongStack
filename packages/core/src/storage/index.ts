@@ -33,6 +33,11 @@ export {
 } from './memory-consolidator.js';
 export { DefaultConfigStore } from './config-store.js';
 export {
+  watchProviderConfig,
+  type ProviderConfigSnapshot,
+  type WatchProviderConfigOptions,
+} from './provider-config-watcher.js';
+export {
   DefaultConfigLoader,
   type ConfigLoaderOptions,
   type ConfigSource,

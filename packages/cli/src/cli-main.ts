@@ -73,6 +73,7 @@ import {
   startTechStackConsumer,
   TOKENS,
   ToolRegistry,
+  watchProviderConfig,
   writeErr,
   writeOut,
   normalizeTokenSavingTier,
@@ -1073,6 +1074,48 @@ export async function main(argv: string[]): Promise<number> {
       return err instanceof Error ? err.message : String(err);
     }
   };
+
+  // Hot-reload provider credentials: when `config.json`'s providers/apiKey/
+  // baseUrl slice changes on disk (from another terminal's `wstack auth`, a
+  // WebUI provider panel, or a manual edit), re-read it and rebuild the active
+  // provider live so a running session picks up the new key without restart.
+  // The watcher's own no-op guard suppresses self-induced writes (our `/model`
+  // switch, key edits in this same process), so there is no rebuild storm.
+  // Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1 (unreliable network FS).
+  if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
+    const credentialWatcher = watchProviderConfig(
+      wpaths.globalConfig,
+      vault,
+      (snapshot) => {
+        // Capture the active provider's resolved cfg before the merge so we
+        // only rebuild when *its* credentials actually changed.
+        const activeId = config.provider;
+        const before = JSON.stringify(resolveProviderCfg(activeId).cfg);
+        config = patchConfig(config, {
+          providers: snapshot.providers,
+          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
+          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
+        });
+        // Propagate to the ConfigStore so `.watch()` subscribers re-render.
+        configStore.update({
+          providers: snapshot.providers,
+          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
+          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
+        });
+        const after = JSON.stringify(resolveProviderCfg(activeId).cfg);
+        if (after === before) return; // active provider's creds unchanged
+        try {
+          context.provider = buildProviderForId(activeId);
+          logger.info(`Provider credentials reloaded from config.json (${activeId})`);
+        } catch (err) {
+          // Keep the existing provider on a bad rebuild (e.g. removed family).
+          logger.warn(`Credential hot-reload failed for ${activeId}: ${toErrorMessage(err)}`);
+        }
+      },
+      { warn: (msg) => logger.warn(`Config watcher: ${msg}`) },
+    );
+    teardownHandlers.push(() => credentialWatcher.close());
+  }
 
   // L1-E: lazily-instantiated multi-agent host. Wired into /spawn and
   // /agents slash commands; constructed on first invocation so users
