@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/runtime",
-  "version": "0.276.2",
+  "version": "0.276.3",
   "license": "MIT",
   "description": "WrongStack default runtime implementations and host-level composition helpers built on @wrongstack/core.",
   "repository": {
