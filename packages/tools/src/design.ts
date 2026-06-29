@@ -227,7 +227,19 @@ export const designTool: Tool<DesignInput, DesignOutput> = {
         kitId: active.kit,
         outPath: input.out,
       });
-      const abs = path.join(ctx.projectRoot, result.path);
+      // Containment: result.path derives from caller-supplied input.out and
+      // may contain a ../ traversal. Pin the write inside the project root,
+      // mirroring the scaffold tool. path.join collapses a leading-slash
+      // absolute into a relative segment; resolve then normalizes ../ so the
+      // relative check below is authoritative.
+      const root = path.resolve(ctx.projectRoot);
+      const abs = path.resolve(path.join(ctx.projectRoot, result.path));
+      const rel = path.relative(root, abs);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error(
+          `design: materialize path "${result.path}" would escape the project root`,
+        );
+      }
       let exists = false;
       try {
         await fs.access(abs);

@@ -56,4 +56,44 @@ describe('designTool', () => {
     expect(res.action).toBe('foundations');
     expect(res.output).toMatch(/WCAG/);
   });
+
+  it('blocks a ../ traversal escape in materialize out path (CWE-22)', async () => {
+    const ctx = makeCtx();
+    // Pin an active kit so materialize has tokens to write.
+    await designTool.execute({ action: 'use', kit: 'minimal-clarity', stack: 'web' }, ctx, opts);
+
+    // A caller-supplied out path that climbs out of the project root must be
+    // refused before any file is written.
+    const escape = path.join('..', '..', '..', '..', 'ws-design-escape.css');
+    await expect(
+      designTool.execute({ action: 'materialize', out: escape }, ctx, opts),
+    ).rejects.toThrow(/escape the project root/i);
+
+    // And nothing was written outside the root.
+    const outside = path.resolve(root, escape);
+    let wrote = true;
+    try {
+      await fs.access(outside);
+    } catch {
+      wrote = false;
+    }
+    expect(wrote).toBe(false);
+  });
+
+  it('blocks an absolute out path outside the project root', async () => {
+    const ctx = makeCtx();
+    await designTool.execute({ action: 'use', kit: 'minimal-clarity', stack: 'web' }, ctx, opts);
+
+    const abs = path.join(os.tmpdir(), `ws-design-abs-${Date.now()}.css`);
+    await expect(
+      designTool.execute({ action: 'materialize', out: abs }, ctx, opts),
+    ).rejects.toThrow(/escape the project root/i);
+    let wrote = true;
+    try {
+      await fs.access(abs);
+    } catch {
+      wrote = false;
+    }
+    expect(wrote).toBe(false);
+  });
 });
