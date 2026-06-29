@@ -50,6 +50,25 @@ describe('Container', () => {
     expect(c.resolve(COUNTER)).not.toBe(c.resolve(COUNTER));
   });
 
+  it('singleton: caches an undefined-returning factory, running it exactly once', () => {
+    // Regression guard: the old cache sentinel (`cache !== undefined`) would
+    // treat an undefined singleton value as "not yet built" and re-run the
+    // factory on every resolve(). The hasCache flag must memoize undefined.
+    const UNDEF: Token<undefined> = Symbol('Undef') as Token<undefined>;
+    const c = new Container();
+    let calls = 0;
+    c.bind(UNDEF, () => {
+      calls++;
+      return undefined;
+    });
+    expect(c.resolve(UNDEF)).toBeUndefined();
+    expect(c.resolve(UNDEF)).toBeUndefined();
+    expect(c.resolve(UNDEF)).toBeUndefined();
+    expect(calls).toBe(1);
+    // inspect() must report the binding as cached even though the value is undefined.
+    expect(c.inspect(UNDEF)?.cached).toBe(true);
+  });
+
   it('decorate wraps and stacks', () => {
     const c = new Container();
     c.bind(LOGGER, () => ({ msg: 'base' }));

@@ -43,6 +43,28 @@ describe('RunController', () => {
     expect(count).toBe(1);
   });
 
+  it('fires a hook registered after dispose() immediately, exactly once', async () => {
+    // Regression guard: a hook registered after the controller has drained
+    // (post-dispose/abort) must not be silently dropped — it fires immediately
+    // on a best-effort basis so the resource it cleans up isn't leaked.
+    const c = new RunController();
+    await c.dispose();
+    let count = 0;
+    const off = c.onAbort(() => {
+      count++;
+    });
+    // Immediate run is scheduled as a microtask; let it settle.
+    await new Promise((r) => setImmediate(r));
+    expect(count).toBe(1);
+    // The returned unsubscribe is a no-op (hook already ran) and must not
+    // re-fire or throw.
+    off();
+    // A subsequent abort() must not run the hook a second time.
+    c.abort();
+    await new Promise((r) => setImmediate(r));
+    expect(count).toBe(1);
+  });
+
   it('unsubscribe stops a hook from firing', async () => {
     const c = new RunController();
     let fired = false;

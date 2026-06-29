@@ -1041,8 +1041,16 @@ export class EventBus {
 
   emit<E extends EventName>(event: E, payload: EventMap[E]): void {
     const set = this.listeners.get(event);
-    if (set) {
-      for (const fn of set) {
+    if (set && set.size > 0) {
+      // Snapshot the set before iterating so a listener that subscribes or
+      // unsubscribes another listener for the same event mid-emit doesn't
+      // observe engine-dependent behavior — ECMA leaves Set mutation during
+      // iteration under-specified. This mirrors the wildcard handling below.
+      // A listener added during this emit will not fire until the next emit;
+      // one removed during this emit may still fire this round (snapshot
+      // semantics), which is the standard, portable event-emitter contract.
+      const snapshot = [...set];
+      for (const fn of snapshot) {
         try {
           (fn as Listener<E>)(payload);
         } catch (err) {

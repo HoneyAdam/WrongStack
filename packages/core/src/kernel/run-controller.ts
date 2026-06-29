@@ -78,8 +78,26 @@ export class RunController {
    * Register a teardown hook. Returns an unsubscribe function so callers
    * can opt out before the hook fires (e.g. when a tool finishes cleanly
    * before abort happens).
+   *
+   * If the controller has already drained its hooks (a prior abort() or
+   * dispose() ran), the new hook is fired immediately on a best-effort
+   * basis — otherwise a hook registered after teardown would be silently
+   * dropped and the resource it cleans up would leak. The returned
+   * unsubscribe is a no-op in that case (the hook has already run). Errors
+   * from the immediate run are routed through `errorSink` like any other
+   * cleanup failure.
    */
   onAbort(fn: () => void | Promise<void>): () => void {
+    if (this.hooksDrained) {
+      void (async () => {
+        try {
+          await fn();
+        } catch (err) {
+          this.errorSink(err, 'RunController.onAbort(post-drain)');
+        }
+      })();
+      return () => {};
+    }
     this.hooks.push(fn);
     return () => {
       const idx = this.hooks.indexOf(fn);

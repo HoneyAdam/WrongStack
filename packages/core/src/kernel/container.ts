@@ -18,6 +18,13 @@ interface Entry<T = unknown> {
   singleton: boolean;
   decorators: Decorator<T>[];
   cache?: T | undefined;
+  /**
+   * True once a singleton value has been built and stored in `cache`.
+   * Tracked separately from `cache !== undefined` so a singleton factory
+   * that legitimately resolves to `undefined` (or any falsy value) is still
+   * memoized rather than re-run on every resolve().
+   */
+  hasCache: boolean;
   owner: string;
 }
 
@@ -52,6 +59,7 @@ export class Container {
       factory: factory as Factory<unknown>,
       singleton: opts.singleton ?? true,
       decorators: [],
+      hasCache: false,
       owner: opts.owner ?? 'core',
     });
   }
@@ -70,6 +78,7 @@ export class Container {
       factory: factory as Factory<unknown>,
       singleton: opts.singleton ?? existing.singleton,
       decorators: existing.decorators,
+      hasCache: false,
       owner: opts.owner ?? existing.owner,
     });
   }
@@ -86,6 +95,7 @@ export class Container {
     }
     existing.decorators.push(decorator as Decorator<unknown>);
     existing.cache = undefined;
+    existing.hasCache = false;
     existing.owner = `${existing.owner}+${owner}`;
   }
 
@@ -99,7 +109,7 @@ export class Container {
         context: { token: token.description },
       });
     }
-    if (entry.singleton && entry.cache !== undefined) {
+    if (entry.singleton && entry.hasCache) {
       return entry.cache as T;
     }
     if (this.resolving.has(token)) {
@@ -119,6 +129,7 @@ export class Container {
       }
       if (entry.singleton) {
         entry.cache = value;
+        entry.hasCache = true;
       }
       return value as T;
     } finally {
@@ -202,7 +213,7 @@ export class Container {
       owner: entry.owner,
       singleton: entry.singleton,
       decoratorCount: entry.decorators.length,
-      cached: entry.cache !== undefined,
+      cached: entry.hasCache,
     };
   }
 }
