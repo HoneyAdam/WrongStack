@@ -3,6 +3,8 @@
  * and position-aware insertion. Generic over input type T.
  */
 
+import { WrongStackError, ERROR_CODES } from '../types/errors.js';
+
 export type NextFn<T> = (value: T) => Promise<T>;
 export type MiddlewareHandler<T> = (value: T, next: NextFn<T>) => Promise<T>;
 
@@ -185,7 +187,12 @@ export class Pipeline<T> {
 
     const dispatch = async (i: number, value: T): Promise<T> => {
       if (i <= index) {
-        throw new Error(`Pipeline: next() called multiple times in "${chain[index]?.name}"`);
+        throw new WrongStackError({
+          message: `Pipeline: next() called multiple times in "${chain[index]?.name}"`,
+          code: ERROR_CODES.VALIDATION_ERROR,
+          subsystem: 'container',
+          context: { middleware: chain[index]?.name },
+        });
       }
       index = i;
       const mw = chain[i];
@@ -217,14 +224,24 @@ export class Pipeline<T> {
   private indexOf(name: string, optional = false): number {
     const idx = this.chain.findIndex((m) => m.name === name);
     if (idx === -1 && !optional) {
-      throw new Error(`Pipeline: middleware "${name}" not found`);
+      throw new WrongStackError({
+        message: `Pipeline: middleware "${name}" not found`,
+        code: ERROR_CODES.REGISTRY_NOT_FOUND,
+        subsystem: 'container',
+        context: { middleware: name },
+      });
     }
     return idx;
   }
 
   private ensureUnique(name: string): void {
     if (this.chain.some((m) => m.name === name)) {
-      throw new Error(`Pipeline: middleware "${name}" already registered`);
+      throw new WrongStackError({
+        message: `Pipeline: middleware "${name}" already registered`,
+        code: ERROR_CODES.REGISTRY_DUPLICATE,
+        subsystem: 'container',
+        context: { middleware: name },
+      });
     }
   }
 }
