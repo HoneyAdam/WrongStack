@@ -51,6 +51,7 @@ import {
   ObservableBrainArbiter,
   PromptUsageStore,
   type Provider,
+  type ProviderConfig,
   ProviderRegistry,
   recentTextTurns,
   resolveContextWindowPolicy,
@@ -59,6 +60,7 @@ import {
   resolveSessionLoggingConfig,
   TOKENS,
   ToolRegistry,
+  watchProviderConfig,
 } from '@wrongstack/core';
 import { readLiveLock } from '@wrongstack/core/coordination';
 import { ToolExecutor } from '@wrongstack/core/execution';
@@ -81,6 +83,9 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { type AutoPhaseRouteHandlers, handleAutoPhaseRoute } from './autophase-routes.js';
 import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
 import { bootConfig, patchConfig } from './boot.js';
+import { createConnectionHandler } from './connection-handler.js';
+import { createMessageDispatcher } from './message-dispatcher.js';
+import { resolveSetupProvider } from './setup-screen.js';
 import { type BrainRouteHandlers, handleBrainRoute } from './brain-routes.js';
 import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
@@ -909,73 +914,12 @@ export async function startWebUI(
     onlineAgents,
   });
 
-  // Build provider (only if provider is configured)
-  let provider: ReturnType<ProviderRegistry['create']>;
-  if (!needsProvider) {
-    const providerConfig = config.providers?.[config.provider] ?? {
-      type: config.provider,
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl,
-    };
-    try {
-      const cfgWithType = { ...providerConfig, type: config.provider };
-      if (config.features.modelsRegistry && providerRegistry.has(config.provider)) {
-        provider = providerRegistry.create(cfgWithType);
-      } else {
-        provider = makeProviderFromConfig(config.provider, cfgWithType);
-      }
-    } catch (err) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          event: 'webui.provider_create_failed',
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }),
-      );
-      throw err;
-    }
-  } else {
-    // No provider is actively selected, but saved providers may exist.
-    // Re-read the config to find one with a usable encrypted API key
-    // and create a real provider from it (the vault is already initialized).
-    const savedProviders = config.providers ?? {};
-    const firstKey = Object.keys(savedProviders)[0];
-    if (firstKey) {
-      const firstProvider = expectDefined(savedProviders[firstKey]);
-      try {
-        provider = makeProviderFromConfig(firstKey, {
-          ...firstProvider,
-          type: firstKey,
-          family: firstProvider.family,
-          apiKey: firstProvider.apiKey,
-        });
-        console.log('[WebUI] Using saved provider:', firstKey);
-      } catch (err) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'webui.provider_stub_create_failed',
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
-        throw err;
-      }
-    } else {
-      // No providers at all — boot with a stub provider so the agent
-      // initializes, but mark needsSetup so the frontend shows the
-      // onboarding screen. The user must pick a real provider/model
-      // before sending their first message.
-      console.log('[WebUI] No providers configured — showing setup screen');
-      needsSetup = true;
-      provider = makeProviderFromConfig('anthropic', {
-        type: 'anthropic',
-        family: 'anthropic',
-        apiKey: 'stub-key-replaced-on-setup',
-      });
-    }
-  }
+  // Build the active provider. The resolution ladder (configured → first
+  // saved → stub + needsSetup) lives in ./setup-screen.ts so this reads as
+  // orchestration rather than branching.
+  const resolvedProvider = resolveSetupProvider({ config, needsProvider, providerRegistry });
+  const provider = resolvedProvider.provider;
+  if (resolvedProvider.needsSetup) needsSetup = true;
 
   // Context
   const context = new Context({
@@ -1860,43 +1804,19 @@ export async function startWebUI(
     );
   }
 
-  // Per-connection message rate limiting: 60 messages per 60-second window.
-  // Exceeding clients are temporarily blocked to prevent flooding.
-  // Uses sessionId as the key once connected, falling back to ws for
-  // pre-auth messages — prevents connection-reuse bypass.
-  // Rate limit OFF by default (counted pings/list calls too and tripped during
-  // normal use). Opt in via WEBUI_RATE_LIMIT=<messages-per-60s> for LAN exposure.
-  const RATE_LIMIT_MESSAGES = Number.parseInt(process.env['WEBUI_RATE_LIMIT'] ?? '0', 10);
-  const RATE_LIMIT_WINDOW_MS = 60_000;
-  const rateLimits = new Map<string, { count: number; resetAt: number }>();
-  // Per-connection id sequence. The rate-limit bucket must be keyed per
-  // connection, not per sessionId (every client is created with the same
-  // live `session.id`, so a sessionId key would share one bucket across all
-  // tabs) and not by `String(ws)` (which is `"[object Object]"` for every
-  // socket — identical for all connections and never matching on cleanup).
-  let connSeq = 0;
-
-  function checkRateLimit(_ws: WebSocket, client: ConnectedClient): boolean {
-    if (RATE_LIMIT_MESSAGES <= 0) return true; // disabled
-    const now = Date.now();
-    const key = client.connId;
-    const limit = rateLimits.get(key);
-    if (!limit || now > limit.resetAt) {
-      rateLimits.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-      return true;
-    }
-    if (limit.count >= RATE_LIMIT_MESSAGES) return false;
-    limit.count++;
-    return true;
-  }
-
-  /** Holds the AbortController for the currently in-flight agent.run().
-   *  Non-null while the agent is running; guarded at the user_message
-   *  handler to prevent concurrent runs that would corrupt shared state
-   *  (context, agent, tokenCounter). A second user_message while running
-   *  is answered with an inline error instead of being queued — the
-   *  caller should wait for run.result. */
-  let runLock: AbortController | null = null;
+  // Run-lock + pending confirms are shared between the connection handler
+  // (./connection-handler.ts) and the message dispatcher
+  // (./message-dispatcher.ts). Rate-limiting moved into the connection
+  // handler; the runLock guards concurrent agent.run() calls and is read
+  // through this control object so the dispatcher and the
+  // state.abortRunLock wiring agree.
+  let _runLock: AbortController | null = null;
+  const runLockControl = {
+    get: () => _runLock,
+    set: (ctrl: AbortController | null) => {
+      _runLock = ctrl;
+    },
+  };
 
   console.log(
     `[WebUI] WebSocket server running on ws://${wsHost}:${wsPort}` +
@@ -1908,158 +1828,6 @@ export async function startWebUI(
   // toolUseId. When the client sends tool.confirm_result back, we look
   // it up and resolve — unblocking the agent loop.
   const pendingConfirms = new Map<string, (d: 'yes' | 'no' | 'always' | 'deny') => void>();
-
-  const handleConnection = (ws: WebSocket): void => {
-    const client: ConnectedClient = {
-      ws,
-      sessionId: session.id,
-      connectedAt: Date.now(),
-      connId: `c${++connSeq}`,
-    };
-    clients.set(ws, client);
-
-    // F5-resilience: on EVERY new connection (including the page-reload
-    // case) we send the current session transcript alongside the bare
-    // session.start payload so the client can hydrate its UI without
-    // requiring an extra round-trip from the user. Without this, a
-    // browser refresh loses the transcript even though the server still
-    // holds it — the prior version only replayed messages when the user
-    // explicitly invoked session.resume. The cap exists so a runaway
-    // session can't lock the socket on first paint.
-    const REPLAY_MESSAGE_CAP = 2_000;
-    void sessionStartPayload()
-      .then(async (payload) => {
-        const enriched: Record<string, unknown> = { ...payload };
-        try {
-          const live = context.messages ?? [];
-          const slice = live.length > REPLAY_MESSAGE_CAP ? live.slice(-REPLAY_MESSAGE_CAP) : live;
-          if (slice.length > 0) {
-            enriched.replayMessages = slice;
-          }
-          const total = tokenCounter.total();
-          if (total.input + total.output + (total.cacheRead ?? 0) + (total.cacheWrite ?? 0) > 0) {
-            enriched.replayUsage = {
-              input: total.input,
-              output: total.output,
-              cacheRead: total.cacheRead ?? 0,
-              cacheWrite: total.cacheWrite ?? 0,
-            };
-          }
-        } catch {
-          // best-effort — replay is non-critical; the chat store can
-          // still rehydrate from localStorage.
-        }
-        send(ws, { type: 'session.start', payload: enriched });
-      })
-      .catch((err) => {
-        // Log at warn level since sessionStartPayload should rarely fail.
-        // This prevents silent failures if internal error handling changes.
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            event: 'webui.session_start_payload_failed',
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
-      });
-
-    // Register this client with the AutoPhase handler so it receives phase events
-    autoPhaseHandler.addClient(ws);
-    // …and the specs handler for the FORGE dependency board.
-    specsHandler.addClient(ws);
-    // …and the live SDD multi-agent board handler.
-    sddBoardHandler.addClient(ws);
-    sddWizardHandler.addClient(ws);
-    // …and the worktree handler for live isolation lanes.
-    worktreeHandler.addClient(ws);
-    // …and the collaboration handler for read-only session observation.
-    collabHandler.addClient(ws);
-    // …and the terminal handler for the integrated terminal panel.
-    terminalHandler.addClient(ws);
-
-    ws.on('message', async (data) => {
-      if (!checkRateLimit(ws, client)) {
-        send(ws, {
-          type: 'error',
-          payload: {
-            phase: 'rate_limit',
-            message: 'Too many messages. Please wait before sending more.',
-          },
-        });
-        return;
-      }
-      try {
-        // Prototype pollution guard: reject messages whose root-level payload
-        // contains __proto__, constructor, or prototype keys. These could
-        // cause prototype pollution via Object.assign({}, payload) or
-        // spread {...payload}. The top-level check below catches the
-        // dangerous keys; nested payload sub-objects are low-risk since
-        // handlers don't do deep property merges.
-        const rawObj = JSON.parse(data.toString());
-        if (typeof rawObj === 'object' && rawObj !== null) {
-          const obj = rawObj as Record<string, unknown>;
-          // Own-property check only: the `in` operator walks the prototype
-          // chain, so `'constructor' in obj` / `'__proto__' in obj` are true
-          // for EVERY plain object and would reject all legitimate messages.
-          // A malicious JSON payload surfaces these as OWN keys (V8 materializes
-          // a literal "__proto__" data property from JSON), which Object.hasOwn
-          // detects without the false positives.
-          if (
-            Object.hasOwn(obj, '__proto__') ||
-            Object.hasOwn(obj, 'constructor') ||
-            Object.hasOwn(obj, 'prototype')
-          ) {
-            send(ws, {
-              type: 'error',
-              payload: { phase: 'parse', message: 'Invalid message object' },
-            });
-          } else {
-            await handleMessage(ws, client, rawObj as never as WSClientMessage);
-          }
-        } else {
-          // Non-object JSON (array, string, number…) — pass through
-          await handleMessage(ws, client, rawObj as WSClientMessage);
-        }
-      } catch (err) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'webui.ws_message_parse_failed',
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
-      }
-    });
-
-    ws.on('close', () => {
-      const closing = clients.get(ws);
-      clients.delete(ws);
-      if (closing) rateLimits.delete(closing.connId);
-      // If the client disconnects while a permission prompt is pending,
-      // resolve all pending confirms with 'no' so the agent loop doesn't
-      // hang forever waiting for a response that will never come.
-      if (pendingConfirms.size > 0) {
-        for (const [id, resolve] of pendingConfirms) {
-          resolve('no');
-          pendingConfirms.delete(id);
-        }
-      }
-    });
-
-    ws.on('error', (err) => {
-      // Without this handler an errored socket would crash the process.
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'webui.client_socket_error',
-          message: err.message,
-          timestamp: new Date().toISOString(),
-        }),
-      );
-    });
-  };
 
   // Audit-level-aware session log bridge — persists tool/error/provider
   // events to the session JSONL with the same contract as the CLI. The
@@ -2101,7 +1869,6 @@ export async function startWebUI(
   };
 
   wssPrimary.on('listening', () => armOnce(`${wsHost}:${wsPort}`));
-  wssPrimary.on('connection', handleConnection);
   wssPrimary.on('error', (err) => {
     console.error(
       JSON.stringify({
@@ -2116,7 +1883,6 @@ export async function startWebUI(
 
   if (wssSecondary) {
     wssSecondary.on('listening', () => armOnce(`::1:${wsPort}`));
-    wssSecondary.on('connection', handleConnection);
     wssSecondary.on('error', (err: NodeJS.ErrnoException) => {
       // Best-effort secondary: if IPv6 loopback isn't available on this host
       // (e.g. disabled in OS), just log and continue. Primary v4 is enough.
@@ -2173,466 +1939,6 @@ export async function startWebUI(
     await ensureProjectDataDir(generateProjectSlug(resolved), globalConfigPath);
   }
 
-  function makeWorklistContext(): WorklistContext {
-    return {
-      context: {
-        todos: context.todos,
-        meta: context.meta as Record<string, unknown>,
-        session: context.session ? { id: context.session.id } : null,
-        state: context.state,
-      },
-      send: (w, m) => send(w, m),
-      broadcast: (m) => broadcast(clients, m),
-    };
-  }
-
-  async function handleMessage(
-    ws: WebSocket,
-    _client: ConnectedClient,
-    msg: WSClientMessage,
-  ): Promise<void> {
-    if (await handleProviderRoute(ws, msg, providerRoutes)) return;
-    if (await handleSessionRoute(ws, msg, sessionRoutes)) return;
-    if (await handleProjectRoute(ws, msg, projectRoutes)) return;
-    if (await handleModeRoute(ws, msg, modeRoutes)) return;
-    if (await handlePrefsRoute(ws, msg, prefsRoutes)) return;
-    if (await handleShellGitRoute(ws, msg, shellGitRoutes)) return;
-    if (await handleMailboxRoute(ws, msg, mailboxRoutes)) return;
-    if (await handleMcpRoute(ws, msg, mcpRoutes)) return;
-    if (await handleBrainRoute(ws, msg, brainRoutes)) return;
-    if (await handleAutoPhaseRoute(ws, msg, autoPhaseRoutes)) return;
-    if (await handleSpecsRoute(ws, msg, specsRoutes)) return;
-    if (await handleSddBoardRoute(ws, msg, sddBoardRoutes)) return;
-    if (await handleSddWizardRoute(ws, msg, sddWizardRoutes)) return;
-    if (
-      msg.type.startsWith('worktree.') &&
-      (await worktreeHandler.handleMessage(
-        msg as { type: string; payload?: Record<string, unknown> },
-      ))
-    )
-      return;
-
-    switch (msg.type) {
-      // Collaboration messages short-circuit the user/agent flow.
-      // They don't touch runLock, the agent loop, or the message queue —
-      // they're pure transport for the live observer mirror.
-      case 'collab.join':
-      case 'collab.leave':
-      case 'collab.annotate':
-      case 'collab.resolve':
-      case 'collab.request_pause':
-      case 'collab.resume':
-      case 'collab.grant_control':
-      case 'collab.inject_tool': {
-        collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown | undefined });
-        return;
-      }
-      // Integrated terminal — interactive pty transport, bypasses the agent loop.
-      case 'terminal.create':
-      case 'terminal.input':
-      case 'terminal.resize':
-      case 'terminal.close': {
-        terminalHandler.handleMessage(ws, msg);
-        return;
-      }
-      case 'user_message': {
-        const content = (msg as { payload: { content: string } }).payload.content;
-
-        // Guard against concurrent agent runs — a second user_message while
-        // the agent is already processing would kick off two agent.run()
-        // calls on the same shared context/agent, leading to corrupted
-        // state (duplicate tool bubbles, mixed text_delta streams, token
-        // counter undercount). Reject with an inline error; the frontend
-        // should wait for run.result before sending the next message.
-        if (runLock) {
-          send(ws, {
-            type: 'error',
-            payload: {
-              phase: 'user_message',
-              message: 'Agent is already processing a request. Wait for the current run to finish.',
-            },
-          });
-          break;
-        }
-
-        runLock = new AbortController();
-        // Capture so the finally block only clears its own lock — a
-        // second race could set a new runLock between await and finally.
-        const thisRun = runLock;
-
-        try {
-          // Read maxIterations from context.meta so the webui settings
-          // panel can adjust the cap dynamically without restarting.
-          const maxIt =
-            typeof context.meta['maxIterations'] === 'number'
-              ? context.meta['maxIterations']
-              : undefined;
-          const result = await agent.run(content, { signal: thisRun.signal, maxIterations: maxIt });
-          send(ws, {
-            type: 'run.result',
-            payload: {
-              status: result.status,
-              iterations: result.iterations,
-              finalText: result.finalText,
-              error: result.error
-                ? {
-                    code: result.error.code,
-                    message: result.error.message,
-                    recoverable: result.error.recoverable,
-                  }
-                : undefined,
-            },
-          });
-        } catch (err) {
-          send(ws, {
-            type: 'error',
-            payload: {
-              phase: 'agent.run',
-              message: errMessage(err),
-            },
-          });
-        } finally {
-          // Only clear runLock if it's still ours — otherwise we'd wipe a
-          // newer run's controller set after we returned.
-          if (runLock === thisRun) {
-            runLock = null;
-          }
-        }
-        break;
-      }
-
-      case 'tool.confirm_result': {
-        const { id, decision } = (
-          msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny' } }
-        ).payload;
-        const resolve = pendingConfirms.get(id);
-        if (resolve) {
-          pendingConfirms.delete(id);
-          resolve(decision);
-        }
-        break;
-      }
-
-      case 'abort':
-        runLock?.abort();
-        broadcast(clients, { type: 'error', payload: { phase: 'abort', message: 'User aborted' } });
-        break;
-
-      case 'ping':
-        send(ws, { type: 'pong', payload: {} });
-        break;
-
-      case 'tools.list': {
-        // Full tool registry dump for the /tools inspect view. We surface
-        // name, description, and schema-derived param names so the user
-        // can tell at a glance which tools the model can call right now.
-        const list = toolRegistry.list().map((t) => {
-          const schema =
-            (t as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
-          const params = schema.properties ? Object.keys(schema.properties) : [];
-          return {
-            name: t.name,
-            description: (t as { description?: string | undefined }).description ?? '',
-            params,
-          };
-        });
-        send(ws, { type: 'tools.list', payload: { tools: list } });
-        break;
-      }
-
-      // ── Memory operations — delegated to shared handlers (memory-handlers.ts) ──
-      case 'memory.list':
-        return handleMemoryList(ws, memoryStore);
-      case 'memory.remember':
-        return handleMemoryRemember(ws, msg, memoryStore);
-      case 'memory.forget':
-        return handleMemoryForget(ws, msg, memoryStore);
-
-      // ── MCP operations — delegated to shared handlers (mcp-handlers.ts),
-      // backed by the live MCPRegistry constructed above. Routed via
-      // handleMcpRoute (see mcpRoutes = { ... } below). These case arms
-      // are unreachable but left as tripwires for any future regression
-      // where the route chain stops claiming 'mcp.*'. If you see one
-      // fire, fix the dispatch order in the handleMessage chain above.
-      case 'mcp.list':
-        throw new Error('handleMcpRoute did not claim mcp.list — check chain order');
-      case 'mcp.add':
-        throw new Error('handleMcpRoute did not claim mcp.add — check chain order');
-      case 'mcp.update':
-        throw new Error('handleMcpRoute did not claim mcp.update — check chain order');
-      case 'mcp.remove':
-        throw new Error('handleMcpRoute did not claim mcp.remove — check chain order');
-      case 'mcp.enable':
-        throw new Error('handleMcpRoute did not claim mcp.enable — check chain order');
-      case 'mcp.disable':
-        throw new Error('handleMcpRoute did not claim mcp.disable — check chain order');
-      case 'mcp.sleep':
-        throw new Error('handleMcpRoute did not claim mcp.sleep — check chain order');
-      case 'mcp.wake':
-        throw new Error('handleMcpRoute did not claim mcp.wake — check chain order');
-      case 'mcp.restart':
-        throw new Error('handleMcpRoute did not claim mcp.restart — check chain order');
-      case 'mcp.discover':
-        throw new Error('handleMcpRoute did not claim mcp.discover — check chain order');
-
-      // Skills — full request→response cycle lives in skills-handlers.ts
-      // (shared with the CLI's embedded server). skillsCtx is the closed-over
-      // loader/installer/projectRoot the handlers need.
-      case 'skills.list':
-        await handleSkillsList(ws, { skillLoader, skillInstaller, projectRoot });
-        break;
-      case 'skills.content':
-        await handleSkillsContent(ws, { skillLoader, skillInstaller, projectRoot }, msg);
-        break;
-      case 'skills.install':
-        await handleSkillsInstall(ws, { skillLoader, skillInstaller, projectRoot }, msg);
-        break;
-      case 'skills.uninstall':
-        await handleSkillsUninstall(ws, { skillLoader, skillInstaller, projectRoot }, msg);
-        break;
-      case 'skills.update':
-        await handleSkillsUpdate(ws, { skillLoader, skillInstaller, projectRoot }, msg);
-        break;
-      case 'skills.create':
-        await handleSkillsCreate(ws, { skillLoader, skillInstaller, projectRoot }, msg);
-        break;
-      case 'skills.edit':
-        await handleSkillsEdit(ws, { skillLoader, skillInstaller, projectRoot }, msg);
-        break;
-      case 'skills.export':
-        await handleSkillsExport(ws, { skillLoader, skillInstaller, projectRoot });
-        break;
-
-      // Prompt library — shared handlers (prompts-handlers.ts).
-      case 'prompts.list':
-        await handlePromptsList(ws, promptsCtx);
-        break;
-      case 'prompts.search':
-        await handlePromptsSearch(ws, promptsCtx, msg);
-        break;
-      case 'prompts.content':
-        await handlePromptsContent(ws, promptsCtx, msg);
-        break;
-      case 'prompts.favorite':
-        await handlePromptsFavorite(ws, promptsCtx, msg);
-        break;
-      case 'prompts.create':
-        await handlePromptsCreate(ws, promptsCtx, msg);
-        break;
-      case 'prompts.used':
-        await handlePromptsUsed(ws, promptsCtx, msg);
-        break;
-      case 'prompts.recent':
-        await handlePromptsRecent(ws, promptsCtx);
-        break;
-
-      // Design Studio — shared handlers (design-handlers.ts). agentMeta is the
-      // live context so design.use pins the active kit for the next turn.
-      case 'design.list':
-        await handleDesignList(ws, { projectRoot, agentMeta: context });
-        break;
-      case 'design.use':
-        await handleDesignUse(ws, { projectRoot, agentMeta: context }, msg);
-        break;
-      case 'design.state':
-        await handleDesignState(ws, { projectRoot, agentMeta: context });
-        break;
-      case 'design.set':
-        await handleDesignSet(ws, { projectRoot, agentMeta: context }, msg);
-        break;
-      case 'design.materialize':
-        await handleDesignMaterialize(ws, { projectRoot, agentMeta: context }, msg);
-        break;
-      case 'design.verify':
-        await handleDesignVerify(ws, { projectRoot, agentMeta: context });
-        break;
-
-      case 'diag.get': {
-        // Snapshot of the moving parts so the user can debug "why is X
-        // not working?" without diving into the server logs.
-        const usage = tokenCounter.total();
-        send(ws, {
-          type: 'diag.get',
-          payload: {
-            provider: config.provider,
-            model: config.model,
-            cwd: projectRoot,
-            sessionId: session.id,
-            tools: {
-              count: toolRegistry.list().length,
-              names: toolRegistry.list().map((t) => t.name),
-            },
-            features: {
-              memory: !!config.features?.memory,
-              skills: !!config.features?.skills,
-              modelsRegistry: !!config.features?.modelsRegistry,
-            },
-            mode: modeId ?? 'default',
-            usage,
-            messages: context.messages.length,
-            todos: context.todos.length,
-          },
-        });
-        break;
-      }
-
-      // ── Worklist (todos / tasks / plan) — delegated to the shared dispatcher ──
-      // The nine worklist message types share one context factory; the dispatcher
-      // in handlers/worklist-handlers.ts narrows each payload and routes it.
-      case 'todos.get':
-      case 'todos.clear':
-      case 'todos.remove':
-      case 'tasks.get':
-      case 'plan.get':
-      case 'plan.template_use':
-      case 'todo.update':
-      case 'task.update':
-      case 'plan.item.update': {
-        await handleWorklistMessage(makeWorklistContext(), ws, msg as WorklistMessage);
-        break;
-      }
-
-      // ── File operations — delegated to shared handlers (file-handlers.ts) ──
-      // These handlers are also used by the CLI's webui-server.ts. When
-      // adding or modifying file-operation WebSocket messages, update
-      // file-handlers.ts — NOT these case blocks individually.
-      case 'files.list':
-        return handleFilesList(ws, msg, projectRoot);
-      case 'files.tree':
-        return handleFilesTree(ws, msg, projectRoot);
-      case 'files.read':
-        return handleFilesRead(ws, msg, projectRoot);
-      case 'files.write':
-        return handleFilesWrite(ws, msg, projectRoot, {
-          onWritten: (filePath) => codebaseIndexing.onFileWritten(filePath),
-        });
-      case 'completion.request':
-        return handleCompletionRequest(ws, msg, {
-          projectRoot,
-          provider: context.provider,
-          model: context.model,
-          indexDir:
-            typeof context.meta['codebaseIndexDir'] === 'string'
-              ? context.meta['codebaseIndexDir']
-              : undefined,
-          lspCompletion: createToolLspCompletionSource(toolRegistry.get('lsp_completion'), context),
-        });
-
-      case 'stats.get': {
-        // Mirror of the CLI's /stats: detailed session report.
-        const usage = tokenCounter.total();
-        const cacheStats = tokenCounter.cacheStats();
-        const m = await modelsRegistry.getModel(config.provider, config.model).catch(() => null);
-        const cost = computeUsageCost(usage, getCostRates(m));
-        send(ws, {
-          type: 'stats.get',
-          payload: {
-            sessionId: session.id,
-            provider: config.provider,
-            model: config.model,
-            usage,
-            cache: cacheStats,
-            cost,
-            messages: context.messages.length,
-            readFiles: context.readFiles.size,
-            tools: toolRegistry.list().length,
-            sideEffectCount: context.sideEffects?.length ?? 0,
-            elapsedMs: Date.now() - sessionStartedAt,
-          },
-        });
-        break;
-      }
-
-      case 'side_effects.list': {
-        // P2 #5 Phase 4: return the in-memory side-effect audit trail.
-        const sideEffects = context.sideEffects ?? [];
-        send(ws, {
-          type: 'side_effects',
-          payload: {
-            sideEffects: sideEffects.slice(-50).map((se) => ({
-              toolUseId: se.toolUseId,
-              toolName: se.toolName,
-              ts: se.ts,
-              input: se.input,
-              outcome: se.outcome,
-              risk: se.risk,
-            })),
-          },
-        });
-        break;
-      }
-
-      case 'process.list': {
-        await handleProcessList(ws);
-        break;
-      }
-
-      case 'process.kill': {
-        await handleProcessKill(ws, msg.payload);
-        break;
-      }
-
-      case 'process.killAll': {
-        await handleProcessKillAll(ws);
-        break;
-      }
-
-      case 'webui.shutdown': {
-        // `/exit` from the client. Trigger the same graceful teardown the
-        // CLI-hosted server does — route through SIGINT so the registered
-        // shutdown handlers (session flush, disposers, registry unregister)
-        // all run. Previously this fell through to the unknown-type error.
-        console.log('[WebUI] Shutdown requested from client');
-        process.kill(process.pid, 'SIGINT');
-        break;
-      }
-
-      case 'goal.get': {
-        await handleGoalGet(projectRoot, (m) => broadcast(clients, m));
-        break;
-      }
-
-      case 'autonomy.switch': {
-        // Autonomy mode switch — forwarded to the agent context.
-        // The mode is stored in context.meta for the permission policy to read.
-        const parsed = validateAutonomySwitchPayload(msg.payload);
-        if (!parsed.ok) {
-          sendResult(ws, false, parsed.message);
-          break;
-        }
-        const { mode } = parsed.value;
-        context.meta['autonomy'] = mode;
-        sendResult(ws, true, `Autonomy mode set to "${mode}"`);
-        // Keep every browser tab + the settings panel in sync, and persist
-        // the durable modes (eternal/eternal-parallel are session-level).
-        broadcast(clients, { type: 'prefs.updated', payload: { autonomy: mode } });
-        void persistPrefsToConfig({ autonomy: mode });
-        break;
-      }
-
-      case 'prefs.update': {
-        // Routed via handlePrefsRoute (see prefsRoutes = { ... } below) —
-        // the actual handler is `updatePrefs`. This case is unreachable but
-        // left as a tripwire for any future regression where the route
-        // chain stops claiming 'prefs.*'. If you see this fire, fix the
-        // dispatch order in the handleMessage chain above.
-        void ws;
-        throw new Error('handlePrefsRoute did not claim prefs.update — check chain order');
-      }
-
-      case 'prefs.get': {
-        // Routed via handlePrefsRoute (see prefsRoutes = { ... } below).
-        throw new Error('handlePrefsRoute did not claim prefs.get — check chain order');
-      }
-
-      default:
-        send(ws, {
-          type: 'error',
-          payload: { phase: 'handleMessage', message: `Unknown message type: ${msg.type}` },
-        });
-    }
-  }
-
   // ---- Route table (extracted to ./routes.ts in Phase 1a) ----
   // The 947-line inline construction block that used to live here
   // moved into buildRoutes() in ./routes.ts. We bind the local mutables
@@ -2682,9 +1988,10 @@ export async function startWebUI(
       configWriteLock = next;
     },
     abortRunLock: () => {
-      if (runLock) {
-        runLock.abort();
-        runLock = null;
+      const ctrl = runLockControl.get();
+      if (ctrl) {
+        ctrl.abort();
+        runLockControl.set(null);
       }
     },
     getClients: () => clients,
@@ -2743,24 +2050,100 @@ export async function startWebUI(
     prefSnapshot,
   };
 
-  // Destructure the route bundle so handleMessage's name references
-  // (providerRoutes, sessionRoutes, …) resolve the same way they did
-  // when those names were `let`-bound in the original inline block.
-  const {
-    providerRoutes,
-    sessionRoutes,
-    projectRoutes,
-    modeRoutes,
-    prefsRoutes,
-    shellGitRoutes,
-    mailboxRoutes,
-    mcpRoutes,
-    brainRoutes,
-    autoPhaseRoutes,
-    specsRoutes,
-    sddBoardRoutes,
-    sddWizardRoutes,
-  } = buildRoutes(state, deps, cb);
+  // Hot-reload provider credentials when config.json changes on disk (another
+  // terminal's `wstack auth`, a provider panel in another window, or a manual
+  // edit). Rebuild the live agent's provider so the next message uses the new
+  // key without restarting the server, and re-broadcast the saved-providers
+  // projection so every connected panel re-renders. Mirrors `switchModel`'s
+  // live-swap (routes.ts). Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1.
+  let credentialWatcherClose: (() => void) | undefined;
+  if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
+    let lastActiveCfg = JSON.stringify(
+      state.getConfig().providers?.[deps.context.provider.id] ?? null,
+    );
+    const credentialWatcher = watchProviderConfig(
+      globalConfigPath,
+      vault,
+      (snapshot) => {
+        // Refresh in-memory config + store so panels and the next switch read fresh.
+        state.setConfig(
+          patchConfig(state.getConfig(), {
+            providers: snapshot.providers,
+            ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
+            ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
+          }),
+        );
+        deps.configStore.update({
+          providers: snapshot.providers,
+          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
+          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
+        });
+        broadcast(clients, {
+          type: 'providers.saved',
+          payload: { providers: projectSavedProviders(snapshot.providers) },
+        });
+
+        const activeId = deps.context.provider.id;
+        const newCfgStr = JSON.stringify(snapshot.providers[activeId] ?? null);
+        if (newCfgStr === lastActiveCfg) return; // active provider creds unchanged
+        lastActiveCfg = newCfgStr;
+        try {
+          const providerCfg: ProviderConfig = snapshot.providers[activeId] ?? {
+            type: activeId,
+            ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
+            ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
+          };
+          const newProv = deps.providerRegistry.has(activeId)
+            ? deps.providerRegistry.create({ ...providerCfg, type: activeId } as never)
+            : makeProviderFromConfig(activeId, { ...providerCfg, type: activeId });
+          deps.context.provider = newProv;
+          void updateAutoCompactionMaxContext(newProv).catch(() => undefined);
+          console.log(`[WebUI] Provider credentials reloaded from config.json (${activeId})`);
+        } catch (err) {
+          console.warn(
+            `[WebUI] Credential hot-reload failed for ${activeId}: ${toErrorMessage(err)}`,
+          );
+        }
+      },
+      { warn: (m) => logger.warn(`Config watcher: ${m}`) },
+    );
+    credentialWatcherClose = credentialWatcher.close;
+  }
+
+  // Build the route table (Phase 1a) + the message dispatcher and connection
+  // handler (Phase 1b). The dispatcher owns the inbound `switch (msg.type)`
+  // and the runLock guard; the connection handler owns rate-limiting, F5
+  // transcript replay, and per-client lifecycle. Both live in their own
+  // modules so `startWebUI` reads as orchestration.
+  const routes = buildRoutes(state, deps, cb);
+  const handleMessage = createMessageDispatcher({
+    state,
+    deps,
+    cb,
+    routes,
+    promptsCtx,
+    codebaseIndexing,
+    runLock: runLockControl,
+    pendingConfirms,
+  });
+  const handleConnection = createConnectionHandler({
+    getSessionId: () => session.id,
+    sessionStartPayload,
+    tokenCounter,
+    context,
+    clients,
+    pendingConfirms,
+    autoPhaseHandler,
+    specsHandler,
+    sddBoardHandler,
+    sddWizardHandler,
+    worktreeHandler,
+    collabHandler,
+    terminalHandler,
+    handleMessage,
+  });
+  wssPrimary.on('connection', handleConnection);
+  if (wssSecondary) wssSecondary.on('connection', handleConnection);
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`
   // for the static-serve, MIME matching, path-traversal guard, and CSP
   // header logic. Constructed here, listen()d below alongside the WS server.
@@ -2854,6 +2237,7 @@ export async function startWebUI(
     // Drop this instance from the registry on a clean exit so the file reflects
     // reality. Crash exits are healed by the next register()/list() prune pass.
     onShutdown: () => {
+      credentialWatcherClose?.();
       brainMonitor.stop();
       void mcpRegistry.stopAll().catch(() => undefined);
       if (disposeEvents) {

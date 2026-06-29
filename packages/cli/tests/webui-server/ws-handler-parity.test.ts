@@ -28,6 +28,7 @@ const typesFile = path.join(repoRoot, 'packages/webui/src/types.ts');
 const embeddedPath = path.join(repoRoot, 'packages/cli/src/webui-server.ts');
 const standalonePaths = [
   path.join(repoRoot, 'packages/webui/src/server/index.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/message-dispatcher.ts'),
   path.join(repoRoot, 'packages/webui/src/server/provider-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/session-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/project-routes.ts'),
@@ -151,7 +152,7 @@ function isHandled(type: string, cases: Set<string>, prefixes: Set<string>): boo
  * wired or listed here.
  */
 const KNOWN_UNIMPLEMENTED: string[] = [];
-const NON_WS_CASE_LABELS = new Set(['absent', 'live', 'probe-failed', 'side_effects.list']);
+const NON_WS_CASE_LABELS = new Set(['absent', 'live', 'probe-failed']);
 
 describe('WebUI WS-handler parity (embedded vs standalone)', () => {
   it('both server files exist and have message-type cases', () => {
