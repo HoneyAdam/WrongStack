@@ -142,7 +142,7 @@ export class FleetBus {
 
 /**
  * Roll-up of token usage + cost across an entire director run. The
- * director's `fleet_status` tool returns this so the model can reason
+ * director's `fleet` tool returns this so the model can reason
  * about budget in its next turn ("the researcher already burned $0.40,
  * lean on summaries for the next task").
  */

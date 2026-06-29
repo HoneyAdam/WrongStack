@@ -202,7 +202,7 @@ describe('MultiAgentHost', () => {
     const host = new MultiAgentHost(deps);
     await host.spawn('shadow monitor', {
       name: 'shadow',
-      tools: ['fleet_status', 'fleet_health', 'fleet_usage', 'terminate_subagent'],
+      tools: ['fleet', 'fleet', 'fleet', 'terminate_subagent'],
     });
 
     await vi.waitFor(() =>
@@ -215,9 +215,9 @@ describe('MultiAgentHost', () => {
     const shadowBuild = build.mock.calls.find((call) => call[0]?.subagent === true);
     const toolNames = ((shadowBuild?.[0]?.tools ?? []) as Tool[]).map((tool) => tool.name);
     expect(toolNames).toEqual(expect.arrayContaining([
-      'fleet_status',
-      'fleet_health',
-      'fleet_usage',
+      'fleet',
+      'fleet',
+      'fleet',
       'terminate_subagent',
     ]));
     await host.stopAll();
@@ -231,7 +231,7 @@ describe('MultiAgentHost', () => {
     await host.spawn('shadow monitor', {
       name: 'shadow',
       shadowIntervalMs: 10,
-      tools: ['fleet_status', 'fleet_health', 'fleet_usage', 'terminate_subagent'],
+      tools: ['fleet', 'fleet', 'fleet', 'terminate_subagent'],
     });
 
     const build = (deps.systemPromptBuilder as { build: ReturnType<typeof vi.fn> }).build;
@@ -250,7 +250,7 @@ describe('MultiAgentHost', () => {
     const host = new MultiAgentHost(deps, { onShadowAgentStopped: stopped });
     const { subagentId } = await host.spawn('shadow monitor', {
       name: 'shadow',
-      tools: ['fleet_status', 'fleet_health', 'fleet_usage', 'terminate_subagent'],
+      tools: ['fleet', 'fleet', 'fleet', 'terminate_subagent'],
     });
 
     await host.getDirector()?.remove(subagentId);
@@ -562,10 +562,10 @@ describe('MultiAgentHost', () => {
         'await_tasks',
         'collab_debug',
         'fleet_emit',
-        'fleet_health',
-        'fleet_session',
-        'fleet_status',
-        'fleet_usage',
+        'fleet',
+        'fleet',
+        'fleet',
+        'fleet',
         'roll_up',
         'spawn_subagent',
         'terminate_all',
@@ -651,10 +651,10 @@ describe('MultiAgentHost', () => {
           'await_tasks',
           'collab_debug',
           'fleet_emit',
-          'fleet_health',
-          'fleet_session',
-          'fleet_status',
-          'fleet_usage',
+          'fleet',
+          'fleet',
+          'fleet',
+          'fleet',
           'roll_up',
           'spawn_subagent',
           'terminate_all',

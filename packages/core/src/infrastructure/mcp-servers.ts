@@ -174,7 +174,7 @@ export const playwrightServer = (): MCPServerConfig => ({
 });
 
 /**
- * MiniMax Token Plan MCP — web_search + understand_image.
+ * MiniMax Token Plan MCP — search + understand_image.
  * This preset exposes only the read-only image understanding tool by default.
  * Requires MINIMAX_API_KEY and uvx on PATH.
  */

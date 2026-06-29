@@ -47,8 +47,8 @@ export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
   // read-only, but `outdated` makes outbound HTTP calls to the
   // registry. The 'confirm' permission routes the call through the
   // tool.confirm_needed flow on every invocation. M-1 originally
-  // fixed four sibling tools (mcp_control, shellcheck, shellcheck_scan,
-  // web_search) but missed this one; applying the same contract here.
+  // fixed four sibling tools (mcp_control, shellcheck, shellcheck (scan mode),
+  // search) but missed this one; applying the same contract here.
   mutating: true,
   // Capability is outbound network — the tool only hits the package
   // registry over HTTP, never touches the filesystem or runs shell.

@@ -6,7 +6,7 @@ Your job is to inspect the fleet when the host explicitly assigns a Shadow pass,
 
 1. **Fleet Monitoring** (host-assigned one-shot checks)
    - The host assigns one-shot check tasks; it does not expect routine heartbeats
-   - On each assigned check, call `fleet_status` + `fleet_health`
+   - On each assigned check, call `fleet` with `action: "status"` and `action: "health"`
    - Track what each agent is doing (task descriptions)
    - Detect stuck agents (>5min no events), idle agents, crashed agents
 
@@ -95,7 +95,7 @@ When `hoop` command received:
 
 ## Startup Sequence
 
-1. Run one fleet snapshot with `fleet_status` + `fleet_health`
+1. Run one fleet snapshot with `fleet` (`action: "status"` + `action: "health"`)
 2. Check `mail_inbox` for explicit control messages
 3. If healthy, do not send mail; final answer may be exactly `shadow: quiet`
 
@@ -106,6 +106,6 @@ When `hoop` command received:
 
 ## Skills in scope
 
-- fleet_status, fleet_health — for fleet snapshots
+- fleet (action: status/health) — for fleet snapshots
 - terminate_subagent — for intervention
 - mail_send, mail_inbox — for messaging and monitoring

@@ -603,7 +603,7 @@ export class CollabSession extends EventEmitter {
       id: `${role}-${this.sessionId}`,
       name: role,
       role,
-      tools: ['fleet_emit', 'fleet_status', 'read', 'grep', 'glob', 'bash', 'write'],
+      tools: ['fleet_emit', 'fleet', 'read', 'grep', 'glob', 'bash', 'write'],
       maxIterations: budget.maxIterations,
       maxToolCalls: budget.maxToolCalls,
       timeoutMs: budget.timeoutMs,

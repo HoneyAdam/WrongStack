@@ -54,7 +54,7 @@ describe('buildShadowCommand', () => {
         provider: 'openai',
         model: 'gpt-5',
         name: 'shadow',
-        tools: expect.arrayContaining(['fleet_status', 'terminate_subagent']),
+        tools: expect.arrayContaining(['fleet', 'terminate_subagent']),
       }),
     );
     const spawnOpts = onSpawn.mock.calls[0]?.[1];

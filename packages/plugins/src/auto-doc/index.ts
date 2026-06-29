@@ -4,7 +4,7 @@
  * Tools registered:
  * - auto_doc: Generate and inject doc comments into JS/TS files.
  *   Pass `dry_run: true` to preview without writing (replaces the former
- *   `auto_doc_preview` tool).
+ *   `auto_doc (dry_run)` tool).
  */
 import type { Plugin } from '@wrongstack/core';
 

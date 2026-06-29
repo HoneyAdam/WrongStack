@@ -3,7 +3,7 @@
  *
  * Exported plugins (10 total):
  *  1. auto-doc         — Auto-generates JSDoc/TSDoc (dryRun for preview)
- *  2. git-autocommit  — AI-powered commit messages (git_stage/status_summary removed)
+ *  2. git-autocommit  — AI-powered commit messages (git_autocommit/status_summary removed)
  *  3. shell-check     — Runs shellcheck on files or directories (merged)
  *  4. cost-tracker    — Tracks LLM token usage and estimated cost per session
  *  5. file-watcher    — Watches project files and emits events on changes

@@ -5,7 +5,7 @@
  * - git_autocommit: Stage files and create a commit with AI-written conventional commit messages.
  *   Supports `files` for specific staging and `dry_run` for preview.
  *
- * Note: The former `git_stage` and `git_status_summary` tools have been removed.
+ * Note: The former `git_autocommit` and `git_autocommit` tools have been removed.
  * - For staging: use `git_autocommit` with `files` (it stages automatically), or `bash` with `git add`.
  * - For status: use the built-in `git` tool with `command: "status"` or `command: "diff"`.
  */

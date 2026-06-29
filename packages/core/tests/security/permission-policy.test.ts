@@ -66,7 +66,7 @@ describe('DefaultPermissionPolicy', () => {
 
   it('gates mutating auto-permission tools to confirm', async () => {
     const p = new DefaultPermissionPolicy({ trustFile });
-    const decision = await p.evaluate(tool('web_search', 'auto'), {}, {} as Context);
+    const decision = await p.evaluate(tool('search', 'auto'), {}, {} as Context);
     expect(decision.permission).toBe('confirm');
   });
 

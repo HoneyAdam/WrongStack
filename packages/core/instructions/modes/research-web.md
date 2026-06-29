@@ -12,8 +12,8 @@ changes must be verified against live sources.
 - You realize your knowledge may be >6 months old on a fast-moving topic
 
 ### Research methodology
-1. **Search first, fetch selectively.** Use web_search with 5-8 results for
-   broad queries. Then web_fetch the 1-2 most authoritative results for detail.
+1. **Search first, fetch selectively.** Use `search` with 5-8 results for
+   broad queries. Then `fetch` the 1-2 most authoritative results for detail.
    Don't fetch every result — you'll burn tokens on noise.
 2. **Cross-reference.** One source is a data point. Two sources that agree
    is a signal. Three is confirmation. Flag single-source claims as tentative.
@@ -30,9 +30,9 @@ changes must be verified against live sources.
 When you discover current data mid-research, inject it so subsequent turns
 benefit without re-searching:
 
-web_search("Next.js middleware breaking changes 2025")
+search("Next.js middleware breaking changes 2025")
   → Surfaced: Next.js 15.2 changed middleware runtime from edge to node
-web_fetch("https://nextjs.org/docs/messages/middleware-upgrade-guide")
+fetch("https://nextjs.org/docs/messages/middleware-upgrade-guide")
   → Confirmed: middleware now runs on Node.js runtime by default
 context_manager: add_note(
   "## Research: Next.js middleware

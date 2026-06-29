@@ -1541,10 +1541,9 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   if (directorMode) {
-    // Eagerly build the director so its 8 LLM-callable orchestration
+    // Eagerly build the director so its LLM-callable orchestration
     // tools (`spawn_subagent`, `assign_task`, `await_tasks`,
-    // `ask_subagent`, `roll_up`, `terminate_subagent`, `fleet_status`,
-    // `fleet_usage`) get registered into the leader's ToolRegistry
+    // `ask_subagent`, `roll_up`, `terminate_subagent`, `fleet`) get registered into the leader's ToolRegistry
     // *before* the agent starts streaming. Without this the leader has
     // no way to discover the fleet surface and `--director` ends up as
     // a manifest-only flag with no orchestration. Pass `FLEET_ROSTER`
@@ -1801,7 +1800,7 @@ export async function main(argv: string[]): Promise<number> {
           const fmt = fmtTaskResultLine(r, color);
           lines.push(`  ${fmt.mark}  ${r.taskId.slice(0, 8)} ${fmt.stats}${fmt.tail}`);
         }
-        // Also surface per-subagent cost from fleet_usage if director is active.
+        // Also surface per-subagent cost from fleet (action: usage) if director is active.
         if (director) {
           const snap = director.snapshot();
           const per = snap.perSubagent?.[subagentId];

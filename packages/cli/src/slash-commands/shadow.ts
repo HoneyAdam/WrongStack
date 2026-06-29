@@ -121,7 +121,7 @@ export function buildShadowCommand(opts: SlashCommandContext): SlashCommand {
               provider: modelRef.provider,
               model: modelRef.model,
               tools: [
-                'fleet_status', 'fleet_health', 'fleet_usage',
+                'fleet', 'fleet', 'fleet',
                 'mailbox', 'mail_inbox', 'mail_send',
                 'terminate_subagent',
               ],

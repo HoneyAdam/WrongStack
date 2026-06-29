@@ -205,7 +205,7 @@ export interface DirectorOptions {
   /**
    * Sessions root directory for per-subagent JSONL transcripts.
    * When set, the director can read subagent transcripts directly for
-   * `fleet_session` tool — no bridge round-trip needed. Path convention:
+   * `fleet` tool (action: session) — no bridge round-trip needed. Path convention:
    * `<sessionsRoot>/<directorRunId>/<subagentId>.jsonl`.
    */
   sessionsRoot?: string | undefined;
@@ -417,7 +417,7 @@ export class Director implements ICoordinator {
   private readonly maxFleetCostUsd: number;
   /** Max auto-extensions per subagent per budget kind before denying. */
   private readonly maxBudgetExtensions: number;
-  /** Sessions root for direct subagent JSONL reads (fleet_session tool). */
+  /** Sessions root for direct subagent JSONL reads (fleet tool, action: session). */
   private readonly sessionsRoot?: string | undefined;
   /** Director run id for JSONL path resolution. */
   private readonly directorRunId: string;

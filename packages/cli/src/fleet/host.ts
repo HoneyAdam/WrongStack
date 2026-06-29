@@ -54,7 +54,7 @@ function buildShadowAgentTaskDescription(reason: string): string {
   return `Shadow Agent one-shot fleet monitor. Reason: ${reason}.
 
 Run exactly one quiet pass:
-- Call fleet_status and fleet_health.
+- Call fleet with action: "status" and action: "health".
 - Inspect mail_inbox only for explicit hoop/shadow control messages.
 - Do not broadcast startup, heartbeat, shutdown, or healthy status messages.
 - Use mail_send only for high/critical anomalies or explicit control replies.
@@ -287,7 +287,7 @@ export class MultiAgentHost {
    * or null when director mode is off. Used by the CLI to register the
    * fleet's LLM-callable orchestration tools (spawn_subagent,
    * assign_task, await_tasks, ask_subagent, roll_up, terminate_subagent,
-   * fleet_status, fleet_usage) into the leader's ToolRegistry before the
+   * fleet, fleet) into the leader's ToolRegistry before the
    * agent starts — without this, the leader literally cannot see the
    * orchestration tools and `--director` becomes a no-op.
    */
@@ -651,7 +651,7 @@ export class MultiAgentHost {
           provider: liveConfig.provider,
           model: liveConfig.model,
           tools: [
-            'fleet_status', 'fleet_health', 'fleet_usage',
+            'fleet', 'fleet', 'fleet',
             'mailbox', 'mail_inbox', 'mail_send',
             'terminate_subagent',
           ],

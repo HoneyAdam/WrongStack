@@ -32,7 +32,7 @@ provides the deep methodology and patterns the mode prompt can't fit.
 4. Respect the stop rule. 2-3 searches + 1-2 fetches per topic. If no clear
    answer after that, surface the ambiguity rather than research-looping.
 5. Cite every claim. Domain name minimum; date if visible on the page.
-6. Match tool to task. `web_search` for discovery, `web_fetch` for detail,
+6. Match tool to task. `search` for discovery, `fetch` for detail,
    `fetch` for raw API responses, `search` for source-code-specific queries.
 
 ## Research Workflow Taxonomy
@@ -43,8 +43,8 @@ Not every research task needs the same approach. Match the workflow to the need:
 **When**: "What's the latest version of React?" "Is package X still maintained?"
 **Pattern**:
 ```
-web_search("React latest stable version 2025")  →  discover version
-web_fetch("https://react.dev/versions")          →  confirm from authoritative source
+search("React latest stable version 2025")  →  discover version
+fetch("https://react.dev/versions")          →  confirm from authoritative source
 context_manager add_note("## Research: React version\n- 19.2.0 (March 2025)\n- Source: react.dev")
 ```
 **Budget**: 1 search + 1 fetch = ~2000 tokens. Done in one turn.
@@ -53,8 +53,8 @@ context_manager add_note("## Research: React version\n- 19.2.0 (March 2025)\n- S
 **When**: "How has Next.js middleware changed across 14.x → 15.x?"
 **Pattern**:
 ```
-Turn 1: web_search("Next.js middleware changes 14 to 15") → collect URLs
-Turn 2: web_fetch(upgrade guide), web_fetch(changelog)     → parallel fetches
+Turn 1: search("Next.js middleware changes 14 to 15") → collect URLs
+Turn 2: fetch(upgrade guide), fetch(changelog)     → parallel fetches
 Turn 3: cross-reference, inject structured findings
 ```
 **Budget**: 2 searches + 2-3 fetches = ~5000 tokens. Use parallel fetches.
@@ -68,10 +68,10 @@ See "Subagent Delegation" section below.
 
 | Tool | Best for | Avoid for |
 |------|----------|-----------|
-| `web_search` | Broad discovery, finding current URLs, getting an overview | Deep detail (use `web_fetch` after) |
-| `web_fetch` | Reading a specific page for detail, authoritative confirmation | Broad queries (use `web_search` first) |
-| `search` | Technical docs, source code, API references (DuckDuckGo) | General web queries (use `web_search`) |
-| `fetch` | Raw API responses (JSON), registry endpoints, structured data | HTML pages (use `web_fetch` for markdown conversion) |
+| `search` | Broad discovery, finding current URLs, getting an overview | Deep detail (use `fetch` after) |
+| `fetch` | Reading a specific page for detail, authoritative confirmation | Broad queries (use `search` first) |
+| `search` | Technical docs, source code, API references (DuckDuckGo) | General web queries (use `search`) |
+| `fetch` | Raw API responses (JSON), registry endpoints, structured data | HTML pages (use `fetch` for markdown conversion) |
 | `context_manager` | Injecting research findings into conversation for future turns | Research itself (this is the *output* tool) |
 
 ### Decision heuristic
@@ -83,7 +83,7 @@ See "Subagent Delegation" section below.
            ▼                ▼                 ▼
      "Discover URLs"   "Read a page"    "Raw API data"
            │                │                 │
-     web_search        web_fetch           fetch
+     search        fetch           fetch
            │                │
            └────────┬───────┘
                     ▼
@@ -238,8 +238,8 @@ Source A (GitHub issue comment): "This API is being removed in v4"
 
 | Action | Approximate cost | When to use |
 |--------|-----------------|-------------|
-| `web_search` (5 results) | ~500 tokens | Always first — cheap discovery |
-| `web_fetch` (single page) | ~1000-2000 tokens | Only for authoritative sources |
+| `search` (5 results) | ~500 tokens | Always first — cheap discovery |
+| `fetch` (single page) | ~1000-2000 tokens | Only for authoritative sources |
 | `context_manager add_note` | ~0 tokens (metadata op) | After every research cycle |
 | `delegate` (quick lookup subagent) | ~$0.05-0.15 | When research would bloat your context |
 | `delegate` (deep investigation) | ~$0.20-0.50 | Landscape surveys only |
@@ -254,7 +254,7 @@ architecture decision might be worth $2.00.
 
 ```typescript
 // ❌ Turn 5: Agent forgets it already researched React version
-web_search("React latest version")
+search("React latest version")
 
 // ✅ Turn 2: Agent injected findings via add_note
 // Turn 3-5: Agent sees the note in conversation — skips re-search
@@ -264,11 +264,11 @@ web_search("React latest version")
 
 ```typescript
 // ❌ Guessing URLs wastes fetches
-web_fetch("https://react.dev/blog/2025/03/15/react-19-2")  // 404
+fetch("https://react.dev/blog/2025/03/15/react-19-2")  // 404
 
 // ✅ Search discovers the real URL first
-web_search("React 19.2 release blog post")
-web_fetch(<result from search>)
+search("React 19.2 release blog post")
+fetch(<result from search>)
 ```
 
 ### Injecting raw dumps
@@ -296,16 +296,16 @@ One 2023 article suggests X, but this appears outdated."
 
 ```typescript
 // ❌ 7 searches on the same topic, each slightly rephrased
-web_search("React 19 new features")
-web_search("React 19 what changed")
-web_search("React 19 release notes changes")
-web_search("React 19 difference from 18")
+search("React 19 new features")
+search("React 19 what changed")
+search("React 19 release notes changes")
+search("React 19 difference from 18")
 // ...
 
 // ✅ 1-2 broad searches, then targeted fetches
-web_search("React 19 release notes breaking changes")
-web_fetch(<react.dev blog>)
-web_fetch(<GitHub releases>)
+search("React 19 release notes breaking changes")
+fetch(<react.dev blog>)
+fetch(<GitHub releases>)
 // Done. Inject findings.
 ```
 
@@ -314,7 +314,7 @@ web_fetch(<GitHub releases>)
 ```typescript
 // ❌ User asks for a quick null-check fix, agent starts web searching
 User: "fix the null deref in auth.ts line 42"
-Agent: web_search("TypeScript null check best practices") // NO
+Agent: search("TypeScript null check best practices") // NO
 
 // ✅ Research mode is for analysis/discussion phases, not tactical edits
 // The agent already knows how to fix a null deref — just fix it.
@@ -325,8 +325,8 @@ Agent: web_search("TypeScript null check best practices") // NO
 ```
 1. TRIGGER    — User asks for current data OR agent realizes knowledge is stale
 2. CLASSIFY   — Quick lookup? Deep investigation? Landscape survey?
-3. SEARCH     — web_search with 5-8 results for broad discovery
-4. FETCH      — web_fetch 1-2 authoritative results for detail (parallelize if >1)
+3. SEARCH     — search with 5-8 results for broad discovery
+4. FETCH      — fetch 1-2 authoritative results for detail (parallelize if >1)
 5. VALIDATE   — Cross-reference: 2+ sources agree? Flag single-source claims
 6. INJECT     — context_manager add_note with structured findings
 7. CITE       — In your response, cite sources for every factual claim

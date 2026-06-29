@@ -58,8 +58,8 @@ describe('outdatedTool', () => {
     expect(outdatedTool.name).toBe('outdated');
     // Network side-effecting (registry HTTP) — routes through the
     // confirmation gate (M-1 contract: M-1 originally fixed four
-    // sibling tools — mcp_control, shellcheck, shellcheck_scan,
-    // web_search — but missed outdated; the audit's permission
+    // sibling tools — mcp_control, shellcheck, shellcheck (scan mode),
+    // search — but missed outdated; the audit's permission
     // policy at permission-policy.ts:188-195 special-cases
     // `mutating: true` tools into the confirm_needed flow regardless
     // of `permission`).

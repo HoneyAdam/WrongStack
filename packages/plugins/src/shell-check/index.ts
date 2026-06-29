@@ -4,7 +4,7 @@
  * Tools registered:
  * - shellcheck: Run shellcheck on specific files OR recursively scan a directory.
  *
- * Note: The former `shellcheck_scan` tool has been merged into `shellcheck`
+ * Note: The former `shellcheck (scan mode)` tool has been merged into `shellcheck`
  * via the `directory` + `pattern` parameters. Pass `files` for specific
  * files, or `directory` (optionally with `pattern`) for recursive scanning.
  */

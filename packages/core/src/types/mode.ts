@@ -138,7 +138,7 @@ export const DEFAULT_MODES: Mode[] = [
     description: 'Current-data research — search web, verify, inject findings into context',
     prompt: modePrompt('research-web'),
     tags: ['research', 'web', 'current-data', 'up-to-date'],
-    toolPreferences: ['web_search', 'web_fetch', 'search', 'fetch', 'context_manager'],
+    toolPreferences: ['search/fetch', 'search/fetch', 'search', 'fetch', 'context_manager'],
     suggestedSkills: ['research-web', 'tech-stack', 'node-modern', 'security-scanner', 'react-modern'],
   },
 ];
