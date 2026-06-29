@@ -507,12 +507,11 @@ describe('runAuthMenu', () => {
 
   it('l (local server) adds a keyless local preset from the menu', async () => {
     const { deps, configPath } = await setupDeps({
-      // l -> local-server flow; pick omniroute by id (noAuth → no key prompt,
-      // noProbe path not available here, so the health probe runs against a
-      // server that isn't up → decline save-anyway? No: provide 'n' is not
-      // needed because we pick by id then the probe fails → save-anyway prompt.
-      // Pick 'omniroute', then 'y' to save anyway after the probe fails, then 'q'.
-      scripted: { lines: ['l', 'omniroute', 'y', 'q'] },
+      // l -> local-server flow; pick omniroute by id. It's a keyless
+      // (noAuth) gateway, so there's no key prompt AND no "Save anyway?"
+      // prompt even though the health probe fails (server isn't up in the
+      // test) — it auto-saves and returns to the top menu. Then 'q' quits.
+      scripted: { lines: ['l', 'omniroute', 'q'] },
     });
     const code = await runAuthMenu(deps);
     expect(code).toBe(0);

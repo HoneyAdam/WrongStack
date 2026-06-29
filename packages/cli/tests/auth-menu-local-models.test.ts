@@ -346,30 +346,35 @@ describe('runAuthLocal — --model + probe integration', () => {
     ]);
   });
 
-  it("does not write models when --model first is passed but the probe failed (probe-only was 'no')", async () => {
+  it('writes no models when --model first is passed but the probe failed (keyless preset auto-saves)', async () => {
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED');
     }) as typeof fetch;
-    const { deps, configPath } = await setupDeps({ lines: ['n'] });
+    // ollama is a keyless (noAuth) gateway: a failed probe auto-saves
+    // without a "Save anyway?" prompt. `--model first` has no probe ids to
+    // resolve, so cfg.models must NOT be written.
+    const { deps, configPath } = await setupDeps({});
     const code = await runAuthLocal(deps, { name: 'ollama', models: 'first' });
     expect(code).toBe(0);
-    // User said no → nothing saved.
-    const fsCheck = await fs.access(configPath).then(
-      () => true,
-      () => false,
-    );
-    expect(fsCheck).toBe(false);
+    // Provider saved, but with no models (probe gave nothing to resolve).
+    const saved = await readSaved(configPath);
+    expect(saved['ollama']).toBeDefined();
+    expect((saved['ollama'] as { models?: string[] }).models).toBeUndefined();
+    // No prompt was shown.
+    expect(deps.reader.readLine).not.toHaveBeenCalled();
   });
 
-  it("does not write models when --model 3 is passed but the probe failed and the user cancels", async () => {
+  it('writes no models when --model 3 is passed but the probe failed (keyless preset auto-saves)', async () => {
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED');
     }) as typeof fetch;
-    const { deps, tmpDir } = await setupDeps({ lines: [''] });
+    const { deps, configPath } = await setupDeps({});
     const code = await runAuthLocal(deps, { name: 'ollama', models: '3' });
     expect(code).toBe(0);
-    const configPath = path.join(tmpDir, 'config.json');
-    await expect(fs.access(configPath)).rejects.toThrow();
+    const saved = await readSaved(configPath);
+    expect(saved['ollama']).toBeDefined();
+    expect((saved['ollama'] as { models?: string[] }).models).toBeUndefined();
+    expect(deps.reader.readLine).not.toHaveBeenCalled();
   });
 
   it("clears an existing models list when --model '' (empty) is passed", async () => {

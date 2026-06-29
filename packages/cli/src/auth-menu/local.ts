@@ -213,12 +213,27 @@ export async function runAuthLocal(
     }
 
     if (!probe.ok) {
-      const saveAnyway = await promptSaveAnyway(deps);
-      if (!saveAnyway) {
-        deps.renderer.write(color.dim('  Cancelled. Nothing saved.\n'));
-        return 0;
+      if (chosen.noAuth) {
+        // Keyless loopback gateway (OmniRoute / Ollama): there's no
+        // credential to validate, and these are meant to be configured
+        // ahead of the server being up — OmniRoute auto-discovers its
+        // model list at boot. Skip the "Save anyway?" detour entirely and
+        // save with an informational note rather than nagging the user.
+        deps.renderer.write(
+          color.dim(
+            `  Saving ${chosen.label} anyway — keyless local gateway needs no key ` +
+              'and discovers models when it comes up.\n',
+          ),
+        );
+        probeFailedAndSaved = true;
+      } else {
+        const saveAnyway = await promptSaveAnyway(deps);
+        if (!saveAnyway) {
+          deps.renderer.write(color.dim('  Cancelled. Nothing saved.\n'));
+          return 0;
+        }
+        probeFailedAndSaved = true;
       }
-      probeFailedAndSaved = true;
     }
   }
 

@@ -388,17 +388,36 @@ describe('runAuthLocal — health probe integration', () => {
     expect(capturedWrite(deps)).toContain('health probe ok');
   });
 
-  it('prompts "Save anyway?" and saves on `y` when the server is unreachable', async () => {
+  it('auto-saves a keyless gateway (Ollama) on a failed probe without the "Save anyway?" prompt', async () => {
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED 127.0.0.1:11434');
     }) as typeof fetch;
-    // "y" → save anyway
-    const { deps, configPath } = await setupDeps({ lines: ['y'] });
+    // No prompt lines supplied: a keyless (noAuth) preset must save on a
+    // failed probe without asking, so readLine is never reached.
+    const { deps, configPath } = await setupDeps({});
     const code = await runAuthLocal(deps, { name: 'ollama' });
     expect(code).toBe(0);
     const saved = await readSaved(configPath);
     expect(saved['ollama']).toBeDefined();
     expect(capturedWrite(deps)).toContain('unreachable');
+    // The "Save anyway?" prompt must NOT have been shown.
+    expect(deps.reader.readLine).not.toHaveBeenCalled();
+    expect(capturedWrite(deps)).not.toContain('Save anyway');
+  });
+
+  it('auto-saves OmniRoute (keyless gateway) on a failed probe without prompting', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('ECONNREFUSED 127.0.0.1:20128');
+    }) as typeof fetch;
+    const { deps, configPath } = await setupDeps({});
+    const code = await runAuthLocal(deps, { name: 'omniroute' });
+    expect(code).toBe(0);
+    const saved = await readSaved(configPath);
+    expect(saved['omniroute']).toBeDefined();
+    expect((saved['omniroute'] as { baseUrl: string }).baseUrl).toBe(
+      'http://localhost:20128/v1',
+    );
+    expect(deps.reader.readLine).not.toHaveBeenCalled();
   });
 
   it('prompts "Save anyway?" and cancels on `n` (default) when the server is unreachable', async () => {
