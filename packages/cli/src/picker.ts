@@ -4,6 +4,7 @@ import { color, expectDefined, setOutputLineGuard, setRawMode, writeOut } from '
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { appendHistory, backupCurrent } from './config-history.js';
 import type { ReadlineInputReader } from './input-reader.js';
+import { LOCAL_LLM_PRESETS } from './auth-menu/local-presets.js';
 import { hasApiKey, isKeylessLocalProvider, visibleModelIds } from './provider-helpers.js';
 import type { TerminalRenderer } from './renderer.js';
 
@@ -28,6 +29,39 @@ const CODEX_LEGACY_NOTE =
  * all providers (as a copy). Input order is preserved. Powers the live
  * type-to-filter provider picker.
  */
+/**
+ * Append synthetic entries for the built-in local-server presets
+ * (OmniRoute / Ollama / vLLM / LM Studio) that aren't already present in
+ * the merged list. These are keyless loopback gateways, so they pass the
+ * `isKeylessLocalProvider` filter and become immediately selectable even
+ * on a fresh install with no config and no catalog entry — mirroring the
+ * `wstack auth local` shortcut. An entry is skipped when an id-match
+ * already exists (catalog or saved config), so a user's customized
+ * provider always wins over the preset default. Mutates and returns
+ * `merged` for call-site convenience. Pure aside from the push.
+ */
+export function appendLocalPresetProviders(merged: ResolvedProvider[]): ResolvedProvider[] {
+  const existing = new Set(merged.map((p) => p.id));
+  for (const preset of LOCAL_LLM_PRESETS) {
+    if (existing.has(preset.id)) continue;
+    merged.push({
+      id: preset.id,
+      name: preset.label,
+      family: 'openai-compatible',
+      apiBase: preset.defaultBaseUrl,
+      // No env vars → with a loopback apiBase this reads as a keyless
+      // local gateway, so the picker offers it without a key.
+      envVars: [],
+      // No catalog models yet; OmniRoute/LM Studio/etc. auto-discover at
+      // boot or the user picks `m` to set a list. An empty list still
+      // lets the provider be chosen — pickModel surfaces the "no models
+      // listed" hint and the user can type an id directly.
+      models: [],
+    });
+  }
+  return merged;
+}
+
 export function filterProviders(query: string, providers: ResolvedProvider[]): ResolvedProvider[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...providers];
@@ -497,11 +531,6 @@ export async function runPicker(deps: {
     });
   }
 
-  if (merged.length === 0) {
-    renderer.writeError('No supported providers found in catalog.');
-    return undefined;
-  }
-
   // Filter to usable providers: those with a key, plus keyless local
   // gateways (omniroute/LiteLLM/… on a loopback address) which need no
   // credential and so are immediately launchable. If none qualify (fresh
@@ -515,7 +544,23 @@ export async function runPicker(deps: {
   let showingFallback = false;
   if (keyed.length === 0) {
     displayList = merged;
-    showingFallback = true;
+    // The full-catalog fallback only makes sense when there's actually a
+    // catalog to fall back on. With an empty catalog, the only thing we'll
+    // show is the keyless local presets (injected below), which need no
+    // key — so don't nag the user about missing keys in that case.
+    showingFallback = merged.length > 0;
+  }
+
+  // Surface the built-in local-server presets (OmniRoute / Ollama / vLLM /
+  // LM Studio) that aren't already in the catalog or saved config. Done
+  // AFTER the keyed/fallback decision so these always-keyless entries
+  // don't suppress the "no keys anywhere → show full catalog" fallback;
+  // they're simply appended to whichever list we're about to show.
+  appendLocalPresetProviders(displayList);
+
+  if (displayList.length === 0) {
+    renderer.writeError('No supported providers found in catalog.');
+    return undefined;
   }
 
   // TTY: live type-to-filter picker. Non-TTY (CI, piped, tests) falls through
@@ -759,8 +804,29 @@ async function pickModel(
   );
 
   if (models.length === 0) {
-    renderer.writeError('  No models listed for this provider in the catalog.');
-    return undefined;
+    // No catalog models — common for a freshly-picked local-server preset
+    // (OmniRoute / Ollama / LM Studio / …) whose model list auto-discovers
+    // at boot or is known only to the user. Instead of dead-ending, let
+    // them type a model id directly. Empty input cancels.
+    renderer.write(
+      color.dim(
+        '  No models listed yet for this provider — type a model id to use it ' +
+          '(local servers auto-discover models at launch).\n',
+      ),
+    );
+    const typed = (
+      await reader.readLine(
+        `\n${color.amber('?')} Model id ${color.dim('(or Enter to cancel)')}: `,
+      )
+    ).trim();
+    if (!typed) {
+      renderer.write(color.dim('Cancelled.\n'));
+      return undefined;
+    }
+    renderer.write(
+      `\n  ${color.green('✓')} ${color.bold(provider.id)} / ${color.bold(typed)}\n\n`,
+    );
+    return { provider: provider.id, model: typed };
   }
 
   // TTY: live type-to-filter model picker. Non-TYY (CI/piped/tests) falls

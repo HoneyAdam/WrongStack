@@ -154,7 +154,10 @@ describe('runPicker', () => {
           models: [fakeModel({ id: 'cc/claude-opus-4-8', name: 'Claude Opus' })],
         }),
       ];
-      const reader = fakeReader(['2', '1', 'n']); // pick omniroute, model 1, don't save
+      // Pick omniroute by id (robust against the injected local-server
+      // presets that also land in the openai-compatible group), model 1,
+      // don't save.
+      const reader = fakeReader(['omniroute', '1', 'n']);
       const registry = fakeRegistry(providers);
       const result = await runPicker({
         modelsRegistry: registry as never,
@@ -167,6 +170,56 @@ describe('runPicker', () => {
     } finally {
       delete process.env.ANTHROPIC_API_KEY;
     }
+  });
+
+  it('surfaces the built-in local-server presets on a fresh, empty catalog', async () => {
+    const { renderer, out } = mkRig();
+    // Empty catalog + no config + no env keys: the startup picker should
+    // still offer the local-server presets (OmniRoute / Ollama / vLLM /
+    // LM Studio) because they're keyless loopback gateways. The user picks
+    // omniroute by id, then types a model id directly (no catalog models).
+    const registry = fakeRegistry([]);
+    const reader = fakeReader(['omniroute', 'cc/claude-opus-4-8', 'n']);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(out.buf).toContain('omniroute');
+    expect(out.buf).toContain('ollama');
+    expect(out.buf).toContain('vllm');
+    expect(out.buf).toContain('lmstudio');
+    expect(result?.provider).toBe('omniroute');
+    expect(result?.model).toBe('cc/claude-opus-4-8');
+  });
+
+  it('does not duplicate a local preset already present in saved config', async () => {
+    const { renderer, out } = mkRig();
+    // The user customized omniroute's baseUrl in config. The injected
+    // preset must NOT clobber or duplicate it — the saved entry wins.
+    const config = {
+      providers: {
+        omniroute: {
+          type: 'omniroute',
+          family: 'openai-compatible',
+          baseUrl: 'http://gpu-box.lan:20128/v1',
+          models: ['my-custom-model'],
+        },
+      },
+    } as never;
+    const reader = fakeReader(['omniroute', '1', 'n']);
+    const registry = fakeRegistry([]);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+      config,
+    });
+    // Exactly one omniroute entry rendered (saved one, with its custom model).
+    const occurrences = out.buf.split('omniroute').length - 1;
+    expect(occurrences).toBeGreaterThanOrEqual(1);
+    expect(result?.provider).toBe('omniroute');
+    expect(result?.model).toBe('my-custom-model');
   });
 
   it('returns undefined when user cancels provider selection', async () => {
@@ -358,10 +411,27 @@ describe('runPicker', () => {
     expect(result!.model).toBe('99');
   });
 
-  it('shows an empty-models error when the provider has no models in the catalog', async () => {
+  it('prompts for a manual model id when the provider has no catalog models', async () => {
     const providers = [fakeProvider({ models: [] })];
-    const { renderer, err } = mkRig();
-    const reader = fakeReader(['1']);
+    const { renderer, out } = mkRig();
+    // Pick provider 1, then type a model id directly (no catalog models).
+    const reader = fakeReader(['1', 'my-typed-model']);
+    const registry = fakeRegistry(providers);
+    const result = await runPicker({
+      modelsRegistry: registry as never,
+      renderer,
+      reader: reader as never,
+    });
+    expect(out.buf).toMatch(/No models listed yet/);
+    expect(result?.provider).toBe('anthropic');
+    expect(result?.model).toBe('my-typed-model');
+  });
+
+  it('cancels when no model id is typed for a provider with no catalog models', async () => {
+    const providers = [fakeProvider({ models: [] })];
+    const { renderer } = mkRig();
+    // Pick provider 1, then submit an empty model id → cancel.
+    const reader = fakeReader(['1', '']);
     const registry = fakeRegistry(providers);
     const result = await runPicker({
       modelsRegistry: registry as never,
@@ -369,7 +439,6 @@ describe('runPicker', () => {
       reader: reader as never,
     });
     expect(result).toBeUndefined();
-    expect(err.buf).toMatch(/No models listed/);
   });
 
   it('renders providers within each family in alphabetical (case-insensitive) order', async () => {

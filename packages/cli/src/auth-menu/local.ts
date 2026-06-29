@@ -32,6 +32,7 @@ import {
   writeKeysBack,
 } from '../provider-config-utils.js';
 import { loadProviders } from './helpers.js';
+import { LOCAL_LLM_PRESETS, type LocalLlmPresetEntry } from './local-presets.js';
 import { suggestLabel } from './shared.js';
 import type { AuthMenuDeps } from './types.js';
 import { probeLocalLlm } from '@wrongstack/runtime/probe';
@@ -50,60 +51,11 @@ import {
 // pulling the full CLI into the WebUI dependency graph.
 export { probeLocalLlm, type ProbeOptions, type ProbeResult };
 
-export interface LocalLlmPresetEntry {
-  /** Stable id used both for the config key and the --name flag. */
-  id: string;
-  /** Display name shown in the picker. */
-  label: string;
-  /** Default base URL for this server. */
-  defaultBaseUrl: string;
-  /**
-   * When true, no API key is needed — the shortcut saves the provider
-   * without prompting for a key. Use for servers that reject any
-   * Authorization header (Ollama).
-   */
-  noAuth: boolean;
-  /**
-   * Human-readable hint shown next to the entry — typically the upstream
-   * doc URL or the local port.
-   */
-  hint: string;
-}
-
-/**
- * Single source of truth for the `wstack auth local` picker. Keep this
- * in sync with the wire-format presets in `@wrongstack/providers`.
- */
-export const LOCAL_LLM_PRESETS: readonly LocalLlmPresetEntry[] = [
-  {
-    id: 'omniroute',
-    label: 'OmniRoute',
-    defaultBaseUrl: 'http://localhost:20128/v1',
-    noAuth: true,
-    hint: 'WrongStack local gateway — port 20128, no auth, auto-discovers models',
-  },
-  {
-    id: 'ollama',
-    label: 'Ollama',
-    defaultBaseUrl: 'http://localhost:11434/v1',
-    noAuth: true,
-    hint: 'https://ollama.com — port 11434, no auth',
-  },
-  {
-    id: 'vllm',
-    label: 'vLLM',
-    defaultBaseUrl: 'http://localhost:8000/v1',
-    noAuth: false,
-    hint: 'https://docs.vllm.ai — port 8000, optional Bearer',
-  },
-  {
-    id: 'lmstudio',
-    label: 'LM Studio',
-    defaultBaseUrl: 'http://localhost:1234/v1',
-    noAuth: false,
-    hint: 'https://lmstudio.ai — port 1234, optional Bearer',
-  },
-] as const;
+// Preset data + type live in a dependency-free module so the startup
+// provider picker can import them without pulling in the probe/config
+// machinery this file depends on. Re-exported here to keep the public
+// import path (`@wrongstack/cli` barrel, tests) stable.
+export { LOCAL_LLM_PRESETS, type LocalLlmPresetEntry };
 
 const PRESET_BY_ID = new Map(LOCAL_LLM_PRESETS.map((p) => [p.id, p]));
 
