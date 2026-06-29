@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import { deepMerge as deepMergeCore } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import type { Context, Tool } from '@wrongstack/core';
+import { safeResolveReal } from './_util.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,21 +116,21 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
       },
     },
   },
-  async execute(input) {
+  async execute(input, ctx) {
     const action = input.action ?? 'parse';
 
     switch (action) {
       case 'query':
-        return executeQuery(input);
+        return executeQuery(input, ctx);
       case 'validate':
-        return executeValidate(input);
+        return executeValidate(input, ctx);
       case 'transform':
-        return executeTransform(input);
+        return executeTransform(input, ctx);
       case 'merge':
         return executeMerge(input);
       case 'parse':
       default:
-        return executeParse(input);
+        return executeParse(input, ctx);
     }
   },
 };
@@ -138,7 +139,7 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
 // Action: parse (default — the original json tool behavior)
 // ---------------------------------------------------------------------------
 
-async function executeParse(input: JsonInput): Promise<JsonOutput> {
+async function executeParse(input: JsonInput, ctx: Context): Promise<JsonOutput> {
   const format = input.format ?? 'json';
 
   let parsed: unknown;
@@ -146,7 +147,7 @@ async function executeParse(input: JsonInput): Promise<JsonOutput> {
 
   if (input.file) {
     try {
-      raw = await fs.readFile(input.file, 'utf8');
+      raw = await fs.readFile(await safeResolveReal(input.file, ctx), 'utf8');
     } catch {
       return { data: null, formatted: '', type: 'unknown', action: 'parse', error: 'Could not read file' };
     }
@@ -212,7 +213,7 @@ async function executeParse(input: JsonInput): Promise<JsonOutput> {
 // Action: query (JMESPath-like — from json-path plugin)
 // ---------------------------------------------------------------------------
 
-async function executeQuery(input: JsonInput): Promise<JsonOutput> {
+async function executeQuery(input: JsonInput, ctx: Context): Promise<JsonOutput> {
   if (!input.query) {
     return { data: null, formatted: '', type: 'unknown', action: 'query', error: 'query is required for action: query' };
   }
@@ -220,7 +221,7 @@ async function executeQuery(input: JsonInput): Promise<JsonOutput> {
   let parsed: unknown;
   if (input.file) {
     try {
-      const raw = await fs.readFile(input.file, 'utf8');
+      const raw = await fs.readFile(await safeResolveReal(input.file, ctx), 'utf8');
       parsed = JSON.parse(raw);
     } catch {
       return { data: null, formatted: '', type: 'unknown', action: 'query', error: 'Could not read/parse file' };
@@ -261,7 +262,7 @@ async function executeQuery(input: JsonInput): Promise<JsonOutput> {
 // Action: validate (JSON Schema — from json-path plugin)
 // ---------------------------------------------------------------------------
 
-async function executeValidate(input: JsonInput): Promise<JsonOutput> {
+async function executeValidate(input: JsonInput, ctx: Context): Promise<JsonOutput> {
   if (!input.schema) {
     return { data: null, formatted: '', type: 'unknown', action: 'validate', error: 'schema is required for action: validate' };
   }
@@ -269,7 +270,7 @@ async function executeValidate(input: JsonInput): Promise<JsonOutput> {
   let parsed: unknown;
   if (input.file) {
     try {
-      const raw = await fs.readFile(input.file, 'utf8');
+      const raw = await fs.readFile(await safeResolveReal(input.file, ctx), 'utf8');
       parsed = JSON.parse(raw);
     } catch {
       return { data: null, formatted: '', type: 'unknown', action: 'validate', error: 'Could not read/parse file' };
@@ -310,7 +311,7 @@ async function executeValidate(input: JsonInput): Promise<JsonOutput> {
 // Action: transform (chained JMESPath — from json-path plugin)
 // ---------------------------------------------------------------------------
 
-async function executeTransform(input: JsonInput): Promise<JsonOutput> {
+async function executeTransform(input: JsonInput, ctx: Context): Promise<JsonOutput> {
   if (!input.transforms || input.transforms.length === 0) {
     return { data: null, formatted: '', type: 'unknown', action: 'transform', error: 'transforms array is required for action: transform' };
   }
@@ -318,7 +319,7 @@ async function executeTransform(input: JsonInput): Promise<JsonOutput> {
   let parsed: unknown;
   if (input.file) {
     try {
-      const raw = await fs.readFile(input.file, 'utf8');
+      const raw = await fs.readFile(await safeResolveReal(input.file, ctx), 'utf8');
       parsed = JSON.parse(raw);
     } catch {
       return { data: null, formatted: '', type: 'unknown', action: 'transform', error: 'Could not read/parse file' };

@@ -14,6 +14,10 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
+// Minimal tool Context. projectRoot is pinned to tmpDir so reads of files
+// created under tmpDir pass safeResolveReal's containment check.
+const makeCtx = () => ({ cwd: tmpDir, workingDir: tmpDir, tools: [], projectRoot: tmpDir }) as never;
+
 describe('jsonTool', () => {
   it('has correct metadata', () => {
     expect(jsonTool.name).toBe('json');
@@ -41,12 +45,12 @@ describe('jsonTool', () => {
 
   it('reads from file', async () => {
     await fs.writeFile(path.join(tmpDir, 'test.json'), '{"a":1}', 'utf8');
-    const result = await jsonTool.execute({ file: path.join(tmpDir, 'test.json') });
+    const result = await jsonTool.execute({ file: path.join(tmpDir, 'test.json') }, makeCtx());
     expect(result.data).toEqual({ a: 1 });
   });
 
   it('returns error for non-existent file', async () => {
-    const result = await jsonTool.execute({ file: '/nonexistent.json' });
+    const result = await jsonTool.execute({ file: '/nonexistent.json' }, makeCtx());
     expect(result.error).toContain('Could not read file');
   });
 
@@ -260,5 +264,33 @@ describe('jsonTool action: merge', () => {
   it('returns error when base or patch is missing', async () => {
     const result = await jsonTool.execute({ action: 'merge', base: {} });
     expect(result.error).toContain('base and patch are required');
+  });
+
+describe('path containment (CWE-22)', () => {
+    it('blocks reading a real file that sits outside the pinned project root', async () => {
+      // Create a genuinely readable JSON file in tmpDir, then pin projectRoot
+      // to a *subdirectory* so the file is provably outside the root. Without
+      // safeResolveReal the read would succeed and leak the file's contents.
+      const secret = path.join(tmpDir, 'outside.json');
+      await fs.writeFile(secret, '{"secret":42}', 'utf8');
+      const sub = path.join(tmpDir, 'sub');
+      await fs.mkdir(sub, { recursive: true });
+
+      const result = await jsonTool.execute(
+        { file: secret },
+        { cwd: sub, workingDir: sub, tools: [], projectRoot: sub } as never,
+      );
+      expect(result.data).toBeNull();
+      expect(result.error).toBeTruthy();
+    });
+
+    it('blocks a ../ traversal escape for the query action', async () => {
+      const result = await jsonTool.execute(
+        { action: 'query', file: '../../../../etc/passwd', query: 'a' },
+        { cwd: tmpDir, workingDir: tmpDir, tools: [], projectRoot: tmpDir } as never,
+      );
+      expect(result.data).toBeNull();
+      expect(result.error).toBeTruthy();
+    });
   });
 });
