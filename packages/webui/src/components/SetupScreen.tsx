@@ -17,6 +17,7 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  RefreshCw,
   Sparkles,
   Zap,
   Shield,
@@ -565,8 +566,9 @@ export function SetupScreen() {
   // Popular providers loaded from external JSON
   const [popularProviders, setPopularProviders] = useState<PopularProvider[]>(DEFAULT_POPULAR_PROVIDERS);
   const [isLoadingPopular, setIsLoadingPopular] = useState(false);
+  const [popularRefreshNonce, setPopularRefreshNonce] = useState(0);
 
-  // Fetch popular providers from remote JSON on mount
+  // Fetch popular providers from remote JSON on mount and when refresh is triggered
   useEffect(() => {
     const controller = new AbortController();
     // Try local file first (dev / self-hosted), then fall back to GitHub raw
@@ -621,7 +623,7 @@ export function SetupScreen() {
       .finally(() => setIsLoadingPopular(false));
 
     return () => controller.abort();
-  }, []);
+  }, [popularRefreshNonce]);
 
   // Selected values (for the done step)
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -702,6 +704,16 @@ export function SetupScreen() {
     setCatalogError(null);
     setReloadNonce((n) => n + 1);
   }, []);
+
+  // Refresh popular providers from external JSON
+  const handleRefreshProviders = useCallback(() => {
+    setPopularRefreshNonce((n) => n + 1);
+    trackEvent('providers_refresh_clicked', 'engagement', {
+      metadata: {
+        currentProviderCount: popularProviders.length,
+      },
+    });
+  }, [popularProviders.length]);
 
   const handleKeySaved = useCallback((providerId: string) => {
     setSavedProviderIds((prev) => new Set([...prev, providerId]));
@@ -861,12 +873,24 @@ export function SetupScreen() {
                     <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
                       Popular Providers
                     </h2>
-                    {isLoadingPopular && (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Updating...
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {isLoadingPopular && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Updating...
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleRefreshProviders}
+                        disabled={isLoadingPopular}
+                        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Refresh provider list"
+                      >
+                        <RefreshCw className={cn('h-3 w-3', isLoadingPopular && 'animate-spin')} />
+                        Refresh
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {popularProviders.map((p) => (
