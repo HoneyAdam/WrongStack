@@ -453,22 +453,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
  * (capability allowlist / denylist model). The legacy name-based DENY set
  * is kept only for backward compatibility with tools that have not yet
  * declared capabilities.
- */
-/**
- * Auto-approving PermissionPolicy used for subagents. Subagents run
- * non-interactively under a director — they cannot answer permission
- * prompts, so a non-YOLO policy on the leader would silently hang the
- * delegated run on the first sensitive tool call. The user already
- * authorized the delegation when they invoked the leader; subagents
- * inherit that authorization automatically.
- *
- * Tool defaults of `permission: 'deny'` are still honored (this is a
- * subagent capability override, not a deny-bypass).
- *
- * 2026-06+: Primary decision is now based on declared `Tool.capabilities`
- * (capability allowlist / denylist model). The legacy name-based DENY set
- * is kept only for backward compatibility with tools that have not yet
- * declared capabilities.
  *
  * 2026-06-13+: Switched to allowlist-by-default. Only tools with explicitly
  * allowed capabilities are auto-approved. Everything else is denied.
