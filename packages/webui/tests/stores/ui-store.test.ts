@@ -67,7 +67,15 @@ beforeEach(() => {
 
 describe('coerceActivity', () => {
   it('passes current activities through unchanged', () => {
-    for (const a of ['chat', 'agents', 'history', 'files', 'projects', 'mailbox', 'skills'] as const) {
+    for (const a of [
+      'chat',
+      'agents',
+      'history',
+      'files',
+      'projects',
+      'mailbox',
+      'skills',
+    ] as const) {
       expect(coerceActivity(a)).toBe(a);
     }
   });
@@ -679,5 +687,67 @@ describe('pushPrompt', () => {
     useUIStore.getState().pushPrompt('   ');
     useUIStore.getState().pushPrompt('valid prompt');
     expect(useUIStore.getState().promptHistory).toEqual(['valid prompt']);
+  });
+});
+
+// ── F5 resilience: currentView + dockSection persistence ───────────
+//
+// After F5 the last view (sessions / chat / etc.) and the active dock
+// section must come back from localStorage so the user lands where they
+// were, not in a generic chat pane.
+describe('F5 resilience — currentView + dockSection persistence', () => {
+  it('persists currentView to localStorage on setCurrentView', () => {
+    useUIStore.getState().setCurrentView('sessions');
+    const api = (useUIStore as unknown as { persist?: { flush?: () => void } }).persist;
+    api?.flush?.();
+    const raw = localStorage.getItem('wrongstack-ui');
+    expect(raw).toBeTruthy();
+    const blob = JSON.parse(raw!) as { state: Record<string, unknown> };
+    expect(blob.state.currentView).toBe('sessions');
+  });
+
+  it('persists dockSection to localStorage on setDockSection', () => {
+    useUIStore.getState().setDockSection('work');
+    const api = (useUIStore as unknown as { persist?: { flush?: () => void } }).persist;
+    api?.flush?.();
+    const raw = localStorage.getItem('wrongstack-ui');
+    expect(raw).toBeTruthy();
+    const blob = JSON.parse(raw!) as { state: Record<string, unknown> };
+    expect(blob.state.dockSection).toBe('work');
+  });
+
+  it('accepts the new refresh-debug view without coercion', () => {
+    useUIStore.getState().setCurrentView('refresh-debug');
+    expect(useUIStore.getState().currentView).toBe('refresh-debug');
+  });
+
+  it('migrate() coerces unknown legacy currentView values onto chat', () => {
+    const api = (
+      useUIStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api?.getOptions?.().migrate?.({ currentView: 'context-tab-removed-in-v3' }, 4);
+    expect(result).toMatchObject({ currentView: 'chat' });
+  });
+
+  it('migrate() drops persisted dockSection values that are not in the union', () => {
+    const api = (
+      useUIStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api?.getOptions?.().migrate?.({ dockSection: 'fortran-dialect' }, 5);
+    expect(result).toMatchObject({ dockSection: null });
+  });
+
+  it('migrate() keeps a valid dockSection value untouched', () => {
+    const api = (
+      useUIStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api?.getOptions?.().migrate?.({ dockSection: 'autophase' }, 5);
+    expect(result).toMatchObject({ dockSection: 'autophase' });
   });
 });

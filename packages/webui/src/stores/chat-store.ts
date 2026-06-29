@@ -91,6 +91,13 @@ interface ChatState {
   thinkingLogBuffer: string;
   /** Wall-clock ms when the archived thinking text for this iteration began. */
   thinkingLogStartedAt: number | null;
+  /** Id of the session whose transcript is currently in `messages`. The
+   *  verifier view compares this to the server-reported active session id
+   *  on every `session.start` — a mismatch means the user switched sessions
+   *  without an explicit clear, and we drop the local transcript rather
+   *  than render it. Persisted alongside `messages` so the cross-session
+   *  bleed check survives F5. */
+  boundSessionId: string | null;
 
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'> & { timestamp?: number }) => string;
   setMessages: (messages: ChatMessage[]) => void;
@@ -106,6 +113,9 @@ interface ChatState {
   setLoading: (loading: boolean) => void;
   setAbortController: (ctrl: AbortController | null) => void;
   clearMessages: () => void;
+  /** Bind the current transcript to a session id. See boundSessionId above
+   *  for why this is a separate action. */
+  setBoundSessionId: (id: string | null) => void;
   setCurrentAssistantMessage: (id: string | null) => void;
   setCurrentToolId: (id: string | null) => void;
   truncateAfter: (id: string) => void;
@@ -149,6 +159,11 @@ export const useChatStore = create<ChatState>()(
       thinkingStartedAt: null,
       thinkingLogBuffer: '',
       thinkingLogStartedAt: null,
+      /** Id of the session this transcript belongs to. The verifier view uses
+       *  this to detect cross-session bleed: after F5, if the persisted
+       *  sessionId doesn't match the server-reported active session, we drop
+       *  the local transcript rather than render stale messages. */
+      boundSessionId: null as string | null,
 
       addMessage: (msg) => {
         const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
@@ -180,6 +195,13 @@ export const useChatStore = create<ChatState>()(
           thinkingStartedAt: null,
           thinkingLogBuffer: '',
           thinkingLogStartedAt: null,
+          // boundSessionId is the caller's responsibility to set when the
+          // caller knows which session owns these messages (e.g. the
+          // session.start handler passes the sessionId). When this store
+          // is hit via /resume or hydrateReplayMessages, the caller must
+          // also call setBoundSessionId; bare setMessages() leaves the
+          // prior binding intact so background rehydrate from localStorage
+          // can detect a sessionId mismatch.
         });
       },
 
@@ -258,7 +280,13 @@ export const useChatStore = create<ChatState>()(
           thinkingStartedAt: null,
           thinkingLogBuffer: '',
           thinkingLogStartedAt: null,
+          // Clearing the binding too — when the user hits /clear or Ctrl+L,
+          // any rehydrated transcript from localStorage has to be re-bound
+          // to the active session before the next message lands.
+          boundSessionId: null,
         }),
+
+      setBoundSessionId: (id) => set({ boundSessionId: id }),
 
       setCurrentAssistantMessage: (id) => set({ currentAssistantMessageId: id }),
       setCurrentToolId: (id) => set({ currentToolId: id }),
@@ -338,7 +366,66 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: 'wrongstack-chat',
-      partialize: () => ({}),
+      version: 1,
+      // Persist enough to recreate the visible transcript after F5.
+      //
+      //   messages         — the full user/assistant/tool/transcript.
+      //   queue            — typed-but-unsubmitted entries (so a refresh
+      //                      doesn't make the user retype them).
+      //   boundSessionId   — paired with messages so the verifier view can
+      //                      detect cross-session bleed.
+      //
+      // We deliberately do NOT persist: isLoading, abortController, runStart,
+      // executions, currentAssistantMessageId, currentToolId, the live
+      // thinking buffers, or toolMessageIdsByUseId. These are either non-
+      // serializable (AbortController, Map), pure runtime state (isLoading,
+      // runStart, currentAssistantMessageId is reset on every replay), or
+      // toolMessageIdsByUseId which is rebuildable from messages via
+      // indexToolMessages(). Re-fetching them from the server on resume is
+      // cheaper and more correct than resurrecting them from localStorage.
+      partialize: (s) => ({
+        messages: s.messages,
+        queue: s.queue,
+        boundSessionId: s.boundSessionId,
+        thinkingLogBuffer: s.thinkingLogBuffer,
+      }),
+      migrate: (persisted, version) => {
+        if (version > 1) {
+          // Future shape; drop and start clean.
+          return null as never as {
+            messages: ChatState['messages'];
+            queue: ChatState['queue'];
+            boundSessionId: string | null;
+            thinkingLogBuffer: string;
+          };
+        }
+        const p = (persisted ?? {}) as Partial<ChatState> & {
+          messages?: unknown;
+          queue?: unknown;
+        };
+        // Defensive: messages and queue must be arrays. Anything else means
+        // the persisted blob is from a build that emitted a different
+        // shape — wipe and start from defaults.
+        const safeMessages = Array.isArray(p.messages) ? p.messages : [];
+        const safeQueue = Array.isArray(p.queue) ? p.queue : [];
+        return {
+          messages: safeMessages as ChatState['messages'],
+          queue: safeQueue as ChatState['queue'],
+          boundSessionId: typeof p.boundSessionId === 'string' ? p.boundSessionId : null,
+          thinkingLogBuffer: typeof p.thinkingLogBuffer === 'string' ? p.thinkingLogBuffer : '',
+        };
+      },
+      // `_state` is unused by design — we only care that the rehydrate
+      // completed without error, which is the verifier view's signal
+      // that the local transcript is now safe to render.
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) return;
+        if (typeof window !== 'undefined') {
+          (
+            window as unknown as { __wrongstackChatRehydrated?: boolean }
+          ).__wrongstackChatRehydrated = true;
+        }
+      },
     },
   ),
 );

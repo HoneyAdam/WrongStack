@@ -1,8 +1,20 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { useSessionStore } from '../../src/stores/session-store';
 
-// persist middleware with partialize: () => ({}) — nothing is persisted
-// so we don't need localStorage mocking
+const PERSIST_KEY = 'wrongstack-session';
+
+function getPersisted(): Record<string, unknown> | null {
+  const raw = localStorage.getItem(PERSIST_KEY);
+  return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+}
+
+function setPersisted(value: Record<string, unknown> | null): void {
+  if (value === null) {
+    localStorage.removeItem(PERSIST_KEY);
+    return;
+  }
+  localStorage.setItem(PERSIST_KEY, JSON.stringify(value));
+}
 
 function resetStore() {
   useSessionStore.setState({
@@ -24,12 +36,31 @@ function resetStore() {
     contextModes: [],
     iteration: null,
     todos: [],
+    lastVisitedAt: 0,
   });
+  setPersisted(null);
 }
 
-const makeSession = (overrides: Partial<{
-  id: string; title: string; startedAt: string; provider: string; model: string
-}> = {}): Parameters<typeof useSessionStore.getState>[0]['session'] => ({
+function flushWrites(): void {
+  // Persist middleware writes are queued on a microtask; for test speed we
+  // grab the persist API and call flush() if available.
+  const api = (useSessionStore as unknown as { persist?: { flush?: () => void } }).persist;
+  api?.flush?.();
+}
+
+afterEach(() => {
+  resetStore();
+});
+
+const makeSession = (
+  overrides: Partial<{
+    id: string;
+    title: string;
+    startedAt: string;
+    provider: string;
+    model: string;
+  }> = {},
+): Parameters<typeof useSessionStore.getState>[0]['session'] => ({
   id: 'session-1',
   title: 'Test Session',
   startedAt: '2024-01-01T00:00:00.000Z',
@@ -106,7 +137,7 @@ describe('addCost', () => {
 
   it('accumulates cost', () => {
     useSessionStore.getState().addCost(0.05);
-    useSessionStore.getState().addCost(0.10);
+    useSessionStore.getState().addCost(0.1);
     expect(useSessionStore.getState().cost).toBeCloseTo(0.15);
   });
 });
@@ -248,7 +279,14 @@ describe('setContextModes', () => {
   beforeEach(() => resetStore());
 
   it('sets contextModes', () => {
-    const modes = [{ id: 'balanced', name: 'Balanced', description: '', thresholds: { warn: 0.5, soft: 0.7, hard: 0.9 } }];
+    const modes = [
+      {
+        id: 'balanced',
+        name: 'Balanced',
+        description: '',
+        thresholds: { warn: 0.5, soft: 0.7, hard: 0.9 },
+      },
+    ];
     useSessionStore.getState().setContextModes(modes);
     expect(useSessionStore.getState().contextModes).toEqual(modes);
   });
@@ -269,9 +307,176 @@ describe('setTodos', () => {
   });
 
   it('replaces existing todos', () => {
-    useSessionStore.setState({ todos: [{ id: 'old', content: 'Old', status: 'pending' as const }] });
-    useSessionStore.getState().setTodos([{ id: 'new', content: 'New', status: 'completed' as const }]);
+    useSessionStore.setState({
+      todos: [{ id: 'old', content: 'Old', status: 'pending' as const }],
+    });
+    useSessionStore
+      .getState()
+      .setTodos([{ id: 'new', content: 'New', status: 'completed' as const }]);
     expect(useSessionStore.getState().todos).toHaveLength(1);
     expect(useSessionStore.getState().todos[0].id).toBe('new');
+  });
+});
+
+// ── F5 resilience: persistence + migrate ─────────────────────────
+//
+// The persist middleware covers the F5 contract: after a page refresh the
+// session pointer + env fields must come back from localStorage without
+// help from the WebSocket.
+//
+// Partialize is intentional: heavy fields (modes, contextModes,
+// iteration, todos, totalTokens, cost, startTime) are NOT persisted so
+// they get re-fetched from the server on reconnect — the server is the
+// authority on live run state.
+describe('F5 resilience — persistence', () => {
+  it('writes the persisted session pointer + env on setSession', () => {
+    useSessionStore.setState({
+      projectName: 'wrongstack-demo',
+      projectRoot: '/tmp/wrongstack-demo',
+      cwd: '/tmp/wrongstack-demo/src',
+      mode: 'code',
+      contextMode: 'frugal',
+    });
+    useSessionStore.getState().setSession(makeSession({ id: 'sess-XYZ' }));
+    flushWrites();
+    const blob = getPersisted();
+    expect(blob).toBeTruthy();
+    expect((blob!.state as Record<string, unknown>).session).toMatchObject({
+      id: 'sess-XYZ',
+    });
+    expect((blob!.state as Record<string, unknown>).projectName).toBe('wrongstack-demo');
+    expect((blob!.state as Record<string, unknown>).cwd).toBe('/tmp/wrongstack-demo/src');
+    expect((blob!.state as Record<string, unknown>).mode).toBe('code');
+    expect((blob!.state as Record<string, unknown>).contextMode).toBe('frugal');
+  });
+
+  it('does NOT persist heavy fields (modes, todos, iteration, totalTokens)', () => {
+    useSessionStore.setState({
+      iteration: { index: 5, max: 10 },
+      totalTokens: { input: 999, output: 88, cacheRead: 11, cacheWrite: 0 },
+      cost: 0.42,
+      startTime: 1_700_000_000_000,
+    });
+    useSessionStore.getState().setSession(makeSession());
+    flushWrites();
+    const blob = getPersisted();
+    const persisted = blob!.state as Record<string, unknown>;
+    expect(persisted.iteration).toBeUndefined();
+    expect(persisted.totalTokens).toBeUndefined();
+    expect(persisted.cost).toBeUndefined();
+    expect(persisted.startTime).toBeUndefined();
+  });
+
+  it('stamps lastVisitedAt on setSession and startSession', () => {
+    const before = Date.now();
+    useSessionStore.getState().setSession(makeSession());
+    const after = Date.now();
+    const s = useSessionStore.getState();
+    expect(s.lastVisitedAt).toBeGreaterThanOrEqual(before);
+    expect(s.lastVisitedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('round-trips session + env through migrate() with version 1', () => {
+    const v1Blob = {
+      state: {
+        session: {
+          id: 'restored-after-f5',
+          title: 'Round trip',
+          startedAt: 1_700_000_000_000,
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+        },
+        projectName: 'persisted-project',
+        projectRoot: '/tmp/persisted-project',
+        cwd: '/tmp/persisted-project',
+        mode: 'plan',
+        contextMode: 'deep',
+        lastVisitedAt: 1_700_000_000_001,
+      },
+      version: 1,
+    };
+    setPersisted(v1Blob as Record<string, unknown>);
+    // Force the persist middleware to re-run migrate by re-creating the
+    // store facade. In the real run the persist API does this on
+    // construction; for the test we exercise it through the same path
+    // by calling rehydrate() if available, otherwise by toggling state.
+    const api = (
+      useSessionStore as unknown as {
+        persist?: {
+          rehydrate?: () => Promise<void>;
+          getOptions?: () => { migrate?: (p: unknown, v: number) => unknown };
+        };
+      }
+    ).persist;
+    expect(api?.getOptions?.().migrate).toBeTypeOf('function');
+    // Manually invoke the migrate the store registered, to validate
+    // that the v1 shape hydrates cleanly under the current migrate.
+    const restored = api?.getOptions?.().migrate?.(v1Blob.state, 1);
+    expect(restored).toMatchObject({
+      session: { id: 'restored-after-f5' },
+      projectName: 'persisted-project',
+      cwd: '/tmp/persisted-project',
+      mode: 'plan',
+      contextMode: 'deep',
+      lastVisitedAt: 1_700_000_000_001,
+    });
+  });
+
+  it('migrate() rejects future versions (drops stale payload)', () => {
+    setPersisted({
+      state: { session: { id: 'future-build' } },
+      version: 99,
+    } as Record<string, unknown>);
+    const api = (
+      useSessionStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api?.getOptions?.().migrate?.({ session: { id: 'future-build' } }, 99);
+    // migrate() returns null for unknown-future versions — Zustand then
+    // reverts to defaults. The shape doesn't matter, only the contract.
+    expect(result).toBeNull();
+  });
+
+  it('migrate() rejects corrupt session shape', () => {
+    setPersisted({
+      state: { session: 'not-an-object', projectName: 'x' },
+      version: 1,
+    } as Record<string, unknown>);
+    const api = (
+      useSessionStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api?.getOptions?.().migrate?.({ session: 'not-an-object', projectName: 'x' }, 1);
+    expect(result).toBeNull();
+  });
+
+  it('migrate() coerces non-string env fields to defaults', () => {
+    setPersisted({
+      state: { projectName: 42, cwd: { bogus: true }, mode: null },
+      version: 1,
+    } as Record<string, unknown>);
+    const api = (
+      useSessionStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api
+      ?.getOptions?.()
+      .migrate?.({ projectName: 42, cwd: { bogus: true }, mode: null }, 1);
+    expect(result).toMatchObject({
+      projectName: '',
+      cwd: '',
+      mode: 'default',
+    });
+  });
+
+  it('does NOT clear lastVisitedAt when endSession() runs', () => {
+    useSessionStore.getState().startSession(makeSession({ id: 'sess-end' }));
+    const stamped = useSessionStore.getState().lastVisitedAt;
+    expect(stamped).toBeGreaterThan(0);
+    useSessionStore.getState().endSession();
+    expect(useSessionStore.getState().lastVisitedAt).toBe(stamped);
   });
 });

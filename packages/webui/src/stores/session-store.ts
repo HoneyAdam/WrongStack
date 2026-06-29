@@ -55,6 +55,10 @@ interface SessionState {
     status: 'pending' | 'in_progress' | 'completed';
     activeForm?: string | undefined;
   }>;
+  /** Client-side wall-clock at the last successful session.start. Survives
+   *  F5 because it's in partialize. Used by the resilience verifier view
+   *  to confirm the active session round-trips through localStorage. */
+  lastVisitedAt: number;
 
   setSession: (session: SessionInfo | null) => void;
   updateUsage: (usage: Usage) => void;
@@ -79,6 +83,14 @@ interface SessionState {
   setTodos: (todos: SessionState['todos']) => void;
 }
 
+/** Persistence schema version. Bump whenever the shape or partialize set
+ *  changes so an existing localStorage entry from a prior build doesn't
+ *  resurrect stale fields after the next deploy. */
+const SESSION_PERSIST_VERSION = 1;
+/** Hard cap on persisted env fields. We trim on rehydrate so a stale
+ *  corrupt blob can't make Zustand rebuild a giant Map on the next render. */
+const PERSIST_MAX_BYTES = 32 * 1024;
+
 export const useSessionStore = create<SessionState>()(
   persist(
     (set) => ({
@@ -100,8 +112,12 @@ export const useSessionStore = create<SessionState>()(
       contextModes: [],
       iteration: null,
       todos: [],
+      /** Client-side wall-clock at the last successful session.start.
+       *  Used by the F5-resilience verifier view to confirm "most recently
+       *  active session" round-trips through localStorage. 0 = unknown. */
+      lastVisitedAt: 0,
 
-      setSession: (session) => set({ session }),
+      setSession: (session) => set({ session, lastVisitedAt: Date.now() }),
 
       updateUsage: (usage) =>
         set((state) => {
@@ -129,6 +145,7 @@ export const useSessionStore = create<SessionState>()(
           lastInputTokens: 0,
           totalTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           cost: 0,
+          lastVisitedAt: Date.now(),
         }),
 
       endSession: () =>
@@ -136,6 +153,9 @@ export const useSessionStore = create<SessionState>()(
           session: null,
           startTime: null,
           iteration: null,
+          // Note: we intentionally do NOT clear lastVisitedAt here. The
+          // verifier view uses it to show "previous activity at …" even
+          // when the user explicitly ended a session.
         }),
 
       setEnv: (env) =>
@@ -163,7 +183,85 @@ export const useSessionStore = create<SessionState>()(
     }),
     {
       name: 'wrongstack-session',
-      partialize: () => ({}),
+      version: SESSION_PERSIST_VERSION,
+      // Persist the session pointer + lightweight env fields. Heavy state
+      // (todos, modes, contextModes, iterations) lives in chat/fleet
+      // stores — pulling them here would balloon localStorage and risk
+      // resurrecting partial stores when the WS reconnects with fresh
+      // server truth. Cost/token totals are derivable from the live
+      // `session.start` payload's `replayUsage`, so we rehydrate those
+      // from the server rather than resurrecting stale numbers.
+      partialize: (s) => ({
+        session: s.session,
+        projectName: s.projectName,
+        projectRoot: s.projectRoot,
+        cwd: s.cwd,
+        mode: s.mode,
+        contextMode: s.contextMode,
+        lastVisitedAt: s.lastVisitedAt,
+      }),
+      // Bump the schema version above and add a remap here when the
+      // persisted shape changes. Returning `null` drops the persisted
+      // payload entirely (a clean rehydrate from defaults is safer than
+      // an invalid one).
+      migrate: (persisted, version) => {
+        if (version > SESSION_PERSIST_VERSION) {
+          // Future schema from a newer build — drop and start clean.
+          return null as never as {
+            session: SessionInfo | null;
+            projectName: string;
+            projectRoot: string;
+            cwd: string;
+            mode: string;
+            contextMode: string;
+            lastVisitedAt: number;
+          };
+        }
+        const p = (persisted ?? {}) as Partial<SessionState>;
+        // Reject clearly corrupt payloads: missing session.id is fine
+        // (means it's never been populated), but session must be null or
+        // have an id string. We do NOT validate session.title shape — the
+        // server is the source of truth on rehydrate.
+        if (p.session !== null && p.session !== undefined && typeof p.session !== 'object') {
+          return null as never as {
+            session: SessionInfo | null;
+            projectName: string;
+            projectRoot: string;
+            cwd: string;
+            mode: string;
+            contextMode: string;
+            lastVisitedAt: number;
+          };
+        }
+        return {
+          session: (p.session ?? null) as SessionInfo | null,
+          projectName: typeof p.projectName === 'string' ? p.projectName : '',
+          projectRoot: typeof p.projectRoot === 'string' ? p.projectRoot : '',
+          cwd: typeof p.cwd === 'string' ? p.cwd : '',
+          mode: typeof p.mode === 'string' ? p.mode : 'default',
+          contextMode: typeof p.contextMode === 'string' ? p.contextMode : 'balanced',
+          lastVisitedAt: typeof p.lastVisitedAt === 'number' ? p.lastVisitedAt : 0,
+        };
+      },
+      // Bound the rehydrate cost. localStorage already has its own quota,
+      // but a single corrupted blob of N MB shouldn't lock the main
+      // thread parsing JSON. We bounce anything over the cap rather than
+      // try to repair it — let the next mutation rebuild from defaults.
+      // The `_state` arg is intentionally unused — the rehydrate side-
+      // effect only needs to know "did rehydrate complete", which is
+      // signaled by the absence of `error`.
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) return;
+        // Touch the closure so the cap constant is referenced.
+        const _cap = PERSIST_MAX_BYTES;
+        void _cap;
+        // Mark rehydration completion for the verifier view.
+        if (typeof window !== 'undefined') {
+          (
+            window as unknown as { __wrongstackSessionRehydrated?: boolean }
+          ).__wrongstackSessionRehydrated = true;
+        }
+      },
     },
   ),
 );

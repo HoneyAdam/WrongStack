@@ -1,396 +1,407 @@
-import { expectDefined, GlobalMailbox, getSessionRegistry, AgentStatusTracker, FleetNotifier, resolveProjectDir } from '@wrongstack/core';
+import * as fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import * as path from 'node:path';
+import {
+  Agent,
+  AgentStatusTracker,
+  AnnotationsStore,
+  AutoCompactionMiddleware,
+  applyToolDescriptionModes,
+  applyToolResultRenderModes,
+  atomicWrite,
+  type BrainArbiter,
+  type BrainAutoRisk,
+  BrainMonitor,
+  CollaborationBus,
+  Context,
+  cleanupStaleSddWorktrees,
+  collabInjectMiddleware,
+  collabPauseMiddleware,
+  createAutonomyBrain,
+  createDefaultPipelines,
+  createSessionEventBridge,
+  createStrategyCompactor,
+  createTieredBrainArbiter,
+  DEFAULT_CONTEXT_WINDOW_MODE_ID,
+  DEFAULT_SESSION_PRUNE_DAYS,
+  DEFAULT_TOOLS_CONFIG,
+  DefaultBrainArbiter,
+  DefaultMemoryStore,
+  DefaultModelsRegistry,
+  DefaultModeStore,
+  DefaultPromptLoader,
+  DefaultSessionReader,
+  DefaultSessionStore,
+  DefaultSkillLoader,
+  DefaultSystemPromptBuilder,
+  DefaultTokenCounter,
+  EventBus,
+  enhanceUserPrompt,
+  estimateRequestTokensCalibrated,
+  expectDefined,
+  FleetNotifier,
+  GlobalMailbox,
+  gatedEnhancerReasoning,
+  getSessionRegistry,
+  installDesignStudioMiddleware,
+  mailboxSessionTag,
+  makeMailboxTool,
+  makeMailInboxTool,
+  makeMailSendTool,
+  ObservableBrainArbiter,
+  PromptUsageStore,
+  type Provider,
+  ProviderRegistry,
+  recentTextTurns,
+  resolveContextWindowPolicy,
+  resolveProjectDir,
+  resolveProviderModelList,
+  resolveSessionLoggingConfig,
+  TOKENS,
+  ToolRegistry,
+} from '@wrongstack/core';
 import { readLiveLock } from '@wrongstack/core/coordination';
+import { ToolExecutor } from '@wrongstack/core/execution';
+import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
+import { SkillInstaller } from '@wrongstack/core/skills';
+import { projectHash, toErrorMessage, wstackGlobalRoot } from '@wrongstack/core/utils';
+import { MCPRegistry } from '@wrongstack/mcp';
+import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
+import { createDefaultContainer, makeLightSubagentFactory } from '@wrongstack/runtime';
+import {
+  builtinToolsPack,
+  configureExecPolicy,
+  ensureSessionShell,
+  forgetTool,
+  relatedMemoryTool,
+  rememberTool,
+  searchMemoryTool,
+} from '@wrongstack/tools';
+import { WebSocket, WebSocketServer } from 'ws';
+import { type AutoPhaseRouteHandlers, handleAutoPhaseRoute } from './autophase-routes.js';
+import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+import { bootConfig, patchConfig } from './boot.js';
+import { type BrainRouteHandlers, handleBrainRoute } from './brain-routes.js';
+import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
+import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
+import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
+import { createCustomModeStore } from './custom-context-modes.js';
+import {
+  handleDesignList,
+  handleDesignMaterialize,
+  handleDesignSet,
+  handleDesignState,
+  handleDesignUse,
+  handleDesignVerify,
+} from './design-handlers.js';
+import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
+import { createEternalSubscription } from './eternal-iteration-broadcast.js';
+import {
+  handleFilesList,
+  handleFilesRead,
+  handleFilesTree,
+  handleFilesWrite,
+} from './file-handlers.js';
+import { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
+import { handleGoalGet } from './goal-handlers.js';
 import {
   handleWorklistMessage,
   type WorklistContext,
   type WorklistMessage,
 } from './handlers/index.js';
-import { makeMailboxTool, makeMailSendTool, makeMailInboxTool, mailboxSessionTag } from '@wrongstack/core';
-import { toErrorMessage, wstackGlobalRoot, projectHash } from '@wrongstack/core/utils';
-import { SkillInstaller } from '@wrongstack/core/skills';
-import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
-import {
-  BrainMonitor,
-  DefaultBrainArbiter,
-  ObservableBrainArbiter,
-  createAutonomyBrain,
-  createTieredBrainArbiter,
-  type BrainArbiter,
-  type BrainAutoRisk,
-} from '@wrongstack/core';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { createRequire } from 'node:module';
 import { createHttpServer } from './http-server.js';
-import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
+import { registerInstance, unregisterInstance } from './instance-registry.js';
+import { registerShutdownHandlers } from './lifecycle.js';
 import {
-  handleFilesTree,
-  handleFilesRead,
-  handleFilesWrite,
-  handleFilesList,
-} from './file-handlers.js';
-import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
+  handleMailboxAgents,
+  handleMailboxClear,
+  handleMailboxMessages,
+  handleMailboxPurge,
+} from './mailbox-handlers.js';
+import { handleMailboxRoute, type MailboxRouteHandlers } from './mailbox-routes.js';
 import {
-  validateMailboxAgentsPayload,
-  validateMailboxMessagesPayload,
-  validateMailboxPurgePayload,
-  validateModelSwitchPayload,
-  validatePrefsUpdatePayload,
-  validateShellOpenPayload,
-  validateGitDiffPayload,
-  validateAutonomySwitchPayload,
-  validateBrainAskPayload,
-  validateBrainRiskPayload,
-} from './ws-payload-validation.js';
-import {
-  handleMemoryList,
-  handleMemoryRemember,
-  handleMemoryForget,
-} from './memory-handlers.js';
-import {
-  handleMcpList,
   handleMcpAdd,
-  handleMcpRemove,
-  handleMcpUpdate,
-  handleMcpWake,
-  handleMcpSleep,
+  handleMcpDisable,
   handleMcpDiscover,
   handleMcpEnable,
-  handleMcpDisable,
+  handleMcpList,
+  handleMcpRemove,
   handleMcpRestart,
+  handleMcpSleep,
+  handleMcpUpdate,
+  handleMcpWake,
 } from './mcp-handlers.js';
-import {
-  handleSkillsList,
-  handleSkillsContent,
-  handleSkillsInstall,
-  handleSkillsUninstall,
-  handleSkillsUpdate,
-  handleSkillsCreate,
-  handleSkillsEdit,
-  handleSkillsExport,
-} from './skills-handlers.js';
-import {
-  handlePromptsList,
-  handlePromptsSearch,
-  handlePromptsContent,
-  handlePromptsFavorite,
-  handlePromptsCreate,
-  handlePromptsUsed,
-  handlePromptsRecent,
-} from './prompts-handlers.js';
-import {
-  handleDesignList,
-  handleDesignMaterialize,
-  handleDesignSet,
-  handleDesignUse,
-  handleDesignState,
-  handleDesignVerify,
-} from './design-handlers.js';
-import {
-  Agent,
-  AutoCompactionMiddleware,
-  Context,
-  DefaultMemoryStore,
-  DefaultModeStore,
-  DefaultModelsRegistry,
-  DefaultSessionReader,
-  DefaultSessionStore,
-  DefaultSkillLoader,
-  DefaultPromptLoader,
-  PromptUsageStore,
-  DefaultSystemPromptBuilder,
-  DefaultTokenCounter,
-  AnnotationsStore,
-  CollaborationBus,
-  collabPauseMiddleware,
-  collabInjectMiddleware,
-  estimateRequestTokensCalibrated,
-  EventBus,
-  createStrategyCompactor,
-  type Provider,
-  ProviderRegistry,
-  TOKENS,
-  ToolRegistry,
-  atomicWrite,
-  createDefaultPipelines,
-  installDesignStudioMiddleware,
-  createSessionEventBridge,
-  resolveSessionLoggingConfig,
-  DEFAULT_CONTEXT_WINDOW_MODE_ID,
-  DEFAULT_SESSION_PRUNE_DAYS,
-  DEFAULT_TOOLS_CONFIG,
-  applyToolDescriptionModes,
-  applyToolResultRenderModes,
-  resolveContextWindowPolicy,
-  enhanceUserPrompt,
-  gatedEnhancerReasoning,
-  recentTextTurns,
-  resolveProviderModelList,
-  cleanupStaleSddWorktrees,
-} from '@wrongstack/core';
-import { ToolExecutor } from '@wrongstack/core/execution';
-import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { buildProviderFactoriesFromRegistry, makeProviderFromConfig } from '@wrongstack/providers';
-import { builtinToolsPack, configureExecPolicy, ensureSessionShell, forgetTool, rememberTool, searchMemoryTool, relatedMemoryTool } from '@wrongstack/tools';
-import { MCPRegistry } from '@wrongstack/mcp';
-import { WebSocket, WebSocketServer } from 'ws';
-import { createDefaultContainer, makeLightSubagentFactory } from '@wrongstack/runtime';
-import { bootConfig, patchConfig } from './boot.js';
-import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
-import { SpecsWebSocketHandler } from './specs-ws-handler.js';
-import { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
-import { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
-import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
-import { handleSddWizardRoute, type SddWizardRouteHandlers } from './sdd-wizard-routes.js';
-import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
+import { handleMcpRoute, type McpRouteHandlers } from './mcp-routes.js';
+import { handleMemoryForget, handleMemoryList, handleMemoryRemember } from './memory-handlers.js';
+import { createModeHandlers } from './mode-handlers.js';
+import { handleModeRoute, type ModeRouteHandlers } from './mode-routes.js';
+import { openBrowser } from './open-browser.js';
+import { findFreePort } from './port-utils.js';
+import { handlePrefsRoute, type PrefsRouteHandlers } from './prefs-routes.js';
+import { handleProcessKill, handleProcessKillAll, handleProcessList } from './process-handlers.js';
+import { createProjectHandlers } from './project-handlers.js';
+import { handleProjectRoute, type ProjectRouteHandlers } from './project-routes.js';
 import {
   ensureProjectDataDir,
   generateProjectSlug,
   loadManifest,
   saveManifest,
 } from './projects-manifest.js';
-import { TerminalWebSocketHandler } from './terminal-ws-handler.js';
-import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-import { handleMailboxMessages, handleMailboxAgents, handleMailboxClear, handleMailboxPurge } from './mailbox-handlers.js';
-import { verifyClient as verifyWsClient } from './ws-auth.js';
-import { registerShutdownHandlers } from './lifecycle.js';
-import { registerInstance, unregisterInstance } from './instance-registry.js';
-import { findFreePort } from './port-utils.js';
-import { openBrowser } from './open-browser.js';
-import { computeUsageCost, getCostRates } from './usage-cost.js';
+import {
+  handlePromptsContent,
+  handlePromptsCreate,
+  handlePromptsFavorite,
+  handlePromptsList,
+  handlePromptsRecent,
+  handlePromptsSearch,
+  handlePromptsUsed,
+} from './prompts-handlers.js';
 import { createProviderHandlers, projectSavedProviders } from './provider-handlers.js';
-import { createModeHandlers } from './mode-handlers.js';
-import { createProjectHandlers } from './project-handlers.js';
-import { createSessionHandlers } from './session-handlers.js';
-import { handleProviderRoute, type ProviderRouteHandlers } from './provider-routes.js';
-import { handleSessionRoute, type SessionRouteHandlers } from './session-routes.js';
-import { handleProjectRoute, type ProjectRouteHandlers } from './project-routes.js';
-import { handleModeRoute, type ModeRouteHandlers } from './mode-routes.js';
-import { handlePrefsRoute, type PrefsRouteHandlers } from './prefs-routes.js';
-import { handleShellGitRoute, type ShellGitRouteHandlers } from './shell-git-routes.js';
-import { handleMailboxRoute, type MailboxRouteHandlers } from './mailbox-routes.js';
-import { handleMcpRoute, type McpRouteHandlers } from './mcp-routes.js';
-import { handleBrainRoute, type BrainRouteHandlers } from './brain-routes.js';
-import { handleAutoPhaseRoute, type AutoPhaseRouteHandlers } from './autophase-routes.js';
-import { handleSpecsRoute, type SpecsRouteHandlers } from './specs-routes.js';
-import { handleSddBoardRoute, type SddBoardRouteHandlers } from './sdd-board-routes.js';
-import { setupEvents, type FileWatcherMetrics } from './setup-events.js';
-import { createCustomModeStore } from './custom-context-modes.js';
 import { maskedKey, normalizeKeys } from './provider-keys.js';
+import { handleProviderRoute, type ProviderRouteHandlers } from './provider-routes.js';
 import {
-  send,
-  broadcast,
-  sendResult,
-  errMessage,
-  resolveAuthToken,
-  buildWebUIAccessUrl,
-  envFlag,
-} from './ws-utils.js';
-import { createEternalSubscription } from './eternal-iteration-broadcast.js';
+  buildRoutes,
+  type WebuiCallbacks,
+  type WebuiDeps,
+  type WebuiMutableState,
+} from './routes.js';
+import { handleSddBoardRoute, type SddBoardRouteHandlers } from './sdd-board-routes.js';
+import { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
+import { handleSddWizardRoute, type SddWizardRouteHandlers } from './sdd-wizard-routes.js';
+import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
+import { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
+import { createSessionHandlers } from './session-handlers.js';
+import { handleSessionRoute, type SessionRouteHandlers } from './session-routes.js';
+import { type FileWatcherMetrics, setupEvents } from './setup-events.js';
+import { handleShellGitRoute, type ShellGitRouteHandlers } from './shell-git-routes.js';
 import { handleShellOpen, type ShellOpenRequest, type ShellOpenResult } from './shell-open.js';
-import { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
 import {
-  handleProcessKill,
-  handleProcessKillAll,
-  handleProcessList,
-} from './process-handlers.js';
-import { handleGoalGet } from './goal-handlers.js';
-// Re-export types — shared message shapes and options used by both the
-// standalone server and the CLI's `--webui` embedded mode.
-export type { WebUIOptions, BackendServices } from './types.js';
-export type { WSServerMessage, WSClientMessage, ConnectedClient } from './types.js';
-
-// Re-export the static-serve + multi-instance building blocks so other packages
-// (the CLI's `--webui` mode) can serve the same React frontend, inject the live
-// WS port, pick free ports, and register in the shared instance registry —
-// without duplicating any of that logic.
-export { createHttpServer, buildCspHeader, injectWsPort } from './http-server.js';
-export type { CreateHttpServerOptions } from './http-server.js';
-export { findFreePort, isPortFree } from './port-utils.js';
-export { openBrowser, browserOpenCommand } from './open-browser.js';
-export { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-// Token estimator primitives — exposed for the CLI's embedded webui
-// (which historically inlined its own copy and let it drift). Now
-// there's exactly one definition. See
-// packages/cli/src/webui-server.ts Phase 2 of the refactor plan.
-export {
-  estimateTokens,
-  messageTokens,
-  messagePreview,
-  stringifyContent,
-  type ContextBreakdown,
-  type MessageTokenEntry,
-  type ToolTokenEntry,
-} from './token-estimator.js';
-export {
-  registerInstance,
-  unregisterInstance,
-  listInstances,
-  formatInstances,
-  registryPath,
-  defaultBaseDir,
-  type WebUIInstanceRecord,
-} from './instance-registry.js';
-
-// WebSocket utilities shared with CLI
-export {
-  createEternalSubscription,
-  type EternalSubscribe,
-  type EternalBroadcast,
-  type EternalSubscription,
-} from './eternal-iteration-broadcast.js';
-export {
-  handleShellOpen,
-  type ShellOpenRequest,
-  type ShellOpenResult,
-  type ShellOpenTarget,
-} from './shell-open.js';
-export {
-  send,
+  handleSkillsContent,
+  handleSkillsCreate,
+  handleSkillsEdit,
+  handleSkillsExport,
+  handleSkillsInstall,
+  handleSkillsList,
+  handleSkillsUninstall,
+  handleSkillsUpdate,
+} from './skills-handlers.js';
+import { handleSpecsRoute, type SpecsRouteHandlers } from './specs-routes.js';
+import { SpecsWebSocketHandler } from './specs-ws-handler.js';
+import { TerminalWebSocketHandler } from './terminal-ws-handler.js';
+import { computeUsageCost, getCostRates } from './usage-cost.js';
+import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
+import { verifyClient as verifyWsClient } from './ws-auth.js';
+import {
+  validateAutonomySwitchPayload,
+  validateBrainAskPayload,
+  validateBrainRiskPayload,
+  validateGitDiffPayload,
+  validateMailboxAgentsPayload,
+  validateMailboxMessagesPayload,
+  validateMailboxPurgePayload,
+  validateModelSwitchPayload,
+  validatePrefsUpdatePayload,
+  validateShellOpenPayload,
+} from './ws-payload-validation.js';
+import {
   broadcast,
-  sendResult,
-  errMessage,
-  generateAuthToken,
-  resolveAuthToken,
-  hostForBrowserUrl,
   buildWebUIAccessUrl,
   envFlag,
+  errMessage,
+  resolveAuthToken,
+  send,
+  sendResult,
 } from './ws-utils.js';
-
-// File operation handlers shared with CLI (files.tree, files.read, files.write, files.list)
-export {
-  handleFilesTree,
-  handleFilesRead,
-  handleFilesWrite,
-  handleFilesList,
-} from './file-handlers.js';
-export {
-  createToolLspCompletionSource,
-  handleCompletionRequest,
-  type CompletionHandlerOptions,
-  type CompletionItemKind,
-  type CompletionSuggestion,
-  type LspCompletionSource,
-  type LspCompletionSourceRequest,
-} from './completion-handlers.js';
-
-// Git info handler shared with CLI (git.info) — single source so the two
-// servers can't drift on ahead/behind / insertion-deletion parsing.
-export { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
-
-// Memory operation handlers shared with CLI (memory.list, memory.remember, memory.forget)
-export {
-  handleMemoryList,
-  handleMemoryRemember,
-  handleMemoryForget,
-} from './memory-handlers.js';
-
-// MCP operation handlers shared with CLI (mcp.list, mcp.add, mcp.remove, etc.)
-export {
-  handleMcpList,
-  handleMcpAdd,
-  handleMcpRemove,
-  handleMcpUpdate,
-  handleMcpWake,
-  handleMcpSleep,
-  handleMcpDiscover,
-  handleMcpEnable,
-  handleMcpDisable,
-  handleMcpRestart,
-} from './mcp-handlers.js';
-
-// Custom context-mode store shared with the CLI's embedded server
-// (context.mode.create/update/delete + custom-aware list/switch).
-export {
-  createCustomModeStore,
-  type CustomModeStore,
-  type CustomContextMode,
-} from './custom-context-modes.js';
-
-// WS auth — pure functions for verifying WebSocket connections
-export {
-  verifyClient,
-  isLoopbackHostname,
-  isLoopbackBind,
-  tokenMatches,
-  extractToken,
-  hostHeaderOk,
-  type VerifyClientInput,
-} from './ws-auth.js';
-
-// Provider/API-key record transforms (pure functions, testable without I/O)
-export {
-  normalizeKeys,
-  writeKeysBack,
-  maskedKey,
-  upsertKey,
-  deleteKey,
-  setActiveKey,
-  addProvider,
-  removeProvider,
-  type KeyOpResult,
-  type ProvidersRecord,
-} from './provider-keys.js';
-
-// Provider config load/save (decrypt from / encrypt to global config)
-export {
-  loadSavedProviders,
-  saveProviders,
-  createProviderConfigIO,
-} from './provider-config-io.js';
 
 // AutoPhase WebSocket handler — manages AutoPhase lifecycle via WS messages.
 // Exported so the CLI's embedded webui-server can also handle autophase.*
 // messages when running in --webui mode.
 export { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
-export { SpecsWebSocketHandler } from './specs-ws-handler.js';
-export { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
-export { SddWizardWebSocketHandler, type SddWizardDeps } from './sdd-wizard-ws-handler.js';
-export { buildSddWizardDeps, type SddWizardWiringOptions } from './sdd-wizard-wiring.js';
-
-// Shared skills WebSocket handlers — one source of truth for both this
-// standalone server and the CLI's embedded --webui server. The CLI imports
-// these so skills.content / install / uninstall / update / create / edit /
-// export are handled there too (they previously fell through to the
-// "Unhandled message type" warning).
 export {
-  type SkillsContext,
-  handleSkillsContent,
-  handleSkillsInstall,
-  handleSkillsUninstall,
-  handleSkillsUpdate,
-  handleSkillsCreate,
-  handleSkillsEdit,
-  handleSkillsExport,
-} from './skills-handlers.js';
-// Shared prompt-library handlers — one source of truth for both servers.
+  type CompletionHandlerOptions,
+  type CompletionItemKind,
+  type CompletionSuggestion,
+  createToolLspCompletionSource,
+  handleCompletionRequest,
+  type LspCompletionSource,
+  type LspCompletionSourceRequest,
+} from './completion-handlers.js';
+// Custom context-mode store shared with the CLI's embedded server
+// (context.mode.create/update/delete + custom-aware list/switch).
 export {
-  type PromptsContext,
-  handlePromptsList,
-  handlePromptsSearch,
-  handlePromptsContent,
-  handlePromptsFavorite,
-  handlePromptsCreate,
-  handlePromptsUsed,
-  handlePromptsRecent,
-} from './prompts-handlers.js';
+  type CustomContextMode,
+  type CustomModeStore,
+  createCustomModeStore,
+} from './custom-context-modes.js';
 // Design Studio handlers — shared so the CLI's embedded server reaches parity.
 export {
   type DesignContext,
   handleDesignList,
   handleDesignMaterialize,
   handleDesignSet,
-  handleDesignUse,
   handleDesignState,
+  handleDesignUse,
   handleDesignVerify,
 } from './design-handlers.js';
+// WebSocket utilities shared with CLI
+export {
+  createEternalSubscription,
+  type EternalBroadcast,
+  type EternalSubscribe,
+  type EternalSubscription,
+} from './eternal-iteration-broadcast.js';
+// File operation handlers shared with CLI (files.tree, files.read, files.write, files.list)
+export {
+  handleFilesList,
+  handleFilesRead,
+  handleFilesTree,
+  handleFilesWrite,
+} from './file-handlers.js';
+// Git info handler shared with CLI (git.info) — single source so the two
+// servers can't drift on ahead/behind / insertion-deletion parsing.
+export { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
+export type { CreateHttpServerOptions } from './http-server.js';
+// Re-export the static-serve + multi-instance building blocks so other packages
+// (the CLI's `--webui` mode) can serve the same React frontend, inject the live
+// WS port, pick free ports, and register in the shared instance registry —
+// without duplicating any of that logic.
+export { buildCspHeader, createHttpServer, injectWsPort } from './http-server.js';
+export {
+  defaultBaseDir,
+  formatInstances,
+  listInstances,
+  registerInstance,
+  registryPath,
+  unregisterInstance,
+  type WebUIInstanceRecord,
+} from './instance-registry.js';
+// MCP operation handlers shared with CLI (mcp.list, mcp.add, mcp.remove, etc.)
+export {
+  handleMcpAdd,
+  handleMcpDisable,
+  handleMcpDiscover,
+  handleMcpEnable,
+  handleMcpList,
+  handleMcpRemove,
+  handleMcpRestart,
+  handleMcpSleep,
+  handleMcpUpdate,
+  handleMcpWake,
+} from './mcp-handlers.js';
+// Memory operation handlers shared with CLI (memory.list, memory.remember, memory.forget)
+export {
+  handleMemoryForget,
+  handleMemoryList,
+  handleMemoryRemember,
+} from './memory-handlers.js';
+export { browserOpenCommand, openBrowser } from './open-browser.js';
+export { findFreePort, isPortFree } from './port-utils.js';
+// Shared prompt-library handlers — one source of truth for both servers.
+export {
+  handlePromptsContent,
+  handlePromptsCreate,
+  handlePromptsFavorite,
+  handlePromptsList,
+  handlePromptsRecent,
+  handlePromptsSearch,
+  handlePromptsUsed,
+  type PromptsContext,
+} from './prompts-handlers.js';
+// Provider config load/save (decrypt from / encrypt to global config)
+export {
+  createProviderConfigIO,
+  loadSavedProviders,
+  saveProviders,
+} from './provider-config-io.js';
+// Provider/API-key record transforms (pure functions, testable without I/O)
+export {
+  addProvider,
+  deleteKey,
+  type KeyOpResult,
+  maskedKey,
+  normalizeKeys,
+  type ProvidersRecord,
+  removeProvider,
+  setActiveKey,
+  upsertKey,
+  writeKeysBack,
+} from './provider-keys.js';
+export { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
+export { buildSddWizardDeps, type SddWizardWiringOptions } from './sdd-wizard-wiring.js';
+export { type SddWizardDeps, SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
+export {
+  handleShellOpen,
+  type ShellOpenRequest,
+  type ShellOpenResult,
+  type ShellOpenTarget,
+} from './shell-open.js';
+// Shared skills WebSocket handlers — one source of truth for both this
+// standalone server and the CLI's embedded --webui server. The CLI imports
+// these so skills.content / install / uninstall / update / create / edit /
+// export are handled there too (they previously fell through to the
+// "Unhandled message type" warning).
+export {
+  handleSkillsContent,
+  handleSkillsCreate,
+  handleSkillsEdit,
+  handleSkillsExport,
+  handleSkillsInstall,
+  handleSkillsUninstall,
+  handleSkillsUpdate,
+  type SkillsContext,
+} from './skills-handlers.js';
+export { SpecsWebSocketHandler } from './specs-ws-handler.js';
+// Token estimator primitives — exposed for the CLI's embedded webui
+// (which historically inlined its own copy and let it drift). Now
+// there's exactly one definition. See
+// packages/cli/src/webui-server.ts Phase 2 of the refactor plan.
+export {
+  type ContextBreakdown,
+  estimateTokens,
+  type MessageTokenEntry,
+  messagePreview,
+  messageTokens,
+  stringifyContent,
+  type ToolTokenEntry,
+} from './token-estimator.js';
+// Re-export types — shared message shapes and options used by both the
+// standalone server and the CLI's `--webui` embedded mode.
+export type {
+  BackendServices,
+  ConnectedClient,
+  WebUIOptions,
+  WSClientMessage,
+  WSServerMessage,
+} from './types.js';
+export { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
+// WS auth — pure functions for verifying WebSocket connections
+export {
+  extractToken,
+  hostHeaderOk,
+  isLoopbackBind,
+  isLoopbackHostname,
+  tokenMatches,
+  type VerifyClientInput,
+  verifyClient,
+} from './ws-auth.js';
+export {
+  broadcast,
+  buildWebUIAccessUrl,
+  envFlag,
+  errMessage,
+  generateAuthToken,
+  hostForBrowserUrl,
+  resolveAuthToken,
+  send,
+  sendResult,
+} from './ws-utils.js';
 
 // Message + client shapes now live in ./types.ts (shared with the CLI's
 // embedded server). Imported here for internal use; re-exported above for
 // external consumers. The previous local copies shadowed these and made the
 // `Map<WebSocket, ConnectedClient>` passed to the extracted ws-utils helpers
 // nominally distinct, which TS rejected.
-import type { ConnectedClient, WSClientMessage, WebUIOptions } from './types.js';
+import type { ConnectedClient, WebUIOptions, WSClientMessage } from './types.js';
 
 export async function startWebUI(
   opts: WebUIOptions & {
@@ -439,24 +450,28 @@ export async function startWebUI(
     httpPort = await findFreePort(wsHost, requestedHttpPort);
     wsPort = await findFreePort(wsHost, requestedWsPort, { exclude: new Set([httpPort]) });
     if (httpPort !== requestedHttpPort) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'webui.port_reassigned',
-        protocol: 'HTTP',
-        requested: requestedHttpPort,
-        assigned: httpPort,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'webui.port_reassigned',
+          protocol: 'HTTP',
+          requested: requestedHttpPort,
+          assigned: httpPort,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
     if (wsPort !== requestedWsPort) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'webui.port_reassigned',
-        protocol: 'WS',
-        requested: requestedWsPort,
-        assigned: wsPort,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'webui.port_reassigned',
+          protocol: 'WS',
+          requested: requestedWsPort,
+          assigned: wsPort,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
   }
 
@@ -546,9 +561,10 @@ export async function startWebUI(
     console.log('[WebUI] No active provider — auto-selected:', firstKey);
   }
 
-  // If still no provider, the frontend will show a no-provider welcome screen.
+  // If still no provider, the frontend will show a setup screen.
   // We still start the HTTP/WS servers so the user can configure via the UI.
   const needsProvider = !config.provider || !config.model;
+  let needsSetup = needsProvider;
 
   // ModelsRegistry — use injected one if `services.modelsRegistry` was passed,
   // otherwise build a fresh one. The injected path lets the CLI's `runWebUI`
@@ -582,12 +598,14 @@ export async function startWebUI(
     for (const f of factories) providerRegistry.register(f);
     console.log('[WebUI] Provider registry loaded:', providerRegistry.list().length, 'providers');
   } catch (err) {
-    console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'webui.provider_registry_load_failed',
-      message: toErrorMessage(err),
-      timestamp: new Date().toISOString(),
-    }));
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'webui.provider_registry_load_failed',
+        message: toErrorMessage(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
   }
 
   // Tool registry — use injected one if `services.toolRegistry` was passed.
@@ -659,7 +677,8 @@ export async function startWebUI(
   // runWebUI already has its own session store pointing at the
   // right per-project dir; we reuse it here so the webui reads
   // the same history the CLI is writing.
-  let sessionStore = opts.services?.session ?? new DefaultSessionStore({ dir: wpaths.projectSessions });
+  let sessionStore =
+    opts.services?.session ?? new DefaultSessionStore({ dir: wpaths.projectSessions });
   // Prune old sessions on server start (non-blocking). Skipped when
   // an injected store is in use — the CLI's eternal loop is
   // responsible for its own lifecycle and pruning an in-use store
@@ -700,7 +719,9 @@ export async function startWebUI(
   // (and vice versa). Both best-effort — discovery must not block boot.
   try {
     await touchProjectEntry(projectRoot, workingDir);
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
   let statusTracker: AgentStatusTracker | undefined;
   try {
     const registry = getSessionRegistry(wpaths.globalRoot);
@@ -721,20 +742,27 @@ export async function startWebUI(
       projectRoot,
       selfPid: process.pid,
     });
-    statusTracker = new AgentStatusTracker({ events, registry, onUpdate: () => fleetNotifier.notify() });
+    statusTracker = new AgentStatusTracker({
+      events,
+      registry,
+      onUpdate: () => fleetNotifier.notify(),
+    });
     statusTracker.start();
 
     // ── HQ session telemetry — stream live state + full transcript to HQ ──
     let stopHqSessionBridge: (() => void) | undefined;
     let hqTelemetryPublisher: { close(): void } | undefined;
     try {
-      const { createHqPublisherFromEnv, startSessionTelemetryBridge } = await import('@wrongstack/core');
+      const { createHqPublisherFromEnv, startSessionTelemetryBridge } = await import(
+        '@wrongstack/core'
+      );
       const hqTelemetry = createHqPublisherFromEnv({
         clientKind: 'webui',
         projectRoot,
         projectName: path.basename(projectRoot),
         appConfig: config as never as Parameters<typeof createHqPublisherFromEnv>[0]['appConfig'],
-        socketFactory: (url: string) => new WebSocket(url) as unknown as import('@wrongstack/core').HqSocketLike,
+        socketFactory: (url: string) =>
+          new WebSocket(url) as unknown as import('@wrongstack/core').HqSocketLike,
       });
       if (hqTelemetry) {
         hqTelemetry.connect();
@@ -750,7 +778,9 @@ export async function startWebUI(
           startedAt: new Date().toISOString(),
         });
       }
-    } catch { /* telemetry optional */ }
+    } catch {
+      /* telemetry optional */
+    }
 
     const stopTracking = async () => {
       try {
@@ -759,12 +789,22 @@ export async function startWebUI(
         statusTracker?.stop();
         stopHqSessionBridge?.();
         hqTelemetryPublisher?.close();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
-    process.once('beforeExit', () => { void stopTracking(); });
-    process.once('SIGINT', () => { void stopTracking(); });
-    process.once('SIGTERM', () => { void stopTracking(); });
-  } catch { /* best-effort — discovery degrades gracefully */ }
+    process.once('beforeExit', () => {
+      void stopTracking();
+    });
+    process.once('SIGINT', () => {
+      void stopTracking();
+    });
+    process.once('SIGTERM', () => {
+      void stopTracking();
+    });
+  } catch {
+    /* best-effort — discovery degrades gracefully */
+  }
 
   // Token counter
   const tokenCounter = new DefaultTokenCounter({
@@ -885,16 +925,18 @@ export async function startWebUI(
         provider = makeProviderFromConfig(config.provider, cfgWithType);
       }
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'webui.provider_create_failed',
-        message: toErrorMessage(err),
-        timestamp: new Date().toISOString(),
-      }));
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'webui.provider_create_failed',
+          message: toErrorMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
       throw err;
     }
   } else {
-    // No provider is actively selected, but saved providers exist.
+    // No provider is actively selected, but saved providers may exist.
     // Re-read the config to find one with a usable encrypted API key
     // and create a real provider from it (the vault is already initialized).
     const savedProviders = config.providers ?? {};
@@ -910,18 +952,28 @@ export async function startWebUI(
         });
         console.log('[WebUI] Using saved provider:', firstKey);
       } catch (err) {
-        console.error(JSON.stringify({
-          level: 'error',
-          event: 'webui.provider_stub_create_failed',
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }));
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'webui.provider_stub_create_failed',
+            message: toErrorMessage(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
         throw err;
       }
     } else {
-      throw new Error(
-        'No provider configured. Run `wrongstack auth` to set up, or configure via the WebUI.',
-      );
+      // No providers at all — boot with a stub provider so the agent
+      // initializes, but mark needsSetup so the frontend shows the
+      // onboarding screen. The user must pick a real provider/model
+      // before sending their first message.
+      console.log('[WebUI] No providers configured — showing setup screen');
+      needsSetup = true;
+      provider = makeProviderFromConfig('anthropic', {
+        type: 'anthropic',
+        family: 'anthropic',
+        apiKey: 'stub-key-replaced-on-setup',
+      });
     }
   }
 
@@ -948,8 +1000,7 @@ export async function startWebUI(
   {
     const autonomyCfg = (config.autonomy ?? {}) as Record<string, unknown>;
     const rawMode = autonomyCfg['defaultMode'];
-    context.meta['autonomy'] =
-      rawMode === 'suggest' || rawMode === 'auto' ? rawMode : 'off';
+    context.meta['autonomy'] = rawMode === 'suggest' || rawMode === 'auto' ? rawMode : 'off';
     context.meta['autonomyDelayMs'] = (autonomyCfg['autoProceedDelayMs'] as number) ?? 45_000;
     context.meta['autoProceedMaxIterations'] =
       (autonomyCfg['autoProceedMaxIterations'] as number) ?? 50;
@@ -981,8 +1032,7 @@ export async function startWebUI(
     context.meta['contextMode'] = config.context?.mode ?? 'balanced';
     {
       const tsm = config.features?.tokenSavingMode;
-      context.meta['tokenSavingTier'] =
-        typeof tsm === 'string' ? tsm : tsm ? 'medium' : 'off';
+      context.meta['tokenSavingTier'] = typeof tsm === 'string' ? tsm : tsm ? 'medium' : 'off';
     }
     context.meta['maxConcurrent'] =
       typeof config.maxConcurrent === 'number' ? config.maxConcurrent : 10;
@@ -997,7 +1047,9 @@ export async function startWebUI(
       context.meta['reasoningPreserve'] = mr.reasoning?.preserve === true;
       context.meta['cacheTtl'] = mr.cache?.ttl ?? 'default';
     }
-    const hqConfig = (config as { hq?: { enabled?: boolean; url?: string; token?: string; rawContent?: boolean } }).hq;
+    const hqConfig = (
+      config as { hq?: { enabled?: boolean; url?: string; token?: string; rawContent?: boolean } }
+    ).hq;
     context.meta['hqEnabled'] = hqConfig?.enabled === true;
     context.meta['hqUrl'] = hqConfig?.url ?? '';
     context.meta['hqToken'] = hqConfig?.token ?? '';
@@ -1007,8 +1059,11 @@ export async function startWebUI(
     // extensions.telegram — same path the CLI's /telegram-settings writes.
     // Seed the meta so the SettingsPanel reflects the persisted config on
     // first connect, before any prefs.update arrives.
-    const tgExt = (config.extensions as Record<string, Record<string, unknown>> | undefined)?.['telegram'];
-    context.meta['tgConfigured'] = typeof tgExt?.['botToken'] === 'string' && tgExt['botToken'].length > 0;
+    const tgExt = (config.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+      'telegram'
+    ];
+    context.meta['tgConfigured'] =
+      typeof tgExt?.['botToken'] === 'string' && tgExt['botToken'].length > 0;
     context.meta['tgSessionEnd'] = tgExt?.['notifyOnSessionEnd'] === true;
     context.meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
     const tgMs = tgExt?.['longToolThresholdMs'];
@@ -1017,17 +1072,50 @@ export async function startWebUI(
 
   /** Pref keys exposed to the settings panel via prefs.get / prefs.updated. */
   const PREF_KEYS = [
-    'autonomy', 'autonomyDelayMs', 'autoProceedMaxIterations', 'yolo', 'maxIterations',
-    'chime', 'confirmExit', 'streamFleet', 'nextPrediction',
-    'enhanceEnabled', 'enhanceDelayMs', 'enhanceLanguage',
-    'featureMcp', 'featurePlugins', 'featureMemory', 'featureSkills',
-    'featureModelsRegistry', 'indexOnStart',
-    'contextAutoCompact', 'contextStrategy', 'contextMode', 'tokenSavingTier',
-    'maxConcurrent', 'titleAnimation', 'logLevel', 'auditLevel',
-    'hqEnabled', 'hqUrl', 'hqToken', 'hqRawContent',
-    'tgConfigured', 'tgSessionEnd', 'tgDelegate', 'tgLongToolMs',
-    'reasoningMode', 'reasoningEffort', 'reasoningPreserve', 'cacheTtl',
-    'fallbackModels', 'fallbackProfiles', 'favoriteModels', 'favoriteModelsOnly', 'modelMatrix', 'fallbackAuto',
+    'autonomy',
+    'autonomyDelayMs',
+    'autoProceedMaxIterations',
+    'yolo',
+    'maxIterations',
+    'chime',
+    'confirmExit',
+    'streamFleet',
+    'nextPrediction',
+    'enhanceEnabled',
+    'enhanceDelayMs',
+    'enhanceLanguage',
+    'featureMcp',
+    'featurePlugins',
+    'featureMemory',
+    'featureSkills',
+    'featureModelsRegistry',
+    'indexOnStart',
+    'contextAutoCompact',
+    'contextStrategy',
+    'contextMode',
+    'tokenSavingTier',
+    'maxConcurrent',
+    'titleAnimation',
+    'logLevel',
+    'auditLevel',
+    'hqEnabled',
+    'hqUrl',
+    'hqToken',
+    'hqRawContent',
+    'tgConfigured',
+    'tgSessionEnd',
+    'tgDelegate',
+    'tgLongToolMs',
+    'reasoningMode',
+    'reasoningEffort',
+    'reasoningPreserve',
+    'cacheTtl',
+    'fallbackModels',
+    'fallbackProfiles',
+    'favoriteModels',
+    'favoriteModelsOnly',
+    'modelMatrix',
+    'fallbackAuto',
   ] as const;
 
   const prefSnapshot = (): Record<string, unknown> => {
@@ -1059,23 +1147,32 @@ export async function startWebUI(
       ) {
         setAutonomy('defaultMode', payload['autonomy']);
       }
-      if (typeof payload['autonomyDelayMs'] === 'number') setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
-      if (typeof payload['autoProceedMaxIterations'] === 'number') setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
+      if (typeof payload['autonomyDelayMs'] === 'number')
+        setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
+      if (typeof payload['autoProceedMaxIterations'] === 'number')
+        setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
       if (typeof payload['yolo'] === 'boolean') setAutonomy('yolo', payload['yolo']);
       if (typeof payload['chime'] === 'boolean') setAutonomy('chime', payload['chime']);
-      if (typeof payload['confirmExit'] === 'boolean') setAutonomy('confirmExit', payload['confirmExit']);
-      if (typeof payload['streamFleet'] === 'boolean') setAutonomy('streamFleet', payload['streamFleet']);
-      if (typeof payload['enhanceEnabled'] === 'boolean') setAutonomy('enhance', payload['enhanceEnabled']);
-      if (typeof payload['enhanceDelayMs'] === 'number') setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
-      if (typeof payload['enhanceLanguage'] === 'string') setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
+      if (typeof payload['confirmExit'] === 'boolean')
+        setAutonomy('confirmExit', payload['confirmExit']);
+      if (typeof payload['streamFleet'] === 'boolean')
+        setAutonomy('streamFleet', payload['streamFleet']);
+      if (typeof payload['enhanceEnabled'] === 'boolean')
+        setAutonomy('enhance', payload['enhanceEnabled']);
+      if (typeof payload['enhanceDelayMs'] === 'number')
+        setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
+      if (typeof payload['enhanceLanguage'] === 'string')
+        setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
       if (autonomyTouched) decrypted.autonomy = autonomyCfg;
 
-      if (typeof payload['nextPrediction'] === 'boolean') decrypted.nextPrediction = payload['nextPrediction'];
+      if (typeof payload['nextPrediction'] === 'boolean')
+        decrypted.nextPrediction = payload['nextPrediction'];
 
       // Global fallback model chain (top-level config). Read live by the leader's
       // fallback extension each turn (effectiveFallbackChain), so it takes effect
       // without a restart.
-      if (Array.isArray(payload['fallbackModels'])) decrypted.fallbackModels = payload['fallbackModels'];
+      if (Array.isArray(payload['fallbackModels']))
+        decrypted.fallbackModels = payload['fallbackModels'];
       if (
         payload['fallbackProfiles'] &&
         typeof payload['fallbackProfiles'] === 'object' &&
@@ -1083,7 +1180,8 @@ export async function startWebUI(
       ) {
         decrypted.fallbackProfiles = payload['fallbackProfiles'] as Record<string, string[]>;
       }
-      if (Array.isArray(payload['favoriteModels'])) decrypted.favoriteModels = payload['favoriteModels'];
+      if (Array.isArray(payload['favoriteModels']))
+        decrypted.favoriteModels = payload['favoriteModels'];
       if (typeof payload['favoriteModelsOnly'] === 'boolean')
         decrypted.favoriteModelsOnly = payload['favoriteModelsOnly'];
       if (
@@ -1093,7 +1191,8 @@ export async function startWebUI(
       ) {
         decrypted.modelMatrix = payload['modelMatrix'] as typeof decrypted.modelMatrix;
       }
-      if (typeof payload['fallbackAuto'] === 'boolean') decrypted.fallbackAuto = payload['fallbackAuto'];
+      if (typeof payload['fallbackAuto'] === 'boolean')
+        decrypted.fallbackAuto = payload['fallbackAuto'];
 
       const FEATURE_MAP: Record<string, string> = {
         featureMcp: 'mcp',
@@ -1116,8 +1215,10 @@ export async function startWebUI(
         typeof payload['contextMode'] === 'string'
       ) {
         const ctxCfg = (decrypted.context as Record<string, unknown>) ?? {};
-        if (typeof payload['contextAutoCompact'] === 'boolean') ctxCfg.autoCompact = payload['contextAutoCompact'];
-        if (typeof payload['contextStrategy'] === 'string') ctxCfg.strategy = payload['contextStrategy'];
+        if (typeof payload['contextAutoCompact'] === 'boolean')
+          ctxCfg.autoCompact = payload['contextAutoCompact'];
+        if (typeof payload['contextStrategy'] === 'string')
+          ctxCfg.strategy = payload['contextStrategy'];
         if (typeof payload['contextMode'] === 'string') ctxCfg.mode = payload['contextMode'];
         decrypted.context = ctxCfg;
       }
@@ -1165,7 +1266,8 @@ export async function startWebUI(
         if (typeof payload['hqEnabled'] === 'boolean') hqCfg.enabled = payload['hqEnabled'];
         if (typeof payload['hqUrl'] === 'string') hqCfg.url = payload['hqUrl'];
         if (typeof payload['hqToken'] === 'string') hqCfg.token = payload['hqToken'];
-        if (typeof payload['hqRawContent'] === 'boolean') hqCfg.rawContent = payload['hqRawContent'];
+        if (typeof payload['hqRawContent'] === 'boolean')
+          hqCfg.rawContent = payload['hqRawContent'];
         decrypted.hq = hqCfg;
       }
 
@@ -1199,8 +1301,10 @@ export async function startWebUI(
         const mr = (decrypted.modelRuntime as Record<string, unknown>) ?? {};
         const reasoning = (mr.reasoning as Record<string, unknown>) ?? {};
         if (typeof payload['reasoningMode'] === 'string') reasoning.mode = payload['reasoningMode'];
-        if (typeof payload['reasoningEffort'] === 'string') reasoning.effort = payload['reasoningEffort'];
-        if (typeof payload['reasoningPreserve'] === 'boolean') reasoning.preserve = payload['reasoningPreserve'];
+        if (typeof payload['reasoningEffort'] === 'string')
+          reasoning.effort = payload['reasoningEffort'];
+        if (typeof payload['reasoningPreserve'] === 'boolean')
+          reasoning.preserve = payload['reasoningPreserve'];
         mr.reasoning = reasoning;
         if (typeof payload['cacheTtl'] === 'string' && payload['cacheTtl'] !== 'default') {
           mr.cache = { ttl: payload['cacheTtl'] };
@@ -1463,7 +1567,12 @@ export async function startWebUI(
     }),
   );
   events.on('brain.decision_ask_human', (e) =>
-    pushBrainLog({ at: e.at, kind: 'ask_human', question: e.request.question, outcome: 'needs human judgement' }),
+    pushBrainLog({
+      at: e.at,
+      kind: 'ask_human',
+      question: e.request.question,
+      outcome: 'needs human judgement',
+    }),
   );
   events.on('brain.decision_denied', (e) =>
     pushBrainLog({
@@ -1589,6 +1698,7 @@ export async function startWebUI(
     cwd: string;
     mode: string;
     contextMode: string;
+    needsSetup?: boolean | undefined;
   }> {
     let maxContext = 0;
     let inputCost = 0;
@@ -1604,7 +1714,13 @@ export async function startWebUI(
       if (!maxContext) {
         try {
           const provider = await (
-            modelsRegistry as { getProvider(id: string): Promise<{ models: Array<{ id: string; limit?: { context?: number } }> } | undefined> }
+            modelsRegistry as {
+              getProvider(
+                id: string,
+              ): Promise<
+                { models: Array<{ id: string; limit?: { context?: number } }> } | undefined
+              >;
+            }
           ).getProvider(config.provider);
           const rawModel = provider?.models.find((mod) => mod.id === config.model);
           maxContext = rawModel?.limit?.context ?? 0;
@@ -1635,6 +1751,7 @@ export async function startWebUI(
       cwd: workingDir,
       mode: modeId,
       contextMode: String(context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID),
+      ...(needsSetup ? { needsSetup: true } : {}),
     };
   }
 
@@ -1801,21 +1918,50 @@ export async function startWebUI(
     };
     clients.set(ws, client);
 
-    // sessionStartPayload handles errors internally; no explicit catch needed.
-    // Adding a catch would be defensive but sessionStartPayload already has try-catch.
+    // F5-resilience: on EVERY new connection (including the page-reload
+    // case) we send the current session transcript alongside the bare
+    // session.start payload so the client can hydrate its UI without
+    // requiring an extra round-trip from the user. Without this, a
+    // browser refresh loses the transcript even though the server still
+    // holds it — the prior version only replayed messages when the user
+    // explicitly invoked session.resume. The cap exists so a runaway
+    // session can't lock the socket on first paint.
+    const REPLAY_MESSAGE_CAP = 2_000;
     void sessionStartPayload()
-      .then((payload) => {
-        send(ws, { type: 'session.start', payload });
+      .then(async (payload) => {
+        const enriched: Record<string, unknown> = { ...payload };
+        try {
+          const live = context.messages ?? [];
+          const slice = live.length > REPLAY_MESSAGE_CAP ? live.slice(-REPLAY_MESSAGE_CAP) : live;
+          if (slice.length > 0) {
+            enriched.replayMessages = slice;
+          }
+          const total = tokenCounter.total();
+          if (total.input + total.output + (total.cacheRead ?? 0) + (total.cacheWrite ?? 0) > 0) {
+            enriched.replayUsage = {
+              input: total.input,
+              output: total.output,
+              cacheRead: total.cacheRead ?? 0,
+              cacheWrite: total.cacheWrite ?? 0,
+            };
+          }
+        } catch {
+          // best-effort — replay is non-critical; the chat store can
+          // still rehydrate from localStorage.
+        }
+        send(ws, { type: 'session.start', payload: enriched });
       })
       .catch((err) => {
         // Log at warn level since sessionStartPayload should rarely fail.
         // This prevents silent failures if internal error handling changes.
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'webui.session_start_payload_failed',
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'webui.session_start_payload_failed',
+            message: toErrorMessage(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
       });
 
     // Register this client with the AutoPhase handler so it receives phase events
@@ -1876,12 +2022,14 @@ export async function startWebUI(
           await handleMessage(ws, client, rawObj as WSClientMessage);
         }
       } catch (err) {
-        console.error(JSON.stringify({
-          level: 'error',
-          event: 'webui.ws_message_parse_failed',
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }));
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'webui.ws_message_parse_failed',
+            message: toErrorMessage(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
     });
 
@@ -1902,12 +2050,14 @@ export async function startWebUI(
 
     ws.on('error', (err) => {
       // Without this handler an errored socket would crash the process.
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'webui.client_socket_error',
-        message: err.message,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'webui.client_socket_error',
+          message: err.message,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
   };
 
@@ -1934,21 +2084,34 @@ export async function startWebUI(
     eventsArmed = true;
     console.log(`[WebUI] Backend ready (${label})`);
     disposeEvents = setupEvents({
-      events, broadcast, clients, config, context, pendingConfirms, globalConfigPath, sessionBridge, wpaths, watcherMetrics,
-      onFleetBroadcaster: (fn) => { fleetBroadcast = fn; },
+      events,
+      broadcast,
+      clients,
+      config,
+      context,
+      pendingConfirms,
+      globalConfigPath,
+      sessionBridge,
+      wpaths,
+      watcherMetrics,
+      onFleetBroadcaster: (fn) => {
+        fleetBroadcast = fn;
+      },
     });
   };
 
   wssPrimary.on('listening', () => armOnce(`${wsHost}:${wsPort}`));
   wssPrimary.on('connection', handleConnection);
   wssPrimary.on('error', (err) => {
-    console.error(JSON.stringify({
-      level: 'error',
-      event: 'webui.ws_server_error',
-      host: wsHost,
-      message: toErrorMessage(err),
-      timestamp: new Date().toISOString(),
-    }));
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        event: 'webui.ws_server_error',
+        host: wsHost,
+        message: toErrorMessage(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
   });
 
   if (wssSecondary) {
@@ -1958,21 +2121,25 @@ export async function startWebUI(
       // Best-effort secondary: if IPv6 loopback isn't available on this host
       // (e.g. disabled in OS), just log and continue. Primary v4 is enough.
       if (err.code === 'EAFNOSUPPORT' || err.code === 'EADDRNOTAVAIL') {
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'webui.ipv6_unavailable',
-          code: err.code,
-          message: err.message,
-          timestamp: new Date().toISOString(),
-        }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'webui.ipv6_unavailable',
+            code: err.code,
+            message: err.message,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       } else {
-        console.error(JSON.stringify({
-          level: 'error',
-          event: 'webui.ws_server_error',
-          host: '::1',
-          message: err.message,
-          timestamp: new Date().toISOString(),
-        }));
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'webui.ws_server_error',
+            host: '::1',
+            message: err.message,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
     });
   }
@@ -2019,20 +2186,6 @@ export async function startWebUI(
     };
   }
 
-  let providerRoutes: ProviderRouteHandlers;
-  let sessionRoutes: SessionRouteHandlers;
-  let projectRoutes: ProjectRouteHandlers;
-  let modeRoutes: ModeRouteHandlers;
-  let prefsRoutes: PrefsRouteHandlers;
-  let shellGitRoutes: ShellGitRouteHandlers;
-  let mailboxRoutes: MailboxRouteHandlers;
-  let mcpRoutes: McpRouteHandlers;
-  let brainRoutes: BrainRouteHandlers;
-  let autoPhaseRoutes: AutoPhaseRouteHandlers;
-  let specsRoutes: SpecsRouteHandlers;
-  let sddBoardRoutes: SddBoardRouteHandlers;
-  let sddWizardRoutes: SddWizardRouteHandlers;
-
   async function handleMessage(
     ws: WebSocket,
     _client: ConnectedClient,
@@ -2053,7 +2206,9 @@ export async function startWebUI(
     if (await handleSddWizardRoute(ws, msg, sddWizardRoutes)) return;
     if (
       msg.type.startsWith('worktree.') &&
-      (await worktreeHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> }))
+      (await worktreeHandler.handleMessage(
+        msg as { type: string; payload?: Record<string, unknown> },
+      ))
     )
       return;
 
@@ -2108,9 +2263,10 @@ export async function startWebUI(
         try {
           // Read maxIterations from context.meta so the webui settings
           // panel can adjust the cap dynamically without restarting.
-          const maxIt = typeof context.meta['maxIterations'] === 'number'
-            ? context.meta['maxIterations']
-            : undefined;
+          const maxIt =
+            typeof context.meta['maxIterations'] === 'number'
+              ? context.meta['maxIterations']
+              : undefined;
           const result = await agent.run(content, { signal: thisRun.signal, maxIterations: maxIt });
           send(ws, {
             type: 'run.result',
@@ -2355,9 +2511,10 @@ export async function startWebUI(
           projectRoot,
           provider: context.provider,
           model: context.model,
-          indexDir: typeof context.meta['codebaseIndexDir'] === 'string'
-            ? context.meta['codebaseIndexDir']
-            : undefined,
+          indexDir:
+            typeof context.meta['codebaseIndexDir'] === 'string'
+              ? context.meta['codebaseIndexDir']
+              : undefined,
           lspCompletion: createToolLspCompletionSource(toolRegistry.get('lsp_completion'), context),
         });
 
@@ -2476,229 +2633,53 @@ export async function startWebUI(
     }
   }
 
-  // ---- Provider/Key management helpers (extracted to provider-handlers.ts) ----
-  const providerHandlers = createProviderHandlers({
-    globalConfigPath,
-    vault,
-    getConfigWriteLock: () => configWriteLock,
-    setConfigWriteLock: (p) => {
-      configWriteLock = p;
+  // ---- Route table (extracted to ./routes.ts in Phase 1a) ----
+  // The 947-line inline construction block that used to live here
+  // moved into buildRoutes() in ./routes.ts. We bind the local mutables
+  // (`config`, `projectRoot`, `workingDir`, ...) into a `state` object so
+  // routes observe live updates (config switch, project swap, mode
+  // change), pass the static services as `deps`, and forward the
+  // handful of boot-local closures (config persistence, pref snapshot,
+  // …) as `cb`.
+  //
+  // The 13 destructured names (`providerRoutes`, `sessionRoutes`, …)
+  // are then referenced by `handleMessage` exactly the way the inline
+  // `let *Routes` block was — no surface change.
+
+  // Mutable bindings — wrapped by `state` for buildRoutes().
+  const state: WebuiMutableState = {
+    getConfig: () => config,
+    setConfig: (next) => {
+      config = next;
     },
-    broadcast,
-    clients,
-  });
-
-  providerRoutes = {
-    providerHandlers,
-    listProviders: async (ws) => {
-      const providers = await modelsRegistry.listProviders();
-      // "Configured" should mean *any* working credential, not just env vars.
-      // Users register keys with `wstack auth`, which writes apiKey/apiKeys
-      // into config.providers[<id>] — those are decrypted in memory here.
-      const savedIds = new Set(Object.keys(config.providers ?? {}));
-      send(ws, {
-        type: 'provider.catalog',
-        payload: {
-          providers: providers.map((p: { id: string; name: string; family: unknown; apiBase?: unknown; envVars: string[]; models: readonly unknown[] }) => ({
-            id: p.id,
-            name: p.name,
-            family: p.family,
-            apiBase: p.apiBase,
-            envVars: p.envVars,
-            modelCount: p.models.length,
-            hasApiKey: savedIds.has(p.id) || p.envVars.some((v: string) => !!process.env[v]),
-          })),
-        },
-      });
-    },
-    listSavedProviders: async (ws) => {
-      const saved = await providerHandlers.loadConfigProviders();
-      send(ws, {
-        type: 'providers.saved',
-        payload: { providers: projectSavedProviders(saved) },
-      });
-    },
-    listProviderModels: async (ws, msg) => {
-      const providerId = (msg as { payload: { providerId: string } }).payload.providerId;
-      // Merge catalog + saved config so OAuth / subscription providers
-      // (github-copilot, anthropic-oauth, openai-codex, …) that models.dev
-      // doesn't list still resolve to their saved model allowlist. Always
-      // reply (possibly empty) — the switcher lazy-loads every saved provider.
-      const saved = await providerHandlers.loadConfigProviders();
-      const cfg = saved[providerId];
-      const catalogId = cfg?.type && cfg.type !== providerId ? cfg.type : providerId;
-      const provider = await modelsRegistry.getProvider(catalogId);
-      send(ws, {
-        type: 'provider.models',
-        payload: {
-          provider: providerId,
-          models: resolveProviderModelList(cfg?.models, provider),
-        },
-      });
-    },
-    switchModel: async (ws, msg) => {
-      const parsed = validateModelSwitchPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { provider: newProvider, model: newModel } = parsed.value;
-      try {
-        // Update config
-        config = patchConfig(config, { provider: newProvider, model: newModel });
-        configStore.update({ provider: newProvider, model: newModel });
-        context.model = newModel;
-
-        // Create new provider instance — fail loudly if the user picks a
-        // provider with no creds rather than silently keeping the old one.
-        const providerCfg = config.providers?.[newProvider] ?? { type: newProvider };
-        const newProv = providerRegistry.has(newProvider)
-          ? providerRegistry.create({ ...providerCfg, type: newProvider })
-          : makeProviderFromConfig(newProvider, providerCfg);
-        context.provider = newProv;
-
-        // Update AutoCompactionMiddleware with the new model's maxContext so
-        // backend threshold triggers (warn/soft/hard) use the correct denominator.
-        // sessionStartPayload is called below (after this block) and uses
-        // the new provider for its modelsRegistry lookup.
-        await updateAutoCompactionMaxContext(newProv);
-
-        // Persist to global config file via the unified config mutation helper.
-        await updateGlobalConfig((cfg) => {
-          cfg.provider = newProvider;
-          cfg.model = newModel;
-        }, 'model.switch');
-
-        // Toast for the SettingsPanel
-        send(ws, {
-          type: 'key.operation_result',
-          payload: { success: true, message: `Switched to ${newProvider} / ${newModel}` },
-        });
-      } catch (err) {
-        send(ws, {
-          type: 'key.operation_result',
-          payload: {
-            success: false,
-            message: `Switch failed: ${errMessage(err)}`,
-          },
-        });
-        return;
-      }
-
-      broadcast(clients, { type: 'session.start', payload: await sessionStartPayload() });
-    },
-    refineModel: async (ws, msg) => {
-      const { text } = (msg as { payload: { text: string } }).payload;
-      if (!text?.trim()) {
-        send(ws, {
-          type: 'model.refine_result',
-          payload: { refined: '', english: '', error: 'Empty text' },
-        });
-        return;
-      }
-      try {
-        const history = recentTextTurns(context.messages);
-        // Gate a low-effort reasoning hint to the active model's capabilities
-        // (config is patched live on model.switch). Refinement is a shallow
-        // rewrite, so this trims wasted thinking on reasoning models; resolves
-        // to undefined → no reasoning field, as before.
-        const resolved = await modelsRegistry
-          .getModel(config.provider, config.model)
-          .catch(() => undefined);
-        const reasoning = gatedEnhancerReasoning(resolved?.capabilities.reasoningConfig);
-        const result = await enhanceUserPrompt({
-          provider: context.provider,
-          model: context.model,
-          text,
-          history,
-          timeoutMs: 90000,
-          ...(reasoning ? { reasoning } : {}),
-          onError: (reason: unknown) => {
-            console.warn(JSON.stringify({
-              level: 'warn',
-              event: 'model.refine_failed',
-              reason,
-              timestamp: new Date().toISOString(),
-            }));
-          },
-        });
-        if (result) {
-          send(ws, {
-            type: 'model.refine_result',
-            payload: { refined: result.refined, english: result.english },
-          });
-        } else {
-          send(ws, {
-            type: 'model.refine_result',
-            payload: { refined: text, english: text, error: 'Refinement returned no result' },
-          });
-        }
-      } catch (err) {
-        console.error(JSON.stringify({
-          level: 'error',
-          event: 'model.refine.error',
-          error: errMessage(err),
-          timestamp: new Date().toISOString(),
-        }));
-        send(ws, {
-          type: 'model.refine_result',
-          payload: { refined: text, english: text, error: errMessage(err) },
-        });
-      }
-    },
-  };
-
-
-
-  sessionRoutes = createSessionHandlers({
-    config,
-    clients,
-    context,
-    toolRegistry,
-    compactor,
-    customModeStore,
-    tokenCounter,
     getProjectRoot: () => projectRoot,
+    setProjectRoot: (next) => {
+      projectRoot = next;
+    },
+    getWorkingDir: () => workingDir,
+    setWorkingDir: (next) => {
+      workingDir = next;
+    },
     getSession: () => session,
+    setSession: (next) => {
+      session = next;
+    },
+    getSessionStartedAt: () => sessionStartedAt,
+    setSessionStartedAt: (next) => {
+      sessionStartedAt = next;
+    },
     getSessionStore: () => sessionStore,
-    setSession: (s) => {
-      session = s;
+    setSessionStore: (next) => {
+      sessionStore = next;
     },
-    setSessionStartedAt: (t) => {
-      sessionStartedAt = t;
-    },
-    sessionStartPayload,
-  });
-
-  projectRoutes = createProjectHandlers({
-    globalConfigPath,
-    wpaths,
-    clients,
-    context,
-    modeStore,
-    memoryStore,
-    skillLoader,
-    modelCapabilities: () => modelCapabilitiesRef.current,
-    toolRegistry,
-    tokenCounter,
-    config,
     getModeId: () => modeId,
-    getProjectRoot: () => projectRoot,
-    getSession: () => session,
-    setProjectRoot: (p) => {
-      projectRoot = p;
+    setModeId: (next) => {
+      modeId = next;
     },
-    setWorkingDir: (p) => {
-      workingDir = p;
-    },
-    setSession: (s) => {
-      session = s;
-    },
-    setSessionStore: (s) => {
-      sessionStore = s;
-    },
-    setSessionStartedAt: (t) => {
-      sessionStartedAt = t;
+    getModelCapabilities: () => modelCapabilitiesRef.current,
+    getConfigWriteLock: () => configWriteLock,
+    setConfigWriteLock: (next) => {
+      configWriteLock = next;
     },
     abortRunLock: () => {
       if (runLock) {
@@ -2706,268 +2687,80 @@ export async function startWebUI(
         runLock = null;
       }
     },
-    sessionStartPayload,
-  });
+    getClients: () => clients,
+  };
 
-  modeRoutes = createModeHandlers({
-    modeStore,
-    memoryStore,
-    skillLoader,
-    modelCapabilities: () => modelCapabilitiesRef.current,
+  const deps: WebuiDeps = {
+    agent,
     context,
+    container,
     toolRegistry,
-    config,
-    projectRoot,
-    globalRoot: wpaths.globalRoot,
-    clients,
-    setModeId: (id) => {
-      modeId = id;
-    },
+    modelsRegistry,
+    providerRegistry,
+    provider,
+    mcpRegistry,
+    vault,
+    globalConfigPath,
+    wpaths,
+    configStore,
+    tokenCounter,
+    permissionPolicy,
+    pipelines,
+    logger,
+    memoryStore,
+    modeStore,
+    skillLoader,
+    skillInstaller,
+    customModeStore,
+    compactor,
+    autoCompactor,
+    events,
+    wsHost,
+    requireToken,
+    publicUrl,
+    publicWsUrl,
+    wsPort,
+    httpPort,
+    wssPrimary,
+    wssSecondary,
+    autoPhaseHandler,
+    specsHandler,
+    sddBoardHandler,
+    sddWizardHandler,
+    worktreeHandler,
+    collabHandler,
+    terminalHandler,
+    brain,
+    brainSettings,
+    brainLog,
+  };
+
+  const cb: WebuiCallbacks = {
     sessionStartPayload,
-  });
-
-  // ---- Prefs route (handlePrefsRoute) ----
-  // The standalone server's pref surface is richer than the CLI's embedded
-  // prefs.ts (issue #31 follow-on to #94–#110). We own the full set of
-  // runtime effects: YOLO toggle on permissionPolicy, feature-flag mutation
-  // on config.features, fallback chain update on config, AutoCompaction
-  // pipeline add/remove, logger.level mutation, and config.json persistence.
-  // Closure-captured dependencies stay here in index.ts; the dispatch layer
-  // (prefs-routes.ts) just calls these two functions.
-  prefsRoutes = {
-    getPrefs: async (ws) => {
-      // Return the current pref snapshot so a freshly-connected client
-      // can seed its local-prefs store from the server's truth.
-      send(ws, { type: 'prefs.updated', payload: prefSnapshot() });
-    },
-    updatePrefs: async (ws, msgPayload) => {
-      // Batch preference update from the webui. Merges arbitrary key/value
-      // pairs into context.meta so the runtime can read them immediately,
-      // broadcasts the full pref snapshot to every connected client so all
-      // browser tabs stay in sync, and persists the durable keys to
-      // config.json (same keys the TUI settings picker writes).
-      const parsed = validatePrefsUpdatePayload(msgPayload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const payload = parsed.value.prefs;
-      // Write each pref into context.meta
-      for (const [key, val] of Object.entries(payload)) {
-        context.meta[key] = val;
-      }
-      void persistPrefsToConfig(payload);
-      // YOLO mode: toggle the permission policy so tool confirmations
-      // are auto-approved instead of prompting the user. Uses the live
-      // reference resolved from the container at startup.
-      if (typeof payload['yolo'] === 'boolean') {
-        permissionPolicy.setYolo?.(payload['yolo']);
-      }
-      // Also update config.features for feature flags that affect tool/skill
-      // initialisation (these were read at startup but can be changed at runtime
-      // by the agent's permission middleware or tool guards).
-      if (typeof payload['featureMcp'] === 'boolean')
-        config.features.mcp = payload['featureMcp'];
-      if (typeof payload['featurePlugins'] === 'boolean')
-        config.features.plugins = payload['featurePlugins'];
-      if (typeof payload['featureMemory'] === 'boolean')
-        config.features.memory = payload['featureMemory'];
-      if (typeof payload['featureSkills'] === 'boolean')
-        config.features.skills = payload['featureSkills'];
-      if (typeof payload['featureModelsRegistry'] === 'boolean')
-        config.features.modelsRegistry = payload['featureModelsRegistry'];
-
-      // Global fallback chain: mutate the live config so the leader's fallback
-      // extension (which reads config each turn) honours it without a restart.
-      if (Array.isArray(payload['fallbackModels']))
-        config.fallbackModels = payload['fallbackModels'] as string[];
-      if (
-        payload['fallbackProfiles'] &&
-        typeof payload['fallbackProfiles'] === 'object' &&
-        !Array.isArray(payload['fallbackProfiles'])
-      ) {
-        config.fallbackProfiles = payload['fallbackProfiles'] as Record<string, string[]>;
-      }
-      if (Array.isArray(payload['favoriteModels']))
-        config.favoriteModels = payload['favoriteModels'] as string[];
-      if (typeof payload['favoriteModelsOnly'] === 'boolean')
-        config.favoriteModelsOnly = payload['favoriteModelsOnly'];
-      if (
-        payload['modelMatrix'] &&
-        typeof payload['modelMatrix'] === 'object' &&
-        !Array.isArray(payload['modelMatrix'])
-      ) {
-        config.modelMatrix = payload['modelMatrix'] as typeof config.modelMatrix;
-      }
-      if (typeof payload['fallbackAuto'] === 'boolean')
-        config.fallbackAuto = payload['fallbackAuto'];
-
-      // Runtime effects: apply prefs that change server behaviour immediately.
-
-      // contextAutoCompact — toggle AutoCompactionMiddleware in/out of the
-      // contextWindow pipeline. When off, the pipeline skips the compaction
-      // step entirely (zero overhead). When on, re-adds the middleware.
-      if (typeof payload['contextAutoCompact'] === 'boolean') {
-        if (payload['contextAutoCompact'] && autoCompactor) {
-          // Re-add: remove first (idempotent via optional), then insert.
-          pipelines.contextWindow.remove('AutoCompaction', { optional: true });
-          pipelines.contextWindow.use({ name: 'AutoCompaction', handler: autoCompactor.handler() });
-        } else {
-          pipelines.contextWindow.remove('AutoCompaction', { optional: true });
-        }
-      }
-
-      // logLevel — the DefaultLogger.level property is a public mutable
-      // field. Setting it at runtime changes the log threshold immediately
-      // (the log() method checks LEVEL_RANK on every call).
-      if (typeof payload['logLevel'] === 'string') {
-        const valid = ['debug', 'info', 'warn', 'error'] as const;
-        if ((valid as readonly string[]).includes(payload['logLevel'])) {
-          logger.level = payload['logLevel'] as typeof valid[number];
-        }
-      }
-
-      // auditLevel — stored in context.meta by the generic loop above.
-      // Consumed by the session audit log system at session-close time.
-
-      // Broadcast the full current prefs snapshot to ALL clients.
-      broadcast(clients, { type: 'prefs.updated', payload: prefSnapshot() });
-    },
+    updateAutoCompactionMaxContext,
+    updateGlobalConfig,
+    persistPrefsToConfig,
+    prefSnapshot,
   };
 
-  shellGitRoutes = {
-    gitInfo: async (ws) => {
-      await handleGitInfo(ws, projectRoot);
-    },
-    gitChanges: async (ws) => {
-      await handleGitChanges(ws, projectRoot);
-    },
-    gitDiff: async (ws, msg) => {
-      const parsed = validateGitDiffPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      await handleGitDiff(ws, projectRoot, parsed.value.path);
-    },
-    shellOpen: async (ws, msg) => {
-      const parsed = validateShellOpenPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const result: ShellOpenResult = await handleShellOpen(parsed.value as ShellOpenRequest, logger);
-      sendResult(ws, result.success, result.message);
-    },
-  };
-
-  mailboxRoutes = {
-    messages: (ws, msg) => {
-      const parsed = validateMailboxMessagesPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      return handleMailboxMessages(ws, { projectRoot, globalRoot: path.dirname(globalConfigPath) }, parsed.value);
-    },
-    agents: (ws, msg) => {
-      const parsed = validateMailboxAgentsPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      return handleMailboxAgents(ws, { projectRoot, globalRoot: path.dirname(globalConfigPath) }, parsed.value);
-    },
-    clear: (ws) =>
-      handleMailboxClear(ws, { projectRoot, globalRoot: path.dirname(globalConfigPath) }),
-    purge: (ws, msg) => {
-      const parsed = validateMailboxPurgePayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      return handleMailboxPurge(ws, { projectRoot, globalRoot: path.dirname(globalConfigPath) }, parsed.value);
-    },
-  };
-
-  // ---- MCP route (handleMcpRoute) ----
-  // Issue #31 follow-on (after #118 PR 0 baseline, #119 prefs extraction).
-  // Each callback delegates to the matching handleMcpXxx in mcp-handlers.ts
-  // — that module already owns the WS-message logic, this is just the
-  // chain-of-responsibility wiring. The 10 cases were pure delegations
-  // inside the residual switch before this PR; now they're an explicit
-  // sibling in the chain.
-  mcpRoutes = {
-    list: (ws, msg) => handleMcpList(ws, msg, globalConfigPath, mcpRegistry),
-    add: (ws, msg) => handleMcpAdd(ws, msg, globalConfigPath, mcpRegistry),
-    update: (ws, msg) => handleMcpUpdate(ws, msg, globalConfigPath, mcpRegistry),
-    remove: (ws, msg) => handleMcpRemove(ws, msg, globalConfigPath, mcpRegistry),
-    enable: (ws, msg) => handleMcpEnable(ws, msg, globalConfigPath, mcpRegistry),
-    disable: (ws, msg) => handleMcpDisable(ws, msg, globalConfigPath, mcpRegistry),
-    sleep: (ws, msg) => handleMcpSleep(ws, msg, globalConfigPath, mcpRegistry),
-    wake: (ws, msg) => handleMcpWake(ws, msg, globalConfigPath, mcpRegistry),
-    restart: (ws, msg) => handleMcpRestart(ws, msg, globalConfigPath, mcpRegistry),
-    discover: (ws, msg) => handleMcpDiscover(ws, msg, globalConfigPath, mcpRegistry),
-  };
-
-  brainRoutes = {
-    status: (ws) => {
-      send(ws, {
-        type: 'brain.status',
-        payload: { maxAutoRisk: brainSettings.maxAutoRisk, log: brainLog },
-      });
-    },
-    risk: (ws, msg) => {
-      const parsed = validateBrainRiskPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { level } = parsed.value;
-      brainSettings.maxAutoRisk = level as BrainAutoRisk;
-      send(ws, {
-        type: 'brain.status',
-        payload: { maxAutoRisk: brainSettings.maxAutoRisk, log: brainLog },
-      });
-    },
-    ask: async (ws, msg) => {
-      const parsed = validateBrainAskPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { question } = parsed.value;
-      try {
-        const decision = await brain.decide({
-          id: `brain-ask-${Date.now().toString(36)}`,
-          source: 'user',
-          question,
-          risk: 'medium',
-          fallback: 'ask_human',
-        });
-        send(ws, { type: 'brain.answer', payload: { question, decision } });
-      } catch (err) {
-        sendResult(ws, false, `Brain consultation failed: ${errMessage(err)}`);
-      }
-    },
-  };
-
-  autoPhaseRoutes = {
-    handleMessage: (msg) => autoPhaseHandler.handleMessage(msg),
-  };
-
-  specsRoutes = {
-    handleMessage: (msg) => specsHandler.handleMessage(msg),
-  };
-
-  sddBoardRoutes = {
-    handleMessage: (msg) => sddBoardHandler.handleMessage(msg),
-  };
-
-  sddWizardRoutes = {
-    handleMessage: (msg) => sddWizardHandler.handleMessage(msg),
-  };
-
+  // Destructure the route bundle so handleMessage's name references
+  // (providerRoutes, sessionRoutes, …) resolve the same way they did
+  // when those names were `let`-bound in the original inline block.
+  const {
+    providerRoutes,
+    sessionRoutes,
+    projectRoutes,
+    modeRoutes,
+    prefsRoutes,
+    shellGitRoutes,
+    mailboxRoutes,
+    mcpRoutes,
+    brainRoutes,
+    autoPhaseRoutes,
+    specsRoutes,
+    sddBoardRoutes,
+    sddWizardRoutes,
+  } = buildRoutes(state, deps, cb);
   // HTTP server for the React frontend (port 3456) — see `http-server.ts`
   // for the static-serve, MIME matching, path-traversal guard, and CSP
   // header logic. Constructed here, listen()d below alongside the WS server.
@@ -2999,7 +2792,9 @@ export async function startWebUI(
     apiToken: wsToken,
     requireToken,
     watcherMetrics,
-    onFleetPing: () => { void fleetBroadcast?.(); },
+    onFleetPing: () => {
+      void fleetBroadcast?.();
+    },
   });
   // httpPort/wsPort were resolved (and possibly auto-advanced) at the top.
   // Base dir for the running-instance registry — keep it next to the rest of
@@ -3030,12 +2825,16 @@ export async function startWebUI(
         url: buildWebUIAccessUrl({ host: wsHost, port: httpPort, publicUrl }),
       },
       registryBaseDir,
-    ).catch((err) => console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'webui.instance_record_failed',
-      message: errMessage(err),
-      timestamp: new Date().toISOString(),
-    })));
+    ).catch((err) =>
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'webui.instance_record_failed',
+          message: errMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      ),
+    );
   });
 
   // Graceful shutdown on SIGINT/SIGTERM — see `lifecycle.ts`. The session

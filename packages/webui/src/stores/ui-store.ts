@@ -9,9 +9,31 @@ import type { MailboxMessage } from './mailbox-store';
 // Activity types shown in the ActivityBar (secondary panel content).
 // One icon = one full panel. 'context' and 'sessions' were folded into
 // 'chat' and 'history' — coerceActivity maps persisted legacy values.
-export type Activity = 'chat' | 'agents' | 'history' | 'files' | 'changes' | 'projects' | 'mailbox' | 'skills' | 'design' | 'worktrees' | 'officemap';
+export type Activity =
+  | 'chat'
+  | 'agents'
+  | 'history'
+  | 'files'
+  | 'changes'
+  | 'projects'
+  | 'mailbox'
+  | 'skills'
+  | 'design'
+  | 'worktrees'
+  | 'officemap';
 
-const ACTIVITIES: readonly Activity[] = ['chat', 'agents', 'history', 'files', 'changes', 'projects', 'mailbox', 'skills', 'worktrees', 'officemap'];
+const ACTIVITIES: readonly Activity[] = [
+  'chat',
+  'agents',
+  'history',
+  'files',
+  'changes',
+  'projects',
+  'mailbox',
+  'skills',
+  'worktrees',
+  'officemap',
+];
 
 /** Map any persisted (possibly legacy) activity value onto the current set. */
 export function coerceActivity(value: unknown): Activity {
@@ -20,6 +42,34 @@ export function coerceActivity(value: unknown): Activity {
   if (value === 'sessions') return 'history';
   if (value === 'officemap') return 'officemap';
   return 'chat';
+}
+
+/** All valid currentView values. Kept in sync with the union on UIState. */
+const VIEWS = [
+  'chat',
+  'settings',
+  'autophase',
+  'specs',
+  'sddboard',
+  'sddwizard',
+  'files',
+  'changes',
+  'sessions',
+  'setup',
+  'skill',
+  'officemap',
+  'mailbox',
+  'debug',
+  'design-gallery',
+  'refresh-debug',
+] as const;
+type View = (typeof VIEWS)[number];
+
+/** Coerce an arbitrary value onto the current view union. Used by migrate
+ *  when reading from localStorage so a stale value (e.g. 'context', a view
+ *  removed in v3) lands on 'chat' rather than crashing the router. */
+export function coerceView(value: unknown): View {
+  return (VIEWS as readonly string[]).includes(value as string) ? (value as View) : 'chat';
 }
 
 /** Single source of truth for the secondary panel width bounds. */
@@ -36,7 +86,23 @@ interface UIState {
   /** Which activity icon is selected in the ActivityBar — controls secondary panel content. */
   activeActivity: Activity;
   settingsOpen: boolean;
-  currentView: 'chat' | 'settings' | 'autophase' | 'specs' | 'sddboard' | 'sddwizard' | 'files' | 'changes' | 'sessions' | 'setup' | 'skill' | 'officemap' | 'mailbox' | 'debug' | 'design-gallery';
+  currentView:
+    | 'chat'
+    | 'settings'
+    | 'autophase'
+    | 'specs'
+    | 'sddboard'
+    | 'sddwizard'
+    | 'files'
+    | 'changes'
+    | 'sessions'
+    | 'setup'
+    | 'skill'
+    | 'officemap'
+    | 'mailbox'
+    | 'debug'
+    | 'design-gallery'
+    | 'refresh-debug';
   showConfirmDialog: boolean;
   confirmInfo: {
     id: string;
@@ -97,9 +163,29 @@ interface UIState {
   /** Skills panel breadcrumb state — persisted so history survives panel switches. */
   skillsState: {
     /** The skill currently shown in the detail pane. */
-    selectedSkill: { name: string; description: string; version: string; source: string; sourceUrl: string; ref: string; path: string; trigger: string; scope: string[] } | null;
+    selectedSkill: {
+      name: string;
+      description: string;
+      version: string;
+      source: string;
+      sourceUrl: string;
+      ref: string;
+      path: string;
+      trigger: string;
+      scope: string[];
+    } | null;
     /** Ordered history of skills navigated to via related links. */
-    navHistory: { name: string; description: string; version: string; source: string; sourceUrl: string; ref: string; path: string; trigger: string; scope: string[] }[];
+    navHistory: {
+      name: string;
+      description: string;
+      version: string;
+      source: string;
+      sourceUrl: string;
+      ref: string;
+      path: string;
+      trigger: string;
+      scope: string[];
+    }[];
     /** Current position in navHistory. */
     historyIndex: number;
     /** Whether the detail pane is open (controls list highlight vs. detail view). */
@@ -227,7 +313,8 @@ export const useUIStore = create<UIState>()(
       hideConfirm: () => set({ showConfirmDialog: false, confirmInfo: null }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
-      setSearchOpen: (open) => set({ searchOpen: open, searchQuery: '', searchActiveMessageId: null }),
+      setSearchOpen: (open) =>
+        set({ searchOpen: open, searchQuery: '', searchActiveMessageId: null }),
       setSearchQuery: (q) => set({ searchQuery: q }),
       setSearchActiveMessageId: (id) => set({ searchActiveMessageId: id }),
       requestScrollToMessage: (id) =>
@@ -240,7 +327,9 @@ export const useUIStore = create<UIState>()(
           return { promptHistory: [trimmed, ...filtered].slice(0, 50) };
         }),
       setSidebarWidth: (px) =>
-        set({ sidebarWidth: Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(px))) }),
+        set({
+          sidebarWidth: Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(px))),
+        }),
       togglePin: (id) =>
         set((state) => {
           const has = state.pinnedIds.includes(id);
@@ -305,7 +394,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'wrongstack-ui',
-      version: 4,
+      version: 5,
       // v0 → v1: 'context'/'sessions' activities were removed and the
       // sidebar width bounds changed — coerce persisted values so a stale
       // localStorage entry can't select a panel that no longer exists.
@@ -314,6 +403,10 @@ export const useUIStore = create<UIState>()(
       // they can't force the (removed) fields back into state.
       // v2 → v3: added skillsState for Skills panel breadcrumb persistence.
       // v3 → v4: added knownRefs and updateAvailableCount to skillsState.
+      // v4 → v5: added `currentView` and `dockSection` to partialize
+      // (F5-resilience). No shape change to existing fields — the coerce
+      // for the new fields is defensive in case a user with a hand-
+      // edited localStorage entry lands here first.
       migrate: (persisted, version) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         p.activeActivity = coerceActivity(p.activeActivity);
@@ -323,6 +416,19 @@ export const useUIStore = create<UIState>()(
         if (version < 2) {
           delete p.fleetDrawerOpen;
           delete p.agentsDrawerOpen;
+        }
+        // v5: defensive coerce of the newly-persisted fields.
+        if ('currentView' in p) {
+          p.currentView = coerceView(p.currentView);
+        }
+        if (
+          'dockSection' in p &&
+          p.dockSection !== null &&
+          !['autophase', 'goal', 'fleet', 'work', 'worktrees', 'collab'].includes(
+            p.dockSection as string,
+          )
+        ) {
+          p.dockSection = null;
         }
         return p as never as UIState;
       },
@@ -342,6 +448,21 @@ export const useUIStore = create<UIState>()(
         inspectorOpen: s.inspectorOpen,
         inspectorTab: s.inspectorTab,
         skillsState: s.skillsState,
+        // ── F5 resilience additions ──
+        // currentView + dockSection pair: after F5 we land the user
+        // back on whichever main view + dock section they were on. This
+        // is the *last-known-good* view; if the active session switches
+        // (e.g. resume of a different session), the connection layer is
+        // expected to call setCurrentView('chat') defensively because
+        // non-chat views are session-agnostic and can confuse the user
+        // when the session doesn't actually own them.
+        //
+        // We intentionally do NOT persist overlay open states
+        // (processMonitorOpen, queuePanelOpen, terminalOpen, etc.):
+        // those should land closed after F5. The dock, sidebar, and main
+        // view *are* the user's persistent workspace, so they survive.
+        currentView: s.currentView,
+        dockSection: s.dockSection,
       }),
     },
   ),

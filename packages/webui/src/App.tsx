@@ -1,51 +1,66 @@
 import { expectDefined } from '@wrongstack/core';
+import { useEffect } from 'react';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useFileStore, useSessionStore, useUIStore } from '@/stores';
-import { useEffect } from 'react';
 import { ActivityBar, openPanel, PANEL_ORDER } from './components/ActivityBar';
+import { AgentsMonitor } from './components/AgentsMonitor';
 import { AutoPhaseView } from './components/AutoPhaseView';
-import { SpecsView } from './components/SpecsView';
-import { SddBoardView } from './components/SddBoardView';
-import { SddWizard } from './components/SddWizard';
+import { ChangesView } from './components/ChangesView';
 import { ChatView } from './components/ChatView';
 import { CodeEditor } from './components/CodeEditor';
-import { ChangesView } from './components/ChangesView';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConfirmModalHost, PromptModalHost } from './components/ConfirmModal';
 import { ConnectionBanner } from './components/ConnectionBanner';
+import { DebugDashboard } from './components/DebugDashboard';
+import { DesignGalleryView } from './components/DesignGalleryView';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { QuickModelSwitcher } from './components/QuickModelSwitcher';
-import { SettingsPanel } from './components/SettingsPanel';
-import { SetupScreen } from './components/SetupScreen';
-import { SessionsDashboard } from './components/SessionsDashboard';
-import { ShortcutsOverlay } from './components/ShortcutsOverlay';
-import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { Toaster } from './components/Toaster';
-import { SidePanel } from './components/SidePanel';
-import { WorkspaceDock } from './components/WorkspaceDock';
-import { AgentsMonitor } from './components/AgentsMonitor';
 import { FleetMonitor } from './components/FleetMonitor';
 import { InspectorPanel } from './components/InspectorPanel';
+import { MailboxDetailView } from './components/MailboxDetailView';
+import { OfficeMapPanel } from './components/OfficeMapPanel';
 import { ProcessMonitor } from './components/ProcessMonitor';
 import { QueuePanel } from './components/QueuePanel';
-import { TerminalPanel } from './components/TerminalPanel';
-import { MailboxDetailView } from './components/MailboxDetailView';
+import { QuickModelSwitcher } from './components/QuickModelSwitcher';
+import { RefreshDebugView } from './components/RefreshDebugView';
+import { SddBoardView } from './components/SddBoardView';
+import { SddWizard } from './components/SddWizard';
+import { SessionsDashboard } from './components/SessionsDashboard';
+import { SettingsPanel } from './components/SettingsPanel';
+import { SetupScreen } from './components/SetupScreen';
+import { ShortcutsOverlay } from './components/ShortcutsOverlay';
+import { SidePanel } from './components/SidePanel';
 import { SkillDetailView } from './components/SkillDetailView';
-import { DesignGalleryView } from './components/DesignGalleryView';
-import { OfficeMapPanel } from './components/OfficeMapPanel';
-import { DebugDashboard } from './components/DebugDashboard';
+import { SpecsView } from './components/SpecsView';
+import { TerminalPanel } from './components/TerminalPanel';
+import { ThemeProvider, useTheme } from './components/ThemeProvider';
+import { Toaster } from './components/Toaster';
+import { WorkspaceDock } from './components/WorkspaceDock';
+
 function AppInner() {
   const { theme } = useTheme();
   const {
-    currentView, sidebarOpen, toggleSidebar, setSearchOpen, setSidebarOpen, setCurrentView,
-    setInspectorTab, toggleInspector,
-    fleetMonitorOpen, agentsMonitorOpen, setFleetMonitorOpen, setAgentsMonitorOpen,
-    processMonitorOpen, setProcessMonitorOpen, queuePanelOpen, setQueuePanelOpen,
-    terminalOpen, setTerminalOpen,
+    currentView,
+    sidebarOpen,
+    toggleSidebar,
+    setSearchOpen,
+    setSidebarOpen,
+    setCurrentView,
+    setInspectorTab,
+    toggleInspector,
+    fleetMonitorOpen,
+    agentsMonitorOpen,
+    setFleetMonitorOpen,
+    setAgentsMonitorOpen,
+    processMonitorOpen,
+    setProcessMonitorOpen,
+    queuePanelOpen,
+    setQueuePanelOpen,
+    terminalOpen,
+    setTerminalOpen,
   } = useUIStore();
   const isLoading = useChatStore((s) => s.isLoading);
   const iteration = useSessionStore((s) => s.iteration);
@@ -54,10 +69,16 @@ function AppInner() {
   const sessionId = useSessionStore((s) => s.session?.id);
   const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
 
-  // Detect /debug URL path and switch to debug view
+  // Detect /debug URL path and switch to debug view. /refresh-debug
+  // exposes the F5-resilience verifier view so the user can confirm in
+  // one place that the latest active session, transcript, and UI state
+  // survive a page refresh.
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.pathname === '/debug') {
+    if (typeof window === 'undefined') return;
+    if (window.location.pathname === '/debug') {
       setCurrentView('debug');
+    } else if (window.location.pathname === '/refresh-debug') {
+      setCurrentView('refresh-debug');
     }
   }, [setCurrentView]);
 
@@ -114,6 +135,55 @@ function AppInner() {
   // hook which returns action methods only — see hooks/useWebSocket.ts for
   // the duplicate-handler trap this avoids.
   useWebSocketBootstrap();
+
+  // F5-resilience: the zustand persist middleware writes asynchronously
+  // after every mutation. When the page tears down via F5 / tab close /
+  // navigation, in-flight writes can be lost. We hook `pagehide` (the
+  // recommended event for bfcache + unload coverage) to force a flush so
+  // the next visit finds the latest state. The flush is silent — we
+  // don't want a user-visible error if localStorage is full.
+  useEffect(() => {
+    const flush = (): void => {
+      try {
+        const stores = [useSessionStore, useChatStore, useUIStore, useConfigStore];
+        for (const s of stores) {
+          const persistApi = (
+            s as unknown as {
+              persist?: { flush?: () => void; getOptions?: () => { storage?: unknown } };
+            }
+          ).persist;
+          if (persistApi && typeof persistApi.flush === 'function') {
+            persistApi.flush();
+          }
+        }
+      } catch {
+        // ignore — best-effort flush.
+      }
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, []);
+
+  // F5-resilience: if the persisted view was something exotic (a debug
+  // overlay, an inspector-only tab), fall back to chat on first mount.
+  // The persisted view is intended for "user landed back on the chat
+  // surface during normal work" — debug overlays should not auto-restore.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.pathname === '/refresh-debug') return;
+    const persistedView = useUIStore.getState().currentView;
+    if (
+      persistedView === 'debug' ||
+      persistedView === 'design-gallery' ||
+      persistedView === 'setup'
+    ) {
+      useUIStore.getState().setCurrentView('chat');
+    }
+  }, []);
 
   // Reflect the agent's run state + session identity in the browser tab
   // title. Pinned/grouped tab strips become readable at a glance — the
@@ -409,9 +479,7 @@ function AppInner() {
         )}
         {currentView === 'settings' && <SettingsPanel />}
         {currentView === 'setup' && <SetupScreen />}
-        {currentView === 'autophase' && (
-          <AutoPhaseView onClose={() => setCurrentView('chat')} />
-        )}
+        {currentView === 'autophase' && <AutoPhaseView onClose={() => setCurrentView('chat')} />}
         {currentView === 'specs' && <SpecsView onClose={() => setCurrentView('chat')} />}
         {currentView === 'sddboard' && <SddBoardView onClose={() => setCurrentView('chat')} />}
         {currentView === 'sddwizard' && <SddWizard onClose={() => setCurrentView('chat')} />}
@@ -422,6 +490,13 @@ function AppInner() {
         )}
         {/* ── Debug Dashboard — accessed via /debug URL ── */}
         {currentView === 'debug' && <DebugDashboard />}
+
+        {/* ── Refresh-resilience verifier — accessed via /refresh-debug URL. ──
+         *  Lets the user confirm in-app that the latest active session
+         *  pointer, transcript, and UI state survived an F5. Without a
+         *  visible surface there's no way for the user to verify the
+         *  contract from the WebUI itself, which was a stated requirement. */}
+        {currentView === 'refresh-debug' && <RefreshDebugView />}
 
         {/* ── IDE Code Editor (only in Files view) ── */}
         {currentView === 'files' && <CodeEditor />}
@@ -458,9 +533,7 @@ function AppInner() {
       {fleetMonitorOpen && <FleetMonitor onClose={() => setFleetMonitorOpen(false)} />}
 
       {/* Agents Monitor sidebar overlay */}
-      {agentsMonitorOpen && (
-        <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />
-      )}
+      {agentsMonitorOpen && <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />}
 
       {/* Process Monitor overlay — triggered by /kill */}
       {processMonitorOpen && (

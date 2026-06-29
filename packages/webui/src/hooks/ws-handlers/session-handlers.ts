@@ -1,9 +1,17 @@
 import { toast } from '@/components/Toaster';
 import { setFaviconStatus } from '@/lib/favicon';
-import { getWSClient } from '@/lib/ws-client';
 import { streamCoalescer } from '@/lib/stream-coalescer';
+import { getWSClient } from '@/lib/ws-client';
 import type { ChatMessage, SessionHistoryEntry, SubagentView } from '@/stores';
-import { useChatStore, useConfigStore, useFileStore, useFleetStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
+import {
+  useChatStore,
+  useConfigStore,
+  useFileStore,
+  useFleetStore,
+  useHistoryStore,
+  useSessionStore,
+  useUIStore,
+} from '@/stores';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
 import type { WSServerMessage } from '@/types';
 
@@ -197,6 +205,7 @@ export function handleSessionStart(msg: WSServerMessage) {
   if (isReset) {
     streamCoalescer.dropAll();
     useChatStore.getState().clearMessages();
+    useChatStore.getState().setBoundSessionId(payload.sessionId);
     useUIStore.getState().setSearchActiveMessageId(null);
     useChatStore.getState().setLoading(false);
     useSessionStore.setState({ todos: [] });
@@ -221,11 +230,17 @@ export function handleSessionStart(msg: WSServerMessage) {
   const replay = (payload as { replayMessages?: ReplayMessage[] }).replayMessages;
   if (replay && replay.length > 0) {
     useChatStore.getState().setMessages(hydrateReplayMessages(replay));
+    // The transcript we just hydrated belongs to the active session —
+    // bind it so any cross-session bleed check in the verifier view knows
+    // these messages are real, not leftovers from a prior session.
+    useChatStore.getState().setBoundSessionId(payload.sessionId);
   }
   if (replay) {
-    const usage = (payload as {
-      replayUsage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-    }).replayUsage;
+    const usage = (
+      payload as {
+        replayUsage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+      }
+    ).replayUsage;
     if (usage) {
       const rates = useSessionStore.getState();
       const input = usage.input ?? 0;
@@ -234,7 +249,9 @@ export function handleSessionStart(msg: WSServerMessage) {
       const cacheWrite = usage.cacheWrite ?? 0;
       useSessionStore.setState({
         totalTokens: { input, output, cacheRead, cacheWrite },
-        cost: (input * rates.inputCost + output * rates.outputCost + cacheRead * rates.cacheReadCost) / 1_000_000,
+        cost:
+          (input * rates.inputCost + output * rates.outputCost + cacheRead * rates.cacheReadCost) /
+          1_000_000,
       });
     }
     if (useUIStore.getState().currentView !== 'chat') {
@@ -248,22 +265,37 @@ export function handleSessionStart(msg: WSServerMessage) {
 
 export function handleContextDebug(msg: WSServerMessage) {
   const p = msg.payload as {
-    total: number; systemPrompt: number;
+    total: number;
+    systemPrompt: number;
     tools: { total: number; count: number; breakdown: Array<{ name: string; tokens: number }> };
-    messages: { total: number; count: number; breakdown: Array<{ index: number; role: string; tokens: number; preview: string }> };
+    messages: {
+      total: number;
+      count: number;
+      breakdown: Array<{ index: number; role: string; tokens: number; preview: string }>;
+    };
   };
   const fmt = (n: number) => n.toLocaleString();
   const topTools = [...p.tools.breakdown].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
   const topMsgs = [...p.messages.breakdown].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
-  useChatStore.getState().addMessage({ role: 'assistant', content: [
-    `📊 **Context breakdown** (heuristic — 4 chars/token)`, '',
-    `**Total estimate:** ${fmt(p.total)} tokens`,
-    `• System prompt: ${fmt(p.systemPrompt)}`,
-    `• Tool schemas: ${fmt(p.tools.total)} (${p.tools.count} tools)`,
-    `• Messages: ${fmt(p.messages.total)} (${p.messages.count} messages)`, '',
-    `**Top tool schemas:**`, ...topTools.map((t) => `  · ${t.name}: ${fmt(t.tokens)}`), '',
-    `**Top messages:**`, ...topMsgs.map((m) => `  · #${m.index} ${m.role}: ${fmt(m.tokens)} — ${m.preview || '(empty)'}`),
-  ].join('\n') });
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: [
+      `📊 **Context breakdown** (heuristic — 4 chars/token)`,
+      '',
+      `**Total estimate:** ${fmt(p.total)} tokens`,
+      `• System prompt: ${fmt(p.systemPrompt)}`,
+      `• Tool schemas: ${fmt(p.tools.total)} (${p.tools.count} tools)`,
+      `• Messages: ${fmt(p.messages.total)} (${p.messages.count} messages)`,
+      '',
+      `**Top tool schemas:**`,
+      ...topTools.map((t) => `  · ${t.name}: ${fmt(t.tokens)}`),
+      '',
+      `**Top messages:**`,
+      ...topMsgs.map(
+        (m) => `  · #${m.index} ${m.role}: ${fmt(m.tokens)} — ${m.preview || '(empty)'}`,
+      ),
+    ].join('\n'),
+  });
 }
 
 export function handleKeyOperationResult(msg: WSServerMessage) {
@@ -277,13 +309,25 @@ export function handleKeyOperationResult(msg: WSServerMessage) {
 export function handleContextCompacted(msg: WSServerMessage) {
   pipeViz(msg);
   const payload = msg.payload as {
-    before: number; after: number; saved: number;
+    before: number;
+    after: number;
+    saved: number;
     reductions: Array<{ phase: string; saved: number }>;
-    repaired?: { removedToolUses: string[] | undefined; removedToolResults: string[]; removedMessages: number };
+    repaired?: {
+      removedToolUses: string[] | undefined;
+      removedToolResults: string[];
+      removedMessages: number;
+    };
   };
-  let summary = payload.reductions.length ? payload.reductions.map((r) => `${r.phase}: ${r.saved}`).join(', ') : 'no-op';
-  if (payload.repaired) summary += `; repaired ${payload.repaired.removedToolUses?.length ?? 0} tool_use, ${payload.repaired.removedToolResults?.length ?? 0} tool_result, ${payload.repaired.removedMessages} empty messages`;
-  useChatStore.getState().addMessage({ role: 'assistant', content: `🗜️ Context compacted: ${payload.before} → ${payload.after} tokens (saved ~${payload.saved}). ${summary}` });
+  let summary = payload.reductions.length
+    ? payload.reductions.map((r) => `${r.phase}: ${r.saved}`).join(', ')
+    : 'no-op';
+  if (payload.repaired)
+    summary += `; repaired ${payload.repaired.removedToolUses?.length ?? 0} tool_use, ${payload.repaired.removedToolResults?.length ?? 0} tool_result, ${payload.repaired.removedMessages} empty messages`;
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `🗜️ Context compacted: ${payload.before} → ${payload.after} tokens (saved ~${payload.saved}). ${summary}`,
+  });
   useSessionStore.setState({ lastInputTokens: payload.after });
 }
 
@@ -304,9 +348,10 @@ export function handleCompactionFailed(msg: WSServerMessage) {
     load = Math.min(100, Math.max(0, Math.round(payload.budget.load * 100)));
     label = 'input budget';
   } else {
-    load = payload.maxContext > 0
-      ? Math.min(100, Math.max(0, Math.round((payload.tokens / payload.maxContext) * 100)))
-      : 0;
+    load =
+      payload.maxContext > 0
+        ? Math.min(100, Math.max(0, Math.round((payload.tokens / payload.maxContext) * 100)))
+        : 0;
     label = 'context';
   }
   useChatStore.getState().addMessage({
@@ -319,7 +364,16 @@ export function handleCompactionFailed(msg: WSServerMessage) {
 
 export function handleProviderResponse(msg: WSServerMessage) {
   pipeViz(msg);
-  const payload = msg.payload as { usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined }; stopReason: string; messageId: string };
+  const payload = msg.payload as {
+    usage: {
+      input: number;
+      output: number;
+      cacheRead?: number | undefined;
+      cacheWrite?: number | undefined;
+    };
+    stopReason: string;
+    messageId: string;
+  };
 
   const u = payload.usage;
   const delta = (u.input ?? 0) + (u.cacheWrite ?? 0) - (u.cacheRead ?? 0);
@@ -327,14 +381,20 @@ export function handleProviderResponse(msg: WSServerMessage) {
 
   useSessionStore.getState().updateUsage(payload.usage);
   const { inputCost, outputCost, cacheReadCost } = useSessionStore.getState();
-  const dCost = (payload.usage.input * inputCost + payload.usage.output * outputCost + (payload.usage.cacheRead ?? 0) * cacheReadCost) / 1_000_000;
+  const dCost =
+    (payload.usage.input * inputCost +
+      payload.usage.output * outputCost +
+      (payload.usage.cacheRead ?? 0) * cacheReadCost) /
+    1_000_000;
   if (dCost > 0) useSessionStore.getState().addCost(dCost);
-  if (payload.stopReason !== 'tool_use' && payload.stopReason !== 'tool_call') useChatStore.getState().setLoading(false);
+  if (payload.stopReason !== 'tool_use' && payload.stopReason !== 'tool_call')
+    useChatStore.getState().setLoading(false);
   const id = useChatStore.getState().currentAssistantMessageId;
   if (id) {
     streamCoalescer.flush(id);
     useChatStore.getState().finalizeMessage(id);
-    if (payload.usage.output > 0) useChatStore.getState().updateMessage(id, { usage: payload.usage });
+    if (payload.usage.output > 0)
+      useChatStore.getState().updateMessage(id, { usage: payload.usage });
   }
   useChatStore.getState().setCurrentAssistantMessage(null);
   streamCoalescer.flush('__thinking__');
@@ -511,10 +571,23 @@ export function handleTrustPersisted(msg: WSServerMessage) {
 
 export function handleContextRepaired(msg: WSServerMessage) {
   pipeViz(msg);
-  const payload = msg.payload as { removedToolUses: string[]; removedToolResults: string[]; removedMessages: number; beforeMessages?: number | undefined; afterMessages?: number | undefined };
-  const removed = payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
-  const msgCount = payload.beforeMessages !== undefined && payload.afterMessages !== undefined ? ` Messages: ${payload.beforeMessages} -> ${payload.afterMessages}.` : '';
-  useChatStore.getState().addMessage({ role: 'assistant', content: `Context repaired: removed ${removed} orphan protocol item(s).${msgCount} tool_use ${payload.removedToolUses.length}, tool_result ${payload.removedToolResults.length}.` });
+  const payload = msg.payload as {
+    removedToolUses: string[];
+    removedToolResults: string[];
+    removedMessages: number;
+    beforeMessages?: number | undefined;
+    afterMessages?: number | undefined;
+  };
+  const removed =
+    payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
+  const msgCount =
+    payload.beforeMessages !== undefined && payload.afterMessages !== undefined
+      ? ` Messages: ${payload.beforeMessages} -> ${payload.afterMessages}.`
+      : '';
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Context repaired: removed ${removed} orphan protocol item(s).${msgCount} tool_use ${payload.removedToolUses.length}, tool_result ${payload.removedToolResults.length}.`,
+  });
 }
 
 export function handleContextPct(msg: WSServerMessage) {
@@ -554,7 +627,11 @@ export function handleSessionDamaged(msg: WSServerMessage) {
 }
 
 export function handleSessionRewound(msg: WSServerMessage) {
-  const p = msg.payload as { toPromptIndex: number; revertedFiles: string[]; removedEvents: number };
+  const p = msg.payload as {
+    toPromptIndex: number;
+    revertedFiles: string[];
+    removedEvents: number;
+  };
   useChatStore.getState().addMessage({
     role: 'assistant',
     content: `Session rewound to prompt #${p.toPromptIndex}. Removed ${p.removedEvents} event(s); reverted ${p.revertedFiles.length} file(s).`,
@@ -593,8 +670,30 @@ export function handleSessionEnd() {
 }
 
 export function handleContextModesList(msg: WSServerMessage) {
-  const p = msg.payload as { activeId: string; modes: Array<{ id: string; name: string; description: string; isActive: boolean; thresholds?: { warn: number | undefined; soft: number; hard: number }; preserveK?: number | undefined; eliseThreshold?: number | undefined; custom?: boolean | undefined }> };
-  useSessionStore.getState().setContextModes(p.modes.map((m) => ({ id: m.id, name: m.name, description: m.description, thresholds: m.thresholds, preserveK: m.preserveK, eliseThreshold: m.eliseThreshold, custom: m.custom })));
+  const p = msg.payload as {
+    activeId: string;
+    modes: Array<{
+      id: string;
+      name: string;
+      description: string;
+      isActive: boolean;
+      thresholds?: { warn: number | undefined; soft: number; hard: number };
+      preserveK?: number | undefined;
+      eliseThreshold?: number | undefined;
+      custom?: boolean | undefined;
+    }>;
+  };
+  useSessionStore.getState().setContextModes(
+    p.modes.map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      thresholds: m.thresholds,
+      preserveK: m.preserveK,
+      eliseThreshold: m.eliseThreshold,
+      custom: m.custom,
+    })),
+  );
   useSessionStore.getState().setEnv({ contextMode: p.activeId });
 }
 
@@ -611,7 +710,11 @@ export function handleSessionsList(msg: WSServerMessage) {
 export function handleError(msg: WSServerMessage) {
   const payload = msg.payload as { phase: string; message: string };
   flushThinkingLogForCurrentIteration();
-  useChatStore.getState().addMessage({ role: 'assistant', content: `[${payload.phase}] ${payload.message}`, isError: true });
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `[${payload.phase}] ${payload.message}`,
+    isError: true,
+  });
   useChatStore.getState().setLoading(false);
 }
 
@@ -645,5 +748,5 @@ export const sessionHandlerMap: Partial<Record<string, (msg: WSServerMessage) =>
   'context.modes.list': handleContextModesList,
   'context.mode.changed': handleContextModeChanged,
   'sessions.list': handleSessionsList,
-  'error': handleError,
+  error: handleError,
 };

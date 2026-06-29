@@ -45,7 +45,12 @@ beforeEach(() => {
     thinkingStartedAt: null,
     thinkingLogBuffer: '',
     thinkingLogStartedAt: null,
+    boundSessionId: null,
   });
+  // Clear any persisted chat blob so each test starts from the
+  // default state rather than whatever the previous test left in
+  // localStorage.
+  localStorage.removeItem('wrongstack-chat');
 });
 
 afterEach(() => {
@@ -714,3 +719,125 @@ describe('flushThinkingLog', () => {
     expect(useChatStore.getState().messages).toEqual([]);
   });
 });
+
+// ── F5 resilience: chat transcript persistence ──────────────────────
+//
+// After F5 the chat transcript + queued messages must round-trip through
+// localStorage so a page refresh doesn't lose work-in-progress.
+//
+// What we persist (from partialize):
+//   • messages
+//   • queue
+//   • boundSessionId
+//   • thinkingLogBuffer
+//
+// What we deliberately do NOT persist:
+//   • isLoading, abortController (non-serializable)
+//   • executions Map (runtime-only, rebuilt from messages)
+//   • currentAssistantMessageId, currentToolId (rebuilt by render)
+//   • thinkingBuffer, thinkingStartedAt (live ephemeral bubble)
+//   • runStart (resets per turn)
+//   • toolMessageIdsByUseId (rebuilt from messages via indexToolMessages)
+describe('F5 resilience — chat transcript persistence', () => {
+  it('persists messages + queue + boundSessionId via the localStorage key', () => {
+    addMsg({ role: 'user', content: 'pre-refresh message' });
+    useChatStore.getState().enqueue('typed but not sent', 'queue');
+    useChatStore.getState().setBoundSessionId('sess-LIVE');
+
+    const api = (useChatStore as unknown as { persist?: { flush?: () => void } }).persist;
+    api?.flush?.();
+
+    const raw = localStorage.getItem('wrongstack-chat');
+    expect(raw).toBeTruthy();
+    const blob = JSON.parse(raw!) as { state: Record<string, unknown> };
+    const persisted = blob.state;
+    expect(Array.isArray(persisted.messages)).toBe(true);
+    expect((persisted.messages as unknown[]).length).toBeGreaterThan(0);
+    expect(persisted.boundSessionId).toBe('sess-LIVE');
+    expect(Array.isArray(persisted.queue)).toBe(true);
+  });
+
+  it('does NOT persist non-serializable runtime fields', () => {
+    const ac = new AbortController();
+    useChatStore.setState({
+      isLoading: true,
+      abortController: ac,
+      runStart: { at: 1, cost: 0.5 },
+      currentAssistantMessageId: 'pending-bubble',
+      currentToolId: 'tool-pending',
+      executions: new Map([['e1', { id: 'e1', name: 'bash', startedAt: 1, ok: false }]]),
+      toolMessageIdsByUseId: new Map([['u1', 'm1']]),
+      thinkingBuffer: 'live ephemeral',
+      thinkingStartedAt: 999,
+    });
+    useChatStore.getState().enqueue('keep this');
+    const api = (useChatStore as unknown as { persist?: { flush?: () => void } }).persist;
+    api?.flush?.();
+    const raw = localStorage.getItem('wrongstack-chat');
+    expect(raw).toBeTruthy();
+    const blob = JSON.parse(raw!) as { state: Record<string, unknown> };
+    const persisted = blob.state;
+    expect(persisted.isLoading).toBeUndefined();
+    expect(persisted.abortController).toBeUndefined();
+    expect(persisted.runStart).toBeUndefined();
+    expect(persisted.currentAssistantMessageId).toBeUndefined();
+    expect(persisted.currentToolId).toBeUndefined();
+    expect(persisted.executions).toBeUndefined();
+    expect(persisted.toolMessageIdsByUseId).toBeUndefined();
+    expect(persisted.thinkingBuffer).toBeUndefined();
+    expect(persisted.thinkingStartedAt).toBeUndefined();
+  });
+
+  it('migrate() drops payloads whose messages/queue are not arrays', () => {
+    setChatPersisted({
+      state: { messages: 'not-an-array', queue: null, boundSessionId: 'X' },
+      version: 1,
+    });
+    const api = (
+      useChatStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const restored = api
+      ?.getOptions?.()
+      .migrate?.({ messages: 'not-an-array', queue: null, boundSessionId: 'X' }, 1);
+    expect(restored).toMatchObject({
+      messages: [],
+      queue: [],
+      boundSessionId: 'X',
+    });
+  });
+
+  it('migrate() rejects future versions', () => {
+    const api = (
+      useChatStore as unknown as {
+        persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
+      }
+    ).persist;
+    const result = api?.getOptions?.().migrate?.({ messages: [] }, 99);
+    expect(result).toBeNull();
+  });
+
+  it('clearMessages() also clears boundSessionId (so a rehydrate detects cross-session bleed)', () => {
+    useChatStore.getState().setBoundSessionId('sess-A');
+    useChatStore.getState().addMessage({ role: 'user', content: 'session A msg' });
+    useChatStore.getState().clearMessages();
+    expect(useChatStore.getState().boundSessionId).toBeNull();
+    expect(useChatStore.getState().messages).toEqual([]);
+  });
+
+  it('setBoundSessionId() round-trips so the cross-session bleed check has a real signal', () => {
+    useChatStore.getState().setBoundSessionId('sess-A');
+    expect(useChatStore.getState().boundSessionId).toBe('sess-A');
+    useChatStore.getState().setBoundSessionId(null);
+    expect(useChatStore.getState().boundSessionId).toBeNull();
+  });
+});
+
+function setChatPersisted(value: Record<string, unknown> | null): void {
+  if (value === null) {
+    localStorage.removeItem('wrongstack-chat');
+    return;
+  }
+  localStorage.setItem('wrongstack-chat', JSON.stringify(value));
+}
