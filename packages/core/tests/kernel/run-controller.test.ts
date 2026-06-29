@@ -65,6 +65,25 @@ describe('RunController', () => {
     expect(count).toBe(1);
   });
 
+  it('routes a throwing post-drain hook through errorSink instead of throwing', async () => {
+    // A hook registered after the controller has drained fires immediately;
+    // if it throws, the error must be routed through errorSink (best-effort),
+    // not surface as an unhandled rejection.
+    const errs: Array<{ msg: string; where: string }> = [];
+    const c = new RunController({
+      errorSink: (err, where) =>
+        errs.push({ msg: err instanceof Error ? err.message : String(err), where }),
+    });
+    await c.dispose();
+    c.onAbort(() => {
+      throw new Error('post-drain boom');
+    });
+    await new Promise((r) => setImmediate(r));
+    expect(errs).toHaveLength(1);
+    expect(errs[0]?.msg).toBe('post-drain boom');
+    expect(errs[0]?.where).toBe('RunController.onAbort(post-drain)');
+  });
+
   it('unsubscribe stops a hook from firing', async () => {
     const c = new RunController();
     let fired = false;

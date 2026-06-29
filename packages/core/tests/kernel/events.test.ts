@@ -341,4 +341,36 @@ describe('EventBus', () => {
     bus.emit('session.started', { id: '1' });
     expect(order).toEqual(['b', 'c']);
   });
+
+  it('emit() snapshots named listeners so one added mid-emit does not fire on the same emit', () => {
+    // Regression guard: the named-listener loop must snapshot the Set like the
+    // wildcard path does, so a listener that subscribes a sibling for the same
+    // event mid-emit doesn't observe engine-dependent behavior. The new
+    // listener fires on the NEXT emit instead.
+    const bus = new EventBus();
+    const late = vi.fn();
+    bus.on('session.started', () => {
+      bus.on('session.started', late);
+    });
+    bus.emit('session.started', { id: '1' });
+    expect(late).not.toHaveBeenCalled();
+    bus.emit('session.started', { id: '2' });
+    expect(late).toHaveBeenCalledTimes(1);
+  });
+
+  it('emit() removes a named listener mid-iteration without skipping unvisited siblings', () => {
+    // Regression guard: a listener that unsubscribes a sibling (or itself)
+    // mid-emit must not change which subsequent named listeners get visited.
+    // The snapshot guarantees every listener registered BEFORE emit() runs
+    // fires exactly once, deterministically.
+    const bus = new EventBus();
+    const order: string[] = [];
+    const offB = bus.on('session.started', () => {
+      order.push('b');
+      offB();
+    });
+    bus.on('session.started', () => order.push('c'));
+    bus.emit('session.started', { id: '1' });
+    expect(order).toEqual(['b', 'c']);
+  });
 });
