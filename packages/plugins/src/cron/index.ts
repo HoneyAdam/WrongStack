@@ -188,6 +188,7 @@ const plugin: Plugin = {
         required: ['name', 'intervalMs', 'action'],
       },
       permission: 'confirm',
+      category: 'Session',
       mutating: false,
       capabilities: [COORDINATION_CRON_CAPABILITY],
       async execute(input: Record<string, unknown>) {

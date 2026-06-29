@@ -90,32 +90,32 @@ describe('template_expand', () => {
     expect(raw.result).toBe('<a>&');
   });
 
-  it('writes to a relative outputPath', async () => {
+  it('writes to a relative output_path', async () => {
     const tools = setup();
-    const res = await tools.template_expand!.execute({ template: 'hi {{n}}', variables: { n: 'x' }, outputPath: 'out/result.txt' });
+    const res = await tools.template_expand!.execute({ template: 'hi {{n}}', variables: { n: 'x' }, output_path: 'out/result.txt' });
     expect(res.ok).toBe(true);
-    expect(res.outputPath).toBe('out/result.txt');
+    expect(res.output_path).toBe('out/result.txt');
     expect(fsm.writeFileSync).toHaveBeenCalledWith('out/result.txt', 'hi x', 'utf-8');
   });
 
   it('rejects absolute or traversing output paths', async () => {
     const tools = setup();
-    expect((await tools.template_expand!.execute({ template: 'x', variables: {}, outputPath: '/etc/passwd' })).error).toMatch(/relative path/);
-    expect((await tools.template_expand!.execute({ template: 'x', variables: {}, outputPath: '../escape' })).error).toMatch(/relative path/);
+    expect((await tools.template_expand!.execute({ template: 'x', variables: {}, output_path: '/etc/passwd' })).error).toMatch(/relative path/);
+    expect((await tools.template_expand!.execute({ template: 'x', variables: {}, output_path: '../escape' })).error).toMatch(/relative path/);
   });
 });
 
 describe('template_render', () => {
-  it('validates templatePath and variables', async () => {
+  it('validates template_path and variables', async () => {
     const tools = setup();
-    expect((await tools.template_render!.execute({ variables: {} })).error).toMatch(/templatePath is required/);
-    expect((await tools.template_render!.execute({ templatePath: 'a', variables: 5 })).error).toMatch(/variables is required/);
+    expect((await tools.template_render!.execute({ variables: {} })).error).toMatch(/template_path is required/);
+    expect((await tools.template_render!.execute({ template_path: 'a', variables: 5 })).error).toMatch(/variables is required/);
   });
 
   it('reads, renders and returns the result', async () => {
     fsm.readFileSync.mockReturnValue('Hello {{who}}');
     const tools = setup();
-    const res = await tools.template_render!.execute({ templatePath: 't.tmpl', variables: { who: 'World' } });
+    const res = await tools.template_render!.execute({ template_path: 't.tmpl', variables: { who: 'World' } });
     expect(res.ok).toBe(true);
     expect(res.result).toBe('Hello World');
   });
@@ -123,7 +123,7 @@ describe('template_render', () => {
   it('errors when the template file cannot be read', async () => {
     fsm.readFileSync.mockImplementation(() => { throw new Error('ENOENT'); });
     const tools = setup();
-    const res = await tools.template_render!.execute({ templatePath: 'missing', variables: {} });
+    const res = await tools.template_render!.execute({ template_path: 'missing', variables: {} });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Could not read template file/);
   });
@@ -131,7 +131,7 @@ describe('template_render', () => {
   it('writes the rendered output to a relative path', async () => {
     fsm.readFileSync.mockReturnValue('raw {{v}}');
     const tools = setup();
-    const res = await tools.template_render!.execute({ templatePath: 't', variables: { v: 'x' }, outputPath: 'r.txt', raw: true });
+    const res = await tools.template_render!.execute({ template_path: 't', variables: { v: 'x' }, output_path: 'r.txt', raw: true });
     expect(res.ok).toBe(true);
     expect(fsm.writeFileSync).toHaveBeenCalledWith('r.txt', 'raw x', 'utf-8');
   });
@@ -139,7 +139,7 @@ describe('template_render', () => {
   it('rejects a traversing output path on render', async () => {
     fsm.readFileSync.mockReturnValue('x');
     const tools = setup();
-    const res = await tools.template_render!.execute({ templatePath: 't', variables: {}, outputPath: '../x' });
+    const res = await tools.template_render!.execute({ template_path: 't', variables: {}, output_path: '../x' });
     expect(res.error).toMatch(/relative path/);
   });
 });

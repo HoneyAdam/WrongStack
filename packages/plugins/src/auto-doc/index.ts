@@ -2,8 +2,9 @@
  * auto-doc plugin — Auto-generates JSDoc/TSDoc comments for source files.
  *
  * Tools registered:
- * - auto_doc: Generate and inject doc comments into JS/TS files
- * - auto_doc_preview: Preview doc comments without writing them
+ * - auto_doc: Generate and inject doc comments into JS/TS files.
+ *   Pass `dry_run: true` to preview without writing (replaces the former
+ *   `auto_doc_preview` tool).
  */
 import type { Plugin } from '@wrongstack/core';
 
@@ -17,12 +18,7 @@ interface AutoDocInput {
   files: string[];
   style?: 'jsdoc' | 'tsdoc' | undefined;
   force?: boolean | undefined;
-  dryRun?: boolean | undefined;
-}
-
-interface AutoDocPreviewInput {
-  files: string[];
-  style?: 'jsdoc' | 'tsdoc' | undefined;
+  dry_run?: boolean | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +154,7 @@ async function runAutoDoc(input: AutoDocInput, api: Parameters<Plugin['setup']>[
         results.push({ file, entity: entity.name });
       }
 
-      if (!input.dryRun && results.length > 0) {
+      if (!input.dry_run && results.length > 0) {
         writeFileSync(file, modified, 'utf-8');
         api.log.info(`auto-doc: updated ${file}`);
       }
@@ -170,40 +166,13 @@ async function runAutoDoc(input: AutoDocInput, api: Parameters<Plugin['setup']>[
   return { ok: true, filesProcessed: input.files.length, changes: results };
 }
 
-async function runAutoDocPreview(input: AutoDocPreviewInput, api: Parameters<Plugin['setup']>[0]) {
-  if (!input.files || typeof input.files !== 'object' || !Array.isArray(input.files)) {
-    return { ok: false, error: 'input.files must be an array of file paths', previews: [] };
-  }
-  if (input.files.length === 0) {
-    return { ok: false, error: 'input.files is empty — provide at least one file path', previews: [] };
-  }
-  const includeTypes = (api.config.extensions?.['auto-doc'] as Record<string, unknown>)?.['includeTypes'] as boolean ?? false;
-  const previews: Array<{ file: string; entities: string[] }> = [];
-
-  for (const file of input.files) {
-    try {
-      const { readFileSync } = await import('node:fs');
-      const content = readFileSync(file, 'utf-8');
-      const entities = parseSource(content);
-      const generated = entities
-        .filter((e) => needsDocComment(content, e))
-        .map((e) => generateDocComment(e, includeTypes));
-      previews.push({ file, entities: generated });
-    } catch {
-      api.log.warn(`auto-doc-preview: could not read file ${file}`);
-    }
-  }
-
-  return { ok: true, previews };
-}
-
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 
 const plugin: Plugin = {
   name: 'auto-doc',
-  version: '0.1.0',
+  version: '0.2.0',
   description: 'Auto-generates JSDoc/TSDoc comments for functions, classes, types, and interfaces',
   apiVersion: AUTO_DOC_API_VERSION,
   capabilities: { tools: true, pipelines: ['toolCall'] },
@@ -220,43 +189,26 @@ const plugin: Plugin = {
   setup(api) {
     api.tools.register({
       name: 'auto_doc',
-      description: 'Auto-generate JSDoc/TSDoc comments for functions, classes, types, and interfaces in source files',
+      description: 'Auto-generate JSDoc/TSDoc comments for functions, classes, types, and interfaces in source files. Set `dry_run: true` to preview without writing.',
       inputSchema: {
         type: 'object',
         properties: {
           files: { type: 'array', items: { type: 'string' }, description: 'Source files to document' },
           style: { type: 'string', enum: ['jsdoc', 'tsdoc'], default: 'tsdoc', description: 'Comment style' },
           force: { type: 'boolean', default: false, description: 'Overwrite existing docstrings' },
-          dryRun: { type: 'boolean', default: false, description: 'Preview without writing' },
+          dry_run: { type: 'boolean', default: false, description: 'Preview generated comments without writing to files' },
         },
         required: ['files'],
       },
       permission: 'auto',
       mutating: true,
+      category: 'Project',
       async execute(input: Record<string, unknown>) {
         return runAutoDoc(input as never as AutoDocInput, api);
       },
     });
 
-    api.tools.register({
-      name: 'auto_doc_preview',
-      description: 'Preview what JSDoc/TSDoc comments would be generated for files, without writing',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          files: { type: 'array', items: { type: 'string' }, description: 'Source files to preview' },
-          style: { type: 'string', enum: ['jsdoc', 'tsdoc'], default: 'tsdoc' },
-        },
-        required: ['files'],
-      },
-      permission: 'auto',
-      mutating: false,
-      async execute(input: Record<string, unknown>) {
-        return runAutoDocPreview(input as never as AutoDocPreviewInput, api);
-      },
-    });
-
-    api.log.info('auto-doc plugin loaded', { version: '0.1.0', capabilities: ['auto_doc', 'auto_doc_preview'] });
+    api.log.info('auto-doc plugin loaded', { version: '0.2.0', capabilities: ['auto_doc'] });
   },
 
   teardown(api) {

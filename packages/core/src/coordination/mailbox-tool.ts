@@ -110,9 +110,12 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
   return {
     name: 'mailbox',
     description:
-      'Inter-agent mailbox with cross-session support. Send messages, check for incoming messages, acknowledge with read receipts, query by criteria, see online agents.',
-    usageHint: shortHint,
-    category: 'coordination',
+      'Low-level inter-agent mailbox with 7 actions (check, send, ack, query, status, online, unread). ' +
+      'For most use cases, prefer the simpler `mail_send` and `mail_inbox` tools — they cover the ' +
+      'common send/read operations with a cleaner interface. This tool is for advanced queries ' +
+      '(filter by sender, priority, since-timestamp), agent status/online lists, and message ack/control.',
+    usageHint: shortHint + ' For simple send/read, use mail_send / mail_inbox instead.',
+    category: 'Coordination',
     permission: 'auto',
     mutating: true,
     capabilities: [ToolCapabilities.COORDINATION_MAIL],

@@ -22,10 +22,10 @@ interface WatchHandle {
   createdAt: string;
 }
 
-let watchIdCounter = 0;
+let watch_idCounter = 0;
 
 function nextId(): string {
-  return `watch_${++watchIdCounter}_${Date.now().toString(36)}`;
+  return `watch_${++watch_idCounter}_${Date.now().toString(36)}`;
 }
 
 // Module-level state, shared between `setup` and `teardown`.
@@ -137,7 +137,7 @@ const plugin: Plugin = {
           const key = `${handle.id}:${fullPath}:${eventType}`;
           debounceEvent(key, () => {
             api.emitCustom('file-watcher:changed', {
-              watchId: handle.id,
+              watch_id: handle.id,
               path: fullPath,
               event: eventType,
               filename,
@@ -209,15 +209,16 @@ const plugin: Plugin = {
         required: ['paths'],
       },
       permission: 'confirm',
+      category: 'Filesystem',
       mutating: false,
       async execute(input: Record<string, unknown>) {
         const rawPaths = input['paths'];
         if (!rawPaths || (typeof rawPaths !== 'object') || !Array.isArray(rawPaths)) {
-          return { ok: false, error: 'paths must be an array of file/directory paths', watchId: null };
+          return { ok: false, error: 'paths must be an array of file/directory paths', watch_id: null };
         }
         const paths = rawPaths as string[];
         if (paths.length === 0) {
-          return { ok: false, error: 'paths array is empty — provide at least one path', watchId: null };
+          return { ok: false, error: 'paths array is empty — provide at least one path', watch_id: null };
         }
         const events = (input['events'] as string[] | undefined) ?? ['change', 'add', 'delete'];
         const recursive = (input['recursive'] as boolean | undefined) ?? true;
@@ -242,7 +243,7 @@ const plugin: Plugin = {
 
         return {
           ok: true,
-          watchId: id,
+          watch_id: id,
           paths,
           events,
           recursive,
@@ -258,18 +259,18 @@ const plugin: Plugin = {
       inputSchema: {
         type: 'object',
         properties: {
-          watchId: { type: 'string', description: 'Watch ID returned by watch_start' },
+          watch_id: { type: 'string', description: 'Watch ID returned by watch_start' },
         },
-        required: ['watchId'],
+        required: ['watch_id'],
       },
       permission: 'auto',
       mutating: false,
       async execute(input: Record<string, unknown>) {
-        const watchId = input['watchId'] as string;
-        const handle = watches.get(watchId);
+        const watch_id = input['watch_id'] as string;
+        const handle = watches.get(watch_id);
 
         if (!handle) {
-          return { ok: false, error: `No active watch with ID: ${watchId}` };
+          return { ok: false, error: `No active watch with ID: ${watch_id}` };
         }
 
         for (const w of handle.watchers) {
@@ -280,13 +281,13 @@ const plugin: Plugin = {
           }
         }
 
-        watches.delete(watchId);
+        watches.delete(watch_id);
         api.metrics.gauge('active_watches', watches.size);
 
         return {
           ok: true,
-          watchId,
-          message: `Stopped watch ${watchId}. ${watches.size} watch(es) remaining.`,
+          watch_id,
+          message: `Stopped watch ${watch_id}. ${watches.size} watch(es) remaining.`,
         };
       },
     });

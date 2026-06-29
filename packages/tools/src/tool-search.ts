@@ -25,12 +25,14 @@ export const toolSearchTool: Tool<ToolSearchInput, ToolSearchOutput> = {
   name: 'tool_search',
   category: 'Meta',
   description:
-    'Search the catalog of available tools. Very useful when you are unsure which tool to use for a task.',
+    'Search the catalog of available tools by name or description. Use this to discover which tool to use for a task. ' +
+    'For the full schema and usage details of a specific tool, use `tool_help` instead.',
   usageHint:
     'SELF-DISCOVERY TOOL:\n\n' +
     '- Use when you need to find the right tool for a job.\n' +
     '- `query` searches names and descriptions.\n' +
     '- You can filter by `tags` (category), `permission`, or `mutating`.\n' +
+    '- Once you find the right tool name, use `tool_help` with that name for full schema details.\n' +
     'Call this before guessing tool names. It helps you discover the best tool for the current situation.',
   permission: 'auto',
   mutating: false,

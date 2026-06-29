@@ -18,30 +18,13 @@ describe('git-autocommit plugin', () => {
     vi.clearAllMocks();
   });
 
-  it('tool registration succeeds', () => {
+  it('registers only git_autocommit (git_stage and git_status_summary removed)', () => {
     gitAutocommitPlugin.setup(mockApi as any);
     const tools = mockApi.tools.register.mock.calls.map(([t]: any[]) => t.name);
 
-    expect(tools).toContain('git_stage');
     expect(tools).toContain('git_autocommit');
-  });
-
-  it('git_stage tool schema is correct', () => {
-    gitAutocommitPlugin.setup(mockApi as any);
-    const tool = mockApi.tools.register.mock.calls.find(
-      ([t]: any[]) => t.name === 'git_stage'
-    )?.[0];
-
-    expect(tool).toBeDefined();
-    expect(tool?.name).toBe('git_stage');
-    expect(tool?.description).toBe('Stage specific files for commit. Shows what would be staged without staging if dryRun is true.');
-    expect(tool?.permission).toBe('confirm');
-    expect(tool?.mutating).toBe(true);
-    expect(tool?.inputSchema.type).toBe('object');
-    expect(tool?.inputSchema.required).toContain('files');
-    expect(tool?.inputSchema.properties?.files?.type).toBe('array');
-    expect(tool?.inputSchema.properties?.files?.items?.type).toBe('string');
-    expect(tool?.inputSchema.properties?.dryRun?.type).toBe('boolean');
+    expect(tools).not.toContain('git_stage');
+    expect(tools).not.toContain('git_status_summary');
   });
 
   it('git_autocommit tool schema is correct', () => {
@@ -57,17 +40,5 @@ describe('git-autocommit plugin', () => {
     expect(tool?.mutating).toBe(true);
     expect(tool?.inputSchema.type).toBe('object');
     expect(tool?.inputSchema.properties?.type?.enum).toEqual(['feat', 'fix', 'docs', 'style', 'refactor', 'test', 'chore', 'perf', 'ci', 'build', 'revert']);
-  });
-
-  it('git_status_summary tool is registered', () => {
-    gitAutocommitPlugin.setup(mockApi as any);
-    const tool = mockApi.tools.register.mock.calls.find(
-      ([t]: any[]) => t.name === 'git_status_summary'
-    )?.[0];
-
-    expect(tool).toBeDefined();
-    expect(tool?.name).toBe('git_status_summary');
-    expect(tool?.permission).toBe('auto');
-    expect(tool?.mutating).toBe(false);
   });
 });

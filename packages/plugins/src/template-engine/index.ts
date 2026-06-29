@@ -149,17 +149,18 @@ const plugin: Plugin = {
             description: 'Variables to substitute into the template',
             additionalProperties: { type: 'string' },
           },
-          outputPath: { type: 'string', description: 'Optional path to write the expanded result' },
+          output_path: { type: 'string', description: 'Optional path to write the expanded result' },
           raw: { type: 'boolean', default: false, description: 'Disable HTML auto-escaping' },
         },
         required: ['template', 'variables'],
       },
       permission: 'auto',
+      category: 'Project',
       mutating: true,
       async execute(input: Record<string, unknown>) {
         const template = input['template'];
         const variables = input['variables'] as Record<string, string> | undefined;
-        const outputPath = input['outputPath'] as string | undefined;
+        const output_path = input['output_path'] as string | undefined;
         const raw = (input['raw'] as boolean | undefined) ?? false;
 
         if (!template || typeof template !== 'string') {
@@ -178,20 +179,20 @@ const plugin: Plugin = {
         }
         /* v8 ignore stop */
 
-        if (outputPath) {
+        if (output_path) {
           // Path traversal guard: reject absolute paths and path components
           // that escape the working directory. The core write tool has full
           // project-root sandboxing; plugins get defense-in-depth only.
-          if (isAbsolute(outputPath) || outputPath.includes('..')) {
-            return { ok: false, error: 'outputPath must be a relative path without ".." components' };
+          if (isAbsolute(output_path) || output_path.includes('..')) {
+            return { ok: false, error: 'output_path must be a relative path without ".." components' };
           }
           const { writeFileSync } = await import('node:fs');
-          writeFileSync(outputPath, result, 'utf-8');
+          writeFileSync(output_path, result, 'utf-8');
           return {
             ok: true,
-            outputPath,
+            output_path,
             contentLength: result.length,
-            message: `Wrote ${result.length} characters to ${outputPath}`,
+            message: `Wrote ${result.length} characters to ${output_path}`,
           };
         }
 
@@ -211,27 +212,27 @@ const plugin: Plugin = {
       inputSchema: {
         type: 'object',
         properties: {
-          templatePath: { type: 'string', description: 'Path to the template file' },
+          template_path: { type: 'string', description: 'Path to the template file' },
           variables: {
             type: 'object',
             description: 'Variables to substitute',
             additionalProperties: { type: 'string' },
           },
-          outputPath: { type: 'string', description: 'Optional path to write the rendered result' },
+          output_path: { type: 'string', description: 'Optional path to write the rendered result' },
           raw: { type: 'boolean', default: false },
         },
-        required: ['templatePath', 'variables'],
+        required: ['template_path', 'variables'],
       },
       permission: 'auto',
       mutating: true,
       async execute(input: Record<string, unknown>) {
-        const templatePath = input['templatePath'];
+        const template_path = input['template_path'];
         const variables = input['variables'] as Record<string, string> | undefined;
-        const outputPath = input['outputPath'] as string | undefined;
+        const output_path = input['output_path'] as string | undefined;
         const raw = (input['raw'] as boolean | undefined) ?? false;
 
-        if (!templatePath || typeof templatePath !== 'string') {
-          return { ok: false, error: 'templatePath is required and must be a string' };
+        if (!template_path || typeof template_path !== 'string') {
+          return { ok: false, error: 'template_path is required and must be a string' };
         }
         if (!variables || typeof variables !== 'object') {
           return { ok: false, error: 'variables is required and must be an object' };
@@ -240,7 +241,7 @@ const plugin: Plugin = {
         let content: string;
         try {
           const { readFileSync } = await import('node:fs');
-          content = readFileSync(templatePath, 'utf-8');
+          content = readFileSync(template_path, 'utf-8');
         } catch (err: unknown) {
           return { ok: false, error: `Could not read template file: ${err}` };
         }
@@ -254,23 +255,23 @@ const plugin: Plugin = {
         }
         /* v8 ignore stop */
 
-        if (outputPath) {
-          if (isAbsolute(outputPath) || outputPath.includes('..')) {
-            return { ok: false, error: 'outputPath must be a relative path without ".." components' };
+        if (output_path) {
+          if (isAbsolute(output_path) || output_path.includes('..')) {
+            return { ok: false, error: 'output_path must be a relative path without ".." components' };
           }
           const { writeFileSync } = await import('node:fs');
-          writeFileSync(outputPath, result, 'utf-8');
+          writeFileSync(output_path, result, 'utf-8');
           return {
             ok: true,
-            templatePath,
-            outputPath,
-            message: `Rendered and wrote ${result.length} chars to ${outputPath}`,
+            template_path,
+            output_path,
+            message: `Rendered and wrote ${result.length} chars to ${output_path}`,
           };
         }
 
         return {
           ok: true,
-          templatePath,
+          template_path,
           result,
           contentLength: result.length,
         };

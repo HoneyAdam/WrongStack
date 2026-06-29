@@ -57,7 +57,8 @@ export function createCodebaseLspSearchTool(deps: ToolDeps): Tool<CodebaseLspSea
   return {
     name: 'codebase-lsp-search',
     description:
-      'Search code symbols using a fast SQLite+BM25 index, falling back to live LSP workspaceSymbol queries when needed.',
+      'DEPRECATED — use `codebase-search` with `preferLsp: true` instead. ' +
+      'This tool remains for backward compatibility but is superseded by the built-in codebase-search tool.',
     usageHint:
       'Pass `query` to search. Use `limit` (default 20) to cap results. Set `preferLsp=true` to skip the index and query LSP servers directly for live precision.',
     inputSchema: {

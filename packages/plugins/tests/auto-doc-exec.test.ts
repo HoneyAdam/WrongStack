@@ -70,7 +70,7 @@ describe('auto_doc', () => {
 
   it('does not write in dry-run mode', async () => {
     const tools = setup();
-    const res = await tools.auto_doc!.execute({ files: ['a.ts'], dryRun: true });
+    const res = await tools.auto_doc!.execute({ files: ['a.ts'], dry_run: true });
     expect(res.ok).toBe(true);
     expect((res.changes as unknown[]).length).toBeGreaterThan(0);
     expect(fsm.writeFileSync).not.toHaveBeenCalled();
@@ -80,7 +80,7 @@ describe('auto_doc', () => {
     const tools = setup({ includeTypes: true });
     // force documents every kind, exercising the jsdoc generator for
     // function/class/type/interface in one pass.
-    const res = await tools.auto_doc!.execute({ files: ['a.ts'], style: 'jsdoc', force: true, dryRun: true });
+    const res = await tools.auto_doc!.execute({ files: ['a.ts'], style: 'jsdoc', force: true, dry_run: true });
     expect(res.ok).toBe(true);
     const changed = (res.changes as Array<{ entity: string }>).map((c) => c.entity);
     expect(changed).toEqual(expect.arrayContaining(['foo', 'MyType', 'MyClass', 'MyIface']));
@@ -89,10 +89,10 @@ describe('auto_doc', () => {
   it('skips entities that already have a doc comment unless force is set', async () => {
     fsm.readFileSync.mockReturnValue(['  /**', '  function documented() {', '  }'].join('\n'));
     const tools = setup();
-    const res = await tools.auto_doc!.execute({ files: ['a.ts'], dryRun: true });
+    const res = await tools.auto_doc!.execute({ files: ['a.ts'], dry_run: true });
     expect((res.changes as unknown[]).length).toBe(0); // already documented → skipped
 
-    const forced = await tools.auto_doc!.execute({ files: ['a.ts'], force: true, dryRun: true });
+    const forced = await tools.auto_doc!.execute({ files: ['a.ts'], force: true, dry_run: true });
     expect((forced.changes as unknown[]).length).toBe(1); // force overrides
   });
 
@@ -114,7 +114,7 @@ describe('auto_doc', () => {
 
   it('emits {type} return annotations in tsdoc with includeTypes', async () => {
     const tools = setup({ includeTypes: true });
-    const res = await tools.auto_doc!.execute({ files: ['a.ts'], force: true, dryRun: true });
+    const res = await tools.auto_doc!.execute({ files: ['a.ts'], force: true, dry_run: true });
     expect(res.ok).toBe(true);
     expect((res.changes as Array<{ entity: string }>).some((c) => c.entity === 'foo')).toBe(true);
   });
@@ -122,7 +122,7 @@ describe('auto_doc', () => {
   it('handles arrow functions with no parameters', async () => {
     fsm.readFileSync.mockReturnValue('const noParams = (): void => {\n};');
     const tools = setup();
-    const res = await tools.auto_doc!.execute({ files: ['a.ts'], force: true, dryRun: true });
+    const res = await tools.auto_doc!.execute({ files: ['a.ts'], force: true, dry_run: true });
     expect((res.changes as Array<{ entity: string }>)[0]!.entity).toBe('noParams');
   });
 
@@ -132,39 +132,6 @@ describe('auto_doc', () => {
     const res = await tools.auto_doc!.execute({ files: ['a.ts'] });
     expect((res.changes as unknown[]).length).toBe(0);
     expect(fsm.writeFileSync).not.toHaveBeenCalled();
-  });
-});
-
-describe('auto_doc_preview', () => {
-  it('rejects non-array and empty files', async () => {
-    const tools = setup();
-    expect((await tools.auto_doc_preview!.execute({ files: 123 })).ok).toBe(false);
-    expect((await tools.auto_doc_preview!.execute({ files: [] })).ok).toBe(false);
-  });
-
-  it('previews docs for undocumented entities (jsdoc)', async () => {
-    // preview includes entities that NEED a doc comment (not yet documented)
-    fsm.readFileSync.mockReturnValue('function undocumented(): number {\n  return 1;\n}');
-    const tools = setup();
-    const res = await tools.auto_doc_preview!.execute({ files: ['a.ts'], style: 'jsdoc' });
-    expect(res.ok).toBe(true);
-    const previews = res.previews as Array<{ entities: string[] }>;
-    expect(previews[0]!.entities.length).toBe(1);
-  });
-
-  it('previews with the default tsdoc style', async () => {
-    fsm.readFileSync.mockReturnValue('function undocumented(): number {\n  return 1;\n}');
-    const tools = setup();
-    const res = await tools.auto_doc_preview!.execute({ files: ['a.ts'] }); // default style
-    expect((res.previews as Array<{ entities: string[] }>)[0]!.entities.length).toBe(1);
-  });
-
-  it('warns when a preview file cannot be read', async () => {
-    fsm.readFileSync.mockImplementation(() => { throw new Error('ENOENT'); });
-    const tools = setup();
-    const res = await tools.auto_doc_preview!.execute({ files: ['missing.ts'] });
-    expect(res.ok).toBe(true);
-    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/could not read file/));
   });
 });
 

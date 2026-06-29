@@ -142,6 +142,7 @@ const plugin: Plugin = {
       description: 'Returns the current session\'s token usage breakdown by model, total cost estimate, and budget status.',
       inputSchema: { type: 'object', properties: {} },
       permission: 'auto',
+      category: 'Meta',
       mutating: false,
       async execute() {
         const { budgetLimit, warningThreshold } = readCostTrackerConfig(

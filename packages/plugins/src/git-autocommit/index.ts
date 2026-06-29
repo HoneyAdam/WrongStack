@@ -2,9 +2,12 @@
  * git-autocommit plugin — AI-powered git staging and commit message generation.
  *
  * Tools registered:
- * - git_autocommit: Generate and create a commit with AI-written messages
- * - git_stage: Stage specific files for commit
- * - git_status_summary: Show a summary of current git status
+ * - git_autocommit: Stage files and create a commit with AI-written conventional commit messages.
+ *   Supports `files` for specific staging and `dry_run` for preview.
+ *
+ * Note: The former `git_stage` and `git_status_summary` tools have been removed.
+ * - For staging: use `git_autocommit` with `files` (it stages automatically), or `bash` with `git add`.
+ * - For status: use the built-in `git` tool with `command: "status"` or `command: "diff"`.
  */
 import type { Plugin } from '@wrongstack/core';
 import { execFileSync } from 'node:child_process';
@@ -62,22 +65,6 @@ function stageFiles(files: string[] | undefined, cwd?: string): void {
 
 function commitWithMessage(message: string, cwd?: string): string {
   return runGit(['commit', '-m', message], cwd);
-}
-
-function getCommitHistory(since?: string, cwd?: string): Array<{ hash: string | undefined; message: string; type: ConventionalType }> {
-  /* v8 ignore next -- the only caller always passes a `since`; the '-10' default is defensive. */
-  const range = since ? `${since}..HEAD` : '-10';
-  const output = runGit(['log', range, '--format=%H %s'], cwd);
-  if (!output) return [];
-
-  return output.split('\n').filter(Boolean).map((line) => {
-    const spaceIdx = line.indexOf(' ');
-    const hash = line.slice(0, spaceIdx);
-    const message = line.slice(spaceIdx + 1);
-    const typeMatch = message.match(/^(\w+)(!)?:\s/);
-    const type = (typeMatch?.[1] as ConventionalType) ?? 'chore';
-    return { hash, message, type };
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +185,7 @@ function generateCommitMessage(
 
 const plugin: Plugin = {
   name: 'git-autocommit',
-  version: '0.1.0',
+  version: '0.2.0',
   description: 'AI-powered git staging and conventional commit message generation',
   apiVersion: API_VERSION,
   capabilities: { tools: true },
@@ -244,10 +231,11 @@ const plugin: Plugin = {
           scope: { type: 'string', description: 'Commit scope (e.g. auth, api, ui)' },
           message: { type: 'string', description: 'Commit summary message' },
           body: { type: 'string', description: 'Optional commit body/description' },
-          dryRun: { type: 'boolean', default: false, description: 'Show what would be committed without committing' },
+          dry_run: { type: 'boolean', default: false, description: 'Show what would be committed without committing' },
         },
       },
       permission: 'confirm',
+      category: 'Git',
       mutating: true,
       async execute(input: Record<string, unknown>, _ctx) {
         try {
@@ -255,7 +243,7 @@ const plugin: Plugin = {
         const scope = input['scope'] as string | undefined;
         const summary = (input['message'] as string | undefined) ?? '';
         const body = input['body'] as string | undefined;
-        const dryRun = input['dryRun'] as boolean ?? false;
+        const dryRun = input['dry_run'] as boolean ?? false;
 
         // Validate type
         const validTypes = ['feat', 'fix', 'docs', 'style', 'refactor', 'test', 'chore', 'perf', 'ci', 'build', 'revert'];
@@ -264,7 +252,7 @@ const plugin: Plugin = {
           if (dryRun) {
             return {
               ok: true,
-              dryRun: true,
+              dry_run: true,
               message: `Would create: ${summary || 'update code'}`,
             };
           }
@@ -335,7 +323,7 @@ const plugin: Plugin = {
         if (dryRun) {
           return {
             ok: true,
-            dryRun: true,
+            dry_run: true,
             message: `Would create: ${msg}`,
             warning: warning ?? undefined,
             stagedDiff: `\n## Staged changes (dry run)\n\n${stat}\n\n\`\`\`diff\n${stagedDiff}\n\`\`\``,
@@ -393,124 +381,8 @@ const plugin: Plugin = {
       },
     });
 
-    // --- git_stage tool ---
-    api.tools.register({
-      name: 'git_stage',
-      description: 'Stage specific files for commit. Shows what would be staged without staging if dryRun is true.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          files: { type: 'array', items: { type: 'string' }, description: 'Files to stage' },
-          dryRun: { type: 'boolean', default: false },
-        },
-        required: ['files'],
-      },
-      permission: 'confirm',
-      mutating: true,
-      async execute(input: Record<string, unknown>) {
-        try {
-        let files: string[];
-        /* v8 ignore start -- reading a property never throws; the try/catch is a defensive guard. */
-        try {
-          files = (input['files'] as string[] | undefined) ?? [];
-        } catch {
-          files = [];
-        }
-        /* v8 ignore stop */
-        const dryRun = input['dryRun'] as boolean ?? false;
-
-        if (!Array.isArray(files) || files.length === 0) {
-          return { ok: false, error: 'files must be a non-empty array of file paths' };
-        }
-        if (dryRun) {
-          return { ok: true, dryRun: true, files, message: `Would stage: ${files.join(', ')}` };
-        }
-
-        try { stageFiles(files); }
-        /* v8 ignore next -- stageFiles only throws Error; the String(err) branch is defensive. */
-        catch (err: unknown) { return { ok: false, error: `Failed to stage files: ${err instanceof Error ? err.message : String(err)}` }; }
-
-        let stillChanged: string[] = [];
-        try { stillChanged = getChangedFiles(); }
-        catch { stillChanged = []; }
-
-        return {
-          ok: true,
-          staged: files,
-          stillChanged,
-          message: `Staged ${files.length} file(s). ${stillChanged.length} file(s) still changed.`,
-        };
-        /* v8 ignore start -- top-level safety net: inner try/catches already handle the realistic failures. */
-        } catch (err: unknown) {
-          return { ok: false, error: `git_stage error: ${err instanceof Error ? err.message : String(err)}` };
-        }
-        /* v8 ignore stop */
-      },
-    });
-
-    // --- git_status_summary tool ---
-    api.tools.register({
-      name: 'git_status_summary',
-      description: 'Returns a summary of the current git repository status: changed files, staged files, current branch, and recent commits.',
-      inputSchema: { type: 'object', properties: {} },
-      permission: 'auto',
-      mutating: false,
-      async execute() {
-        let branch = '';
-        let changed: string[] = [];
-        let staged: string[] = [];
-        let aheadBehind = '';
-        const recentCommits: Array<{ hash: string; message: string }> = [];
-        let worktrees: WorktreeInfo[] = [];
-        let worktreeWarn: string | null = null;
-        let externalChanges: string[] | null = null;
-
-        try { branch = runGit(['branch', '--show-current']); } catch { /* ignore */ }
-        try { changed = getChangedFiles(); } catch { /* ignore */ }
-        try { staged = getStagedFiles(); } catch { /* ignore */ }
-        /* v8 ignore next -- split() always yields ≥1 element; the ?? '' fallback is defensive. */
-        try { aheadBehind = runGit(['status', '-sb']).split('\n')[0] ?? ''; } catch { /* ignore */ }
-        /* v8 ignore next -- getCommitHistory always sets a string hash; the ?? '' fallback is defensive. */
-        try { recentCommits.push(...getCommitHistory('-3', undefined).map((c) => ({ hash: (c.hash ?? '').slice(0, 7), message: c.message }))); } catch { /* ignore */ }
-
-        // Worktree detection for simultaneous edit visibility
-        try { worktrees = getWorktrees(); } catch { /* ignore */ }
-        try { worktreeWarn = simultaneousEditWarning(); } catch { /* ignore */ }
-
-        // Check for unstaged changes that may come from other agents
-        try {
-          const out = runGit(['status', '--porcelain']);
-          const unstaged = out
-            .split('\n')
-            .filter((l) => {
-              /* v8 ignore next -- non-empty lines guarantee l[0] is defined; the ?? ' ' fallback is defensive. */
-        const idx = l[0] ?? ' ';
-              return idx === ' ' || idx === '?';
-            })
-            .map((l) => l.slice(3).trim())
-            .filter(Boolean);
-          externalChanges = unstaged.length > 0 ? unstaged : null;
-        } catch { /* ignore */ }
-
-        return {
-          ok: true,
-          branch,
-          changedFiles: changed,
-          stagedFiles: staged,
-          aheadBehind,
-          recentCommits,
-          worktrees: worktrees.length > 0 ? worktrees.map((w) => ({
-            path: w.path,
-            branch: w.branch.replace('refs/heads/', ''),
-          })) : [],
-          worktreeWarning: worktreeWarn ?? undefined,
-          externalChanges: externalChanges ?? undefined,
-        };
-      },
-    });
-
     api.log.info('git-autocommit plugin loaded', {
-      version: '0.1.0',
+      version: '0.2.0',
       conventionalCommits: opts.conventionalCommits,
     });
   },

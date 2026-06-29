@@ -31,16 +31,11 @@ describe('shell-check plugin', () => {
     expect(shellCheckPlugin.apiVersion).toMatch(/^\^?0\.1/);
   });
 
-  it('registers shellcheck tool', () => {
+  it('registers shellcheck tool (merged with shellcheck_scan)', () => {
     shellCheckPlugin.setup(mockApi as any);
     const toolNames = mockApi.tools.register.mock.calls.map(([t]: any[]) => t.name);
     expect(toolNames).toContain('shellcheck');
-  });
-
-  it('registers shellcheck_scan tool', () => {
-    shellCheckPlugin.setup(mockApi as any);
-    const toolNames = mockApi.tools.register.mock.calls.map(([t]: any[]) => t.name);
-    expect(toolNames).toContain('shellcheck_scan');
+    expect(toolNames).not.toContain('shellcheck_scan');
   });
 
   it('shellcheck tool has correct schema', () => {
@@ -56,6 +51,11 @@ describe('shell-check plugin', () => {
     // is declared mutating to trip the permission confirmation gate. See
     // permission-policy `tool.permission === 'auto' && !tool.mutating`.
     expect(tool?.mutating).toBe(true);
+    // Merged schema must include directory + pattern params (from shellcheck_scan)
+    const schema = tool?.inputSchema as { properties: Record<string, unknown> };
+    expect(schema.properties['files']).toBeDefined();
+    expect(schema.properties['directory']).toBeDefined();
+    expect(schema.properties['pattern']).toBeDefined();
   });
 
   it('setup does not throw', () => {

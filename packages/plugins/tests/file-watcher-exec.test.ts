@@ -67,7 +67,7 @@ describe('watch_start', () => {
   it('rejects non-array paths', async () => {
     const tools = setup();
     const res = await tools.watch_start!.execute({ paths: 'not-array' });
-    expect(res).toMatchObject({ ok: false, watchId: null });
+    expect(res).toMatchObject({ ok: false, watch_id: null });
   });
 
   it('rejects an empty paths array', async () => {
@@ -80,7 +80,7 @@ describe('watch_start', () => {
     const tools = setup();
     const res = await tools.watch_start!.execute({ paths: ['src', 'lib'] });
     expect(res.ok).toBe(true);
-    expect(typeof res.watchId).toBe('string');
+    expect(typeof res.watch_id).toBe('string');
     expect(res.recursive).toBe(true);
     expect(fsm.watch).toHaveBeenCalledTimes(2);
     expect(metrics.gauge).toHaveBeenCalledWith('active_watches', 1);
@@ -213,14 +213,14 @@ describe('watch_stop', () => {
   it('stops an active watch', async () => {
     const tools = setup();
     const started = await tools.watch_start!.execute({ paths: ['src'] });
-    const res = await tools.watch_stop!.execute({ watchId: started.watchId as string });
+    const res = await tools.watch_stop!.execute({ watch_id: started.watch_id as string });
     expect(res.ok).toBe(true);
     expect(res.message).toMatch(/Stopped watch/);
   });
 
   it('errors for an unknown watch id', async () => {
     const tools = setup();
-    const res = await tools.watch_stop!.execute({ watchId: 'missing' });
+    const res = await tools.watch_stop!.execute({ watch_id: 'missing' });
     expect(res).toMatchObject({ ok: false });
     expect(res.error).toMatch(/No active watch/);
   });
@@ -229,7 +229,7 @@ describe('watch_stop', () => {
     fsm.watch.mockImplementation(() => ({ close: () => { throw new Error('already closed'); }, on: vi.fn() }));
     const tools = setup();
     const started = await tools.watch_start!.execute({ paths: ['src'] });
-    const res = await tools.watch_stop!.execute({ watchId: started.watchId as string });
+    const res = await tools.watch_stop!.execute({ watch_id: started.watch_id as string });
     expect(res.ok).toBe(true);
   });
 });

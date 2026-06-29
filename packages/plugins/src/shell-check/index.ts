@@ -2,13 +2,15 @@
  * shell-check plugin — Runs shellcheck analysis on bash/shell scripts.
  *
  * Tools registered:
- * - shellcheck: Run shellcheck on specific files
- * - shellcheck_scan: Scan directory for shell script issues
+ * - shellcheck: Run shellcheck on specific files OR recursively scan a directory.
+ *
+ * Note: The former `shellcheck_scan` tool has been merged into `shellcheck`
+ * via the `directory` + `pattern` parameters. Pass `files` for specific
+ * files, or `directory` (optionally with `pattern`) for recursive scanning.
  */
 import type { Plugin } from '@wrongstack/core';
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const API_VERSION = '^0.1.10';
@@ -122,7 +124,7 @@ function findShellFiles(dir: string, pattern: string): string[] {
 
 const plugin: Plugin = {
   name: 'shell-check',
-  version: '0.1.0',
+  version: '0.2.0',
   description: 'Runs shellcheck analysis on bash/shell scripts and surfaces issues with severity levels',
   apiVersion: API_VERSION,
   capabilities: { tools: true, pipelines: ['toolCall'] },
@@ -143,17 +145,30 @@ const plugin: Plugin = {
   },
 
   setup(api) {
-    // --- shellcheck tool ---
+    // --- shellcheck tool (merged: specific files OR recursive directory scan) ---
     api.tools.register({
       name: 'shellcheck',
-      description: 'Run shellcheck analysis on shell script files. Returns issues with file, line, column, severity, code, and message.',
+      description:
+        'Run shellcheck analysis on shell script files. Pass `files` for specific files, ' +
+        'or `directory` (optionally with `pattern`) to recursively scan for .sh files. ' +
+        'Returns issues with file, line, column, severity, code, and message.',
       inputSchema: {
         type: 'object',
         properties: {
           files: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Shell script files to check',
+            description: 'Shell script files to check. Mutually exclusive with `directory`.',
+          },
+          directory: {
+            type: 'string',
+            default: '.',
+            description: 'Directory to recursively scan for .sh files. Used when `files` is omitted.',
+          },
+          pattern: {
+            type: 'string',
+            default: '',
+            description: 'Filename pattern to match when scanning a directory (default: all .sh files).',
           },
           severity: {
             type: 'string',
@@ -167,21 +182,44 @@ const plugin: Plugin = {
             description: 'Apply safe automatic fixes where possible',
           },
         },
-        required: ['files'],
       },
       permission: 'auto',
+      category: 'Code Quality',
       mutating: true,
       async execute(input: Record<string, unknown>) {
-        const files = input['files'] as string[];
+        const files = input['files'] as string[] | undefined;
+        const directory = (input['directory'] as string) ?? '.';
+        const pattern = (input['pattern'] as string) ?? '';
         const severity = (input['severity'] as ShellCheckIssue['level']) ?? 'warning';
+
+        // Resolve the file list: explicit files, or recursive directory scan.
+        let checkFiles: string[];
+        let scannedDirectories = false;
+
+        if (files && files.length > 0) {
+          checkFiles = files;
+        } else {
+          checkFiles = findShellFiles(directory, pattern);
+          scannedDirectories = true;
+        }
+
+        if (checkFiles.length === 0) {
+          return {
+            ok: true,
+            filesScanned: 0,
+            issues: [],
+            summary: { total: 0 },
+            mode: scannedDirectories ? 'directory' : 'files',
+          };
+        }
 
         let issues: ShellCheckIssue[];
         try {
-          issues = runShellCheck(files, severity);
+          issues = runShellCheck(checkFiles, severity);
         } catch (err: unknown) {
           /* v8 ignore next -- runShellCheck only throws Error; the String(err) branch is defensive. */
           const msg = err instanceof Error ? err.message : String(err);
-          return { ok: false, error: msg, issues: [] };
+          return { ok: false, error: msg, issues: [], filesScanned: 0 };
         }
 
         const byFile: Record<string, ShellCheckIssue[]> = {};
@@ -198,11 +236,13 @@ const plugin: Plugin = {
         const styleCount = issues.filter((i) => i.level === 'style').length;
 
         api.metrics.counter('issues_found', issues.length, { severity });
-        api.metrics.histogram('issues_per_file', issues.length / Math.max(files.length, 1));
+        api.metrics.histogram('issues_per_file', issues.length / Math.max(checkFiles.length, 1));
 
         return {
           ok: true,
-          filesScanned: files.length,
+          mode: scannedDirectories ? 'directory' : 'files',
+          filesScanned: checkFiles.length,
+          filesWithIssues: Object.keys(byFile).length,
           issues,
           summary: {
             total: issues.length,
@@ -221,75 +261,7 @@ const plugin: Plugin = {
       },
     });
 
-    // --- shellcheck_scan tool ---
-    api.tools.register({
-      name: 'shellcheck_scan',
-      description: 'Recursively scan a directory for shell scripts and run shellcheck on all found files.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          directory: {
-            type: 'string',
-            default: '.',
-            description: 'Directory to scan',
-          },
-          pattern: {
-            type: 'string',
-            default: '',
-            description: 'Filename pattern to match (default: all .sh files)',
-          },
-          severity: {
-            type: 'string',
-            enum: ['error', 'warning', 'info', 'style'],
-            default: 'warning',
-          },
-        },
-      },
-      permission: 'auto',
-      mutating: true,
-      async execute(input: Record<string, unknown>) {
-        const dir = (input['directory'] as string) ?? '.';
-        const pattern = (input['pattern'] as string) ?? '';
-        const severity = (input['severity'] as ShellCheckIssue['level']) ?? 'warning';
-
-        const files = findShellFiles(dir, pattern);
-        if (files.length === 0) {
-          return { ok: true, filesScanned: 0, issues: [], summary: { total: 0 } };
-        }
-
-        let issues: ShellCheckIssue[];
-        try {
-          issues = runShellCheck(files, severity);
-        } catch (err: unknown) {
-          /* v8 ignore next -- runShellCheck only throws Error; the String(err) branch is defensive. */
-          const msg = err instanceof Error ? err.message : String(err);
-          return { ok: false, error: msg, issues: [], filesScanned: 0 };
-        }
-
-        const byFile: Record<string, ShellCheckIssue[]> = {};
-        for (const issue of issues) {
-          if (byFile[issue.file] === undefined) {
-            byFile[issue.file] = [];
-          }
-          byFile[issue.file]?.push(issue);
-        }
-
-        return {
-          ok: true,
-          filesScanned: files.length,
-          filesWithIssues: Object.keys(byFile).length,
-          issues,
-          summary: {
-            total: issues.length,
-            errors: issues.filter((i) => i.level === 'error').length,
-            warnings: issues.filter((i) => i.level === 'warning').length,
-          },
-          byFile,
-        };
-      },
-    });
-
-    api.log.info('shell-check plugin loaded', { version: '0.1.0' });
+    api.log.info('shell-check plugin loaded', { version: '0.2.0' });
   },
 };
 

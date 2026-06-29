@@ -24,13 +24,14 @@ export const toolHelpTool: Tool<ToolHelpInput, ToolHelpOutput> = {
   name: 'tool_help',
   category: 'Meta',
   description:
-    'Get detailed help for one or more tools, including their full schema and usage guidance. ' +
-    'This is the best way to understand exactly how to call a specific tool.',
+    'Get detailed help for a specific tool, including its full input schema and usage guidance. ' +
+    'If you do not know which tool to use, search with `tool_search` first, then call this with the tool name.',
   usageHint:
     'USE WHEN YOU NEED PRECISE TOOL INFORMATION:\n\n' +
     '- Call with a specific `tool` name when you want the full schema and current usageHint.\n' +
-    '- Omit `tool` (or use a broad query) to get an overview of available tools.\n' +
+    '- Omit `tool` to get an overview of all available tools.\n' +
     '- Different `format` options give you different levels of detail.\n' +
+    '- Tip: use `tool_search` to find the right tool name, then `tool_help` for the full schema.\n' +
     'This tool is extremely valuable for self-correction when you are unsure about a tool\'s interface.',
   permission: 'auto',
   mutating: false,

@@ -98,14 +98,14 @@ describe('semver_bump', () => {
 
   it('dry-runs an explicit patch bump', async () => {
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'patch', dryRun: true });
-    expect(res).toMatchObject({ ok: true, dryRun: true, currentVersion: '1.2.3', newVersion: '1.2.4' });
+    const res = await tools.semver_bump!.execute({ part: 'patch', dry_run: true });
+    expect(res).toMatchObject({ ok: true, dry_run: true, currentVersion: '1.2.3', newVersion: '1.2.4' });
   });
 
   it('dry-runs major and minor bumps', async () => {
     const { tools } = setup();
-    expect((await tools.semver_bump!.execute({ part: 'major', dryRun: true })).newVersion).toBe('2.0.0');
-    expect((await tools.semver_bump!.execute({ part: 'minor', dryRun: true })).newVersion).toBe('1.3.0');
+    expect((await tools.semver_bump!.execute({ part: 'major', dry_run: true })).newVersion).toBe('2.0.0');
+    expect((await tools.semver_bump!.execute({ part: 'minor', dry_run: true })).newVersion).toBe('1.3.0');
   });
 
   it('auto-detects the bump from commits since the last tag', async () => {
@@ -115,7 +115,7 @@ describe('semver_bump', () => {
       return '';
     };
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'auto', dryRun: true });
+    const res = await tools.semver_bump!.execute({ part: 'auto', dry_run: true });
     expect(res.suggestedBump).toBe('minor');
     expect(res.commitCount).toBe(2);
   });
@@ -127,7 +127,7 @@ describe('semver_bump', () => {
       return '';
     };
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'auto', dryRun: true });
+    const res = await tools.semver_bump!.execute({ part: 'auto', dry_run: true });
     expect(res.suggestedBump).toBe('patch');
   });
 
@@ -138,7 +138,7 @@ describe('semver_bump', () => {
       return '';
     };
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'auto', dryRun: true });
+    const res = await tools.semver_bump!.execute({ part: 'auto', dry_run: true });
     expect(res.suggestedBump).toBe('major');
   });
 
@@ -149,7 +149,7 @@ describe('semver_bump', () => {
       return '';
     };
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'auto', dryRun: true });
+    const res = await tools.semver_bump!.execute({ part: 'auto', dry_run: true });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Git error/);
   });
@@ -216,7 +216,7 @@ describe('semver_bump', () => {
       return '';
     };
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'auto', dryRun: true });
+    const res = await tools.semver_bump!.execute({ part: 'auto', dry_run: true });
     expect(res.suggestedBump).toBe('patch');
     expect(res.commitCount).toBe(0);
   });
@@ -224,13 +224,13 @@ describe('semver_bump', () => {
   it('treats an unparseable version as 0.0.0', async () => {
     fsm.readFileSync.mockReturnValue('{"version":"garbage"}');
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'patch', dryRun: true });
+    const res = await tools.semver_bump!.execute({ part: 'patch', dry_run: true });
     expect(res.newVersion).toBe('0.0.1');
   });
 
   it('honours an explicit cwd', async () => {
     const { tools } = setup();
-    const res = await tools.semver_bump!.execute({ part: 'patch', dryRun: true, cwd: '/work' });
+    const res = await tools.semver_bump!.execute({ part: 'patch', dry_run: true, cwd: '/work' });
     expect(res.ok).toBe(true);
     expect(fsm.existsSync).toHaveBeenCalledWith(expect.stringContaining('/work/package.json'));
   });
@@ -405,13 +405,13 @@ describe('config', () => {
   it('reads the default part and updates it on config change', async () => {
     const { tools } = setup({ defaultPart: 'minor' });
     // No part given → uses configured default (minor).
-    expect((await tools.semver_bump!.execute({ dryRun: true })).suggestedBump).toBe('minor');
+    expect((await tools.semver_bump!.execute({ dry_run: true })).suggestedBump).toBe('minor');
     onConfigChange?.({ extensions: { 'semver-bump': { defaultPart: 'major' } } });
-    expect((await tools.semver_bump!.execute({ dryRun: true })).suggestedBump).toBe('major');
+    expect((await tools.semver_bump!.execute({ dry_run: true })).suggestedBump).toBe('major');
   });
 
   it('falls back to patch for an invalid configured default', async () => {
     const { tools } = setup({ defaultPart: 'nonsense' });
-    expect((await tools.semver_bump!.execute({ dryRun: true })).suggestedBump).toBe('patch');
+    expect((await tools.semver_bump!.execute({ dry_run: true })).suggestedBump).toBe('patch');
   });
 });

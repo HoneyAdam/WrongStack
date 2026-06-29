@@ -1,10 +1,12 @@
 /**
  * mail-tools — thin, high-affordance wrappers over the project mailbox.
  *
- * The multi-action `mailbox` tool is the power surface; these two exist
- * because explicit verbs ("send a mail", "read my inbox") are what makes
- * agents USE the mailbox autonomously — a model reaches for `mail_send`
- * mid-task far more readily than for `mailbox action=send ...`.
+ * These are the PREFERRED mailbox tools for agents. The multi-action `mailbox`
+ * tool is the low-level power surface for advanced queries and agent status;
+ * `mail_send` and `mail_inbox` exist because explicit verbs ("send a mail",
+ * "read my inbox") are what makes agents USE the mailbox autonomously — a model
+ * reaches for `mail_send` mid-task far more readily than for
+ * `mailbox action=send ...`.
  *
  *   mail_send  — message one agent (`to: "leader@a1b2c3d4"`), every leader
  *                (`to: "leader"`), or everyone (`to: "*"`)
@@ -79,7 +81,7 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       'assign (task), steer (mid-task direction), result (completion notice), review ' +
       '(passive ask), btw/status/broadcast/control (informational).',
     usageHint: 'mail_send to="<id>" type="review" body="please skim <file>"',
-    category: 'coordination',
+    category: 'Coordination',
     permission: 'auto',
     mutating: true,
     capabilities: [ToolCapabilities.COORDINATION_MAIL],
@@ -151,7 +153,7 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
       'notes, questions, handoffs, results, and review requests (type="review" — passive ' +
       'asks where no reply is required). Best called after a long stretch of tool work.',
     usageHint: 'mail_inbox  (optionally: limit=10, markRead=false to peek)',
-    category: 'coordination',
+    category: 'Coordination',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_MAIL],

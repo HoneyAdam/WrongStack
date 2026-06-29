@@ -78,8 +78,8 @@ describe('template-engine plugin', () => {
     expect(tool.mutating).toBe(false);
   });
 
-  describe('template_expand outputPath validation', () => {
-    it('rejects absolute outputPath', async () => {
+  describe('template_expand output_path validation', () => {
+    it('rejects absolute output_path', async () => {
       templateEnginePlugin.setup(mockApi as any);
       const tool = mockApi.tools.register.mock.calls.find(
         ([t]: any[]) => t.name === 'template_expand'
@@ -87,13 +87,13 @@ describe('template-engine plugin', () => {
       const result = await tool.execute({
         template: 'hello {{name}}',
         variables: { name: 'world' },
-        outputPath: '/etc/passwd',
+        output_path: '/etc/passwd',
       });
       expect(result.ok).toBe(false);
       expect(result.error).toContain('relative path');
     });
 
-    it('rejects outputPath with .. traversal', async () => {
+    it('rejects output_path with .. traversal', async () => {
       templateEnginePlugin.setup(mockApi as any);
       const tool = mockApi.tools.register.mock.calls.find(
         ([t]: any[]) => t.name === 'template_expand'
@@ -101,13 +101,13 @@ describe('template-engine plugin', () => {
       const result = await tool.execute({
         template: 'hello {{name}}',
         variables: { name: 'world' },
-        outputPath: '../../../etc/passwd',
+        output_path: '../../../etc/passwd',
       });
       expect(result.ok).toBe(false);
       expect(result.error).toContain('relative path');
     });
 
-    it('accepts relative outputPath (no path validation error)', async () => {
+    it('accepts relative output_path (no path validation error)', async () => {
       templateEnginePlugin.setup(mockApi as any);
       const tool = mockApi.tools.register.mock.calls.find(
         ([t]: any[]) => t.name === 'template_expand'
@@ -119,7 +119,7 @@ describe('template-engine plugin', () => {
         const result = await tool.execute({
           template: 'hello {{name}}',
           variables: { name: 'world' },
-          outputPath: tmpFile,
+          output_path: tmpFile,
         });
         expect(result.ok).toBe(true);
         expect(result.message).toContain('Wrote');

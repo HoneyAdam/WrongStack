@@ -154,7 +154,11 @@ describe('@wrongstack/plugins — smoke tests', () => {
         const api = createMockAPI();
 
         expect(() => plugin.setup(api as never)).not.toThrow();
-        expect(api.tools.list().length).toBeGreaterThan(0);
+        // Retired plugins (web-search, json-path) register 0 tools — skip the count check for them.
+        const retired = ['web-search', 'json-path'];
+        if (!retired.includes(pluginName)) {
+          expect(api.tools.list().length).toBeGreaterThan(0);
+        }
       });
 
       it('teardown() does not throw if defined', async () => {
@@ -176,7 +180,11 @@ describe('@wrongstack/plugins — smoke tests', () => {
         plugin.setup(api as never);
 
         const registered = api.tools.list();
-        expect(registered.length).toBeGreaterThan(0);
+        // Retired plugins register 0 tools — skip the count check for them.
+        const retired = ['web-search', 'json-path'];
+        if (!retired.includes(pluginName)) {
+          expect(registered.length).toBeGreaterThan(0);
+        }
 
         for (const tool of registered) {
           expect(tool.name).toBeTruthy();

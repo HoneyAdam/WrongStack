@@ -31,15 +31,11 @@ export const documentTool: Tool<DocumentInput, DocumentOutput> = {
   name: 'document',
   category: 'Project',
   description:
-    'Preview documentation comments (JSDoc/TSDoc style) that would be generated for code symbols. ' +
-    'Returns a list of candidates with status `skipped` — the tool is currently a read-only preview and does NOT write to files.',
+    'DEPRECATED — use the `auto_doc` tool with `dryRun: true` instead. ' +
+    'This tool is a read-only preview stub that returns `skipped` candidates without generating real docstrings.',
   usageHint:
-    'USE FOR IMPROVING CODE DOCUMENTATION:\n\n' +
-    '- Good for adding missing docs to public APIs or complex functions.\n' +
-    '- Currently this is a PREVIEW-ONLY tool: it does not modify files.\n' +
-    '- Use the output to decide which symbols to document manually, or pass the candidates to `edit` / `patch`.\n' +
-    '- `overwrite`, `style`, and `target` parameters are accepted for future expansion but are ignored today.\n' +
-    'Always review the proposed documentation before applying it — the model can hallucinate details.',
+    'Deprecated: prefer `auto_doc` with `dryRun: true` for previewing, or `auto_doc` without dryRun for writing. ' +
+    'This tool only lists undocumented symbols with placeholder comments — it does not generate real JSDoc/TSDoc.',
   permission: 'auto',
   mutating: false,
   timeoutMs: 30_000,

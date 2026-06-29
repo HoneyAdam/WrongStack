@@ -98,8 +98,8 @@ describe('semver-bump plugin', () => {
     )?.[0];
     expect(tool.inputSchema.properties.part.default).toBe('patch');
 
-    // dryRun returns before any git/fs mutation; cwd = repo root has package.json
-    const result = await tool.execute({ dryRun: true });
+    // dry_run returns before any git/fs mutation; cwd = repo root has package.json
+    const result = await tool.execute({ dry_run: true });
     expect(result.ok).toBe(true);
     expect(result.suggestedBump).toBe('patch');
   });

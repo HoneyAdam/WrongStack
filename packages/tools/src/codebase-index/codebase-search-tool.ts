@@ -25,8 +25,9 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
   category: 'Project',
   icon: 'index',
   description:
-    'Semantic/keyword search over the indexed codebase symbols (functions, classes, interfaces, etc.). Uses BM25 ranking. ' +
-    'Much more powerful and structured than raw `grep` for finding code by name or concept.',
+    'Search code symbols using a fast SQLite+BM25 index, with optional LSP fallback. ' +
+    'Much more powerful and structured than raw `grep` for finding code by name or concept. ' +
+    'Set `preferLsp: true` for live precision when the LSP plugin is active (supersedes codebase-lsp-search).',
   usageHint:
     'PREFERRED FOR CODE UNDERSTANDING:\n\n' +
     '- Use when you need to find where something is defined or used by name.\n' +
@@ -67,6 +68,12 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
         description: 'Maximum results to return (default 20, max 100)',
         minimum: 1,
         maximum: 100,
+      },
+      preferLsp: {
+        type: 'boolean',
+        description:
+          'Prefer live LSP results over the index. Index-only when the LSP plugin is not active. ' +
+          'When the LSP plugin is active and this is true, results come from live workspaceSymbol queries.',
       },
     },
     required: ['query'],
@@ -134,6 +141,12 @@ interface CodebaseSearchInput {
   file?: string | undefined;
   limit?: number | undefined;
   lspKind?: number | undefined;
+  /**
+   * When true, hints that LSP-based search should be preferred over the index.
+   * The built-in tool ignores this (index-only), but when the LSP plugin is
+   * active it intercepts the tool and provides live LSP workspaceSymbol results.
+   */
+  preferLsp?: boolean | undefined;
 }
 
 interface CodebaseSearchOutput {

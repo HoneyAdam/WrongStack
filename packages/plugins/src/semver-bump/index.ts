@@ -275,7 +275,7 @@ const plugin: Plugin = {
         if (dryRun) {
           return {
             ok: true,
-            dryRun: true,
+            dry_run: true,
             currentVersion,
             suggestedBump: bumpPart,
             newVersion,
@@ -363,7 +363,7 @@ const plugin: Plugin = {
         type: 'object',
         properties: {
           cwd: { type: 'string', description: 'Working directory (defaults to project root)' },
-          dryRun: { type: 'boolean', default: false },
+          dry_run: { type: 'boolean', default: false },
           part: { type: 'string', enum: ['major', 'minor', 'patch', 'auto'], default: defaultPart, description: 'Version part to bump. Omitted → the configured default (/settings semver-part, factory default: patch). Use auto to infer from commits.' },
         },
       },
@@ -371,7 +371,7 @@ const plugin: Plugin = {
       mutating: true,
       async execute(input: Record<string, unknown>) {
         const cwd = input['cwd'] as string | undefined;
-        const dryRun = (input['dryRun'] as boolean | undefined) ?? false;
+        const dryRun = (input['dry_run'] as boolean | undefined) ?? false;
         const part = (input['part'] as BumpType) ?? defaultPart;
         return performBump(part, dryRun, cwd);
       },

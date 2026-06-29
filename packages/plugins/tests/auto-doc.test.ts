@@ -18,20 +18,19 @@ beforeEach(() => vi.clearAllMocks());
 // ── Plugin registration ────────────────────────────────────────────────────────
 
 describe('auto-doc plugin', () => {
-  it('registers both auto_doc and auto_doc_preview tools', () => {
+  it('registers only auto_doc tool (auto_doc_preview merged into dryRun)', () => {
     autoDocPlugin.setup(mockApi as any);
     const names = mockApi.tools.register.mock.calls.map(([t]: any[]) => t.name);
     expect(names).toContain('auto_doc');
-    expect(names).toContain('auto_doc_preview');
+    expect(names).not.toContain('auto_doc_preview');
   });
 
-  it('auto_doc is mutating, auto_doc_preview is not', () => {
+  it('auto_doc is mutating', () => {
     autoDocPlugin.setup(mockApi as any);
     const tools = Object.fromEntries(
       mockApi.tools.register.mock.calls.map(([t]: any[]) => [t.name, t]),
     );
     expect(tools['auto_doc'].mutating).toBe(true);
-    expect(tools['auto_doc_preview'].mutating).toBe(false);
   });
 
   it('tool schema requires files array', () => {
@@ -40,7 +39,6 @@ describe('auto-doc plugin', () => {
       mockApi.tools.register.mock.calls.map(([t]: any[]) => [t.name, t]),
     );
     expect(tools['auto_doc'].inputSchema.required).toContain('files');
-    expect(tools['auto_doc_preview'].inputSchema.required).toContain('files');
   });
 
   it('logs info on setup and teardown', () => {
@@ -64,14 +62,6 @@ async function runAutoDocTool(input: Record<string, unknown>) {
   return tool.execute(input);
 }
 
-async function runPreviewTool(input: Record<string, unknown>) {
-  autoDocPlugin.setup(mockApi as any);
-  const tool = mockApi.tools.register.mock.calls.find(
-    ([t]: any[]) => t.name === 'auto_doc_preview',
-  )?.[0] as any;
-  return tool.execute(input);
-}
-
 describe('runAutoDoc input validation', () => {
   it('rejects non-array files', async () => {
     const result = await runAutoDocTool({ files: 'not-an-array' } as any);
@@ -81,20 +71,6 @@ describe('runAutoDoc input validation', () => {
 
   it('rejects empty files array', async () => {
     const result = await runAutoDocTool({ files: [] });
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch('empty');
-  });
-});
-
-describe('runAutoDocPreview input validation', () => {
-  it('rejects non-array files', async () => {
-    const result = await runPreviewTool({ files: null } as any);
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch('must be an array');
-  });
-
-  it('rejects empty files array', async () => {
-    const result = await runPreviewTool({ files: [] });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch('empty');
   });
@@ -121,7 +97,7 @@ describe('runAutoDoc doc generation', () => {
       '}',
     ].join('\n'));
 
-    const result = await runAutoDocTool({ files: [filePath], dryRun: true });
+    const result = await runAutoDocTool({ files: [filePath], dry_run: true });
     expect(result.ok).toBe(true);
     expect(result.changes).toContainEqual(
       expect.objectContaining({ entity: 'hello' }),
@@ -132,7 +108,7 @@ describe('runAutoDoc doc generation', () => {
     const filePath = path.join(tmpDir, 'arrow.ts');
     await fs.writeFile(filePath, 'export const add = (a: number, b: number): number => a + b;\n');
 
-    const result = await runAutoDocTool({ files: [filePath], dryRun: true });
+    const result = await runAutoDocTool({ files: [filePath], dry_run: true });
     expect(result.ok).toBe(true);
     expect(result.changes).toContainEqual(
       expect.objectContaining({ entity: 'add' }),
@@ -143,7 +119,7 @@ describe('runAutoDoc doc generation', () => {
     const filePath = path.join(tmpDir, 'myclass.ts');
     await fs.writeFile(filePath, 'export class MyClass { }\n');
 
-    const result = await runAutoDocTool({ files: [filePath], dryRun: true });
+    const result = await runAutoDocTool({ files: [filePath], dry_run: true });
     expect(result.ok).toBe(true);
     expect(result.changes).toContainEqual(
       expect.objectContaining({ entity: 'MyClass' }),
@@ -154,7 +130,7 @@ describe('runAutoDoc doc generation', () => {
     const filePath = path.join(tmpDir, 'types.ts');
     await fs.writeFile(filePath, 'export type Foo = { bar: string };\n');
 
-    const result = await runAutoDocTool({ files: [filePath], dryRun: true });
+    const result = await runAutoDocTool({ files: [filePath], dry_run: true });
     expect(result.ok).toBe(true);
     expect(result.changes).toContainEqual(expect.objectContaining({ entity: 'Foo' }));
   });
@@ -176,13 +152,13 @@ describe('runAutoDoc doc generation', () => {
     const filePath = path.join(tmpDir, 'jsdoc.ts');
     await fs.writeFile(filePath, 'export function foo(): void { }\n');
 
-    const result = await runAutoDocTool({ files: [filePath], style: 'jsdoc', dryRun: true });
+    const result = await runAutoDocTool({ files: [filePath], style: 'jsdoc', dry_run: true });
     expect(result.ok).toBe(true);
     expect(result.changes).toContainEqual(expect.objectContaining({ entity: 'foo' }));
   });
 
   it('logs warning for unreadable files', async () => {
-    const result = await runAutoDocTool({ files: ['/nonexistent/file.ts'], dryRun: true });
+    const result = await runAutoDocTool({ files: ['/nonexistent/file.ts'], dry_run: true });
     expect(result.ok).toBe(true);
     expect(mockApi.log.warn).toHaveBeenCalled();
   });

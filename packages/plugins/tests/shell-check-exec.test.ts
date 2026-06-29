@@ -142,12 +142,12 @@ describe('shellcheck tool execute', () => {
   });
 });
 
-describe('shellcheck_scan tool execute', () => {
-  it('returns early when no shell files are found', async () => {
+describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)', () => {
+  it('returns early when no shell files are found in directory', async () => {
     fsm.readdirSync.mockReturnValue([dirent('readme.md', false)]);
     const { tools } = setup();
-    const res = await tools.shellcheck_scan!.execute({ directory: '/root' });
-    expect(res).toMatchObject({ ok: true, filesScanned: 0, summary: { total: 0 } });
+    const res = await tools.shellcheck!.execute({ directory: '/root' });
+    expect(res).toMatchObject({ ok: true, filesScanned: 0, summary: { total: 0 }, mode: 'directory' });
   });
 
   it('scans found files recursively, skipping node_modules and .git', async () => {
@@ -167,48 +167,58 @@ describe('shellcheck_scan tool execute', () => {
     });
     cp.execFileSync.mockReturnValue(JSON.stringify([
       issue({ file: 'top.sh', level: 'error' }),
-      issue({ file: 'top.sh', level: 'warning' }), // second issue for the same file
+      issue({ file: 'top.sh', level: 'warning' }),
       issue({ file: 'nested.sh', level: 'warning' }),
     ]));
     const { tools } = setup();
-    const res = await tools.shellcheck_scan!.execute({ directory: '/root' });
+    const res = await tools.shellcheck!.execute({ directory: '/root' });
     expect(res.ok).toBe(true);
+    expect(res.mode).toBe('directory');
     // top.sh, Dockerfile, nested.sh (node_modules/.git skipped, notes.txt ignored)
     expect(res.filesScanned).toBe(3);
     expect(res.filesWithIssues).toBe(2);
     expect((res.summary as { errors: number; warnings: number })).toMatchObject({ total: 3, errors: 1, warnings: 2 });
   });
 
-  it('filters by filename pattern', async () => {
+  it('filters by filename pattern in directory mode', async () => {
     fsm.readdirSync.mockReturnValue([dirent('build.sh', false), dirent('deploy.sh', false)]);
     cp.execFileSync.mockReturnValue('[]');
     const { tools } = setup();
-    const res = await tools.shellcheck_scan!.execute({ directory: '/root', pattern: 'deploy' });
+    const res = await tools.shellcheck!.execute({ directory: '/root', pattern: 'deploy' });
     expect(res.filesScanned).toBe(1);
   });
 
   it('tolerates unreadable directories', async () => {
     fsm.readdirSync.mockImplementation(() => { throw new Error('EACCES'); });
     const { tools } = setup();
-    const res = await tools.shellcheck_scan!.execute({ directory: '/forbidden' });
+    const res = await tools.shellcheck!.execute({ directory: '/forbidden' });
     expect(res).toMatchObject({ ok: true, filesScanned: 0 });
   });
 
-  it('returns ok:false when shellcheck fails during a scan', async () => {
+  it('returns ok:false when shellcheck fails during a directory scan', async () => {
     fsm.readdirSync.mockReturnValue([dirent('a.sh', false)]);
     fsm.existsSync.mockReturnValue(false);
     cp.execSync.mockImplementation(() => { throw new Error('nope'); });
     const { tools } = setup();
-    const res = await tools.shellcheck_scan!.execute({ directory: '/root' });
+    const res = await tools.shellcheck!.execute({ directory: '/root' });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/not installed/);
   });
 
-  it('defaults directory and pattern when omitted', async () => {
+  it('defaults directory to "." when omitted', async () => {
     fsm.readdirSync.mockReturnValue([]);
     const { tools } = setup();
-    const res = await tools.shellcheck_scan!.execute({});
+    const res = await tools.shellcheck!.execute({});
     expect(res).toMatchObject({ ok: true, filesScanned: 0 });
     expect(fsm.readdirSync).toHaveBeenCalledWith('.', expect.anything());
+  });
+
+  it('files mode takes precedence over directory mode', async () => {
+    fsm.readdirSync.mockReturnValue([dirent('other.sh', false)]);
+    cp.execFileSync.mockReturnValue('[]');
+    const { tools } = setup();
+    const res = await tools.shellcheck!.execute({ files: ['a.sh'], directory: '/root' });
+    expect(res.mode).toBe('files');
+    expect(fsm.readdirSync).not.toHaveBeenCalled();
   });
 });

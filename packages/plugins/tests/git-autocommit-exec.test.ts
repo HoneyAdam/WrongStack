@@ -41,8 +41,8 @@ const key = (args: string[]) => args.join(' ');
 describe('git_autocommit', () => {
   it('dry-runs with an invalid type using a fallback message', async () => {
     const tools = setup();
-    const res = await tools.git_autocommit!.execute({ type: 'bogus', dryRun: true });
-    expect(res).toMatchObject({ ok: true, dryRun: true });
+    const res = await tools.git_autocommit!.execute({ type: 'bogus', dry_run: true });
+    expect(res).toMatchObject({ ok: true, dry_run: true });
     expect(res.message).toMatch(/Would create/);
   });
 
@@ -169,8 +169,8 @@ describe('git_autocommit', () => {
       return '';
     };
     const tools = setup();
-    const res = await tools.git_autocommit!.execute({ type: 'feat', message: 'big', dryRun: true });
-    expect(res.dryRun).toBe(true);
+    const res = await tools.git_autocommit!.execute({ type: 'feat', message: 'big', dry_run: true });
+    expect(res.dry_run).toBe(true);
     expect(res.stagedDiff).toMatch(/diff truncated/);
   });
 
@@ -242,101 +242,3 @@ describe('git_autocommit', () => {
   });
 });
 
-describe('git_stage', () => {
-  it('rejects an empty file list', async () => {
-    const tools = setup();
-    expect((await tools.git_stage!.execute({ files: [] })).ok).toBe(false);
-  });
-
-  it('rejects when files is omitted entirely', async () => {
-    const tools = setup();
-    const res = await tools.git_stage!.execute({});
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/non-empty array/);
-  });
-
-  it('dry-runs without staging', async () => {
-    const tools = setup();
-    const res = await tools.git_stage!.execute({ files: ['a.ts', 'b.ts'], dryRun: true });
-    expect(res).toMatchObject({ ok: true, dryRun: true });
-    expect(res.message).toMatch(/Would stage: a.ts, b.ts/);
-  });
-
-  it('stages files and reports remaining changes', async () => {
-    gitHandler = (args) => (key(args) === 'status --porcelain' ? '?? c.ts' : '');
-    const tools = setup();
-    const res = await tools.git_stage!.execute({ files: ['a.ts'] });
-    expect(res.ok).toBe(true);
-    expect(res.staged).toEqual(['a.ts']);
-    expect(res.stillChanged).toEqual(['c.ts']);
-  });
-
-  it('reports a staging failure', async () => {
-    fsm.existsSync.mockReturnValue(false);
-    const tools = setup();
-    const res = await tools.git_stage!.execute({ files: ['ghost.ts'] });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/Failed to stage/);
-  });
-
-  it('tolerates getChangedFiles throwing after staging', async () => {
-    gitHandler = (args) => {
-      if (key(args) === 'status --porcelain') throw new Error('status failed');
-      return '';
-    };
-    const tools = setup();
-    const res = await tools.git_stage!.execute({ files: ['a.ts'] });
-    expect(res.ok).toBe(true);
-    expect(res.stillChanged).toEqual([]);
-  });
-});
-
-describe('git_status_summary', () => {
-  it('summarises branch, files, commits and worktrees', async () => {
-    gitHandler = (args) => {
-      const k = key(args);
-      if (k === 'branch --show-current') return 'main';
-      if (k === 'status --porcelain') return '?? b.ts\n M a.ts';
-      if (k === 'diff --cached --name-only') return 'staged.ts';
-      if (k === 'status -sb') return '## main...origin/main [ahead 1]';
-      if (k.startsWith('log')) return 'h1hash feat: a thing\nh2hash random message';
-      if (k === 'worktree list --porcelain') {
-        return 'worktree /repo\nHEAD abc\nbranch refs/heads/main\n\nworktree /repo/wt\nHEAD def\nbranch refs/heads/feature\n';
-      }
-      return '';
-    };
-    const tools = setup();
-    const res = await tools.git_status_summary!.execute({});
-    expect(res.ok).toBe(true);
-    expect(res.branch).toBe('main');
-    expect(res.changedFiles).toEqual(['b.ts', 'a.ts']);
-    expect(res.stagedFiles).toEqual(['staged.ts']);
-    expect(res.aheadBehind).toMatch(/ahead 1/);
-    expect((res.recentCommits as unknown[]).length).toBe(2);
-    expect((res.worktrees as unknown[]).length).toBe(2);
-    expect(res.worktreeWarning).toMatch(/Simultaneous/);
-    expect(res.externalChanges).toEqual(['b.ts', 'a.ts']);
-  });
-
-  it('tolerates git failures across the board', async () => {
-    gitHandler = () => { throw new Error('not a git repo'); };
-    const tools = setup();
-    const res = await tools.git_status_summary!.execute({});
-    expect(res.ok).toBe(true);
-    expect(res.branch).toBe('');
-    expect(res.recentCommits).toEqual([]);
-    expect(res.worktrees).toEqual([]);
-  });
-
-  it('handles an empty git log (no recent commits)', async () => {
-    gitHandler = (args) => {
-      const k = key(args);
-      if (k === 'branch --show-current') return 'main';
-      if (k.startsWith('log')) return ''; // empty history → getCommitHistory returns []
-      return '';
-    };
-    const tools = setup();
-    const res = await tools.git_status_summary!.execute({});
-    expect(res.recentCommits).toEqual([]);
-  });
-});
