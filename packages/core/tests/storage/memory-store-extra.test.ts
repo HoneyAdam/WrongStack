@@ -264,6 +264,37 @@ describe('DefaultMemoryStore.scoreRelevant', () => {
     // the low-value junk entry is filtered out
     expect(res.some((r) => r.text === 'irrelevant junk')).toBe(false);
   });
+
+  it('reuses the per-entry lowercase cache across scoring passes', async () => {
+    const b = new MockBackend();
+    b.listEntries = [{ scope: 'project-memory', text: 'pnpm pipeline build', ts: now, tags: ['build'] }];
+    const store = mkStore(b);
+    const peek = store as unknown as { _cachedLower: WeakMap<object, unknown> | null };
+
+    expect(peek._cachedLower).toBeNull();
+    await store.scoreRelevant(baseCtx, 'project-memory', 8);
+    const firstMap = peek._cachedLower;
+    expect(firstMap).not.toBeNull();
+
+    // A second pass with a different context (so the score cache misses) must
+    // NOT reallocate the lowercase WeakMap — it is reused, not rebuilt.
+    await store.scoreRelevant({ ...baseCtx, currentTask: 'pipeline tuning' }, 'project-memory', 8);
+    expect(peek._cachedLower).toBe(firstMap);
+  });
+
+  it('drops the lowercase cache when entries are mutated', async () => {
+    const b = new MockBackend();
+    b.listEntries = [{ scope: 'project-memory', text: 'pnpm pipeline build', ts: now, tags: ['build'] }];
+    const store = mkStore(b);
+    const peek = store as unknown as { _cachedLower: WeakMap<object, unknown> | null };
+
+    await store.scoreRelevant(baseCtx, 'project-memory', 8);
+    expect(peek._cachedLower).not.toBeNull();
+
+    // A mutation invalidates both relevance caches; the lowercase cache resets.
+    await store.remember('a new note', 'project-memory', { type: 'fact' });
+    expect(peek._cachedLower).toBeNull();
+  });
 });
 
 describe('DefaultMemoryStore.mirrorBackup', () => {

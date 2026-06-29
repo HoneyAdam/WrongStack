@@ -79,9 +79,10 @@ export class DefaultMemoryStore implements MemoryStore {
   private readonly _scoreCache = new Map<string, { entries: MemoryEntry[]; scored: ScoredEntry[]; expiresAt: number }>();
 
   /**
-   * Per-entry cached lowercase strings — computed once per scoreRelevant() call,
-   * stored here so repeated scoring of the same entries avoids re-computation.
-   * Cleared on every mutation (remember/forget/consolidate/clear).
+   * Per-entry cached lowercase strings — lazily allocated once and reused
+   * across scoreRelevant() calls so repeated scoring of the same entries skips
+   * re-lowercasing. Keyed by entry object identity; cleared (set to null) on
+   * every mutation (remember/forget/consolidate/clear) via invalidateScoreCaches().
    */
   private _cachedLower: WeakMap<MemoryEntry, { textLower: string; tagsLower: string[] }> | null = null;
 
@@ -251,8 +252,8 @@ export class DefaultMemoryStore implements MemoryStore {
       const t0 = Date.now();
       try {
         await this.backend.remember(scope, entry, filePath);
-        // Invalidate the score cache — entries have changed.
-        this._scoreCache.clear();
+        // Invalidate the relevance caches — entries have changed.
+        this.invalidateScoreCaches();
         const dur = Date.now() - t0;
         this.events?.emit('storage.write', {
           sessionId: '~memory~',
@@ -316,6 +317,16 @@ export class DefaultMemoryStore implements MemoryStore {
   }
 
   /**
+   * Drop the relevance caches after a mutation. Both the per-context score
+   * cache and the per-entry lowercase cache are keyed on entry objects that a
+   * mutation invalidates, so they must be cleared together when entries change.
+   */
+  private invalidateScoreCaches(): void {
+    this._scoreCache.clear();
+    this._cachedLower = null;
+  }
+
+  /**
    * Score and rank memories by relevance to the current context.
    * Returns entries with score >= MIN_RELEVANCE_SCORE, sorted highest first.
    */
@@ -344,9 +355,14 @@ export class DefaultMemoryStore implements MemoryStore {
     const skillWords = (ctx.activeSkills ?? []).flatMap((s) => s.split('-'));
     const toolWords = (ctx.toolNames ?? []).flatMap((t) => t.toLowerCase().split('_'));
 
-    // Pre-build per-entry lowercase caches for this scoring pass. Reused below so
-    // we only call toLowerCase() once per entry instead of 3× per scoring loop.
-    this._cachedLower = new WeakMap<MemoryEntry, { textLower: string; tagsLower: string[] }>();
+    // Per-entry lowercase caches. Lazily allocated once and reused across
+    // scoring passes — the WeakMap is keyed by entry object identity, so its
+    // entries stay valid as long as the same entry objects are scored, and
+    // GC away once a mutation replaces them with freshly-parsed objects. It is
+    // cleared explicitly alongside the score cache on every mutation
+    // (remember/forget/consolidate/clear) via invalidateScoreCaches().
+    this._cachedLower ??= new WeakMap<MemoryEntry, { textLower: string; tagsLower: string[] }>();
+    const lowerCache = this._cachedLower;
 
     const scored: ScoredEntry[] = [];
 
@@ -355,13 +371,13 @@ export class DefaultMemoryStore implements MemoryStore {
       const reasons: string[] = [];
 
       // Use cached lowercase strings from the WeakMap; compute and store on first use.
-      let cachedLower = this._cachedLower.get(entry);
+      let cachedLower = lowerCache.get(entry);
       if (!cachedLower) {
         cachedLower = {
           textLower: entry.text.toLowerCase(),
           tagsLower: (entry.tags ?? []).map((t) => t.toLowerCase()),
         };
-        this._cachedLower.set(entry, cachedLower);
+        lowerCache.set(entry, cachedLower);
       }
       const { textLower, tagsLower } = cachedLower;
 
@@ -456,8 +472,8 @@ export class DefaultMemoryStore implements MemoryStore {
       let removed = 0;
       try {
         removed = await this.backend.forget(scope, query, filePath);
-        // Invalidate the score cache — entries have changed.
-        this._scoreCache.clear();
+        // Invalidate the relevance caches — entries have changed.
+        this.invalidateScoreCaches();
         const dur = Date.now() - t0;
         this.events?.emit('storage.write', {
           sessionId: '~memory~',
@@ -502,8 +518,8 @@ export class DefaultMemoryStore implements MemoryStore {
       let removed = 0;
       try {
         removed = await this.backend.consolidate(scope, filePath);
-        // Invalidate the score cache — entries have changed.
-        this._scoreCache.clear();
+        // Invalidate the relevance caches — entries have changed.
+        this.invalidateScoreCaches();
         const dur = Date.now() - t0;
         this.events?.emit('storage.write', {
           sessionId: '~memory~',
@@ -546,8 +562,8 @@ export class DefaultMemoryStore implements MemoryStore {
         const t0 = Date.now();
         try {
           await this.backend.clear(scope, filePath);
-          // Invalidate the score cache — entries have changed.
-          this._scoreCache.clear();
+          // Invalidate the relevance caches — entries have changed.
+          this.invalidateScoreCaches();
           const dur = Date.now() - t0;
           this.events?.emit('storage.write', {
             sessionId: '~memory~',
@@ -614,6 +630,8 @@ export class DefaultMemoryStore implements MemoryStore {
         }),
       ),
     );
+    // Every scope was just cleared — drop the relevance caches too.
+    this.invalidateScoreCaches();
   }
 
   /**

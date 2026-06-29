@@ -194,6 +194,7 @@ export type {
   WireFamily,
   ModelsDevPayload,
   ModelsDevProvider,
+  ModelsDevModel,
 } from './types/models-registry.js';
 export type { Logger, LogLevel } from './types/logger.js';
 export type { CacheStats, TokenCounter } from './types/token-counter.js';

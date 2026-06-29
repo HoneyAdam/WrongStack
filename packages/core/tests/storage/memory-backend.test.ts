@@ -79,6 +79,47 @@ describe('FileMemoryBackend search', () => {
     await backend.remember(scope, entry('another build thing'), file);
     expect((await backend.search(scope, 'build', file, 1)).length).toBe(1);
   });
+
+  it('matches an exact whole word via the O(1) fast path', async () => {
+    await backend.remember(scope, entry('go module resolver'), file);
+    const res = await backend.search(scope, 'module', file);
+    expect(res.map((e) => e.text)).toContain('go module resolver');
+  });
+
+  it('matches a short (2-char) needle by exact word lookup', async () => {
+    // "go" is below MIN_SUBSTRING_NEEDLE_LEN, so it only resolves via the
+    // exact Map.get path — the substring fallback is skipped for short needles.
+    await backend.remember(scope, entry('go module resolver'), file);
+    const res = await backend.search(scope, 'go', file);
+    expect(res.map((e) => e.text)).toContain('go module resolver');
+  });
+
+  it('falls back to substring matching when there is no exact word hit', async () => {
+    await backend.remember(scope, entry('the performance audit pass'), file);
+    // "perf" is not a stored whole word; the bounded substring fallback should
+    // still match it against "performance".
+    const res = await backend.search(scope, 'perf', file);
+    expect(res.map((e) => e.text)).toContain('the performance audit pass');
+  });
+
+  it('does not substring-match on a sub-3-char needle (selectivity guard)', async () => {
+    await backend.remember(scope, entry('cattle ranch notes'), file);
+    // "ca" would substring-match "cattle"/"cats" under the old full-scan, but
+    // it is below the fallback length gate and has no exact word hit, so it
+    // returns nothing.
+    const res = await backend.search(scope, 'ca', file);
+    expect(res.map((e) => e.text)).not.toContain('cattle ranch notes');
+    expect(res.map((e) => e.text)).not.toContain('unrelated note about cats');
+  });
+
+  it('weights tag matches above plain word matches', async () => {
+    // Two entries both contain the word "deploy"; only one carries it as a tag.
+    await backend.remember(scope, entry('deploy via script', { tags: ['ci'] }), file);
+    await backend.remember(scope, entry('notes', { tags: ['deploy'] }), file);
+    const res = await backend.search(scope, 'deploy', file);
+    // Tag match (+2) outranks the word match (+1), so the tagged entry is first.
+    expect(res[0]?.text).toBe('notes');
+  });
 });
 
 describe('FileMemoryBackend forget/clear/consolidate', () => {

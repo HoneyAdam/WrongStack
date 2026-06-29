@@ -121,6 +121,62 @@ describe('DefaultModelsRegistry', () => {
     expect(await reg.suggestModel('anthropic')).toBe('claude-opus-4-7');
   });
 
+  it('mergeOverlay injects a runtime-discovered provider with resolvable capabilities', async () => {
+    const reg = new DefaultModelsRegistry({ cacheFile, seed: SAMPLE });
+    await reg.load();
+    reg.mergeOverlay({
+      omniroute: {
+        id: 'omniroute',
+        name: 'OmniRoute',
+        npm: '@ai-sdk/openai-compatible',
+        api: 'http://localhost:20128/v1',
+        models: {
+          'cc/claude-opus-4-8': {
+            id: 'cc/claude-opus-4-8',
+            name: 'cc/Claude Opus 4.8',
+            tool_call: true,
+            reasoning: true,
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            limit: { context: 1_000_000, output: 128_000 },
+          },
+        },
+      },
+    });
+    const providers = await reg.listProviders();
+    expect(providers.map((p) => p.id)).toContain('omniroute');
+    const prov = await reg.getProvider('omniroute');
+    expect(prov?.family).toBe('openai-compatible');
+    const model = await reg.getModel('omniroute', 'cc/claude-opus-4-8');
+    expect(model?.capabilities.tools).toBe(true);
+    expect(model?.capabilities.reasoning).toBe(true);
+    expect(model?.capabilities.vision).toBe(true);
+    expect(model?.capabilities.maxContext).toBe(1_000_000);
+    expect(model?.capabilities.maxOutput).toBe(128_000);
+  });
+
+  it('mergeOverlay survives a refresh()', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify(SAMPLE), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ) as never as typeof fetch;
+    const reg = new DefaultModelsRegistry({ cacheFile, fetchImpl });
+    await reg.load();
+    reg.mergeOverlay({
+      omniroute: {
+        id: 'omniroute',
+        name: 'OmniRoute',
+        npm: '@ai-sdk/openai-compatible',
+        models: { m: { id: 'm', name: 'm' } },
+      },
+    });
+    await reg.refresh();
+    const providers = await reg.listProviders();
+    expect(providers.map((p) => p.id)).toContain('omniroute');
+  });
+
   it('refresh writes cache via fetch impl', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

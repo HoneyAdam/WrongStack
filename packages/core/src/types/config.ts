@@ -388,6 +388,14 @@ export interface ProviderConfig {
   /** Optional list of models the user wants visible for this provider. */
   models?: string[] | undefined;
   /**
+   * Fetch this provider's model list + per-model capabilities from its
+   * `{baseUrl}/models` endpoint at startup and inject them into the catalog.
+   * For openai-compatible gateways/proxies (omniroute, LiteLLM, vLLM, …) that
+   * expose rich metadata there. Defaults on for presets that set it (omniroute).
+   * Discovery is best-effort: a down server or missing key is a no-op.
+   */
+  autoDiscoverModels?: boolean | undefined;
+  /**
    * Provider-relative custom model definitions (maps modelId → definition).
    * Each entry adds/overrides a model for this provider with optional
    * capability overrides. The model id is the key, not a fully qualified id.

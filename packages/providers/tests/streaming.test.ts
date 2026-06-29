@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AnthropicProvider } from '../src/anthropic.js';
 import { GoogleProvider } from '../src/google.js';
 import { OpenAIProvider } from '../src/openai.js';
+import { OpenAICompatibleProvider } from '../src/openai-compatible.js';
 
 function sseBody(events: string): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
@@ -433,5 +434,142 @@ describe('thinking-mode round-trip', () => {
     expect(tool.type).toBe('tool_use');
     expect(tool.id).toBe('c_late');
     expect(tool.name).toBe('echo');
+  });
+});
+
+describe('OpenAICompatibleProvider stripThinkTags quirk', () => {
+  /** Enqueue each string as its own stream chunk so tag-splitting is exercised. */
+  function chunkedBody(chunks: string[]): ReadableStream<Uint8Array> {
+    const enc = new TextEncoder();
+    let i = 0;
+    return new ReadableStream({
+      pull(c) {
+        if (i < chunks.length) {
+          c.enqueue(enc.encode(chunks[i++] ?? ''));
+        } else {
+          c.close();
+        }
+      },
+    });
+  }
+
+  async function run(
+    chunks: string[],
+    quirks?: { stripThinkTags?: boolean },
+  ): Promise<{ content: StreamEvent[]; events: StreamEvent[] }> {
+    const provider = new OpenAICompatibleProvider({
+      id: 'omniroute',
+      apiKey: 'k',
+      baseUrl: 'http://localhost/v1',
+      quirks,
+      fetchImpl: mockFetch(chunkedBody(chunks)),
+    });
+    const events: StreamEvent[] = [];
+    for await (const ev of provider.stream(
+      { model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    )) {
+      events.push(ev);
+    }
+    // Rebuild the canonical content blocks from the collected events so we
+    // assert on the same stream the agent loop would consume (single read —
+    // the mock body can only be consumed once).
+    const content: StreamEvent[] = [];
+    let text = '';
+    let thinking = '';
+    const flushText = (): void => {
+      if (text) {
+        content.push({ type: 'text', text } as unknown as StreamEvent);
+        text = '';
+      }
+    };
+    const flushThinking = (): void => {
+      if (thinking) {
+        content.push({ type: 'thinking', thinking } as unknown as StreamEvent);
+        thinking = '';
+      }
+    };
+    for (const ev of events) {
+      if (ev.type === 'text_delta') {
+        flushThinking();
+        text += ev.text;
+      } else if (ev.type === 'thinking_delta') {
+        flushText();
+        thinking += ev.text;
+      } else if (ev.type === 'thinking_stop') {
+        flushThinking();
+      }
+    }
+    flushThinking();
+    flushText();
+    return { content, events };
+  }
+
+  it('drops a stray leaked </think> with no opener (the omniroute artifact)', async () => {
+    const { content } = await run(
+      [
+        'data: {"choices":[{"index":0,"delta":{"content":"</think>"}}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{"content":"The answer is 42."}}]}\n\n',
+        'data: {"choices":[{"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\n',
+        'data: [DONE]\n\n',
+      ],
+      { stripThinkTags: true },
+    );
+    expect(content).toEqual([{ type: 'text', text: 'The answer is 42.' }]);
+  });
+
+  it('leaves the </think> in place when the quirk is off', async () => {
+    const { content } = await run([
+      'data: {"choices":[{"index":0,"delta":{"content":"</think>"}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"content":"The answer is 42."}}]}\n\n',
+      'data: {"choices":[{"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    expect(content).toEqual([{ type: 'text', text: '</think>The answer is 42.' }]);
+  });
+
+  it('routes a full <think>…</think> block to the thinking channel', async () => {
+    const { content, events } = await run(
+      [
+        'data: {"choices":[{"index":0,"delta":{"content":"<think>reasoning here</think>visible answer"}}]}\n\n',
+        'data: {"choices":[{"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\n',
+        'data: [DONE]\n\n',
+      ],
+      { stripThinkTags: true },
+    );
+    expect(content).toEqual([
+      { type: 'thinking', thinking: 'reasoning here' },
+      { type: 'text', text: 'visible answer' },
+    ]);
+    expect(events.some((e) => e.type === 'thinking_delta')).toBe(true);
+  });
+
+  it('recognises a tag split across stream chunks', async () => {
+    const { content } = await run(
+      [
+        'data: {"choices":[{"index":0,"delta":{"content":"<thi"}}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{"content":"nk>hidden</thi"}}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{"content":"nk>shown"}}]}\n\n',
+        'data: {"choices":[{"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\n',
+        'data: [DONE]\n\n',
+      ],
+      { stripThinkTags: true },
+    );
+    expect(content).toEqual([
+      { type: 'thinking', thinking: 'hidden' },
+      { type: 'text', text: 'shown' },
+    ]);
+  });
+
+  it('flushes a never-completed partial tag as literal text at stream end', async () => {
+    const { content } = await run(
+      [
+        'data: {"choices":[{"index":0,"delta":{"content":"done<"}}]}\n\n',
+        'data: {"choices":[{"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\n',
+        'data: [DONE]\n\n',
+      ],
+      { stripThinkTags: true },
+    );
+    expect(content).toEqual([{ type: 'text', text: 'done<' }]);
   });
 });

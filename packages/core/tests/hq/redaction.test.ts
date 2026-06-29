@@ -123,7 +123,10 @@ describe('HQ redaction', () => {
       message: {
         subject: 'Please review auth flow',
         body: '[REDACTED:hq_raw_content]',
-        bodyPreview: 'Use[REDACTED:bearer_token]for the repro',
+        // The bearer_token pattern consumes the leading delimiter but ends on a
+        // NON-consuming lookahead (so adjacent tokens sharing a delimiter both
+        // redact — see secret-scrubber.ts), hence the trailing space survives.
+        bodyPreview: 'Use[REDACTED:bearer_token] for the repro',
         outcomePreview: 'Fixed in session_1',
       },
     });

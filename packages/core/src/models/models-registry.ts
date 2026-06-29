@@ -98,6 +98,14 @@ export class DefaultModelsRegistry implements ModelsRegistry {
   private payload?: ModelsDevPayload | undefined;
   /** Memoised overlay payload (in-memory / fetched / file). */
   private overlayPayload?: ModelsDevPayload | undefined;
+  /**
+   * Extra providers injected at runtime via `mergeOverlay()` — e.g. an
+   * openai-compatible server (omniroute, LiteLLM, …) auto-discovered from its
+   * `/v1/models` endpoint at boot. Applied LAST (on top of base + curated
+   * overlay) and re-applied across `refresh()` so the discovered catalog
+   * survives a models.dev refetch.
+   */
+  private extraOverlay?: ModelsDevPayload | undefined;
   private fetchedAt?: Date | undefined;
   private readonly cacheFile: string;
   private readonly url: string;
@@ -144,8 +152,25 @@ export class DefaultModelsRegistry implements ModelsRegistry {
     // actually curated data to serve when models.dev is unreachable.
     const overlay = await this.loadOverlay(opts);
     const base = await this.loadBase(opts, Object.keys(overlay).length > 0);
-    this.payload = mergeModelsPayload(base, overlay);
+    this.payload = this.withExtraOverlay(mergeModelsPayload(base, overlay));
     return this.payload;
+  }
+
+  /**
+   * Merge an additional provider payload on top of the resolved catalog. Used
+   * for runtime-discovered openai-compatible providers. Remembered so it is
+   * re-applied across `refresh()`. A no-op for an empty payload.
+   */
+  mergeOverlay(payload: ModelsDevPayload): void {
+    if (!hasEntries(payload)) return;
+    this.extraOverlay = this.extraOverlay
+      ? mergeModelsPayload(this.extraOverlay, payload)
+      : payload;
+    if (this.payload) this.payload = mergeModelsPayload(this.payload, this.extraOverlay);
+  }
+
+  private withExtraOverlay(payload: ModelsDevPayload): ModelsDevPayload {
+    return this.extraOverlay ? mergeModelsPayload(payload, this.extraOverlay) : payload;
   }
 
   /**
@@ -315,7 +340,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
     // can report it), then recompute the merged payload with a fresh overlay.
     const base = await this.refreshBase();
     const overlay = await this.loadOverlay({ force: true });
-    this.payload = mergeModelsPayload(base, overlay);
+    this.payload = this.withExtraOverlay(mergeModelsPayload(base, overlay));
     return this.payload;
   }
 

@@ -251,5 +251,13 @@
         "cost": { "input": 0.3, "output": 0.5 }
       }
     }
+  },
+  "omniroute": {
+    "id": "omniroute",
+    "name": "OmniRoute",
+    "npm": "@ai-sdk/openai-compatible",
+    "api": "http://localhost:20128/v1",
+    "doc": "https://github.com/WrongStack/WrongStack",
+    "models": {}
   }
 }

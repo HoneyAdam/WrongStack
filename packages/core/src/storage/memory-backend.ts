@@ -165,6 +165,15 @@ function buildInvertedIndex(entries: MemoryEntry[]): InvertedIndex {
   return { wordMap, tagMap, entries: indexed, mtimeMs: 0 };
 }
 
+/**
+ * Needles shorter than this skip the O(vocabulary) substring fallback. A
+ * 1–2 char needle (e.g. "a", "go") otherwise forces a full-vocabulary walk
+ * AND matches almost everything via `n.includes(word)`, so it's both the
+ * slowest and least selective case. Exact-match lookups still run for any
+ * length, so short whole-word queries ("go", "ci") keep working.
+ */
+const MIN_SUBSTRING_NEEDLE_LEN = 3;
+
 function searchIndex(
   index: InvertedIndex,
   query: string,
@@ -176,7 +185,27 @@ function searchIndex(
   const scores = new Map<number, number>();
 
   for (const n of needles) {
-    // Word prefix matches
+    // Fast path: exact word/tag hit via O(1) Map.get. This is the dominant
+    // case (whole-word queries) and avoids walking the whole vocabulary.
+    let matched = false;
+
+    const wordExact = index.wordMap.get(n);
+    if (wordExact) {
+      for (const idx of wordExact) scores.set(idx, (scores.get(idx) ?? 0) + 1);
+      matched = true;
+    }
+    const tagExact = index.tagMap.get(n);
+    if (tagExact) {
+      for (const idx of tagExact) scores.set(idx, (scores.get(idx) ?? 0) + 2);
+      matched = true;
+    }
+
+    // Bounded substring fallback: only when the needle had no exact hit and is
+    // long enough to be selective. Preserves partial-match recall ("perf" →
+    // "performance", "rebuilding" → stored word "build") without paying the
+    // full-vocabulary scan on every whole-word query.
+    if (matched || n.length < MIN_SUBSTRING_NEEDLE_LEN) continue;
+
     for (const [word, indices] of index.wordMap) {
       if (word.includes(n) || n.includes(word)) {
         for (const idx of indices) {
@@ -184,7 +213,6 @@ function searchIndex(
         }
       }
     }
-    // Tag matches (weighted higher)
     for (const [tag, indices] of index.tagMap) {
       if (tag.includes(n) || n.includes(tag)) {
         for (const idx of indices) {
@@ -250,23 +278,32 @@ export class FileMemoryBackend implements MemoryBackend {
     this.mtimeCache.delete(file);
   }
 
-  private async loadEntries(file: string, scope: MemoryScope): Promise<MemoryEntry[]> {
-    const mtime = await this.getMtime(file);
+  /**
+   * Load (and cache) the parsed entries for a file. Callers that have already
+   * stat'd the file this tick (e.g. `getIndex`) can pass the known `mtime` to
+   * avoid a redundant `fs.stat` — otherwise it's fetched here.
+   */
+  private async loadEntries(
+    file: string,
+    scope: MemoryScope,
+    mtime?: number,
+  ): Promise<MemoryEntry[]> {
+    const resolvedMtime = mtime ?? (await this.getMtime(file));
     const cachedMtime = this.mtimeCache.get(file);
-    if (cachedMtime === mtime && this.entryCache.has(file)) {
+    if (cachedMtime === resolvedMtime && this.entryCache.has(file)) {
       return this.entryCache.get(file)!;
     }
 
     const raw = await this.readAll(scope, file);
     if (!raw.trim()) {
       this.entryCache.set(file, []);
-      this.mtimeCache.set(file, mtime);
+      this.mtimeCache.set(file, resolvedMtime);
       return [];
     }
 
     const entries = parseEntries(raw, scope);
     this.entryCache.set(file, entries);
-    this.mtimeCache.set(file, mtime);
+    this.mtimeCache.set(file, resolvedMtime);
     return entries;
   }
 
@@ -277,7 +314,8 @@ export class FileMemoryBackend implements MemoryBackend {
       return cached;
     }
 
-    const entries = await this.loadEntries(file, scope);
+    // Reuse the mtime we just fetched — loadEntries would otherwise stat again.
+    const entries = await this.loadEntries(file, scope, mtime);
     const index = buildInvertedIndex(entries);
     index.mtimeMs = mtime;
     this.indexCache.set(file, index);

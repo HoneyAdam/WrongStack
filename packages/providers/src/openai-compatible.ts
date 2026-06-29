@@ -13,6 +13,16 @@ export interface CompatibilityQuirks {
   jsonArgumentsBuggy?: boolean | undefined;
   emptyToolCallContent?: 'null' | 'empty_string' | undefined;
   thinkingParam?: 'zai-glm' | 'kimi-toggle' | 'always-on' | undefined;
+  /**
+   * Strip literal `<think>…</think>` blocks out of the streamed `content`
+   * channel. Some proxies that front reasoning models (omniroute, LiteLLM, …)
+   * fold the model's hidden thinking into `content` as literal think tags, and
+   * frequently leak a *stray* closing `</think>` with no opener when the body
+   * itself is suppressed — which otherwise pollutes the visible assistant
+   * message (e.g. `</think>The answer…`). With this on, tag-wrapped text is
+   * routed to the thinking channel and a stray `</think>` is dropped.
+   */
+  stripThinkTags?: boolean | undefined;
 }
 
 const VALID_QUIRK_KEYS = new Set<keyof CompatibilityQuirks>([
@@ -24,6 +34,7 @@ const VALID_QUIRK_KEYS = new Set<keyof CompatibilityQuirks>([
   'jsonArgumentsBuggy',
   'emptyToolCallContent',
   'thinkingParam',
+  'stripThinkTags',
 ]);
 
 export function isCompatibilityQuirks(value: unknown): value is CompatibilityQuirks {

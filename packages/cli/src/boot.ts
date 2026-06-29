@@ -47,6 +47,7 @@ import {
 import { createDefaultContainer } from '@wrongstack/runtime';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { parseArgs } from './arg-parser.js';
+import { discoverAndMergeProviders } from './boot/auto-discover-providers.js';
 import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { printLaunchHints } from './launch-hints.js';
@@ -201,6 +202,20 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       const msg = toErrorMessage(err);
       logger.warn(`models.dev refresh failed (${msg}); using cached catalog`);
     }
+  }
+
+  // Auto-discover model lists for openai-compatible gateways (omniroute, …)
+  // from their `/v1/models` endpoint and merge them into the catalog. Best-
+  // effort: a down server or missing key is a logged no-op (cache fallback).
+  try {
+    await discoverAndMergeProviders({
+      config,
+      registry: modelsRegistry,
+      cacheDir: path.dirname(wpaths.modelsCache),
+      logger,
+    });
+  } catch (err) {
+    logger.debug(`provider auto-discovery skipped: ${toErrorMessage(err)}`);
   }
 
   // Quick path: subcommand dispatch

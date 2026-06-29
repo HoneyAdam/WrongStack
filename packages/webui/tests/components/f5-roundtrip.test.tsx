@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { RefreshDebugView } from '../../src/components/RefreshDebugView';
 import { useChatStore } from '../../src/stores/chat-store';
 import { useSessionStore } from '../../src/stores/session-store';
@@ -62,48 +62,53 @@ function flushStores(): void {
  * flush to localStorage so the next "page load" can rehydrate.
  */
 function stageBeforeF5(): void {
-  // Session pointer + env.
-  useSessionStore.getState().setSession({
-    id: 'sess-F5-PROBE',
-    startedAt: 1_700_000_000_000,
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
-    title: 'Pre-refresh demo run',
-  });
-  useSessionStore.setState({
-    projectName: 'F5-resilience-demo',
-    projectRoot: '/tmp/F5-resilience-demo',
-    cwd: '/tmp/F5-resilience-demo/src',
-    mode: 'plan',
-    contextMode: 'deep',
-  });
+  // Mutations are wrapped in act() because a component rendered by a
+  // prior test may still be mounted (this file does not call cleanup()),
+  // so these store writes can update a live subscriber.
+  act(() => {
+    // Session pointer + env.
+    useSessionStore.getState().setSession({
+      id: 'sess-F5-PROBE',
+      startedAt: 1_700_000_000_000,
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      title: 'Pre-refresh demo run',
+    });
+    useSessionStore.setState({
+      projectName: 'F5-resilience-demo',
+      projectRoot: '/tmp/F5-resilience-demo',
+      cwd: '/tmp/F5-resilience-demo/src',
+      mode: 'plan',
+      contextMode: 'deep',
+    });
 
-  // Bind a chat transcript to that session.
-  useChatStore.getState().setMessages([
-    {
-      id: 'msg-before-1',
-      content: 'What is the capital of France?',
-      role: 'user',
-      timestamp: 1_700_000_000_000,
-    },
-    {
-      id: 'msg-before-2',
-      content: 'The capital of France is Paris.',
-      role: 'assistant',
-      timestamp: 1_700_000_000_001,
-    },
-    {
-      id: 'msg-before-3',
-      content: 'Tell me more about its history.',
-      role: 'user',
-      timestamp: 1_700_000_000_002,
-    },
-  ]);
-  useChatStore.getState().setBoundSessionId('sess-F5-PROBE');
+    // Bind a chat transcript to that session.
+    useChatStore.getState().setMessages([
+      {
+        id: 'msg-before-1',
+        content: 'What is the capital of France?',
+        role: 'user',
+        timestamp: 1_700_000_000_000,
+      },
+      {
+        id: 'msg-before-2',
+        content: 'The capital of France is Paris.',
+        role: 'assistant',
+        timestamp: 1_700_000_000_001,
+      },
+      {
+        id: 'msg-before-3',
+        content: 'Tell me more about its history.',
+        role: 'user',
+        timestamp: 1_700_000_000_002,
+      },
+    ]);
+    useChatStore.getState().setBoundSessionId('sess-F5-PROBE');
 
-  // The user was on the Sessions view when they hit F5.
-  useUIStore.getState().setCurrentView('sessions');
-  useUIStore.getState().setDockSection('work');
+    // The user was on the Sessions view when they hit F5.
+    useUIStore.getState().setCurrentView('sessions');
+    useUIStore.getState().setDockSection('work');
+  });
 
   // Persist everything to localStorage.
   flushStores();
@@ -129,18 +134,18 @@ function stageBeforeF5(): void {
  * API to forcibly re-run the rehydrate path against current localStorage.
  */
 async function simulateF5(): Promise<void> {
-  for (const store of [
-    useSessionStore,
-    useChatStore,
-    useUIStore,
-  ] as const) {
-    const persistApi = (
-      store as unknown as {
-        persist?: { rehydrate?: () => Promise<void> | void };
-      }
-    ).persist;
-    await persistApi?.rehydrate?.();
-  }
+  // rehydrate() writes the persisted slice back into the store; wrap it in
+  // act() so any mounted subscriber re-renders inside React's batching.
+  await act(async () => {
+    for (const store of [useSessionStore, useChatStore, useUIStore] as const) {
+      const persistApi = (
+        store as unknown as {
+          persist?: { rehydrate?: () => Promise<void> | void };
+        }
+      ).persist;
+      await persistApi?.rehydrate?.();
+    }
+  });
 }
 
 // ── tests ──────────────────────────────────────────────────────────
@@ -152,86 +157,90 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
 
   afterEach(() => {
     clearStorage();
-    // Reset module-level state for the next test.
-    useSessionStore.setState({
-      session: null,
-      projectName: '',
-      projectRoot: '',
-      cwd: '',
-      mode: 'default',
-      contextMode: 'balanced',
-      lastVisitedAt: 0,
-      totalTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      lastInputTokens: 0,
-      cost: 0,
-      startTime: null,
-      maxContext: 0,
-      inputCost: 0,
-      outputCost: 0,
-      cacheReadCost: 0,
-      modes: [],
-      contextModes: [],
-      iteration: null,
-      todos: [],
-    });
-    useChatStore.setState({
-      messages: [],
-      queue: [],
-      boundSessionId: null,
-      currentAssistantMessageId: null,
-      currentToolId: null,
-      isLoading: false,
-      abortController: null,
-      executions: new Map(),
-      toolMessageIdsByUseId: new Map(),
-      runStart: null,
-      thinkingBuffer: '',
-      thinkingStartedAt: null,
-      thinkingLogBuffer: '',
-      thinkingLogStartedAt: null,
-    });
-    useUIStore.setState({
-      currentView: 'chat' as const,
-      dockSection: null,
-      activeActivity: 'chat' as const,
-      sidebarOpen: true,
-      sidebarWidth: 304,
-      pinnedIds: [],
-      promptHistory: [],
-      compactMode: false,
-      favoriteSessionIds: [],
-      sessionNicknames: {},
-      fileExplorerWidth: 260,
-      refineEnabled: false,
-      workDashboardTab: 'todos' as const,
-      inspectorOpen: false,
-      inspectorTab: 'fleet' as const,
-      hiddenChips: [],
-      settingsOpen: false,
-      showConfirmDialog: false,
-      confirmInfo: null,
-      paletteOpen: false,
-      shortcutsOpen: false,
-      searchOpen: false,
-      searchQuery: '',
-      searchActiveMessageId: null,
-      scrollTarget: null,
-      modelSwitcherOpen: false,
-      dockCustomizeOpen: false,
-      fleetMonitorOpen: false,
-      agentsMonitorOpen: false,
-      processMonitorOpen: false,
-      queuePanelOpen: false,
-      terminalOpen: false,
-      skillsState: {
-        selectedSkill: null,
-        navHistory: [],
-        historyIndex: -1,
-        detailOpen: false,
-        knownRefs: {},
-        updateAvailableCount: 0,
-      },
-      selectedMailMessage: null,
+    // Reset module-level state for the next test. Wrapped in act() because
+    // the component rendered during the test is still mounted here (no
+    // cleanup() call), so these resets update a live subscriber.
+    act(() => {
+      useSessionStore.setState({
+        session: null,
+        projectName: '',
+        projectRoot: '',
+        cwd: '',
+        mode: 'default',
+        contextMode: 'balanced',
+        lastVisitedAt: 0,
+        totalTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        lastInputTokens: 0,
+        cost: 0,
+        startTime: null,
+        maxContext: 0,
+        inputCost: 0,
+        outputCost: 0,
+        cacheReadCost: 0,
+        modes: [],
+        contextModes: [],
+        iteration: null,
+        todos: [],
+      });
+      useChatStore.setState({
+        messages: [],
+        queue: [],
+        boundSessionId: null,
+        currentAssistantMessageId: null,
+        currentToolId: null,
+        isLoading: false,
+        abortController: null,
+        executions: new Map(),
+        toolMessageIdsByUseId: new Map(),
+        runStart: null,
+        thinkingBuffer: '',
+        thinkingStartedAt: null,
+        thinkingLogBuffer: '',
+        thinkingLogStartedAt: null,
+      });
+      useUIStore.setState({
+        currentView: 'chat' as const,
+        dockSection: null,
+        activeActivity: 'chat' as const,
+        sidebarOpen: true,
+        sidebarWidth: 304,
+        pinnedIds: [],
+        promptHistory: [],
+        compactMode: false,
+        favoriteSessionIds: [],
+        sessionNicknames: {},
+        fileExplorerWidth: 260,
+        refineEnabled: false,
+        workDashboardTab: 'todos' as const,
+        inspectorOpen: false,
+        inspectorTab: 'fleet' as const,
+        hiddenChips: [],
+        settingsOpen: false,
+        showConfirmDialog: false,
+        confirmInfo: null,
+        paletteOpen: false,
+        shortcutsOpen: false,
+        searchOpen: false,
+        searchQuery: '',
+        searchActiveMessageId: null,
+        scrollTarget: null,
+        modelSwitcherOpen: false,
+        dockCustomizeOpen: false,
+        fleetMonitorOpen: false,
+        agentsMonitorOpen: false,
+        processMonitorOpen: false,
+        queuePanelOpen: false,
+        terminalOpen: false,
+        skillsState: {
+          selectedSkill: null,
+          navHistory: [],
+          historyIndex: -1,
+          detailOpen: false,
+          knownRefs: {},
+          updateAvailableCount: 0,
+        },
+        selectedMailMessage: null,
+      });
     });
   });
 
@@ -267,12 +276,8 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
 
     expect(useChatStore.getState().messages.length).toBe(3);
     expect(useChatStore.getState().boundSessionId).toBe('sess-F5-PROBE');
-    expect(useChatStore.getState().messages[0]?.content).toBe(
-      'What is the capital of France?',
-    );
-    expect(useChatStore.getState().messages[2]?.content).toBe(
-      'Tell me more about its history.',
-    );
+    expect(useChatStore.getState().messages[0]?.content).toBe('What is the capital of France?');
+    expect(useChatStore.getState().messages[2]?.content).toBe('Tell me more about its history.');
 
     expect(useUIStore.getState().currentView).toBe('sessions');
     expect(useUIStore.getState().dockSection).toBe('work');
@@ -284,9 +289,7 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
     });
 
     // Cross-session bleed row must be green (bound = active).
-    const bleedCard = screen
-      .getByText(/No cross-session bleed/i)
-      .closest('div.rounded-lg');
+    const bleedCard = screen.getByText(/No cross-session bleed/i).closest('div.rounded-lg');
     expect(bleedCard).toBeTruthy();
     expect(bleedCard!.getAttribute('class') ?? '').toContain('border-green');
 
@@ -323,9 +326,7 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
     await expect(simulateF5()).resolves.not.toThrow();
 
     render(<RefreshDebugView />);
-    expect(
-      screen.getByText(/F5 Resilience Verifier/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/F5 Resilience Verifier/i)).toBeTruthy();
   });
 
   it('cross-session bleed detector turns amber when bound ≠ active', async () => {
@@ -333,29 +334,29 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
     // this is exactly the post-condition that should never happen in
     // production (setBoundSessionId gates it), but the verifier must
     // SURFACE the violation if it does.
-    useSessionStore.getState().setSession({
-      id: 'sess-ACTIVE',
-      startedAt: 1_700_000_000_000,
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+    act(() => {
+      useSessionStore.getState().setSession({
+        id: 'sess-ACTIVE',
+        startedAt: 1_700_000_000_000,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+      });
+      useChatStore.getState().setMessages([
+        {
+          id: 'a',
+          content: 'leaked message',
+          role: 'user',
+          timestamp: 1_700_000_000_000,
+        },
+      ]);
+      useChatStore.getState().setBoundSessionId('sess-DIFFERENT');
     });
-    useChatStore.getState().setMessages([
-      {
-        id: 'a',
-        content: 'leaked message',
-        role: 'user',
-        timestamp: 1_700_000_000_000,
-      },
-    ]);
-    useChatStore.getState().setBoundSessionId('sess-DIFFERENT');
     flushStores();
 
     render(<RefreshDebugView />);
 
     // The cross-session-bleed tile must be AMBER, not green.
-    const bleed = screen
-      .getByText(/No cross-session bleed/i)
-      .closest('div.rounded-lg');
+    const bleed = screen.getByText(/No cross-session bleed/i).closest('div.rounded-lg');
     expect(bleed).toBeTruthy();
     const classes = bleed!.getAttribute('class') ?? '';
     expect(classes).toContain('border-amber');

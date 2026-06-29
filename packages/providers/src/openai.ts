@@ -33,6 +33,7 @@ export interface OpenAIProviderOptions {
     parallelToolsDisabled?: boolean | undefined;
     jsonArgumentsBuggy?: boolean | undefined;
     thinkingParam?: 'zai-glm' | 'kimi-toggle' | 'always-on' | undefined;
+    stripThinkTags?: boolean | undefined;
   } | undefined;
   id?: string | undefined;
   capabilities?: Partial<Capabilities> | undefined;
@@ -138,7 +139,9 @@ export class OpenAIProvider extends WireAdapter {
     body: Parameters<typeof parseSSE>[0],
     fallbackModel: string,
   ): AsyncIterable<StreamEvent> {
-    return parseOpenAIStream(body, fallbackModel);
+    return parseOpenAIStream(body, fallbackModel, {
+      stripThinkTags: this.opts.quirks?.stripThinkTags,
+    });
   }
 
   protected override translateError(status: number, text: string): ProviderError {
@@ -188,6 +191,104 @@ function responseFormatToOpenAI(fmt: ResponseFormat): Record<string, unknown> {
   };
 }
 
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+
+interface ThinkSegment {
+  kind: 'text' | 'thinking';
+  text: string;
+}
+
+/** Length of the longest suffix of `s` that is a *proper* prefix of a think
+ *  tag — i.e. the run we must hold back in case a tag is split across SSE
+ *  frames (`</thi` + `nk>`). Returns 0 when nothing needs holding. */
+function trailingTagPrefixLen(s: string): number {
+  const max = Math.min(s.length, THINK_CLOSE.length - 1);
+  for (let k = max; k >= 1; k--) {
+    const suf = s.slice(s.length - k);
+    if (
+      (THINK_OPEN.startsWith(suf) && suf.length < THINK_OPEN.length) ||
+      (THINK_CLOSE.startsWith(suf) && suf.length < THINK_CLOSE.length)
+    ) {
+      return k;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Streaming filter that lifts literal `<think>…</think>` blocks out of the
+ * `content` channel. Some OpenAI-compatible proxies (omniroute, LiteLLM, …)
+ * fold a reasoning model's hidden thinking into `content` as literal think
+ * tags, and frequently leak a *stray* closing `</think>` with no opener when
+ * the thinking body itself is suppressed. Left untouched the tag pollutes the
+ * visible assistant message (e.g. `</think>The answer…`).
+ *
+ * `push()` returns ordered segments tagged text|thinking with the tags
+ * removed; a stray `</think>` outside a think block is dropped. A partial tag
+ * at the chunk boundary is held back until the next chunk (or `flush()` at
+ * stream end), so a tag split across frames is still recognised.
+ */
+class ThinkTagFilter {
+  private mode: 'text' | 'thinking' = 'text';
+  private carry = '';
+
+  push(chunk: string): ThinkSegment[] {
+    const buf = this.carry + chunk;
+    this.carry = '';
+    const out: ThinkSegment[] = [];
+    let segStart = 0;
+    let i = 0;
+    const emit = (end: number): void => {
+      if (end > segStart) out.push({ kind: this.mode, text: buf.slice(segStart, end) });
+    };
+    while (i < buf.length) {
+      if (this.mode === 'text') {
+        if (buf.startsWith(THINK_OPEN, i)) {
+          emit(i);
+          this.mode = 'thinking';
+          i += THINK_OPEN.length;
+          segStart = i;
+          continue;
+        }
+        if (buf.startsWith(THINK_CLOSE, i)) {
+          // Stray closing tag (proxy leaked it with no opener) — drop it.
+          emit(i);
+          i += THINK_CLOSE.length;
+          segStart = i;
+          continue;
+        }
+      } else if (buf.startsWith(THINK_CLOSE, i)) {
+        emit(i);
+        this.mode = 'text';
+        i += THINK_CLOSE.length;
+        segStart = i;
+        continue;
+      }
+      i += 1;
+    }
+    // Hold back a trailing run that could be the prefix of a tag spanning chunks.
+    const tail = buf.slice(segStart);
+    const hold = trailingTagPrefixLen(tail);
+    if (hold > 0) {
+      const cut = tail.length - hold;
+      if (cut > 0) out.push({ kind: this.mode, text: tail.slice(0, cut) });
+      this.carry = tail.slice(cut);
+    } else if (tail) {
+      out.push({ kind: this.mode, text: tail });
+    }
+    return out;
+  }
+
+  /** A held-back partial that never completed is literal text of the open mode. */
+  flush(): ThinkSegment[] {
+    if (!this.carry) return [];
+    const seg: ThinkSegment = { kind: this.mode, text: this.carry };
+    this.carry = '';
+    return [seg];
+  }
+}
+
 type Response2Body = ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
 
 /**
@@ -207,6 +308,7 @@ type Response2Body = ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
 async function* parseOpenAIStream(
   body: Response2Body,
   fallbackModel: string,
+  opts?: { stripThinkTags?: boolean | undefined },
 ): AsyncIterable<StreamEvent> {
   let model = fallbackModel;
   let usage: Usage = { input: 0, output: 0 };
@@ -214,6 +316,30 @@ async function* parseOpenAIStream(
   let started = false;
   let textOpen = false;
   let thinkingOpen = false;
+  const thinkFilter = opts?.stripThinkTags ? new ThinkTagFilter() : null;
+  // Emit content segments, routing tag-wrapped text to the thinking channel and
+  // toggling the shared text/thinking open-state. Mirrors the reasoning_content
+  // path below so both can interleave coherently.
+  function* emitContentSegments(segs: ThinkSegment[]): Generator<StreamEvent> {
+    for (const seg of segs) {
+      if (!seg.text) continue;
+      if (seg.kind === 'thinking') {
+        if (!thinkingOpen) {
+          thinkingOpen = true;
+          yield { type: 'thinking_start' };
+        }
+        textOpen = false;
+        yield { type: 'thinking_delta', text: seg.text };
+      } else {
+        if (thinkingOpen) {
+          thinkingOpen = false;
+          yield { type: 'thinking_stop' };
+        }
+        if (!textOpen) textOpen = true;
+        yield { type: 'text_delta', text: seg.text };
+      }
+    }
+  }
   const toolByIndex = new Map<
     number,
     {
@@ -275,15 +401,22 @@ async function* parseOpenAIStream(
     }
 
     if (choice?.delta?.content) {
-      if (thinkingOpen) {
-        thinkingOpen = false;
-        yield { type: 'thinking_stop' };
+      if (thinkFilter) {
+        yield* emitContentSegments(thinkFilter.push(choice.delta.content));
+      } else {
+        if (thinkingOpen) {
+          thinkingOpen = false;
+          yield { type: 'thinking_stop' };
+        }
+        if (!textOpen) textOpen = true;
+        yield { type: 'text_delta', text: choice.delta.content };
       }
-      if (!textOpen) textOpen = true;
-      yield { type: 'text_delta', text: choice.delta.content };
     }
 
     if (choice?.delta?.tool_calls) {
+      // Flush any text held back by the think-tag filter before a tool call —
+      // content always precedes tool_calls in the chat-completions wire format.
+      if (thinkFilter) yield* emitContentSegments(thinkFilter.flush());
       if (thinkingOpen) {
         thinkingOpen = false;
         yield { type: 'thinking_stop' };
@@ -359,6 +492,9 @@ async function* parseOpenAIStream(
     }
   }
 
+  if (thinkFilter) {
+    yield* emitContentSegments(thinkFilter.flush());
+  }
   if (thinkingOpen) {
     yield { type: 'thinking_stop' };
   }

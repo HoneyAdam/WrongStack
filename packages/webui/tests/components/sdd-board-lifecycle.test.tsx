@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Capture every WS message the board sends.
@@ -24,7 +24,16 @@ function snapshot(over: Partial<SddBoardSnapshotUI> = {}): SddBoardSnapshotUI {
     status: 'completed', // not running/paused → lifecycle controls show
     startedAt: 0,
     updatedAt: 0,
-    progress: { total: 1, completed: 1, failed: 0, inProgress: 0, pending: 0, blocked: 0, review: 0, percentComplete: 100 },
+    progress: {
+      total: 1,
+      completed: 1,
+      failed: 0,
+      inProgress: 0,
+      pending: 0,
+      blocked: 0,
+      review: 0,
+      percentComplete: 100,
+    },
     wave: 0,
     tasks: [],
     columns: [],
@@ -34,12 +43,18 @@ function snapshot(over: Partial<SddBoardSnapshotUI> = {}): SddBoardSnapshotUI {
 
 afterEach(() => {
   sent.length = 0;
-  useSddBoardStore.setState({ snapshot: null, lifecycleResult: null, destroying: false });
+  // Wrapped in act(): the component rendered during the test is still mounted
+  // here (no cleanup() call), so this reset updates a live subscriber.
+  act(() => {
+    useSddBoardStore.setState({ snapshot: null, lifecycleResult: null, destroying: false });
+  });
 });
 
 describe('SddBoardView — lifecycle controls', () => {
   it('Clean worktrees sends sdd.board.cleanup_worktrees when the run is stopped', () => {
-    useSddBoardStore.setState({ snapshot: snapshot() });
+    act(() => {
+      useSddBoardStore.setState({ snapshot: snapshot() });
+    });
     render(<SddBoardView onClose={() => {}} />);
     fireEvent.click(screen.getByText('Clean worktrees'));
     expect(sent.some((m) => m.type === 'sdd.board.cleanup_worktrees')).toBe(true);
@@ -47,12 +62,19 @@ describe('SddBoardView — lifecycle controls', () => {
 
   it('Rollback shows only with merged commits and sends sdd.board.rollback', () => {
     // No merged commits → no Rollback button.
-    useSddBoardStore.setState({ snapshot: snapshot() });
+    act(() => {
+      useSddBoardStore.setState({ snapshot: snapshot() });
+    });
     const { rerender } = render(<SddBoardView onClose={() => {}} />);
     expect(screen.queryByText(/Rollback/)).toBeNull();
 
-    useSddBoardStore.setState({
-      snapshot: snapshot({ baseBranch: 'main', mergedCommits: [{ taskId: 't', sha: 'abc1234', title: 'x' }] }),
+    act(() => {
+      useSddBoardStore.setState({
+        snapshot: snapshot({
+          baseBranch: 'main',
+          mergedCommits: [{ taskId: 't', sha: 'abc1234', title: 'x' }],
+        }),
+      });
     });
     rerender(<SddBoardView onClose={() => {}} />);
     fireEvent.click(screen.getByText(/Rollback/));
@@ -60,13 +82,17 @@ describe('SddBoardView — lifecycle controls', () => {
   });
 
   it('hides lifecycle controls while the run is active', () => {
-    useSddBoardStore.setState({ snapshot: snapshot({ status: 'running' }) });
+    act(() => {
+      useSddBoardStore.setState({ snapshot: snapshot({ status: 'running' }) });
+    });
     render(<SddBoardView onClose={() => {}} />);
     expect(screen.queryByText('Clean worktrees')).toBeNull();
   });
 
   it('Destroy opens a confirm dialog and sends sdd.board.destroy when stopped', () => {
-    useSddBoardStore.setState({ snapshot: snapshot() });
+    act(() => {
+      useSddBoardStore.setState({ snapshot: snapshot() });
+    });
     render(<SddBoardView onClose={() => {}} />);
     fireEvent.click(screen.getByText('Destroy'));
     // The confirmation dialog appears, then confirm fires the wipe immediately
@@ -76,7 +102,9 @@ describe('SddBoardView — lifecycle controls', () => {
   });
 
   it('Destroy on an active run sends stop first (not destroy yet)', () => {
-    useSddBoardStore.setState({ snapshot: snapshot({ status: 'running' }) });
+    act(() => {
+      useSddBoardStore.setState({ snapshot: snapshot({ status: 'running' }) });
+    });
     render(<SddBoardView onClose={() => {}} />);
     fireEvent.click(screen.getByText('Destroy'));
     fireEvent.click(screen.getByText('Destroy everything'));
@@ -86,9 +114,11 @@ describe('SddBoardView — lifecycle controls', () => {
   });
 
   it('renders a result banner from a lifecycle_result', () => {
-    useSddBoardStore.setState({
-      snapshot: snapshot(),
-      lifecycleResult: { op: 'cleanup_worktrees', ok: true, removed: 3, at: 1 },
+    act(() => {
+      useSddBoardStore.setState({
+        snapshot: snapshot(),
+        lifecycleResult: { op: 'cleanup_worktrees', ok: true, removed: 3, at: 1 },
+      });
     });
     render(<SddBoardView onClose={() => {}} />);
     expect(screen.getByText(/3 worktrees removed/)).toBeTruthy();

@@ -94,6 +94,36 @@ export {
   type ConvertOptions,
 } from './tool-format/to-openai.js';
 export { contentFromOpenAI, type OpenAIChoice } from './tool-format/from-openai.js';
+export {
+  discoverOpenAICompatibleModels,
+  mapCompatibleModel,
+  type DiscoverOptions,
+} from './auto-discover.js';
+
+/**
+ * Built-in tuning for known openai-compatible providers that aren't in the
+ * models.dev catalog. Lets a named provider (e.g. omniroute) come with the
+ * right base URL, wire quirks, and model auto-discovery without the user
+ * having to hand-configure any of it.
+ */
+export interface CompatiblePreset {
+  /** Default base URL when the config omits one. */
+  defaultBaseUrl?: string | undefined;
+  /** Wire quirks merged UNDER any user-supplied quirks. */
+  quirks?: CompatibilityQuirks | undefined;
+  /** Fetch `{baseUrl}/models` at boot and inject the result into the catalog. */
+  autoDiscover?: boolean | undefined;
+}
+
+export const COMPATIBLE_PRESETS: Record<string, CompatiblePreset> = {
+  omniroute: {
+    defaultBaseUrl: 'http://localhost:20128/v1',
+    // omniroute fronts reasoning models (Claude via Claude Code, etc.) and
+    // leaks a stray </think> into the content stream — strip it. See #N.
+    quirks: { stripThinkTags: true },
+    autoDiscover: true,
+  },
+};
 
 export interface BuildFactoriesOptions {
   registry: ModelsRegistry;
@@ -339,12 +369,14 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
           baseUrl: baseUrl ?? lmstudioWireFormat.defaultBaseUrl,
         }).create(cfg);
       }
+      const preset = COMPATIBLE_PRESETS[p.id];
       return new OpenAICompatibleProvider({
         id: p.id,
         apiKey: expectDefined(apiKey),
-        baseUrl: baseUrl ?? '',
+        baseUrl: baseUrl ?? preset?.defaultBaseUrl ?? '',
         headers: cfg.headers,
-        quirks: validateQuirks(p.id, cfg.quirks),
+        // Preset quirks are the floor; explicit user quirks win on conflict.
+        quirks: { ...preset?.quirks, ...validateQuirks(p.id, cfg.quirks) },
       });
     }
     case 'openai-codex': {
