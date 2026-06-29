@@ -81,6 +81,86 @@ export class ToolExecutor {
     renderer.setResultRenderMode(toolName, mode);
   }
 
+  private toolLogBase(
+    ctx: Context,
+    use: ToolUseBlock,
+    toolName: string,
+    durationMs: number,
+  ): Record<string, unknown> {
+    return {
+      event: 'tool.execution',
+      traceId: ctx.traceId,
+      sessionId: ctx.session.id,
+      agentId: ctx.agentId ?? '<unknown>',
+      toolName,
+      toolUseId: use.id,
+      durationMs,
+    };
+  }
+
+  private logToolSuccess(
+    ctx: Context,
+    use: ToolUseBlock,
+    toolName: string,
+    durationMs: number,
+    outputChars: number,
+  ): void {
+    this.opts.events?.emit('tool.completed', {
+      name: toolName,
+      id: use.id,
+      sessionId: ctx.session.id,
+      ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+      agentId: ctx.agentId ?? '<unknown>',
+      durationMs,
+      outputChars,
+    });
+    this.opts.logger?.info('tool execution completed', {
+      ...this.toolLogBase(ctx, use, toolName, durationMs),
+      outcome: 'success',
+      isError: false,
+      outputChars,
+    });
+  }
+
+  private logToolFailure(
+    ctx: Context,
+    use: ToolUseBlock,
+    toolName: string,
+    durationMs: number,
+    err: unknown,
+  ): void {
+    const { category, retryable, detail } = classifyToolError(err);
+    const structured = isWrongStackError(err);
+    const structuredError = structured
+      ? {
+          errorCode: err.code,
+          errorSubsystem: err.subsystem,
+          errorSeverity: err.severity,
+        }
+      : {};
+    this.opts.events?.emit('tool.failed', {
+      name: toolName,
+      id: use.id,
+      sessionId: ctx.session.id,
+      ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+      agentId: ctx.agentId ?? '<unknown>',
+      durationMs,
+      category,
+      retryable,
+      ...(detail ? { detail } : {}),
+      ...structuredError,
+    });
+    this.opts.logger?.warn('tool execution failed', {
+      ...this.toolLogBase(ctx, use, toolName, durationMs),
+      outcome: 'failure',
+      isError: true,
+      errorCategory: category,
+      retryable,
+      errorDetail: detail,
+      ...structuredError,
+    });
+  }
+
   /**
    * Execute a batch of tool uses using the configured strategy.
    * Returns the execution results and the remaining output budget.
@@ -333,11 +413,10 @@ export class ToolExecutor {
             budget = Math.max(0, budget - Buffer.byteLength(appended, 'utf8'));
           }
         }
+        const outputChars = typeof result.content === 'string' ? result.content.length : 0;
         span?.setAttribute('tool.is_error', !!result.is_error);
-        span?.setAttribute(
-          'tool.output_bytes',
-          typeof result.content === 'string' ? result.content.length : 0,
-        );
+        span?.setAttribute('tool.output_bytes', outputChars);
+        this.logToolSuccess(ctx, use, tool.name, Date.now() - start, outputChars);
         return { result, tool, durationMs: Date.now() - start };
       } catch (err) {
         // Preserve structured errors on the throw path. A WrongStackError
@@ -352,6 +431,7 @@ export class ToolExecutor {
         if (isWrongStackError(err)) {
           if (err instanceof Error) span?.recordError(err);
           span?.setAttribute('tool.is_error', true);
+          this.logToolFailure(ctx, use, tool.name, Date.now() - start, err);
           throw err;
         }
         const msg = toErrorMessage(err);
@@ -371,6 +451,7 @@ export class ToolExecutor {
         span?.setAttribute('tool.error_category', category);
         span?.setAttribute('tool.error_retryable', retryable);
         if (detail) span?.setAttribute('tool.error_detail', detail);
+        this.logToolFailure(ctx, use, tool.name, Date.now() - start, err);
         return { result, tool, durationMs: Date.now() - start };
       } finally {
         span?.end();

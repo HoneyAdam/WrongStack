@@ -391,8 +391,16 @@ interface LoopbackServer {
  * Start the loopback server. Resolves once it is listening (or has failed to
  * bind, in which case `bound` is false and the caller falls back to manual
  * paste).
+ *
+ * When `signal` aborts (e.g. the user pressed Ctrl+C), the pending
+ * `waitForCode()` promise resolves to `null` and the underlying HTTP server is
+ * torn down — without this, the caller's `await waitForCode()` would never
+ * settle and the terminal would hang with no way out.
  */
-function startLoopbackServer(state: string): Promise<LoopbackServer> {
+export function startLoopbackServer(
+  state: string,
+  signal?: AbortSignal,
+): Promise<LoopbackServer> {
   let resolveCode: (v: string | null) => void = () => {};
   const codePromise = new Promise<string | null>((resolve) => {
     let settled = false;
@@ -442,6 +450,21 @@ function startLoopbackServer(state: string): Promise<LoopbackServer> {
     res.end(callbackHtml(true, 'You can close this window and return to the terminal.'));
     resolveCode(code);
   });
+
+  // Abort (Ctrl+C) → unblock the pending wait and close the server so the
+  // login flow can return promptly instead of hanging on the loopback await.
+  const onAbort = (): void => {
+    resolveCode(null);
+    try {
+      server.close();
+    } catch {
+      /* ignore */
+    }
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
 
   return new Promise<LoopbackServer>((resolve) => {
     server.on('error', () => {
@@ -544,10 +567,22 @@ export async function runCodexOAuthLogin(
   const authorizeUrl = buildAuthorizeUrl(pkce.challenge, state);
 
   const ac = new AbortController();
-  const onSig = () => ac.abort();
+  // First Ctrl+C cancels cleanly (aborts the controller, which unblocks the
+  // loopback wait below); a second Ctrl+C is a hard escape hatch in case
+  // anything downstream is still wedged.
+  let sigintCount = 0;
+  const onSig = () => {
+    sigintCount += 1;
+    if (sigintCount === 1) {
+      deps.renderer.write(color.dim('\n  Cancelling sign-in… (press Ctrl+C again to force-quit)\n'));
+      ac.abort();
+    } else {
+      process.exit(130);
+    }
+  };
   process.on('SIGINT', onSig);
 
-  const server = await startLoopbackServer(state);
+  const server = await startLoopbackServer(state, ac.signal);
 
   deps.renderer.write(
     color.bold(`\n  Sign in with ChatGPT — ${color.cyan(providerId)}\n`) +
@@ -581,6 +616,12 @@ export async function runCodexOAuthLogin(
   try {
     if (server.bound) {
       const got = await server.waitForCode();
+      // Ctrl+C while waiting on the loopback → cancel now rather than dropping
+      // into the manual-paste prompt (which would block again).
+      if (ac.signal.aborted) {
+        deps.renderer.write(color.dim('  Cancelled.\n'));
+        return 1;
+      }
       if (got) code = got;
     }
 

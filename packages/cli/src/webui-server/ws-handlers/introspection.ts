@@ -29,6 +29,10 @@ export interface IntrospectionContext extends WsCommon {
   sessionStartedAt: number;
 }
 
+function currentSessionId(ctx: IntrospectionContext): string {
+  return ctx.agent.ctx.session?.id ?? ctx.sessionId;
+}
+
 export async function handleSkillsList(ctx: IntrospectionContext, ws: WebSocket): Promise<void> {
   if (!ctx.skillLoader) {
     ctx.send(ws, { type: 'skills.list', payload: { skills: [], enabled: false } });
@@ -90,7 +94,7 @@ export function handleDiagGet(ctx: IntrospectionContext, ws: WebSocket): void {
       provider: (actx.provider as { id: string }).id,
       model: actx.model,
       cwd: ctx.projectRoot ?? actx.projectRoot,
-      sessionId: ctx.sessionId,
+      sessionId: currentSessionId(ctx),
       tools: {
         count: tools.length,
         names: tools.map((t) => t.name),
@@ -128,7 +132,7 @@ export async function handleStatsGet(ctx: IntrospectionContext, ws: WebSocket): 
   ctx.send(ws, {
     type: 'stats.get',
     payload: {
-      sessionId: ctx.sessionId,
+      sessionId: currentSessionId(ctx),
       provider: (actx.provider as { id: string }).id,
       model: actx.model,
       usage,

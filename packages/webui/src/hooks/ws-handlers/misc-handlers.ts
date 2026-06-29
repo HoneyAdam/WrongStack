@@ -277,7 +277,7 @@ export function handleModelRefineResult(msg: WSServerMessage) {
     useUIStore.getState().setRefinePanel(null);
     useChatStore.getState().addMessage({ role: 'user', content: original });
     useChatStore.getState().setLoading(true);
-    getWSClient().send({ type: 'user_message', payload: { id: `msg_${Date.now()}`, content: original, timestamp: Date.now() } });
+    getWSClient().sendMessage(original);
     return;
   }
   const original = refinePanel.original;
@@ -285,7 +285,7 @@ export function handleModelRefineResult(msg: WSServerMessage) {
     useUIStore.getState().setRefinePanel(null);
     useChatStore.getState().addMessage({ role: 'user', content: original });
     useChatStore.getState().setLoading(true);
-    getWSClient().send({ type: 'user_message', payload: { id: `msg_${Date.now()}`, content: original, timestamp: Date.now() } });
+    getWSClient().sendMessage(original);
     return;
   }
   useUIStore.getState().setRefinePanel({

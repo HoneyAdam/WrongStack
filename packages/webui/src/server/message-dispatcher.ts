@@ -145,6 +145,33 @@ export function createMessageDispatcher(
     };
   }
 
+  function messageSessionId(msg: WSClientMessage): string | undefined {
+    const payload = msg.payload;
+    return payload && typeof payload === 'object' && typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+      ? (payload as { sessionId: string }).sessionId
+      : undefined;
+  }
+
+  function sessionPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    const current = state.getSession().id;
+    return { ...payload, sessionId: current };
+  }
+
+  function ensureCurrentSession(ws: WebSocket, msg: WSClientMessage, phase: string): boolean {
+    const requested = messageSessionId(msg);
+    const current = state.getSession().id;
+    if (!requested || requested === current) return true;
+    send(ws, {
+      type: 'error',
+      payload: sessionPayload({
+        phase,
+        message: `Request targeted session ${requested}, but this WebUI runtime is currently on ${current}.`,
+        requestedSessionId: requested,
+      }),
+    });
+    return false;
+  }
+
   return async function handleMessage(
     ws: WebSocket,
     _client: ConnectedClient,
@@ -193,6 +220,7 @@ export function createMessageDispatcher(
         return;
       }
       case 'user_message': {
+        if (!ensureCurrentSession(ws, msg, 'user_message')) return;
         const content = (msg as { payload: { content: string } }).payload.content;
 
         // Guard against concurrent agent runs — a second user_message while
@@ -203,10 +231,10 @@ export function createMessageDispatcher(
         if (runLock.get()) {
           send(ws, {
             type: 'error',
-            payload: {
+            payload: sessionPayload({
               phase: 'user_message',
               message: 'Agent is already processing a request. Wait for the current run to finish.',
-            },
+            }),
           });
           break;
         }
@@ -224,7 +252,7 @@ export function createMessageDispatcher(
           const result = await deps.agent.run(content, { signal: thisRun.signal, maxIterations: maxIt });
           send(ws, {
             type: 'run.result',
-            payload: {
+            payload: sessionPayload({
               status: result.status,
               iterations: result.iterations,
               finalText: result.finalText,
@@ -235,15 +263,15 @@ export function createMessageDispatcher(
                     recoverable: result.error.recoverable,
                   }
                 : undefined,
-            },
+            }),
           });
         } catch (err) {
           send(ws, {
             type: 'error',
-            payload: {
+            payload: sessionPayload({
               phase: 'agent.run',
               message: errMessage(err),
-            },
+            }),
           });
         } finally {
           // Only clear runLock if it's still ours — otherwise we'd wipe a
@@ -256,6 +284,7 @@ export function createMessageDispatcher(
       }
 
       case 'tool.confirm_result': {
+        if (!ensureCurrentSession(ws, msg, 'tool.confirm_result')) return;
         const { id, decision } = (
           msg as { payload: { id: string; decision: ConfirmDecision } }
         ).payload;
@@ -268,10 +297,11 @@ export function createMessageDispatcher(
       }
 
       case 'abort':
+        if (!ensureCurrentSession(ws, msg, 'abort')) return;
         runLock.get()?.abort();
         broadcast(state.getClients(), {
           type: 'error',
-          payload: { phase: 'abort', message: 'User aborted' },
+          payload: sessionPayload({ phase: 'abort', message: 'User aborted' }),
         });
         break;
 
@@ -427,6 +457,7 @@ export function createMessageDispatcher(
         break;
 
       case 'diag.get': {
+        if (!ensureCurrentSession(ws, msg, 'diag.get')) return;
         const config = state.getConfig();
         const session = state.getSession();
         const usage = deps.tokenCounter.total();
@@ -465,6 +496,7 @@ export function createMessageDispatcher(
       case 'todo.update':
       case 'task.update':
       case 'plan.item.update': {
+        if (!ensureCurrentSession(ws, msg, msg.type)) return;
         await handleWorklistMessage(makeWorklistContext(), ws, msg as WorklistMessage);
         break;
       }
@@ -496,6 +528,7 @@ export function createMessageDispatcher(
         });
 
       case 'stats.get': {
+        if (!ensureCurrentSession(ws, msg, 'stats.get')) return;
         const config = state.getConfig();
         const session = state.getSession();
         const usage = deps.tokenCounter.total();
@@ -522,10 +555,11 @@ export function createMessageDispatcher(
       }
 
       case 'side_effects.list': {
+        if (!ensureCurrentSession(ws, msg, 'side_effects.list')) return;
         const sideEffects = deps.context.sideEffects ?? [];
         send(ws, {
           type: 'side_effects',
-          payload: {
+          payload: sessionPayload({
             sideEffects: sideEffects.slice(-50).map((se) => ({
               toolUseId: se.toolUseId,
               toolName: se.toolName,
@@ -534,7 +568,7 @@ export function createMessageDispatcher(
               outcome: se.outcome,
               risk: se.risk,
             })),
-          },
+          }),
         });
         break;
       }

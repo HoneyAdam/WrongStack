@@ -38,9 +38,13 @@ export interface WSSessionEnd {
   };
 }
 
+export interface SessionScopedPayload {
+  sessionId?: string | undefined;
+}
+
 export interface WSUserMessage {
   type: 'user_message';
-  payload: {
+  payload: SessionScopedPayload & {
     id: string;
     content: string;
     timestamp: number;
@@ -51,7 +55,7 @@ export interface WSUserMessage {
 
 export interface WSTextDelta {
   type: 'provider.text_delta';
-  payload: {
+  payload: SessionScopedPayload & {
     text: string;
     messageId: string;
   };
@@ -59,14 +63,14 @@ export interface WSTextDelta {
 
 export interface WSThinkingDelta {
   type: 'provider.thinking_delta';
-  payload: {
+  payload: SessionScopedPayload & {
     text: string;
   };
 }
 
 export interface WSToolUseStart {
   type: 'tool.started';
-  payload: {
+  payload: SessionScopedPayload & {
     id: string;
     name: string;
     input?: unknown | undefined;
@@ -76,7 +80,7 @@ export interface WSToolUseStart {
 
 export interface WSToolProgress {
   type: 'tool.progress';
-  payload: {
+  payload: SessionScopedPayload & {
     name: string;
     id: string;
     event: {
@@ -89,7 +93,7 @@ export interface WSToolProgress {
 
 export interface WSToolExecuted {
   type: 'tool.executed';
-  payload: {
+  payload: SessionScopedPayload & {
     id: string;
     name: string;
     durationMs: number;
@@ -101,7 +105,7 @@ export interface WSToolExecuted {
 
 export interface WSIterationStarted {
   type: 'iteration.started';
-  payload: {
+  payload: SessionScopedPayload & {
     index: number;
     maxIterations?: number | undefined;
   };
@@ -109,7 +113,7 @@ export interface WSIterationStarted {
 
 export interface WSIterationCompleted {
   type: 'iteration.completed';
-  payload: {
+  payload: SessionScopedPayload & {
     index: number;
     totalIterations: number;
   };
@@ -117,7 +121,7 @@ export interface WSIterationCompleted {
 
 export interface WSIterationLimitReached {
   type: 'iteration.limit_reached';
-  payload: {
+  payload: SessionScopedPayload & {
     currentIterations: number;
     currentLimit: number;
   };
@@ -125,7 +129,7 @@ export interface WSIterationLimitReached {
 
 export interface WSProviderResponse {
   type: 'provider.response';
-  payload: {
+  payload: SessionScopedPayload & {
     usage: Usage;
     stopReason: string;
     messageId: string;
@@ -134,7 +138,7 @@ export interface WSProviderResponse {
 
 export interface WSProviderRetry {
   type: 'provider.retry';
-  payload: {
+  payload: SessionScopedPayload & {
     providerId: string;
     attempt: number;
     delayMs: number;
@@ -145,7 +149,7 @@ export interface WSProviderRetry {
 
 export interface WSProviderError {
   type: 'provider.error';
-  payload: {
+  payload: SessionScopedPayload & {
     providerId: string;
     status: number;
     description: string;
@@ -155,7 +159,7 @@ export interface WSProviderError {
 
 export interface WSProviderFallback {
   type: 'provider.fallback';
-  payload: {
+  payload: SessionScopedPayload & {
     from: { providerId: string; model: string };
     to: { providerId: string; model: string };
     status: number;
@@ -165,7 +169,7 @@ export interface WSProviderFallback {
 
 export interface WSProviderStreamError {
   type: 'provider.stream_error';
-  payload: {
+  payload: SessionScopedPayload & {
     eventType: string;
     message: string;
   };
@@ -173,7 +177,7 @@ export interface WSProviderStreamError {
 
 export interface WSRunResult {
   type: 'run.result';
-  payload: {
+  payload: SessionScopedPayload & {
     status: 'done' | 'failed' | 'max_iterations' | 'aborted';
     iterations: number;
     finalText?: string | undefined;
@@ -199,7 +203,7 @@ export interface WSSessionStats {
 
 export interface WSError {
   type: 'error';
-  payload: {
+  payload: SessionScopedPayload & {
     phase: string;
     message: string;
   };
@@ -207,7 +211,7 @@ export interface WSError {
 
 export interface WSToolConfirmNeeded {
   type: 'tool.confirm_needed';
-  payload: {
+  payload: SessionScopedPayload & {
     id: string;
     toolName: string;
     input: unknown;
@@ -218,7 +222,7 @@ export interface WSToolConfirmNeeded {
 
 export interface WSToolConfirmResult {
   type: 'tool.confirm_result';
-  payload: {
+  payload: SessionScopedPayload & {
     id: string;
     decision: 'yes' | 'no' | 'always' | 'deny';
   };
@@ -226,7 +230,7 @@ export interface WSToolConfirmResult {
 
 export interface WSTrustPersisted {
   type: 'trust.persisted';
-  payload: {
+  payload: SessionScopedPayload & {
     tool: string;
     pattern: string;
     decision: 'always' | 'deny';
@@ -235,7 +239,7 @@ export interface WSTrustPersisted {
 
 export interface WSToolLoopDetected {
   type: 'tool.loop_detected';
-  payload: {
+  payload: SessionScopedPayload & {
     tools: string;
     repeatCount: number;
     iteration: number;
@@ -245,7 +249,7 @@ export interface WSToolLoopDetected {
 
 export interface WSDelegateStarted {
   type: 'delegate.started';
-  payload: {
+  payload: SessionScopedPayload & {
     target: string;
     task: string;
   };
@@ -253,7 +257,7 @@ export interface WSDelegateStarted {
 
 export interface WSDelegateCompleted {
   type: 'delegate.completed';
-  payload: {
+  payload: SessionScopedPayload & {
     target: string;
     task: string;
     ok: boolean;
@@ -279,7 +283,7 @@ export type MemoryScope = 'project-agents' | 'project-memory' | 'user-memory';
 
 export interface WSContextDebug {
   type: 'context.debug';
-  payload: {
+  payload: SessionScopedPayload & {
     total: number;
     mode?: string | undefined;
     policy?: unknown | undefined;
@@ -299,7 +303,7 @@ export interface WSContextDebug {
 
 export interface WSContextCompacted {
   type: 'context.compacted';
-  payload: {
+  payload: SessionScopedPayload & {
     before: number;
     after: number;
     saved: number;
@@ -314,7 +318,7 @@ export interface WSContextCompacted {
 
 export interface WSCompactionFailed {
   type: 'compaction.failed';
-  payload: {
+  payload: SessionScopedPayload & {
     message: string;
     aggressive: boolean;
     level: 'warn' | 'soft' | 'hard';
@@ -327,7 +331,7 @@ export interface WSCompactionFailed {
 
 export interface WSContextRepaired {
   type: 'context.repaired';
-  payload: {
+  payload: SessionScopedPayload & {
     removedToolUses: string[];
     removedToolResults: string[];
     removedMessages: number;
@@ -338,7 +342,7 @@ export interface WSContextRepaired {
 
 export interface WSContextPct {
   type: 'ctx.pct';
-  payload: {
+  payload: SessionScopedPayload & {
     load: number;
     rawLoad?: number | undefined;
     tokens: number;
@@ -348,7 +352,7 @@ export interface WSContextPct {
 
 export interface WSContextMaxContext {
   type: 'ctx.max_context';
-  payload: {
+  payload: SessionScopedPayload & {
     providerId: string;
     modelId: string;
     maxContext: number;
@@ -357,7 +361,7 @@ export interface WSContextMaxContext {
 
 export interface WSTokenThreshold {
   type: 'token.threshold';
-  payload: {
+  payload: SessionScopedPayload & {
     used: number;
     limit: number;
   };
@@ -365,14 +369,14 @@ export interface WSTokenThreshold {
 
 export interface WSTokenCostEstimateUnavailable {
   type: 'token.cost_estimate_unavailable';
-  payload: {
+  payload: SessionScopedPayload & {
     model: string;
   };
 }
 
 export interface WSContextModesList {
   type: 'context.modes.list';
-  payload: {
+  payload: SessionScopedPayload & {
     activeId: string;
     modes: Array<{
       id: string;
@@ -388,7 +392,7 @@ export interface WSContextModesList {
 
 export interface WSContextModeChanged {
   type: 'context.mode.changed';
-  payload: {
+  payload: SessionScopedPayload & {
     id: string;
     name: string;
     policy: unknown;
@@ -591,7 +595,7 @@ export interface WSSkillsExported {
 
 export interface WSDiagGet {
   type: 'diag.get';
-  payload: {
+  payload: SessionScopedPayload & {
     provider: string;
     model: string;
     cwd: string;
@@ -607,7 +611,7 @@ export interface WSDiagGet {
 
 export interface WSStatsGet {
   type: 'stats.get';
-  payload: {
+  payload: SessionScopedPayload & {
     sessionId: string;
     provider: string;
     model: string;
@@ -624,7 +628,7 @@ export interface WSStatsGet {
 
 export interface WSSideEffects {
   type: 'side_effects';
-  payload: {
+  payload: SessionScopedPayload & {
     sideEffects: Array<{
       toolUseId: string;
       toolName: string;
@@ -798,7 +802,7 @@ export interface WSCompletionResult {
 
 export interface WSTodosUpdated {
   type: 'todos.updated';
-  payload: {
+  payload: SessionScopedPayload & {
     todos: Array<{
       id: string;
       content: string;
@@ -1087,20 +1091,20 @@ export type WSClientMessage =
         worktrees?: boolean | undefined;
       };
     }
-  | { type: 'abort'; payload: Record<string, never> }
-  | { type: 'session.resume'; payload: { id: string } }
-  | { type: 'session.new' }
-  | { type: 'session.checkpoints' }
-  | { type: 'session.rewind'; payload: { checkpointIndex: number } }
-  | { type: 'context.clear' }
-  | { type: 'context.compact'; payload: { aggressive: boolean } }
-  | { type: 'context.repair' }
-  | { type: 'context.debug' }
-  | { type: 'context.modes.list' }
-  | { type: 'context.mode.switch'; payload: { id: string } }
-  | { type: 'context.mode.create'; payload: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number } }
-  | { type: 'context.mode.update'; payload: { id: string; name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined } }
-  | { type: 'context.mode.delete'; payload: { id: string } }
+  | { type: 'abort'; payload: SessionScopedPayload }
+  | { type: 'session.resume'; payload: { id: string } & SessionScopedPayload }
+  | { type: 'session.new'; payload?: SessionScopedPayload }
+  | { type: 'session.checkpoints'; payload?: SessionScopedPayload }
+  | { type: 'session.rewind'; payload: { checkpointIndex: number } & SessionScopedPayload }
+  | { type: 'context.clear'; payload?: SessionScopedPayload }
+  | { type: 'context.compact'; payload: { aggressive: boolean } & SessionScopedPayload }
+  | { type: 'context.repair'; payload?: SessionScopedPayload }
+  | { type: 'context.debug'; payload?: SessionScopedPayload }
+  | { type: 'context.modes.list'; payload?: SessionScopedPayload }
+  | { type: 'context.mode.switch'; payload: { id: string } & SessionScopedPayload }
+  | { type: 'context.mode.create'; payload: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number } & SessionScopedPayload }
+  | { type: 'context.mode.update'; payload: { id: string; name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined } & SessionScopedPayload }
+  | { type: 'context.mode.delete'; payload: { id: string } & SessionScopedPayload }
   | WSModelSwitch
   | { type: 'providers.list' }
   | { type: 'provider.models'; payload: { providerId: string } }
@@ -1158,10 +1162,10 @@ export type WSClientMessage =
           | undefined;
       };
     }
-  | { type: 'diag.get' }
-  | { type: 'stats.get' }
-  | { type: 'session.save' }
-  | { type: 'sessions.list'; payload: { limit: number } }
+  | { type: 'diag.get'; payload?: SessionScopedPayload }
+  | { type: 'stats.get'; payload?: SessionScopedPayload }
+  | { type: 'session.save'; payload?: SessionScopedPayload }
+  | { type: 'sessions.list'; payload: { limit: number } & SessionScopedPayload }
   | { type: 'session.delete'; payload: { id: string } }
   | { type: 'modes.list' }
   | { type: 'mode.switch'; payload: { id: string } }
@@ -1170,14 +1174,14 @@ export type WSClientMessage =
   | { type: 'files.read'; payload: { filePath: string } }
   | { type: 'files.write'; payload: { filePath: string; content: string } }
   | WSCompletionRequest
-  | { type: 'todos.get' }
-  | { type: 'todos.clear' }
-  | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } }
-  | { type: 'todo.update'; payload: { id: string; status?: 'pending' | 'in_progress' | 'completed' | undefined; activeForm?: string | undefined } }
-  | { type: 'tasks.get' }
-  | { type: 'task.update'; payload: { id: string; status: string } }
-  | { type: 'plan.get' }
-  | { type: 'plan.item.update'; payload: { target: string; status: 'open' | 'in_progress' | 'done' } }
+  | { type: 'todos.get'; payload?: SessionScopedPayload }
+  | { type: 'todos.clear'; payload?: SessionScopedPayload }
+  | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } & SessionScopedPayload }
+  | { type: 'todo.update'; payload: { id: string; status?: 'pending' | 'in_progress' | 'completed' | undefined; activeForm?: string | undefined } & SessionScopedPayload }
+  | { type: 'tasks.get'; payload?: SessionScopedPayload }
+  | { type: 'task.update'; payload: { id: string; status: string } & SessionScopedPayload }
+  | { type: 'plan.get'; payload?: SessionScopedPayload }
+  | { type: 'plan.item.update'; payload: { target: string; status: 'open' | 'in_progress' | 'done' } & SessionScopedPayload }
   | { type: 'ping' }
   | { type: 'process.list' }
   | { type: 'process.kill'; payload: { pid: number } }

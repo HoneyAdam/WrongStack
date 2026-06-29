@@ -66,6 +66,11 @@ export interface SetupEventsDeps {
 export function setupEvents(deps: SetupEventsDeps): () => void {
   const { events, broadcast, clients, config, context, pendingConfirms, globalConfigPath, sessionBridge, wpaths, watcherMetrics, onFleetBroadcaster } = deps;
   const disposers: Array<() => void> = [];
+  const currentSessionId = (): string => context.session?.id ?? '';
+  const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => ({
+    ...payload,
+    sessionId: currentSessionId(),
+  });
 
   events.on('iteration.started', (e) => {
     // Read maxIterations from context.meta so the UI reflects the
@@ -75,46 +80,46 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       : config.tools?.maxIterations ?? 100;
     broadcast(clients, {
       type: 'iteration.started',
-      payload: { index: e.index, maxIterations: maxIt },
+      payload: sessionPayload({ index: e.index, maxIterations: maxIt }),
     });
   });
 
   events.on('iteration.completed', (e) => {
     broadcast(clients, {
       type: 'iteration.completed',
-      payload: { index: e.index, totalIterations: e.index + 1 },
+      payload: sessionPayload({ index: e.index, totalIterations: e.index + 1 }),
     });
   });
 
   events.on('iteration.limit_reached', (e) => {
     broadcast(clients, {
       type: 'iteration.limit_reached',
-      payload: {
+      payload: sessionPayload({
         currentIterations: e.currentIterations,
         currentLimit: e.currentLimit,
-      },
+      }),
     });
   });
 
   events.on('provider.text_delta', (e) => {
-    broadcast(clients, { type: 'provider.text_delta', payload: { text: e.text, messageId: 'current' } });
+    broadcast(clients, { type: 'provider.text_delta', payload: sessionPayload({ text: e.text, messageId: 'current' }) });
   });
 
   events.on('provider.thinking_delta', (e) => {
-    broadcast(clients, { type: 'provider.thinking_delta', payload: { text: e.text } });
+    broadcast(clients, { type: 'provider.thinking_delta', payload: sessionPayload({ text: e.text }) });
   });
 
   events.on('provider.stream_error', (e) => {
     broadcast(clients, {
       type: 'provider.stream_error',
-      payload: { eventType: e.eventType, message: e.msg },
+      payload: sessionPayload({ eventType: e.eventType, message: e.msg }),
     });
   });
 
   events.on('tool.started', (e) => {
     broadcast(clients, {
       type: 'tool.started',
-      payload: { id: e.id, name: e.name, input: e.input, messageId: `tool_${e.id}` },
+      payload: sessionPayload({ id: e.id, name: e.name, input: e.input, messageId: `tool_${e.id}` }),
     });
     // Persist for audit + resume tool history (respects auditLevel).
     sessionBridge
@@ -135,7 +140,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       // and early-returns on a falsy text, so a flat { eventType, text } payload
       // makes live tool progress (bash streaming, partial_output, warnings)
       // never render. Must match WSToolProgress and the CLI server.
-      payload: { id: e.id, name: e.name, event: { type: e.event.type, text: e.event.text, data: e.event.data } },
+      payload: sessionPayload({ id: e.id, name: e.name, event: { type: e.event.type, text: e.event.text, data: e.event.data } }),
     });
     sessionBridge
       ?.append({
@@ -151,7 +156,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('tool.executed', (e) => {
     broadcast(clients, {
       type: 'tool.executed',
-      payload: { id: e.id, name: e.name, durationMs: e.durationMs, ok: e.ok, input: e.input, output: e.output },
+      payload: sessionPayload({ id: e.id, name: e.name, durationMs: e.durationMs, ok: e.ok, input: e.input, output: e.output }),
     });
     sessionBridge
       ?.append({
@@ -167,7 +172,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         outputLines: e.outputLines,
       })
       .catch(() => { /* best-effort */ });
-    broadcast(clients, { type: 'todos.updated', payload: { todos: [...context.todos] } });
+    broadcast(clients, { type: 'todos.updated', payload: sessionPayload({ todos: [...context.todos] }) });
 
     // P2 #5: push updated side effects after every tool execution so the
     // Audit tab refreshes automatically — no manual refresh needed.
@@ -175,7 +180,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     if (sideEffects.length > 0) {
       broadcast(clients, {
         type: 'side_effects',
-        payload: {
+        payload: sessionPayload({
           sideEffects: sideEffects.slice(-50).map((se) => ({
             toolUseId: se.toolUseId,
             toolName: se.toolName,
@@ -184,7 +189,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
             outcome: se.outcome,
             risk: se.risk,
           })),
-        },
+        }),
       });
     }
 
@@ -196,7 +201,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
           if (typeof taskPath === 'string' && taskPath) {
             const { loadTasks } = await import('@wrongstack/core');
             const file = await loadTasks(taskPath);
-            broadcast(clients, { type: 'tasks.updated', payload: { tasks: file?.tasks ?? [] } });
+            broadcast(clients, { type: 'tasks.updated', payload: sessionPayload({ tasks: file?.tasks ?? [] }) });
           }
         } catch { /* best-effort */ }
         try {
@@ -204,7 +209,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
           if (typeof planPath === 'string' && planPath) {
             const { loadPlan } = await import('@wrongstack/core');
             const plan = await loadPlan(planPath);
-            broadcast(clients, { type: 'plan.updated', payload: { plan: plan ?? { version: 1, sessionId: context.session?.id ?? '', updatedAt: new Date().toISOString(), items: [] } } });
+            broadcast(clients, { type: 'plan.updated', payload: sessionPayload({ plan: plan ?? { version: 1, sessionId: context.session?.id ?? '', updatedAt: new Date().toISOString(), items: [] } }) });
           }
         } catch { /* best-effort */ }
       })();
@@ -214,33 +219,33 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('tool.loop_detected', (e) => {
     broadcast(clients, {
       type: 'tool.loop_detected',
-      payload: {
+      payload: sessionPayload({
         tools: e.tools,
         repeatCount: e.repeatCount,
         iteration: e.iteration,
         kind: e.kind,
-      },
+      }),
     });
   });
 
   events.on('trust.persisted', (e) => {
     broadcast(clients, {
       type: 'trust.persisted',
-      payload: { tool: e.tool, pattern: e.pattern, decision: e.decision },
+      payload: sessionPayload({ tool: e.tool, pattern: e.pattern, decision: e.decision }),
     });
   });
 
   events.on('delegate.started', (e) => {
     broadcast(clients, {
       type: 'delegate.started',
-      payload: { target: e.target, task: e.task },
+      payload: sessionPayload({ target: e.target, task: e.task }),
     });
   });
 
   events.on('delegate.completed', (e) => {
     broadcast(clients, {
       type: 'delegate.completed',
-      payload: {
+      payload: sessionPayload({
         target: e.target,
         task: e.task,
         ok: e.ok,
@@ -251,64 +256,64 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         toolCalls: e.toolCalls,
         costUsd: e.costUsd,
         subagentId: e.subagentId,
-      },
+      }),
     });
   });
 
   events.on('provider.response', (e) => {
-    broadcast(clients, { type: 'provider.response', payload: { usage: e.usage, stopReason: e.stopReason, messageId: 'current' } });
+    broadcast(clients, { type: 'provider.response', payload: sessionPayload({ usage: e.usage, stopReason: e.stopReason, messageId: 'current' }) });
   });
 
   events.on('ctx.pct', (e) => {
     broadcast(clients, {
       type: 'ctx.pct',
-      payload: { load: e.load, tokens: e.tokens, maxContext: e.maxContext },
+      payload: sessionPayload({ load: e.load, tokens: e.tokens, maxContext: e.maxContext }),
     });
     broadcast(clients, {
       type: 'subagent.event',
-      payload: {
+      payload: sessionPayload({
         kind: 'ctx_pct',
         subagentId: 'leader',
         load: e.load,
         tokens: e.tokens,
         maxContext: e.maxContext,
-      },
+      }),
     });
   });
 
   events.on('ctx.max_context', (e) => {
     broadcast(clients, {
       type: 'ctx.max_context',
-      payload: { providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext },
+      payload: sessionPayload({ providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext }),
     });
   });
 
   events.on('token.threshold', (e) => {
     broadcast(clients, {
       type: 'token.threshold',
-      payload: { used: e.used, limit: e.limit },
+      payload: sessionPayload({ used: e.used, limit: e.limit }),
     });
   });
 
   events.on('token.cost_estimate_unavailable', (e) => {
     broadcast(clients, {
       type: 'token.cost_estimate_unavailable',
-      payload: { model: e.model },
+      payload: sessionPayload({ model: e.model }),
     });
   });
 
   events.on('context.repaired', (e) => {
-    broadcast(clients, { type: 'context.repaired', payload: { removedToolUses: e.removedToolUses, removedToolResults: e.removedToolResults, removedMessages: e.removedMessages } });
+    broadcast(clients, { type: 'context.repaired', payload: sessionPayload({ removedToolUses: e.removedToolUses, removedToolResults: e.removedToolResults, removedMessages: e.removedMessages }) });
   });
 
   events.on('tool.confirm_needed', (e) => {
     const id = e.toolUseId ?? `confirm_${Date.now()}`;
     pendingConfirms.set(id, e.resolve);
-    broadcast(clients, { type: 'tool.confirm_needed', payload: { id, toolName: e.tool?.name ?? 'unknown', input: e.input, suggestedPattern: e.suggestedPattern } });
+    broadcast(clients, { type: 'tool.confirm_needed', payload: sessionPayload({ id, toolName: e.tool?.name ?? 'unknown', input: e.input, suggestedPattern: e.suggestedPattern }) });
   });
 
   events.on('error', (e) => {
-    broadcast(clients, { type: 'error', payload: { phase: e.phase, message: e.err instanceof Error ? e.err.message : String(e.err) } });
+    broadcast(clients, { type: 'error', payload: sessionPayload({ phase: e.phase, message: e.err instanceof Error ? e.err.message : String(e.err) }) });
     sessionBridge
       ?.append({
         type: 'error',
@@ -329,37 +334,37 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('session.rewound', (e) => {
     broadcast(clients, {
       type: 'session.rewound',
-      payload: {
+      payload: sessionPayload({
         toPromptIndex: e.toPromptIndex,
         revertedFiles: e.revertedFiles,
         removedEvents: e.removedEvents,
-      },
+      }),
     });
   });
 
   events.on('checkpoint.written', (e) => {
     broadcast(clients, {
       type: 'checkpoint.written',
-      payload: {
+      payload: sessionPayload({
         promptIndex: e.promptIndex,
         promptPreview: e.promptPreview,
         ts: e.ts,
         fileCount: e.fileCount,
-      },
+      }),
     });
   });
 
   events.on('in_flight.started', (e) => {
     broadcast(clients, {
       type: 'in_flight.started',
-      payload: { context: e.context, ts: e.ts },
+      payload: sessionPayload({ context: e.context, ts: e.ts }),
     });
   });
 
   events.on('in_flight.ended', (e) => {
     broadcast(clients, {
       type: 'in_flight.ended',
-      payload: { reason: e.reason, ts: e.ts },
+      payload: sessionPayload({ reason: e.reason, ts: e.ts }),
     });
   });
 
@@ -368,13 +373,13 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('provider.retry', (e) => {
     broadcast(clients, {
       type: 'provider.retry',
-      payload: {
+      payload: sessionPayload({
         providerId: e.providerId,
         attempt: e.attempt,
         delayMs: e.delayMs,
         status: e.status,
         description: e.description,
-      },
+      }),
     });
     sessionBridge
       ?.append({
@@ -392,12 +397,12 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('provider.error', (e) => {
     broadcast(clients, {
       type: 'provider.error',
-      payload: {
+      payload: sessionPayload({
         providerId: e.providerId,
         status: e.status,
         description: e.description,
         retryable: e.retryable,
-      },
+      }),
     });
     sessionBridge
       ?.append({
@@ -414,31 +419,31 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('provider.fallback', (e) => {
     broadcast(clients, {
       type: 'provider.fallback',
-      payload: {
+      payload: sessionPayload({
         from: e.from,
         to: e.to,
         status: e.status,
         providerSwitched: e.providerSwitched,
-      },
+      }),
     });
   });
 
   events.on('compaction.fired', (e) => {
     broadcast(clients, {
       type: 'context.compacted',
-      payload: {
+      payload: sessionPayload({
         before: e.report.before,
         after: e.report.after,
         saved: Math.max(0, e.report.before - e.report.after),
         reductions: e.report.reductions,
-      },
+      }),
     });
   });
 
   events.on('compaction.failed', (e) => {
     broadcast(clients, {
       type: 'compaction.failed',
-      payload: {
+      payload: sessionPayload({
         message: e.err.message,
         aggressive: e.aggressive,
         level: e.level,
@@ -446,7 +451,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         maxContext: e.maxContext,
         load: e.load,
         fatal: e.fatal,
-      },
+      }),
     });
   });
 
@@ -507,7 +512,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
   // Subagent fleet lifecycle
   const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
-    broadcast(clients, { type: 'subagent.event', payload: { kind, sessionId: context.session.id, ...payload } });
+    broadcast(clients, { type: 'subagent.event', payload: sessionPayload({ kind, ...payload }) });
 
   events.on('subagent.spawned', (e) => forwardSubagent('spawned', { subagentId: e.subagentId, taskId: e.taskId, name: e.name, provider: e.provider, model: e.model, description: e.description }));
   events.on('subagent.task_started', (e) => forwardSubagent('task_started', { subagentId: e.subagentId, taskId: e.taskId, description: e.description }));
@@ -521,7 +526,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('agent.timeline.message', (e) => {
     broadcast(clients, {
       type: 'agent.timeline.message',
-      payload: {
+      payload: sessionPayload({
         subagentId: e.subagentId,
         agentName: e.agentName,
         content: e.content,
@@ -530,20 +535,20 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         ts: e.ts,
         toolName: e.toolName,
         costUsd: e.costUsd,
-      },
+      }),
     });
   });
   events.on('agent.status_changed', (e) => {
     broadcast(clients, {
       type: 'agent.status_changed',
-      payload: {
+      payload: sessionPayload({
         subagentId: e.subagentId,
         agentName: e.agentName,
         status: e.status,
         ts: e.ts,
         summary: e.summary,
         task: e.task,
-      },
+      }),
     });
   });
 

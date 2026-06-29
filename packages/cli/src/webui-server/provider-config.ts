@@ -92,12 +92,24 @@ export interface ProviderConfigStore {
  * Build a {@link ProviderConfigStore} for `globalConfigPath`. When the
  * path is undefined the store is a no-op (load ⇒ `{}`, save ⇒ nothing),
  * matching the underlying helpers' behaviour.
+ *
+ * @param configProvidersRef Optional callback that returns the in-memory
+ *   merged `config.providers` map (from the boot config loader which merges
+ *   global + project-local configs). When provided, `load()` returns from
+ *   this ref instead of re-reading the single global config file on disk.
+ *   This prevents a mismatch where providers stored in the project-local
+ *   config (`config.local.json`) are visible to the agent but invisible
+ *   to the WebUI's saved-providers panel.
  */
 export function createProviderConfigStore(
   globalConfigPath: string | undefined,
+  configProvidersRef?: () => Record<string, ProviderConfig>,
 ): ProviderConfigStore {
   return {
-    load: () => loadSavedProviders(globalConfigPath),
+    load: () =>
+      configProvidersRef
+        ? Promise.resolve(configProvidersRef())
+        : loadSavedProviders(globalConfigPath),
     save: (providers) => saveProviders(globalConfigPath, providers),
   };
 }

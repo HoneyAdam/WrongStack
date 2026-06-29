@@ -37,11 +37,37 @@ export interface ConnectionContext extends WsCommon {
   pendingConfirms: Map<string, (decision: ConfirmDecision) => void>;
 }
 
+function currentSessionId(ctx: ConnectionContext): string {
+  return (ctx.opts.agent as { ctx?: { session?: { id?: string } } }).ctx?.session?.id ?? '';
+}
+
+function sessionPayload<T extends Record<string, unknown>>(
+  ctx: ConnectionContext,
+  payload: T,
+): T & { sessionId?: string } {
+  const sessionId = currentSessionId(ctx);
+  return sessionId ? { ...payload, sessionId } : payload;
+}
+
 export async function handleUserMessage(
   ctx: ConnectionContext,
   ws: WebSocket,
   content: string,
+  requestedSessionId?: string | undefined,
 ): Promise<void> {
+  const liveSessionId = currentSessionId(ctx);
+  if (requestedSessionId && liveSessionId && requestedSessionId !== liveSessionId) {
+    ctx.send(ws, {
+      type: 'error',
+      payload: sessionPayload(ctx, {
+        phase: 'user_message',
+        message: `Request targeted session ${requestedSessionId}, but this WebUI runtime is currently on ${liveSessionId}.`,
+        requestedSessionId,
+      }),
+    });
+    return;
+  }
+
   // Guard against overlapping runs on the same Agent instance. Two
   // rapid user messages would otherwise start a second agent.run()
   // before the first one's cleanup settles, corrupting context state.
@@ -51,7 +77,7 @@ export async function handleUserMessage(
   if (ctx.abortControllers.has(ws)) {
     ctx.send(ws, {
       type: 'error',
-      payload: { phase: 'agent.run', message: 'A run is already in progress. Abort it first.' },
+      payload: sessionPayload(ctx, { phase: 'agent.run', message: 'A run is already in progress. Abort it first.' }),
     });
     return;
   }
@@ -69,7 +95,7 @@ export async function handleUserMessage(
 
     ctx.send(ws, {
       type: 'run.result',
-      payload: {
+      payload: sessionPayload(ctx, {
         status: result.status,
         iterations: result.iterations,
         finalText: result.finalText,
@@ -80,22 +106,39 @@ export async function handleUserMessage(
               recoverable: result.error.recoverable,
             }
           : undefined,
-      },
+      }),
     });
   } catch (err) {
     ctx.send(ws, {
       type: 'error',
-      payload: {
+      payload: sessionPayload(ctx, {
         phase: 'agent.run',
         message: toErrorMessage(err),
-      },
+      }),
     });
   } finally {
     ctx.abortControllers.delete(ws);
   }
 }
 
-export function handleAbort(ctx: ConnectionContext, ws: WebSocket): void {
+export function handleAbort(
+  ctx: ConnectionContext,
+  ws: WebSocket,
+  requestedSessionId?: string | undefined,
+): void {
+  const liveSessionId = currentSessionId(ctx);
+  if (requestedSessionId && liveSessionId && requestedSessionId !== liveSessionId) {
+    ctx.send(ws, {
+      type: 'error',
+      payload: sessionPayload(ctx, {
+        phase: 'abort',
+        message: `Request targeted session ${requestedSessionId}, but this WebUI runtime is currently on ${liveSessionId}.`,
+        requestedSessionId,
+      }),
+    });
+    return;
+  }
+
   // Scope the abort to the requesting socket. The legacy module-scope
   // `abortController` (project-switch path) is left alone — a
   // `case 'abort'` from one client should not interfere with another
@@ -106,7 +149,7 @@ export function handleAbort(ctx: ConnectionContext, ws: WebSocket): void {
   wsController?.abort();
   ctx.send(ws, {
     type: 'error',
-    payload: { phase: 'abort', message: 'User aborted' },
+    payload: sessionPayload(ctx, { phase: 'abort', message: 'User aborted' }),
   });
 }
 
@@ -118,7 +161,10 @@ export function handleToolConfirmResult(
   ctx: ConnectionContext,
   id: string,
   decision: ConfirmDecision,
+  requestedSessionId?: string | undefined,
 ): void {
+  const liveSessionId = currentSessionId(ctx);
+  if (requestedSessionId && liveSessionId && requestedSessionId !== liveSessionId) return;
   const resolve = ctx.pendingConfirms.get(id);
   if (resolve) {
     ctx.pendingConfirms.delete(id);

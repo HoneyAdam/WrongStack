@@ -220,6 +220,8 @@ export function DiffFileBlock({
       <DiffBlock
         rows={preview.rows}
         hidden={preview.hidden}
+        added={preview.added}
+        removed={preview.removed}
         hiddenAdded={preview.hiddenAdded}
         hiddenRemoved={preview.hiddenRemoved}
         useColor={useColor}
@@ -231,12 +233,25 @@ export function DiffFileBlock({
 export function DiffBlock({
   rows,
   hidden,
+  added = 0,
+  removed = 0,
   hiddenAdded = 0,
   hiddenRemoved = 0,
   useColor = true,
 }: {
   rows: DiffLineRow[];
   hidden: number;
+  /**
+   * Total lines added across the whole diff (not just the visible slice).
+   * Surfaced as a green `+N` in the always-visible summary footer so the
+   * reader knows the change size even when the body is truncated.
+   */
+  added?: number | undefined;
+  /**
+   * Total lines removed across the whole diff (not just the visible slice).
+   * Surfaced as a red `-N` in the always-visible summary footer.
+   */
+  removed?: number | undefined;
   hiddenAdded?: number | undefined;
   hiddenRemoved?: number | undefined;
   /**
@@ -262,10 +277,6 @@ export function DiffBlock({
   }
   const blank = ' '.repeat(gutterWidth);
   const gutterPad = `${blank} ${blank}`;
-  const footerStats = [
-    hiddenAdded > 0 ? `+${hiddenAdded}` : '',
-    hiddenRemoved > 0 ? `-${hiddenRemoved}` : '',
-  ].filter(Boolean);
 
   const markerFor = (kind: DiffLineKind) => {
     if (kind === 'add') return '+';
@@ -353,14 +364,60 @@ export function DiffBlock({
           </Text>
         );
       })}
-      {hidden > 0 ? (
-        <Text dimColor italic>
-          {`${gutterPad}  … ${hidden} more line${hidden === 1 ? '' : 's'}${
-            footerStats.length > 0 ? ` (${footerStats.join(' ')})` : ''
-          }`}
-        </Text>
-      ) : null}
+      {summaryFooter({
+        added,
+        removed,
+        hidden,
+        hiddenAdded,
+        hiddenRemoved,
+        gutterPad,
+      })}
     </Box>
+  );
+}
+
+/**
+ * Always-visible summary footer for a `DiffBlock`. Shows the *total*
+ * additions/deletions (`+N added · -M deleted`) as a green/red colored
+ * chip so the change size is readable at a glance even when the body
+ * fits on screen. When the body was truncated, appends a dim italic
+ * `… N more lines (+A -B hidden)` note carrying the hidden breakdown.
+ *
+ * Returns `null` only when there is genuinely nothing to summarize —
+ * no totals, no hidden lines — so an unchanged/empty diff renders no
+ * footer (preserving the "no footer when nothing changed" contract).
+ */
+function summaryFooter(opts: {
+  added: number;
+  removed: number;
+  hidden: number;
+  hiddenAdded: number;
+  hiddenRemoved: number;
+  gutterPad: string;
+}): React.ReactElement | null {
+  const { added, removed, hidden, hiddenAdded, hiddenRemoved, gutterPad } = opts;
+  // Nothing to report at all → render nothing.
+  if (added <= 0 && removed <= 0 && hidden <= 0) return null;
+
+  const hiddenStats: string[] = [];
+  if (hiddenAdded > 0) hiddenStats.push(`+${hiddenAdded}`);
+  if (hiddenRemoved > 0) hiddenStats.push(`-${hiddenRemoved}`);
+  const truncNote =
+    hidden > 0
+      ? `  ·  … ${hidden} more line${hidden === 1 ? '' : 's'}${
+          hiddenStats.length > 0 ? ` (${hiddenStats.join(' ')} hidden)` : ''
+        }`
+      : '';
+
+  return (
+    <Text>
+      <Text dimColor>{`${gutterPad}  `}</Text>
+      <Text color={theme.success} bold>{`+${added}`}</Text>
+      <Text dimColor>{` added  `}</Text>
+      <Text color={theme.error} bold>{`-${removed}`}</Text>
+      <Text dimColor>{` deleted`}</Text>
+      {truncNote ? <Text dimColor italic>{truncNote}</Text> : null}
+    </Text>
   );
 }
 

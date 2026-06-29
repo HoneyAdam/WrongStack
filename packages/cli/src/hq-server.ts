@@ -780,6 +780,20 @@ function handleBrowser(
 ): void {
   browsers.add(ws);
 
+  // Per-connection error handler. An oversized inbound frame makes the `ws`
+  // receiver throw (`RangeError: Max payload size exceeded`, close 1009) and
+  // emit 'error' on this socket — unhandled, that crashes the whole process.
+  ws.on('error', (err) => {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'hq.browser_socket_error',
+        message: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  });
+
   ws.send(snapshotBroadcaster.currentSerialized());
 
   ws.on('close', () => {
@@ -798,6 +812,20 @@ function handleClient(
   agentMessages: Map<string, HqTranscriptEntry[]>,
 ): void {
   let registered = false;
+
+  // Per-connection error handler. An oversized inbound frame makes the `ws`
+  // receiver throw (`RangeError: Max payload size exceeded`, close 1009) and
+  // emit 'error' on this socket — unhandled, that crashes the whole process.
+  ws.on('error', (err) => {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'hq.client_socket_error',
+        message: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  });
 
   ws.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
     const raw =

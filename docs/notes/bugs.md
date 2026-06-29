@@ -87,7 +87,7 @@ Double-encoding (`%252e%252e`) is decoded once by `new URL()` to `%2e%2e`, which
 **CWE:** [CWE-862](https://cwe.mitre.org/data/definitions/862.html) — Unintended Unauthorized Action
 **Severity:** Medium-High
 
-**Status:** ✅ FIXED — `mutating: true` added to `mcp_control`, `shellcheck`, `shellcheck_scan`, `web_search`, and `outdated`. These tools now trigger the confirmation gate in the permission policy at `permission-policy.ts:188-195`.
+**Status:** ✅ FIXED — `mutating: true` added to `mcp_control`, `shellcheck`, `shellcheck (scan mode)`, `search`, and `outdated`. These tools now trigger the confirmation gate in the permission policy at `permission-policy.ts:188-195`.
 
 The permission policy at `permission-policy.ts:188-195` was designed to gate side-effecting tools:
 ```ts
@@ -101,8 +101,8 @@ The gate correctly requires `mutating: true` for confirmation. **However, tools 
 | Tool | Side Effect | `mutating` |
 |------|-------------|------------|
 | `mcp_control` (enable) | **Writes config file** + spawns MCP server process | `false` |
-| `shellcheck` / `shellcheck_scan` | `execFileSync('shellcheck', ...)` | `false` |
-| `web_search` | Outbound HTTP requests to DuckDuckGo | `false` |
+| `shellcheck` / `shellcheck (scan mode)` | `execFileSync('shellcheck', ...)` | `false` |
+| `search` | Outbound HTTP requests to DuckDuckGo | `false` |
 | `outdated` | Spawns `npm/pnpm/yarn outdated` (hits npm registry) | `false` |
 
 **Worst case (`mcp_control`):** A WS-connected client can call `mcp_control(enable)` with a malicious MCP server preset — this:
@@ -111,7 +111,7 @@ The gate correctly requires `mutating: true` for confirmation. **However, tools 
 
 **Root cause:** The `mutating` flag doesn't capture all observable side effects (network, disk write, process spawn). The comment at line 188 acknowledges this risk but the affected tools don't follow through.
 
-**Recommendation:** Set `mutating: true` on `mcp_control`, `shellcheck`, `shellcheck_scan`, `web_search`, and `outdated` tools.
+**Recommendation:** Set `mutating: true` on `mcp_control`, `shellcheck`, `shellcheck (scan mode)`, `search`, and `outdated` tools.
 
 ---
 

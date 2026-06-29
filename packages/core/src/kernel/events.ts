@@ -7,7 +7,7 @@ import type { BrainDecision, BrainDecisionRequest } from '../coordination/brain.
 import type { Context } from '../core/context.js';
 import type { MemoryClearedPayload, MemoryConsolidatedPayload, MemoryForgottenPayload, MemoryRememberedPayload } from '../types/memory.js';
 import type { Usage } from '../types/provider.js';
-import type { Tool, ToolProgressEvent } from '../types/tool.js';
+import type { Tool, ToolErrorCategory, ToolProgressEvent } from '../types/tool.js';
 import type { ToolOutputMetadata } from '../types/context-evidence.js';
 
 /**
@@ -148,6 +148,36 @@ export interface EventMap {
     providerSwitched: boolean;
   };
   'tool.started': { name: string; id: string; input?: unknown | undefined };
+  /**
+   * Fired when a tool call finishes successfully. Metrics collectors can count
+   * calls and build latency histograms without parsing renderer output.
+   */
+  'tool.completed': {
+    name: string;
+    id: string;
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId: string;
+    durationMs: number;
+    outputChars: number;
+  };
+  /**
+   * Fired when a tool call throws. Does not include raw tool input/output.
+   */
+  'tool.failed': {
+    name: string;
+    id: string;
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId: string;
+    durationMs: number;
+    category: ToolErrorCategory;
+    retryable: boolean;
+    detail?: string | undefined;
+    errorCode?: string | undefined;
+    errorSubsystem?: string | undefined;
+    errorSeverity?: string | undefined;
+  };
   /**
    * Fired for each ToolProgressEvent yielded by `Tool.executeStream`. UIs
    * subscribe to render incremental progress (streaming bash output, file

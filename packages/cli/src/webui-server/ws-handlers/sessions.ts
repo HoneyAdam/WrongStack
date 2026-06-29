@@ -43,6 +43,17 @@ function sendResult(ctx: WsCommon, ws: WebSocket, success: boolean, message: str
   ctx.send(ws, { type: 'key.operation_result', payload: { success, message } });
 }
 
+function currentSessionId(ctx: SessionsContext): string {
+  return ctx.opts.agent.ctx.session?.id ?? ctx.opts.session.id;
+}
+
+function sessionPayload<T extends Record<string, unknown>>(
+  ctx: SessionsContext,
+  payload: T,
+): T & { sessionId: string } {
+  return { ...payload, sessionId: currentSessionId(ctx) };
+}
+
 /** The session store to use: the wired one, else a transient legacy fallback. */
 function storeFor(opts: SessionsOptions): SessionStore {
   return (
@@ -153,11 +164,11 @@ export async function handleSessionCheckpoints(ctx: SessionsContext, ws: WebSock
     const rewinder = rewinderFor(ctx.opts);
     // Use the LIVE writer's id — after an in-app resume the active session
     // is agent.ctx.session, not the startup one.
-    const liveId = ctx.opts.agent.ctx.session?.id ?? ctx.opts.session.id;
+    const liveId = currentSessionId(ctx);
     const checkpoints = await rewinder.listCheckpoints(liveId);
-    ctx.send(ws, { type: 'session.checkpoints', payload: { checkpoints } });
+    ctx.send(ws, { type: 'session.checkpoints', payload: sessionPayload(ctx, { checkpoints }) });
   } catch {
-    ctx.send(ws, { type: 'session.checkpoints', payload: { checkpoints: [] } });
+    ctx.send(ws, { type: 'session.checkpoints', payload: sessionPayload(ctx, { checkpoints: [] }) });
   }
 }
 

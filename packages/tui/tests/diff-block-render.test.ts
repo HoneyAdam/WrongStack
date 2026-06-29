@@ -5,14 +5,16 @@ import { DiffBlock, type DiffLineRow } from '../src/components/history/code-bloc
 
 function renderDiffBlock(
   rows: DiffLineRow[],
-  opts: { useColor?: boolean } = {},
+  opts: { useColor?: boolean; added?: number; removed?: number; hidden?: number; hiddenAdded?: number; hiddenRemoved?: number } = {},
 ): string {
   const { lastFrame, unmount } = render(
     e(DiffBlock, {
       rows,
-      hidden: 0,
-      hiddenAdded: 0,
-      hiddenRemoved: 0,
+      hidden: opts.hidden ?? 0,
+      added: opts.added ?? 0,
+      removed: opts.removed ?? 0,
+      hiddenAdded: opts.hiddenAdded ?? 0,
+      hiddenRemoved: opts.hiddenRemoved ?? 0,
       useColor: opts.useColor ?? false,
     }),
   );
@@ -53,9 +55,24 @@ describe('<DiffBlock /> rendering', () => {
     expect(frame).toContain('unchanged');
   });
 
-  it('renders a hidden-line footer with +N/-N stats', () => {
+  it('renders no footer when there are zero totals and no hidden lines', () => {
+    // added=removed=hidden=0 → summaryFooter returns null, so nothing
+    // extra appears below the body.
     const frame = renderDiffBlock(rows, {});
-    // No hidden lines in this fixture — the footer must NOT appear.
+    expect(frame).not.toContain('more line');
+    expect(frame).not.toContain('added');
+    expect(frame).not.toContain('deleted');
+  });
+
+  it('renders an always-visible summary footer with total +N/-N (no truncation)', () => {
+    // Even when the whole diff fits on screen (hidden=0), the totals
+    // must surface so the change size is readable at a glance.
+    const frame = renderDiffBlock(rows, { added: 7, removed: 3 });
+    expect(frame).toContain('+7');
+    expect(frame).toContain('added');
+    expect(frame).toContain('-3');
+    expect(frame).toContain('deleted');
+    // No truncation note when nothing is hidden.
     expect(frame).not.toContain('more line');
   });
 
@@ -70,12 +87,15 @@ describe('<DiffBlock /> rendering', () => {
       { kind: 'add', text: '+more', newLine: 13 },
     ];
     // Caller (parseUnifiedDiff) is responsible for slicing the rows
-    // AND for reporting `hidden` + `hiddenAdded` separately. Pass them
-    // in here so the footer has something to print.
+    // AND for reporting `hidden` + `hiddenAdded`/`hiddenRemoved` and the
+    // overall `added`/`removed` totals separately. Pass them in here so
+    // both the summary chip and the truncation note have data to print.
     const { lastFrame, unmount } = render(
       e(DiffBlock, {
         rows: many,
         hidden: 5,
+        added: 16,
+        removed: 0,
         hiddenAdded: 4,
         hiddenRemoved: 1,
         useColor: false,
@@ -85,7 +105,9 @@ describe('<DiffBlock /> rendering', () => {
     unmount();
     expect(frame).toContain('…');
     expect(frame).toContain('more line');
-    // +4 / -1 stats
+    // Total additions surfaced by the summary chip.
+    expect(frame).toContain('+16');
+    // Hidden breakdown (+4 / -1) carried by the truncation note.
     expect(frame).toMatch(/\+4\b/);
     expect(frame).toMatch(/-1\b/);
   });

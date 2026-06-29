@@ -17,6 +17,12 @@ function pipeViz(msg: WSServerMessage) {
   }
 }
 
+function isActiveSessionMessage(msg: WSServerMessage): boolean {
+  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
+  const activeId = useSessionStore.getState().session?.id;
+  return !sessionId || !activeId || sessionId === activeId;
+}
+
 export const chatHandlers = {
   handleIterationStarted,
   handleTextDelta,
@@ -40,6 +46,7 @@ export const chatHandlerMap: Partial<Record<string, (msg: WSServerMessage) => vo
 };
 
 export function handleIterationStarted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as { index: number; maxIterations?: number | undefined };
   useSessionStore.getState().setIteration({ index: payload.index, max: payload.maxIterations ?? 0 });
@@ -52,6 +59,7 @@ export function handleIterationStarted(msg: WSServerMessage) {
 }
 
 export function handleTextDelta(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   // Per-token viz push removed — text_delta fires dozens of times per
   // assistant message during streaming, and a per-token viz-store update
   // has no visible effect on the cinematic view (it scrolls past faster
@@ -71,6 +79,7 @@ export function handleTextDelta(msg: WSServerMessage) {
 }
 
 export function handleThinkingDelta(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   // Per-token viz push removed (same reasoning as handleTextDelta).
   const payload = msg.payload as { text: string };
   if (!payload.text) return;
@@ -80,6 +89,7 @@ export function handleThinkingDelta(msg: WSServerMessage) {
 }
 
 export function handleToolStarted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as { id: string; name: string; input?: unknown | undefined; messageId: string };
   const existingId = useChatStore.getState().getToolMessageId(payload.id);
@@ -93,6 +103,7 @@ export function handleToolStarted(msg: WSServerMessage) {
 }
 
 export function handleToolProgress(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as { id: string; name: string; event: { type: string; text?: string | undefined } };
   const text = (payload.event?.text ?? '').trim();
   if (!text) return;
@@ -108,6 +119,7 @@ export function handleToolProgress(msg: WSServerMessage) {
 }
 
 export function handleToolExecuted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as { id?: string | undefined; name: string; durationMs: number; ok: boolean; input?: unknown | undefined; output?: string | undefined };
   const { currentToolId } = useChatStore.getState();
@@ -126,6 +138,7 @@ export function handleToolExecuted(msg: WSServerMessage) {
 }
 
 export function handleToolConfirmNeeded(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as { id: string; toolName: string; input: unknown; suggestedPattern: string };
   useUIStore.getState().showConfirm({ id: payload.id, toolName: payload.toolName, input: payload.input, suggestedPattern: payload.suggestedPattern });
   try { playPermissionChime(); } catch { /* audio policy */ }
@@ -136,6 +149,7 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
 }
 
 export function handleRunResult(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as { status: string; iterations: number; finalText?: string | undefined; error?: { code: string | undefined; message: string; recoverable: boolean } };
   streamCoalescer.flushAll();
   useChatStore.getState().flushThinkingLog(Math.max(1, payload.iterations));

@@ -33,7 +33,12 @@ type BootConfigVault = Awaited<ReturnType<typeof coreBootConfig>>['vault'];
 export async function bootConfig(
   flags: Record<string, string | boolean>,
 ): Promise<BootConfigResult> {
-  const opts: BootConfigOptions = { flags, appLabel: 'wstack' };
+  const isWebui = !!flags['webui'];
+  const opts: BootConfigOptions = {
+    flags,
+    appLabel: 'wstack',
+    ...(isWebui ? { skipIdentityValidation: true } : {}),
+  };
   const { cwd, projectRoot, userHome, wpaths, pathResolver, config, vault } =
     await coreBootConfig(opts);
   return {

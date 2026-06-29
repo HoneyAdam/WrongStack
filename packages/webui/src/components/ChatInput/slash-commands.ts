@@ -54,6 +54,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
 
   // Config
   { name: '/settings', category: 'Config', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },
+  { name: '/setup', category: 'Config', description: 'Open the provider setup screen to add or change API keys' },
   { name: '/enhance', category: 'Config', description: 'Toggle prompt refinement before sending' },
   { name: '/interrupt', category: 'Run', aliases: ['/abort', '/stop', '/int'], description: 'Stop the current run (abort the in-flight request)' },
 

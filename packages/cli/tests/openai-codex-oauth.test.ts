@@ -11,6 +11,7 @@ import {
   parseAuthorizationInput,
   refreshCodexToken,
   resolveCodexModels,
+  startLoopbackServer,
 } from '../src/auth-menu/openai-codex-oauth.js';
 
 function b64url(s: string): string {
@@ -44,6 +45,30 @@ describe('generatePkce', () => {
 
   it('is random per call', () => {
     expect(generatePkce().verifier).not.toBe(generatePkce().verifier);
+  });
+});
+
+describe('startLoopbackServer cancellation', () => {
+  it('resolves waitForCode() to null when the abort signal fires (Ctrl+C)', async () => {
+    const ac = new AbortController();
+    const server = await startLoopbackServer('STATE', ac.signal);
+    try {
+      const pending = server.waitForCode();
+      // Simulate the user pressing Ctrl+C while we wait on the loopback.
+      ac.abort();
+      await expect(pending).resolves.toBeNull();
+    } finally {
+      server.close();
+    }
+  });
+
+  it('resolves immediately when handed an already-aborted signal', async () => {
+    const server = await startLoopbackServer('STATE', AbortSignal.abort());
+    try {
+      await expect(server.waitForCode()).resolves.toBeNull();
+    } finally {
+      server.close();
+    }
   });
 });
 

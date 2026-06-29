@@ -303,6 +303,8 @@ export const Entry = React.memo(function Entry({
             <DiffBlock
               rows={diff.rows}
               hidden={diff.hidden}
+              added={diff.added}
+              removed={diff.removed}
               hiddenAdded={diff.hiddenAdded}
               hiddenRemoved={diff.hiddenRemoved}
               useColor

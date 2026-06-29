@@ -32,6 +32,12 @@ export function handleSessionEnd() {
 
 // ── Info / misc handlers ──
 
+function isActiveSessionMessage(msg: WSServerMessage): boolean {
+  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
+  const activeId = useSessionStore.getState().session?.id;
+  return !sessionId || !activeId || sessionId === activeId;
+}
+
 export function handleToolsList(msg: WSServerMessage) {
   const p = msg.payload as { tools: Array<{ name: string; description: string; params: string[] }> };
   useChatStore.getState().addMessage({ role: 'assistant', content: [
@@ -55,6 +61,7 @@ export function handleSkillsList(msg: WSServerMessage) {
 }
 
 export function handleDiagGet(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { provider: string; model: string; cwd: string; sessionId: string; tools: { count: number; names: string[] }; features: { memory: boolean; skills: boolean; modelsRegistry: boolean }; mode: string; usage: { input: number; output: number; cacheRead?: number | undefined }; messages: number; todos: number };
   useChatStore.getState().addMessage({ role: 'assistant', content: [
     '🩺 **Runtime diagnostics**', '',
@@ -67,6 +74,7 @@ export function handleDiagGet(msg: WSServerMessage) {
 }
 
 export function handleStatsGet(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { sessionId: string; provider: string; model: string; usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined }; cache: { readTokens: number; writeTokens: number; hitRatio: number } | null; cost: number; messages: number; readFiles: number; tools: number; sideEffectCount?: number | undefined; elapsedMs: number };
   const elapsedSec = Math.floor(p.elapsedMs / 1000);
   const elapsed = elapsedSec < 60 ? `${elapsedSec}s` : elapsedSec < 3600 ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s` : `${Math.floor(elapsedSec / 3600)}h ${Math.floor((elapsedSec % 3600) / 60)}m`;
@@ -82,6 +90,7 @@ export function handleStatsGet(msg: WSServerMessage) {
 }
 
 export function handleTodosUpdated(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string | undefined }> };
   useSessionStore.getState().setTodos(p.todos ?? []);
 }
@@ -165,6 +174,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   'diag.get': handleDiagGet,
   'stats.get': handleStatsGet,
   'side_effects': (msg: WSServerMessage) => {
+    if (!isActiveSessionMessage(msg)) return;
     const p = msg.payload as { sideEffects?: SideEffectEntry[] };
     useSideEffectStore.getState().setSideEffects(p.sideEffects ?? []);
   },
@@ -173,9 +183,11 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   // sends `todos.updated` with an empty list); handle both so the worklist
   // empties in the UI regardless of which server is driving.
   'todos.cleared': (_msg: WSServerMessage) => {
+    if (!isActiveSessionMessage(_msg)) return;
     useSessionStore.getState().setTodos([]);
   },
   'agent.timeline.message': (msg: WSServerMessage) => {
+    if (!isActiveSessionMessage(msg)) return;
     const p = msg.payload as {
       subagentId: string; agentName: string; content: string;
       kind: string; iteration: number; ts: string;
@@ -188,6 +200,7 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
     });
   },
   'agent.status_changed': (msg: WSServerMessage) => {
+    if (!isActiveSessionMessage(msg)) return;
     const p = msg.payload as {
       subagentId: string; agentName: string; status: string;
       ts: string; summary?: string; task?: string;

@@ -1,11 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Context } from '../../src/core/context.js';
 import { ToolExecutor } from '../../src/execution/tool-executor.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type { ToolResultBlock, ToolUseBlock } from '../../src/types/blocks.js';
+import type { Logger } from '../../src/types/logger.js';
 import type { PermissionDecision } from '../../src/types/permission.js';
 import type { Tool } from '../../src/types/tool.js';
 
@@ -106,6 +107,71 @@ describe('ToolExecutor', () => {
       });
       expect((output.result as ToolResultBlock).content).toContain('not registered');
       expect(output.tool).toBeUndefined();
+    });
+  });
+
+  describe('structured tool execution logging', () => {
+    function makeLogger(): Logger & { info: Mock; warn: Mock } {
+      const logger = {
+        level: 'info' as const,
+        error: vi.fn(),
+        warn: vi.fn(),
+        info: vi.fn(),
+        debug: vi.fn(),
+        trace: vi.fn(),
+        child: vi.fn(),
+      } satisfies Logger;
+      logger.child.mockReturnValue(logger);
+      return logger;
+    }
+
+    it('logs successful tool execution metadata without raw input or output', async () => {
+      const logger = makeLogger();
+      const tool = makeTool({
+        name: 'read',
+        execute: vi.fn().mockResolvedValue('secret output'),
+      });
+      const ctx = makeCtx();
+      ctx.traceId = 'trace-123';
+      const executor = makeExecutor([tool], { logger });
+
+      await executor.executeBatch([makeUse('read', { path: 'secret.txt' })], ctx, 'sequential');
+
+      expect(logger.info).toHaveBeenCalledWith('tool execution completed', expect.objectContaining({
+        event: 'tool.execution',
+        traceId: 'trace-123',
+        sessionId: 'test-session',
+        toolName: 'read',
+        toolUseId: 'id_read',
+        outcome: 'success',
+        isError: false,
+        outputChars: expect.any(Number),
+      }));
+      expect(JSON.stringify(logger.info.mock.calls[0])).not.toContain('secret.txt');
+      expect(JSON.stringify(logger.info.mock.calls[0])).not.toContain('secret output');
+    });
+
+    it('logs failed tool execution category and retryability', async () => {
+      const logger = makeLogger();
+      const tool = makeTool({
+        name: 'bash',
+        execute: vi.fn().mockRejectedValue(new Error('boom')),
+      });
+      const executor = makeExecutor([tool], { logger });
+
+      await executor.executeBatch([makeUse('bash', { command: 'secret command' })], makeCtx(), 'sequential');
+
+      expect(logger.warn).toHaveBeenCalledWith('tool execution failed', expect.objectContaining({
+        event: 'tool.execution',
+        sessionId: 'test-session',
+        toolName: 'bash',
+        toolUseId: 'id_bash',
+        outcome: 'failure',
+        isError: true,
+        errorCategory: expect.any(String),
+        retryable: expect.any(Boolean),
+      }));
+      expect(JSON.stringify(logger.warn.mock.calls[0])).not.toContain('secret command');
     });
   });
 

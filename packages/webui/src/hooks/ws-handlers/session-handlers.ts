@@ -127,6 +127,12 @@ function pipeViz(msg: WSServerMessage) {
   }
 }
 
+function isActiveSessionMessage(msg: WSServerMessage): boolean {
+  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
+  const activeId = useSessionStore.getState().session?.id;
+  return !sessionId || !activeId || sessionId === activeId;
+}
+
 const warnedCostModels = new Set<string>();
 
 function truncateLine(text: string, max = 140): string {
@@ -264,6 +270,7 @@ export function handleSessionStart(msg: WSServerMessage) {
 }
 
 export function handleContextDebug(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as {
     total: number;
     systemPrompt: number;
@@ -307,6 +314,7 @@ export function handleKeyOperationResult(msg: WSServerMessage) {
 }
 
 export function handleContextCompacted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as {
     before: number;
@@ -332,6 +340,7 @@ export function handleContextCompacted(msg: WSServerMessage) {
 }
 
 export function handleCompactionFailed(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as {
     message: string;
@@ -363,6 +372,7 @@ export function handleCompactionFailed(msg: WSServerMessage) {
 }
 
 export function handleProviderResponse(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as {
     usage: {
@@ -402,6 +412,7 @@ export function handleProviderResponse(msg: WSServerMessage) {
 }
 
 export function handleIterationCompleted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const p = msg.payload as { index: number; totalIterations?: number | undefined };
   streamCoalescer.flush('__thinking__');
@@ -417,6 +428,7 @@ export function handleIterationCompleted(msg: WSServerMessage) {
 }
 
 export function handleIterationLimitReached(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { currentIterations: number; currentLimit: number };
   useChatStore.getState().addMessage({
     role: 'assistant',
@@ -427,6 +439,7 @@ export function handleIterationLimitReached(msg: WSServerMessage) {
 }
 
 export function handleProviderRetry(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as {
     providerId: string;
     attempt: number;
@@ -441,6 +454,7 @@ export function handleProviderRetry(msg: WSServerMessage) {
 }
 
 export function handleProviderError(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as {
     providerId: string;
     status: number;
@@ -462,6 +476,7 @@ export function handleProviderError(msg: WSServerMessage) {
 }
 
 export function handleProviderFallback(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as {
     from: { providerId: string; model: string };
     to: { providerId: string; model: string };
@@ -478,6 +493,7 @@ export function handleProviderFallback(msg: WSServerMessage) {
 }
 
 export function handleProviderStreamError(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const p = msg.payload as { eventType: string; message: string };
   toast.warn(`Provider stream event skipped: ${p.eventType}`);
@@ -489,6 +505,7 @@ export function handleProviderStreamError(msg: WSServerMessage) {
 }
 
 export function handleToolLoopDetected(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const p = msg.payload as {
     tools: string;
@@ -506,6 +523,7 @@ export function handleToolLoopDetected(msg: WSServerMessage) {
 }
 
 export function handleDelegateStarted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const p = msg.payload as { target: string; task: string };
   const task = truncateLine(p.task, 180);
@@ -525,6 +543,7 @@ export function handleDelegateStarted(msg: WSServerMessage) {
 }
 
 export function handleDelegateCompleted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const p = msg.payload as {
     target: string;
@@ -563,6 +582,7 @@ export function handleDelegateCompleted(msg: WSServerMessage) {
 }
 
 export function handleTrustPersisted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { tool: string; pattern: string; decision: 'always' | 'deny' };
   const label = `${p.tool}: ${p.pattern}`;
   if (p.decision === 'always') toast.success(`Always allowed ${label}`);
@@ -570,6 +590,7 @@ export function handleTrustPersisted(msg: WSServerMessage) {
 }
 
 export function handleContextRepaired(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as {
     removedToolUses: string[];
@@ -591,17 +612,20 @@ export function handleContextRepaired(msg: WSServerMessage) {
 }
 
 export function handleContextPct(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const p = msg.payload as { load: number; tokens: number; maxContext: number };
   useSessionStore.getState().setContextUsage(p.tokens, p.maxContext);
 }
 
 export function handleContextMaxContext(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { maxContext: number };
   useSessionStore.getState().setEnv({ maxContext: p.maxContext });
 }
 
 export function handleTokenThreshold(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { used: number; limit: number };
   useSessionStore.getState().setContextUsage(p.used, p.limit);
   const pct = p.limit > 0 ? Math.round((p.used / p.limit) * 100) : 0;
@@ -609,6 +633,7 @@ export function handleTokenThreshold(msg: WSServerMessage) {
 }
 
 export function handleTokenCostEstimateUnavailable(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { model: string };
   const model = p.model || '<unknown>';
   if (warnedCostModels.has(model)) return;
@@ -617,6 +642,7 @@ export function handleTokenCostEstimateUnavailable(msg: WSServerMessage) {
 }
 
 export function handleSessionDamaged(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { sessionId: string; detail: string };
   useChatStore.getState().addMessage({
     role: 'assistant',
@@ -627,6 +653,7 @@ export function handleSessionDamaged(msg: WSServerMessage) {
 }
 
 export function handleSessionRewound(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as {
     toPromptIndex: number;
     revertedFiles: string[];
@@ -640,11 +667,13 @@ export function handleSessionRewound(msg: WSServerMessage) {
 }
 
 export function handleCheckpointWritten(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { promptIndex: number; promptPreview: string; fileCount: number };
   toast.success(`Checkpoint #${p.promptIndex} written (${p.fileCount} file(s))`);
 }
 
 export function handleInFlightStarted(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { context: string };
   useVizStore.getState().pushEvent({
     id: `inflight_${Date.now()}`,
@@ -661,6 +690,7 @@ export function handleInFlightStarted(msg: WSServerMessage) {
 }
 
 export function handleInFlightEnded(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { reason: 'clean' | 'aborted' | 'recovered' };
   if (p.reason === 'recovered') toast.info('Recovered previous in-flight operation');
 }
@@ -670,6 +700,7 @@ export function handleSessionEnd() {
 }
 
 export function handleContextModesList(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as {
     activeId: string;
     modes: Array<{
@@ -698,6 +729,7 @@ export function handleContextModesList(msg: WSServerMessage) {
 }
 
 export function handleContextModeChanged(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const p = msg.payload as { id: string; name?: string | undefined };
   useSessionStore.getState().setEnv({ contextMode: p.id });
 }
@@ -708,6 +740,7 @@ export function handleSessionsList(msg: WSServerMessage) {
 }
 
 export function handleError(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
   const payload = msg.payload as { phase: string; message: string };
   flushThinkingLogForCurrentIteration();
   useChatStore.getState().addMessage({

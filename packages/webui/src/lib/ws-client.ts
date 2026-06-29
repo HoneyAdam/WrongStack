@@ -89,6 +89,10 @@ export class WrongStackWebSocketClient {
     this.url = url ?? defaultWsUrl();
   }
 
+  private withSession<T extends Record<string, unknown>>(payload: T): T & { sessionId?: string } {
+    return this.sessionId ? { ...payload, sessionId: this.sessionId } : payload;
+  }
+
   /**
    * Exchange a stored token for an HttpOnly auth cookie via `/ws-auth`.
    * Called once before the first connect so subsequent reconnections can
@@ -414,12 +418,12 @@ export class WrongStackWebSocketClient {
     const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     this.send({
       type: 'user_message',
-      payload: {
+      payload: this.withSession({
         id,
         content,
         timestamp: Date.now(),
         ...(imageBase64 ? { imageBase64 } : {}),
-      },
+      }),
     });
     return id;
   }
@@ -427,7 +431,7 @@ export class WrongStackWebSocketClient {
   sendAbort() {
     this.send({
       type: 'abort',
-      payload: {},
+      payload: this.withSession({}),
     });
   }
 
@@ -453,7 +457,7 @@ export class WrongStackWebSocketClient {
     }
     this.send({
       type: 'tool.confirm_result',
-      payload: { id, decision },
+      payload: this.withSession({ id, decision }),
     });
   }
 
@@ -465,7 +469,7 @@ export class WrongStackWebSocketClient {
   }
 
   newSession() {
-    this.send({ type: 'session.new' });
+    this.send({ type: 'session.new', payload: this.withSession({}) });
   }
 
   // ---- Provider/Model/Key management (mirrors TUI/CLI auth-menu) ----
@@ -536,39 +540,39 @@ export class WrongStackWebSocketClient {
   }
 
   clearContext() {
-    this.send({ type: 'context.clear' });
+    this.send({ type: 'context.clear', payload: this.withSession({}) });
   }
 
   compactContext(aggressive = false) {
-    this.send({ type: 'context.compact', payload: { aggressive } });
+    this.send({ type: 'context.compact', payload: this.withSession({ aggressive }) });
   }
 
   repairContext() {
-    this.send({ type: 'context.repair' });
+    this.send({ type: 'context.repair', payload: this.withSession({}) });
   }
 
   debugContext() {
-    this.send({ type: 'context.debug' });
+    this.send({ type: 'context.debug', payload: this.withSession({}) });
   }
 
   listContextModes() {
-    this.send({ type: 'context.modes.list' });
+    this.send({ type: 'context.modes.list', payload: this.withSession({}) });
   }
 
   switchContextMode(id: string) {
-    this.send({ type: 'context.mode.switch', payload: { id } });
+    this.send({ type: 'context.mode.switch', payload: this.withSession({ id }) });
   }
 
   createContextMode(mode: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number }) {
-    this.send({ type: 'context.mode.create', payload: mode });
+    this.send({ type: 'context.mode.create', payload: this.withSession(mode) });
   }
 
   updateContextMode(id: string, patch: { name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined }) {
-    this.send({ type: 'context.mode.update', payload: { id, ...patch } });
+    this.send({ type: 'context.mode.update', payload: this.withSession({ id, ...patch }) });
   }
 
   deleteContextMode(id: string) {
-    this.send({ type: 'context.mode.delete', payload: { id } });
+    this.send({ type: 'context.mode.delete', payload: this.withSession({ id }) });
   }
 
   // ---- Autonomy / Preferences ----
@@ -677,19 +681,19 @@ export class WrongStackWebSocketClient {
   }
 
   getDiag() {
-    this.send({ type: 'diag.get' });
+    this.send({ type: 'diag.get', payload: this.withSession({}) });
   }
 
   getStats() {
-    this.send({ type: 'stats.get' });
+    this.send({ type: 'stats.get', payload: this.withSession({}) });
   }
 
   saveSession() {
-    this.send({ type: 'session.save' });
+    this.send({ type: 'session.save', payload: this.withSession({}) });
   }
 
   resumeSessionById(id: string) {
-    this.send({ type: 'session.resume', payload: { id } });
+    this.send({ type: 'session.resume', payload: this.withSession({ id }) });
   }
 
   listModes() {
@@ -709,42 +713,42 @@ export class WrongStackWebSocketClient {
   }
 
   getTodos() {
-    this.send({ type: 'todos.get' });
+    this.send({ type: 'todos.get', payload: this.withSession({}) });
   }
 
   clearTodos() {
-    this.send({ type: 'todos.clear' });
+    this.send({ type: 'todos.clear', payload: this.withSession({}) });
   }
 
   removeTodo(idOrIndex: string | number) {
     const payload = typeof idOrIndex === 'number'
       ? { index: idOrIndex }
       : { id: idOrIndex };
-    this.send({ type: 'todos.remove', payload });
+    this.send({ type: 'todos.remove', payload: this.withSession(payload) });
   }
 
   updateTodoStatus(id: string, status: 'pending' | 'in_progress' | 'completed') {
-    this.send({ type: 'todo.update', payload: { id, status } });
+    this.send({ type: 'todo.update', payload: this.withSession({ id, status }) });
   }
 
   getTasks() {
-    this.send({ type: 'tasks.get' });
+    this.send({ type: 'tasks.get', payload: this.withSession({}) });
   }
 
   updateTaskStatus(id: string, status: string) {
-    this.send({ type: 'task.update', payload: { id, status } });
+    this.send({ type: 'task.update', payload: this.withSession({ id, status }) });
   }
 
   getPlan() {
-    this.send({ type: 'plan.get' });
+    this.send({ type: 'plan.get', payload: this.withSession({}) });
   }
 
   updatePlanItem(target: string, status: 'open' | 'in_progress' | 'done') {
-    this.send({ type: 'plan.item.update', payload: { target, status } });
+    this.send({ type: 'plan.item.update', payload: this.withSession({ target, status }) });
   }
 
   listSessions(limit = 50) {
-    this.send({ type: 'sessions.list', payload: { limit } });
+    this.send({ type: 'sessions.list', payload: this.withSession({ limit }) });
   }
 
   deleteSession(id: string) {
@@ -770,7 +774,7 @@ export class WrongStackWebSocketClient {
   resumeSession(sessionId: string) {
     this.send({
       type: 'session.resume',
-      payload: { id: sessionId },
+      payload: this.withSession({ id: sessionId }),
     });
   }
 

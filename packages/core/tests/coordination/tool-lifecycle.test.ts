@@ -168,6 +168,69 @@ describe('Tool lifecycle — executeStream', () => {
     expect(progress).toEqual([]);
   });
 
+  it('emits tool.completed with metadata-only success metrics', async () => {
+    const events = new EventBus();
+    const completed: unknown[] = [];
+    events.on('tool.completed', (e) => completed.push(e));
+
+    const tool: Tool = {
+      name: 'classic',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      execute: vi.fn().mockResolvedValue('secret output'),
+    };
+    const ctx = makeCtx();
+    ctx.traceId = 'trace-abc';
+
+    const executor = makeExecutor([tool], events);
+    await executor.executeBatch([makeUse('classic', { command: 'secret input' })], ctx, 'sequential');
+
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      name: 'classic',
+      id: 'id_classic',
+      sessionId: 'test-session',
+      traceId: 'trace-abc',
+      agentId: '<unknown>',
+      durationMs: expect.any(Number),
+      outputChars: expect.any(Number),
+    });
+    expect(JSON.stringify(completed[0])).not.toContain('secret input');
+    expect(JSON.stringify(completed[0])).not.toContain('secret output');
+  });
+
+  it('emits tool.failed with classification metadata', async () => {
+    const events = new EventBus();
+    const failed: unknown[] = [];
+    events.on('tool.failed', (e) => failed.push(e));
+
+    const tool: Tool = {
+      name: 'classic',
+      description: '',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      execute: vi.fn().mockRejectedValue(new Error('boom')),
+    };
+
+    const executor = makeExecutor([tool], events);
+    await executor.executeBatch([makeUse('classic', { command: 'secret input' })], makeCtx(), 'sequential');
+
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({
+      name: 'classic',
+      id: 'id_classic',
+      sessionId: 'test-session',
+      agentId: '<unknown>',
+      durationMs: expect.any(Number),
+      category: expect.any(String),
+      retryable: expect.any(Boolean),
+    });
+    expect(JSON.stringify(failed[0])).not.toContain('secret input');
+  });
+
   it('throws when executeStream completes without final event', async () => {
     const tool: Tool = {
       name: 'incomplete',

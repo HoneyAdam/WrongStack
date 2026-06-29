@@ -321,6 +321,43 @@ describe('HQ server', () => {
     client.close();
   });
 
+  it('survives an oversized inbound frame instead of crashing the process', async () => {
+    // Regression: a frame larger than the server's 1 MiB `maxPayload` makes the
+    // per-connection `ws` receiver throw (`RangeError: Max payload size
+    // exceeded`, close 1009) and emit 'error' on that socket. Without a
+    // per-connection `ws.on('error')` handler, that 'error' is unhandled and
+    // crashes the whole host process. This test runs the server in-process, so
+    // an unhandled socket 'error' would surface as an uncaught exception and
+    // fail the test. We assert the server stays up by completing a fresh
+    // round-trip afterwards.
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const offender = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(offender);
+    // Swallow the expected close/error on the offending client itself.
+    offender.on('error', () => {});
+    // 2 MiB payload — comfortably over the 1 MiB server cap.
+    offender.send(Buffer.alloc(2 * 1024 * 1024, 0x61));
+
+    // Wait for the offending socket to be torn down by the server.
+    await new Promise<void>((resolve) => {
+      offender.once('close', () => resolve());
+      setTimeout(resolve, 1_000);
+    });
+
+    // Server must still be alive: a brand-new browser connection still gets a
+    // snapshot. (If the process had crashed, this connect would hang/fail.)
+    const browser = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/browser`);
+    await waitForOpen(browser);
+    const browserCol = makeBrowserCollector(browser);
+    const snapshot = (await browserCol.nextMessage((m) => m.type === 'hq.snapshot')) as HqSnapshotMessage;
+    expect(snapshot.type).toBe('hq.snapshot');
+
+    browserCol.dispose();
+    browser.close();
+  });
+
   it('shows a same-process publisher registered through GlobalMailbox as an HQ project', async () => {
     const port = getPort();
     handle = await startOpenHqServer({ port });

@@ -52,6 +52,7 @@ import type {
   ModelsRegistry,
   ModeStore,
   PromptLoader,
+  ProviderConfig,
   SessionStore,
   SessionWriter,
   SkillLoader,
@@ -66,8 +67,11 @@ import {
   resolveWstackPaths,
   TOKENS,
   type TodoItem,
+  watchProviderConfig,
   wstackGlobalRoot,
 } from '@wrongstack/core';
+import { makeProviderFromConfig } from '@wrongstack/providers';
+import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { SkillInstaller } from '@wrongstack/core/skills';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { startCliHqConnection, type CliHqConnection } from './hq-publisher.js';
@@ -150,7 +154,7 @@ import {
 // directly, so we adapt that to the Logger interface expected by the handler.
 // PR 1 of Issue #30: extracted to `./webui-server/logger-shim.js`.
 import { consoleLogger } from './webui-server/logger-shim.js';
-import { createProviderConfigStore } from './webui-server/provider-config.js';
+import { createProviderConfigStore, getVault } from './webui-server/provider-config.js';
 import { startStaticServe } from './webui-server/static-serve.js';
 import {
   type AgentConfigContext,
@@ -173,6 +177,7 @@ import {
   handleContextRepair,
   handleDiagGet,
   handleGoalGet,
+  broadcastSaved,
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,
@@ -527,7 +532,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       /* best-effort; cost stays $0 */
     }
     return {
-      sessionId: opts.session.id,
+      sessionId: opts.agent.ctx.session?.id ?? opts.session.id,
       model: opts.agent.ctx.model,
       provider: opts.agent.ctx.provider.id,
       mode: opts.modeId ?? 'default',
@@ -737,6 +742,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // provider token/tool progress event.
   const STREAM_COALESCE_MS = 16;
   const STREAM_COALESCE_MAX_CHARS = 8 * 1024;
+  const currentSessionId = (): string => opts.agent.ctx.session?.id ?? opts.session.id;
+  const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => ({
+    ...payload,
+    sessionId: currentSessionId(),
+  });
   let textDeltaBuffer = '';
   let textDeltaTimer: ReturnType<typeof setTimeout> | null = null;
   let thinkingDeltaBuffer = '';
@@ -762,7 +772,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     textDeltaBuffer = '';
     broadcast({
       type: 'provider.text_delta',
-      payload: { text, messageId: 'current' },
+      payload: sessionPayload({ text, messageId: 'current' }),
     });
   };
 
@@ -776,7 +786,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     thinkingDeltaBuffer = '';
     broadcast({
       type: 'provider.thinking_delta',
-      payload: { text },
+      payload: sessionPayload({ text }),
     });
   };
 
@@ -814,11 +824,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     if (!buffered.text) return;
     broadcast({
       type: 'tool.progress',
-      payload: {
+      payload: sessionPayload({
         name: buffered.name,
         id: buffered.id,
         event: { type: buffered.eventType, text: buffered.text },
-      },
+      }),
     });
   };
 
@@ -836,7 +846,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     const text = payload.event.text;
     if (!text) {
       flushToolProgress(payload.id);
-      broadcast({ type: 'tool.progress', payload });
+      broadcast({ type: 'tool.progress', payload: sessionPayload(payload as Record<string, unknown>) });
       return;
     }
 
@@ -873,13 +883,13 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     // Emit once so the WebUI's fleet store sets leaderId and shows the crown.
     broadcast({
       type: 'subagent.event',
-      payload: {
+      payload: sessionPayload({
         kind: 'leader_updated',
         subagentId: 'leader',
         isLeader: true,
         name: 'Leader',
         status: 'running',
-      },
+      }),
     });
 
     // ── Fleet concurrency — emit the initial 0/N state so the gauge
@@ -895,10 +905,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         const maxIt = opts.agent.ctx.meta['maxIterations'];
         broadcast({
           type: 'iteration.started',
-          payload: {
+          payload: sessionPayload({
             index: e.index,
             ...(typeof maxIt === 'number' ? { maxIterations: maxIt } : {}),
-          },
+          }),
         });
       }),
     );
@@ -907,16 +917,16 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('iteration.completed', (e) => {
         broadcast({
           type: 'iteration.completed',
-          payload: { index: e.index, totalIterations: e.index + 1 },
+          payload: sessionPayload({ index: e.index, totalIterations: e.index + 1 }),
         });
       }),
       opts.events.on('iteration.limit_reached', (e) => {
         broadcast({
           type: 'iteration.limit_reached',
-          payload: {
+          payload: sessionPayload({
             currentIterations: e.currentIterations,
             currentLimit: e.currentLimit,
-          },
+          }),
         });
       }),
     );
@@ -942,7 +952,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('provider.stream_error', (e) => {
         broadcast({
           type: 'provider.stream_error',
-          payload: { eventType: e.eventType, message: e.msg },
+          payload: sessionPayload({ eventType: e.eventType, message: e.msg }),
         });
       }),
     );
@@ -953,12 +963,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         flushAllStreamBuffers();
         broadcast({
           type: 'tool.started',
-          payload: {
+          payload: sessionPayload({
             id: e.id,
             name: e.name,
             input: secretScrubber.scrubObject(e.input),
             messageId: `tool_${e.id}`,
-          },
+          }),
         });
       }),
     );
@@ -980,7 +990,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         flushAllStreamBuffers();
         broadcast({
           type: 'tool.executed',
-          payload: {
+          payload: sessionPayload({
             // Forward the tool_use id so the WebUI can correlate this with
             // the matching tool.started bubble for parallel tool calls.
             id: e.id,
@@ -989,13 +999,13 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
             ok: e.ok,
             input: secretScrubber.scrubObject(e.input),
             output: secretScrubber.scrubObject(e.output),
-          },
+          }),
         });
 
         // Always broadcast current todos so the panel stays in sync.
         broadcast({
           type: 'todos.updated',
-          payload: { todos: [...opts.agent.ctx.todos] },
+          payload: sessionPayload({ todos: [...opts.agent.ctx.todos] }),
         });
 
         // After task/plan/todo tool executions, also broadcast those snapshots.
@@ -1008,7 +1018,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
                 const file = await loadTasks(taskPath);
                 broadcast({
                   type: 'tasks.updated',
-                  payload: { tasks: file?.tasks ?? [] },
+                  payload: sessionPayload({ tasks: file?.tasks ?? [] }),
                 });
               }
             } catch {
@@ -1021,14 +1031,14 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
                 const plan = await loadPlan(planPath);
                 broadcast({
                   type: 'plan.updated',
-                  payload: {
+                  payload: sessionPayload({
                     plan: plan ?? {
                       version: 1,
-                      sessionId: opts.session.id,
+                      sessionId: currentSessionId(),
                       updatedAt: new Date().toISOString(),
                       items: [],
                     },
-                  },
+                  }),
                 });
               }
             } catch {
@@ -1043,30 +1053,30 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('tool.loop_detected', (e) => {
         broadcast({
           type: 'tool.loop_detected',
-          payload: {
+          payload: sessionPayload({
             tools: e.tools,
             repeatCount: e.repeatCount,
             iteration: e.iteration,
             kind: e.kind,
-          },
+          }),
         });
       }),
       opts.events.on('trust.persisted', (e) => {
         broadcast({
           type: 'trust.persisted',
-          payload: { tool: e.tool, pattern: e.pattern, decision: e.decision },
+          payload: sessionPayload({ tool: e.tool, pattern: e.pattern, decision: e.decision }),
         });
       }),
       opts.events.on('delegate.started', (e) => {
         broadcast({
           type: 'delegate.started',
-          payload: { target: e.target, task: e.task },
+          payload: sessionPayload({ target: e.target, task: e.task }),
         });
       }),
       opts.events.on('delegate.completed', (e) => {
         broadcast({
           type: 'delegate.completed',
-          payload: {
+          payload: sessionPayload({
             target: e.target,
             task: e.task,
             ok: e.ok,
@@ -1077,7 +1087,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
             toolCalls: e.toolCalls,
             costUsd: e.costUsd,
             subagentId: e.subagentId,
-          },
+          }),
         });
       }),
     );
@@ -1088,11 +1098,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         flushAllStreamBuffers();
         broadcast({
           type: 'provider.response',
-          payload: {
+          payload: sessionPayload({
             usage: e.usage,
             stopReason: e.stopReason,
             messageId: 'current',
-          },
+          }),
         });
       }),
     );
@@ -1101,35 +1111,35 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('ctx.pct', (e) => {
         broadcast({
           type: 'ctx.pct',
-          payload: { load: e.load, tokens: e.tokens, maxContext: e.maxContext },
+          payload: sessionPayload({ load: e.load, tokens: e.tokens, maxContext: e.maxContext }),
         });
         broadcast({
           type: 'subagent.event',
-          payload: {
+          payload: sessionPayload({
             kind: 'ctx_pct',
             subagentId: 'leader',
             load: e.load,
             tokens: e.tokens,
             maxContext: e.maxContext,
-          },
+          }),
         });
       }),
       opts.events.on('ctx.max_context', (e) => {
         broadcast({
           type: 'ctx.max_context',
-          payload: { providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext },
+          payload: sessionPayload({ providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext }),
         });
       }),
       opts.events.on('token.threshold', (e) => {
         broadcast({
           type: 'token.threshold',
-          payload: { used: e.used, limit: e.limit },
+          payload: sessionPayload({ used: e.used, limit: e.limit }),
         });
       }),
       opts.events.on('token.cost_estimate_unavailable', (e) => {
         broadcast({
           type: 'token.cost_estimate_unavailable',
-          payload: { model: e.model },
+          payload: sessionPayload({ model: e.model }),
         });
       }),
     );
@@ -1138,52 +1148,52 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('provider.retry', (e) => {
         broadcast({
           type: 'provider.retry',
-          payload: {
+          payload: sessionPayload({
             providerId: e.providerId,
             attempt: e.attempt,
             delayMs: e.delayMs,
             status: e.status,
             description: e.description,
-          },
+          }),
         });
       }),
       opts.events.on('provider.error', (e) => {
         broadcast({
           type: 'provider.error',
-          payload: {
+          payload: sessionPayload({
             providerId: e.providerId,
             status: e.status,
             description: e.description,
             retryable: e.retryable,
-          },
+          }),
         });
       }),
       opts.events.on('provider.fallback', (e) => {
         broadcast({
           type: 'provider.fallback',
-          payload: {
+          payload: sessionPayload({
             from: e.from,
             to: e.to,
             status: e.status,
             providerSwitched: e.providerSwitched,
-          },
+          }),
         });
       }),
       opts.events.on('compaction.fired', (e) => {
         broadcast({
           type: 'context.compacted',
-          payload: {
+          payload: sessionPayload({
             before: e.report.before,
             after: e.report.after,
             saved: Math.max(0, e.report.before - e.report.after),
             reductions: e.report.reductions,
-          },
+          }),
         });
       }),
       opts.events.on('compaction.failed', (e) => {
         broadcast({
           type: 'compaction.failed',
-          payload: {
+          payload: sessionPayload({
             message: e.err.message,
             aggressive: e.aggressive,
             level: e.level,
@@ -1191,7 +1201,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
             maxContext: e.maxContext,
             load: e.load,
             fatal: e.fatal,
-          },
+          }),
         });
       }),
       opts.events.on('mcp.server.connected', (e) => {
@@ -1239,10 +1249,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('error', (e) => {
         broadcast({
           type: 'error',
-          payload: {
+          payload: sessionPayload({
             phase: e.phase,
             message: e.err instanceof Error ? e.err.message : String(e.err),
-          },
+          }),
         });
       }),
     );
@@ -1257,34 +1267,34 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       opts.events.on('session.rewound', (e) => {
         broadcast({
           type: 'session.rewound',
-          payload: {
+          payload: sessionPayload({
             toPromptIndex: e.toPromptIndex,
             revertedFiles: e.revertedFiles,
             removedEvents: e.removedEvents,
-          },
+          }),
         });
       }),
       opts.events.on('checkpoint.written', (e) => {
         broadcast({
           type: 'checkpoint.written',
-          payload: {
+          payload: sessionPayload({
             promptIndex: e.promptIndex,
             promptPreview: e.promptPreview,
             ts: e.ts,
             fileCount: e.fileCount,
-          },
+          }),
         });
       }),
       opts.events.on('in_flight.started', (e) => {
         broadcast({
           type: 'in_flight.started',
-          payload: { context: e.context, ts: e.ts },
+          payload: sessionPayload({ context: e.context, ts: e.ts }),
         });
       }),
       opts.events.on('in_flight.ended', (e) => {
         broadcast({
           type: 'in_flight.ended',
-          payload: { reason: e.reason, ts: e.ts },
+          payload: sessionPayload({ reason: e.reason, ts: e.ts }),
         });
       }),
       opts.events.on('concurrency.changed', (e) => {
@@ -1303,12 +1313,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         pendingConfirms.set(id, e.resolve);
         broadcast({
           type: 'tool.confirm_needed',
-          payload: {
+          payload: sessionPayload({
             id,
             toolName: e.tool?.name ?? 'unknown',
             input: secretScrubber.scrubObject(e.input),
             suggestedPattern: e.suggestedPattern,
-          },
+          }),
         });
       }),
     );
@@ -1321,7 +1331,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     // FleetBus. No tool inputs/outputs are forwarded here — only names + counts
     // — so there's nothing to scrub.
     const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
-      broadcast({ type: 'subagent.event', payload: { kind, ...payload } });
+      broadcast({ type: 'subagent.event', payload: sessionPayload({ kind, ...payload }) });
     eventUnsubscribers.push(
       opts.events.on('subagent.spawned', (e) => {
         fleetConcurrency += 1;
@@ -1403,7 +1413,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     opts.events.on('agent.timeline.message', (e) => {
       broadcast({
         type: 'agent.timeline.message',
-        payload: {
+        payload: sessionPayload({
           subagentId: e.subagentId,
           agentName: e.agentName,
           content: e.content,
@@ -1412,20 +1422,20 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           ts: e.ts,
           toolName: e.toolName,
           costUsd: e.costUsd,
-        },
+        }),
       });
     });
     opts.events.on('agent.status_changed', (e) => {
       broadcast({
         type: 'agent.status_changed',
-        payload: {
+        payload: sessionPayload({
           subagentId: e.subagentId,
           agentName: e.agentName,
           status: e.status,
           ts: e.ts,
           summary: e.summary,
           task: e.task,
-        },
+        }),
       });
     });
 
@@ -1474,12 +1484,75 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // `send`/`broadcast` are hoisted function declarations, so capturing
   // them here is safe even though they're defined further down.
   const wsHandlerCtx: WsHandlerContext = {
-    providerStore: createProviderConfigStore(opts.globalConfigPath),
+    providerStore: createProviderConfigStore(
+      opts.globalConfigPath,
+      // Use the in-memory merged config providers so the WebUI sees the
+      // same provider list the agent uses. Without this, providers stored
+      // only in the project-local config (config.local.json) would be
+      // invisible to the WebUI's saved-providers panel because the store
+      // reads exclusively from the global config file.
+      () => (opts.appConfig?.providers as Record<string, ProviderConfig> | undefined) ?? {},
+    ),
     modelsRegistry: opts.modelsRegistry,
     send,
     broadcast,
     log: (m) => console.log(m),
   };
+
+  // Hot-reload provider credentials when config.json changes on disk (another
+  // terminal's `wstack auth`, a provider panel in a different window, or a
+  // manual edit). Rebuild the live agent's provider so the next message uses
+  // the new key without a server restart, and re-broadcast the saved-providers
+  // projection so every connected panel re-renders. Mirrors the live-swap that
+  // `handleModelSwitch` already does. Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1.
+  let credentialWatcherClose: (() => void) | undefined;
+  if (opts.globalConfigPath && process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
+    let lastActiveCfg = JSON.stringify(
+      opts.appConfig?.providers?.[opts.agent.ctx.provider.id] ?? null,
+    );
+    const watcher = watchProviderConfig(
+      opts.globalConfigPath,
+      getVault(opts.globalConfigPath),
+      (snapshot) => {
+        // Best-effort: refresh the in-memory providers ref the panel reads from
+        // (skipped silently when appConfig is frozen — the broadcast below still
+        // pushes the fresh map, so panels stay correct either way).
+        try {
+          if (opts.appConfig && !Object.isFrozen(opts.appConfig)) {
+            opts.appConfig.providers = snapshot.providers;
+          }
+        } catch {
+          /* frozen / read-only appConfig — ignore */
+        }
+        broadcastSaved(wsHandlerCtx, snapshot.providers);
+
+        const activeId = opts.agent.ctx.provider.id;
+        const newCfgStr = JSON.stringify(snapshot.providers[activeId] ?? null);
+        if (newCfgStr === lastActiveCfg) return; // active provider creds unchanged
+        lastActiveCfg = newCfgStr;
+        try {
+          const newCfg = snapshot.providers[activeId] ?? {
+            type: activeId,
+            ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
+            ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
+          };
+          const oldMax = opts.agent.ctx.provider.capabilities?.maxContext;
+          const prov = makeProviderFromConfig(activeId, { ...newCfg, type: activeId });
+          // Key-only change keeps the same model/context window — preserve the
+          // resolved maxContext instead of falling back to the family default.
+          if (oldMax != null && prov.capabilities) prov.capabilities.maxContext = oldMax;
+          opts.agent.ctx.provider = prov;
+          console.log(`[WebUI] Provider credentials reloaded from config.json (${activeId})`);
+        } catch (err) {
+          console.warn(
+            `[WebUI] Credential hot-reload failed for ${activeId}: ${toErrorMessage(err)}`,
+          );
+        }
+      },
+      { warn: (m) => console.warn(`[WebUI] Config watcher: ${m}`) },
+    );
+    credentialWatcherClose = watcher.close;
+  }
 
   const brainCtx: BrainHandlerContext = {
     brainSettings: opts.brainSettings,
@@ -1723,6 +1796,24 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     });
 
     wss.on('connection', async (ws, req) => {
+      // Per-connection error handler, attached FIRST (before any awaited
+      // work or even the auth check). Without it, a socket-level error —
+      // most notably an oversized inbound frame (the `ws` receiver throws
+      // `RangeError: Max payload size exceeded`, close 1009, once a client
+      // sends more than `maxPayload`) — is emitted as an unhandled 'error'
+      // on this socket and crashes the whole process. `wss.on('error')`
+      // only catches SERVER-level errors, not per-connection ones.
+      ws.on('error', (err) => {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'webui_server.client_socket_error',
+            message: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      });
+
       // --- Auth: DNS-rebinding guard + token (cookie or URL) + loopback
       // bootstrap. Delegated to the shared `verifyClient` (ws-auth.ts) so the
       // embedded server enforces the SAME policy as the standalone one — most
@@ -1751,7 +1842,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         return;
       }
 
-      const client: ConnectedClient = { ws, sessionId: opts.session.id };
+      const client: ConnectedClient = { ws, sessionId: currentSessionId() };
       clients.set(ws, client);
 
       // Register this client with the AutoPhase handler so it receives phase events
@@ -1887,6 +1978,60 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // specs.*, sdd.*) fall through to the fallback chain in handleMessage().
   type WsRouteHandler = (msg: WSClientMessage, ws: WebSocket) => void | Promise<void>;
   const noop = () => {};
+  const sessionBoundRouteTypes = new Set<string>([
+    'user_message',
+    'abort',
+    'tool.confirm_result',
+    'diag.get',
+    'stats.get',
+    'side_effects.list',
+    'session.new',
+    'session.resume',
+    'session.save',
+    'session.checkpoints',
+    'session.rewind',
+    'context.clear',
+    'context.compact',
+    'context.repair',
+    'context.debug',
+    'context.modes.list',
+    'context.mode.switch',
+    'context.mode.create',
+    'context.mode.update',
+    'context.mode.delete',
+    'todos.get',
+    'todos.clear',
+    'todos.remove',
+    'todo.update',
+    'tasks.get',
+    'task.update',
+    'plan.get',
+    'plan.template_use',
+    'plan.item.update',
+  ]);
+
+  const requestedSessionId = (msg: WSClientMessage): string | undefined => {
+    const payload = msg.payload;
+    return payload && typeof payload === 'object' && typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+      ? (payload as { sessionId: string }).sessionId
+      : undefined;
+  };
+
+  const ensureRouteSession = (ws: WebSocket, msg: WSClientMessage): boolean => {
+    if (!sessionBoundRouteTypes.has(msg.type)) return true;
+    const requested = requestedSessionId(msg);
+    const current = currentSessionId();
+    if (!requested || requested === current) return true;
+    send(ws, {
+      type: 'error',
+      payload: sessionPayload({
+        phase: msg.type,
+        message: `Request targeted session ${requested}, but this WebUI runtime is currently on ${current}.`,
+        requestedSessionId: requested,
+      }),
+    });
+    return false;
+  };
 
   const projectRootFor = () =>
     opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
@@ -1898,14 +2043,21 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         connectionCtx,
         ws,
         (msg as { payload: { content: string } }).payload.content,
+        (msg as { payload?: { sessionId?: string } }).payload?.sessionId,
       ),
-    abort: (_msg, ws) => handleAbort(connectionCtx, ws),
+    abort: (msg, ws) =>
+      handleAbort(connectionCtx, ws, (msg as { payload?: { sessionId?: string } }).payload?.sessionId),
     ping: (_msg, ws) => handlePing(connectionCtx, ws),
     'tool.confirm_result': (msg, _ws) => {
       const { id, decision } = (
-        msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny' } }
+        msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny'; sessionId?: string } }
       ).payload;
-      handleToolConfirmResult(connectionCtx, id, decision);
+      handleToolConfirmResult(
+        connectionCtx,
+        id,
+        decision,
+        (msg as { payload: { sessionId?: string } }).payload.sessionId,
+      );
     },
     'webui.shutdown': () => {
       console.log('[WebUI] Shutdown requested from client');
@@ -2122,6 +2274,22 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     // ── Diagnostics / introspection ──
     'diag.get': (_msg, ws) => handleDiagGet(introspectionCtx, ws),
     'stats.get': (_msg, ws) => handleStatsGet(introspectionCtx, ws),
+    'side_effects.list': (_msg, ws) => {
+      const sideEffects = opts.agent.ctx.sideEffects ?? [];
+      send(ws, {
+        type: 'side_effects',
+        payload: sessionPayload({
+          sideEffects: sideEffects.slice(-50).map((se) => ({
+            toolUseId: se.toolUseId,
+            toolName: se.toolName,
+            ts: se.ts,
+            input: se.input,
+            outcome: se.outcome,
+            risk: se.risk,
+          })),
+        }),
+      });
+    },
     'tools.list': (_msg, ws) => handleToolsList(introspectionCtx, ws),
 
     // ── Autonomy ──
@@ -2297,6 +2465,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     _client: ConnectedClient,
     msg: WSClientMessage,
   ): Promise<void> {
+    if (!ensureRouteSession(ws, msg)) return;
     const handler = wsRoutes[msg.type];
     if (handler) {
       await handler(msg, ws);
@@ -2333,6 +2502,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
 
   function shutdown(): void {
     console.log('[WebUI] Shutting down...');
+    credentialWatcherClose?.();
     flushAllStreamBuffers();
     worktreeHandler.dispose();
     unregisterWebuiClient();

@@ -34,6 +34,7 @@ import {
 } from './ws-payload-validation.js';
 
 type Session = Awaited<ReturnType<SessionStore['create']>>;
+type WSMessageLike = { type: string; payload?: unknown | undefined };
 type SessionStartPayload = {
   sessionId: string;
   model: string;
@@ -68,8 +69,35 @@ export interface SessionHandlersContext {
 }
 
 export function createSessionHandlers(ctx: SessionHandlersContext): SessionRouteHandlers {
+  const currentSessionId = (): string => ctx.getSession().id;
+  const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => ({
+    ...payload,
+    sessionId: currentSessionId(),
+  });
+  const requestedSessionId = (msg: WSMessageLike): string | undefined => {
+    const payload = msg.payload;
+    return payload && typeof payload === 'object' && typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+      ? (payload as { sessionId: string }).sessionId
+      : undefined;
+  };
+  const ensureCurrentSession = (ws: WebSocket, msg: WSMessageLike, op: string): boolean => {
+    const requested = requestedSessionId(msg);
+    const current = currentSessionId();
+    if (!requested || requested === current) return true;
+    send(ws, {
+      type: 'error',
+      payload: sessionPayload({
+        phase: op,
+        message: `Request targeted session ${requested}, but this WebUI runtime is currently on ${current}.`,
+        requestedSessionId: requested,
+      }),
+    });
+    return false;
+  };
+
   return {
-    newSession: async () => {
+    newSession: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'session.new')) return;
       const session = ctx.getSession();
       try {
         await session.append({
@@ -97,7 +125,8 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       ctx.setSessionStartedAt(Date.now());
       broadcast(ctx.clients, { type: 'session.start', payload: await ctx.sessionStartPayload() });
     },
-    clearContext: async (ws) => {
+    clearContext: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.clear')) return;
       ctx.context.state.replaceMessages([]);
       ctx.context.state.replaceTodos([]);
       ctx.context.readFiles.clear();
@@ -109,7 +138,8 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         payload: { ...(await ctx.sessionStartPayload()), reset: true },
       });
     },
-    debugContext: async (ws) => {
+    debugContext: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.debug')) return;
       const breakdown = estimateContextBreakdown({
         systemPrompt: ctx.context.systemPrompt,
         tools: ctx.toolRegistry.list(),
@@ -117,26 +147,27 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       });
       send(ws, {
         type: 'context.debug',
-        payload: {
+        payload: sessionPayload({
           ...breakdown,
           mode: ctx.context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID,
           policy: ctx.context.meta['contextWindowPolicy'],
-        },
+        }),
       });
     },
     compactContext: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.compact')) return;
       const aggressive = !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload?.aggressive;
       try {
         const report = await ctx.compactor.compact(ctx.context, { aggressive });
         send(ws, {
           type: 'context.compacted',
-          payload: {
+          payload: sessionPayload({
             before: report.before,
             after: report.after,
             saved: Math.max(0, report.before - report.after),
             reductions: report.reductions,
             repaired: report.repaired,
-          },
+          }),
         });
         sendResult(
           ws,
@@ -147,7 +178,8 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         sendResult(ws, false, errMessage(err));
       }
     },
-    repairContext: async (ws) => {
+    repairContext: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.repair')) return;
       const beforeMessages = ctx.context.messages.length;
       const repaired = repairToolUseAdjacency(ctx.context.messages);
       if (repaired.report.changed) {
@@ -160,7 +192,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         beforeMessages,
         afterMessages: ctx.context.messages.length,
       };
-      broadcast(ctx.clients, { type: 'context.repaired', payload });
+      broadcast(ctx.clients, { type: 'context.repaired', payload: sessionPayload(payload) });
       const removed =
         payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
       sendResult(
@@ -171,7 +203,8 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
           : 'Context repair found no orphan protocol blocks',
       );
     },
-    listContextModes: async (ws) => {
+    listContextModes: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.modes.list')) return;
       const active = String(ctx.context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID);
       const allModes = ctx.customModeStore.list().map((m) => ({
         id: m.id,
@@ -183,9 +216,10 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         eliseThreshold: m.eliseThreshold,
         custom: (m as { custom?: boolean }).custom === true,
       }));
-      send(ws, { type: 'context.modes.list', payload: { activeId: active, modes: allModes } });
+      send(ws, { type: 'context.modes.list', payload: sessionPayload({ activeId: active, modes: allModes }) });
     },
     switchContextMode: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.mode.switch')) return;
       const parsed = validateContextModeSwitchPayload(msg.payload);
       if (!parsed.ok) {
         sendResult(ws, false, parsed.message);
@@ -207,10 +241,11 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       sendResult(ws, true, `Context mode switched to ${policy.id}`);
       broadcast(ctx.clients, {
         type: 'context.mode.changed',
-        payload: { id: policy.id, name: policy.name, policy },
+        payload: sessionPayload({ id: policy.id, name: policy.name, policy }),
       });
     },
     createContextMode: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.mode.create')) return;
       const parsed = validateContextModeCreatePayload(msg.payload);
       if (!parsed.ok) {
         sendResult(ws, false, parsed.message);
@@ -231,6 +266,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       sendResult(ws, result.ok, result.error ?? `Mode "${payload.id}" created`);
     },
     updateContextMode: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.mode.update')) return;
       const parsed = validateContextModeUpdatePayload(msg.payload);
       if (!parsed.ok) {
         sendResult(ws, false, parsed.message);
@@ -253,6 +289,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       sendResult(ws, result.ok, result.error ?? `Mode "${payload.id}" updated`);
     },
     deleteContextMode: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'context.mode.delete')) return;
       const parsed = validateContextModeDeletePayload(msg.payload);
       if (!parsed.ok) {
         sendResult(ws, false, parsed.message);
@@ -343,10 +380,12 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         sendResult(ws, false, errMessage(err));
       }
     },
-    saveSession: async (ws) => {
+    saveSession: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'session.save')) return;
       sendResult(ws, true, `Session ${ctx.getSession().id} is auto-saved`);
     },
-    listCheckpoints: async (ws) => {
+    listCheckpoints: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'session.checkpoints')) return;
       try {
         const { DefaultSessionRewinder } = await import('@wrongstack/core');
         const projectRoot = ctx.getProjectRoot();
@@ -355,12 +394,13 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
           projectRoot,
         );
         const checkpoints = await rewinder.listCheckpoints(ctx.getSession().id);
-        send(ws, { type: 'session.checkpoints', payload: { checkpoints } });
+        send(ws, { type: 'session.checkpoints', payload: sessionPayload({ checkpoints }) });
       } catch {
-        send(ws, { type: 'session.checkpoints', payload: { checkpoints: [] } });
+        send(ws, { type: 'session.checkpoints', payload: sessionPayload({ checkpoints: [] }) });
       }
     },
     rewindSession: async (ws, msg) => {
+      if (!ensureCurrentSession(ws, msg, 'session.rewind')) return;
       const { checkpointIndex } = (msg as { payload: { checkpointIndex: number } }).payload;
       try {
         const { DefaultSessionRewinder } = await import('@wrongstack/core');

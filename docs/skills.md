@@ -90,7 +90,7 @@ WrongStack ships with 22 bundled skills:
 | `prompt-engineering` | System prompt design, tool descriptions, trigger sentences |
 | `react-modern` | React 19+ Server Components, useTransition, Suspense, the `use` hook |
 | `refactor-planner` | Dependency mapping, risk assessment, phased planning, migration strategy |
-| `research-web` | Web research methodology — disciplined web_search + web_fetch workflow, source validation, cross-referencing, structured context-manager injection |
+| `research-web` | Web research methodology — disciplined search + fetch workflow, source validation, cross-referencing, structured context-manager injection |
 | `wrongstack-mailbox` | External-facing client for the project's shared WrongStack mailbox — register as an online agent, read messages, send replies, broadcast, and stay visible in the WebUI fleet |
 | `sdd` | Spec parsing, task graph generation, dependency tracking, done-condition execution |
 | `security-scanner` | Code and configuration security vulnerability scanning |

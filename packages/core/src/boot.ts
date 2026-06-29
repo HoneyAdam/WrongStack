@@ -36,6 +36,14 @@ export interface BootConfigOptions {
    * ConfigStore starts with the correct CloudSync state. Default `true`.
    */
   loadSyncConfig?: boolean | undefined;
+  /**
+   * Skip the provider/model identity validation during config load. When
+   * `true`, a missing provider or model in config does NOT throw — the
+   * boot caller is responsible for handling the missing-provider case
+   * (e.g. showing a setup screen). Used by `--webui` mode so the WebUI
+   * can boot without a configured provider and show the setup screen.
+   */
+  skipIdentityValidation?: boolean | undefined;
 }
 
 /**
@@ -67,7 +75,7 @@ export interface BootConfigResult {
  * of boot behavior so the two consumers can't drift.
  */
 export async function bootConfig(options: BootConfigOptions = {}): Promise<BootConfigResult> {
-  const { flags = {}, appLabel = 'wstack', loadSyncConfig = true } = options;
+  const { flags = {}, appLabel = 'wstack', loadSyncConfig = true, skipIdentityValidation = false } = options;
 
   const cwd = typeof flags['cwd'] === 'string' ? path.resolve(flags['cwd']) : process.cwd();
   const pathResolver = new DefaultPathResolver(cwd);
@@ -118,7 +126,35 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   }
 
   const configLoader = new DefaultConfigLoader({ paths: wpaths, vault });
-  let config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags) });
+  let config: Config;
+  try {
+    config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags) });
+  } catch (err) {
+    if (
+      skipIdentityValidation &&
+      err instanceof Error &&
+      err.message.includes('no provider configured')
+    ) {
+      // --webui mode: boot without a configured provider. Patch in
+      // defaults so the CLI proceeds to the webui server, which will
+      // show the setup screen via needsSetup.
+      console.warn(`[${appLabel}] No provider configured — setup screen will be shown`);
+      const defaults = await configLoader.load({
+        cliFlags: {
+          ...flagsToConfigPatch(flags),
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+        },
+      });
+      config = Object.freeze({
+        ...defaults,
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+      }) as Config;
+    } else {
+      throw err;
+    }
+  }
 
   // Load and decrypt sync config from ~/.wrongstack/sync.json and merge it into
   // the main config so ConfigStore starts with the correct sync state.

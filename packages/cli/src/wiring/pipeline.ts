@@ -244,7 +244,8 @@ export function createAgent(params: {
   const renderer = params.container.has(TOKENS.Renderer)
     ? params.container.resolve(TOKENS.Renderer)
     : undefined;
-  const toolExecutor = new ToolExecutor(params.tools, {
+  const logger = params.container.resolve(TOKENS.Logger);
+  const toolExecutorOptions = {
     permissionPolicy: params.permissionPolicy ?? params.container.resolve(TOKENS.PermissionPolicy),
     secretScrubber,
     renderer,
@@ -253,8 +254,10 @@ export function createAgent(params: {
     iterationTimeoutMs: params.config.tools.iterationTimeoutMs,
     perIterationOutputCapBytes: params.config.tools.perIterationOutputCapBytes,
     tracer: params.tracer,
+    logger,
     hookRunner: params.hookRunner,
-  });
+  };
+  const toolExecutor = new ToolExecutor(params.tools, toolExecutorOptions);
 
   // Mailbox bridge bootstrap — best-effort, fire-and-forget.
   // Runs after the tool executor is built (so tool construction errors
@@ -267,7 +270,6 @@ export function createAgent(params: {
   // even when no external agent ever shows up. The bridge lands on
   // ctx.meta asynchronously; the local mailbox checker keeps working
   // against the on-disk file while the bridge comes up.
-  const logger = params.container.resolve(TOKENS.Logger);
   void bootstrapMailboxBridgeAtStartup({
     projectRoot: params.context.projectRoot,
     config: params.fullConfig,

@@ -40,6 +40,13 @@ function sendResult(ctx: WsCommon, ws: WebSocket, success: boolean, message: str
   ctx.send(ws, { type: 'key.operation_result', payload: { success, message } });
 }
 
+function sessionPayload<T extends Record<string, unknown>>(
+  ctx: ContextHandlerContext,
+  payload: T,
+): T & { sessionId: string } {
+  return { ...payload, sessionId: ctx.agent.ctx.session?.id ?? '' };
+}
+
 export async function handleContextClear(ctx: ContextHandlerContext, ws: WebSocket): Promise<void> {
   // In-memory wipe — same as session.new but reuses the current session.
   const actx = ctx.agent.ctx;
@@ -62,11 +69,11 @@ export function handleContextDebug(ctx: ContextHandlerContext, ws: WebSocket): v
   });
   ctx.send(ws, {
     type: 'context.debug',
-    payload: {
+    payload: sessionPayload(ctx, {
       ...breakdown,
       mode: (actx.meta['contextWindowMode'] as string) ?? DEFAULT_CONTEXT_WINDOW_MODE_ID,
       policy: actx.meta['contextWindowPolicy'] ?? null,
-    },
+    }),
   });
 }
 
@@ -86,13 +93,13 @@ export async function handleContextCompact(
     const after = ctx.agent.ctx.tokenCounter.total();
     ctx.send(ws, {
       type: 'context.compacted',
-      payload: {
+      payload: sessionPayload(ctx, {
         before: before.input + before.output,
         after: after.input + after.output,
         saved: Math.max(0, before.input + before.output - after.input - after.output),
         reductions: report.reductions ?? [],
         repaired: report.repaired ?? false,
-      },
+      }),
     });
     sendResult(
       ctx,
@@ -119,7 +126,7 @@ export function handleContextRepair(ctx: ContextHandlerContext, ws: WebSocket): 
     beforeMessages,
     afterMessages: actx.messages.length,
   };
-  ctx.broadcast({ type: 'context.repaired', payload });
+  ctx.broadcast({ type: 'context.repaired', payload: sessionPayload(ctx, payload) });
   const removed =
     payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
   sendResult(
@@ -141,7 +148,7 @@ export async function handleContextModesList(
   const modeStore = await ctx.getCustomModeStore();
   ctx.send(ws, {
     type: 'context.modes.list',
-    payload: {
+    payload: sessionPayload(ctx, {
       activeId: active,
       modes: modeStore.list().map((m) => ({
         id: m.id,
@@ -153,7 +160,7 @@ export async function handleContextModesList(
         eliseThreshold: m.eliseThreshold,
         custom: m.custom === true,
       })),
-    },
+    }),
   });
 }
 
@@ -178,7 +185,7 @@ export async function handleContextModeSwitch(
   sendResult(ctx, ws, true, `Context mode switched to ${policy.id}`);
   ctx.broadcast({
     type: 'context.mode.changed',
-    payload: { id: policy.id, name: policy.name, policy },
+    payload: sessionPayload(ctx, { id: policy.id, name: policy.name, policy }),
   });
 }
 

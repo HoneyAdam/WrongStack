@@ -54,6 +54,11 @@ export interface ToolExecutorOptions {
    */
   tracer?: import('../types/observability.js').Tracer | undefined;
   /**
+   * Optional structured logger for production diagnostics. Tool execution logs
+   * include correlation IDs and metadata only — never raw tool inputs or output.
+   */
+  logger?: import('../types/logger.js').Logger | undefined;
+  /**
    * Async callback invoked when a tool needs user confirmation.
    * When omitted and confirmation is required, the executor returns a
    * failure result immediately (TUI path). When provided (CLI path),

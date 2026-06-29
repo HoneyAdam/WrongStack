@@ -351,6 +351,9 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
     case '/model':
       setCurrentView('settings');
       return true;
+    case '/setup':
+      useUIStore.getState().setCurrentView('setup');
+      return true;
     case '/enhance': {
       const enabled = !useUIStore.getState().refineEnabled;
       toggleRefineEnabled();
