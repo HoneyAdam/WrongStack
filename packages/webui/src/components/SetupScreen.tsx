@@ -473,7 +473,7 @@ export function SetupScreen() {
     const controller = new AbortController();
     // Try local file first (dev / self-hosted), then fall back to GitHub raw
     const localUrl = `${window.location.origin}/providers.json`;
-    const githubUrl = 'https://raw.githubusercontent.com/wrongstack/wrongstack/main/packages/webui/public/providers.json';
+    const githubUrl = 'https://raw.githubusercontent.com/WrongStack/WrongStack/main/packages/webui/public/providers.json';
 
     setIsLoadingPopular(true);
     loadPopularProviders(localUrl, controller.signal)
