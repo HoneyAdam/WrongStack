@@ -63,11 +63,12 @@ describe('replaceTool', () => {
     await fs.writeFile(filePath, 'hello world', 'utf8');
     const ctx = makeCtx();
     const result = await replaceTool.execute(
-      { pattern: 'world', replacement: 'wstack', files: filePath },
+      { pattern: 'world', replacement: 'wstack', files: filePath, dry_run: false },
       ctx,
     );
     expect(result.files_modified).toBe(1);
     expect(result.total_replacements).toBe(1);
+    expect(result.dry_run).toBe(false);
     const content = await fs.readFile(filePath, 'utf8');
     expect(content).toBe('hello wstack');
   });
@@ -88,11 +89,27 @@ describe('replaceTool', () => {
     await fs.writeFile(filePath, 'hello world', 'utf8');
     const ctx = { cwd: linkRoot, tools: [], projectRoot: linkRoot } as any;
     const result = await replaceTool.execute(
-      { pattern: 'world', replacement: 'wstack', files: filePath },
+      { pattern: 'world', replacement: 'wstack', files: filePath, dry_run: false },
       ctx,
     );
     expect(result.files_modified).toBe(1);
     expect(await fs.readFile(filePath, 'utf8')).toBe('hello wstack');
+  });
+
+  it('dry_run defaults to true — no write without explicit dry_run: false', async () => {
+    const filePath = path.join(tmpDir, 'test.txt');
+    await fs.writeFile(filePath, 'hello world', 'utf8');
+    const ctx = makeCtx();
+    const result = await replaceTool.execute(
+      { pattern: 'world', replacement: 'wstack', files: filePath },
+      ctx,
+    );
+    expect(result.dry_run).toBe(true);
+    expect(result.files_modified).toBe(1);
+    expect(result.total_replacements).toBe(1);
+    // File must be unchanged — dry-run is the default
+    const content = await fs.readFile(filePath, 'utf8');
+    expect(content).toBe('hello world');
   });
 
   it('returns empty results when no matches', async () => {
@@ -112,7 +129,7 @@ describe('replaceTool', () => {
     await fs.writeFile(filePath, 'foo bar', 'utf8');
     const ctx = makeCtx();
     const result = await replaceTool.execute(
-      { pattern: 'foo', replacement: 'baz', files: '*.txt' },
+      { pattern: 'foo', replacement: 'baz', files: '*.txt', dry_run: false },
       ctx,
     );
     expect(result).toHaveProperty('files_modified');
@@ -171,7 +188,7 @@ describe('globNative walk exception paths', () => {
 
     const ctx = makeCtx();
     const result = await replaceTool.execute(
-      { pattern: 'banana', replacement: 'BERRIES', files: '**/*.txt' },
+      { pattern: 'banana', replacement: 'BERRIES', files: '**/*.txt', dry_run: false },
       ctx,
     );
     expect(result.files_modified).toBe(2);

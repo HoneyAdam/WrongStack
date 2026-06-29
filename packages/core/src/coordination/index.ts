@@ -27,13 +27,21 @@ export {
   makeAskResultTool,
   makeRollUpTool,
   makeTerminateTool,
-  makeFleetStatusTool,
-  makeFleetUsageTool,
-  makeFleetSessionTool,
-  makeFleetHealthTool,
+  makeTerminateAllTool,
+  makeFleetTool,
   makeCollabDebugTool,
   makeFleetEmitTool,
   makeWorkCompleteTool,
+} from './director-tools.js';
+
+// Backward-compatible re-exports: the old per-fleet-signal tools were
+// consolidated into makeFleetTool. These aliases keep downstream imports
+// (defaults/index.ts, src/index.ts) working until they migrate.
+export {
+  makeFleetTool as makeFleetStatusTool,
+  makeFleetTool as makeFleetUsageTool,
+  makeFleetTool as makeFleetSessionTool,
+  makeFleetTool as makeFleetHealthTool,
 } from './director-tools.js';
 export { LargeAnswerStore } from './large-answer-store.js';
 export {

@@ -7,8 +7,8 @@
  *  3. shell-check     — Runs shellcheck analysis on bash/shell scripts
  *  4. cost-tracker    — Tracks LLM token usage and estimated cost per session
  *  5. file-watcher    — Watches project files and emits events on changes
- *  6. web-search      — Cached web search with deduplication and ranking
- *  7. json-path       — JMESPath query, JSON Schema validation, transforms, deep merge
+ *  6. web-search      — Retired (merged into built-in search + fetch)
+ *  7. json-path       — Retired (merged into built-in json tool)
  *  8. cron            — Schedules recurring tasks via extension hooks
  *  9. template-engine — Expands file templates with variable substitution
  * 10. semver-bump     — Conventional-commit-driven semver version bumps

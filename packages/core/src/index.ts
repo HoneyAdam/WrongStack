@@ -342,10 +342,7 @@ export {
   makeAskTool,
   makeRollUpTool,
   makeTerminateTool,
-  makeFleetStatusTool,
-  makeFleetUsageTool,
-  makeFleetSessionTool,
-  makeFleetHealthTool,
+  makeFleetTool,
   makeCollabDebugTool,
   makeFleetEmitTool,
 } from './coordination/director-tools.js';

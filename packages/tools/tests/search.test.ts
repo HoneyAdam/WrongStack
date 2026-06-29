@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { searchTool } from '../src/search.js';
+import { searchTool, __clearSearchCache } from '../src/search.js';
 
 /**
  * Mocked-fetch tests for the search tool.
@@ -55,6 +55,7 @@ describe('searchTool', () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    __clearSearchCache();
     globalThis.fetch = mockFetch((u) => {
       if (u.includes('duckduckgo')) return DDG_FIXTURE;
       if (u.includes('google')) return GOOGLE_FIXTURE;
@@ -158,6 +159,7 @@ describe('search engine parsers (realistic fixtures)', () => {
   let originalFetch: typeof globalThis.fetch;
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    __clearSearchCache();
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -217,6 +219,7 @@ describe('fetchWithTimeout error path', () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    __clearSearchCache();
   });
 
   afterEach(() => {
@@ -239,6 +242,8 @@ describe('fetchWithTimeout error path', () => {
 });
 
 describe('anySignal already-aborted', () => {
+  beforeEach(() => __clearSearchCache());
+
   it('calls controller.abort() immediately when a passed signal is already aborted', async () => {
     // When anySignal receives an already-aborted signal, it calls
     // controller.abort() right away (lines 281-283). This causes fetch to
@@ -259,5 +264,118 @@ describe('anySignal already-aborted', () => {
     // Should get fallback result, not throw, because anySignal immediately aborted
     expect(result.results).toHaveLength(1);
     expect(result.results[0].title).toBe('Search unavailable');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cache + dedup + ranking (consolidated from the former web_search plugin)
+// ---------------------------------------------------------------------------
+
+describe('search cache, dedup, and ranking', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let fetchCallCount: number;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    __clearSearchCache();
+    fetchCallCount = 0;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function mockFetchCounted(html: string): typeof globalThis.fetch {
+    return vi.fn(async () => {
+      fetchCallCount++;
+      return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as never as typeof globalThis.fetch;
+  }
+
+  it('serves a cached result on the second identical query (no second fetch)', async () => {
+    globalThis.fetch = mockFetchCounted(DDG_FIXTURE);
+    const ctx = {} as any;
+    const first = await searchTool.execute({ query: 'cache-test' }, ctx, makeOpts());
+    expect(first.cached).toBe(false);
+    const second = await searchTool.execute({ query: 'cache-test' }, ctx, makeOpts());
+    expect(second.cached).toBe(true);
+    expect(fetchCallCount).toBe(1); // second served from cache
+  });
+
+  it('skips the cache when skip_cache is set', async () => {
+    globalThis.fetch = mockFetchCounted(DDG_FIXTURE);
+    const ctx = {} as any;
+    await searchTool.execute({ query: 'cache-test' }, ctx, makeOpts());
+    await searchTool.execute({ query: 'cache-test', skip_cache: true }, ctx, makeOpts());
+    expect(fetchCallCount).toBe(2);
+  });
+
+  it('caches per source — same query, different source = separate cache entries', async () => {
+    let totalCalls = 0;
+    const countAll = () =>
+      vi.fn(async (url: string | URL | Request) => {
+        totalCalls++;
+        const u = url instanceof Request ? url.url : url.toString();
+        return new Response(u.includes('google') ? GOOGLE_FIXTURE : DDG_FIXTURE, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }) as never as typeof globalThis.fetch;
+
+    const ctx = {} as any;
+    globalThis.fetch = countAll();
+    await searchTool.execute({ query: 'q', source: 'google' }, ctx, makeOpts());
+    await searchTool.execute({ query: 'q', source: 'google' }, ctx, makeOpts());
+    // Same query but duckduckgo should be a separate fetch
+    globalThis.fetch = countAll();
+    await searchTool.execute({ query: 'q', source: 'duckduckgo' }, ctx, makeOpts());
+    expect(totalCalls).toBe(2); // 1 google (cached on 2nd) + 1 ddg
+  });
+
+  it('deduplicates results by normalized URL (strips query + fragment)', async () => {
+    const html = `
+      <a class="result-link" href="https://example.com/page?utm=1">First</a>
+      <a class="result-snippet">snippet one</a>
+      <a class="result-link" href="https://example.com/page#section">Dup</a>
+      <a class="result-snippet">snippet dup</a>
+      <a class="result-link" href="https://other.org/x">Unique</a>
+      <a class="result-snippet">snippet two</a>
+    `;
+    globalThis.fetch = mockFetchCounted(html);
+    const ctx = {} as any;
+    const result = await searchTool.execute({ query: 'dedup' }, ctx, makeOpts());
+    const urls = result.results.map((r) => r.url);
+    // example.com/page appears once (deduped), other.org/x once
+    expect(urls).toContain('https://example.com/page?utm=1');
+    expect(urls).toContain('https://other.org/x');
+    expect(urls.filter((u) => u.includes('example.com/page'))).toHaveLength(1);
+  });
+
+  it('drops non-http results', async () => {
+    const html = `
+      <a class="result-link" href="https://valid.com/a">Valid</a>
+      <a class="result-snippet">valid snippet</a>
+      <a class="result-link" href="/relative/path">Relative</a>
+      <a class="result-snippet">relative snippet</a>
+    `;
+    globalThis.fetch = mockFetchCounted(html);
+    const ctx = {} as any;
+    const result = await searchTool.execute({ query: 'nonhttp' }, ctx, makeOpts());
+    expect(result.results.every((r) => r.url.startsWith('http'))).toBe(true);
+    expect(result.results.map((r) => r.url)).toEqual(['https://valid.com/a']);
+  });
+
+  it('ranks title matches above snippet-only matches', async () => {
+    const html = `
+      <a class="result-link" href="https://snippet-match.com/a">Generic Title</a>
+      <a class="result-snippet">query appears in snippet</a>
+      <a class="result-link" href="https://title-match.com/b">Query Keyword Title</a>
+      <a class="result-snippet">unrelated</a>
+    `;
+    globalThis.fetch = mockFetchCounted(html);
+    const ctx = {} as any;
+    const result = await searchTool.execute({ query: 'query keyword' }, ctx, makeOpts());
+    // Title match (+2 per term, 2 terms = +4) beats snippet match (+1 per term = +2)
+    expect(result.results[0]?.url).toBe('https://title-match.com/b');
   });
 });

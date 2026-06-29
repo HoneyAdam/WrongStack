@@ -6,10 +6,7 @@ import {
   makeAwaitTasksTool,
   makeCollabDebugTool,
   makeFleetEmitTool,
-  makeFleetHealthTool,
-  makeFleetSessionTool,
-  makeFleetStatusTool,
-  makeFleetUsageTool,
+  makeFleetTool,
   makeRollUpTool,
   makeSpawnTool,
   makeTerminateAllTool,
@@ -68,10 +65,7 @@ describe('director tool capabilities', () => {
       makeRollUpTool(asDir()),
       makeTerminateTool(asDir()),
       makeTerminateAllTool(asDir()),
-      makeFleetStatusTool(asDir()),
-      makeFleetUsageTool(asDir()),
-      makeFleetSessionTool(asDir()),
-      makeFleetHealthTool(asDir()),
+      makeFleetTool(asDir()),
       makeCollabDebugTool(asDir()),
       makeFleetEmitTool(asDir()),
       makeWorkCompleteTool(asDir()),
@@ -81,7 +75,7 @@ describe('director tool capabilities', () => {
       expect(tool.capabilities?.length, tool.name).toBeGreaterThan(0);
     }
     expect(makeTerminateTool(asDir()).capabilities).toContain(ToolCapabilities.SUBAGENT_SPAWN);
-    expect(makeFleetStatusTool(asDir()).capabilities).toContain(ToolCapabilities.COORDINATION_FLEET_READ);
+    expect(makeFleetTool(asDir()).capabilities).toContain(ToolCapabilities.COORDINATION_FLEET_READ);
   });
 });
 
@@ -181,27 +175,45 @@ describe('lifecycle/status tools', () => {
     expect(director.terminateAll).toHaveBeenCalled();
   });
 
-  it('fleet_status with and without a fleet manager', async () => {
-    const res = await makeFleetStatusTool(asDir()).execute({}, {} as never, {} as never);
-    expect(res).toMatchObject({ coordinatorStats: { total: 2 }, pending: ['t1'] });
+  it('fleet action: status — with and without a fleet manager', async () => {
+    const res = await makeFleetTool(asDir()).execute({ action: 'status' }, {} as never, {} as never);
+    expect(res).toMatchObject({ action: 'status', coordinatorStats: { total: 2 }, pending: ['t1'] });
     director.fleetManager = undefined;
-    const res2 = (await makeFleetStatusTool(asDir()).execute({}, {} as never, {} as never)) as { coordinatorStats: unknown };
+    const res2 = (await makeFleetTool(asDir()).execute({ action: 'status' }, {} as never, {} as never)) as { coordinatorStats: unknown };
     expect(res2.coordinatorStats).toBeUndefined();
   });
 
-  it('fleet_usage returns the snapshot', async () => {
-    expect(await makeFleetUsageTool(asDir()).execute({}, {} as never, {} as never)).toMatchObject({ perSubagent: expect.any(Object) });
+  it('fleet action: status is the default', async () => {
+    const res = await makeFleetTool(asDir()).execute({}, {} as never, {} as never);
+    expect(res).toMatchObject({ action: 'status' });
   });
 
-  it('fleet_session returns a transcript or an error when unavailable', async () => {
-    expect(await makeFleetSessionTool(asDir()).execute({ subagentId: 's1' }, {} as never, {} as never)).toMatchObject({ lastText: 'hi' });
+  it('fleet action: usage returns the snapshot', async () => {
+    const res = await makeFleetTool(asDir()).execute({ action: 'usage' }, {} as never, {} as never);
+    expect(res).toMatchObject({ action: 'usage', perSubagent: expect.any(Object) });
+  });
+
+  it('fleet action: session returns a transcript or an error when unavailable', async () => {
+    const res = await makeFleetTool(asDir()).execute({ action: 'session', subagentId: 's1' }, {} as never, {} as never);
+    expect(res).toMatchObject({ action: 'session', lastText: 'hi' });
     (director.readSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    expect((await makeFleetSessionTool(asDir()).execute({ subagentId: 's1' }, {} as never, {} as never)) as { error: string }).toHaveProperty('error');
+    const err = (await makeFleetTool(asDir()).execute({ action: 'session', subagentId: 's1' }, {} as never, {} as never)) as { error: string };
+    expect(err).toHaveProperty('error');
   });
 
-  it('fleet_health maps per-subagent budget pressure', async () => {
-    const res = (await makeFleetHealthTool(asDir()).execute({}, {} as never, {} as never)) as { subagents: Array<{ id: string; budgetPressure: { iterations: number } }> };
+  it('fleet action: session requires subagentId', async () => {
+    const res = (await makeFleetTool(asDir()).execute({ action: 'session' }, {} as never, {} as never)) as { error: string };
+    expect(res.error).toContain('subagentId is required');
+  });
+
+  it('fleet action: health maps per-subagent budget pressure', async () => {
+    const res = (await makeFleetTool(asDir()).execute({ action: 'health' }, {} as never, {} as never)) as { subagents: Array<{ id: string; budgetPressure: { iterations: number } }> };
     expect(res.subagents[0]).toMatchObject({ id: 's1', budgetPressure: { iterations: 3, toolCalls: 5 } });
+  });
+
+  it('fleet action: unknown returns an error', async () => {
+    const res = (await makeFleetTool(asDir()).execute({ action: 'nope' }, {} as never, {} as never)) as { error: string };
+    expect(res.error).toContain('unknown action');
   });
 
   it('fleet_emit emits an event on the bus', async () => {

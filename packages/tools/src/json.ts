@@ -1,20 +1,58 @@
 import * as fs from 'node:fs/promises';
+import { deepMerge as deepMergeCore } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type JsonAction = 'parse' | 'query' | 'validate' | 'transform' | 'merge';
+
 interface JsonInput {
+  /** Operation to perform. Defaults to 'parse'. */
+  action?: JsonAction | undefined;
+
+  // --- parse / query / validate (single data source) ---
+  /** Path to JSON/JSON5/YAML file (alternative to `data`). */
   file?: string | undefined;
+  /** Inline JSON/JSON5/YAML string (alternative to `file`). */
   data?: string | undefined;
-  query?: string | undefined;
+  /** Output format for parse/query/transform results. */
   format?: 'json' | 'json5' | 'yaml' | undefined;
+
+  // --- parse: validate syntax only ---
   validate?: boolean | undefined;
+
+  // --- query / transform ---
+  /** JMESPath-like query expression. */
+  query?: string | undefined;
+  /** Ordered JMESPath transforms (transform action only). */
+  transforms?: string[] | undefined;
+
+  // --- validate against schema ---
+  /** JSON Schema to validate against. */
+  schema?: Record<string, unknown> | undefined;
+
+  // --- merge ---
+  /** Base object for merge. */
+  base?: unknown | undefined;
+  /** Patch object for merge. */
+  patch?: unknown | undefined;
+  /** Merge conflict resolution: 'prefer-patch' (default) or 'prefer-base'. */
+  conflictResolution?: 'prefer-base' | 'prefer-patch' | undefined;
 }
 
 interface JsonOutput {
   data: unknown;
   formatted: string;
   type: string;
+  action: string;
   keys?: string[] | undefined;
   query_result?: unknown | undefined;
+  result?: unknown | undefined;
+  valid?: boolean | undefined;
+  errors?: string[] | undefined;
+  steps?: Array<{ transform: string; result: unknown }> | undefined;
   error?: string | undefined;
 }
 
@@ -22,12 +60,14 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
   name: 'json',
   category: 'Data',
   description:
-    'Parse, pretty-print, query, and convert between JSON, JSON5, and YAML. Supports simple path-based queries.',
+    'Parse, pretty-print, query, validate, transform, and merge JSON/JSON5/YAML. Use `action` to select the operation: parse (default), query, validate, transform, or merge.',
   usageHint:
     'VERY USEFUL FOR DATA INSPECTION:\n\n' +
-    '- Use on package.json, tsconfig, config files, or any structured data.\n' +
-    '- `query` lets you extract specific values without reading the whole file.\n' +
-    '- Great for validating that a file has the expected structure.\n' +
+    '- `action: "parse"` (default): read/pretty-print/convert JSON, JSON5, or YAML from `file` or `data`.\n' +
+    '- `action: "query"`: JMESPath-like query (`a.b[0].c`, `items[*].name`, filters, functions).\n' +
+    '- `action: "validate"`: validate data against a JSON Schema (`schema` param).\n' +
+    '- `action: "transform"`: chain multiple JMESPath transforms (`transforms` param).\n' +
+    '- `action: "merge"`: deep merge `base` and `patch` objects (`conflictResolution` param).\n' +
     'Prefer this over raw `read` + manual parsing when dealing with configuration or data files.',
   permission: 'auto',
   mutating: false,
@@ -37,78 +77,498 @@ export const jsonTool: Tool<JsonInput, JsonOutput> = {
   inputSchema: {
     type: 'object',
     properties: {
-      file: { type: 'string', description: 'Path to JSON/JSON5/YAML file' },
-      data: { type: 'string', description: 'JSON/JSON5/YAML string (alternative to file)' },
-      query: {
+      action: {
         type: 'string',
-        description: 'JMESPath-like query (e.g. "a.b[0].c" or "a[*].name")',
+        enum: ['parse', 'query', 'validate', 'transform', 'merge'],
+        description: 'Operation (default: parse). parse=read/pretty-print, query=JMESPath, validate=schema, transform=chained queries, merge=deep merge.',
       },
+      file: { type: 'string', description: 'Path to JSON/JSON5/YAML file (parse/query/validate)' },
+      data: { type: 'string', description: 'JSON/JSON5/YAML string (parse/query/validate, alternative to file)' },
       format: {
         type: 'string',
         enum: ['json', 'json5', 'yaml'],
-        description: 'Output format (default: json)',
+        description: 'Output format for parse/query/transform (default: json)',
+      },
+      query: {
+        type: 'string',
+        description: 'JMESPath-like query expression (query action)',
+      },
+      transforms: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Ordered JMESPath query strings (transform action)',
+      },
+      schema: {
+        type: 'object',
+        description: 'JSON Schema to validate against (validate action)',
+      },
+      base: { description: 'Base JSON object (merge action)' },
+      patch: { description: 'Patch JSON object to merge in (merge action)' },
+      conflictResolution: {
+        type: 'string',
+        enum: ['prefer-base', 'prefer-patch'],
+        description: 'Merge conflict resolution (default: prefer-patch)',
       },
       validate: {
         type: 'boolean',
-        description: 'Validate syntax only, no output (default: false)',
+        description: 'Validate syntax only, no output (parse action, default: false)',
       },
     },
   },
   async execute(input) {
-    const format = input.format ?? 'json';
+    const action = input.action ?? 'parse';
 
-    let parsed: unknown;
-    let raw: string;
-
-    if (input.file) {
-      try {
-        raw = await fs.readFile(input.file, 'utf8');
-      } catch {
-        return { data: null, formatted: '', type: 'unknown', error: `Could not read file` };
-      }
-    } else if (input.data) {
-      raw = input.data;
-    } else {
-      return { data: null, formatted: '', type: 'unknown', error: 'Provide file or data' };
+    switch (action) {
+      case 'query':
+        return executeQuery(input);
+      case 'validate':
+        return executeValidate(input);
+      case 'transform':
+        return executeTransform(input);
+      case 'merge':
+        return executeMerge(input);
+      case 'parse':
+      default:
+        return executeParse(input);
     }
+  },
+};
 
+// ---------------------------------------------------------------------------
+// Action: parse (default — the original json tool behavior)
+// ---------------------------------------------------------------------------
+
+async function executeParse(input: JsonInput): Promise<JsonOutput> {
+  const format = input.format ?? 'json';
+
+  let parsed: unknown;
+  let raw: string;
+
+  if (input.file) {
     try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      return {
-        data: null,
-        formatted: '',
-        type: 'unknown',
-        /* v8 ignore next -- JSON.parse only throws SyntaxError (an Error); the String(e) side is defensive. */
-        error: `Parse failed: ${e instanceof Error ? e.message : String(e)}`,
-      };
+      raw = await fs.readFile(input.file, 'utf8');
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'parse', error: 'Could not read file' };
     }
+  } else if (input.data) {
+    raw = input.data;
+  } else {
+    return { data: null, formatted: '', type: 'unknown', action: 'parse', error: 'Provide file or data' };
+  }
 
-    if (input.validate) {
-      return {
-        data: parsed,
-        formatted: 'valid',
-        type: Array.isArray(parsed) ? 'array' : typeof parsed,
-        keys:
-          typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
-      };
-    }
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return {
+      data: null,
+      formatted: '',
+      type: 'unknown',
+      action: 'parse',
+      /* v8 ignore next -- JSON.parse only throws SyntaxError (an Error); the String(e) side is defensive. */
+      error: `Parse failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
 
-    const queryResult = input.query ? query(parsed, input.query) : undefined;
-    const formatted = formatOutput(queryResult ?? parsed, format);
+  if (input.validate) {
+    return {
+      data: parsed,
+      formatted: 'valid',
+      type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      action: 'parse',
+      keys:
+        typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
+    };
+  }
 
+  // Backward compat: if `query` is provided without an explicit action,
+  // use the original simple path-based query (supports `a.b[0].c` notation).
+  if (input.query) {
+    const queryResult = simpleQuery(parsed, input.query);
+    const formatted = formatOutput(queryResult, format);
     return {
       data: parsed,
       formatted,
       type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      action: 'parse',
       keys:
         typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
       query_result: queryResult,
     };
-  },
-};
+  }
 
-function query(data: unknown, path: string): unknown {
+  const formatted = formatOutput(parsed, format);
+
+  return {
+    data: parsed,
+    formatted,
+    type: Array.isArray(parsed) ? 'array' : typeof parsed,
+    action: 'parse',
+    keys:
+      typeof parsed === 'object' && parsed !== null ? Object.keys(parsed as object) : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Action: query (JMESPath-like — from json-path plugin)
+// ---------------------------------------------------------------------------
+
+async function executeQuery(input: JsonInput): Promise<JsonOutput> {
+  if (!input.query) {
+    return { data: null, formatted: '', type: 'unknown', action: 'query', error: 'query is required for action: query' };
+  }
+
+  let parsed: unknown;
+  if (input.file) {
+    try {
+      const raw = await fs.readFile(input.file, 'utf8');
+      parsed = JSON.parse(raw);
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'query', error: 'Could not read/parse file' };
+    }
+  } else if (input.data) {
+    try {
+      parsed = JSON.parse(input.data);
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'query', error: 'Could not parse data string' };
+    }
+  } else {
+    return { data: null, formatted: '', type: 'unknown', action: 'query', error: 'Provide file or data' };
+  }
+
+  try {
+    const result = jmespathSearch(parsed, input.query);
+    const format = input.format ?? 'json';
+    return {
+      data: parsed,
+      formatted: formatOutput(result, format),
+      type: result === null ? 'null' : Array.isArray(result) ? 'array' : typeof result,
+      action: 'query',
+      query_result: result,
+    };
+  } catch (e) {
+    return {
+      data: null,
+      formatted: '',
+      type: 'unknown',
+      action: 'query',
+      /* v8 ignore next -- defensive String(e) */
+      error: `Query failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Action: validate (JSON Schema — from json-path plugin)
+// ---------------------------------------------------------------------------
+
+async function executeValidate(input: JsonInput): Promise<JsonOutput> {
+  if (!input.schema) {
+    return { data: null, formatted: '', type: 'unknown', action: 'validate', error: 'schema is required for action: validate' };
+  }
+
+  let parsed: unknown;
+  if (input.file) {
+    try {
+      const raw = await fs.readFile(input.file, 'utf8');
+      parsed = JSON.parse(raw);
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'validate', error: 'Could not read/parse file' };
+    }
+  } else if (input.data) {
+    try {
+      parsed = JSON.parse(input.data);
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'validate', error: 'Could not parse data string' };
+    }
+  } else {
+    return { data: null, formatted: '', type: 'unknown', action: 'validate', error: 'Provide file or data' };
+  }
+
+  try {
+    const { valid, errors } = validateJsonSchema(parsed, input.schema as Record<string, unknown>);
+    return {
+      data: parsed,
+      formatted: valid ? 'valid' : 'invalid',
+      type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      action: 'validate',
+      valid,
+      errors,
+    };
+  } catch (e) {
+    return {
+      data: null,
+      formatted: '',
+      type: 'unknown',
+      action: 'validate',
+      /* v8 ignore next -- defensive String(e) */
+      error: `Validation failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Action: transform (chained JMESPath — from json-path plugin)
+// ---------------------------------------------------------------------------
+
+async function executeTransform(input: JsonInput): Promise<JsonOutput> {
+  if (!input.transforms || input.transforms.length === 0) {
+    return { data: null, formatted: '', type: 'unknown', action: 'transform', error: 'transforms array is required for action: transform' };
+  }
+
+  let parsed: unknown;
+  if (input.file) {
+    try {
+      const raw = await fs.readFile(input.file, 'utf8');
+      parsed = JSON.parse(raw);
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'transform', error: 'Could not read/parse file' };
+    }
+  } else if (input.data) {
+    try {
+      parsed = JSON.parse(input.data);
+    } catch {
+      return { data: null, formatted: '', type: 'unknown', action: 'transform', error: 'Could not parse data string' };
+    }
+  } else {
+    return { data: null, formatted: '', type: 'unknown', action: 'transform', error: 'Provide file or data' };
+  }
+
+  try {
+    let current: unknown = parsed;
+    const steps: Array<{ transform: string; result: unknown }> = [];
+
+    for (const t of input.transforms) {
+      current = jmespathSearch(current, t);
+      steps.push({ transform: t, result: current });
+    }
+
+    const format = input.format ?? 'json';
+    return {
+      data: parsed,
+      formatted: formatOutput(current, format),
+      type: current === null ? 'null' : Array.isArray(current) ? 'array' : typeof current,
+      action: 'transform',
+      result: current,
+      steps,
+    };
+  } catch (e) {
+    return {
+      data: null,
+      formatted: '',
+      type: 'unknown',
+      action: 'transform',
+      /* v8 ignore next -- defensive String(e) */
+      error: `Transform failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Action: merge (deep merge — from json-path plugin)
+// ---------------------------------------------------------------------------
+
+async function executeMerge(input: JsonInput): Promise<JsonOutput> {
+  if (input.base === undefined || input.patch === undefined) {
+    return { data: null, formatted: '', type: 'unknown', action: 'merge', error: 'base and patch are required for action: merge' };
+  }
+
+  const conflictResolution = input.conflictResolution ?? 'prefer-patch';
+
+  try {
+    const result = deepMergeCore(input.base, input.patch, { conflictResolution });
+    const format = input.format ?? 'json';
+    return {
+      data: result,
+      formatted: formatOutput(result, format),
+      type: result === null ? 'null' : Array.isArray(result) ? 'array' : typeof result,
+      action: 'merge',
+      result,
+    };
+  } catch (e) {
+    return {
+      data: null,
+      formatted: '',
+      type: 'unknown',
+      action: 'merge',
+      /* v8 ignore next -- defensive String(e) */
+      error: `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JMESPath implementation (from json-path plugin)
+// ---------------------------------------------------------------------------
+
+function jmespathSearch(data: unknown, query: string): unknown {
+  // Handle basic JMESPath expressions
+  if (!query || query === '@') return data;
+
+  // Root access
+  if (query === '$') return data;
+
+  // Dot notation: foo.bar
+  const dotMatch = query.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\.(.+))?$/);
+  if (dotMatch) {
+    const key = dotMatch[1]!;
+    const rest = dotMatch[2];
+    const val = (data as Record<string, unknown> | undefined)?.[key];
+    if (rest === undefined) return val;
+    return jmespathSearch(val, rest);
+  }
+
+  // Array access: [0]
+  const arrMatch = query.match(/^\[(\d+)\](?:\.(.+))?$/);
+  if (arrMatch) {
+    const idx = Number.parseInt(arrMatch[1]!, 10);
+    const rest = arrMatch[2];
+    const arr = data as unknown[];
+    const val = arr?.[idx];
+    if (rest === undefined) return val;
+    return jmespathSearch(val, rest);
+  }
+
+  // Wildcard: [*]
+  if (query === '[*]') {
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return data;
+  }
+
+  // Multi-select: foo.bar[*].baz
+  const multiMatch = query.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[\*\](?:\.(.+))?$/);
+  if (multiMatch) {
+    const key = multiMatch[1]!;
+    const rest = multiMatch[2];
+    const arr = (data as Record<string, unknown[]> | undefined)?.[key];
+    if (!Array.isArray(arr)) return [];
+    if (rest === undefined) return arr;
+    return arr.map((item) => jmespathSearch(item, rest));
+  }
+
+  // Filter: [?foo==`bar`]
+  const filterMatch = query.match(/^\[\\?([a-zA-Z_][a-zA-Z0-9_]*)(==|!=|<|>|<=|>=)(`[^`]+`|'[^']*')\](?:\.(.+))?$/);
+  if (filterMatch) {
+    const field = filterMatch[1]!;
+    const op = filterMatch[2]!;
+    const rawVal = filterMatch[3]!;
+    const rest = filterMatch[4];
+    const cmpVal = JSON.parse(rawVal.slice(1, -1));
+    const arr = data as Record<string, unknown>[];
+    if (!Array.isArray(arr)) return [];
+    const filtered = arr.filter((item) => {
+      const itemVal = (item as Record<string, unknown>)[field];
+      switch (op) {
+        case '==': return itemVal === cmpVal;
+        case '!=': return itemVal !== cmpVal;
+        case '>': return Number(itemVal) > Number(cmpVal);
+        case '<': return Number(itemVal) < Number(cmpVal);
+        case '>=': return Number(itemVal) >= Number(cmpVal);
+        case '<=': return Number(itemVal) <= Number(cmpVal);
+        /* v8 ignore next -- op is constrained to the six operators by the filter regex; default is unreachable. */
+        default: return true;
+      }
+    });
+    if (rest === undefined) return filtered;
+    return filtered.map((item) => jmespathSearch(item, rest));
+  }
+
+  // Function calls: length(@)
+  const fnMatch = query.match(/^(length|keys|values|type)\(@\)$/);
+  if (fnMatch) {
+    const fn = fnMatch[1]!;
+    switch (fn) {
+      case 'length':
+        if (Array.isArray(data)) return data.length;
+        if (typeof data === 'string') return data.length;
+        if (typeof data === 'object' && data !== null) return Object.keys(data as object).length;
+        return 0;
+      case 'keys':
+        if (typeof data === 'object' && data !== null && !Array.isArray(data)) return Object.keys(data as object);
+        return [];
+      case 'values':
+        if (typeof data === 'object' && data !== null && !Array.isArray(data)) return Object.values(data as object);
+        return [];
+      case 'type':
+        if (data === null) return 'null';
+        if (Array.isArray(data)) return 'array';
+        return typeof data;
+      /* v8 ignore next 2 -- fn is constrained to the four names by the function regex; default is unreachable. */
+      default:
+        return null;
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// JSON Schema validator (from json-path plugin)
+// ---------------------------------------------------------------------------
+
+function validateJsonSchema(data: unknown, schema: Record<string, unknown>): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  function check(value: unknown, s: Record<string, unknown>, path: string): void {
+    if (s['type']) {
+      const expectedType = s['type'] as string;
+      const actualType = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
+      if (expectedType === 'integer') {
+        if (!Number.isInteger(value)) errors.push(`${path}: expected integer, got ${actualType}`);
+      } else if (expectedType !== actualType) {
+        errors.push(`${path}: expected ${expectedType}, got ${actualType}`);
+      }
+    }
+
+    if (typeof value === 'string' && s['format'] === 'uri' && value) {
+      try { new URL(value); } catch { errors.push(`${path}: not a valid URI`); }
+    }
+
+    if (typeof value === 'string' && s['pattern']) {
+      const re = new RegExp(s['pattern'] as string);
+      if (!re.test(value)) errors.push(`${path}: does not match pattern ${s['pattern']}`);
+    }
+
+    if (typeof value === 'string' && s['minLength'] !== undefined && value.length < (s['minLength'] as number)) {
+      errors.push(`${path}: string too short (min ${s['minLength']})`);
+    }
+
+    if (typeof value === 'string' && s['maxLength'] !== undefined && value.length > (s['maxLength'] as number)) {
+      errors.push(`${path}: string too long (max ${s['maxLength']})`);
+    }
+
+    if (typeof value === 'number' && s['minimum'] !== undefined && value < (s['minimum'] as number)) {
+      errors.push(`${path}: below minimum ${s['minimum']}`);
+    }
+
+    if (typeof value === 'number' && s['maximum'] !== undefined && value > (s['maximum'] as number)) {
+      errors.push(`${path}: above maximum ${s['maximum']}`);
+    }
+
+    if (Array.isArray(value) && s['items'] && Array.isArray(s['items'])) {
+      for (let i = 0; i < value.length; i++) {
+        check(value[i], s['items'] as never as Record<string, unknown>, `${path}[${i}]`);
+      }
+    }
+
+    if (typeof value === 'object' && value !== null && !Array.isArray(value) && s['properties']) {
+      const props = s['properties'] as Record<string, Record<string, unknown>>;
+      for (const [k, propSchema] of Object.entries(props)) {
+        check((value as Record<string, unknown>)[k], propSchema, `${path}.${k}`);
+      }
+    }
+  }
+
+  check(data, schema, '$');
+  return { valid: errors.length === 0, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Simple path-based query (original json tool query, backward compat)
+// ---------------------------------------------------------------------------
+
+function simpleQuery(data: unknown, path: string): unknown {
   const parts = path
     .replace(/\[(\d+)\]/g, '.$1')
     .split('.')
@@ -130,6 +590,10 @@ function query(data: unknown, path: string): unknown {
 
   return current;
 }
+
+// ---------------------------------------------------------------------------
+// Output formatting (original json tool helpers)
+// ---------------------------------------------------------------------------
 
 function formatOutput(data: unknown, format: string): string {
   if (format === 'json5') {

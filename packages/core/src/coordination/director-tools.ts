@@ -290,112 +290,114 @@ export function makeTerminateAllTool(director: Director): Tool {
   };
 }
 
-export function makeFleetStatusTool(director: Director): Tool {
-  return {
-    name: 'fleet_status',
-    description: "Snapshot of the fleet — every subagent's current status, coordinator counts (total/running/idle/stopped), pending task descriptions, and usage rollup.",
-    permission: 'auto',
-    mutating: false,
-    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
-    inputSchema: { type: 'object', properties: {}, required: [] },
-    async execute() {
-      const base = director.status();
-      const fm = director.fleetManager;
-      const stats = fm?.getFleetStats();
-      const fleetStatus = fm?.getFleetStatus();
-      return {
-        subagents: base.subagents,
-        coordinatorStats: stats
-          ? { total: stats.total, running: stats.running, idle: stats.idle, stopped: stats.stopped }
-          : undefined,
-        pending: fleetStatus?.pending ?? [],
-        usage: fm?.snapshot(),
-      };
-    },
-  };
-}
-
-export function makeFleetUsageTool(director: Director): Tool {
-  return {
-    name: 'fleet_usage',
-    description: 'Token + cost breakdown across the fleet, per-subagent and totals.',
-    permission: 'auto',
-    mutating: false,
-    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
-    inputSchema: { type: 'object', properties: {}, required: [] },
-    async execute() { return director.snapshot(); },
-  };
-}
-
 /**
- * Read a subagent's JSONL transcript and return the last assistant text,
- * stop reason, and tool-use count. The director can call this on a
- * running or timed-out subagent to see what it actually produced without
- * having to wait for natural completion.
+ * Unified fleet observation tool — consolidates the former fleet_status,
+ * fleet_usage, fleet_session, and fleet_health tools under a single `action`
+ * parameter (status, usage, health, session).
+ *
+ * These four are all read-only fleet queries; merging them into one tool
+ * reduces tool-schema token overhead (4 × ~150 tokens → 1 × ~250 tokens)
+ * and eliminates model confusion when choosing between similar tools.
  */
-export function makeFleetSessionTool(director: Director): Tool {
+export function makeFleetTool(director: Director): Tool {
   return {
-    name: 'fleet_session',
+    name: 'fleet',
     description:
-      'Read a subagent\'s JSONL transcript and extract its last assistant text, stop reason, and tool-use count. Use this to see what a running or timed-out subagent actually produced.',
+      'Fleet observation tool. Use `action` to select what you need: ' +
+      '"status" — snapshot of all subagents + coordinator counts + pending tasks; ' +
+      '"usage" — token + cost breakdown per subagent and totals; ' +
+      '"health" — per-subagent budget pressure, last activity, and status; ' +
+      '"session" — read a subagent\'s JSONL transcript (requires subagentId).',
+    usageHint:
+      'action: "status" (default) | "usage" | "health" | "session".\n' +
+      'For "session", pass subagentId (required) and optional tail (trailing JSONL lines).',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
-        subagentId: { type: 'string', description: 'Subagent id to read the transcript of.' },
-        tail: { type: 'number', description: 'Number of trailing JSONL lines to return. Omit for the full transcript.' },
+        action: {
+          type: 'string',
+          enum: ['status', 'usage', 'health', 'session'],
+          description: 'Observation to retrieve (default: status).',
+        },
+        subagentId: {
+          type: 'string',
+          description: 'Subagent id (required for action: "session").',
+        },
+        tail: {
+          type: 'number',
+          description: 'Number of trailing JSONL lines (action: "session" only). Omit for the full transcript.',
+        },
       },
-      required: ['subagentId'],
     },
     async execute(input: unknown) {
-      const i = input as { subagentId: string; tail?: number | undefined };
-      const result = await director.readSession(i.subagentId, i.tail);
-      if (!result) {
-        return {
-          error: `fleet_session: transcript unavailable for "${i.subagentId}". Is sessionsRoot configured?`,
-        };
-      }
-      return result;
-    },
-  };
-}
+      const i = (input ?? {}) as { action?: string | undefined; subagentId?: string | undefined; tail?: number | undefined };
+      const action = i.action ?? 'status';
 
-/**
- * Health snapshot per subagent — budget pressure (how close to limits),
- * last activity timestamp, and current status. Lets the director make
- * smarter routing decisions without having to call fleet_usage + fleet_status separately.
- */
-export function makeFleetHealthTool(director: Director): Tool {
-  return {
-    name: 'fleet_health',
-    description:
-      'Per-subagent health report: budget pressure (pct of limits consumed), last activity timestamp, and current status. Use to decide whether to assign more work to a subagent or spawn a fresh one.',
-    permission: 'auto',
-    mutating: false,
-    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
-    inputSchema: { type: 'object', properties: {}, required: [] },
-    async execute() {
-      const status = director.status();
-      const snapshot = director.snapshot();
-      const subagents = status.subagents ?? [];
-      const perSubagent = snapshot.perSubagent ?? {};
-      return {
-        subagents: subagents.map((s) => {
-          const usage = perSubagent[s.id];
+      switch (action) {
+        case 'status': {
+          const base = director.status();
+          const fm = director.fleetManager;
+          const stats = fm?.getFleetStats();
+          const fleetStatus = fm?.getFleetStatus();
           return {
-            id: s.id,
-            status: s.status,
-            lastEventAt: usage?.lastEventAt,
-            budgetPressure: {
-              iterations: usage?.iterations,
-              toolCalls: usage?.toolCalls,
-              costUsd: usage?.cost,
-            },
+            action: 'status',
+            subagents: base.subagents,
+            coordinatorStats: stats
+              ? { total: stats.total, running: stats.running, idle: stats.idle, stopped: stats.stopped }
+              : undefined,
+            pending: fleetStatus?.pending ?? [],
+            usage: fm?.snapshot(),
           };
-        }),
-      };
+        }
+
+        case 'usage': {
+          return { action: 'usage', ...director.snapshot() };
+        }
+
+        case 'health': {
+          const status = director.status();
+          const snapshot = director.snapshot();
+          const subagents = status.subagents ?? [];
+          const perSubagent = snapshot.perSubagent ?? {};
+          return {
+            action: 'health',
+            subagents: subagents.map((s) => {
+              const usage = perSubagent[s.id];
+              return {
+                id: s.id,
+                status: s.status,
+                lastEventAt: usage?.lastEventAt,
+                budgetPressure: {
+                  iterations: usage?.iterations,
+                  toolCalls: usage?.toolCalls,
+                  costUsd: usage?.cost,
+                },
+              };
+            }),
+          };
+        }
+
+        case 'session': {
+          const subagentId = i.subagentId;
+          if (!subagentId) {
+            return { action: 'session', error: 'fleet: subagentId is required for action: "session"' };
+          }
+          const result = await director.readSession(subagentId, i.tail);
+          if (!result) {
+            return {
+              action: 'session',
+              error: `fleet: transcript unavailable for "${subagentId}". Is sessionsRoot configured?`,
+            };
+          }
+          return { action: 'session', ...result };
+        }
+
+        default:
+          return { error: `fleet: unknown action "${action}". Valid: status, usage, health, session.` };
+      }
     },
   };
 }

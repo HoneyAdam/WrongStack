@@ -38,13 +38,14 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
   category: 'Transform',
   description:
     'Perform a search-and-replace across multiple files using a regex pattern. ' +
-    'This is a powerful bulk transformation tool. Always use `dry_run: true` first on anything non-trivial.',
+    'This is a powerful bulk transformation tool. Dry-run is ON by default — set `dry_run: false` to apply changes.',
   usageHint:
     'DANGEROUS IF USED CARELESSLY — review the diff output carefully.\n\n' +
     'Recommended workflow:\n' +
-    '1. Start with `dry_run: true` to see exactly what would change.\n' +
-    '2. Use a specific enough `pattern` (and `glob` / `files`) to avoid accidental broad changes.\n' +
-    '3. `replace_all` controls whether only the first match per file or all matches are replaced.\n' +
+    '1. Run without `dry_run: false` first to see exactly what would change (dry-run is the default).\n' +
+    '2. Review the diff output, then re-run with `dry_run: false` to apply.\n' +
+    '3. Use a specific enough `pattern` (and `glob` / `files`) to avoid accidental broad changes.\n' +
+    '4. `replace_all` controls whether only the first match per file or all matches are replaced.\n' +
     'This tool is excellent for large-scale refactors (renaming, import updates, etc.) but must be used with caution.',
   permission: 'confirm',
   mutating: true,
@@ -65,7 +66,7 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
         type: 'boolean',
         description: 'Replace all occurrences in each file (default: true)',
       },
-      dry_run: { type: 'boolean', description: 'Preview changes without writing' },
+      dry_run: { type: 'boolean', description: 'Preview changes without writing (default: true)' },
     },
     required: ['pattern', 'replacement', 'files'],
   },
@@ -102,7 +103,7 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
     }
     const re = compiled.regex;
     const globRe = input.glob ? compileGlob(input.glob) : null;
-    const dryRun = input.dry_run ?? false;
+    const dryRun = input.dry_run ?? true;
 
     const filesInput = Array.isArray(input.files) ? input.files.join(',') : input.files;
     const fileList = await resolveFiles(filesInput, ctx, globRe);

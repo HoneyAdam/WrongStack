@@ -67,12 +67,12 @@ describe('jsonTool', () => {
     expect(result.formatted).toBe('valid');
   });
 
-  it('queries nested paths', async () => {
+  it('queries nested paths (backward compat — simple path query)', async () => {
     const result = await jsonTool.execute({ data: '{"a":{"b":[1,2,3]}}', query: 'a.b[0]' });
     expect(result.query_result).toBe(1);
   });
 
-  it('queries array index', async () => {
+  it('queries array index (backward compat)', async () => {
     const result = await jsonTool.execute({ data: '[10,20,30]', query: '1' });
     expect(result.query_result).toBe(20);
   });
@@ -98,14 +98,13 @@ describe('jsonTool', () => {
   });
 
   it('returns undefined when a query descends into a scalar', async () => {
-    // `a` is a number, so `a.b` tries to index a scalar → undefined (else branch).
     const result = await jsonTool.execute({ data: '{"a":1}', query: 'a.b' });
     expect(result.query_result).toBeUndefined();
   });
 
   it('quotes yaml string values that contain special characters', async () => {
     const result = await jsonTool.execute({ data: '{"a":"x:y"}', format: 'yaml' });
-    expect(result.formatted).toContain('"x:y"'); // colon forces quoting
+    expect(result.formatted).toContain('"x:y"');
   });
 
   it('emits plain yaml string values without quoting', async () => {
@@ -122,5 +121,144 @@ describe('jsonTool', () => {
     const result = await jsonTool.execute({ data: '{"n":null,"b":true}', format: 'yaml' });
     expect(result.formatted).toContain('n: null');
     expect(result.formatted).toContain('b: true');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// action: query (JMESPath — consolidated from json-path plugin)
+// ---------------------------------------------------------------------------
+
+describe('jsonTool action: query', () => {
+  it('returns the whole document for @', async () => {
+    const data = { a: 1 };
+    const result = await jsonTool.execute({ action: 'query', data: JSON.stringify(data), query: '@' });
+    expect(result.query_result).toEqual(data);
+  });
+
+  it('resolves dot notation and nested keys', async () => {
+    const result = await jsonTool.execute({ action: 'query', data: '{"a":{"b":2}}', query: 'a.b' });
+    expect(result.query_result).toBe(2);
+  });
+
+  it('resolves array indexing', async () => {
+    const r1 = await jsonTool.execute({ action: 'query', data: '[10,20]', query: '[0]' });
+    expect(r1.query_result).toBe(10);
+    const r2 = await jsonTool.execute({ action: 'query', data: '[{"x":5}]', query: '[0].x' });
+    expect(r2.query_result).toBe(5);
+  });
+
+  it('handles multi-select projections', async () => {
+    const result = await jsonTool.execute({ action: 'query', data: '{"items":[{"v":1},{"v":2}]}', query: 'items[*].v' });
+    expect(result.query_result).toEqual([1, 2]);
+  });
+
+  it('supports filter expressions', async () => {
+    const result = await jsonTool.execute({ action: 'query', data: '[{"n":1},{"n":2},{"n":3}]', query: '[n>`2`]' });
+    expect(result.query_result).toEqual([{ n: 3 }]);
+  });
+
+  it('supports length/keys/values/type functions', async () => {
+    const len = await jsonTool.execute({ action: 'query', data: '[1,2,3]', query: 'length(@)' });
+    expect(len.query_result).toBe(3);
+    const keys = await jsonTool.execute({ action: 'query', data: '{"a":1,"b":2}', query: 'keys(@)' });
+    expect(keys.query_result).toEqual(['a', 'b']);
+    const type = await jsonTool.execute({ action: 'query', data: 'null', query: 'type(@)' });
+    expect(type.query_result).toBe('null');
+  });
+
+  it('returns error when query is missing', async () => {
+    const result = await jsonTool.execute({ action: 'query', data: '{}' });
+    expect(result.error).toContain('query is required');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// action: validate (JSON Schema — consolidated from json-path plugin)
+// ---------------------------------------------------------------------------
+
+describe('jsonTool action: validate', () => {
+  it('validates type matches', async () => {
+    const result = await jsonTool.execute({ action: 'validate', data: '5', schema: { type: 'integer' } });
+    expect(result.valid).toBe(true);
+  });
+
+  it('reports type mismatches', async () => {
+    const result = await jsonTool.execute({ action: 'validate', data: '"x"', schema: { type: 'number' } });
+    expect(result.valid).toBe(false);
+    expect(result.errors?.[0]).toMatch(/expected number/);
+  });
+
+  it('validates uri format', async () => {
+    const ok = await jsonTool.execute({ action: 'validate', data: '"https://example.com"', schema: { type: 'string', format: 'uri' } });
+    expect(ok.valid).toBe(true);
+    const bad = await jsonTool.execute({ action: 'validate', data: '":::bad"', schema: { type: 'string', format: 'uri' } });
+    expect(bad.valid).toBe(false);
+  });
+
+  it('validates nested object properties', async () => {
+    const result = await jsonTool.execute({ action: 'validate', data: '{"a":"x"}', schema: { type: 'object', properties: { a: { type: 'number' } } } });
+    expect(result.valid).toBe(false);
+    expect(result.errors?.some((e) => e.includes('$.a'))).toBe(true);
+  });
+
+  it('returns error when schema is missing', async () => {
+    const result = await jsonTool.execute({ action: 'validate', data: '{}' });
+    expect(result.error).toContain('schema is required');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// action: transform (chained JMESPath — consolidated from json-path plugin)
+// ---------------------------------------------------------------------------
+
+describe('jsonTool action: transform', () => {
+  it('applies transforms in sequence', async () => {
+    const result = await jsonTool.execute({
+      action: 'transform',
+      data: '{"items":[{"v":1},{"v":2}]}',
+      transforms: ['items[*].v', 'length(@)'],
+    });
+    expect(result.result).toBe(2);
+    expect(result.steps?.length).toBe(2);
+  });
+
+  it('returns error when transforms is missing', async () => {
+    const result = await jsonTool.execute({ action: 'transform', data: '{}' });
+    expect(result.error).toContain('transforms array is required');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// action: merge (deep merge — consolidated from json-path plugin)
+// ---------------------------------------------------------------------------
+
+describe('jsonTool action: merge', () => {
+  it('deep-merges nested objects (patch wins on scalar collisions)', async () => {
+    const result = await jsonTool.execute({
+      action: 'merge',
+      base: { a: 1, nested: { x: 1 } },
+      patch: { a: 2, nested: { y: 2 } },
+    });
+    expect(result.result).toEqual({ a: 2, nested: { x: 1, y: 2 } });
+  });
+
+  it('merges disjoint keys', async () => {
+    const result = await jsonTool.execute({ action: 'merge', base: { a: 1 }, patch: { b: 2 } });
+    expect(result.result).toEqual({ a: 1, b: 2 });
+  });
+
+  it('prefer-base keeps the base for a scalar collision', async () => {
+    const result = await jsonTool.execute({ action: 'merge', base: 5, patch: 10, conflictResolution: 'prefer-base' });
+    expect(result.result).toBe(5);
+  });
+
+  it('prefer-patch (default) takes the patch for a scalar collision', async () => {
+    const result = await jsonTool.execute({ action: 'merge', base: 5, patch: 10 });
+    expect(result.result).toBe(10);
+  });
+
+  it('returns error when base or patch is missing', async () => {
+    const result = await jsonTool.execute({ action: 'merge', base: {} });
+    expect(result.error).toContain('base and patch are required');
   });
 });
