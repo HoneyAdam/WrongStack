@@ -171,6 +171,10 @@
     "./codebase-index/index": {
       "types": "./dist/codebase-index/index.d.ts",
       "import": "./dist/codebase-index/index.js"
+    },
+    "./codebase-index": {
+      "types": "./dist/codebase-index/index.d.ts",
+      "import": "./dist/codebase-index/index.js"
     }
   },
   "files": [

@@ -4,7 +4,7 @@ const fsm = vi.hoisted(() => ({ watch: vi.fn() }));
 vi.mock('node:fs', async (o) => ({ ...(await o()), watch: fsm.watch }));
 
 const idx = vi.hoisted(() => ({ enqueueReindex: vi.fn() }));
-vi.mock('@wrongstack/tools/codebase-index/index.js', () => ({ enqueueReindex: idx.enqueueReindex }));
+vi.mock('@wrongstack/tools/codebase-index', () => ({ enqueueReindex: idx.enqueueReindex }));
 
 import fileWatcherPlugin from '../src/file-watcher';
 

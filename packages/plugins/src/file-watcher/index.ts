@@ -152,9 +152,7 @@ const plugin: Plugin = {
                   // Route through the background coordinator (mutex + watchdog +
                   // circuit breaker) — a direct runIndexer call here used to race
                   // the startup scan and per-edit reindexes on the same SQLite file.
-                  // @ts-expect-error — @wrongstack/tools/codebase-index is not an exported subpath;
-                  // the dynamic import resolves at runtime but has no type declaration visible here.
-                  const { enqueueReindex } = await import('@wrongstack/tools/codebase-index/index.js');
+                  const { enqueueReindex } = await import('@wrongstack/tools/codebase-index');
                   const root = indexProjectRoot || dirPath;
                   enqueueReindex({
                     projectRoot: root,
