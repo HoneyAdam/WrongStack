@@ -609,6 +609,63 @@ Extend or trim the list in config:
 
 **Autonomous autophase.** The autonomous AutoPhase verifier runs its verify command *without* per-call confirmation, so it keeps a narrower base allowlist (`pnpm`/`npm`/`yarn`/`bun`). It additionally honors your **explicit** `tools.exec.allow` opt-ins (not the broadened `exec` defaults), so a Go/Rust project can run e.g. `go test ./...` autonomously once you add `go` to `tools.exec.allow` and point `WRONGSTACK_AUTOPHASE_VERIFY_CMD` at it. Because `tools.exec.allow` is trusted-config-only, a repo still cannot widen what runs autonomously.
 
+### `exec` tool heuristic danger detection (`tools.exec.danger`)
+
+The `exec` tool classifies every call into one of three danger levels. Destructive and caution calls surface a level-based chip and the matched rule's reason in the TUI tool-result view, so a dangerous command is visible at a glance.
+
+- **`safe`** — no rule fired. The output renders as a normal bash-style line.
+- **`caution`** — the call matches a rule whose false-positive surface is too high to block (e.g. `python -c "..."`, `sudo`, `chmod 777`). TUI shows a `! CAUTION` chip + reason; the call still runs.
+- **`destructive`** — the call matches a high-confidence destructive rule (e.g. `rm -rf`, `git push --force`, `mkfs`, `format`). TUI shows a `⚠ DESTRUCTIVE` chip + reason; the call still runs but is visibly flagged.
+
+The current rule set is documented in `packages/tools/src/_danger-detect.ts`. Stable rule ids (each is a string you can reference in the bypass list):
+
+| Rule id | Level | Pattern |
+|---|---|---|
+| `rm-recursive` | destructive | `rm -rf` (any short-flag combination) |
+| `powershell-remove-item-recursive-force` | destructive | PowerShell `Remove-Item -Recurse -Force` |
+| `find-exec` | destructive | `find -exec` / `-ok` / `-execdir` |
+| `git-exec` | destructive | `git --exec=`, `--upload-pack=`, `--receive-pack=` |
+| `win32-format` | destructive | Windows `format` |
+| `win32-diskpart` | destructive | Windows `diskpart` |
+| `win32-bcdedit` | destructive | Windows `bcdedit` |
+| `mkfs` | destructive | `mkfs` family (any extension) / `mkswap` |
+| `dd-to-block-device` | destructive | `dd of=/dev/{sd,hd,nvme,...}` |
+| `shred`, `wipefs`, `sdelete` | destructive | secure-erase tools |
+| `git-push-force` | destructive | `git push --force`, `-f`, `--force-with-lease` |
+| `git-reset-hard` | destructive | `git reset --hard` |
+| `git-clean-force` | destructive | `git clean -f` / `-fd` / `--force` |
+| `npm-publish` | destructive | `npm`/`pnpm`/`yarn`/`bun` `publish`, `cargo publish` / `yank` |
+| `kubectl-delete-namespace` | destructive | `kubectl delete namespace/ns`, `kubectl drain` |
+| `inline-eval` | caution | `python`/`node`/`bash`/`sh`/`zsh`/`ruby`/`perl`/`lua` with `-c`, `-e`, `--eval` |
+| `pipe-to-shell` | caution | `curl`/`wget` + `sh`/`bash`/`pwsh` in same argv |
+| `sudo`, `runas` | caution | privilege escalation |
+| `chmod-world-writable` | caution | `chmod` with octal mode containing `7` |
+
+**Bypassing a rule:**
+
+```jsonc
+// ~/.wrongstack/config.json
+{
+  "tools": {
+    "exec": {
+      "danger": {
+        "bypass": ["rm-recursive", "inline-eval"]
+      }
+    }
+  }
+}
+```
+
+Each entry is a stable rule id from the table above. A matched rule whose id is in this list is **skipped** — the call is treated as `safe` and no chip is rendered. Bypassing one rule does not affect any other rule; the same call may still trip a different rule and be reported under that rule's id.
+
+**Use case:** a CI script that legitimately runs `rm -rf ./build` on every iteration can add `"rm-recursive"` to bypass so the detector stops emitting banners for that one rule. Bypassing a rule does not bypass per-arg hard-deny patterns (`BLOCKED_ARG_PATTERNS`) — a `rm -rf /` is still rejected by the hard-deny layer regardless of the bypass config.
+
+**Security:**
+
+- `tools.exec.danger` (and the whole object) is **stripped from in-project repo config** the same way `tools.exec.allow` is. The boot path that already strips `allow` was extended in PR 3 to also strip `danger`. A repo cannot silently disarm safety checks for anyone who clones it.
+- Only trusted config sources (user-global `~/.wrongstack/config.json`, system, CLI) can set bypass lists. The strip emits a `config.in_project_unsafe_fields_ignored` warning naming `tools.exec.danger`.
+- **Unknown bypass ids are silently ignored** — forward-compat. If a future version adds a rule id, a config that references it before the upgrade simply has no effect for that id.
+
 **Auto-detection signals.** A command is routed to PowerShell if it contains any of these unambiguous patterns:
 
 - **Cmdlet verb-noun syntax** — `Get-Content`, `Set-Location`, `Invoke-WebRequest`, `Remove-Item`
