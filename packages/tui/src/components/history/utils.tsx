@@ -506,16 +506,22 @@ export function formatToolOutput(
   }
 
   // bash / shell
+  //
+  // Command tools may report output as either stdout/stderr or output/error.
+  // Support both shapes here so timeout chips, line counts, and previews do not
+  // depend on which executor produced the result.
   if (toolName === 'bash' || toolName === 'shell') {
     if (json && typeof json === 'object') {
       const o = json as Record<string, unknown>;
       const exit = numOf(o['exit_code']) ?? numOf(o['exitCode']);
-      const stdout = stringOf(o['stdout']) ?? '';
-      const stderr = stringOf(o['stderr']) ?? '';
+      const stdout = stringOf(o['stdout']) ?? stringOf(o['output']) ?? '';
+      const stderr = stringOf(o['stderr']) ?? stringOf(o['error']) ?? '';
+      const timedOut = o['timed_out'] === true || o['timedOut'] === true;
       const stdoutLines = countLines(stdout);
       const stderrLines = countLines(stderr);
       const head: string[] = [];
       if (exit !== undefined) head.push(`exit ${exit}`);
+      if (timedOut) head.push('timed out');
       const lineParts: string[] = [];
       if (stdoutLines > 0) lineParts.push(`${stdoutLines} out`);
       if (stderrLines > 0) lineParts.push(`${stderrLines} err`);
@@ -599,33 +605,6 @@ export function formatToolOutput(
       }
       if (lines.length > 0) return lines;
     }
-  }
-
-  // bash
-  //
-  // Same compact `exit N · X out · Y err` shape as git / safe-exec above.
-  // BashOutput is snake_case (`exit_code`, `output` / `error`); some
-  // callers and fixtures send camelCase variants, so we accept either.
-  if (toolName === 'bash' && json && typeof json === 'object') {
-    const o = json as Record<string, unknown>;
-    const exit = numOf(o['exit_code']) ?? numOf(o['exitCode']);
-    const output = stringOf(o['output']) ?? stringOf(o['stdout']) ?? '';
-    const error = stringOf(o['error']) ?? stringOf(o['stderr']) ?? '';
-    const timedOut = o['timed_out'] === true;
-    const head: string[] = [];
-    if (exit !== undefined) head.push(`exit ${exit}`);
-    if (timedOut) head.push('timed out');
-    const outLines = countLines(output);
-    const errLines = countLines(error);
-    const lparts: string[] = [];
-    if (outLines > 0) lparts.push(`${outLines} out`);
-    if (errLines > 0) lparts.push(`${errLines} err`);
-    if (lparts.length > 0) head.push(lparts.join(' · '));
-    const lines: string[] = [];
-    if (head.length > 0) lines.push(head.join(' · '));
-    const preview = firstNonEmpty(output) ?? firstNonEmpty(error);
-    if (preview) lines.push(`"${truncMid(preview, 70)}"`);
-    if (lines.length > 0) return lines;
   }
 
   // todo
