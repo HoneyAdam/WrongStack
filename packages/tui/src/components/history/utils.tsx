@@ -535,11 +535,11 @@ export function formatToolOutput(
   // exec (heuristic danger detection, PR 1-3)
   //
   // The exec tool's output is JSON with a `danger: { level, reasons, matchedRule? }`
-  // field. We surface a level-based banner so destructive / caution calls
-  // are visually distinct from safe ones. The `level` is rendered as a
-  // compact chip-like prefix that the renderer's existing color theme can
-  // pick up downstream (no new color tokens here — keep visual surface
-  // minimal and let callers opt in to highlighting).
+  // field. When the level is destructive or caution we prefix the digest with
+  // a compact chip-style banner so those calls are visually distinct from
+  // safe ones. Safe calls (and output with no `danger` field) use the same
+  // compact `exit N · X out · Y err` shape as the bash / git branches below,
+  // so all three command-tool outputs read uniformly.
   //
   // Format:
   //   destructive:  ⚠ DESTRUCTIVE  recursive force-delete
@@ -547,7 +547,8 @@ export function formatToolOutput(
   //                  "build/"
   //   caution:      ! CAUTION  inline script evaluation (-c / -e / --eval)
   //                  exit 0 · 0 out · 0 err
-  //   safe:         (no banner — the existing bash-style line is enough)
+  //   safe:         exit 0 · 12 out · 0 err
+  //                  "build/"
   //
   // The chip is plain-text so this is portable across TUI/webui/CLI
   // renderers; theme-tinting is up to the consumer.
@@ -561,13 +562,13 @@ export function formatToolOutput(
         danger && typeof danger === 'object'
           ? ((danger as Record<string, unknown>)['reasons'] as unknown)
           : undefined;
+      const exit = numOf(o['exit_code']) ?? numOf(o['exitCode']);
+      const stdout = stringOf(o['stdout']) ?? '';
+      const stderr = stringOf(o['stderr']) ?? '';
+      const stdoutLines = countLines(stdout);
+      const stderrLines = countLines(stderr);
+      const head: string[] = [];
       if (level === 'destructive' || level === 'caution') {
-        const exit = numOf(o['exit_code']) ?? numOf(o['exitCode']);
-        const stdout = stringOf(o['stdout']) ?? '';
-        const stderr = stringOf(o['stderr']) ?? '';
-        const stdoutLines = countLines(stdout);
-        const stderrLines = countLines(stderr);
-        const head: string[] = [];
         const chip = level === 'destructive' ? '⚠ DESTRUCTIVE' : '! CAUTION';
         const reasonText =
           Array.isArray(reasons) && reasons.length > 0
@@ -576,27 +577,55 @@ export function formatToolOutput(
               ? 'destructive command'
               : 'caution-level command';
         head.push(`${chip}  ${reasonText}`);
-        if (exit !== undefined) head.push(`exit ${exit}`);
-        const lineParts: string[] = [];
-        if (stdoutLines > 0) lineParts.push(`${stdoutLines} out`);
-        if (stderrLines > 0) lineParts.push(`${stderrLines} err`);
-        if (lineParts.length > 0) head.push(lineParts.join(' · '));
-        const lines: string[] = [head.join(' · ')];
-        // Surface additional reasons (beyond the first) as a stacked list
-        if (Array.isArray(reasons) && reasons.length > 1) {
-          for (let i = 1; i < reasons.length; i++) {
-            lines.push(`  · ${String(reasons[i])}`);
-          }
-        }
-        const stdoutPreview = firstNonEmpty(stdout);
-        const stderrPreview = firstNonEmpty(stderr);
-        if (stdoutPreview) lines.push(`"${truncMid(stdoutPreview, 70)}"`);
-        if (stderrPreview && stderrPreview !== stdoutPreview) {
-          lines.push(`! "${truncMid(stderrPreview, 70)}"`);
-        }
-        return lines;
       }
+      if (exit !== undefined) head.push(`exit ${exit}`);
+      const lineParts: string[] = [];
+      if (stdoutLines > 0) lineParts.push(`${stdoutLines} out`);
+      if (stderrLines > 0) lineParts.push(`${stderrLines} err`);
+      if (lineParts.length > 0) head.push(lineParts.join(' · '));
+      const lines: string[] = [];
+      if (head.length > 0) lines.push(head.join(' · '));
+      // Surface additional reasons (beyond the first) as a stacked list
+      if (Array.isArray(reasons) && reasons.length > 1) {
+        for (let i = 1; i < reasons.length; i++) {
+          lines.push(`  · ${String(reasons[i])}`);
+        }
+      }
+      const stdoutPreview = firstNonEmpty(stdout);
+      const stderrPreview = firstNonEmpty(stderr);
+      if (stdoutPreview) lines.push(`"${truncMid(stdoutPreview, 70)}"`);
+      if (stderrPreview && stderrPreview !== stdoutPreview) {
+        lines.push(`! "${truncMid(stderrPreview, 70)}"`);
+      }
+      if (lines.length > 0) return lines;
     }
+  }
+
+  // bash
+  //
+  // Same compact `exit N · X out · Y err` shape as git / safe-exec above.
+  // BashOutput is snake_case (`exit_code`, `output` / `error` — not stdout/stderr),
+  // so we map the field names explicitly.
+  if (toolName === 'bash' && json && typeof json === 'object') {
+    const o = json as Record<string, unknown>;
+    const exit = numOf(o['exit_code']) ?? numOf(o['exitCode']);
+    const output = stringOf(o['output']) ?? '';
+    const error = stringOf(o['error']) ?? '';
+    const timedOut = o['timed_out'] === true;
+    const head: string[] = [];
+    if (exit !== undefined) head.push(`exit ${exit}`);
+    if (timedOut) head.push('timed out');
+    const outLines = countLines(output);
+    const errLines = countLines(error);
+    const lparts: string[] = [];
+    if (outLines > 0) lparts.push(`${outLines} out`);
+    if (errLines > 0) lparts.push(`${errLines} err`);
+    if (lparts.length > 0) head.push(lparts.join(' · '));
+    const lines: string[] = [];
+    if (head.length > 0) lines.push(head.join(' · '));
+    const preview = firstNonEmpty(output) ?? firstNonEmpty(error);
+    if (preview) lines.push(`"${truncMid(preview, 70)}"`);
+    if (lines.length > 0) return lines;
   }
 
   // todo
