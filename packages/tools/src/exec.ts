@@ -62,6 +62,14 @@ const DEFAULT_ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
   'gh',
   'where', 'tasklist', 'systeminfo', 'wmic', 'sc',
   'netstat', 'ipconfig', 'nslookup', 'tracert', 'pathping',
+  // Windows shell interpreters. Without these, `exec` cannot run cmd builtins
+  // (`dir`, `type`, `copy`, …) or any PowerShell cmdlet on Windows — a major
+  // gap since those are the platform's primary shells. Arbitrary execution
+  // through `cmd /c …` / `powershell -c …` is NOT a new hole: the permission
+  // policy reconstructs the full command line (shellCommandLineFromInput) and
+  // still runs it through the YOLO destructive classifier, so a genuinely
+  // destructive `cmd /c del /s /q C:\…` continues to require confirmation.
+  'cmd', 'cmd.exe', 'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe',
   // [core] Extended default allowlist (added 4b3d18d1 + this commit). All
   // non-destructive, broadly-used dev binaries. Per-arg safety is still
   // enforced by BLOCKED_ARG_PATTERNS + bash-kill-guard.ts.

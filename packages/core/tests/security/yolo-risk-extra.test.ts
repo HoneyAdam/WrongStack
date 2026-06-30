@@ -42,27 +42,45 @@ describe('yolo-risk — extra coverage', () => {
     it('flags rm -rf with no target (whole-cwd wipe)', () => {
       expect(isClearlyDestructiveBashCommand('rm -rf', ROOT)).toBe(true);
     });
-    it('flags rm -rf an outside path but allows an in-project path', () => {
-      expect(isClearlyDestructiveBashCommand(`rm -rf ${OUTSIDE}`, ROOT)).toBe(true);
+    it('flags a filesystem / drive / home root wipe', () => {
+      expect(isClearlyDestructiveBashCommand('rm -rf /', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('rm -rf ~', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('rm -rf C:\\', ROOT)).toBe(true);
+    });
+    it('does NOT flag deleting an outside non-system path (recoverable-scale)', () => {
+      // A few files or an arbitrary sibling dir is recoverable, not catastrophic.
+      expect(isClearlyDestructiveBashCommand(`rm -rf ${OUTSIDE}`, ROOT)).toBe(false);
       expect(isClearlyDestructiveBashCommand('rm -rf node_modules', ROOT)).toBe(false);
     });
-    it('flags Windows rmdir /s, del/erase, and Remove-Item -Recurse on outside paths', () => {
-      expect(isClearlyDestructiveBashCommand(`rmdir /s ${OUTSIDE}`, ROOT)).toBe(true);
-      expect(isClearlyDestructiveBashCommand(`del ${OUTSIDE}`, ROOT)).toBe(true);
-      expect(isClearlyDestructiveBashCommand(`Remove-Item -Recurse ${OUTSIDE}`, ROOT)).toBe(true);
+    it('flags Windows rmdir /s, del, and Remove-Item -Recurse on a system directory', () => {
+      expect(isClearlyDestructiveBashCommand('rmdir /s C:\\Windows', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('del C:\\Windows', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('Remove-Item -Recurse C:\\Users', ROOT)).toBe(true);
     });
     it('skips empty quoted tokens without crashing', () => {
       expect(isClearlyDestructiveBashCommand('echo ""', ROOT)).toBe(false);
-      // Empty delete target → pathTokenIsOutsideProject's empty-token guard.
+      // Empty delete target → isCatastrophicDeleteTarget's empty-token guard.
       expect(isClearlyDestructiveBashCommand('rm -rf ""', ROOT)).toBe(false);
     });
-    it('flags known destructive patterns', () => {
-      expect(isClearlyDestructiveBashCommand('git reset --hard', ROOT)).toBe(true);
-      expect(isClearlyDestructiveBashCommand('DROP TABLE users', ROOT)).toBe(true);
+    it('flags catastrophic disk/partition patterns', () => {
+      expect(isClearlyDestructiveBashCommand('mkfs.ext4 /dev/sda1', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('diskpart', ROOT)).toBe(true);
     });
-    it('flags cd / path escapes outside the project', () => {
-      expect(isClearlyDestructiveBashCommand('cd ..', ROOT)).toBe(true);
-      expect(isClearlyDestructiveBashCommand(`cat ${OUTSIDE}`, ROOT)).toBe(true);
+    it('does NOT flag recoverable dev operations (git/db/chmod) or reads', () => {
+      expect(isClearlyDestructiveBashCommand('git reset --hard', ROOT)).toBe(false);
+      expect(isClearlyDestructiveBashCommand('DROP TABLE users', ROOT)).toBe(false);
+      expect(isClearlyDestructiveBashCommand('cd ..', ROOT)).toBe(false);
+      expect(isClearlyDestructiveBashCommand(`cat ${OUTSIDE}`, ROOT)).toBe(false);
+    });
+    it('does NOT flag a single-file write outside the project, but flags a raw device write', () => {
+      expect(isClearlyDestructiveBashCommand(`echo x > ${OUTSIDE}`, ROOT)).toBe(false);
+      expect(isClearlyDestructiveBashCommand('cat payload > /dev/sda', ROOT)).toBe(true);
+    });
+    it('auto-approves a Windows `cd /d <root> && dir … | findstr` chain (regression)', () => {
+      // Reported false-positive: the old `cd /…` heuristic matched `cd /d`, so a
+      // plain directory listing prompted under YOLO. Navigation + read must not gate.
+      const cmd = `cd /d "${ROOT}" && dir docs\\ 2>nul | findstr /i "ideas research notes"`;
+      expect(isClearlyDestructiveBashCommand(cmd, ROOT)).toBe(false);
     });
   });
 });

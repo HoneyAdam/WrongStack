@@ -345,6 +345,14 @@ describe('exec command policy (configurable allowlist)', () => {
       'poetry',
       'composer',
       'phpunit',
+      // Windows shell interpreters — required so `exec cmd /c dir` / PowerShell
+      // cmdlets work on Windows instead of hard-failing the allowlist.
+      'cmd',
+      'cmd.exe',
+      'powershell',
+      'powershell.exe',
+      'pwsh',
+      'pwsh.exe',
     ]) {
       expect(isExecCommandAllowed(cmd)).toBe(true);
     }

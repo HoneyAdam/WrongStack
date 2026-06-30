@@ -240,15 +240,26 @@ describe('DefaultPermissionPolicy', () => {
       expect(d.source).toBe('yolo_destructive');
     });
 
-    it('yolo gates bash commands that escape the project', async () => {
+    it('yolo gates a catastrophic system-directory wipe', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+      const d = await p.evaluate(
+        tool('bash', 'confirm', 'destructive'),
+        { command: 'rm -rf /etc' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('confirm');
+      expect(d.source).toBe('yolo_destructive');
+    });
+
+    it('yolo does NOT gate a recoverable delete of a sibling directory', async () => {
       const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive'),
         { command: 'rm -rf ../other-project' },
         { projectRoot: process.cwd() } as Context,
       );
-      expect(d.permission).toBe('confirm');
-      expect(d.source).toBe('yolo_destructive');
+      expect(d.permission).toBe('auto');
+      expect(d.source).toBe('yolo');
     });
 
     it('yolo + yoloDestructive still gates destructive operations', async () => {
@@ -342,11 +353,11 @@ describe('DefaultPermissionPolicy', () => {
   });
 
   describe('capability-based destructive gating', () => {
-    it('yolo + confirmDestructive gates a shell.arbitrary tool running a destructive command', async () => {
+    it('yolo + confirmDestructive gates a shell.arbitrary tool running a catastrophic command', async () => {
       const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive', true, ['shell.arbitrary']),
-        { command: 'git reset --hard' },
+        { command: 'rm -rf /' },
         { projectRoot: process.cwd() } as Context,
       );
       expect(d.permission).toBe('confirm');
@@ -387,11 +398,11 @@ describe('DefaultPermissionPolicy', () => {
       expect(d.source).toBe('yolo');
     });
 
-    it('yolo gates destructive exec commands by command plus args', async () => {
+    it('yolo gates a catastrophic exec command by command plus args', async () => {
       const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('exec', 'confirm', 'standard', true, ['shell.restricted']),
-        { command: 'git', args: ['reset', '--hard'] },
+        { command: 'rm', args: ['-rf', '/'] },
         { projectRoot: process.cwd() } as Context,
       );
       expect(d.permission).toBe('confirm');

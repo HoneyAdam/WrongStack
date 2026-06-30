@@ -84,13 +84,13 @@ describe('yolo + confirmDestructive', () => {
     p.setConfirmDestructive(true);
 
     delegate.mockResolvedValueOnce('always');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /opt/a' }, ctx())).toMatchObject({ permission: 'auto', reason: expect.stringContaining('approved for this call') });
+    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /etc' }, ctx())).toMatchObject({ permission: 'auto', reason: expect.stringContaining('approved for this call') });
     delegate.mockResolvedValueOnce('deny');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /opt/b' }, ctx())).toMatchObject({ permission: 'deny' });
+    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /usr' }, ctx())).toMatchObject({ permission: 'deny' });
     delegate.mockResolvedValueOnce('yes');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /opt/c' }, ctx())).toMatchObject({ permission: 'auto' });
+    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /var' }, ctx())).toMatchObject({ permission: 'auto' });
     delegate.mockResolvedValueOnce('no');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /opt/d' }, ctx())).toMatchObject({ permission: 'deny' });
+    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /boot' }, ctx())).toMatchObject({ permission: 'deny' });
   });
 
   it('auto-approves a non-destructive call under yolo', async () => {

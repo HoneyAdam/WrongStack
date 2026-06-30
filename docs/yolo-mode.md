@@ -50,16 +50,29 @@ while destructive calls are checked before trust-file allow rules.
 
 ## Destructive Confirmation
 
-The input-aware destructive gate is active while YOLO is on. The policy checks:
+The destructive gate is active while YOLO is on, and it is **calibrated to
+genuinely catastrophic, effectively irreversible destruction only** — the kind
+that wipes the machine, a disk, or the user's home. The policy checks:
 
-- `bash` / `shell` / `exec` commands such as `rm -rf /`, `git reset --hard`,
-  `DROP TABLE`, encoded PowerShell, or pipe-to-shell installers.
-- File mutation tools targeting paths outside the project root.
+- `bash` / `shell` / `exec` commands that **recursively delete a top-level
+  root**: the filesystem root (`rm -rf /`, `rm -rf /*`), a drive root
+  (`rm -rf C:\`), the home directory (`rm -rf ~`, `rm -rf $HOME`), a system
+  directory (`/etc`, `/usr`, `/home`, `C:\Windows`, `C:\Users`, …), or a bare
+  `rm -rf` (whole-cwd wipe). Includes `del`/`rmdir /s`/`Remove-Item -Recurse`
+  on those targets.
+- **Disk / partition wipes**: `mkfs*`, `format C:`, `diskpart`, `dd of=/dev/…`,
+  a redirect into a raw block device (`… > /dev/sda`), and the classic fork bomb.
+- File mutation tools (`write`/`edit`) targeting paths **outside** the project root.
 - Tools declared with `riskTier: 'destructive'`.
 
-Normal project work still auto-runs in YOLO: build/test commands, in-project
-edits, package installs, formatters, network fetch/search, and other
-non-destructive tool calls.
+**Everything else auto-runs in YOLO with no prompt**, including destructive-but-
+recoverable work: deleting a few files or an arbitrary sibling/parent directory
+(`rm -rf ../other`, `rm -rf ~/cache`, `rm -rf /etc/hosts`), `git reset --hard`,
+`git clean -xdf`, `DROP TABLE`/`DELETE FROM`, `chmod -R`, `shutdown`/`reboot`,
+`curl … | sh`, writing a single file outside the project (`echo x > /etc/hosts`),
+plus all reads/navigation (`pwd`, `dir C:\logs`, `cd ..`, `cat ../README.md`),
+build/test commands, in-project edits, package installs, formatters, and network
+fetch/search.
 
 ## Runtime Toggle
 
