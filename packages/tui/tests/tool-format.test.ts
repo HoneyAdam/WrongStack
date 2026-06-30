@@ -187,7 +187,7 @@ describe('formatToolOutput', () => {
       true,
     );
     expect(out).toHaveLength(2);
-    expect(out[0]).toContain('exit 0');
+    expect(out[0]).toContain('exit_code=0');
     expect(out[0]).toContain('3 out');
     expect(out[1]).toContain('first line');
   });
@@ -246,7 +246,7 @@ describe('formatToolOutput', () => {
     );
     expect(out[0]).toContain('⚠ DESTRUCTIVE');
     expect(out[0]).toContain('recursive force-delete');
-    expect(out[0]).toContain('exit 0');
+    expect(out[0]).toContain('exit_code=0');
     expect(out[0]).toContain('1 out');
     // stdout preview is on its own line
     expect(out.find((l) => l.includes('removed ./build'))).toBeDefined();
@@ -265,7 +265,7 @@ describe('formatToolOutput', () => {
     );
     expect(out[0]).toContain('! CAUTION');
     expect(out[0]).toContain('inline script evaluation');
-    expect(out[0]).toContain('exit 0');
+    expect(out[0]).toContain('exit_code=0');
   });
 
   it('exec (multi-rule): stacks additional reasons below the first', () => {
@@ -303,7 +303,7 @@ describe('formatToolOutput', () => {
     // Safe level produces no DESTRUCTIVE / CAUTION chip in the first line.
     expect(out[0]).not.toContain('DESTRUCTIVE');
     expect(out[0]).not.toContain('CAUTION');
-    expect(out[0]).toContain('exit 0');
+    expect(out[0]).toContain('exit_code=0');
   });
 
   it('exec (no danger field): behaves like safe (backward compat with pre-PR-1 output)', () => {
@@ -314,7 +314,7 @@ describe('formatToolOutput', () => {
     );
     expect(out[0]).not.toContain('DESTRUCTIVE');
     expect(out[0]).not.toContain('CAUTION');
-    expect(out[0]).toContain('exit 0');
+    expect(out[0]).toContain('exit_code=0');
   });
 
   it('exec (destructive, with stderr): still surfaces the chip and the stderr preview', () => {

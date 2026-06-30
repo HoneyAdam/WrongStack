@@ -5,6 +5,7 @@ import type {
   RunResult,
   SlashCommandRegistry,
   TokenCounter,
+  TodoItem,
 } from '@wrongstack/core';
 import { AgentError } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
@@ -711,6 +712,201 @@ describe('runRepl', () => {
           getSddRun: () => null,
         }),
       ).resolves.toBeDefined();
+    });
+  });
+
+  describe('open todos gate on <next_steps> handling', () => {
+    // The runtime gate on ctx.todos is the single source of truth for
+    // <next_steps> suppression: as long as any todo is pending or
+    // in_progress, the in-flight task list takes priority over new prompt
+    // suggestions, regardless of autonomy mode.
+
+    function makeAgentWithTodos(
+      run: Agent['run'],
+      todos: TodoItem[],
+    ): Agent {
+      return {
+        ctx: { todos } as unknown as Context,
+        run,
+      } as never as Agent;
+    }
+
+    it('does not store parsed <next_steps> when ctx.todos has a pending item', async () => {
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: '💡 Next steps\n1. Run tests\n2. Commit changes\n',
+        }),
+      );
+      const agent = makeAgentWithTodos(run, [
+        { id: '1', content: 'finish refactor', status: 'in_progress' },
+      ]);
+      const renderer = makeFakeRenderer();
+      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const slashRegistry = makeFakeSlashRegistry();
+      let stored: string[] | null = ['stale'];
+      const getStored = vi.fn(() => stored);
+
+      await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'off',
+        onSuggestionsParsed: (parsed) => {
+          // Mirror what the CLI host does — replace, not append.
+          stored = parsed ?? [];
+        },
+        getSuggestions: getStored,
+      });
+
+      // The runtime gated the parse on the open todo, so onSuggestionsParsed
+      // received null and the store was cleared to []. Without the gate the
+      // store would contain ['Run tests', 'Commit changes'].
+      expect(stored).toEqual([]);
+    });
+
+    it('stores parsed <next_steps> when ctx.todos is empty', async () => {
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: '💡 Next steps\n1. Run tests\n2. Commit changes\n',
+        }),
+      );
+      const agent = makeAgentWithTodos(run, []);
+      const renderer = makeFakeRenderer();
+      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const slashRegistry = makeFakeSlashRegistry();
+      let stored: string[] | null = null;
+
+      await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'off',
+        onSuggestionsParsed: (parsed) => {
+          stored = parsed ?? [];
+        },
+        getSuggestions: () => stored ?? [],
+      });
+
+      expect(stored).toEqual(['Run tests', 'Commit changes']);
+    });
+
+    it('stores parsed <next_steps> when every todo is completed', async () => {
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: '💡 Next steps\n1. Open PR\n',
+        }),
+      );
+      const agent = makeAgentWithTodos(run, [
+        { id: '1', content: 'a', status: 'completed' },
+        { id: '2', content: 'b', status: 'completed' },
+      ]);
+      const renderer = makeFakeRenderer();
+      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const slashRegistry = makeFakeSlashRegistry();
+      let stored: string[] | null = null;
+
+      await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'off',
+        onSuggestionsParsed: (parsed) => {
+          stored = parsed ?? [];
+        },
+        getSuggestions: () => stored ?? [],
+      });
+
+      expect(stored).toEqual(['Open PR']);
+    });
+
+    it('autonomy suggest mode skips the re-prompt + display when todos are open', async () => {
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: 'Did some work.',
+        }),
+      );
+      const agent = makeAgentWithTodos(run, [
+        { id: '1', content: 'finish refactor', status: 'pending' },
+      ]);
+      const renderer = makeFakeRenderer();
+      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const slashRegistry = makeFakeSlashRegistry();
+
+      await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'suggest',
+        onSuggestionsParsed: () => {},
+        getSuggestions: () => [],
+      });
+
+      // Only one agent run — the user input. The autonomy re-prompt did
+      // not fire because the todo list is still in flight.
+      expect(run).toHaveBeenCalledTimes(1);
+
+      // Nothing was written about "Suggested next steps".
+      const writes = (renderer.write as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) =>
+        String(c[0] ?? ''),
+      );
+      expect(writes.some((w) => w.includes('Suggested next steps'))).toBe(false);
+    });
+
+    it('autonomy auto mode keeps re-prompting even when todos are open', async () => {
+      // The re-prompt is the auto driver — gating it would silently kill
+      // auto mode mid-tasklist. The countdown at the top of the loop is
+      // already gated (it consumes getSuggestions(), which is empty while
+      // a todo list is in flight), so the two mechanisms don't
+      // double-drive the agent.
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: 'worked on it',
+        }),
+      );
+      const agent = makeAgentWithTodos(run, [
+        { id: '1', content: 'finish refactor', status: 'in_progress' },
+      ]);
+      const renderer = makeFakeRenderer();
+      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const slashRegistry = makeFakeSlashRegistry();
+
+      await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'auto',
+        autoProceedDelayMs: 0,
+        onSuggestionsParsed: () => {},
+        getSuggestions: () => [],
+      });
+
+      // At least 2 runs: the user's input + the auto re-prompt.
+      expect(run.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

@@ -25,7 +25,7 @@ export function shellHooksEqual(
   b: Partial<Record<HookEvent, ShellHook[]>> | undefined,
 ): boolean {
   if (a === b) return true;
-  if (!a || !b) return !a && !b ? true : false;
+  if (!a || !b) return !a && !b;
   const aKeys = Object.keys(a);
   const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
@@ -39,7 +39,7 @@ export function shellHooksEqual(
     for (let i = 0; i < aList.length; i++) {
       const x = aList[i];
       const y = bList[i];
-      if (!x || !y) return !x && !y ? true : false;
+      if (!x || !y) return !x && !y;
       if (x.command !== y.command) return false;
       if ((x.matcher ?? '*') !== (y.matcher ?? '*')) return false;
       if ((x.timeoutMs ?? undefined) !== (y.timeoutMs ?? undefined)) return false;
