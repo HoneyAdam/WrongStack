@@ -23,6 +23,12 @@ Rules:
 - Items marked `auto="true"` must include the exact input content for copy-paste.
 - Order by priority. Keep each suggestion to one line.
 - Skip during multi-step operations — only show after completion.
+- **If the live `ctx.todos` list still has any `pending` or `in_progress` item,
+  omit the `<next_steps>` tag entirely.** Finishing the in-flight todo list
+  takes priority over offering new prompt options; the runtime gates
+  `<next_steps>` parsing on the same condition so emitting it mid-task would
+  just be parsed-and-discarded, but skipping it keeps the output focused.
+  Re-arm the tag on the turn where the last todo flips to `completed`.
 - If nothing is pending, omit the tag entirely.
 
 **After a significant task**, also post a status update to the inter-agent

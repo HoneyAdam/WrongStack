@@ -7,6 +7,7 @@ import type {
   GoalFile,
   SlashCommandRegistry,
   TokenCounter,
+  TodoItem,
 } from '@wrongstack/core';
 import {
   color,
@@ -14,6 +15,7 @@ import {
   expectDefined,
   GlobalMailbox,
   goalFilePath,
+  hasOpenTodos,
   InputBuilder,
   loadGoal,
   resolveProjectDir,
@@ -59,7 +61,30 @@ import { setAutoSuggestions } from './slash-commands/suggestion-store.js';
  */
 const DEFAULT_MAX_CONSECUTIVE_AUTO_PROCEED = 50;
 
-export function parseSuggestionsFromOutput(finalText: string): string[] | null {
+/**
+ * Extract "<next_steps>" or "💡 Next steps" suggestions from the agent's final output.
+ * Delegated to parseNextSteps (permissive mode — accepts 💡, ##, plain, and <next_steps> headings).
+ * Returns null when no suggestions are found.
+ *
+ * Gated on the live todo list: when the agent still has open todos
+ * (`pending` or `in_progress`), we suppress `<next_steps>` entirely and clear
+ * the auto-suggestion store. Surfacing suggestions mid-task would race the
+ * todo loop — YOLO+auto could pick the top suggestion and pivot away from
+ * the unfinished work, and `/next 1` would replace the next todo with an
+ * arbitrary prompt. Finishing the todo list comes first; suggestions re-arm
+ * on the next turn once everything is `completed`.
+ */
+export function parseSuggestionsFromOutput(
+  finalText: string,
+  todos?: readonly TodoItem[] | null,
+): string[] | null {
+  if (hasOpenTodos(todos)) {
+    // Clear auto-suggestion store too — stale auto="true" items would
+    // otherwise survive into the next turn and feed YOLO+auto even
+    // though we just refused to store the matching regular suggestions.
+    setAutoSuggestions([]);
+    return null;
+  }
   const { texts, autoTexts } = parseNextSteps(finalText, false); // permissive: accept all heading variants
   // Store auto suggestions in the shared store for YOLO+auto autonomy mode
   if (autoTexts.length > 0) {
@@ -690,9 +715,14 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                 // When a slash command like /next triggers an agent turn,
                 // parse "💡 Next steps" from the agent's output so
                 // subsequent /next 1 calls use the latest suggestions,
-                // not stale ones from a prior /suggest.
+                // not stale ones from a prior /suggest. The live todo
+                // list is passed through so we suppress <next_steps> while
+                // the in-flight todo loop is still in progress.
                 if (opts.onSuggestionsParsed) {
-                  const parsed = parseSuggestionsFromOutput(runResult.finalText);
+                  const parsed = parseSuggestionsFromOutput(
+                    runResult.finalText,
+                    opts.agent.ctx.todos,
+                  );
                   opts.onSuggestionsParsed(parsed);
                 }
               }
@@ -863,9 +893,12 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
 
         // ── Suggestion auto-parsing ─────────────────────────────────────
         // Extract "💡 Next steps" from the agent's final output and store
-        // them so the user can select with /next 1, /next 1 2 3.
+        // them so the user can select with /next 1, /next 1 2 3. The live
+        // todo list is passed through so we suppress <next_steps> while
+        // the in-flight todo loop is still in progress — finishing the
+        // open todos comes before offering new prompt options.
         if (result.status === 'done' && result.finalText && opts.onSuggestionsParsed) {
-          const parsed = parseSuggestionsFromOutput(result.finalText);
+          const parsed = parseSuggestionsFromOutput(result.finalText, opts.agent.ctx.todos);
           opts.onSuggestionsParsed(parsed);
         }
 
@@ -925,7 +958,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             } finally {
               activeCtrl = undefined;
             }
-          } else if (autonomy === 'suggest') {
+          } else if (autonomy === 'suggest' && !hasOpenTodos(opts.agent.ctx.todos)) {
             // Suggest mode: ask the agent what to do next, show to user.
             const suggestPrompt =
               'Based on what you just did, suggest 3 concrete next steps. ' +
@@ -951,7 +984,10 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                 );
                 // Parse and store the autonomy-generated suggestions too
                 if (opts.onSuggestionsParsed) {
-                  const parsed = parseSuggestionsFromOutput(suggestResult.finalText);
+                  const parsed = parseSuggestionsFromOutput(
+                    suggestResult.finalText,
+                    opts.agent.ctx.todos,
+                  );
                   opts.onSuggestionsParsed(parsed);
                 }
               }
@@ -970,7 +1006,15 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
         // (auto/suggest/eternal already drive or print their own next
         // steps). Best-effort: any failure is swallowed so prediction can
         // never break the turn.
-        if (result.status === 'done' && opts.getNextPredict?.()) {
+        //
+        // Skipped while a todo list is in flight: the next step is the
+        // next todo, not a /next prediction. A second "likely next"
+        // line under the in-flight todo list would be noise.
+        if (
+          result.status === 'done' &&
+          opts.getNextPredict?.() &&
+          !hasOpenTodos(opts.agent.ctx.todos)
+        ) {
           const autonomy = opts.getAutonomy?.() ?? 'off';
           if (autonomy === 'off') {
             const predictCtrl = new AbortController();
@@ -1204,9 +1248,12 @@ async function runAutoProceed(
         opts.agent.ctx.tools ?? [],
       ).total,
     );
-    // Parse suggestions from the auto-triggered turn
+    // Parse suggestions from the auto-triggered turn. The live todo list
+    // is passed through so we suppress <next_steps> while the in-flight
+    // todo loop is still in progress — finishing the open todos comes
+    // before offering new prompt options.
     if (runResult.status === 'done' && runResult.finalText && opts.onSuggestionsParsed) {
-      const parsed = parseSuggestionsFromOutput(runResult.finalText);
+      const parsed = parseSuggestionsFromOutput(runResult.finalText, opts.agent.ctx.todos);
       opts.onSuggestionsParsed(parsed);
     }
   } finally {

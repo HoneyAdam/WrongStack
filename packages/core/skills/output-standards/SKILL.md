@@ -22,6 +22,7 @@ extract structured data from agent responses.
 5. **Items are prompt inputs** — not imperative instructions. Write what the user would type, not what they should do.
 6. **Items marked `auto="true"` must include input content** — the user can copy and submit it directly.
 7. **Keep concise** — max 5 items unless the task genuinely requires more.
+8. **Skip `<next_steps>` whenever the live `ctx.todos` list still has open items** — any `pending` or `in_progress` todo means the in-flight task list is not done, and surfacing new prompt options would race the todo loop (YOLO+auto could pick the top suggestion and pivot away from the unfinished work; `/next 1` would replace the next todo with an arbitrary prompt). Finish the todo list first, re-arm the tag on the turn where the last todo flips to `completed`. The runtime enforces the same gate, so emitting it mid-task is parsed-and-discarded — the rule exists to keep the output focused, not to override runtime behavior.
 
 ## Output Format
 
