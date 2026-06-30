@@ -230,18 +230,33 @@ describe('formatToolOutput', () => {
     expect(out[0]).toContain('1 err');
     expect(out[1]).toContain('boom');
   });
-  it.skip('bash: timed_out=true adds a "timed out" chip alongside exit/line counts', () => {
+  it('bash: timed_out=true adds a "timed out" chip alongside exit/line counts', () => {
     const out = formatToolOutput(
       'bash',
       JSON.stringify({ exit_code: 124, stdout: 'partial\noutput', stderr: '', timed_out: true }),
       true,
     );
-    
+
     expect(out[0]).toContain('exit 124');
     expect(out[0]).toContain('timed out');
     expect(out[0]).toContain('2 out');
     expect(out[1]).toContain('partial');
-    
+  });
+  it('bash: output/error aliases render line counts and timeout metadata', () => {
+    const out = formatToolOutput(
+      'bash',
+      JSON.stringify({ exitCode: 124, output: 'partial\noutput', error: 'late warning', timedOut: true }),
+      true,
+    );
+
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain('exit 124');
+    expect(out[0]).toContain('timed out');
+    expect(out[0]).toContain('2 out');
+    expect(out[0]).toContain('1 err');
+    expect(out[1]).toContain('partial');
+    expect(out[2]).toMatch(/^! /);
+    expect(out[2]).toContain('late warning');
   });
   it('bash: exit_code: null is treated as "no exit" — only the line counts render', () => {
     // Some bash failure paths (e.g. spawn ENOENT) yield exit_code: null.
