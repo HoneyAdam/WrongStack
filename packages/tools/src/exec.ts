@@ -42,13 +42,23 @@ const DEFAULT_ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
   // .NET
   'dotnet',
   // C / C++ / native build
-  'make', 'cmake',
+  'make', 'cmake', 'ninja', 'clang', 'clang-cl', 'gcc', 'g++', 'link', 'msbuild',
   // containers / orchestration
   'docker', 'podman', 'kubectl',
+  // network (read-only intent; destructive ops still blocked by BLOCKED_ARG_PATTERNS)
+  'curl', 'wget',
   // common POSIX file/text utilities
   'pwd', 'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find',
   'echo', 'sort', 'uniq', 'sed', 'awk', 'mkdir', 'cp', 'mv', 'rm',
-  'touch',
+  'touch', 'tar',
+  // Windows-native tooling (win32). All non-destructive binaries; per-arg
+  // safety is still enforced by BLOCKED_ARG_PATTERNS + the destructive-ops
+  // gate in bash-kill-guard.ts. `gh` is included even though it lives at
+  // "C:\Program Files\GitHub CLI\gh.exe" — resolveWin32Command handles the
+  // space in the path.
+  'gh',
+  'where', 'tasklist', 'systeminfo', 'wmic', 'sc',
+  'netstat', 'ipconfig', 'nslookup', 'tracert', 'pathping',
 ]);
 
 // The live, effective allowlist: DEFAULT ∪ config.allow − config.deny. Replaced

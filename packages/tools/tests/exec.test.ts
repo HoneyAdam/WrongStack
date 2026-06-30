@@ -404,4 +404,23 @@ describe('exec command policy (configurable allowlist)', () => {
       await sb.cleanup();
     }
   });
+
+  it('default allowlist includes Windows-native dev tooling and read-only system utilities', () => {
+    // Regression: gh / where / tasklist / etc. were historically rejected
+    // even under --yolo, because YOLO only skips the confirmation prompt —
+    // it does not bypass the command-name allowlist. Adding them to the
+    // default set is the correct fix for that class of "useful tool, no
+    // policy reason to block" cases. Per-arg safety still comes from
+    // BLOCKED_ARG_PATTERNS + the destructive-ops gate in bash-kill-guard.ts.
+    for (const cmd of [
+      'gh', // GitHub CLI — lives at "C:\Program Files\GitHub CLI\gh.exe"
+      'where', 'tasklist', 'systeminfo', 'wmic', 'sc',
+      'netstat', 'ipconfig', 'nslookup', 'tracert', 'pathping',
+      'tar',
+      'curl', 'wget',
+      'clang', 'clang-cl', 'gcc', 'g++', 'ninja', 'msbuild',
+    ]) {
+      expect(isExecCommandAllowed(cmd)).toBe(true);
+    }
+  });
 });
