@@ -82,5 +82,12 @@ describe('yolo-risk — extra coverage', () => {
       const cmd = `cd /d "${ROOT}" && dir docs\\ 2>nul | findstr /i "ideas research notes"`;
       expect(isClearlyDestructiveBashCommand(cmd, ROOT)).toBe(false);
     });
+    it('auto-approves `git status | findstr /v` (regression for /flag-looks-absolute)', () => {
+      // The old ABSOLUTE_PATH_PATTERN matched the `/v` switch as an absolute
+      // path and gated this read-only command. The catastrophic-only gate does
+      // not look at flags at all.
+      expect(isClearlyDestructiveBashCommand('git status --short | findstr /v "^??"', ROOT)).toBe(false);
+      expect(isClearlyDestructiveBashCommand('grep /v file.txt', ROOT)).toBe(false);
+    });
   });
 });

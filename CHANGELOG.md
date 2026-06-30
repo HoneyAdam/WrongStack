@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.277.1] — 2026-06-30
+
+> The **catastrophic-only YOLO gate** patch. Recalibrates the 0.277.0
+> destructive-confirmation gate so YOLO only stops for effectively irreversible
+> machine-, disk-, filesystem-, or home-wide destruction. Recoverable dev work
+> now stays frictionless again, including navigation/reads outside the project,
+> `git reset --hard`, `git clean -xdf`, database deletes, `chmod -R`,
+> pipe-to-shell installers, and deleting ordinary sibling/cache directories.
+> Windows shell interpreters are also in the default `exec` allowlist so
+> `exec cmd /c dir` and PowerShell cmdlets work without custom config.
+
+### Changed
+
+- **YOLO risk detection is catastrophic-only.** `isClearlyDestructiveBashCommand`
+  now focuses on whole-root, whole-drive, home-directory, system-directory,
+  disk/partition, raw block-device, and fork-bomb cases. The project-root
+  parameter remains for API stability, but shell-command path escapes, reads,
+  navigation, ordinary single-file writes, git/database resets, and most
+  destructive-but-recoverable workflows no longer trigger the YOLO destructive
+  prompt.
+
+- **Windows shell interpreters are allowlisted for `exec`.** Added `cmd`,
+  `cmd.exe`, `powershell`, `powershell.exe`, `pwsh`, and `pwsh.exe` to the
+  default restricted-exec allowlist. Destructive `cmd /c ...` and PowerShell
+  command lines still pass through the permission policy's reconstructed command
+  string and the catastrophic classifier.
+
+### Fixed
+
+- **Windows read/listing false positives under YOLO.** Commands such as
+  `cd /d "<project>" && dir ... | findstr ...`, `dir C:\Windows`,
+  `Get-Content ..\config.json`, and `type C:\logs\app.log` are now treated as
+  read/navigation work and do not prompt.
+
+### Changed — versions
+
+- **All workspace packages aligned to 0.277.1**: `wrongstack`,
+  `@wrongstack/cli`, `@wrongstack/core`, `@wrongstack/mcp`,
+  `@wrongstack/plug-lsp`, `@wrongstack/plugins`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/skills`, `@wrongstack/telegram`,
+  `@wrongstack/tools`, `@wrongstack/tui`, `@wrongstack/webui`,
+  `@wrongstack/acp`, `@wrongstack/bench`, and the umbrella `apps/wrongstack`.
+  The marketing site (`website/`) is aligned in lockstep.
+
 ## [0.277.0] — 2026-06-30
 
 > The **permission hardening, Windows command-shim, and tool-output polish**
