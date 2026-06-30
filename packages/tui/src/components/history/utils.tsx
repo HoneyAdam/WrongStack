@@ -532,6 +532,73 @@ export function formatToolOutput(
     }
   }
 
+  // exec (heuristic danger detection, PR 1-3)
+  //
+  // The exec tool's output is JSON with a `danger: { level, reasons, matchedRule? }`
+  // field. We surface a level-based banner so destructive / caution calls
+  // are visually distinct from safe ones. The `level` is rendered as a
+  // compact chip-like prefix that the renderer's existing color theme can
+  // pick up downstream (no new color tokens here — keep visual surface
+  // minimal and let callers opt in to highlighting).
+  //
+  // Format:
+  //   destructive:  ⚠ DESTRUCTIVE  recursive force-delete
+  //                  exit 0 · 12 out · 0 err
+  //                  "build/"
+  //   caution:      ! CAUTION  inline script evaluation (-c / -e / --eval)
+  //                  exit 0 · 0 out · 0 err
+  //   safe:         (no banner — the existing bash-style line is enough)
+  //
+  // The chip is plain-text so this is portable across TUI/webui/CLI
+  // renderers; theme-tinting is up to the consumer.
+  if (toolName === 'exec') {
+    if (json && typeof json === 'object') {
+      const o = json as Record<string, unknown>;
+      const danger = o['danger'];
+      const level =
+        danger && typeof danger === 'object' ? (danger as Record<string, unknown>)['level'] : undefined;
+      const reasons =
+        danger && typeof danger === 'object'
+          ? ((danger as Record<string, unknown>)['reasons'] as unknown)
+          : undefined;
+      if (level === 'destructive' || level === 'caution') {
+        const exit = numOf(o['exit_code']) ?? numOf(o['exitCode']);
+        const stdout = stringOf(o['stdout']) ?? '';
+        const stderr = stringOf(o['stderr']) ?? '';
+        const stdoutLines = countLines(stdout);
+        const stderrLines = countLines(stderr);
+        const head: string[] = [];
+        const chip = level === 'destructive' ? '⚠ DESTRUCTIVE' : '! CAUTION';
+        const reasonText =
+          Array.isArray(reasons) && reasons.length > 0
+            ? String(reasons[0])
+            : level === 'destructive'
+              ? 'destructive command'
+              : 'caution-level command';
+        head.push(`${chip}  ${reasonText}`);
+        if (exit !== undefined) head.push(`exit ${exit}`);
+        const lineParts: string[] = [];
+        if (stdoutLines > 0) lineParts.push(`${stdoutLines} out`);
+        if (stderrLines > 0) lineParts.push(`${stderrLines} err`);
+        if (lineParts.length > 0) head.push(lineParts.join(' · '));
+        const lines: string[] = [head.join(' · ')];
+        // Surface additional reasons (beyond the first) as a stacked list
+        if (Array.isArray(reasons) && reasons.length > 1) {
+          for (let i = 1; i < reasons.length; i++) {
+            lines.push(`  · ${String(reasons[i])}`);
+          }
+        }
+        const stdoutPreview = firstNonEmpty(stdout);
+        const stderrPreview = firstNonEmpty(stderr);
+        if (stdoutPreview) lines.push(`"${truncMid(stdoutPreview, 70)}"`);
+        if (stderrPreview && stderrPreview !== stdoutPreview) {
+          lines.push(`! "${truncMid(stderrPreview, 70)}"`);
+        }
+        return lines;
+      }
+    }
+  }
+
   // todo
   if (toolName === 'todo') return ok ? [] : [text.split('\n')[0] ?? ''];
 

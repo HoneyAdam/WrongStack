@@ -231,6 +231,110 @@ describe('formatToolOutput', () => {
     expect(out[1]).toContain('boom');
   });
 
+  // exec (heuristic danger detection, PR 5 — TUI render)
+
+  it('exec (destructive): renders a DESTRUCTIVE chip + first reason + exit/line counts + preview', () => {
+    const out = formatToolOutput(
+      'exec',
+      JSON.stringify({
+        exit_code: 0,
+        stdout: 'removed ./build',
+        stderr: '',
+        danger: { level: 'destructive', reasons: ['recursive force-delete'], matchedRule: 'rm-recursive' },
+      }),
+      true,
+    );
+    expect(out[0]).toContain('⚠ DESTRUCTIVE');
+    expect(out[0]).toContain('recursive force-delete');
+    expect(out[0]).toContain('exit 0');
+    expect(out[0]).toContain('1 out');
+    // stdout preview is on its own line
+    expect(out.find((l) => l.includes('removed ./build'))).toBeDefined();
+  });
+
+  it('exec (caution): renders a CAUTION chip + first reason', () => {
+    const out = formatToolOutput(
+      'exec',
+      JSON.stringify({
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+        danger: { level: 'caution', reasons: ['inline script evaluation (-c / -e / --eval)'] },
+      }),
+      true,
+    );
+    expect(out[0]).toContain('! CAUTION');
+    expect(out[0]).toContain('inline script evaluation');
+    expect(out[0]).toContain('exit 0');
+  });
+
+  it('exec (multi-rule): stacks additional reasons below the first', () => {
+    const out = formatToolOutput(
+      'exec',
+      JSON.stringify({
+        exit_code: 0,
+        stdout: '',
+        stderr: '',
+        danger: {
+          level: 'destructive',
+          reasons: ['recursive force-delete', 'privilege escalation (sudo / doas)'],
+        },
+      }),
+      true,
+    );
+    expect(out[0]).toContain('recursive force-delete');
+    // Second reason appears on a separate stacked line.
+    const stacked = out.find((l) => l.includes('privilege escalation'));
+    expect(stacked).toBeDefined();
+    expect(stacked).toMatch(/^\s+·/); // indent + bullet
+  });
+
+  it('exec (safe): no chip — falls through to the bash-style line', () => {
+    const out = formatToolOutput(
+      'exec',
+      JSON.stringify({
+        exit_code: 0,
+        stdout: 'On branch main',
+        stderr: '',
+        danger: { level: 'safe', reasons: [] },
+      }),
+      true,
+    );
+    // Safe level produces no DESTRUCTIVE / CAUTION chip in the first line.
+    expect(out[0]).not.toContain('DESTRUCTIVE');
+    expect(out[0]).not.toContain('CAUTION');
+    expect(out[0]).toContain('exit 0');
+  });
+
+  it('exec (no danger field): behaves like safe (backward compat with pre-PR-1 output)', () => {
+    const out = formatToolOutput(
+      'exec',
+      JSON.stringify({ exit_code: 0, stdout: 'ok', stderr: '' }),
+      true,
+    );
+    expect(out[0]).not.toContain('DESTRUCTIVE');
+    expect(out[0]).not.toContain('CAUTION');
+    expect(out[0]).toContain('exit 0');
+  });
+
+  it('exec (destructive, with stderr): still surfaces the chip and the stderr preview', () => {
+    const out = formatToolOutput(
+      'exec',
+      JSON.stringify({
+        exit_code: 1,
+        stdout: '',
+        stderr: 'permission denied',
+        danger: { level: 'destructive', reasons: ['recursive force-delete'] },
+      }),
+      true,
+    );
+    expect(out[0]).toContain('⚠ DESTRUCTIVE');
+    expect(out[0]).toContain('exit 1');
+    expect(out[0]).toContain('1 err');
+    const stderrLine = out.find((l) => l.startsWith('!'));
+    expect(stderrLine).toContain('permission denied');
+  });
+
   it('todo: no extra line on success (item count is already in args)', () => {
     expect(formatToolOutput('todo', 'updated', true)).toEqual([]);
   });
