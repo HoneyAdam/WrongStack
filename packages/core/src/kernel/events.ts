@@ -1301,12 +1301,20 @@ export class ScopedEventBus extends EventBus {
 }
 
 /**
+ * Reused matcher for the `'*'` wildcard — equivalent to `() => true`
+ * but allocated once at module load rather than on every `onPattern('*')`
+ * or `onAny()` call. The wildcard array can grow to hundreds of entries
+ * during long-lived sessions, so caching the function avoids GC pressure.
+ */
+const MATCH_ALL: (event: string) => boolean = () => true;
+
+/**
  * Convert a glob-style pattern to a matcher function.
  * Only supports `*` at the end of a prefix — `'tool.*'` becomes
  * "starts with tool.". `'*'` matches everything.
  */
 function makePatternMatcher(pattern: string): (event: string) => boolean {
-  if (pattern === '*') return () => true;
+  if (pattern === '*') return MATCH_ALL;
   if (pattern.endsWith('.*')) {
     const prefix = pattern.slice(0, -2);
     return (e: string) => e.startsWith(`${prefix}.`);

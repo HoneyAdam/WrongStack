@@ -135,4 +135,37 @@ describe('RunController', () => {
     await c.dispose();
     expect(done).toBe(true);
   });
+
+  it('fires hooks when constructed with an already-aborted parent signal', async () => {
+    // Regression guard: previously, constructing a RunController with a
+    // parent signal that was already aborted would propagate the abort to
+    // the child signal but never run the child's cleanup hooks — because
+    // the abort listener was attached AFTER the child signal was already
+    // aborted, and the WHATWG spec does not deliver abort events to late
+    // listeners on already-aborted signals.
+    const parent = new AbortController();
+    parent.abort('pre');
+    const fired: string[] = [];
+    const c = new RunController({ parentSignal: parent.signal });
+    c.onAbort(() => void fired.push('a'));
+    c.onAbort(() => void fired.push('b'));
+    // Drain the microtask scheduled by the constructor's void this.runHooks().
+    await new Promise((r) => setImmediate(r));
+    expect(c.aborted).toBe(true);
+    expect(fired).toEqual(['b', 'a']);
+  });
+
+  it('hooks registered after parent-already-aborted construction still fire', async () => {
+    // Even with the synchronous runHooks() in the constructor, a hook
+    // registered synchronously after construction (before the microtask
+    // drains) must still run — the void schedules a microtask that
+    // snapshots the hooks array at execution time.
+    const parent = new AbortController();
+    parent.abort('pre');
+    const fired: string[] = [];
+    const c = new RunController({ parentSignal: parent.signal });
+    c.onAbort(() => void fired.push('late'));
+    await new Promise((r) => setImmediate(r));
+    expect(fired).toEqual(['late']);
+  });
 });

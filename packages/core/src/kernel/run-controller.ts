@@ -45,6 +45,17 @@ export class RunController {
       const parent = opts.parentSignal;
       if (parent.aborted) {
         this.ctrl.abort(parent.reason);
+        // Aborting this signal before attaching the abort listener means
+        // the listener (registered below) will not fire — the WHATWG spec
+        // only delivers abort events on the transition from un-aborted to
+        // aborted, not for late listeners on already-aborted signals. So
+        // drive the hook pipeline directly. We defer with queueMicrotask
+        // so any synchronous `onAbort()` calls between `new RunController(…)`
+        // returning and the next microtask checkpoint are captured by the
+        // hook array before runHooks() snapshots it.
+        queueMicrotask(() => {
+          void this.runHooks();
+        });
       } else {
         const onParentAbort = () => this.ctrl.abort(parent.reason);
         parent.addEventListener('abort', onParentAbort, { once: true });

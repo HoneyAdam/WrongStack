@@ -217,4 +217,15 @@ describe('Container', () => {
     // instead of "factory failed" again.
     expect(() => c.resolve(A)).toThrow('factory failed');
   });
+
+  it('safeResolve returns undefined for unbound tokens without polluting the resolving set', () => {
+    // Regression guard: safeResolve must short-circuit BEFORE entering
+    // resolve(), so a missing token can't poison cycle detection on a
+    // subsequent resolve of a different token that depends on it.
+    const A: Token<number> = Symbol('A') as Token<number>;
+    const B: Token<number> = Symbol('B') as Token<number>;
+    const c = new Container();
+    c.bind(B, (cx) => (cx.safeResolve(A) ?? 42) + 1);
+    expect(c.resolve(B)).toBe(43);
+  });
 });

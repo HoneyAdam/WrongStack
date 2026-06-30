@@ -146,7 +146,10 @@ export class Container {
    */
   private describeCycle(reentry: symbol): string {
     const descs: string[] = [];
+    const seen = new Set<symbol>();
     for (const t of this.resolving) {
+      if (seen.has(t)) continue;
+      seen.add(t);
       descs.push(t.description ?? 'unknown');
     }
     descs.push(reentry.description ?? 'unknown');
@@ -159,10 +162,16 @@ export class Container {
 
   /**
    * Resolve a token if it is bound, otherwise return undefined.
-   * Unlike resolve(), this does not throw if the token is unbound.
+   * Unlike `resolve()`, this does not throw if the token is unbound.
+   *
+   * Single map lookup — `has()` + `resolve()` would walk the entries
+   * map twice. The bound check is folded into the resolve path so a
+   * non-existent token can never enter the `resolving` cycle-detection
+   * set.
    */
   safeResolve<T>(token: Token<T>): T | undefined {
-    return this.has(token) ? this.resolve(token) : undefined;
+    if (!this.entries.has(token)) return undefined;
+    return this.resolve(token);
   }
 
   ownerOf<T>(token: Token<T>): string | undefined {

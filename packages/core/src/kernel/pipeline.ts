@@ -168,20 +168,22 @@ export class Pipeline<T> {
 
   /** Return a read-only view suitable for passing to plugins. */
   asReadonly(): ReadonlyPipeline<T> {
-    // The returned object's methods close over `this`, so it always sees the live chain.
-    // `list()` returns a frozen snapshot to prevent external mutation of the chain.
+    // The returned object's methods close over `this`, so it always sees the
+    // live chain. `list()` freezes its result so plugin code can't mutate
+    // the chain names; subsequent calls produce fresh frozen snapshots.
     const self = this;
-    return Object.freeze({
-      get size() {
-        return self.size();
+    const view: ReadonlyPipeline<T> = Object.freeze({
+      get size(): number {
+        return self.chain.length;
       },
-      list() {
-        return Object.freeze(self.list());
+      list(): readonly string[] {
+        return Object.freeze(self.chain.map((m) => m.name));
       },
-      run(input: T) {
+      run(input: T): Promise<T> {
         return self.run(input);
       },
     });
+    return view;
   }
 
   async run(input: T): Promise<T> {
@@ -191,11 +193,12 @@ export class Pipeline<T> {
 
     const dispatch = async (i: number, value: T): Promise<T> => {
       if (i <= index) {
+        const offender = chain[index]?.name;
         throw new WrongStackError({
-          message: `Pipeline: next() called multiple times in "${chain[index]?.name}"`,
+          message: `Pipeline: next() called multiple times in "${offender}"`,
           code: ERROR_CODES.VALIDATION_ERROR,
           subsystem: 'container',
-          context: { middleware: chain[index]?.name },
+          context: { middleware: offender },
         });
       }
       index = i;
