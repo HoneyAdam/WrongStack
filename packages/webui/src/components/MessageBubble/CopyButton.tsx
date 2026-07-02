@@ -1,18 +1,21 @@
 import { cn } from '@/lib/utils';
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { copyToClipboard } from './utils.js';
 
 export function CopyButton({
   text,
   className,
-  label = 'Copy',
+  label,
 }: {
   text: string;
   className?: string | undefined;
   label?: string | undefined;
 }) {
+  const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
+  const labelText = label ?? t('common:action.copy');
   return (
     <button
       type="button"
@@ -28,17 +31,17 @@ export function CopyButton({
         'inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors',
         className,
       )}
-      title={label}
+      title={labelText}
     >
       {copied ? (
         <>
           <Check className="h-3 w-3 text-green-500" />
-          <span>Copied</span>
+          <span>{t('common:action.copied')}</span>
         </>
       ) : (
         <>
           <Copy className="h-3 w-3" />
-          <span>{label}</span>
+          <span>{labelText}</span>
         </>
       )}
     </button>

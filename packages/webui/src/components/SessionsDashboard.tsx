@@ -9,6 +9,7 @@
  */
 import { Clock, Cpu, FolderGit2, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { i18n, useAppTranslation } from '@/i18n';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -97,16 +98,17 @@ function fmtDuration(iso: string): string {
 function fmtTimeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const sec = Math.floor(diff / 1000);
-  if (sec < 10) return 'just now';
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 10) return i18n.t('common:time.justNow');
+  if (sec < 60) return i18n.t('common:time.secondsAgo', { count: sec });
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  return `${Math.floor(min / 60)}h ago`;
+  if (min < 60) return i18n.t('common:time.minutesAgo', { count: min });
+  return i18n.t('common:time.hoursAgo', { count: Math.floor(min / 60) });
 }
 
 // ── Component ──────────────────────────────────────────────────────────
 
 export function SessionsDashboard() {
+  const { t } = useAppTranslation();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +146,7 @@ export function SessionsDashboard() {
     return (
       <div className="flex items-center gap-2 p-4 text-slate-400">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading sessions...
+        {t('activity:liveSessions.loading')}
       </div>
     );
   }
@@ -152,7 +154,7 @@ export function SessionsDashboard() {
   if (error) {
     return (
       <div className="p-4 text-slate-500 text-sm">
-        Session API unavailable: <span className="text-slate-400">{error}</span>
+        {t('activity:liveSessions.apiUnavailable')} <span className="text-slate-400">{error}</span>
       </div>
     );
   }
@@ -160,7 +162,7 @@ export function SessionsDashboard() {
   if (sessions.length === 0) {
     return (
       <div className="p-4 text-slate-500 text-sm">
-        No live sessions. Open another wstack instance to see it here.
+        {t('activity:liveSessions.empty')}
       </div>
     );
   }
@@ -169,9 +171,9 @@ export function SessionsDashboard() {
     <div className="p-4 space-y-3">
       <div className="flex items-center gap-2 mb-4">
         <h2 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
-          Live Sessions ({sessions.length})
+          {t('activity:liveSessions.heading', { count: sessions.length })}
         </h2>
-        <span className="text-xs text-slate-500">auto-refresh every 5s</span>
+        <span className="text-xs text-slate-500">{t('activity:liveSessions.autoRefresh')}</span>
       </div>
 
       {sessions.map((s) => (
@@ -196,7 +198,7 @@ export function SessionsDashboard() {
               <Clock className="h-3 w-3" />
               {fmtDuration(s.startedAt)}
             </span>
-            <span className="text-slate-600 text-xs">PID {s.pid}</span>
+            <span className="text-slate-600 text-xs">{t('activity:liveSessions.pidLabel', { pid: s.pid })}</span>
           </div>
 
           {/* Working directory */}
@@ -217,17 +219,17 @@ export function SessionsDashboard() {
                   <span className="text-slate-500">[{a.currentTool}]</span>
                 ) : null}
                 <span className="text-slate-600 ml-auto">
-                  {a.iterations} iter · {a.toolCalls} tools · {fmtTimeAgo(a.lastActivityAt)}
+                  {t('activity:liveSessions.agentMeta', { iter: a.iterations, tools: a.toolCalls, ago: fmtTimeAgo(a.lastActivityAt) })}
                 </span>
               </div>
             ))}
             {s.agents.length > 5 ? (
               <div className="text-slate-600 text-xs pl-4">
-                ... and {s.agents.length - 5} more
+                {t('activity:liveSessions.andMore', { count: s.agents.length - 5 })}
               </div>
             ) : null}
             {s.agents.length === 0 ? (
-              <div className="text-slate-600 text-xs pl-4">No agents</div>
+              <div className="text-slate-600 text-xs pl-4">{t('activity:liveSessions.noAgents')}</div>
             ) : null}
           </div>
         </div>
