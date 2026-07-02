@@ -1267,5 +1267,16 @@
     "openInFileManager": "Dosya yöneticisinde aç",
     "mentionInChat": "Sohbette bahset",
     "copyPath": "Yolu kopyala"
+  },
+  "codeEditor": {
+    "sendSelectionAction": "Seçimi sohbete gönder",
+    "noFilesOpen": "Açık dosya yok",
+    "selectToEdit": "Düzenlemeye başlamak için gezginden bir dosya seçin",
+    "sendSelectedTitle": "Seçili satırları sohbete gönder",
+    "mentionFileTitle": "Bu dosyayı sohbette bahset",
+    "sendToChat": "Sohbete gönder",
+    "mentionFile": "Dosyayı bahset",
+    "loadingEditor": "Düzenleyici yükleniyor…",
+    "selectTab": "İçeriğini görmek için bir sekme seçin"
   }
 }

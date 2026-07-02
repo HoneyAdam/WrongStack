@@ -1267,5 +1267,16 @@
     "openInFileManager": "Abrir no gerenciador de arquivos",
     "mentionInChat": "Mencionar no chat",
     "copyPath": "Copiar caminho"
+  },
+  "codeEditor": {
+    "sendSelectionAction": "Enviar seleção para o chat",
+    "noFilesOpen": "Nenhum arquivo aberto",
+    "selectToEdit": "Selecione um arquivo do explorador para editar",
+    "sendSelectedTitle": "Enviar linhas selecionadas ao chat",
+    "mentionFileTitle": "Mencionar este arquivo no chat",
+    "sendToChat": "Enviar ao chat",
+    "mentionFile": "Mencionar arquivo",
+    "loadingEditor": "Carregando editor…",
+    "selectTab": "Selecione uma aba para ver o conteúdo"
   }
 }
