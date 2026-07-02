@@ -233,6 +233,12 @@ function copilotModelRank(item: CopilotModelEntry): number {
 
 export interface CopilotLoginOptions {
   providerId?: string;
+  /**
+   * External cancellation signal (e.g. the TUI auth panel's Esc). When
+   * provided, the flow does NOT install its own SIGINT handler — the
+   * caller owns cancellation.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 export async function runCopilotOAuthLogin(
@@ -242,7 +248,13 @@ export async function runCopilotOAuthLogin(
   const providerId = opts.providerId ?? COPILOT_PROVIDER_ID;
   const ac = new AbortController();
   const onSig = () => ac.abort();
-  process.on('SIGINT', onSig);
+  const external = opts.signal;
+  if (external) {
+    if (external.aborted) ac.abort();
+    else external.addEventListener('abort', () => ac.abort(), { once: true });
+  } else {
+    process.on('SIGINT', onSig);
+  }
 
   try {
     deps.renderer.write(
@@ -296,7 +308,7 @@ export async function runCopilotOAuthLogin(
     deps.renderer.writeError(`  Login failed: ${msg}`);
     return 1;
   } finally {
-    process.off('SIGINT', onSig);
+    if (!external) process.off('SIGINT', onSig);
   }
 }
 

@@ -260,6 +260,8 @@ export interface ExecutionDeps {
         error?: string | undefined;
       }>)
     | undefined;
+  /** Host for the interactive TUI `/auth` panel (keys, OAuth, local adds). */
+  authHost?: import('@wrongstack/tui').AuthPanelHost | undefined;
   /** Agents monitor overlay controller (passed to TUI). */
   agentsMonitorController?: {
     visible: boolean;
@@ -453,6 +455,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     saveStatuslineHiddenItems,
     getPluginItems,
     onPluginToggle,
+    authHost,
     agentsMonitorController,
     onPanelOpen,
     getYolo,
@@ -1050,6 +1053,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           saveStatuslineHiddenItems,
           getPluginItems,
           onPluginToggle,
+          authHost,
           agentsMonitorController,
           getLiveSessions: () => getLiveSessions({ state }),
           onSwitchToSession: (_sessionId: string, targetRoot: string, projectName: string) =>

@@ -202,7 +202,10 @@ interface LoopbackServer {
   readonly bound: boolean;
 }
 
-function startLoopbackServer(expectedState: string): Promise<LoopbackServer> {
+function startLoopbackServer(
+  expectedState: string,
+  signal?: AbortSignal,
+): Promise<LoopbackServer> {
   let resolveCode: (v: { code: string; state: string } | null) => void = () => {};
   const codePromise = new Promise<{ code: string; state: string } | null>((resolve) => {
     let settled = false;
@@ -253,6 +256,21 @@ function startLoopbackServer(expectedState: string): Promise<LoopbackServer> {
     res.end(callbackHtml(true, 'You can close this window and return to the terminal.'));
     resolveCode({ code, state });
   });
+
+  // Abort (Ctrl+C / TUI Esc) → unblock the pending wait and close the server
+  // so the login flow returns promptly instead of hanging on the loopback.
+  const onAbort = (): void => {
+    resolveCode(null);
+    try {
+      server.close();
+    } catch {
+      /* ignore */
+    }
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
 
   return new Promise<LoopbackServer>((resolve) => {
     server.on('error', () => {
@@ -307,6 +325,12 @@ function openBrowser(url: string): void {
 
 export interface ClaudeLoginOptions {
   providerId?: string;
+  /**
+   * External cancellation signal (e.g. the TUI auth panel's Esc). When
+   * provided, the flow does NOT install its own SIGINT handler — the
+   * caller owns cancellation.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 export async function runClaudeOAuthLogin(
@@ -321,9 +345,15 @@ export async function runClaudeOAuthLogin(
 
   const ac = new AbortController();
   const onSig = () => ac.abort();
-  process.on('SIGINT', onSig);
+  const external = opts.signal;
+  if (external) {
+    if (external.aborted) ac.abort();
+    else external.addEventListener('abort', () => ac.abort(), { once: true });
+  } else {
+    process.on('SIGINT', onSig);
+  }
 
-  const server = await startLoopbackServer(state);
+  const server = await startLoopbackServer(state, ac.signal);
 
   deps.renderer.write(
     color.bold(`\n  Sign in with Claude — ${color.cyan(providerId)}\n`) +
@@ -356,6 +386,12 @@ export async function runClaudeOAuthLogin(
   try {
     if (server.bound) {
       const got = await server.waitForCode();
+      // Cancelled while waiting on the loopback → return now rather than
+      // dropping into the manual-paste prompt (which would block again).
+      if (ac.signal.aborted) {
+        deps.renderer.write(color.dim('  Cancelled.\n'));
+        return 1;
+      }
       if (got) code = got.code;
     }
 
@@ -406,7 +442,7 @@ export async function runClaudeOAuthLogin(
     return 1;
   } finally {
     server.close();
-    process.off('SIGINT', onSig);
+    if (!external) process.off('SIGINT', onSig);
   }
 }
 
