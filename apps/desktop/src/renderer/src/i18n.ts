@@ -80,6 +80,9 @@ const en: Catalog = {
   gs: 'GS',
   sessions: 'Sessions',
   runtimes: 'Runtimes',
+  launcherError: 'The active WebUI did not handle that launcher command. Try Reload if the view is still starting.',
+  sessionLauncherError: 'That session WebUI did not handle the command yet. Try Reload if it is still starting.',
+  operationFailed: 'Operation failed.',
 };
 
 const tr: Catalog = {

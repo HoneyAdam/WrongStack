@@ -219,7 +219,7 @@ function renderPaneHeader(active: DesktopRuntimeRecord | undefined): string {
         : active
           ? active.name
           : state.restoring
-            ? 'Restoring'
+            ? t('restoring')
             : t('noProject');
   return `
     <header class="pane-header">
@@ -292,7 +292,7 @@ function renderActiveProject(active: DesktopRuntimeRecord | undefined): string {
       <section class="panel active-panel">
         <header class="panel-header">
         <span>Active</span>
-        <span class="status-chip idle">${state.restoring ? 'Restoring' : 'Idle'}</span>
+        <span class="status-chip idle">${state.restoring ? t('restoring') : t('idle')}</span>
       </header>
         <div class="project-empty">${state.restoring ? `${t('restoring')}...` : t('noProject')}</div>
       </section>
@@ -761,7 +761,7 @@ function renderRuntimeSession(runtime: DesktopRuntimeRecord, index: number): str
   const isActive = runtime.id === state.activeRuntimeId;
   const label = runtime.kind === 'global-settings' ? t('settings') : `Session ${index}`;
   const meta = runtime.status === 'error'
-    ? runtime.error ?? 'Error'
+    ? runtime.error ?? t('error')
     : `HTTP ${runtime.httpPort} · WS ${runtime.wsPort}`;
   const disabled = runtime.status === 'running' ? '' : 'disabled';
   return `
@@ -922,7 +922,7 @@ appRoot.addEventListener('click', (event) => {
             });
             return;
           }
-          const message = 'The active WebUI did not handle that launcher command. Try Reload if the view is still starting.';
+          const message = t('launcherError');
           shellError = message;
           setLauncherFeedback({
             state: 'error',
@@ -961,7 +961,7 @@ appRoot.addEventListener('click', (event) => {
           });
           return;
         }
-        const message = 'That session WebUI did not handle the command yet. Try Reload if it is still starting.';
+        const message = t('sessionLauncherError');
         shellError = message;
         setLauncherFeedback({
           state: 'error',
@@ -1092,7 +1092,7 @@ function escapeAttr(value: string): string {
 function toErrorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
   if (typeof value === 'string') return value;
-  return 'Operation failed.';
+  return t('operationFailed');
 }
 
 function readRuntimeGroupState(): Record<string, boolean> {
