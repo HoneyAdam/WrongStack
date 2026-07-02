@@ -24,6 +24,7 @@ import {
 import { useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
+import { useAppTranslation, i18n } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
 import { markdownComponents } from './MessageBubble/utils';
@@ -41,17 +42,6 @@ const TYPE_ICONS: Record<string, typeof MessageSquare> = {
   result: CheckCircle2,
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  note: 'Note',
-  ask: 'Question',
-  assign: 'Assignment',
-  steer: 'Steer',
-  btw: 'By the way',
-  broadcast: 'Broadcast',
-  status: 'Status',
-  result: 'Result',
-};
-
 const PRIORITY_COLORS: Record<string, string> = {
   high: 'text-red-600 bg-red-50 dark:bg-red-950/30',
   normal: 'text-muted-foreground bg-muted',
@@ -66,22 +56,23 @@ function fmtTime(iso: string): string {
 function fmtRelative(iso: string): string {
   const d = new Date(iso);
   const diff = Date.now() - d.getTime();
-  if (diff < 60_000) return 'just now';
-  if (diff < 3600_000) return `${Math.round(diff / 60_000)}m ago`;
-  if (diff < 86400_000) return `${Math.round(diff / 3600_000)}h ago`;
-  if (diff < 604800_000) return `${Math.round(diff / 86400_000)}d ago`;
+  if (diff < 60_000) return i18n.t('common:time.justNow');
+  if (diff < 3600_000) return i18n.t('common:time.minutesAgo', { count: Math.round(diff / 60_000) });
+  if (diff < 86400_000) return i18n.t('common:time.hoursAgo', { count: Math.round(diff / 3600_000) });
+  if (diff < 604800_000) return i18n.t('common:time.daysAgo', { count: Math.round(diff / 86400_000) });
   return d.toLocaleDateString();
 }
 
 // ── Component ─────────────────────────────────────────────────────────
 
 function EmptyState() {
+  const { t } = useAppTranslation();
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
       <Mail className="h-12 w-12 opacity-20" />
-      <div className="text-sm font-medium">No message selected</div>
+      <div className="text-sm font-medium">{t('activity:mailbox.emptyDetail')}</div>
       <div className="text-xs max-w-[260px] text-center opacity-60">
-        Click a message in the Mailbox panel to view it here.
+        {t('activity:mailbox.emptyDetailHint')}
       </div>
     </div>
   );
@@ -98,11 +89,12 @@ function _MessageNotFound() {
 }
 
 function ReadByList({ readBy }: { readBy: Record<string, string> }) {
+  const { t } = useAppTranslation();
   const entries = Object.entries(readBy);
   if (entries.length === 0) return null;
   return (
     <div className="space-y-1">
-      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Read by</div>
+      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{t('activity:mailbox.readBy')}</div>
       <div className="flex flex-wrap gap-1.5">
         {entries.map(([agentId, timestamp]) => (
           <span
@@ -120,6 +112,7 @@ function ReadByList({ readBy }: { readBy: Record<string, string> }) {
 }
 
 export function MailboxDetailView({ className }: { className?: string }) {
+  const { t } = useAppTranslation();
   const msg = useUIStore((s) => s.selectedMailMessage);
   const setSelectedMailMessage = useUIStore((s) => s.setSelectedMailMessage);
 
@@ -139,7 +132,7 @@ export function MailboxDetailView({ className }: { className?: string }) {
   if (!msg) return <EmptyState />;
 
   const Icon = TYPE_ICONS[msg.type] ?? MessageSquare;
-  const typeLabel = TYPE_LABELS[msg.type] ?? msg.type;
+  const typeLabel = t(`activity:mailbox.type.${msg.type}`, { defaultValue: msg.type });
   const priorityClass = PRIORITY_COLORS[msg.priority] ?? PRIORITY_COLORS.normal;
 
   return (
@@ -150,7 +143,7 @@ export function MailboxDetailView({ className }: { className?: string }) {
           type="button"
           onClick={handleClose}
           className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          title="Back to chat"
+          title={t('activity:mailbox.backToChat')}
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
@@ -165,14 +158,14 @@ export function MailboxDetailView({ className }: { className?: string }) {
             {msg.completed && (
               <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600 dark:text-green-400 shrink-0">
                 <CheckCircle2 className="h-3 w-3" />
-                Completed
+                {t('activity:mailbox.completed')}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
             <span className="font-medium text-foreground/80">{msg.from}</span>
             <span>→</span>
-            <span>{msg.to === '*' || msg.to === 'all' ? 'everyone' : msg.to}</span>
+            <span>{msg.to === '*' || msg.to === 'all' ? t('activity:mailbox.everyone') : msg.to}</span>
             <span className="opacity-40">•</span>
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3 w-3" />
@@ -185,7 +178,7 @@ export function MailboxDetailView({ className }: { className?: string }) {
           type="button"
           onClick={handleClose}
           className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          title="Close (Esc)"
+          title={t('activity:mailbox.closeTitle')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -232,7 +225,7 @@ export function MailboxDetailView({ className }: { className?: string }) {
           {msg.replyTo && (
             <div className="flex items-center gap-1.5 text-muted-foreground col-span-2">
               <Reply className="h-3 w-3 shrink-0" />
-              <span className="truncate">In reply to: {msg.replyTo}</span>
+              <span className="truncate">{t('activity:mailbox.replyTo', { id: msg.replyTo })}</span>
             </div>
           )}
 
@@ -240,14 +233,14 @@ export function MailboxDetailView({ className }: { className?: string }) {
           {msg.completed && msg.completedBy && (
             <div className="flex items-center gap-1.5 text-muted-foreground col-span-2">
               <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
-              <span>Completed by {msg.completedBy}{msg.completedAt ? ` at ${fmtTime(msg.completedAt)}` : ''}</span>
+              <span>{msg.completedAt ? t('activity:mailbox.completedByAt', { name: msg.completedBy, time: fmtTime(msg.completedAt) }) : t('activity:mailbox.completedBy', { name: msg.completedBy })}</span>
             </div>
           )}
 
           {/* Outcome */}
           {msg.outcome && (
             <div className="flex items-start gap-1.5 text-muted-foreground col-span-2 sm:col-span-4">
-              <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0 mt-0.5">Outcome:</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0 mt-0.5">{t('activity:mailbox.outcome')}</span>
               <span>{msg.outcome}</span>
             </div>
           )}
@@ -255,7 +248,7 @@ export function MailboxDetailView({ className }: { className?: string }) {
           {/* Task Context */}
           {msg.taskContext && (
             <div className="flex items-start gap-1.5 text-muted-foreground col-span-2 sm:col-span-4">
-              <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0 mt-0.5">Task:</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0 mt-0.5">{t('activity:mailbox.task')}</span>
               <span>{msg.taskContext}</span>
             </div>
           )}

@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "Delete all {{count}} messages?",
     "deleteAllConfirmBody": "The mailbox file is truncated for every agent. This cannot be undone.",
     "purgeConfirmTitle": "Purge stale messages?",
-    "purgeConfirmBody": "Removes completed messages older than 1 day and incomplete messages older than 7 days. Active messages are preserved."
+    "purgeConfirmBody": "Removes completed messages older than 1 day and incomplete messages older than 7 days. Active messages are preserved.",
+    "type": {
+      "note": "Note",
+      "ask": "Question",
+      "assign": "Assignment",
+      "steer": "Steer",
+      "btw": "By the way",
+      "broadcast": "Broadcast",
+      "status": "Status",
+      "result": "Result"
+    },
+    "emptyDetail": "No message selected",
+    "emptyDetailHint": "Click a message in the Mailbox panel to view it here.",
+    "readBy": "Read by",
+    "backToChat": "Back to chat",
+    "completed": "Completed",
+    "everyone": "everyone",
+    "closeTitle": "Close (Esc)",
+    "replyTo": "In reply to: {{id}}",
+    "completedBy": "Completed by {{name}}",
+    "completedByAt": "Completed by {{name}} at {{time}}",
+    "outcome": "Outcome:",
+    "task": "Task:"
   }
 }

@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "Tüm {{count}} mesaj silinsin mi?",
     "deleteAllConfirmBody": "Posta kutusu dosyası her vekil için kısaltılır. Bu geri alınamaz.",
     "purgeConfirmTitle": "Eski mesajlar temizlensin mi?",
-    "purgeConfirmBody": "1 günden eski tamamlanmış ve 7 günden eski tamamlanmamış mesajları kaldırır. Etkin mesajlar korunur."
+    "purgeConfirmBody": "1 günden eski tamamlanmış ve 7 günden eski tamamlanmamış mesajları kaldırır. Etkin mesajlar korunur.",
+    "type": {
+      "note": "Not",
+      "ask": "Soru",
+      "assign": "Atama",
+      "steer": "Yönlendir",
+      "btw": "Bu arada",
+      "broadcast": "Yayın",
+      "status": "Durum",
+      "result": "Sonuç"
+    },
+    "emptyDetail": "Mesaj seçilmedi",
+    "emptyDetailHint": "Burada görüntülemek için Posta Kutusu panelinden bir mesaja tıklayın.",
+    "readBy": "Okuyanlar",
+    "backToChat": "Sohbete dön",
+    "completed": "Tamamlandı",
+    "everyone": "herkes",
+    "closeTitle": "Kapat (Esc)",
+    "replyTo": "Yanıt olarak: {{id}}",
+    "completedBy": "{{name}} tarafından tamamlandı",
+    "completedByAt": "{{name}} tarafından {{time}} tarihinde tamamlandı",
+    "outcome": "Sonuç:",
+    "task": "Görev:"
   }
 }

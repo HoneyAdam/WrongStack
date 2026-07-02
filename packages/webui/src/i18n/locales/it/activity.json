@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "Eliminare tutti i {{count}} messaggi?",
     "deleteAllConfirmBody": "Il file della mailbox viene troncato per ogni agente. Operazione irreversibile.",
     "purgeConfirmTitle": "Purgare i messaggi obsoleti?",
-    "purgeConfirmBody": "Rimuove i messaggi completati più vecchi di 1 giorno e quelli incompleti più vecchi di 7 giorni. I messaggi attivi vengono conservati."
+    "purgeConfirmBody": "Rimuove i messaggi completati più vecchi di 1 giorno e quelli incompleti più vecchi di 7 giorni. I messaggi attivi vengono conservati.",
+    "type": {
+      "note": "Nota",
+      "ask": "Domanda",
+      "assign": "Assegnazione",
+      "steer": "Dirigi",
+      "btw": "A proposito",
+      "broadcast": "Broadcast",
+      "status": "Stato",
+      "result": "Risultato"
+    },
+    "emptyDetail": "Nessun messaggio selezionato",
+    "emptyDetailHint": "Clicca un messaggio nel pannello Mailbox per vederlo qui.",
+    "readBy": "Letto da",
+    "backToChat": "Torna alla chat",
+    "completed": "Completato",
+    "everyone": "tutti",
+    "closeTitle": "Chiudi (Esc)",
+    "replyTo": "In risposta a: {{id}}",
+    "completedBy": "Completato da {{name}}",
+    "completedByAt": "Completato da {{name}} il {{time}}",
+    "outcome": "Risultato:",
+    "task": "Attività:"
   }
 }

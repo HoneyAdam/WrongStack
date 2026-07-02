@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "¿Eliminar todos los {{count}} mensajes?",
     "deleteAllConfirmBody": "El archivo del buzón se trunca para cada agente. Esto no se puede deshacer.",
     "purgeConfirmTitle": "¿Purgar mensajes obsoletos?",
-    "purgeConfirmBody": "Elimina los mensajes completados de más de 1 día y los incompletos de más de 7 días. Los mensajes activos se conservan."
+    "purgeConfirmBody": "Elimina los mensajes completados de más de 1 día y los incompletos de más de 7 días. Los mensajes activos se conservan.",
+    "type": {
+      "note": "Nota",
+      "ask": "Pregunta",
+      "assign": "Asignación",
+      "steer": "Dirigir",
+      "btw": "Por cierto",
+      "broadcast": "Difusión",
+      "status": "Estado",
+      "result": "Resultado"
+    },
+    "emptyDetail": "Ningún mensaje seleccionado",
+    "emptyDetailHint": "Haz clic en un mensaje del panel Buzón para verlo aquí.",
+    "readBy": "Leído por",
+    "backToChat": "Volver al chat",
+    "completed": "Completado",
+    "everyone": "todos",
+    "closeTitle": "Cerrar (Esc)",
+    "replyTo": "En respuesta a: {{id}}",
+    "completedBy": "Completado por {{name}}",
+    "completedByAt": "Completado por {{name}} el {{time}}",
+    "outcome": "Resultado:",
+    "task": "Tarea:"
   }
 }

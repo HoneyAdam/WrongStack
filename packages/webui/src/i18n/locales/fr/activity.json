@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "Supprimer tous les {{count}} messages ?",
     "deleteAllConfirmBody": "Le fichier de boîte aux lettres est tronqué pour chaque agent. Action irréversible.",
     "purgeConfirmTitle": "Purger les messages obsolètes ?",
-    "purgeConfirmBody": "Supprime les messages terminés de plus d'un jour et les messages incomplets de plus de 7 jours. Les messages actifs sont conservés."
+    "purgeConfirmBody": "Supprime les messages terminés de plus d'un jour et les messages incomplets de plus de 7 jours. Les messages actifs sont conservés.",
+    "type": {
+      "note": "Note",
+      "ask": "Question",
+      "assign": "Affectation",
+      "steer": "Orienter",
+      "btw": "Au passage",
+      "broadcast": "Diffusion",
+      "status": "Statut",
+      "result": "Résultat"
+    },
+    "emptyDetail": "Aucun message sélectionné",
+    "emptyDetailHint": "Cliquez sur un message dans le panneau Boîte aux lettres pour l'afficher ici.",
+    "readBy": "Lu par",
+    "backToChat": "Retour au chat",
+    "completed": "Terminé",
+    "everyone": "tout le monde",
+    "closeTitle": "Fermer (Échap)",
+    "replyTo": "En réponse à : {{id}}",
+    "completedBy": "Terminé par {{name}}",
+    "completedByAt": "Terminé par {{name}} le {{time}}",
+    "outcome": "Résultat :",
+    "task": "Tâche :"
   }
 }

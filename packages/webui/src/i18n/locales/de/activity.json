@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "Alle {{count}} Nachrichten löschen?",
     "deleteAllConfirmBody": "Die Mailbox-Datei wird für jeden Agent abgeschnitten. Dies kann nicht rückgängig gemacht werden.",
     "purgeConfirmTitle": "Veraltete Nachrichten bereinigen?",
-    "purgeConfirmBody": "Entfernt abgeschlossene Nachrichten älter als 1 Tag und unvollständige Nachrichten älter als 7 Tage. Aktive Nachrichten bleiben erhalten."
+    "purgeConfirmBody": "Entfernt abgeschlossene Nachrichten älter als 1 Tag und unvollständige Nachrichten älter als 7 Tage. Aktive Nachrichten bleiben erhalten.",
+    "type": {
+      "note": "Notiz",
+      "ask": "Frage",
+      "assign": "Zuweisung",
+      "steer": "Lenken",
+      "btw": "Nebenbei",
+      "broadcast": "Rundruf",
+      "status": "Status",
+      "result": "Ergebnis"
+    },
+    "emptyDetail": "Keine Nachricht ausgewählt",
+    "emptyDetailHint": "Klicke im Mailbox-Panel auf eine Nachricht, um sie hier anzuzeigen.",
+    "readBy": "Gelesen von",
+    "backToChat": "Zurück zum Chat",
+    "completed": "Erledigt",
+    "everyone": "alle",
+    "closeTitle": "Schließen (Esc)",
+    "replyTo": "Antwort auf: {{id}}",
+    "completedBy": "Von {{name}} erledigt",
+    "completedByAt": "Von {{name}} am {{time}} erledigt",
+    "outcome": "Ergebnis:",
+    "task": "Aufgabe:"
   }
 }

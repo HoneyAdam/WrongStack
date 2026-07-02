@@ -109,6 +109,28 @@
     "deleteAllConfirmTitle_other": "Excluir todas as {{count}} mensagens?",
     "deleteAllConfirmBody": "O arquivo da caixa de entrada é truncado para cada agente. Isso não pode ser desfeito.",
     "purgeConfirmTitle": "Purgar mensagens obsoletas?",
-    "purgeConfirmBody": "Remove mensagens concluídas com mais de 1 dia e mensagens incompletas com mais de 7 dias. Mensagens ativas são preservadas."
+    "purgeConfirmBody": "Remove mensagens concluídas com mais de 1 dia e mensagens incompletas com mais de 7 dias. Mensagens ativas são preservadas.",
+    "type": {
+      "note": "Nota",
+      "ask": "Pergunta",
+      "assign": "Atribuição",
+      "steer": "Direcionar",
+      "btw": "A propósito",
+      "broadcast": "Transmissão",
+      "status": "Status",
+      "result": "Resultado"
+    },
+    "emptyDetail": "Nenhuma mensagem selecionada",
+    "emptyDetailHint": "Clique em uma mensagem no painel Caixa de entrada para vê-la aqui.",
+    "readBy": "Lido por",
+    "backToChat": "Voltar ao chat",
+    "completed": "Concluído",
+    "everyone": "todos",
+    "closeTitle": "Fechar (Esc)",
+    "replyTo": "Em resposta a: {{id}}",
+    "completedBy": "Concluído por {{name}}",
+    "completedByAt": "Concluído por {{name}} em {{time}}",
+    "outcome": "Resultado:",
+    "task": "Tarefa:"
   }
 }
