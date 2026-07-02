@@ -1,90 +1,92 @@
 import { useUIStore } from '@/stores';
+import { useAppTranslation } from '@/i18n';
 import { Keyboard, X } from 'lucide-react';
 import { useEffect } from 'react';
 
 interface Shortcut {
   keys: string[];
-  description: string;
+  descKey: string;
 }
 
-const SHORTCUTS: Array<{ section: string; items: Shortcut[] }> = [
+const SHORTCUTS: Array<{ sectionKey: string; items: Shortcut[] }> = [
   {
-    section: 'Global',
+    sectionKey: 'sectionGlobal',
     items: [
-      { keys: ['Ctrl', 'K'], description: 'Open command palette' },
-      { keys: ['?'], description: 'Show this shortcuts overlay' },
-      { keys: ['Ctrl', '\\'], description: 'Toggle sidebar' },
-      { keys: ['Ctrl', '1-8'], description: 'Open side panel (Session, Agents, History, Files, Changes, Mailbox, Skills, Office Map)' },
-      { keys: ['Ctrl', '0'], description: 'Open Design Studio side panel' },
-      { keys: ['Ctrl', 'Shift', 'W'], description: 'Open Worktrees side panel' },
-      { keys: ['Ctrl', '/'], description: 'Focus the message input' },
+      { keys: ['Ctrl', 'K'], descKey: 'dCommandPalette' },
+      { keys: ['?'], descKey: 'dShowOverlay' },
+      { keys: ['Ctrl', '\\'], descKey: 'dToggleSidebar' },
+      { keys: ['Ctrl', '1-8'], descKey: 'dOpenPanel' },
+      { keys: ['Ctrl', '0'], descKey: 'dDesignStudio' },
+      { keys: ['Ctrl', 'Shift', 'W'], descKey: 'dWorktrees' },
+      { keys: ['Ctrl', '/'], descKey: 'dFocusInput' },
     ],
   },
   {
-    section: 'TUI Panel Parity',
+    sectionKey: 'sectionTuiParity',
     items: [
-      { keys: ['F1'], description: 'Session panel' },
-      { keys: ['F2'], description: 'Fleet monitor overlay' },
-      { keys: ['F3'], description: 'Agents monitor overlay' },
-      { keys: ['F4'], description: 'Worktree monitor' },
-      { keys: ['F5'], description: 'Plan panel' },
-      { keys: ['F6'], description: 'Todos panel' },
-      { keys: ['F7'], description: 'Queue panel' },
-      { keys: ['F8'], description: 'Process monitor' },
-      { keys: ['F9'], description: 'Goal panel' },
-      { keys: ['F10'], description: 'Sessions dashboard' },
-      { keys: ['F11'], description: 'Coordinator office map' },
-      { keys: ['F12'], description: 'Dock chip picker' },
+      { keys: ['F1'], descKey: 'dSessionPanel' },
+      { keys: ['F2'], descKey: 'dFleetOverlay' },
+      { keys: ['F3'], descKey: 'dAgentsOverlay' },
+      { keys: ['F4'], descKey: 'dWorktreeMonitor' },
+      { keys: ['F5'], descKey: 'dPlanPanel' },
+      { keys: ['F6'], descKey: 'dTodosPanel' },
+      { keys: ['F7'], descKey: 'dQueuePanel' },
+      { keys: ['F8'], descKey: 'dProcessMonitor' },
+      { keys: ['F9'], descKey: 'dGoalPanel' },
+      { keys: ['F10'], descKey: 'dSessionsDashboard' },
+      { keys: ['F11'], descKey: 'dOfficeMap' },
+      { keys: ['F12'], descKey: 'dDockPicker' },
     ],
   },
   {
-    section: 'Fleet & Agents',
+    sectionKey: 'sectionFleet',
     items: [
-      { keys: ['Ctrl', 'Shift', 'M'], description: 'Open Fleet Monitor overlay' },
-      { keys: ['Ctrl', 'Shift', 'A'], description: 'Open Agents Monitor overlay' },
-      { keys: ['↑', '↓'], description: 'Navigate agents in monitor' },
-      { keys: ['Enter'], description: 'Select focused agent' },
-      { keys: ['Esc'], description: 'Close active overlay' },
+      { keys: ['Ctrl', 'Shift', 'M'], descKey: 'dOpenFleet' },
+      { keys: ['Ctrl', 'Shift', 'A'], descKey: 'dOpenAgents' },
+      { keys: ['↑', '↓'], descKey: 'dNavigateAgents' },
+      { keys: ['Enter'], descKey: 'dSelectAgent' },
+      { keys: ['Esc'], descKey: 'dCloseOverlay' },
     ],
   },
   {
-    section: 'Chat input',
+    sectionKey: 'sectionChatInput',
     items: [
-      { keys: ['Enter'], description: 'Send message' },
-      { keys: ['Shift', 'Enter'], description: 'Insert a newline' },
-      { keys: ['↑'], description: 'Recall previous prompt (in empty input)' },
-      { keys: ['↓'], description: 'Recall next prompt' },
-      { keys: ['/'], description: 'Open slash command popup' },
-      { keys: ['Tab'], description: 'Autocomplete highlighted command' },
-      { keys: ['Esc'], description: 'Dismiss popup / clear input' },
+      { keys: ['Enter'], descKey: 'dSendMessage' },
+      { keys: ['Shift', 'Enter'], descKey: 'dNewline' },
+      { keys: ['↑'], descKey: 'dRecallPrev' },
+      { keys: ['↓'], descKey: 'dRecallNext' },
+      { keys: ['/'], descKey: 'dSlashPopup' },
+      { keys: ['Tab'], descKey: 'dAutocomplete' },
+      { keys: ['Esc'], descKey: 'dDismissPopup' },
     ],
   },
   {
-    section: 'Chat',
+    sectionKey: 'sectionChat',
     items: [
-      { keys: ['Ctrl', 'F'], description: 'Search within current chat' },
-      { keys: ['Ctrl', 'L'], description: 'Clear context (same as /clear)' },
-      { keys: ['Ctrl', 'N'], description: 'Start a new session (same as /new)' },
-      { keys: ['Ctrl', 'E'], description: 'Export chat as markdown' },
-      { keys: ['Ctrl', 'M'], description: 'Quick model switcher overlay' },
-      { keys: ['Ctrl', 'Shift', 'D'], description: 'Toggle compact UI density' },
-      { keys: ['Esc'], description: 'Abort the current run (when running)' },
+      { keys: ['Ctrl', 'F'], descKey: 'dSearchChat' },
+      { keys: ['Ctrl', 'L'], descKey: 'dClearContext' },
+      { keys: ['Ctrl', 'N'], descKey: 'dNewSession' },
+      { keys: ['Ctrl', 'E'], descKey: 'dExportMarkdown' },
+      { keys: ['Ctrl', 'M'], descKey: 'dModelSwitcher' },
+      { keys: ['Ctrl', 'Shift', 'D'], descKey: 'dCompactDensity' },
+      { keys: ['Esc'], descKey: 'dAbortRun' },
     ],
   },
   {
-    section: 'Chat navigation (when not typing)',
+    sectionKey: 'sectionChatNav',
     items: [
-      { keys: ['j'], description: 'Focus next message (alias: ↓)' },
-      { keys: ['k'], description: 'Focus previous message (alias: ↑)' },
-      { keys: ['g'], description: 'Jump to first message' },
-      { keys: ['Shift', 'G'], description: 'Jump to last message' },
-      { keys: ['c'], description: 'Copy focused message text' },
-      { keys: ['Esc'], description: 'Clear focused message' },
+      { keys: ['j'], descKey: 'dFocusNext' },
+      { keys: ['k'], descKey: 'dFocusPrev' },
+      { keys: ['g'], descKey: 'dJumpFirst' },
+      { keys: ['Shift', 'G'], descKey: 'dJumpLast' },
+      { keys: ['c'], descKey: 'dCopyFocused' },
+      { keys: ['Esc'], descKey: 'dClearFocused' },
     ],
   },
 ];
 
 export function ShortcutsOverlay() {
+  const { t } = useAppTranslation();
   const open = useUIStore((s) => s.shortcutsOpen);
   const setOpen = useUIStore((s) => s.setShortcutsOpen);
 
@@ -127,7 +129,7 @@ export function ShortcutsOverlay() {
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div className="flex items-center gap-2">
             <Keyboard className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Keyboard shortcuts</h2>
+            <h2 className="text-sm font-semibold">{t('activity:shortcuts.heading')}</h2>
           </div>
           <button
             type="button"
@@ -139,17 +141,17 @@ export function ShortcutsOverlay() {
         </div>
         <div className="overflow-y-auto px-5 py-4 space-y-6">
           {SHORTCUTS.map((group) => (
-            <div key={group.section}>
+            <div key={group.sectionKey}>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-                {group.section}
+                {t(`activity:shortcuts.${group.sectionKey}`)}
               </div>
               <div className="grid grid-cols-1 gap-1.5">
                 {group.items.map((s) => (
                   <div
-                    key={s.description}
+                    key={s.descKey}
                     className="flex items-center justify-between gap-3 text-sm px-2 py-1.5 rounded hover:bg-muted/40"
                   >
-                    <span className="text-foreground/80">{s.description}</span>
+                    <span className="text-foreground/80">{t(`activity:shortcuts.${s.descKey}`)}</span>
                     <span className="flex items-center gap-1 shrink-0">
                       {s.keys.map((k, ki) => (
                         <span key={k} className="flex items-center gap-1">
@@ -167,9 +169,9 @@ export function ShortcutsOverlay() {
           ))}
         </div>
         <div className="border-t px-5 py-3 text-xs text-muted-foreground">
-          Press{' '}
+          {t('activity:shortcuts.footerPre')}{' '}
           <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-background">?</kbd>{' '}
-          any time to reopen this list.
+          {t('activity:shortcuts.footerPost')}
         </div>
       </div>
     </div>
