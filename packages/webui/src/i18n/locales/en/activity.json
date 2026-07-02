@@ -209,5 +209,42 @@
     "sound": "Sound on completion",
     "soundTitle": "Play a soft chime when a run finishes",
     "sessionId": "session {{id}}"
+  },
+  "fleet": {
+    "status": {
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "timeout": "timeout",
+      "stopped": "stopped"
+    },
+    "leader": "leader",
+    "providerModel": "Provider / Model",
+    "elapsed": "Elapsed",
+    "running": "running",
+    "iterations": "Iterations",
+    "toolCalls": "Tool Calls",
+    "cost": "Cost",
+    "budgetExtensions": "Budget Extensions",
+    "activity": "Activity",
+    "budgetWarning": "⚡ hitting {{kind}} limit ({{used}}/{{limit}}) — extending",
+    "contextWindow": "Context window",
+    "tokensUsed": "{{used}} / {{max}} tokens",
+    "toolRunning": "running…",
+    "lastTool": "last tool",
+    "error": "Error",
+    "finalOutput": "Final Output",
+    "copyOutput": "Copy output",
+    "liveOutput": "Live Output",
+    "waitingOutput": "Waiting for output…",
+    "outputHint": "Output appears here as the agent streams text.",
+    "toolLog": "Tool Log ({{count}})",
+    "fail": "fail",
+    "moreTools": "+{{count}} more tools",
+    "cardRunning": "running {{tool}}",
+    "cardLastTool": "last: {{tool}}",
+    "contextPercent": "Context {{pct}}%",
+    "doneCount": "{{count}} done",
+    "errCount": "{{count}} err"
   }
 }

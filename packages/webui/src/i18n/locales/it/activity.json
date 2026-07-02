@@ -209,5 +209,42 @@
     "sound": "Suono al completamento",
     "soundTitle": "Riproduci un dolce suono al termine di un'esecuzione",
     "sessionId": "sessione {{id}}"
+  },
+  "fleet": {
+    "status": {
+      "running": "in esecuzione",
+      "done": "completato",
+      "failed": "fallito",
+      "timeout": "timeout",
+      "stopped": "fermato"
+    },
+    "leader": "leader",
+    "providerModel": "Provider / Modello",
+    "elapsed": "Trascorso",
+    "running": "in esecuzione",
+    "iterations": "Iterazioni",
+    "toolCalls": "Chiamate strumenti",
+    "cost": "Costo",
+    "budgetExtensions": "Estensioni budget",
+    "activity": "Attività",
+    "budgetWarning": "⚡ limite {{kind}} raggiunto ({{used}}/{{limit}}) — estensione",
+    "contextWindow": "Finestra di contesto",
+    "tokensUsed": "{{used}} / {{max}} token",
+    "toolRunning": "in esecuzione…",
+    "lastTool": "ultimo strumento",
+    "error": "Errore",
+    "finalOutput": "Output finale",
+    "copyOutput": "Copia output",
+    "liveOutput": "Output in diretta",
+    "waitingOutput": "In attesa di output…",
+    "outputHint": "L'output appare qui mentre l'agente trasmette il testo.",
+    "toolLog": "Log strumenti ({{count}})",
+    "fail": "fallito",
+    "moreTools": "+{{count}} altri strumenti",
+    "cardRunning": "in esecuzione {{tool}}",
+    "cardLastTool": "ultimo: {{tool}}",
+    "contextPercent": "Contesto {{pct}}%",
+    "doneCount": "{{count}} completati",
+    "errCount": "{{count}} err"
   }
 }

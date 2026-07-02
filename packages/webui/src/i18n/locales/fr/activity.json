@@ -209,5 +209,42 @@
     "sound": "Son à la fin",
     "soundTitle": "Jouer un doux carillon à la fin d'une exécution",
     "sessionId": "session {{id}}"
+  },
+  "fleet": {
+    "status": {
+      "running": "en cours",
+      "done": "terminé",
+      "failed": "échoué",
+      "timeout": "expiré",
+      "stopped": "arrêté"
+    },
+    "leader": "leader",
+    "providerModel": "Fournisseur / Modèle",
+    "elapsed": "Écoulé",
+    "running": "en cours",
+    "iterations": "Itérations",
+    "toolCalls": "Appels d'outils",
+    "cost": "Coût",
+    "budgetExtensions": "Extensions de budget",
+    "activity": "Activité",
+    "budgetWarning": "⚡ limite {{kind}} atteinte ({{used}}/{{limit}}) — extension",
+    "contextWindow": "Fenêtre de contexte",
+    "tokensUsed": "{{used}} / {{max}} jetons",
+    "toolRunning": "en cours…",
+    "lastTool": "dernier outil",
+    "error": "Erreur",
+    "finalOutput": "Sortie finale",
+    "copyOutput": "Copier la sortie",
+    "liveOutput": "Sortie en direct",
+    "waitingOutput": "En attente de sortie…",
+    "outputHint": "La sortie apparaît ici à mesure que l'agent diffuse du texte.",
+    "toolLog": "Journal d'outils ({{count}})",
+    "fail": "échec",
+    "moreTools": "+{{count}} outils de plus",
+    "cardRunning": "en cours {{tool}}",
+    "cardLastTool": "dernier : {{tool}}",
+    "contextPercent": "Contexte {{pct}} %",
+    "doneCount": "{{count}} terminé(s)",
+    "errCount": "{{count}} err"
   }
 }

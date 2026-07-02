@@ -209,5 +209,42 @@
     "sound": "Tamamlanınca ses",
     "soundTitle": "Bir çalışma bitince hafif bir çal sesi çıkar",
     "sessionId": "oturum {{id}}"
+  },
+  "fleet": {
+    "status": {
+      "running": "çalışıyor",
+      "done": "bitti",
+      "failed": "başarısız",
+      "timeout": "zaman aşımı",
+      "stopped": "durduruldu"
+    },
+    "leader": "lider",
+    "providerModel": "Sağlayıcı / Model",
+    "elapsed": "Geçen",
+    "running": "çalışıyor",
+    "iterations": "Yineleme",
+    "toolCalls": "Araç Çağrısı",
+    "cost": "Maliyet",
+    "budgetExtensions": "Bütçe Uzatması",
+    "activity": "Etkinlik",
+    "budgetWarning": "⚡ {{kind}} sınırına yaklaşıldı ({{used}}/{{limit}}) — uzatılıyor",
+    "contextWindow": "Bağlam penceresi",
+    "tokensUsed": "{{used}} / {{max}} token",
+    "toolRunning": "çalışıyor…",
+    "lastTool": "son araç",
+    "error": "Hata",
+    "finalOutput": "Son Çıktı",
+    "copyOutput": "Çıktıyı kopyala",
+    "liveOutput": "Canlı Çıktı",
+    "waitingOutput": "Çıktı bekleniyor…",
+    "outputHint": "Vekil metin aktardıkça çıktı burada görünür.",
+    "toolLog": "Araç Günlüğü ({{count}})",
+    "fail": "başarısız",
+    "moreTools": "+{{count}} araç daha",
+    "cardRunning": "çalışıyor {{tool}}",
+    "cardLastTool": "son: {{tool}}",
+    "contextPercent": "Bağlam %{{pct}}",
+    "doneCount": "{{count}} bitti",
+    "errCount": "{{count}} hata"
   }
 }

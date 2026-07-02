@@ -209,5 +209,42 @@
     "sound": "Ton bei Fertigstellung",
     "soundTitle": "Sanften Gong abspielen, wenn ein Lauf endet",
     "sessionId": "Sitzung {{id}}"
+  },
+  "fleet": {
+    "status": {
+      "running": "läuft",
+      "done": "fertig",
+      "failed": "fehlgeschlagen",
+      "timeout": "Zeitüberschreitung",
+      "stopped": "gestoppt"
+    },
+    "leader": "Leader",
+    "providerModel": "Anbieter / Modell",
+    "elapsed": "Verstrichen",
+    "running": "läuft",
+    "iterations": "Iterationen",
+    "toolCalls": "Tool-Aufrufe",
+    "cost": "Kosten",
+    "budgetExtensions": "Budget-Erweiterungen",
+    "activity": "Aktivität",
+    "budgetWarning": "⚡ {{kind}}-Limit erreicht ({{used}}/{{limit}}) — wird erweitert",
+    "contextWindow": "Kontextfenster",
+    "tokensUsed": "{{used}} / {{max}} Tokens",
+    "toolRunning": "läuft…",
+    "lastTool": "letztes Tool",
+    "error": "Fehler",
+    "finalOutput": "Endgültige Ausgabe",
+    "copyOutput": "Ausgabe kopieren",
+    "liveOutput": "Live-Ausgabe",
+    "waitingOutput": "Warte auf Ausgabe…",
+    "outputHint": "Die Ausgabe erscheint hier, sobald der Agent Text streamt.",
+    "toolLog": "Tool-Protokoll ({{count}})",
+    "fail": "Fehlschlag",
+    "moreTools": "+{{count}} weitere Tools",
+    "cardRunning": "läuft {{tool}}",
+    "cardLastTool": "zuletzt: {{tool}}",
+    "contextPercent": "Kontext {{pct}}%",
+    "doneCount": "{{count}} fertig",
+    "errCount": "{{count}} Fehler"
   }
 }
