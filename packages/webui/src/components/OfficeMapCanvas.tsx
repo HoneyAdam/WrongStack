@@ -139,6 +139,7 @@ function StatusLED({ status, small, activity = 0 }: { status: ClientStatus; smal
 // ── Real-time Stats HUD ──────────────────────────────────────────────────────
 
 function StatsHUD() {
+  const { t } = useAppTranslation();
   const { clientCounts, currentSession, totalAgents, activeAgents, aggregate } = useMonitorStore();
   const totalClients = clientCounts.tui + clientCounts.webui + clientCounts.repl;
 
@@ -150,7 +151,7 @@ function StatsHUD() {
     <div className="absolute top-20 left-4 z-10 bg-slate-800/95 backdrop-blur border border-slate-700 rounded-lg p-3 shadow-xl">
       <div className="flex items-center gap-2 mb-2">
         <Activity className="h-3.5 w-3.5 text-emerald-400" />
-        <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wide">Session Stats</span>
+        <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wide">{t('activity:office.sessionStats')}</span>
       </div>
 
       <div className="space-y-1.5 text-[10px]">
@@ -158,7 +159,7 @@ function StatsHUD() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-1.5">
             <Users className="h-3 w-3 text-gray-500" />
-            <span className="text-gray-400">Clients</span>
+            <span className="text-gray-400">{t('activity:office.clients')}</span>
           </div>
           <span className="text-gray-200 font-mono">
             {activeAgents} <span className="text-gray-500">/</span>{' '}
@@ -195,7 +196,7 @@ function StatsHUD() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-1.5">
             <Bot className="h-3 w-3 text-gray-500" />
-            <span className="text-gray-400">Agents</span>
+            <span className="text-gray-400">{t('activity:officeMap.agents')}</span>
           </div>
           <span className="text-gray-200 font-mono">
             {activeAgents} <span className="text-gray-500">/</span>{' '}
@@ -208,7 +209,7 @@ function StatsHUD() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <Cpu className="h-3 w-3 text-gray-500" />
-              <span className="text-gray-400">Model</span>
+              <span className="text-gray-400">{t('activity:officeMap.model')}</span>
             </div>
             <span className="text-cyan-400 font-mono truncate max-w-[120px]" title={currentSession.model}>
               {currentSession.model.split('/').pop()?.slice(0, 16)}
@@ -221,7 +222,7 @@ function StatsHUD() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <Zap className="h-3 w-3 text-gray-500" />
-              <span className="text-gray-400">Mode</span>
+              <span className="text-gray-400">{t('activity:officeMap.mode')}</span>
             </div>
             <span className={cn(
               'font-mono uppercase text-[9px] px-1.5 py-0.5 rounded',
@@ -239,7 +240,7 @@ function StatsHUD() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-1.5">
             <Hash className="h-3 w-3 text-gray-500" />
-            <span className="text-gray-400">Tool Calls</span>
+            <span className="text-gray-400">{t('activity:office.toolCallsLabel')}</span>
           </div>
           <span className="text-yellow-400 font-mono">{fmtNum(aggregate.toolCalls)}</span>
         </div>
@@ -249,14 +250,14 @@ function StatsHUD() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <span className="text-gray-500 text-[8px]">IN</span>
-              <span className="text-gray-400">Input</span>
+              <span className="text-gray-400">{t('activity:office.input')}</span>
             </div>
             <span className="text-gray-300 font-mono text-[9px]">{fmtNum(aggregate.tokensIn)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <span className="text-gray-500 text-[8px]">OUT</span>
-              <span className="text-gray-400">Output</span>
+              <span className="text-gray-400">{t('activity:office.output')}</span>
             </div>
             <span className="text-gray-300 font-mono text-[9px]">{fmtNum(aggregate.tokensOut)}</span>
           </div>
@@ -266,7 +267,7 @@ function StatsHUD() {
         <div className="flex items-center justify-between gap-4 border-t border-slate-700 pt-1.5 mt-1.5">
           <div className="flex items-center gap-1.5">
             <DollarSign className="h-3 w-3 text-gray-500" />
-            <span className="text-gray-400">Cost</span>
+            <span className="text-gray-400">{t('activity:office.cost')}</span>
           </div>
           <span className="text-emerald-400 font-mono font-medium">{fmtCost(aggregate.costUsd)}</span>
         </div>
@@ -296,17 +297,19 @@ function NodeHandles() {
 
 /** Shared footer for client nodes: agent count + uptime. */
 function ClientMeta({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   return (
     <div className="mt-2 flex items-center justify-between border-t border-white/5 pt-1.5 text-[8px] text-gray-500">
       <span>
-        <span className="font-mono text-gray-300">{data.agentCount ?? 0}</span> agents
+        <span className="font-mono text-gray-300">{data.agentCount ?? 0}</span> {t('activity:office.agentsSuffix')}
       </span>
-      {data.startedAt && <span>up {fmtUptime(data.startedAt, Date.now())}</span>}
+      {data.startedAt && <span>{t('activity:office.upPrefix', { time: fmtUptime(data.startedAt, Date.now()) })}</span>}
     </div>
   );
 }
 
 function WebUINode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   const isActive = data.status === 'active' || data.status === 'streaming';
   const isError = data.status === 'error';
   const isOffline = data.status === 'offline';
@@ -330,7 +333,7 @@ function WebUINode({ data }: { data: OfficeNodeData }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-gray-500">WebUI Client</div>
+          <div className="text-[10px] text-gray-500">{t('activity:office.webuiClient')}</div>
         </div>
         <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
       </div>
@@ -345,12 +348,12 @@ function WebUINode({ data }: { data: OfficeNodeData }) {
         {isOffline ? (
           <>
             <WifiOff className="h-3 w-3 text-gray-500" />
-            <span>Disconnected</span>
+            <span>{t('activity:office.disconnected')}</span>
           </>
         ) : (
           <>
             <Wifi className="h-3 w-3 text-emerald-500" />
-            <span>Connected</span>
+            <span>{t('activity:office.connected')}</span>
           </>
         )}
       </div>
@@ -367,6 +370,7 @@ function WebUINode({ data }: { data: OfficeNodeData }) {
 }
 
 function TUINode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   const isActive = data.status === 'active' || data.status === 'streaming';
   const isError = data.status === 'error';
   const color = data.color || '#22c55e';
@@ -388,7 +392,7 @@ function TUINode({ data }: { data: OfficeNodeData }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-gray-500">TUI Client</div>
+          <div className="text-[10px] text-gray-500">{t('activity:office.tuiClient')}</div>
         </div>
         <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
       </div>
@@ -401,7 +405,7 @@ function TUINode({ data }: { data: OfficeNodeData }) {
 
       <div className="flex items-center gap-2 text-[10px] text-gray-500">
         <Terminal className="h-3 w-3 text-emerald-500" />
-        <span>Terminal</span>
+        <span>{t('activity:office.terminal')}</span>
       </div>
 
       <ClientMeta data={data} />
@@ -410,6 +414,7 @@ function TUINode({ data }: { data: OfficeNodeData }) {
 }
 
 function REPLNode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   const isActive = data.status === 'active' || data.status === 'streaming';
   const color = data.color || '#f59e0b';
 
@@ -429,7 +434,7 @@ function REPLNode({ data }: { data: OfficeNodeData }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-gray-500">REPL</div>
+          <div className="text-[10px] text-gray-500">{t('activity:office.repl')}</div>
         </div>
         <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
       </div>
@@ -444,6 +449,7 @@ function REPLNode({ data }: { data: OfficeNodeData }) {
 }
 
 function CoordinatorNode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   const isActive = data.status === 'active' || data.status === 'streaming';
   const color = data.color || '#a855f7';
 
@@ -463,7 +469,7 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-gray-500">{data.sublabel || 'Fleet summary'}</div>
+          <div className="text-[10px] text-gray-500">{data.sublabel || t('activity:office.fleetSummary')}</div>
         </div>
         <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
       </div>
@@ -475,26 +481,26 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
             <span className="text-gray-500"> / </span>
             <span className="text-purple-400">{data.agentsTotal || 0}</span>
           </div>
-          <div className="text-gray-500">Agents</div>
+          <div className="text-gray-500">{t('activity:officeMap.agents')}</div>
         </div>
         <div className="bg-black/20 rounded p-1.5 text-center">
           <div className="font-mono text-yellow-400">{(data.toolCalls || 0).toLocaleString()}</div>
-          <div className="text-gray-500">Tool calls</div>
+          <div className="text-gray-500">{t('activity:office.toolCallsLabel')}</div>
         </div>
         <div className="bg-black/20 rounded p-1.5 text-center">
           <div className="font-mono text-gray-300">{fmtCompact(data.tokensIn)}</div>
-          <div className="text-gray-500">Tokens</div>
+          <div className="text-gray-500">{t('activity:office.tokensLabel')}</div>
         </div>
         <div className="bg-black/20 rounded p-1.5 text-center">
           <div className="font-mono text-emerald-400">${(data.costUsd || 0).toFixed(3)}</div>
-          <div className="text-gray-500">Cost</div>
+          <div className="text-gray-500">{t('activity:office.cost')}</div>
         </div>
       </div>
 
       {isActive && (
         <div className="flex items-center gap-2 text-[10px] text-purple-400">
           <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-          Coordinating fleet
+          {t('activity:office.coordinatingFleet')}
         </div>
       )}
     </div>
@@ -502,6 +508,7 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
 }
 
 function AgentNode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   const isActive = data.status === 'active' || data.status === 'streaming';
   const isError = data.status === 'error';
   const isCompleted = data.status === 'completed';
@@ -559,9 +566,9 @@ function AgentNode({ data }: { data: OfficeNodeData }) {
       {/* Last seen — prominent for finished agents (they reap ~30s after). */}
       {data.lastActivityAt && (
         <div className={cn('flex items-center gap-1 text-[8px]', isActive ? 'text-gray-600' : 'text-gray-500')}>
-          {isCompleted && <span className="text-emerald-500/70">✓ done ·</span>}
-          {isError && <span className="text-red-400/80">✕ failed ·</span>}
-          <span>seen {fmtAgo(data.lastActivityAt, Date.now())}</span>
+          {isCompleted && <span className="text-emerald-500/70">{t('activity:office.donePrefix')}</span>}
+          {isError && <span className="text-red-400/80">{t('activity:office.failedPrefix')}</span>}
+          <span>{t('activity:office.seenPrefix', { time: fmtAgo(data.lastActivityAt, Date.now()) })}</span>
         </div>
       )}
     </div>
@@ -569,6 +576,7 @@ function AgentNode({ data }: { data: OfficeNodeData }) {
 }
 
 function DeskNode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   return (
     <div className={cn(
       'rounded-lg border border-dashed p-3 min-w-[120px] transition-all opacity-40',
@@ -582,12 +590,13 @@ function DeskNode({ data }: { data: OfficeNodeData }) {
         </div>
         <StatusLED status={data.status} small activity={data.vizActivity ?? 0} />
       </div>
-      <div className="text-[9px] text-gray-600">Available desk</div>
+      <div className="text-[9px] text-gray-600">{t('activity:office.availableDesk')}</div>
     </div>
   );
 }
 
 function MailboxNode({ data }: { data: OfficeNodeData }) {
+  const { t } = useAppTranslation();
   const color = data.color || '#eab308';
   const hasUnread = (data.unreadCount || 0) > 0;
 
@@ -606,9 +615,9 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
           <Mail className="h-5 w-5" style={{ color }} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-bold" style={{ color }}>Mailbox Hub</div>
+          <div className="text-xs font-bold" style={{ color }}>{t('activity:office.mailboxHub')}</div>
           <div className="text-[10px] text-gray-500">
-            {hasUnread ? `${data.unreadCount} unread` : 'All clear'}
+            {hasUnread ? t('activity:office.unreadSuffix', { count: data.unreadCount || 0 }) : t('activity:office.allClear')}
           </div>
         </div>
         {hasUnread && (
@@ -624,14 +633,14 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
             <Send className="h-3 w-3" />
             <span>{data.messageCount || 0}</span>
           </div>
-          <div className="text-gray-500">Total</div>
+          <div className="text-gray-500">{t('activity:office.total')}</div>
         </div>
         <div className="bg-black/20 rounded p-1.5 text-center">
           <div className="flex items-center justify-center gap-1 text-emerald-400">
             <Inbox className="h-3 w-3" />
             <span>{data.unreadCount || 0}</span>
           </div>
-          <div className="text-gray-500">Unread</div>
+          <div className="text-gray-500">{t('activity:office.unreadLabel')}</div>
         </div>
       </div>
 
@@ -758,16 +767,17 @@ const edgeTypes: EdgeTypes = {
  * log of "what just happened across the office" alongside the spatial map.
  */
 function LiveFeed({ events, now }: { events: VizEvent[]; now: number }) {
+  const { t } = useAppTranslation();
   const recent = events.slice(0, 14);
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none px-3 pb-3">
       <div className="pointer-events-auto rounded-lg bg-slate-900/85 border border-slate-700/70 backdrop-blur px-3 py-2 max-w-3xl mx-auto">
         <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wide text-cyan-400/80">
           <Activity className="h-3 w-3" />
-          Live activity
+          {t('activity:office.liveActivity')}
         </div>
         {recent.length === 0 ? (
-          <div className="text-[11px] text-gray-500 italic">Waiting for activity…</div>
+          <div className="text-[11px] text-gray-500 italic">{t('activity:office.waitingActivity')}</div>
         ) : (
           <div className="flex flex-col gap-0.5 max-h-32 overflow-hidden">
             {recent.map((e) => {
@@ -780,7 +790,7 @@ function LiveFeed({ events, now }: { events: VizEvent[]; now: number }) {
                   />
                   <span className="text-gray-300 truncate flex-1">{e.label}</span>
                   <span className="text-gray-600 shrink-0 tabular-nums">
-                    {ago < 1 ? 'now' : `${ago}s`}
+                    {ago < 1 ? t('activity:office.now') : `${ago}s`}
                   </span>
                 </div>
               );
@@ -925,7 +935,7 @@ export function OfficeMapCanvas() {
       type: 'mailbox',
       position: { x: CENTER_X + HUB_GAP, y: MAILBOX_Y },
       data: {
-        label: 'Mailbox Hub',
+        label: t('activity:office.mailboxHub'),
         kind: 'mailbox',
         status: unreadCount > 0 ? 'active' : 'idle',
         unreadCount,
@@ -960,8 +970,8 @@ export function OfficeMapCanvas() {
       type: 'coordinator',
       position: { x: CENTER_X - HUB_GAP, y: COORD_Y },
       data: {
-        label: 'Fleet HQ',
-        sublabel: `${clients.length} client${clients.length === 1 ? '' : 's'}`,
+        label: t('activity:office.fleetHqLabel'),
+        sublabel: t('activity:office.clientsSuffix', { count: clients.length }),
         kind: 'coordinator',
         status:
           leaderAgent?.status === 'failed' ? 'error' : anyAgentRunning ? 'active' : 'idle',
@@ -1013,7 +1023,7 @@ export function OfficeMapCanvas() {
         target: 'coordinator',
         type: 'wire',
         animated: clientActive,
-        data: { color, animated: clientActive, label: 'control', flowType: 'task' },
+        data: { color, animated: clientActive, label: t('activity:office.controlLabel'), flowType: 'task' },
       });
 
       // Wire: Mailbox → Client
@@ -1037,7 +1047,7 @@ export function OfficeMapCanvas() {
           id: `desk-${client.id}`,
           type: 'desk',
           position: { x: cx, y: AGENT_Y0 },
-          data: { label: 'Idle desk', kind: 'agent', status: 'idle', color: '#374151' },
+          data: { label: t('activity:office.idleDesk'), kind: 'agent', status: 'idle', color: '#374151' },
         });
         continue;
       }
@@ -1103,7 +1113,7 @@ export function OfficeMapCanvas() {
           data: {
             color: '#06b6d4',
             animated: isActive,
-            label: isActive ? agent.currentTask ?? 'task' : undefined,
+            label: isActive ? agent.currentTask ?? t('activity:office.taskFallback') : undefined,
             flowType: 'task',
           },
         });
