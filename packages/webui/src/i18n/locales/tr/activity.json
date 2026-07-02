@@ -162,5 +162,52 @@
     "deleteSessionConfirmTitle": "Oturum silinsin mi?",
     "deleteSessionConfirmBody": "\"{{name}}\" diskten kaldırılacak. Bu geri alınamaz.",
     "deleteSessionTitle": "Oturumu sil"
+  },
+  "sessionPanel": {
+    "actions": {
+      "abort": "Durdur",
+      "newSession": "Yeni oturum",
+      "export": "Dışa aktar",
+      "compact": "Sıkıştır",
+      "newSessionTitle": "Yeni oturum başlat (Ctrl+N)",
+      "exportTitle": "Sohbeti markdown olarak dışa aktar (Ctrl+E)",
+      "compactTitle": "Bağlam penceresini sıkıştır",
+      "clearTitle": "Bağlamı temizle (Ctrl+L)"
+    },
+    "model": "Model",
+    "modelTitle": "Modeli değiştir (Ctrl+M)",
+    "context": "Bağlam",
+    "contextTitle": "Bağlam dökümü için tıklayın",
+    "sessionLabel": "Oturum",
+    "stats": {
+      "messages": "Mesajlar",
+      "elapsed": "Geçen",
+      "tokens": "Token",
+      "cost": "Maliyet",
+      "iteration": "Yineleme",
+      "agents": "Vekiller",
+      "tokensSub": "{{in}} giriş / {{out}} çıkış",
+      "iterationOf": "/ {{max}}",
+      "agentsRunning": "{{count}} çalışıyor"
+    },
+    "plan": "Plan",
+    "planComplete": "%{{pct}} tamamlandı",
+    "pinned": "Sabitlenen",
+    "quickSettings": "Hızlı ayarlar",
+    "autonomy": "Otonomi",
+    "autonomyOptions": {
+      "off": "Kapalı",
+      "suggest": "Öner",
+      "auto": "Otomatik",
+      "eternal": "Sürekli",
+      "eternal-parallel": "Sürekli Paralel"
+    },
+    "yolo": "YOLO modu",
+    "yoloTitle": "Araç onay istemlerini atla",
+    "refine": "Promptları iyileştir",
+    "refineTitle": "Göndermeden önce promptları yeniden yaz",
+    "sound": "Tamamlanınca ses",
+    "soundTitle": "Bir çalışma bitince hafif bir çal sesi çıkar",
+    "sessionId": "oturum {{id}}"
   }
 }

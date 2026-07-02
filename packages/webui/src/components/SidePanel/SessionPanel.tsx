@@ -24,6 +24,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { playCompletionChime } from '@/lib/chime';
 import { cn } from '@/lib/utils';
@@ -176,6 +177,7 @@ function QuickToggle({
 
 export function SessionPanel() {
   const { client, updatePrefs, switchAutonomy } = useWebSocket();
+  const { t } = useAppTranslation();
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const wsUrl = useConfigStore((s) => s.wsUrl);
   const provider = useConfigStore((s) => s.provider);
@@ -244,7 +246,7 @@ export function SessionPanel() {
         {isLoading ? (
           <ActionButton
             icon={<Square className="h-3 w-3" />}
-            label="Abort"
+            label={t('activity:sessionPanel.actions.abort')}
             tone="danger"
             onClick={() => send({ type: 'abort', payload: {} })}
             disabled={!wsConnected}
@@ -252,7 +254,7 @@ export function SessionPanel() {
         ) : (
           <ActionButton
             icon={<Plus className="h-3 w-3" />}
-            label="New session"
+            label={t('activity:sessionPanel.actions.newSession')}
             tone="primary"
             onClick={() => {
               client?.newSession?.();
@@ -260,28 +262,28 @@ export function SessionPanel() {
               showPanel('chat');
             }}
             disabled={!wsConnected}
-            title="Start a new session (Ctrl+N)"
+            title={t('activity:sessionPanel.actions.newSessionTitle')}
           />
         )}
         <ActionButton
           icon={<Download className="h-3 w-3" />}
-          label="Export"
+          label={t('activity:sessionPanel.actions.export')}
           onClick={() => downloadChatAsMarkdown()}
-          title="Export chat as markdown (Ctrl+E)"
+          title={t('activity:sessionPanel.actions.exportTitle')}
         />
         <ActionButton
           icon={<Shrink className="h-3 w-3" />}
-          label="Compact"
+          label={t('activity:sessionPanel.actions.compact')}
           onClick={() => send({ type: 'context.compact', payload: { aggressive: false } })}
           disabled={!wsConnected}
-          title="Compact the context window"
+          title={t('activity:sessionPanel.actions.compactTitle')}
         />
         <ActionButton
           icon={<Eraser className="h-3 w-3" />}
-          label="Clear"
+          label={t('common:action.clear')}
           onClick={() => send({ type: 'context.clear' })}
           disabled={!wsConnected}
-          title="Clear context (Ctrl+L)"
+          title={t('activity:sessionPanel.actions.clearTitle')}
         />
       </div>
 
@@ -290,10 +292,10 @@ export function SessionPanel() {
         type="button"
         onClick={() => setModelSwitcherOpen(true)}
         className="w-full px-4 py-2.5 border-b text-left hover:bg-muted/40 transition-colors"
-        title="Change model (Ctrl+M)"
+        title={t('activity:sessionPanel.modelTitle')}
       >
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-          Model
+          {t('activity:sessionPanel.model')}
         </div>
         <div className="font-mono text-xs truncate">
           <span className="text-muted-foreground">{provider || '—'}</span>
@@ -309,11 +311,11 @@ export function SessionPanel() {
             type="button"
             onClick={() => setBreakdownOpen(true)}
             className="w-full block text-left"
-            title="Click for a context breakdown"
+            title={t('activity:sessionPanel.contextTitle')}
           >
             <SectionHeading
               icon={null}
-              label="Context"
+              label={t('activity:sessionPanel.context')}
               right={
                 <span className="text-[10px] text-muted-foreground tabular-nums font-mono">
                   {fmtTok(lastInputTokens)}/{fmtTok(maxContext)} · {ctxPct}%
@@ -325,7 +327,7 @@ export function SessionPanel() {
             type="button"
             onClick={() => setBreakdownOpen(true)}
             className="w-full block"
-            title="Click for a context breakdown"
+            title={t('activity:sessionPanel.contextTitle')}
           >
             <ContextFillBar
               pct={ctxPct}
@@ -339,28 +341,28 @@ export function SessionPanel() {
 
       {/* ── Live stats ── */}
       <div className="px-3 py-2.5 border-b space-y-1.5">
-        <SectionHeading icon={<Cpu className="h-3 w-3" />} label="Session" />
+        <SectionHeading icon={<Cpu className="h-3 w-3" />} label={t('activity:sessionPanel.sessionLabel')} />
         <div className="grid grid-cols-2 gap-1.5">
-          <StatBox label="Messages" value={messages.length} />
-          <StatBox label="Elapsed" value={startedAt ? fmtElapsed(now - startedAt) : '--'} />
+          <StatBox label={t('activity:sessionPanel.stats.messages')} value={messages.length} />
+          <StatBox label={t('activity:sessionPanel.stats.elapsed')} value={startedAt ? fmtElapsed(now - startedAt) : '--'} />
           <StatBox
-            label="Tokens"
+            label={t('activity:sessionPanel.stats.tokens')}
             value={fmtTok(totalTokens.input + totalTokens.output)}
-            sub={`${fmtTok(totalTokens.input)} in / ${fmtTok(totalTokens.output)} out`}
+            sub={t('activity:sessionPanel.stats.tokensSub', { in: fmtTok(totalTokens.input), out: fmtTok(totalTokens.output) })}
           />
-          <StatBox label="Cost" value={fmtCost(cost)} />
+          <StatBox label={t('activity:sessionPanel.stats.cost')} value={fmtCost(cost)} />
           {iteration && (
             <StatBox
-              label="Iteration"
+              label={t('activity:sessionPanel.stats.iteration')}
               value={iteration.index}
-              sub={iteration.max ? `of ${iteration.max}` : undefined}
+              sub={iteration.max ? t('activity:sessionPanel.stats.iterationOf', { max: iteration.max }) : undefined}
             />
           )}
           {fleetAgents.size > 0 && (
             <StatBox
-              label="Agents"
+              label={t('activity:sessionPanel.stats.agents')}
               value={fleetAgents.size}
-              sub={runningAgents > 0 ? `${runningAgents} running` : undefined}
+              sub={runningAgents > 0 ? t('activity:sessionPanel.stats.agentsRunning', { count: runningAgents }) : undefined}
             />
           )}
         </div>
@@ -377,7 +379,7 @@ export function SessionPanel() {
             <div className="px-3 py-2.5 border-b space-y-1.5">
               <SectionHeading
                 icon={<ListTodo className="h-3 w-3" />}
-                label="Plan"
+                label={t('activity:sessionPanel.plan')}
                 right={
                   <span className="tabular-nums text-[10px] text-muted-foreground">
                     {done}/{todos.length}
@@ -389,7 +391,7 @@ export function SessionPanel() {
                   'relative h-1.5 w-full overflow-hidden rounded-full bg-muted',
                   running > 0 && 'bar-sweep',
                 )}
-                title={`${pct}% complete`}
+                title={t('activity:sessionPanel.planComplete', { pct })}
               >
                 <div
                   className={cn(
@@ -445,14 +447,14 @@ export function SessionPanel() {
         <div className="px-3 py-2.5 border-b space-y-1.5">
           <SectionHeading
             icon={<Pin className="h-3 w-3 text-amber-500" />}
-            label="Pinned"
+            label={t('activity:sessionPanel.pinned')}
             right={
               <button
                 type="button"
                 onClick={unpinAll}
                 className="text-[10px] text-muted-foreground hover:text-destructive"
               >
-                Clear
+                {t('common:action.clear')}
               </button>
             }
           />
@@ -487,9 +489,9 @@ export function SessionPanel() {
 
       {/* ── Quick settings — the mid-session knobs ── */}
       <div className="px-3 py-2.5 border-b space-y-1">
-        <SectionHeading icon={<SlidersHorizontal className="h-3 w-3" />} label="Quick settings" />
+        <SectionHeading icon={<SlidersHorizontal className="h-3 w-3" />} label={t('activity:sessionPanel.quickSettings')} />
         <div className="flex items-center justify-between gap-2 py-1">
-          <span className="text-xs text-foreground/80">Autonomy</span>
+          <span className="text-xs text-foreground/80">{t('activity:sessionPanel.autonomy')}</span>
           <select
             value={localPrefs.autonomy}
             onChange={(e) => {
@@ -499,28 +501,28 @@ export function SessionPanel() {
             }}
             className="shrink-0 h-6 max-w-[150px] rounded-md border bg-background px-1.5 text-[11px]"
           >
-            <option value="off">Off</option>
-            <option value="suggest">Suggest</option>
-            <option value="auto">Auto</option>
-            <option value="eternal">Eternal</option>
-            <option value="eternal-parallel">Eternal Parallel</option>
+            <option value="off">{t('activity:sessionPanel.autonomyOptions.off')}</option>
+            <option value="suggest">{t('activity:sessionPanel.autonomyOptions.suggest')}</option>
+            <option value="auto">{t('activity:sessionPanel.autonomyOptions.auto')}</option>
+            <option value="eternal">{t('activity:sessionPanel.autonomyOptions.eternal')}</option>
+            <option value="eternal-parallel">{t('activity:sessionPanel.autonomyOptions.eternal-parallel')}</option>
           </select>
         </div>
         <QuickToggle
-          label="YOLO mode"
-          title="Bypass tool confirmation prompts"
+          label={t('activity:sessionPanel.yolo')}
+          title={t('activity:sessionPanel.yoloTitle')}
           value={localPrefs.yolo}
           onChange={() => syncPref('yolo', !localPrefs.yolo)}
         />
         <QuickToggle
-          label="Refine prompts"
-          title="Rewrite prompts before sending"
+          label={t('activity:sessionPanel.refine')}
+          title={t('activity:sessionPanel.refineTitle')}
           value={localPrefs.enhanceEnabled}
           onChange={() => syncPref('enhanceEnabled', !localPrefs.enhanceEnabled)}
         />
         <QuickToggle
-          label="Sound on completion"
-          title="Play a soft chime when a run finishes"
+          label={t('activity:sessionPanel.sound')}
+          title={t('activity:sessionPanel.soundTitle')}
           value={soundOnComplete}
           onChange={() => {
             const next = !useConfigStore.getState().soundOnComplete;
@@ -539,7 +541,7 @@ export function SessionPanel() {
           )}
         >
           {wsConnected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-          <span className="font-medium">{wsConnected ? 'Connected' : 'Disconnected'}</span>
+          <span className="font-medium">{wsConnected ? t('common:status.connected') : t('common:status.disconnected')}</span>
           <span className="text-muted-foreground font-mono truncate ml-auto" title={wsUrl}>
             {wsUrl}
           </span>
@@ -549,7 +551,7 @@ export function SessionPanel() {
             className="text-[10px] text-muted-foreground font-mono mt-1 truncate"
             title={session.id}
           >
-            session {shortSessionId(session.id)}
+            {t('activity:sessionPanel.sessionId', { id: shortSessionId(session.id) })}
           </div>
         )}
       </div>

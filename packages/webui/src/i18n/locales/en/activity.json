@@ -162,5 +162,52 @@
     "deleteSessionConfirmTitle": "Delete session?",
     "deleteSessionConfirmBody": "\"{{name}}\" will be removed from disk. This cannot be undone.",
     "deleteSessionTitle": "Delete session"
+  },
+  "sessionPanel": {
+    "actions": {
+      "abort": "Abort",
+      "newSession": "New session",
+      "export": "Export",
+      "compact": "Compact",
+      "newSessionTitle": "Start a new session (Ctrl+N)",
+      "exportTitle": "Export chat as markdown (Ctrl+E)",
+      "compactTitle": "Compact the context window",
+      "clearTitle": "Clear context (Ctrl+L)"
+    },
+    "model": "Model",
+    "modelTitle": "Change model (Ctrl+M)",
+    "context": "Context",
+    "contextTitle": "Click for a context breakdown",
+    "sessionLabel": "Session",
+    "stats": {
+      "messages": "Messages",
+      "elapsed": "Elapsed",
+      "tokens": "Tokens",
+      "cost": "Cost",
+      "iteration": "Iteration",
+      "agents": "Agents",
+      "tokensSub": "{{in}} in / {{out}} out",
+      "iterationOf": "of {{max}}",
+      "agentsRunning": "{{count}} running"
+    },
+    "plan": "Plan",
+    "planComplete": "{{pct}}% complete",
+    "pinned": "Pinned",
+    "quickSettings": "Quick settings",
+    "autonomy": "Autonomy",
+    "autonomyOptions": {
+      "off": "Off",
+      "suggest": "Suggest",
+      "auto": "Auto",
+      "eternal": "Eternal",
+      "eternal-parallel": "Eternal Parallel"
+    },
+    "yolo": "YOLO mode",
+    "yoloTitle": "Bypass tool confirmation prompts",
+    "refine": "Refine prompts",
+    "refineTitle": "Rewrite prompts before sending",
+    "sound": "Sound on completion",
+    "soundTitle": "Play a soft chime when a run finishes",
+    "sessionId": "session {{id}}"
   }
 }

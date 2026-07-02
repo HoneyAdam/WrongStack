@@ -162,5 +162,52 @@
     "deleteSessionConfirmTitle": "Supprimer la session ?",
     "deleteSessionConfirmBody": "\"{{name}}\" sera supprimée du disque. Action irréversible.",
     "deleteSessionTitle": "Supprimer la session"
+  },
+  "sessionPanel": {
+    "actions": {
+      "abort": "Interrompre",
+      "newSession": "Nouvelle session",
+      "export": "Exporter",
+      "compact": "Compresser",
+      "newSessionTitle": "Démarrer une nouvelle session (Ctrl+N)",
+      "exportTitle": "Exporter le chat en markdown (Ctrl+E)",
+      "compactTitle": "Compresser la fenêtre de contexte",
+      "clearTitle": "Effacer le contexte (Ctrl+L)"
+    },
+    "model": "Modèle",
+    "modelTitle": "Changer de modèle (Ctrl+M)",
+    "context": "Contexte",
+    "contextTitle": "Cliquez pour un détail du contexte",
+    "sessionLabel": "Session",
+    "stats": {
+      "messages": "Messages",
+      "elapsed": "Écoulé",
+      "tokens": "Jetons",
+      "cost": "Coût",
+      "iteration": "Itération",
+      "agents": "Agents",
+      "tokensSub": "{{in}} entrée / {{out}} sortie",
+      "iterationOf": "sur {{max}}",
+      "agentsRunning": "{{count}} en cours"
+    },
+    "plan": "Plan",
+    "planComplete": "{{pct}}% terminé",
+    "pinned": "Épinglés",
+    "quickSettings": "Réglages rapides",
+    "autonomy": "Autonomie",
+    "autonomyOptions": {
+      "off": "Désactivé",
+      "suggest": "Suggérer",
+      "auto": "Auto",
+      "eternal": "Perpétuel",
+      "eternal-parallel": "Perpétuel Parallèle"
+    },
+    "yolo": "Mode YOLO",
+    "yoloTitle": "Ignorer les confirmations d'outils",
+    "refine": "Affiner les prompts",
+    "refineTitle": "Réécrire les prompts avant l'envoi",
+    "sound": "Son à la fin",
+    "soundTitle": "Jouer un doux carillon à la fin d'une exécution",
+    "sessionId": "session {{id}}"
   }
 }

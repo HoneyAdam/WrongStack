@@ -162,5 +162,52 @@
     "deleteSessionConfirmTitle": "Sitzung löschen?",
     "deleteSessionConfirmBody": "\"{{name}}\" wird von der Festplatte entfernt. Dies kann nicht rückgängig gemacht werden.",
     "deleteSessionTitle": "Sitzung löschen"
+  },
+  "sessionPanel": {
+    "actions": {
+      "abort": "Abbrechen",
+      "newSession": "Neue Sitzung",
+      "export": "Export",
+      "compact": "Komprimieren",
+      "newSessionTitle": "Neue Sitzung starten (Ctrl+N)",
+      "exportTitle": "Chat als Markdown exportieren (Ctrl+E)",
+      "compactTitle": "Kontextfenster komprimieren",
+      "clearTitle": "Kontext löschen (Ctrl+L)"
+    },
+    "model": "Modell",
+    "modelTitle": "Modell ändern (Ctrl+M)",
+    "context": "Kontext",
+    "contextTitle": "Klicken für eine Kontextaufschlüsselung",
+    "sessionLabel": "Sitzung",
+    "stats": {
+      "messages": "Nachrichten",
+      "elapsed": "Verstrichen",
+      "tokens": "Tokens",
+      "cost": "Kosten",
+      "iteration": "Iteration",
+      "agents": "Agents",
+      "tokensSub": "{{in}} rein / {{out}} raus",
+      "iterationOf": "von {{max}}",
+      "agentsRunning": "{{count}} läuft"
+    },
+    "plan": "Plan",
+    "planComplete": "{{pct}}% fertig",
+    "pinned": "Angeheftet",
+    "quickSettings": "Schnelleinstellungen",
+    "autonomy": "Autonomie",
+    "autonomyOptions": {
+      "off": "Aus",
+      "suggest": "Vorschlagen",
+      "auto": "Auto",
+      "eternal": "Endlos",
+      "eternal-parallel": "Endlos Parallel"
+    },
+    "yolo": "YOLO-Modus",
+    "yoloTitle": "Tool-Bestätigungsdialoge überspringen",
+    "refine": "Prompts verfeinern",
+    "refineTitle": "Prompts vor dem Senden umschreiben",
+    "sound": "Ton bei Fertigstellung",
+    "soundTitle": "Sanften Gong abspielen, wenn ein Lauf endet",
+    "sessionId": "Sitzung {{id}}"
   }
 }
