@@ -48,6 +48,23 @@ Tasks can be referenced by:
 /tasks promote 2             # Promote to /todos for the AI to see
 ```
 
+## Completed-work ledger
+
+Completing a task (`/tasks done <id>` or `/tasks status <id> completed`) also
+records it in the session's **completed-work ledger**:
+
+- The entry (source `task`, the task title as summary) is appended to
+  `ctx.contextEvidence.completedWork`, deduped by `task:<id>`.
+- A `[completed_work_ledger]` block is upserted into the system prompt so the
+  model sees "work already completed this session — do not redo it".
+- When the session has a `completedWork.path` configured in `ctx.meta`, the
+  ledger is persisted as a checkpoint
+  (`packages/core/src/storage/completed-work-checkpoint.ts`) and survives
+  resume.
+
+A ledger failure never undoes the status change — it is surfaced as a ⚠ line
+in the command output instead.
+
 ## Progress display
 
 ```
@@ -76,3 +93,5 @@ Use `/tasks` for project planning, `/todos` for the AI's working checklist.
 
 - `packages/cli/src/slash-commands/tasks.ts`
 - `packages/core/src/tasks/` — TaskFile, TaskItem types
+- `packages/core/src/utils/context-evidence.ts` — `recordCompletedWorkEvidence`
+- `packages/core/src/storage/completed-work-checkpoint.ts` — ledger checkpoint
