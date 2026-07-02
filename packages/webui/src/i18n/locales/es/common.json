@@ -35,7 +35,8 @@
     "searchPlaceholder": "Buscar…",
     "always": "Siempre",
     "deny": "Denegar",
-    "undo": "Deshacer"
+    "undo": "Deshacer",
+    "all": "Todos"
   },
   "confirm": {
     "title": "Aprobación requerida: {{tool}}",

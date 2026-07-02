@@ -35,7 +35,8 @@
     "searchPlaceholder": "Ara…",
     "always": "Her zaman",
     "deny": "Reddet",
-    "undo": "Geri al"
+    "undo": "Geri al",
+    "all": "Tümü"
   },
   "confirm": {
     "title": "Onay gerekli: {{tool}}",

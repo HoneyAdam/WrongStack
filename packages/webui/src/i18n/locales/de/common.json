@@ -35,7 +35,8 @@
     "searchPlaceholder": "Suchen…",
     "always": "Immer",
     "deny": "Ablehnen",
-    "undo": "Rückgängig"
+    "undo": "Rückgängig",
+    "all": "Alle"
   },
   "confirm": {
     "title": "Freigabe erforderlich: {{tool}}",

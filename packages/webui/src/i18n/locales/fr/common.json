@@ -35,7 +35,8 @@
     "searchPlaceholder": "Rechercher…",
     "always": "Toujours",
     "deny": "Refuser",
-    "undo": "Annuler"
+    "undo": "Annuler",
+    "all": "Tous"
   },
   "confirm": {
     "title": "Approbation requise : {{tool}}",
