@@ -1,25 +1,26 @@
 import { ArrowDownAZ, ArrowUpAZ, ListOrdered, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useChatStore } from '@/stores';
 import type { QueuedItem, QueueMode } from '@/stores/chat-store';
 
 type SortDir = 'oldest' | 'newest';
 
-const MODE_META: Record<QueueMode, { label: string; title: string; tone: string }> = {
+const MODE_META: Record<QueueMode, { label: string; titleKey: string; tone: string }> = {
   btw: {
     label: 'btw',
-    title: 'By-the-way — sent as follow-up without interrupting the running agent',
+    titleKey: 'btwTitle',
     tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
   },
   steer: {
     label: 'steer',
-    title: 'Steer — interrupts the running agent and redirects it with this message',
+    titleKey: 'steerTitle',
     tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
   },
   queue: {
     label: 'queue',
-    title: 'Queued — held until the current agent run completes, then sent in order',
+    titleKey: 'queueTitle',
     tone: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
   },
 };
@@ -37,6 +38,7 @@ export function QueuePanel({
   onClose,
   className,
 }: QueuePanelProps): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const queue = useChatStore((s) => s.queue);
   const removeQueued = useChatStore((s) => s.removeQueued);
   const clearQueue = useChatStore((s) => s.clearQueue);
@@ -88,9 +90,9 @@ export function QueuePanel({
               <ListOrdered className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-sm font-semibold">Message Queue</h2>
+              <h2 className="text-sm font-semibold">{t('activity:queue.heading')}</h2>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {queue.length} queued · messages sent before the agent finishes
+                {t('activity:queue.subtitle', { count: queue.length })}
               </span>
             </div>
           </div>
@@ -104,8 +106,8 @@ export function QueuePanel({
               )}
               title={
                 sortDir === 'newest'
-                  ? 'Sorted newest first — click to sort oldest first'
-                  : 'Sorted oldest first — click to sort newest first'
+                  ? t('activity:queue.sortNewestTitle')
+                  : t('activity:queue.sortOldestTitle')
               }
               data-testid="queue-sort-toggle"
             >
@@ -114,25 +116,25 @@ export function QueuePanel({
               ) : (
                 <ArrowUpAZ className="h-3 w-3" />
               )}
-              {sortDir === 'newest' ? 'Newest' : 'Oldest'}
+              {sortDir === 'newest' ? t('activity:queue.newest') : t('activity:queue.oldest')}
             </button>
             {queue.length > 0 && (
               <button
                 type="button"
                 onClick={() => clearQueue()}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-destructive hover:bg-destructive/10 transition-colors font-medium"
-                title="Clear all queued messages"
+                title={t('activity:queue.clearTitle')}
                 data-testid="queue-clear-all"
               >
                 <Trash2 className="h-3 w-3" />
-                Clear
+                {t('activity:queue.clear')}
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-muted transition-colors"
-              title="Close"
+              title={t('activity:queue.closeTitle')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -144,13 +146,8 @@ export function QueuePanel({
           {queue.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
               <ListOrdered className="h-10 w-10 opacity-15" />
-              <p className="text-sm font-medium">Queue is empty</p>
-              <p className="text-xs text-center max-w-xs">
-                Use the <span className="font-mono">btw</span> /{' '}
-                <span className="font-mono">steer</span> /{' '}
-                <span className="font-mono">add queue</span> buttons beside the input to add
-                messages. Queued items are sent in order when the current agent run completes.
-              </p>
+              <p className="text-sm font-medium">{t('activity:queue.emptyTitle')}</p>
+              <p className="text-xs text-center max-w-xs">{t('activity:queue.emptyBody')}</p>
             </div>
           ) : (
             <ul className="divide-y" data-testid="queue-list">
@@ -173,7 +170,7 @@ export function QueuePanel({
                           'shrink-0 inline-flex items-center justify-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
                           meta.tone,
                         )}
-                        title={meta.title}
+                        title={t(`activity:queue.${meta.titleKey}`)}
                         data-testid={`queue-mode-${item.mode}`}
                       >
                         {meta.label}
@@ -186,7 +183,7 @@ export function QueuePanel({
                       type="button"
                       onClick={() => handleRemove(sourceIdx)}
                       className="ml-1 p-1.5 rounded-md shrink-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
-                      title="Remove from queue"
+                      title={t('activity:queue.removeTitle')}
                       data-testid={`queue-remove-${sourceIdx}`}
                     >
                       <X className="h-3.5 w-3.5" />
@@ -201,10 +198,7 @@ export function QueuePanel({
         {/* Footer hint */}
         {queue.length > 0 && (
           <div className="px-4 py-2.5 border-t shrink-0">
-            <p className="text-[10px] text-muted-foreground text-center">
-              Messages are sent in arrival order when the current agent run completes. Use the sort
-              toggle to view newest-first.
-            </p>
+            <p className="text-[10px] text-muted-foreground text-center">{t('activity:queue.footer')}</p>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { Clock, History, Rewind, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,6 +31,7 @@ export function CheckpointTimeline({
   onClose,
   className,
 }: CheckpointTimelineProps): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
   const [rewinding, setRewinding] = useState(false);
   const ws = useWebSocket();
@@ -82,9 +84,9 @@ export function CheckpointTimeline({
               <History className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-sm font-semibold">Session Checkpoints</h2>
+              <h2 className="text-sm font-semibold">{t('activity:checkpoint.heading')}</h2>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {checkpoints.length} checkpoint{checkpoints.length === 1 ? '' : 's'}
+                {t('activity:checkpoint.countSuffix', { count: checkpoints.length })}
               </span>
             </div>
           </div>
@@ -99,8 +101,7 @@ export function CheckpointTimeline({
 
         {/* Description bar */}
         <div className="px-4 py-2.5 border-b bg-muted/20 text-[10px] text-muted-foreground leading-relaxed">
-          Rewind the session to any checkpoint. Messages and file changes revert to that
-          point — the LLM continues from there as if nothing happened after.
+          {t('activity:checkpoint.description')}
         </div>
 
         {/* Checkpoint timeline */}
@@ -108,11 +109,8 @@ export function CheckpointTimeline({
           {checkpoints.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
               <Clock className="h-10 w-10 opacity-15" />
-              <p className="text-sm font-medium">No checkpoints yet</p>
-              <p className="text-xs text-center max-w-xs">
-                Checkpoints are automatically created each time you send a message.
-                Send a few messages and come back.
-              </p>
+              <p className="text-sm font-medium">{t('activity:checkpoint.emptyTitle')}</p>
+              <p className="text-xs text-center max-w-xs">{t('activity:checkpoint.emptyBody')}</p>
             </div>
           ) : (
             <div className="py-1">
@@ -155,13 +153,13 @@ export function CheckpointTimeline({
                         <span className="text-xs font-medium truncate">{cp.label}</span>
                         {isLatest && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
-                            latest
+                            {t('activity:checkpoint.latest')}
                           </span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
                         <span className="tabular-nums">
-                          {cp.messageCount} msg{cp.messageCount === 1 ? '' : 's'}
+                          {t('activity:checkpoint.msgSuffix', { count: cp.messageCount })}
                         </span>
                         <span className="opacity-50">·</span>
                         <span className="tabular-nums">~{cp.tokens.toLocaleString()} tok</span>
@@ -182,8 +180,9 @@ export function CheckpointTimeline({
 
         {/* Footer hint */}
         <div className="border-t px-4 py-2 text-[10px] text-muted-foreground text-center shrink-0">
-          Click any checkpoint to rewind ·{' '}
-          <kbd className="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Esc</kbd> to close
+          {t('activity:checkpoint.footerPre')} ·{' '}
+          <kbd className="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Esc</kbd>{' '}
+          {t('activity:checkpoint.footerPost')}
         </div>
       </div>
     </div>
