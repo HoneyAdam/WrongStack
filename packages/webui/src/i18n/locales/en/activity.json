@@ -1015,5 +1015,9 @@
     "pinLabel": "Pin",
     "regenerateTitle": "Regenerate this response",
     "retryLabel": "Retry"
+  },
+  "watch": {
+    "toolFallback": "tool",
+    "toolFailed": "Tool failed"
   }
 }

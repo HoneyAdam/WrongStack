@@ -1015,5 +1015,9 @@
     "pinLabel": "Fissa",
     "regenerateTitle": "Rigenera questa risposta",
     "retryLabel": "Riprova"
+  },
+  "watch": {
+    "toolFallback": "strumento",
+    "toolFailed": "Strumento fallito"
   }
 }

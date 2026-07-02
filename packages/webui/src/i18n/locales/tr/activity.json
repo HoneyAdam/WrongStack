@@ -1015,5 +1015,9 @@
     "pinLabel": "Sabitle",
     "regenerateTitle": "Bu yanıtı yeniden üret",
     "retryLabel": "Yeniden dene"
+  },
+  "watch": {
+    "toolFallback": "araç",
+    "toolFailed": "Araç başarısız"
   }
 }
