@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAutoPhaseStore, useChatStore, useWorktreeStore } from '@/stores';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ import { Button } from './ui/button';
  */
 export function AutoPhaseView({ onClose }: { onClose: () => void }): React.ReactElement {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const phases = useAutoPhaseStore((s) => s.phases);
   const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
   const autonomous = useAutoPhaseStore((s) => s.autonomous);
@@ -65,7 +67,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
     chat.addMessage({ role: 'user', content: g });
     chat.addMessage({
       role: 'assistant',
-      content: `🚀 **AutoPhase** — got it. Planning phases for your goal now…`,
+      content: i18n.t('activity:autoPhase.planningAck'),
     });
     setPlanningGoal(g);
     setGoal('');
@@ -127,7 +129,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             <h1 className="text-lg font-semibold">{hasPhases ? title || 'AutoPhase' : 'AutoPhase'}</h1>
             {hasPhases && (
               <p className="text-xs text-muted-foreground">
-                {phases.length} phase{phases.length === 1 ? '' : 's'} · {overallPercent}% complete
+                {t('activity:autoPhase.summary', { count: phases.length, pct: overallPercent })}
               </p>
             )}
           </div>
@@ -156,11 +158,11 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             <select
               value={hasPhases ? (graphs.find((g) => g.title === title)?.id ?? '') : ''}
               onChange={(e) => handleSelectBoard(e.target.value)}
-              title="Switch board"
+              title={t('activity:autoPhase.switchBoard')}
               className="rounded border border-border bg-card px-2 py-1 text-xs text-foreground"
             >
               <option value="" disabled>
-                {graphs.length} board{graphs.length === 1 ? '' : 's'}…
+                {t('activity:autoPhase.boardsCount', { count: graphs.length })}
               </option>
               {graphs.map((g) => (
                 <option key={g.id} value={g.id}>
@@ -173,7 +175,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             <button
               type="button"
               onClick={handleToggleAutonomous}
-              title="Toggle autonomous mode"
+              title={t('activity:autoPhase.toggleAutonomousTitle')}
               className={cn(
                 'inline-flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors',
                 autonomous
@@ -181,7 +183,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
-              <Zap className="h-3.5 w-3.5" /> {autonomous ? 'Autonomous' : 'Manual'}
+              <Zap className="h-3.5 w-3.5" /> {autonomous ? t('activity:autoPhase.autonomous') : t('activity:autoPhase.manual')}
             </button>
           )}
           {isLive && (
@@ -189,19 +191,19 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               <button
                 type="button"
                 onClick={handlePauseResume}
-                title={status === 'paused' ? 'Resume the run' : 'Pause the run'}
+                title={status === 'paused' ? t('activity:autoPhase.resumeTitle') : t('activity:autoPhase.pauseTitle')}
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 {status === 'paused' ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                {status === 'paused' ? 'Resume' : 'Pause'}
+                {status === 'paused' ? t('activity:autoPhase.resume') : t('activity:autoPhase.pause')}
               </button>
               <button
                 type="button"
                 onClick={handleStop}
-                title="Stop the run — aborts in-flight agents immediately"
+                title={t('activity:autoPhase.stopTitle')}
                 className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
               >
-                <Square className="h-3.5 w-3.5 fill-current" /> Stop
+                <Square className="h-3.5 w-3.5 fill-current" /> {t('activity:autoPhase.stop')}
               </button>
             </>
           )}
@@ -210,37 +212,37 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               <button
                 type="button"
                 onClick={handleNew}
-                title="Clear this board and start a new AutoPhase run"
+                title={t('activity:autoPhase.newTitle')}
                 className="inline-flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
               >
-                <Plus className="h-3.5 w-3.5" /> New
+                <Plus className="h-3.5 w-3.5" /> {t('activity:autoPhase.newLabel')}
               </button>
               {confirmRevert ? (
                 <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-xs">
-                  <span className="text-amber-700 dark:text-amber-300">Revert run's commits?</span>
+                  <span className="text-amber-700 dark:text-amber-300">{t('activity:autoPhase.revertConfirm')}</span>
                   <button
                     type="button"
                     onClick={handleRevert}
                     className="rounded bg-destructive/15 px-1.5 py-0.5 font-medium text-destructive hover:bg-destructive/25"
                   >
-                    Yes
+                    {t('common:action.yes')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmRevert(false)}
                     className="rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground"
                   >
-                    No
+                    {t('common:action.no')}
                   </button>
                 </span>
               ) : (
                 <button
                   type="button"
                   onClick={() => setConfirmRevert(true)}
-                  title="Undo this run — git-revert the commits it landed and remove its worktrees"
+                  title={t('activity:autoPhase.revertTitle')}
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  <Undo2 className="h-3.5 w-3.5" /> Revert
+                  <Undo2 className="h-3.5 w-3.5" /> {t('activity:autoPhase.revert')}
                 </button>
               )}
             </>
@@ -256,7 +258,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
       {hasPhases && goalText && (
         <div className="shrink-0 border-b border-border/60 bg-muted/20 px-4 py-2.5">
           <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            <Rocket className="h-3 w-3" /> Goal
+            <Rocket className="h-3 w-3" /> {t('activity:autoPhase.goal')}
           </div>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{goalText}</p>
         </div>
@@ -273,20 +275,19 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
           <div className="max-w-lg w-full space-y-5 text-center">
             <Loader2 className="h-10 w-10 mx-auto animate-spin text-primary/70" />
             <div className="space-y-1">
-              <h2 className="text-xl font-semibold">Planning phases…</h2>
+              <h2 className="text-xl font-semibold">{t('activity:autoPhase.planning')}</h2>
               <p className="text-sm text-muted-foreground">
-                Your goal was received. WrongStack is breaking it into phases and tasks — the board
-                appears here the moment the plan is ready.
+                {t('activity:autoPhase.planningBody')}
               </p>
             </div>
             <div className="rounded-lg border border-border bg-card px-4 py-3 text-left">
               <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <Rocket className="h-3 w-3" /> Goal
+                <Rocket className="h-3 w-3" /> {t('activity:autoPhase.goal')}
               </div>
               <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{planningGoal}</p>
             </div>
             <Button variant="outline" onClick={handleCancelPlanning} className="gap-2">
-              <Square className="h-4 w-4 fill-current" /> Cancel
+              <Square className="h-4 w-4 fill-current" /> {t('common:action.cancel')}
             </Button>
           </div>
         </div>
@@ -296,17 +297,16 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
           <div className="max-w-lg w-full space-y-6">
             <div className="text-center space-y-2">
               <Rocket className="h-10 w-10 mx-auto text-primary/60" />
-              <h2 className="text-xl font-semibold">Start a Phase Plan</h2>
+              <h2 className="text-xl font-semibold">{t('activity:autoPhase.startHeading')}</h2>
               <p className="text-sm text-muted-foreground">
-                Describe what you want to build. WrongStack will plan phases and tasks, then execute
-                them — watch and steer the run on the board.
+                {t('activity:autoPhase.startBody')}
               </p>
             </div>
 
             <textarea
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
-              placeholder="e.g. Build a REST API for user management with Express and SQLite..."
+              placeholder={t('activity:autoPhase.startPlaceholder')}
               rows={5}
               className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/50"
               onKeyDown={(e) => {
@@ -324,21 +324,21 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
                 onChange={(e) => setIsolate(e.target.checked)}
                 className="h-3.5 w-3.5 accent-primary"
               />
-              Isolate each phase in its own git worktree
+              {t('activity:autoPhase.isolateLabel')}
             </label>
 
             <div className="flex items-center gap-3">
               <Button onClick={handleStart} disabled={!goal.trim()} className="flex-1 gap-2">
                 <Play className="h-4 w-4" />
-                Start AutoPhase
+                {t('activity:autoPhase.startButton')}
               </Button>
             </div>
 
             <p className="text-xs text-muted-foreground text-center">
-              Ctrl+Enter to start ·{' '}
+              {t('activity:autoPhase.ctrlHint')} ·{' '}
               {isolate
-                ? 'phases run in isolated worktrees, squash-merged back'
-                : 'phases run directly on the current branch'}
+                ? t('activity:autoPhase.isolateOn')
+                : t('activity:autoPhase.isolateOff')}
             </p>
           </div>
         </div>
@@ -358,7 +358,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
-              Lanes
+              {t('activity:autoPhase.lanes')}
             </button>
             <button
               type="button"
@@ -370,7 +370,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
-              Graph
+              {t('activity:autoPhase.graph')}
             </button>
           </div>
           <div className="space-y-2 px-4 pb-3">
