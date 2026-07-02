@@ -153,5 +153,22 @@
     "keepTitle": "Mantieni allowlist (Esc)",
     "clearTitle": "Cancella allowlist (Invio)",
     "clear": "Cancella allowlist"
+  },
+  "oauth": {
+    "termsWarning": "Accedi con un abbonamento invece di una chiave API. Usare un abbonamento al di fuori del suo client ufficiale può violare i Termini del provider — il tuo account potrebbe essere rate-limited o bannato. Una chiave API è la via sanzionata per uso programmatico.",
+    "signIn": "Accedi",
+    "waitingBrowser": "In attesa del tuo accesso…",
+    "openSignIn": "Apri pagina di accesso",
+    "pasteLoopbackBusy": "Porta loopback occupata — incolla l'URL di reindirizzamento",
+    "pasteCantReach": "Il browser non raggiunge questo server? Incolla l'URL di reindirizzamento",
+    "submit": "Invia",
+    "enterCode": "Inserisci questo codice nella pagina di verifica:",
+    "openVerification": "Apri pagina di verifica",
+    "waitingCode": "In attesa di autorizzazione…",
+    "exchanging": "Scambio token…",
+    "fetchingModels": "Recupero modelli…",
+    "signedIn": "Accesso effettuato.",
+    "signedInToast": "Accesso effettuato — {{provider}}",
+    "signInFailed": "Accesso fallito"
   }
 }

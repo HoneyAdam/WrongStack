@@ -153,5 +153,22 @@
     "keepTitle": "Allowlist behalten (Esc)",
     "clearTitle": "Allowlist löschen (Enter)",
     "clear": "Allowlist löschen"
+  },
+  "oauth": {
+    "termsWarning": "Mit einem Abonnement statt einem API-Schlüssel anmelden. Ein Abonnement außerhalb seines offiziellen Clients zu nutzen, kann die Nutzungsbedingungen des Anbieters verletzen — Ihr Konto könnte ratenlimitiert oder gesperrt werden. Ein API-Schlüssel ist der sanktionierte Weg für programmatische Nutzung.",
+    "signIn": "Anmelden",
+    "waitingBrowser": "Warte auf Ihre Anmeldung…",
+    "openSignIn": "Anmeldeseite öffnen",
+    "pasteLoopbackBusy": "Loopback-Port belegt — Redirect-URL einfügen",
+    "pasteCantReach": "Browser erreicht diesen Server nicht? Redirect-URL einfügen",
+    "submit": "Absenden",
+    "enterCode": "Diesen Code auf der Verifizierungsseite eingeben:",
+    "openVerification": "Verifizierungsseite öffnen",
+    "waitingCode": "Warte auf Autorisierung…",
+    "exchanging": "Tokens werden ausgetauscht…",
+    "fetchingModels": "Modelle werden geladen…",
+    "signedIn": "Angemeldet.",
+    "signedInToast": "Angemeldet — {{provider}}",
+    "signInFailed": "Anmeldung fehlgeschlagen"
   }
 }

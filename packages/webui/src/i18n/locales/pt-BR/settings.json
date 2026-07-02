@@ -153,5 +153,22 @@
     "keepTitle": "Manter allowlist (Esc)",
     "clearTitle": "Limpar allowlist (Enter)",
     "clear": "Limpar allowlist"
+  },
+  "oauth": {
+    "termsWarning": "Entre com uma assinatura em vez de uma chave de API. Usar uma assinatura fora de seu cliente oficial pode violar os Termos do provedor — sua conta pode ser limitada ou banida. Uma chave de API é o caminho sancionado para uso programático.",
+    "signIn": "Entrar",
+    "waitingBrowser": "Aguardando seu login…",
+    "openSignIn": "Abrir página de login",
+    "pasteLoopbackBusy": "Porta loopback ocupada — cole a URL de redirecionamento",
+    "pasteCantReach": "O navegador não alcança este servidor? Cole a URL de redirecionamento",
+    "submit": "Enviar",
+    "enterCode": "Insira este código na página de verificação:",
+    "openVerification": "Abrir página de verificação",
+    "waitingCode": "Aguardando autorização…",
+    "exchanging": "Trocando tokens…",
+    "fetchingModels": "Buscando modelos…",
+    "signedIn": "Conectado.",
+    "signedInToast": "Conectado — {{provider}}",
+    "signInFailed": "Login falhou"
   }
 }

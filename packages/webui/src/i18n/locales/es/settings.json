@@ -153,5 +153,22 @@
     "keepTitle": "Conservar allowlist (Esc)",
     "clearTitle": "Borrar allowlist (Enter)",
     "clear": "Borrar allowlist"
+  },
+  "oauth": {
+    "termsWarning": "Inicia sesión con una suscripción en lugar de una clave API. Usar una suscripción fuera de su cliente oficial puede violar los Términos del proveedor — tu cuenta podría ser limitada o baneada. Una clave API es la vía sancionada para uso programático.",
+    "signIn": "Iniciar sesión",
+    "waitingBrowser": "Esperando tu inicio de sesión…",
+    "openSignIn": "Abrir página de inicio de sesión",
+    "pasteLoopbackBusy": "Puerto loopback ocupado — pega la URL de redirección",
+    "pasteCantReach": "¿El navegador no llega a este servidor? Pega la URL de redirección",
+    "submit": "Enviar",
+    "enterCode": "Introduce este código en la página de verificación:",
+    "openVerification": "Abrir página de verificación",
+    "waitingCode": "Esperando autorización…",
+    "exchanging": "Intercambiando tokens…",
+    "fetchingModels": "Obteniendo modelos…",
+    "signedIn": "Sesión iniciada.",
+    "signedInToast": "Sesión iniciada — {{provider}}",
+    "signInFailed": "Inicio de sesión fallido"
   }
 }

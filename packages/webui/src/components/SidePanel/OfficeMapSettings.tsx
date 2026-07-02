@@ -6,6 +6,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import {
   useFleetStore,
   useMailboxStore,
@@ -63,6 +64,7 @@ function Toggle({ checked, onChange, label }: ToggleProps) {
 }
 
 export function OfficeMapSettings() {
+  const { t } = useAppTranslation();
   const fleetAgents = useFleetStore((s) => s.agents);
   const vizEvents = useVizStore((s) => s.events);
   const mailboxMessages = useMailboxStore((s) => s.messages);
@@ -93,26 +95,26 @@ export function OfficeMapSettings() {
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 space-y-4">
       {/* Header */}
       <div className="space-y-1">
-        <h3 className="text-sm font-semibold">Office Map</h3>
+        <h3 className="text-sm font-semibold">{t('activity:officeSettings.heading')}</h3>
         <p className="text-[10px] text-muted-foreground">
-          Visualize your fleet as an office floor plan with live agent status.
+          {t('activity:officeSettings.headingHint')}
         </p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg border bg-card p-2.5">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Agents</div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('activity:officeSettings.statAgents')}</div>
           <div className="text-lg font-mono font-bold text-primary mt-0.5">
             {runningAgents}
             <span className="text-muted-foreground text-sm font-normal">/{totalAgents}</span>
           </div>
         </div>
         <div className="rounded-lg border bg-card p-2.5">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Mail</div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('activity:officeSettings.statMail')}</div>
           <div className="text-lg font-mono font-bold text-yellow-500 mt-0.5">
             {unreadMessages}
-            <span className="text-muted-foreground text-sm font-normal"> unread</span>
+            <span className="text-muted-foreground text-sm font-normal">{t('activity:officeSettings.unreadSuffix')}</span>
           </div>
         </div>
       </div>
@@ -120,28 +122,28 @@ export function OfficeMapSettings() {
       {/* View Settings */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          View
+          {t('activity:officeSettings.sectionView')}
         </div>
         <div className="rounded-lg border bg-card divide-y">
-          <SettingRow label="HUD" description="Show real-time session stats overlay">
+          <SettingRow label={t('activity:officeSettings.hudLabel')} description={t('activity:officeSettings.hudDesc')}>
             <Toggle
               checked={showHud}
               onChange={setShowHud}
-              label="Toggle HUD"
+              label={t('activity:officeSettings.hudToggle')}
             />
           </SettingRow>
-          <SettingRow label="Minimap" description="Show the overview minimap">
+          <SettingRow label={t('activity:officeSettings.minimapLabel')} description={t('activity:officeSettings.minimapDesc')}>
             <Toggle
               checked={showMinimap}
               onChange={setShowMinimap}
-              label="Toggle minimap"
+              label={t('activity:officeSettings.minimapToggle')}
             />
           </SettingRow>
-          <SettingRow label="Controls" description="Show zoom and fit controls">
+          <SettingRow label={t('activity:officeSettings.controlsLabel')} description={t('activity:officeSettings.controlsDesc')}>
             <Toggle
               checked={showControls}
               onChange={setShowControls}
-              label="Toggle controls"
+              label={t('activity:officeSettings.controlsToggle')}
             />
           </SettingRow>
         </div>
@@ -150,28 +152,28 @@ export function OfficeMapSettings() {
       {/* Display Settings */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Display
+          {t('activity:officeSettings.sectionDisplay')}
         </div>
         <div className="rounded-lg border bg-card divide-y">
-          <SettingRow label="Animate edges" description="Animate flow on active connections">
+          <SettingRow label={t('activity:officeSettings.animateLabel')} description={t('activity:officeSettings.animateDesc')}>
             <Toggle
               checked={animateEdges}
               onChange={setAnimateEdges}
-              label="Toggle edge animation"
+              label={t('activity:officeSettings.animateToggle')}
             />
           </SettingRow>
-          <SettingRow label="Show legend" description="Display status and connection legend">
+          <SettingRow label={t('activity:officeSettings.legendLabel')} description={t('activity:officeSettings.legendDesc')}>
             <Toggle
               checked={showLegend}
               onChange={setShowLegend}
-              label="Toggle legend"
+              label={t('activity:officeSettings.legendToggle')}
             />
           </SettingRow>
-          <SettingRow label="Live feed" description="Bottom strip of recent cross-process activity">
+          <SettingRow label={t('activity:officeSettings.feedLabel')} description={t('activity:officeSettings.feedDesc')}>
             <Toggle
               checked={showFeed}
               onChange={setShowFeed}
-              label="Toggle live feed"
+              label={t('activity:officeSettings.feedToggle')}
             />
           </SettingRow>
         </div>
@@ -180,7 +182,7 @@ export function OfficeMapSettings() {
       {/* Background Style */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Background
+          {t('activity:officeSettings.sectionBackground')}
         </div>
         <div className="rounded-lg border bg-card p-3 space-y-2">
           <div className="flex gap-2">
@@ -195,7 +197,7 @@ export function OfficeMapSettings() {
                     : 'bg-muted text-muted-foreground border-border hover:border-primary/50'
                 )}
               >
-                {bg.charAt(0).toUpperCase() + bg.slice(1)}
+                {t(`activity:officeSettings.bg.${bg}`)}
               </button>
             ))}
           </div>
@@ -205,15 +207,15 @@ export function OfficeMapSettings() {
       {/* Recent Activity */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Recent Activity
+          {t('activity:officeSettings.sectionRecent')}
         </div>
         <div className="rounded-lg border bg-card p-3">
           <div className="text-xs font-mono">
             <span className="text-primary">{recentEvents}</span>
-            <span className="text-muted-foreground"> events tracked</span>
+            <span className="text-muted-foreground">{t('activity:officeSettings.eventsTrackedSuffix')}</span>
           </div>
           <p className="text-[10px] text-muted-foreground mt-1">
-            Mail sends, agent spawns, and status changes appear here.
+            {t('activity:officeSettings.recentHint')}
           </p>
         </div>
       </div>
@@ -221,23 +223,23 @@ export function OfficeMapSettings() {
       {/* Keyboard shortcuts */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Shortcuts
+          {t('activity:officeSettings.sectionShortcuts')}
         </div>
         <div className="rounded-lg border bg-card p-3 space-y-2 text-[10px]">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Fit view</span>
+            <span className="text-muted-foreground">{t('activity:officeSettings.fitView')}</span>
             <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono">F</kbd>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Zoom in</span>
+            <span className="text-muted-foreground">{t('activity:officeSettings.zoomIn')}</span>
             <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono">+</kbd>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Zoom out</span>
+            <span className="text-muted-foreground">{t('activity:officeSettings.zoomOut')}</span>
             <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono">-</kbd>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Reset zoom</span>
+            <span className="text-muted-foreground">{t('activity:officeSettings.resetZoom')}</span>
             <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono">0</kbd>
           </div>
         </div>
@@ -246,24 +248,24 @@ export function OfficeMapSettings() {
       {/* Legend */}
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Legend
+          {t('activity:officeSettings.sectionLegend')}
         </div>
         <div className="rounded-lg border bg-card p-3 space-y-2">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs">Active (running)</span>
+            <span className="text-xs">{t('activity:officeSettings.legendActive')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-gray-500" />
-            <span className="text-xs">Idle</span>
+            <span className="text-xs">{t('activity:officeSettings.legendIdle')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs">Error</span>
+            <span className="text-xs">{t('activity:officeSettings.legendError')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-gray-600" />
-            <span className="text-xs">Offline</span>
+            <span className="text-xs">{t('activity:officeSettings.legendOffline')}</span>
           </div>
         </div>
       </div>

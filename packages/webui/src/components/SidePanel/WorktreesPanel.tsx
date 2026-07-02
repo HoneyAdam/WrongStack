@@ -15,10 +15,9 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useWorktreeStore } from '@/stores';
 import { confirmModal } from '../ConfirmModal';
-
-const shortBranch = (b?: string) => (b ? b.replace(/^wstack\/ap\//, '') : '(detached)');
 
 /** Active in-session statuses where destructive actions are blocked. */
 const LIVE_STATUSES = new Set(['allocating', 'active', 'committing', 'merging']);
@@ -53,6 +52,9 @@ const STATUS_TINT: Record<string, string> = {
  */
 export function WorktreesPanel(): React.ReactElement {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
+  const shortBranch = (b?: string) =>
+    b ? b.replace(/^wstack\/ap\//, '') : t('activity:worktrees.detached');
   const live = useWorktreeStore((s) => s.worktrees);
   const orphans = useWorktreeStore((s) => s.orphans);
   const baseBranch = useWorktreeStore((s) => s.baseBranch);
@@ -112,9 +114,12 @@ export function WorktreesPanel(): React.ReactElement {
   const onMerge = async (branch?: string) => {
     if (!branch) return;
     const ok = await confirmModal({
-      title: `Merge ${shortBranch(branch)} into ${baseBranch || 'base'}?`,
-      message: 'Squash-merges this branch onto the base branch. Aborts cleanly if it conflicts.',
-      confirmLabel: 'Merge',
+      title: t('activity:worktrees.mergeConfirmTitle', {
+        branch: shortBranch(branch),
+        base: baseBranch || t('activity:worktrees.baseLabel'),
+      }),
+      message: t('activity:worktrees.mergeConfirmMsg'),
+      confirmLabel: t('activity:worktrees.mergeAction'),
     });
     if (!ok) return;
     setBusyBranch(branch);
@@ -122,9 +127,9 @@ export function WorktreesPanel(): React.ReactElement {
   };
   const onRemove = async (row: Row) => {
     const ok = await confirmModal({
-      title: `Remove ${shortBranch(row.branch)}?`,
-      message: 'Force-removes the worktree checkout and deletes its branch. Un-merged work is discarded.',
-      confirmLabel: 'Remove',
+      title: t('activity:worktrees.removeConfirmTitle', { branch: shortBranch(row.branch) }),
+      message: t('activity:worktrees.removeConfirmMsg'),
+      confirmLabel: t('common:action.remove'),
       danger: true,
     });
     if (!ok) return;
@@ -137,8 +142,8 @@ export function WorktreesPanel(): React.ReactElement {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <span className="text-[11px] text-muted-foreground">
-          {rows.length} worktree{rows.length === 1 ? '' : 's'}
-          {baseBranch ? ` · base ${baseBranch}` : ''}
+          {t('activity:worktrees.count', { count: rows.length })}
+          {baseBranch ? t('activity:worktrees.baseSuffix', { base: baseBranch }) : ''}
         </span>
         <div className="flex items-center gap-1">
           {orphans.length > 0 && (
@@ -146,16 +151,16 @@ export function WorktreesPanel(): React.ReactElement {
               type="button"
               disabled={!canClean}
               onClick={() => send?.({ type: 'worktree.cleanup' })}
-              title={canClean ? 'Remove all orphaned worktrees' : 'A run is live — stop it first'}
+              title={canClean ? t('activity:worktrees.cleanOrphansTitle') : t('activity:worktrees.liveBusyTitle')}
               className="inline-flex items-center gap-1 rounded bg-amber-600/90 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-50"
             >
-              <Eraser className="h-3 w-3" /> Clean orphans
+              <Eraser className="h-3 w-3" /> {t('activity:worktrees.cleanOrphans')}
             </button>
           )}
           <button
             type="button"
             onClick={() => send?.({ type: 'worktree.scan' })}
-            title="Rescan"
+            title={t('activity:worktrees.rescanTitle')}
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -166,16 +171,23 @@ export function WorktreesPanel(): React.ReactElement {
       {/* Result banners */}
       {cleanResult && (
         <Banner ok={cleanResult.ok}>
-          {cleanResult.ok ? `Removed ${cleanResult.removed} worktree(s).` : cleanResult.reason ?? 'Failed'}
+          {cleanResult.ok
+            ? t('activity:worktrees.removed', { count: cleanResult.removed })
+            : cleanResult.reason ?? t('activity:worktrees.failed')}
         </Banner>
       )}
       {mergeResult && (
         <Banner ok={mergeResult.ok}>
           {mergeResult.ok
-            ? `Merged ${shortBranch(mergeResult.branch)} into base.`
+            ? t('activity:worktrees.mergedIntoBase', { branch: shortBranch(mergeResult.branch) })
             : mergeResult.conflict
-              ? `Conflict merging ${shortBranch(mergeResult.branch)}: ${(mergeResult.conflictFiles ?? []).join(', ') || 'see git'}`
-              : `Merge failed: ${mergeResult.reason ?? 'unknown'}`}
+              ? t('activity:worktrees.conflictMerge', {
+                  branch: shortBranch(mergeResult.branch),
+                  files: (mergeResult.conflictFiles ?? []).join(', ') || t('activity:worktrees.seeGit'),
+                })
+              : t('activity:worktrees.mergeFailed', {
+                  reason: mergeResult.reason ?? t('activity:worktrees.unknownReason'),
+                })}
         </Banner>
       )}
 
@@ -184,8 +196,8 @@ export function WorktreesPanel(): React.ReactElement {
         {rows.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-muted-foreground">
             <GitBranch className="h-8 w-8 opacity-30" />
-            <p>No worktrees.</p>
-            <p className="max-w-[200px]">SDD / AutoPhase runs create isolated worktrees here. Orphans from crashed runs show up too.</p>
+            <p>{t('activity:worktrees.empty')}</p>
+            <p className="max-w-[200px]">{t('activity:worktrees.emptyHint')}</p>
           </div>
         ) : (
           rows.map((row, i) => {
@@ -217,33 +229,41 @@ export function WorktreesPanel(): React.ReactElement {
 
                 {/* Actions */}
                 <div className="mt-1.5 flex items-center gap-0.5 pl-5">
-                  <Act title="Open in terminal" disabled={!row.dir} onClick={() => onOpen(row.dir, 'terminal')}>
+                  <Act title={t('activity:worktrees.actOpenTerm')} disabled={!row.dir} onClick={() => onOpen(row.dir, 'terminal')}>
                     <Terminal className="h-3.5 w-3.5" />
                   </Act>
-                  <Act title="Open folder" disabled={!row.dir} onClick={() => onOpen(row.dir, 'file-manager')}>
+                  <Act title={t('activity:worktrees.actOpenFolder')} disabled={!row.dir} onClick={() => onOpen(row.dir, 'file-manager')}>
                     <FolderOpen className="h-3.5 w-3.5" />
                   </Act>
-                  <Act title="View changes" disabled={!row.dir} onClick={() => onDiff(row.dir)}>
+                  <Act title={t('activity:worktrees.actViewChanges')} disabled={!row.dir} onClick={() => onDiff(row.dir)}>
                     <Eye className="h-3.5 w-3.5" />
                   </Act>
-                  <Act title="Merge to base" disabled={row.live || !row.branch} onClick={() => onMerge(row.branch)}>
+                  <Act title={t('activity:worktrees.actMerge')} disabled={row.live || !row.branch} onClick={() => onMerge(row.branch)}>
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitMerge className="h-3.5 w-3.5" />}
                   </Act>
-                  <Act title="Remove / discard" danger disabled={row.live} onClick={() => onRemove(row)}>
+                  <Act title={t('activity:worktrees.actRemove')} danger disabled={row.live} onClick={() => onRemove(row)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Act>
-                  {row.live && <span className="ml-1 text-[10px] text-amber-500">live</span>}
+                  {row.live && <span className="ml-1 text-[10px] text-amber-500">{t('activity:worktrees.live')}</span>}
                 </div>
 
                 {/* Inline diff summary */}
                 {openDiff === row.dir && diff !== undefined && (
                   <div className="mt-1.5 ml-5 rounded bg-muted/50 p-1.5 text-[10px]">
                     {diff === null || diff.files.length === 0 ? (
-                      <span className="text-muted-foreground">No uncommitted changes{diff && diff.commits > 0 ? ` · ${diff.commits} commit(s) ahead` : ''}.</span>
+                      <span className="text-muted-foreground">
+                        {t('activity:worktrees.noUncommitted')}
+                        {diff && diff.commits > 0
+                          ? ` · ${t('activity:worktrees.commitsAhead', { count: diff.commits })}`
+                          : ''}
+                        .
+                      </span>
                     ) : (
                       <>
                         <div className="mb-1 text-muted-foreground">
-                          {diff.commits > 0 ? `${diff.commits} commit(s) ahead · ` : ''}
+                          {diff.commits > 0
+                            ? `${t('activity:worktrees.commitsAhead', { count: diff.commits })} · `
+                            : ''}
                           <span className="text-emerald-500">+{diff.insertions}</span>{' '}
                           <span className="text-rose-500">−{diff.deletions}</span>
                         </div>
@@ -253,7 +273,11 @@ export function WorktreesPanel(): React.ReactElement {
                             <span className="text-rose-500">−{f.deletions}</span> {f.path}
                           </div>
                         ))}
-                        {diff.files.length > 12 && <div className="text-muted-foreground">…{diff.files.length - 12} more</div>}
+                        {diff.files.length > 12 && (
+                          <div className="text-muted-foreground">
+                            {t('activity:worktrees.more', { count: diff.files.length - 12 })}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

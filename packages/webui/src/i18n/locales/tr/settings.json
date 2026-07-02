@@ -153,5 +153,22 @@
     "keepTitle": "İzin listesini tut (Esc)",
     "clearTitle": "İzin listesini temizle (Enter)",
     "clear": "İzin listesini temizle"
+  },
+  "oauth": {
+    "termsWarning": "Bir API anahtarı yerine abonelikle oturum açın. Aboneliği resmi istemcisi dışında kullanmak sağlayıcının Şartlarını ihlal edebilir — hesabınız hız sınırına takılabilir veya yasaklanabilir. API anahtarı programatik kullanım için onaylı yoldur.",
+    "signIn": "Oturum aç",
+    "waitingBrowser": "Oturum açmanız bekleniyor…",
+    "openSignIn": "Oturum açma sayfasını aç",
+    "pasteLoopbackBusy": "Loopback portu meşgul — yönlendirme URL'sini yapıştırın",
+    "pasteCantReach": "Tarayıcı bu sunucuya ulaşamıyor mu? Yönlendirme URL'sini yapıştırın",
+    "submit": "Gönder",
+    "enterCode": "Bu kodu doğrulama sayfasına girin:",
+    "openVerification": "Doğrulama sayfasını aç",
+    "waitingCode": "Yetkilendirme bekleniyor…",
+    "exchanging": "Tokenlar değiştiriliyor…",
+    "fetchingModels": "Modeller getiriliyor…",
+    "signedIn": "Oturum açıldı.",
+    "signedInToast": "Oturum açıldı — {{provider}}",
+    "signInFailed": "Oturum açma başarısız"
   }
 }

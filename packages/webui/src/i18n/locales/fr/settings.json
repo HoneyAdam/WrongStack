@@ -153,5 +153,22 @@
     "keepTitle": "Conserver l'allowlist (Échap)",
     "clearTitle": "Effacer l'allowlist (Entrée)",
     "clear": "Effacer l'allowlist"
+  },
+  "oauth": {
+    "termsWarning": "Connectez-vous avec un abonnement au lieu d'une clé API. Utiliser un abonnement en dehors de son client officiel peut enfreindre les Conditions du fournisseur — votre compte pourrait être limité ou banni. Une clé API est la voie sanctifiée pour un usage programmatique.",
+    "signIn": "Se connecter",
+    "waitingBrowser": "En attente de votre connexion…",
+    "openSignIn": "Ouvrir la page de connexion",
+    "pasteLoopbackBusy": "Port loopback occupé — collez l'URL de redirection",
+    "pasteCantReach": "Le navigateur n'atteint pas ce serveur ? Collez l'URL de redirection",
+    "submit": "Soumettre",
+    "enterCode": "Saisissez ce code sur la page de vérification :",
+    "openVerification": "Ouvrir la page de vérification",
+    "waitingCode": "En attente d'autorisation…",
+    "exchanging": "Échange des tokens…",
+    "fetchingModels": "Récupération des modèles…",
+    "signedIn": "Connecté.",
+    "signedInToast": "Connecté — {{provider}}",
+    "signInFailed": "Échec de la connexion"
   }
 }

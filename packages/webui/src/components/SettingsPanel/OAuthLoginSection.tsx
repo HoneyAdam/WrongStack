@@ -1,6 +1,7 @@
 import { Bot, CheckCircle2, Code2, ExternalLink, Loader2, Sparkles, XCircle } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { toast } from '@/components/Toaster';
+import { i18n, useAppTranslation } from '@/i18n';
 import type { WrongStackWebSocketClient } from '@/lib/ws-client';
 import type { WSServerMessage } from '@/types';
 import { Button } from '../ui/button';
@@ -75,6 +76,7 @@ export interface OAuthLoginSectionProps {
  * remotely-accessed WebUI.
  */
 export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
+  const { t } = useAppTranslation();
   const [states, setStates] = useState<Record<OAuthKind, OAuthState>>({
     chatgpt: { phase: 'idle' },
     claude: { phase: 'idle' },
@@ -89,11 +91,11 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
       const p = msg.payload as { kind: OAuthKind; phase: OAuthPhase } & OAuthState;
       setStates((prev) => ({ ...prev, [p.kind]: { ...p } }));
       if (p.phase === 'success') {
-        toast.success(p.message ?? `Signed in — ${p.providerId ?? p.kind}`);
+        toast.success(p.message ?? i18n.t('settings:oauth.signedInToast', { provider: p.providerId ?? p.kind }));
         setShowPaste(null);
         setPasteValue('');
       } else if (p.phase === 'error') {
-        toast.error(p.message ?? 'Sign-in failed');
+        toast.error(p.message ?? i18n.t('settings:oauth.signInFailed'));
       }
     });
     return () => off?.();
@@ -133,9 +135,7 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
     <div className="space-y-3">
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          Sign in with a subscription instead of an API key. Using a subscription outside its
-          official client may violate the provider's Terms — your account could be rate-limited or
-          banned. An API key is the sanctioned path for programmatic use.
+          {t('settings:oauth.termsWarning')}
         </p>
       </div>
 
@@ -154,11 +154,11 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
               </div>
               {!busy ? (
                 <Button size="sm" onClick={() => start(meta.kind)}>
-                  Sign in
+                  {t('settings:oauth.signIn')}
                 </Button>
               ) : (
                 <Button size="sm" variant="ghost" onClick={() => cancel(meta.kind)}>
-                  Cancel
+                  {t('common:action.cancel')}
                 </Button>
               )}
             </div>
@@ -168,7 +168,7 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
               <div className="mt-3 space-y-2 border-t pt-3">
                 <div className="flex items-center gap-2 text-sm">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span>Waiting for you to sign in…</span>
+                  <span>{t('settings:oauth.waitingBrowser')}</span>
                 </div>
                 {st.authorizeUrl && (
                   <Button
@@ -177,7 +177,7 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
                     onClick={() => window.open(st.authorizeUrl, '_blank', 'noopener,noreferrer')}
                   >
                     <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                    Open sign-in page
+                    {t('settings:oauth.openSignIn')}
                   </Button>
                 )}
                 <div>
@@ -187,8 +187,8 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
                     onClick={() => setShowPaste(showPaste === meta.kind ? null : meta.kind)}
                   >
                     {st.bound === false
-                      ? 'Loopback port busy — paste the redirect URL'
-                      : 'Browser can’t reach this server? Paste the redirect URL'}
+                      ? t('settings:oauth.pasteLoopbackBusy')
+                      : t('settings:oauth.pasteCantReach')}
                   </button>
                   {showPaste === meta.kind && (
                     <div className="mt-2 flex gap-2">
@@ -206,7 +206,7 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
                         onClick={() => submitPaste(meta.kind)}
                         disabled={!pasteValue.trim()}
                       >
-                        Submit
+                        {t('settings:oauth.submit')}
                       </Button>
                     </div>
                   )}
@@ -217,7 +217,7 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
             {st.phase === 'awaiting_code' && (
               <div className="mt-3 space-y-2 border-t pt-3">
                 <p className="text-sm text-muted-foreground">
-                  Enter this code at the verification page:
+                  {t('settings:oauth.enterCode')}
                 </p>
                 <div className="font-mono text-2xl font-bold tracking-widest">
                   {st.userCode ?? '…'}
@@ -229,12 +229,12 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
                     onClick={() => window.open(st.verificationUri, '_blank', 'noopener,noreferrer')}
                   >
                     <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                    Open verification page
+                    {t('settings:oauth.openVerification')}
                   </Button>
                 )}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Waiting for authorization…</span>
+                  <span>{t('settings:oauth.waitingCode')}</span>
                 </div>
               </div>
             )}
@@ -242,14 +242,14 @@ export function OAuthLoginSection({ ws }: OAuthLoginSectionProps) {
             {(st.phase === 'exchanging' || st.phase === 'fetching_models') && (
               <div className="mt-3 flex items-center gap-2 border-t pt-3 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                <span>{st.phase === 'exchanging' ? 'Exchanging tokens…' : 'Fetching models…'}</span>
+                <span>{st.phase === 'exchanging' ? t('settings:oauth.exchanging') : t('settings:oauth.fetchingModels')}</span>
               </div>
             )}
 
             {st.phase === 'success' && (
               <div className="mt-3 flex items-center gap-2 border-t pt-3 text-sm text-green-600">
                 <CheckCircle2 className="h-4 w-4" />
-                <span>{st.message ?? 'Signed in.'}</span>
+                <span>{st.message ?? t('settings:oauth.signedIn')}</span>
               </div>
             )}
 

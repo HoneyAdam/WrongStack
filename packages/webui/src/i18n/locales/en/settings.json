@@ -153,5 +153,22 @@
     "keepTitle": "Keep the allowlist (Esc)",
     "clearTitle": "Clear the allowlist (Enter)",
     "clear": "Clear allowlist"
+  },
+  "oauth": {
+    "termsWarning": "Sign in with a subscription instead of an API key. Using a subscription outside its official client may violate the provider's Terms — your account could be rate-limited or banned. An API key is the sanctioned path for programmatic use.",
+    "signIn": "Sign in",
+    "waitingBrowser": "Waiting for you to sign in…",
+    "openSignIn": "Open sign-in page",
+    "pasteLoopbackBusy": "Loopback port busy — paste the redirect URL",
+    "pasteCantReach": "Browser can't reach this server? Paste the redirect URL",
+    "submit": "Submit",
+    "enterCode": "Enter this code at the verification page:",
+    "openVerification": "Open verification page",
+    "waitingCode": "Waiting for authorization…",
+    "exchanging": "Exchanging tokens…",
+    "fetchingModels": "Fetching models…",
+    "signedIn": "Signed in.",
+    "signedInToast": "Signed in — {{provider}}",
+    "signInFailed": "Sign-in failed"
   }
 }
