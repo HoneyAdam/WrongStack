@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import { i18n, useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore } from '@/stores';
@@ -54,6 +55,7 @@ export interface CollabParticipant {
  *   - State stays in sync with the 2s server-side broadcast
  */
 export function CollabPanel({ sessionId, className }: CollabPanelProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const [participants, setParticipants] = useState<CollabParticipant[]>([]);
   const [joined, setJoined] = useState(false);
   const [joinedRole, setJoinedRole] = useState<'observer' | 'annotator' | 'controller' | null>(
@@ -204,7 +206,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
         toolUseId: injectToolUseId,
         content: injectContent,
         isError: injectIsError,
-        reason: injectReason.trim() || 'controller injection',
+        reason: injectReason.trim() || i18n.t('activity:collab.controllerInjection'),
       },
     });
     setInjectOpen(false);
@@ -226,34 +228,34 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
         )}
       >
         <Users className="w-4 h-4 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">No live observers</span>
+        <span className="text-xs text-muted-foreground">{t('collab.noObservers')}</span>
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
             onClick={() => handleJoin('observer')}
             className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            title="Join as a read-only observer (Phase 1)"
+            title={t('collab.observerTitle')}
           >
             <LogIn className="w-3 h-3" />
-            observer
+            {t('collab.observerRole')}
           </button>
           <button
             type="button"
             onClick={() => handleJoin('annotator')}
             className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition-colors"
-            title="Join as an annotator — leave inline notes on tool calls (Phase 2)"
+            title={t('collab.annotatorTitle')}
           >
             <MessageSquareWarning className="w-3 h-3" />
-            annotator
+            {t('collab.annotatorRole')}
           </button>
           <button
             type="button"
             onClick={() => handleJoin('controller')}
             className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 transition-colors"
-            title="Join as a controller — can pause the agent loop (Phase 3)"
+            title={t('collab.controllerTitle')}
           >
             <Pause className="w-3 h-3" />
-            controller
+            {t('collab.controllerRole')}
           </button>
         </div>
       </div>
@@ -270,7 +272,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
         )}
         role="alert"
       >
-        <span className="text-xs text-destructive">Collab: {error}</span>
+        <span className="text-xs text-destructive">{t('collab.errorPrefix', { error })}</span>
         <button
           type="button"
           onClick={() => {
@@ -279,7 +281,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
           }}
           className="ml-auto text-xs underline text-destructive"
         >
-          dismiss
+          {t('collab.dismiss')}
         </button>
       </div>
     );
@@ -299,31 +301,31 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
       </span>
       <Users className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
       <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-        {participants.length} {participants.length === 1 ? 'observer' : 'observers'}
+        {t('collab.observers', { count: participants.length })}
       </span>
       {openAnnotationCount > 0 && (
         <span
-          title={`${openAnnotationCount} open annotation(s) — annotators reviewing this session`}
+          title={t('collab.annotationsTitle', { count: openAnnotationCount })}
           className="ml-2 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
         >
           <MessageSquareWarning className="w-3 h-3" />
-          {openAnnotationCount} note{openAnnotationCount === 1 ? '' : 's'}
+          {t('collab.notes', { count: openAnnotationCount })}
         </span>
       )}
       {paused && (
         <span
-          title="Agent loop is paused — a controller is reviewing"
+          title={t('collab.pausedTitle')}
           className="ml-2 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/40"
         >
           <Pause className="w-3 h-3" />
-          paused
+          {t('collab.paused')}
         </span>
       )}
       <div className="flex items-center gap-1 ml-2">
         {participants.slice(0, 3).map((p) => (
           <span
             key={p.participantId}
-            title={`Joined ${new Date(p.joinedAt).toLocaleTimeString()}`}
+            title={t('collab.joinedTitle', { time: new Date(p.joinedAt).toLocaleTimeString() })}
             className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           >
             <Eye className="w-3 h-3" />
@@ -333,7 +335,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
               <button
                 type="button"
                 onClick={() => handleGrantControl(p.participantId)}
-                title="Grant control — promote this participant to controller"
+                title={t('collab.grantTitle')}
                 className="ml-0.5 inline-flex items-center rounded hover:bg-emerald-500/20 transition-colors"
               >
                 <UserPlus className="w-3 h-3" />
@@ -351,30 +353,30 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
             type="button"
             onClick={() => setInjectOpen((v) => !v)}
             className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 hover:bg-sky-500/20 transition-colors"
-            title="Inject a synthetic result for an in-flight tool call"
+            title={t('collab.injectTitle')}
           >
             <Syringe className="w-3 h-3" />
-            Inject
+            {t('collab.inject')}
           </button>
           {paused ? (
             <button
               type="button"
               onClick={handleResume}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 transition-colors"
-              title="Resume the agent loop"
+              title={t('collab.resumeTitle')}
             >
               <Play className="w-3 h-3" />
-              Resume
+              {t('collab.resume')}
             </button>
           ) : (
             <button
               type="button"
               onClick={handleRequestPause}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition-colors"
-              title="Pause the agent before the next tool call"
+              title={t('collab.pauseTitle')}
             >
               <Pause className="w-3 h-3" />
-              Pause agent
+              {t('collab.pauseAgent')}
             </button>
           )}
         </div>
@@ -384,10 +386,10 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
           type="button"
           onClick={handleLeave}
           className="ml-auto inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:bg-muted transition-colors"
-          title="Leave the observer session"
+          title={t('collab.leaveTitle')}
         >
           <LogOut className="w-3 h-3" />
-          Leave
+          {t('collab.leave')}
         </button>
       )}
 
@@ -396,24 +398,24 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
         <div className="absolute top-full left-0 right-0 mt-1 z-50 flex flex-col gap-2 p-3 rounded-md border border-sky-500/40 bg-card shadow-lg text-xs">
           <div className="flex items-center gap-2">
             <Syringe className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span className="font-medium">Inject tool result</span>
+            <span className="font-medium">{t('collab.injectToolResult')}</span>
             <button
               type="button"
               onClick={() => setInjectOpen(false)}
               className="ml-auto text-muted-foreground hover:text-foreground"
             >
-              close
+              {t('collab.close')}
             </button>
           </div>
           <label className="flex flex-col gap-1">
-            <span className="text-muted-foreground">Target tool_use id</span>
+            <span className="text-muted-foreground">{t('collab.targetTool')}</span>
             {/* Input + datalist: autocompletes in-flight calls AND accepts any
                 tool_use id (pre-queue an injection for a call not yet made). */}
             <input
               list="collab-inject-tools"
               value={injectToolUseId}
               onChange={(e) => setInjectToolUseId(e.target.value)}
-              placeholder="pick an in-flight call or type a tool_use id"
+              placeholder={t('collab.targetPlaceholder')}
               className="px-2 py-1 rounded border border-border bg-background font-mono"
             />
             <datalist id="collab-inject-tools">
@@ -422,7 +424,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
                   m.toolInput === undefined ? '' : ` — ${JSON.stringify(m.toolInput).slice(0, 40)}`;
                 return (
                   <option key={m.toolUseId} value={m.toolUseId}>
-                    {m.toolName ?? 'tool'}
+                    {m.toolName ?? t('collab.toolFallback')}
                     {snip}
                   </option>
                 );
@@ -430,17 +432,17 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
             </datalist>
             {pendingTools.length === 0 && (
               <span className="text-[10px] text-muted-foreground">
-                No in-flight tool calls — type a tool_use id to pre-queue, or pause the agent first.
+                {t('collab.noPendingTools')}
               </span>
             )}
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-muted-foreground">Result content</span>
+            <span className="text-muted-foreground">{t('collab.resultContent')}</span>
             <textarea
               value={injectContent}
               onChange={(e) => setInjectContent(e.target.value)}
               rows={3}
-              placeholder="Synthetic tool result fed to the agent in place of running the tool"
+              placeholder={t('collab.resultPlaceholder')}
               className="px-2 py-1 rounded border border-border bg-background font-mono"
             />
           </label>
@@ -451,13 +453,13 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
                 checked={injectIsError}
                 onChange={(e) => setInjectIsError(e.target.checked)}
               />
-              <span>mark as error</span>
+              <span>{t('collab.markError')}</span>
             </label>
             <input
               type="text"
               value={injectReason}
               onChange={(e) => setInjectReason(e.target.value)}
-              placeholder="reason (audit log)"
+              placeholder={t('collab.reasonPlaceholder')}
               className="flex-1 px-2 py-1 rounded border border-border bg-background"
             />
           </div>
@@ -468,7 +470,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
             className="self-end inline-flex items-center gap-1 text-xs px-3 py-1 rounded bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Syringe className="w-3 h-3" />
-            Queue injection
+            {t('collab.queueInjection')}
           </button>
         </div>
       )}
