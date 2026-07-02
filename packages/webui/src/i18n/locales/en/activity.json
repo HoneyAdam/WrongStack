@@ -91,5 +91,24 @@
     "clickToFillTitle": "Click to fill: {{text}}",
     "auto": "auto",
     "willAutoSubmit": "Will auto-submit after countdown"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} online",
+    "messages": "Messages",
+    "deleteAllTitle": "Delete all messages",
+    "deleteAll": "Delete all",
+    "deleting": "Deleting…",
+    "purgeTitle": "Purge stale/orphaned messages",
+    "purge": "Purge",
+    "purging": "Purging…",
+    "newLabel": "NEW",
+    "empty": "No messages yet.",
+    "offlineCount": "+{{count}} offline",
+    "timeNow": "now",
+    "deleteAllConfirmTitle_one": "Delete {{count}} message?",
+    "deleteAllConfirmTitle_other": "Delete all {{count}} messages?",
+    "deleteAllConfirmBody": "The mailbox file is truncated for every agent. This cannot be undone.",
+    "purgeConfirmTitle": "Purge stale messages?",
+    "purgeConfirmBody": "Removes completed messages older than 1 day and incomplete messages older than 7 days. Active messages are preserved."
   }
 }

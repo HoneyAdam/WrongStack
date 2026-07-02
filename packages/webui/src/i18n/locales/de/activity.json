@@ -91,5 +91,24 @@
     "clickToFillTitle": "Klicken zum Ausfüllen: {{text}}",
     "auto": "auto",
     "willAutoSubmit": "Wird nach Countdown automatisch gesendet"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} online",
+    "messages": "Nachrichten",
+    "deleteAllTitle": "Alle Nachrichten löschen",
+    "deleteAll": "Alle löschen",
+    "deleting": "Wird gelöscht…",
+    "purgeTitle": "Veraltete/verwaiste Nachrichten bereinigen",
+    "purge": "Bereinigen",
+    "purging": "Wird bereinigt…",
+    "newLabel": "NEU",
+    "empty": "Noch keine Nachrichten.",
+    "offlineCount": "+{{count}} offline",
+    "timeNow": "jetzt",
+    "deleteAllConfirmTitle_one": "{{count}} Nachricht löschen?",
+    "deleteAllConfirmTitle_other": "Alle {{count}} Nachrichten löschen?",
+    "deleteAllConfirmBody": "Die Mailbox-Datei wird für jeden Agent abgeschnitten. Dies kann nicht rückgängig gemacht werden.",
+    "purgeConfirmTitle": "Veraltete Nachrichten bereinigen?",
+    "purgeConfirmBody": "Entfernt abgeschlossene Nachrichten älter als 1 Tag und unvollständige Nachrichten älter als 7 Tage. Aktive Nachrichten bleiben erhalten."
   }
 }

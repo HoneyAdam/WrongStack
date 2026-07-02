@@ -91,5 +91,24 @@
     "clickToFillTitle": "Doldurmak için tıkla: {{text}}",
     "auto": "otomatik",
     "willAutoSubmit": "Geri sayımdan sonra otomatik gönderilecek"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} çevrimiçi",
+    "messages": "Mesajlar",
+    "deleteAllTitle": "Tüm mesajları sil",
+    "deleteAll": "Tümünü sil",
+    "deleting": "Siliniyor…",
+    "purgeTitle": "Eski/yetim mesajları temizle",
+    "purge": "Temizle",
+    "purging": "Temizleniyor…",
+    "newLabel": "YENİ",
+    "empty": "Henüz mesaj yok.",
+    "offlineCount": "+{{count}} çevrimdışı",
+    "timeNow": "şimdi",
+    "deleteAllConfirmTitle_one": "{{count}} mesaj silinsin mi?",
+    "deleteAllConfirmTitle_other": "Tüm {{count}} mesaj silinsin mi?",
+    "deleteAllConfirmBody": "Posta kutusu dosyası her vekil için kısaltılır. Bu geri alınamaz.",
+    "purgeConfirmTitle": "Eski mesajlar temizlensin mi?",
+    "purgeConfirmBody": "1 günden eski tamamlanmış ve 7 günden eski tamamlanmamış mesajları kaldırır. Etkin mesajlar korunur."
   }
 }

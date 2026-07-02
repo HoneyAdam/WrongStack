@@ -91,5 +91,24 @@
     "clickToFillTitle": "Cliquez pour remplir : {{text}}",
     "auto": "auto",
     "willAutoSubmit": "Envoi automatique après le compte à rebours"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} en ligne",
+    "messages": "Messages",
+    "deleteAllTitle": "Supprimer tous les messages",
+    "deleteAll": "Tout supprimer",
+    "deleting": "Suppression…",
+    "purgeTitle": "Purger les messages obsolètes/orphelins",
+    "purge": "Purger",
+    "purging": "Purge…",
+    "newLabel": "NOUVEAU",
+    "empty": "Aucun message pour le moment.",
+    "offlineCount": "+{{count}} hors ligne",
+    "timeNow": "maintenant",
+    "deleteAllConfirmTitle_one": "Supprimer {{count}} message ?",
+    "deleteAllConfirmTitle_other": "Supprimer tous les {{count}} messages ?",
+    "deleteAllConfirmBody": "Le fichier de boîte aux lettres est tronqué pour chaque agent. Action irréversible.",
+    "purgeConfirmTitle": "Purger les messages obsolètes ?",
+    "purgeConfirmBody": "Supprime les messages terminés de plus d'un jour et les messages incomplets de plus de 7 jours. Les messages actifs sont conservés."
   }
 }

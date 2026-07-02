@@ -91,5 +91,24 @@
     "clickToFillTitle": "Clic para rellenar: {{text}}",
     "auto": "auto",
     "willAutoSubmit": "Envio automático tras la cuenta atrás"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} en línea",
+    "messages": "Mensajes",
+    "deleteAllTitle": "Eliminar todos los mensajes",
+    "deleteAll": "Eliminar todo",
+    "deleting": "Eliminando…",
+    "purgeTitle": "Purgar mensajes obsoletos/huérfanos",
+    "purge": "Purgar",
+    "purging": "Purgando…",
+    "newLabel": "NUEVO",
+    "empty": "Aún no hay mensajes.",
+    "offlineCount": "+{{count}} sin conexión",
+    "timeNow": "ahora",
+    "deleteAllConfirmTitle_one": "¿Eliminar {{count}} mensaje?",
+    "deleteAllConfirmTitle_other": "¿Eliminar todos los {{count}} mensajes?",
+    "deleteAllConfirmBody": "El archivo del buzón se trunca para cada agente. Esto no se puede deshacer.",
+    "purgeConfirmTitle": "¿Purgar mensajes obsoletos?",
+    "purgeConfirmBody": "Elimina los mensajes completados de más de 1 día y los incompletos de más de 7 días. Los mensajes activos se conservan."
   }
 }

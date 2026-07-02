@@ -91,5 +91,24 @@
     "clickToFillTitle": "Clique para preencher: {{text}}",
     "auto": "auto",
     "willAutoSubmit": "Envio automático após a contagem regressiva"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} online",
+    "messages": "Mensagens",
+    "deleteAllTitle": "Excluir todas as mensagens",
+    "deleteAll": "Excluir tudo",
+    "deleting": "Excluindo…",
+    "purgeTitle": "Purgar mensagens obsoletas/órfãs",
+    "purge": "Purgar",
+    "purging": "Purgando…",
+    "newLabel": "NOVO",
+    "empty": "Nenhuma mensagem ainda.",
+    "offlineCount": "+{{count}} offline",
+    "timeNow": "agora",
+    "deleteAllConfirmTitle_one": "Excluir {{count}} mensagem?",
+    "deleteAllConfirmTitle_other": "Excluir todas as {{count}} mensagens?",
+    "deleteAllConfirmBody": "O arquivo da caixa de entrada é truncado para cada agente. Isso não pode ser desfeito.",
+    "purgeConfirmTitle": "Purgar mensagens obsoletas?",
+    "purgeConfirmBody": "Remove mensagens concluídas com mais de 1 dia e mensagens incompletas com mais de 7 dias. Mensagens ativas são preservadas."
   }
 }

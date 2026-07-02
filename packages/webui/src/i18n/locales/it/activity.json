@@ -91,5 +91,24 @@
     "clickToFillTitle": "Clic per compilare: {{text}}",
     "auto": "auto",
     "willAutoSubmit": "Invio automatico dopo il countdown"
+  },
+  "mailbox": {
+    "onlineCount": "{{count}} online",
+    "messages": "Messaggi",
+    "deleteAllTitle": "Elimina tutti i messaggi",
+    "deleteAll": "Elimina tutti",
+    "deleting": "Eliminazione…",
+    "purgeTitle": "Purga messaggi obsoleti/orfani",
+    "purge": "Purga",
+    "purging": "Purga in corso…",
+    "newLabel": "NUOVO",
+    "empty": "Nessun messaggio.",
+    "offlineCount": "+{{count}} offline",
+    "timeNow": "ora",
+    "deleteAllConfirmTitle_one": "Eliminare {{count}} messaggio?",
+    "deleteAllConfirmTitle_other": "Eliminare tutti i {{count}} messaggi?",
+    "deleteAllConfirmBody": "Il file della mailbox viene troncato per ogni agente. Operazione irreversibile.",
+    "purgeConfirmTitle": "Purgare i messaggi obsoleti?",
+    "purgeConfirmBody": "Rimuove i messaggi completati più vecchi di 1 giorno e quelli incompleti più vecchi di 7 giorni. I messaggi attivi vengono conservati."
   }
 }
