@@ -26,7 +26,11 @@
     "languageHint": "Ändert nur den Oberflächentext. Prompts, Skills und Modellausgaben bleiben unberührt."
   },
   "model": {
-    "heading": "Modell"
+    "heading": "Modell",
+    "loading": "Modelle werden geladen...",
+    "notFound": "Keine Modelle für diesen Anbieter gefunden. Der Katalog könnte leer sein oder noch laden.",
+    "selectProviderFirst": "Zuerst einen Anbieter wählen",
+    "context": "{{count}}k Kontext"
   },
   "connection": {
     "wsUrlLabel": "WebSocket-Server-URL",
@@ -140,5 +144,14 @@
     "toastReconnected": "Server „{{name}}“ neu verbunden",
     "toastDisconnected": "Server „{{name}}“ getrennt: {{reason}}",
     "toastError": "Server „{{name}}“ Fehler: {{error}}"
+  },
+  "allowlist": {
+    "title": "Gespeicherte Allowlist löschen?",
+    "body_one": "Dies entfernt das angeheftete Modell für {{provider}}. Die Modellauswahl fällt auf den models.dev-Katalog zurück.",
+    "body_other": "Dies entfernt die {{count}} angehefteten Modelle für {{provider}}. Die Modellauswahl fällt auf den models.dev-Katalog zurück.",
+    "undoHint": "Sie können dies 8 Sekunden nach dem Bestätigen rückgängig machen.",
+    "keepTitle": "Allowlist behalten (Esc)",
+    "clearTitle": "Allowlist löschen (Enter)",
+    "clear": "Allowlist löschen"
   }
 }

@@ -1518,5 +1518,19 @@
     "createBtn": "Beceri Oluştur",
     "createdMsg": "Oluşturuldu: {{name}}",
     "createFailed": "Oluşturma başarısız"
+  },
+  "timeline": {
+    "noEvents": "Henüz olay yok."
+  },
+  "designStudio": {
+    "pickHint": "Bir kit seç — ajan buna uyacak.",
+    "gallery": "Galeri",
+    "galleryTitle": "Canlı önizleme galerisini aç",
+    "stackTitle": "Hedef yığın",
+    "loading": "Kitler yükleniyor…",
+    "notFound": "Tasarım kiti bulunamadı.",
+    "bestFor": "En uygun:",
+    "light": "Açık",
+    "dark": "Koyu"
   }
 }

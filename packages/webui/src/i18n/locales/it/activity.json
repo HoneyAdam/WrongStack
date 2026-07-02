@@ -1518,5 +1518,19 @@
     "createBtn": "Crea Competenza",
     "createdMsg": "Creata: {{name}}",
     "createFailed": "Creazione fallita"
+  },
+  "timeline": {
+    "noEvents": "Nessun evento."
+  },
+  "designStudio": {
+    "pickHint": "Scegli un kit — l'agent vi si atterrà.",
+    "gallery": "Galleria",
+    "galleryTitle": "Apri galleria anteprima live",
+    "stackTitle": "Stack target",
+    "loading": "Caricamento kit…",
+    "notFound": "Nessun design kit trovato.",
+    "bestFor": "Ideale per:",
+    "light": "Chiaro",
+    "dark": "Scuro"
   }
 }

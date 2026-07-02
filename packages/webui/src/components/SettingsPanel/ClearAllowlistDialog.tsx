@@ -16,6 +16,7 @@
  */
 import { AlertTriangle } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -52,6 +53,7 @@ export function ClearAllowlistDialog({
   onCancel,
 }: ClearAllowlistDialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const { t } = useAppTranslation();
 
   // Keyboard shortcuts: Enter to confirm, Escape to cancel. Matches
   // the muscle memory of the existing `<ConfirmDialog>` and the
@@ -83,18 +85,15 @@ export function ClearAllowlistDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-500" />
-            Clear saved allowlist?
+            {t('settings:allowlist.title')}
           </DialogTitle>
           <DialogDescription>
-            This will remove the {modelCount} pinned model
-            {modelCount === 1 ? '' : 's'} for
-            <span className="font-mono font-medium"> {providerId}</span>. The model
-            picker will fall back to the models.dev catalog.
+            {t('settings:allowlist.body', { count: modelCount, provider: providerId })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="rounded-md bg-muted/50 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
-          You can undo this for 8 seconds after confirming.
+          {t('settings:allowlist.undoHint')}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2 flex-wrap">
@@ -102,19 +101,19 @@ export function ClearAllowlistDialog({
             variant="outline"
             size="sm"
             onClick={onCancel}
-            title="Keep the allowlist (Esc)"
+            title={t('settings:allowlist.keepTitle')}
             data-action="cancel"
           >
-            Cancel <kbd className="ml-1 text-[10px] border rounded px-1 bg-background">Esc</kbd>
+            {t('common:action.cancel')} <kbd className="ml-1 text-[10px] border rounded px-1 bg-background">Esc</kbd>
           </Button>
           <Button
             variant="destructive"
             size="sm"
             onClick={onConfirm}
-            title="Clear the allowlist (Enter)"
+            title={t('settings:allowlist.clearTitle')}
             data-action="confirm"
           >
-            Clear allowlist <kbd className="ml-1 text-[10px] border rounded px-1 bg-background/80">↵</kbd>
+            {t('settings:allowlist.clear')} <kbd className="ml-1 text-[10px] border rounded px-1 bg-background/80">↵</kbd>
           </Button>
         </DialogFooter>
       </DialogContent>

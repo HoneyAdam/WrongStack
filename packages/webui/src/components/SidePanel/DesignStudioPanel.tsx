@@ -11,6 +11,7 @@ import { Check, LayoutGrid, Loader2, Palette } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 
 interface KitSummary {
@@ -49,6 +50,7 @@ function Swatches({ tokens, label }: { tokens: Record<string, string>; label: st
 
 export function DesignStudioPanel({ className }: { className?: string }) {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const [kits, setKits] = useState<KitSummary[]>([]);
   const [activeKit, setActiveKit] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,21 +95,21 @@ export function DesignStudioPanel({ className }: { className?: string }) {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
         <Palette className="w-4 h-4 text-muted-foreground" />
         <span className="text-xs text-muted-foreground flex-1">
-          Pick a kit — the agent will adhere to it.
+          {t('activity:designStudio.pickHint')}
         </span>
         <button
           type="button"
           onClick={() => showPanel('design')}
           className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-border/60 hover:bg-muted"
-          title="Open live preview gallery"
+          title={t('activity:designStudio.galleryTitle')}
         >
-          <LayoutGrid className="w-3 h-3" /> Gallery
+          <LayoutGrid className="w-3 h-3" /> {t('activity:designStudio.gallery')}
         </button>
         <select
           value={stack}
           onChange={(e) => setStack(e.target.value)}
           className="text-[11px] bg-transparent border border-border/60 rounded px-1 py-0.5"
-          title="Target stack"
+          title={t('activity:designStudio.stackTitle')}
         >
           {STACKS.map((s) => (
             <option key={s} value={s}>
@@ -120,11 +122,11 @@ export function DesignStudioPanel({ className }: { className?: string }) {
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-2 space-y-2">
         {loading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading kits…
+            <Loader2 className="w-4 h-4 animate-spin" /> {t('activity:designStudio.loading')}
           </div>
         )}
         {!loading && sortedKits.length === 0 && (
-          <p className="text-sm text-muted-foreground p-3">No design kits found.</p>
+          <p className="text-sm text-muted-foreground p-3">{t('activity:designStudio.notFound')}</p>
         )}
         {sortedKits.map((kit) => {
           const isActive = activeKit === kit.id;
@@ -144,7 +146,7 @@ export function DesignStudioPanel({ className }: { className?: string }) {
                     <h3 className="text-sm font-semibold truncate">{kit.name}</h3>
                     {isActive && (
                       <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase text-primary">
-                        <Check className="w-3 h-3" /> Active
+                        <Check className="w-3 h-3" /> {t('activity:design.active')}
                       </span>
                     )}
                   </div>
@@ -163,18 +165,18 @@ export function DesignStudioPanel({ className }: { className?: string }) {
                       : 'bg-primary text-primary-foreground hover:opacity-90',
                   )}
                 >
-                  {busyKit === kit.id ? '…' : isActive ? 'Reapply' : 'Use'}
+                  {busyKit === kit.id ? '…' : isActive ? t('activity:design.reapply') : t('activity:design.use')}
                 </button>
               </div>
 
               <div className="mt-2 space-y-1">
-                <Swatches tokens={kit.light} label="Light" />
-                <Swatches tokens={kit.dark} label="Dark" />
+                <Swatches tokens={kit.light} label={t('activity:designStudio.light')} />
+                <Swatches tokens={kit.dark} label={t('activity:designStudio.dark')} />
               </div>
 
               {kit.bestFor && (
                 <p className="text-[10px] text-muted-foreground mt-2 leading-snug">
-                  <span className="font-medium">Best for:</span> {kit.bestFor}
+                  <span className="font-medium">{t('activity:designStudio.bestFor')}</span> {kit.bestFor}
                 </p>
               )}
               <div className="flex flex-wrap gap-1 mt-1.5">

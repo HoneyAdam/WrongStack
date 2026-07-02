@@ -79,12 +79,21 @@
     "hoursAgo_one": "{{count}} hour ago",
     "hoursAgo_other": "{{count}} hours ago",
     "daysAgo_one": "{{count}} day ago",
-    "daysAgo_other": "{{count}} days ago"
+    "daysAgo_other": "{{count}} days ago",
+    "compactSecondsAgo": "{{count}}s ago",
+    "compactMinutesAgo": "{{count}}m ago",
+    "compactHoursAgo": "{{count}}h ago"
   },
   "error": {
     "title": "Something went wrong",
     "body": "A rendering error occurred. Your session is still active on the server — reloading will pick up where you left off.",
     "reload": "Reload page",
     "tryAgain": "Try again"
+  },
+  "sparkline": {
+    "noActivity": "No activity",
+    "noActivityYet": "No activity yet",
+    "activityMax": "Activity sparkline: max {{count}} events",
+    "activityPeak": "Activity sparkline — peak {{count}} events/bucket"
   }
 }

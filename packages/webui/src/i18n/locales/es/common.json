@@ -79,12 +79,21 @@
     "hoursAgo_one": "hace {{count}} hora",
     "hoursAgo_other": "hace {{count}} horas",
     "daysAgo_one": "hace {{count}} día",
-    "daysAgo_other": "hace {{count}} días"
+    "daysAgo_other": "hace {{count}} días",
+    "compactSecondsAgo": "hace {{count}} s",
+    "compactMinutesAgo": "hace {{count}} min",
+    "compactHoursAgo": "hace {{count}} h"
   },
   "error": {
     "title": "Algo salió mal",
     "body": "Ocurrió un error de renderizado. Tu sesión sigue activa en el servidor — recargar continuará donde lo dejaste.",
     "reload": "Recargar página",
     "tryAgain": "Reintentar"
+  },
+  "sparkline": {
+    "noActivity": "Sin actividad",
+    "noActivityYet": "Aún sin actividad",
+    "activityMax": "Sparkline de actividad: máx {{count}} eventos",
+    "activityPeak": "Sparkline de actividad — pico {{count}} eventos/intervalo"
   }
 }

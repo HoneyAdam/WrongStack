@@ -26,7 +26,11 @@
     "languageHint": "Modifie uniquement le texte de l'interface. Les prompts, les compétences et la sortie du modèle ne sont pas affectés."
   },
   "model": {
-    "heading": "Modèle"
+    "heading": "Modèle",
+    "loading": "Chargement des modèles...",
+    "notFound": "Aucun modèle trouvé pour ce fournisseur. Le catalogue est peut-être vide ou en cours de chargement.",
+    "selectProviderFirst": "Sélectionnez d'abord un fournisseur",
+    "context": "{{count}}k contexte"
   },
   "connection": {
     "wsUrlLabel": "URL du serveur WebSocket",
@@ -140,5 +144,14 @@
     "toastReconnected": "Serveur « {{name}} » reconnecté",
     "toastDisconnected": "Serveur « {{name}} » déconnecté : {{reason}}",
     "toastError": "Serveur « {{name}} » erreur : {{error}}"
+  },
+  "allowlist": {
+    "title": "Effacer la allowlist enregistrée ?",
+    "body_one": "Cela supprimera le modèle épinglé pour {{provider}}. Le sélecteur de modèle reviendra au catalogue models.dev.",
+    "body_other": "Cela supprimera les {{count}} modèles épinglés pour {{provider}}. Le sélecteur de modèle reviendra au catalogue models.dev.",
+    "undoHint": "Vous pouvez annuler pendant 8 secondes après confirmation.",
+    "keepTitle": "Conserver l'allowlist (Échap)",
+    "clearTitle": "Effacer l'allowlist (Entrée)",
+    "clear": "Effacer l'allowlist"
   }
 }

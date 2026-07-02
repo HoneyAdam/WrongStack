@@ -1518,5 +1518,19 @@
     "createBtn": "Créer la Compétence",
     "createdMsg": "Créée : {{name}}",
     "createFailed": "Échec de la création"
+  },
+  "timeline": {
+    "noEvents": "Aucun événement."
+  },
+  "designStudio": {
+    "pickHint": "Choisir un kit — l'agent s'y conformera.",
+    "gallery": "Galerie",
+    "galleryTitle": "Ouvrir la galerie d'aperçu en direct",
+    "stackTitle": "Stack cible",
+    "loading": "Chargement des kits…",
+    "notFound": "Aucun kit de design trouvé.",
+    "bestFor": "Idéal pour :",
+    "light": "Clair",
+    "dark": "Sombre"
   }
 }

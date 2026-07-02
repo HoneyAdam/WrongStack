@@ -5,6 +5,8 @@
  * Each bin represents a time bucket; height is normalized to 0-8 display chars.
  */
 
+import { useAppTranslation } from '@/i18n';
+
 const SPARKLINE_CHARS = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
 const NUM_BINS = 12;
 
@@ -24,6 +26,7 @@ export interface SparklineChartProps {
 }
 
 export function SparklineChart({ bins, className }: SparklineChartProps) {
+  const { t } = useAppTranslation();
   // Normalize to NUM_BINS by padding/truncating from the right (oldest bins)
   const padded = Array.from({ length: NUM_BINS }, (_, i) => bins.at(-(NUM_BINS - i)) ?? 0);
   const maxCount = Math.max(...padded, 1);
@@ -32,7 +35,7 @@ export function SparklineChart({ bins, className }: SparklineChartProps) {
   // Don't render anything for a truly idle agent — avoids "▁▁▁" sparkles
   if (isEmpty) {
     return (
-      <span className={className} aria-label="No activity" title="No activity yet">
+      <span className={className} aria-label={t('common:sparkline.noActivity')} title={t('common:sparkline.noActivityYet')}>
         {'—'}
       </span>
     );
@@ -41,8 +44,8 @@ export function SparklineChart({ bins, className }: SparklineChartProps) {
   return (
     <span
       className={className}
-      aria-label={`Activity sparkline: max ${maxCount} events`}
-      title={`Activity sparkline — peak ${maxCount} events/bucket`}
+      aria-label={t('common:sparkline.activityMax', { count: maxCount })}
+      title={t('common:sparkline.activityPeak', { count: maxCount })}
     >
       {padded.map((count, i) => {
         const height = toHeight(count, maxCount);

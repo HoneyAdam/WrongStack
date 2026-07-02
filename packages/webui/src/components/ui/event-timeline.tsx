@@ -5,6 +5,7 @@
  * fleet event timeline for the Fleet Monitor overlay.
  */
 
+import { i18n, useAppTranslation } from '@/i18n';
 import type { FleetTimelineEvent } from '@/stores';
 
 export interface EventTimelineProps {
@@ -16,10 +17,10 @@ export interface EventTimelineProps {
 
 function relTime(ts: number): string {
   const delta = Date.now() - ts;
-  if (delta < 5_000) return 'just now';
-  if (delta < 60_000) return `${Math.floor(delta / 1_000)}s ago`;
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
-  return `${Math.floor(delta / 3_600_000)}h ago`;
+  if (delta < 5_000) return i18n.t('common:time.justNow');
+  if (delta < 60_000) return i18n.t('common:time.compactSecondsAgo', { count: Math.floor(delta / 1_000) });
+  if (delta < 3_600_000) return i18n.t('common:time.compactMinutesAgo', { count: Math.floor(delta / 60_000) });
+  return i18n.t('common:time.compactHoursAgo', { count: Math.floor(delta / 3_600_000) });
 }
 
 const KIND_ICONS: Record<FleetTimelineEvent['kind'], string> = {
@@ -35,12 +36,13 @@ const KIND_ICONS: Record<FleetTimelineEvent['kind'], string> = {
 };
 
 export function EventTimeline({ events, max = 20, className }: EventTimelineProps) {
+  const { t } = useAppTranslation();
   const visible = events.slice(0, max);
 
   if (visible.length === 0) {
     return (
       <div className={`py-4 text-center text-xs text-muted-foreground ${className ?? ''}`}>
-        No events yet.
+        {t('activity:timeline.noEvents')}
       </div>
     );
   }

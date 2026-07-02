@@ -26,7 +26,11 @@
     "languageHint": "Yalnızca arayüz metnini değiştirir. Promptlar, beceriler ve model çıktısı etkilenmez."
   },
   "model": {
-    "heading": "Model"
+    "heading": "Model",
+    "loading": "Modeller yükleniyor...",
+    "notFound": "Bu sağlayıcı için model bulunamadı. Katalog boş olabilir veya hâlâ yükleniyor olabilir.",
+    "selectProviderFirst": "Önce bir sağlayıcı seçin",
+    "context": "{{count}}k bağlam"
   },
   "connection": {
     "wsUrlLabel": "WebSocket Sunucu URL'si",
@@ -140,5 +144,14 @@
     "toastReconnected": "\"{{name}}\" sunucusu yeniden bağlandı",
     "toastDisconnected": "\"{{name}}\" sunucusu bağlantısı koptu: {{reason}}",
     "toastError": "\"{{name}}\" sunucusu hatası: {{error}}"
+  },
+  "allowlist": {
+    "title": "Kayıtlı izin listesi temizlensin mi?",
+    "body_one": "Sabitlenen model {{provider}} için kaldırılacak. Model seçici models.dev kataloğuna geri dönecek.",
+    "body_other": "{{count}} sabitlenen model {{provider}} için kaldırılacak. Model seçici models.dev kataloğuna geri dönecek.",
+    "undoHint": "Onayladıktan sonra 8 saniye boyunca geri alabilirsiniz.",
+    "keepTitle": "İzin listesini tut (Esc)",
+    "clearTitle": "İzin listesini temizle (Enter)",
+    "clear": "İzin listesini temizle"
   }
 }

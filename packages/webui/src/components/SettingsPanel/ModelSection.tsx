@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores';
+import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Cpu, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -44,6 +45,7 @@ export function ModelSection({
   refreshModels,
 }: ModelSectionProps) {
   const model = useConfigStore((s) => s.model);
+  const { t } = useAppTranslation();
 
   return (
     <div className="space-y-4">
@@ -71,7 +73,7 @@ export function ModelSection({
           {isLoadingModels && !catalogModels[provider] ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-muted-foreground">Loading models...</span>
+              <span className="ml-2 text-muted-foreground">{t('settings:model.loading')}</span>
             </div>
           ) : (
             <div className="space-y-1">
@@ -98,7 +100,7 @@ export function ModelSection({
                     </div>
                   </div>
                   <div className="text-right text-xs text-muted-foreground">
-                    {m.contextWindow && <div>{m.contextWindow / 1000}k context</div>}
+                    {m.contextWindow && <div>{t('settings:model.context', { count: m.contextWindow / 1000 })}</div>}
                     {m.inputCost && m.outputCost && (
                       <div>
                         ${m.inputCost}/${m.outputCost}
@@ -113,8 +115,7 @@ export function ModelSection({
 
               {catalogModels[provider]?.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  No models found for this provider. The catalog might be empty or still
-                  loading.
+                  {t('settings:model.notFound')}
                 </p>
               )}
             </div>
@@ -123,7 +124,7 @@ export function ModelSection({
       ) : (
         <div className="text-center py-8 text-muted-foreground">
           <Cpu className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p>Select a provider first</p>
+          <p>{t('settings:model.selectProviderFirst')}</p>
         </div>
       )}
     </div>

@@ -1518,5 +1518,19 @@
     "createBtn": "Criar Habilidade",
     "createdMsg": "Criada: {{name}}",
     "createFailed": "Criação falhou"
+  },
+  "timeline": {
+    "noEvents": "Sem eventos."
+  },
+  "designStudio": {
+    "pickHint": "Escolha um kit — o agente vai segui-lo.",
+    "gallery": "Galeria",
+    "galleryTitle": "Abrir galeria de pré-visualização ao vivo",
+    "stackTitle": "Stack alvo",
+    "loading": "Carregando kits…",
+    "notFound": "Nenhum kit de design encontrado.",
+    "bestFor": "Ideal para:",
+    "light": "Claro",
+    "dark": "Escuro"
   }
 }

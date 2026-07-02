@@ -1518,5 +1518,19 @@
     "createBtn": "Skill Erstellen",
     "createdMsg": "Erstellt: {{name}}",
     "createFailed": "Erstellung fehlgeschlagen"
+  },
+  "timeline": {
+    "noEvents": "Noch keine Ereignisse."
+  },
+  "designStudio": {
+    "pickHint": "Kit wählen — der Agent hält sich daran.",
+    "gallery": "Galerie",
+    "galleryTitle": "Live-Vorschau-Galerie öffnen",
+    "stackTitle": "Ziel-Stack",
+    "loading": "Kits werden geladen…",
+    "notFound": "Keine Design-Kits gefunden.",
+    "bestFor": "Am besten für:",
+    "light": "Hell",
+    "dark": "Dunkel"
   }
 }

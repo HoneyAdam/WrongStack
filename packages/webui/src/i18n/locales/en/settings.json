@@ -26,7 +26,11 @@
     "languageHint": "Changes only the interface text. Prompts, skills, and model output are not affected."
   },
   "model": {
-    "heading": "Model"
+    "heading": "Model",
+    "loading": "Loading models...",
+    "notFound": "No models found for this provider. The catalog might be empty or still loading.",
+    "selectProviderFirst": "Select a provider first",
+    "context": "{{count}}k context"
   },
   "connection": {
     "wsUrlLabel": "WebSocket Server URL",
@@ -140,5 +144,14 @@
     "toastReconnected": "Server \"{{name}}\" reconnected",
     "toastDisconnected": "Server \"{{name}}\" disconnected: {{reason}}",
     "toastError": "Server \"{{name}}\" error: {{error}}"
+  },
+  "allowlist": {
+    "title": "Clear saved allowlist?",
+    "body_one": "This will remove the pinned model for {{provider}}. The model picker will fall back to the models.dev catalog.",
+    "body_other": "This will remove the {{count}} pinned models for {{provider}}. The model picker will fall back to the models.dev catalog.",
+    "undoHint": "You can undo this for 8 seconds after confirming.",
+    "keepTitle": "Keep the allowlist (Esc)",
+    "clearTitle": "Clear the allowlist (Enter)",
+    "clear": "Clear allowlist"
   }
 }

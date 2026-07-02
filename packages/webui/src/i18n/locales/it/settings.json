@@ -26,7 +26,11 @@
     "languageHint": "Modifica solo il testo dell'interfaccia. I prompt, le skill e l'output del modello non sono interessati."
   },
   "model": {
-    "heading": "Modello"
+    "heading": "Modello",
+    "loading": "Caricamento modelli...",
+    "notFound": "Nessun modello trovato per questo provider. Il catalogo potrebbe essere vuoto o ancora in caricamento.",
+    "selectProviderFirst": "Seleziona prima un provider",
+    "context": "{{count}}k contesto"
   },
   "connection": {
     "wsUrlLabel": "URL del server WebSocket",
@@ -140,5 +144,14 @@
     "toastReconnected": "Server \"{{name}}\" riconnesso",
     "toastDisconnected": "Server \"{{name}}\" disconnesso: {{reason}}",
     "toastError": "Server \"{{name}}\" errore: {{error}}"
+  },
+  "allowlist": {
+    "title": "Cancella l'allowlist salvata?",
+    "body_one": "Questo rimuoverà il modello fissato per {{provider}}. Il selettore modelli tornerà al catalogo models.dev.",
+    "body_other": "Questo rimuoverà i {{count}} modelli fissati per {{provider}}. Il selettore modelli tornerà al catalogo models.dev.",
+    "undoHint": "Puoi annullare per 8 secondi dopo la conferma.",
+    "keepTitle": "Mantieni allowlist (Esc)",
+    "clearTitle": "Cancella allowlist (Invio)",
+    "clear": "Cancella allowlist"
   }
 }

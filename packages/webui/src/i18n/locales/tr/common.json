@@ -79,12 +79,21 @@
     "hoursAgo_one": "{{count}} saat önce",
     "hoursAgo_other": "{{count}} saat önce",
     "daysAgo_one": "{{count}} gün önce",
-    "daysAgo_other": "{{count}} gün önce"
+    "daysAgo_other": "{{count}} gün önce",
+    "compactSecondsAgo": "{{count}} sn önce",
+    "compactMinutesAgo": "{{count}} dk önce",
+    "compactHoursAgo": "{{count}} sa önce"
   },
   "error": {
     "title": "Bir şeyler ters gitti",
     "body": "Bir oluşturma hatası oluştu. Oturumunuz sunucuda hâlâ etkin — yeniden yüklemek kaldığınız yerden devam eder.",
     "reload": "Sayfayı yeniden yükle",
     "tryAgain": "Tekrar dene"
+  },
+  "sparkline": {
+    "noActivity": "Etkinlik yok",
+    "noActivityYet": "Henüz etkinlik yok",
+    "activityMax": "Etkinlik sparkline: en fazla {{count}} olay",
+    "activityPeak": "Etkinlik sparkline — tepe {{count}} olay/kova"
   }
 }

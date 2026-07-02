@@ -79,12 +79,21 @@
     "hoursAgo_one": "vor {{count}} Stunde",
     "hoursAgo_other": "vor {{count}} Stunden",
     "daysAgo_one": "vor {{count}} Tag",
-    "daysAgo_other": "vor {{count}} Tagen"
+    "daysAgo_other": "vor {{count}} Tagen",
+    "compactSecondsAgo": "vor {{count}} s",
+    "compactMinutesAgo": "vor {{count}} min",
+    "compactHoursAgo": "vor {{count}} Std."
   },
   "error": {
     "title": "Etwas ist schiefgelaufen",
     "body": "Ein Render-Fehler ist aufgetreten. Deine Sitzung ist auf dem Server noch aktiv — Neuladen setzt dort fort, wo du aufgehört hast.",
     "reload": "Seite neu laden",
     "tryAgain": "Erneut versuchen"
+  },
+  "sparkline": {
+    "noActivity": "Keine Aktivität",
+    "noActivityYet": "Noch keine Aktivität",
+    "activityMax": "Aktivitäts-Sparkline: max. {{count}} Ereignisse",
+    "activityPeak": "Aktivitäts-Sparkline — Spitze {{count}} Ereignisse/Intervall"
   }
 }

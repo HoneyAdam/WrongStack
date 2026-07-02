@@ -1518,5 +1518,19 @@
     "createBtn": "Create Skill",
     "createdMsg": "Created: {{name}}",
     "createFailed": "Creation failed"
+  },
+  "timeline": {
+    "noEvents": "No events yet."
+  },
+  "designStudio": {
+    "pickHint": "Pick a kit — the agent will adhere to it.",
+    "gallery": "Gallery",
+    "galleryTitle": "Open live preview gallery",
+    "stackTitle": "Target stack",
+    "loading": "Loading kits…",
+    "notFound": "No design kits found.",
+    "bestFor": "Best for:",
+    "light": "Light",
+    "dark": "Dark"
   }
 }
