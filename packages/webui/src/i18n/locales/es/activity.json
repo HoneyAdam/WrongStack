@@ -907,5 +907,17 @@
     "agentMeta": "{{iter}} iter · {{tools}} herramientas · {{ago}}",
     "andMore": "... y {{count}} más",
     "noAgents": "Sin agentes"
+  },
+  "monacoDiff": {
+    "applyTitle": "Escribir la versión editada al disco",
+    "applying": "Aplicando…",
+    "applied": "Aplicado",
+    "apply": "Aplicar"
+  },
+  "errorBody": {
+    "showStack_one": "Mostrar rastreo de pila ({{count}} marco)",
+    "showStack_other": "Mostrar rastreo de pila ({{count}} marcos)",
+    "hideStack_one": "Ocultar rastreo de pila ({{count}} marco)",
+    "hideStack_other": "Ocultar rastreo de pila ({{count}} marcos)"
   }
 }

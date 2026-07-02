@@ -907,5 +907,17 @@
     "agentMeta": "{{iter}} Iterationen · {{tools}} Tools · {{ago}}",
     "andMore": "... und {{count}} weitere",
     "noAgents": "Keine Agents"
+  },
+  "monacoDiff": {
+    "applyTitle": "Die bearbeitete Version auf die Festplatte schreiben",
+    "applying": "Anwenden…",
+    "applied": "Angewandt",
+    "apply": "Anwenden"
+  },
+  "errorBody": {
+    "showStack_one": "Stack-Trace zeigen ({{count}} Frame)",
+    "showStack_other": "Stack-Trace zeigen ({{count}} Frames)",
+    "hideStack_one": "Stack-Trace verbergen ({{count}} Frame)",
+    "hideStack_other": "Stack-Trace verbergen ({{count}} Frames)"
   }
 }

@@ -907,5 +907,17 @@
     "agentMeta": "{{iter}} itér · {{tools}} outils · {{ago}}",
     "andMore": "... et {{count}} de plus",
     "noAgents": "Aucun agent"
+  },
+  "monacoDiff": {
+    "applyTitle": "Écrire la version modifiée sur le disque",
+    "applying": "Application…",
+    "applied": "Appliqué",
+    "apply": "Appliquer"
+  },
+  "errorBody": {
+    "showStack_one": "Afficher la trace de pile ({{count}} cadre)",
+    "showStack_other": "Afficher la trace de pile ({{count}} cadres)",
+    "hideStack_one": "Masquer la trace de pile ({{count}} cadre)",
+    "hideStack_other": "Masquer la trace de pile ({{count}} cadres)"
   }
 }

@@ -907,5 +907,17 @@
     "agentMeta": "{{iter}} iter · {{tools}} tools · {{ago}}",
     "andMore": "... and {{count}} more",
     "noAgents": "No agents"
+  },
+  "monacoDiff": {
+    "applyTitle": "Write the edited version back to disk",
+    "applying": "Applying…",
+    "applied": "Applied",
+    "apply": "Apply"
+  },
+  "errorBody": {
+    "showStack_one": "Show stack trace ({{count}} frame)",
+    "showStack_other": "Show stack trace ({{count}} frames)",
+    "hideStack_one": "Hide stack trace ({{count}} frame)",
+    "hideStack_other": "Hide stack trace ({{count}} frames)"
   }
 }

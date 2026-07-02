@@ -907,5 +907,17 @@
     "agentMeta": "{{iter}} yineleme · {{tools}} araç · {{ago}}",
     "andMore": "... ve {{count}} daha",
     "noAgents": "Aracı yok"
+  },
+  "monacoDiff": {
+    "applyTitle": "Düzenlenen sürümü diske yaz",
+    "applying": "Uygulanıyor…",
+    "applied": "Uygulandı",
+    "apply": "Uygula"
+  },
+  "errorBody": {
+    "showStack_one": "Yığın izini göster ({{count}} kare)",
+    "showStack_other": "Yığın izini göster ({{count}} kare)",
+    "hideStack_one": "Yığın izini gizle ({{count}} kare)",
+    "hideStack_other": "Yığın izini gizle ({{count}} kare)"
   }
 }

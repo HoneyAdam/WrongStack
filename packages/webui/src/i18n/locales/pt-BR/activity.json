@@ -907,5 +907,17 @@
     "agentMeta": "{{iter}} iterações · {{tools}} ferramentas · {{ago}}",
     "andMore": "... e mais {{count}}",
     "noAgents": "Nenhum agente"
+  },
+  "monacoDiff": {
+    "applyTitle": "Escrever a versão editada no disco",
+    "applying": "Aplicando…",
+    "applied": "Aplicado",
+    "apply": "Aplicar"
+  },
+  "errorBody": {
+    "showStack_one": "Mostrar rastreamento de pilha ({{count}} quadro)",
+    "showStack_other": "Mostrar rastreamento de pilha ({{count}} quadros)",
+    "hideStack_one": "Ocultar rastreamento de pilha ({{count}} quadro)",
+    "hideStack_other": "Ocultar rastreamento de pilha ({{count}} quadros)"
   }
 }
