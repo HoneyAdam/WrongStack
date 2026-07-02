@@ -803,5 +803,36 @@
     "descAuto": "Agent setzt nach kurzer Bestätigungsverzögerung automatisch fort.",
     "descEternal": "Agent läuft autonom, bis das Ziel erreicht ist.",
     "descEternalParallel": "Multi-Agenten autonome Ausführung — Fleet-Modus."
+  },
+  "queue": {
+    "heading": "Nachrichtenwarteschlange",
+    "subtitle": "{{count}} in Warteschlange · Nachrichten werden gesendet, bevor der Agent fertig ist",
+    "btwTitle": "Nebenbei — als Folgenachricht gesendet, ohne den laufenden Agent zu unterbrechen",
+    "steerTitle": "Lenken — unterbricht den laufenden Agent und leitet ihn mit dieser Nachricht um",
+    "queueTitle": "Eingereiht — zurückgehalten bis der aktuelle Agent-Lauf endet, dann in Reihenfolge gesendet",
+    "sortNewestTitle": "Nach neuesten sortiert — klicken für älteste zuerst",
+    "sortOldestTitle": "Nach ältesten sortiert — klicken für neueste zuerst",
+    "newest": "Neueste",
+    "oldest": "Älteste",
+    "clear": "Leeren",
+    "clearTitle": "Alle Nachrichten aus der Warteschlange löschen",
+    "closeTitle": "Schließen",
+    "emptyTitle": "Warteschlange ist leer",
+    "emptyBody": "Nutze die btw-/steer-/„Zur Warteschlange“-Schaltflächen neben der Eingabe, um Nachrichten hinzuzufügen. Eingereihte Einträge werden in Reihenfolge gesendet, wenn der aktuelle Agent-Lauf endet.",
+    "removeTitle": "Aus Warteschlange entfernen",
+    "footer": "Nachrichten werden in Ankunftsreihenfolge gesendet, wenn der aktuelle Agent-Lauf endet. Nutze die Sortierung, um neueste zuerst zu sehen."
+  },
+  "checkpoint": {
+    "heading": "Sitzungs-Checkpoints",
+    "countSuffix_one": "{{count}} Checkpoint",
+    "countSuffix_other": "{{count}} Checkpoints",
+    "description": "Sitzung zu einem beliebigen Checkpoint zurückspulen. Nachrichten und Dateiänderungen kehren zu diesem Punkt zurück — das LLM setzt von dort fort, als wäre nichts danach passiert.",
+    "emptyTitle": "Noch keine Checkpoints",
+    "emptyBody": "Checkpoints werden automatisch bei jeder gesendeten Nachricht erstellt. Sende ein paar Nachrichten und komme zurück.",
+    "latest": "aktuell",
+    "msgSuffix_one": "{{count}} Nachricht",
+    "msgSuffix_other": "{{count}} Nachrichten",
+    "footerPre": "Beliebigen Checkpoint zum Zurückspulen klicken",
+    "footerPost": "zum Schließen"
   }
 }

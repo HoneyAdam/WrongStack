@@ -803,5 +803,36 @@
     "descAuto": "Agent auto-proceeds after brief confirmation delay.",
     "descEternal": "Agent runs autonomously until goal is complete.",
     "descEternalParallel": "Multi-agent autonomous execution — fleet mode."
+  },
+  "queue": {
+    "heading": "Message Queue",
+    "subtitle": "{{count}} queued · messages sent before the agent finishes",
+    "btwTitle": "By-the-way — sent as follow-up without interrupting the running agent",
+    "steerTitle": "Steer — interrupts the running agent and redirects it with this message",
+    "queueTitle": "Queued — held until the current agent run completes, then sent in order",
+    "sortNewestTitle": "Sorted newest first — click to sort oldest first",
+    "sortOldestTitle": "Sorted oldest first — click to sort newest first",
+    "newest": "Newest",
+    "oldest": "Oldest",
+    "clear": "Clear",
+    "clearTitle": "Clear all queued messages",
+    "closeTitle": "Close",
+    "emptyTitle": "Queue is empty",
+    "emptyBody": "Use the btw / steer / add queue buttons beside the input to add messages. Queued items are sent in order when the current agent run completes.",
+    "removeTitle": "Remove from queue",
+    "footer": "Messages are sent in arrival order when the current agent run completes. Use the sort toggle to view newest-first."
+  },
+  "checkpoint": {
+    "heading": "Session Checkpoints",
+    "countSuffix_one": "{{count}} checkpoint",
+    "countSuffix_other": "{{count}} checkpoints",
+    "description": "Rewind the session to any checkpoint. Messages and file changes revert to that point — the LLM continues from there as if nothing happened after.",
+    "emptyTitle": "No checkpoints yet",
+    "emptyBody": "Checkpoints are automatically created each time you send a message. Send a few messages and come back.",
+    "latest": "latest",
+    "msgSuffix_one": "{{count}} msg",
+    "msgSuffix_other": "{{count}} msgs",
+    "footerPre": "Click any checkpoint to rewind",
+    "footerPost": "to close"
   }
 }

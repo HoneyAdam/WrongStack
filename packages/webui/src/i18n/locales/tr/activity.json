@@ -803,5 +803,36 @@
     "descAuto": "Vekil kısa onay gecikmesinden sonra otomatik ilerler.",
     "descEternal": "Vekil hedef tamamlanana kadar otonom çalışır.",
     "descEternalParallel": "Çok aracılı otonom yürütme — filo modu."
+  },
+  "queue": {
+    "heading": "Mesaj kuyruğu",
+    "subtitle": "{{count}} kuyrukta · vekil bitirmeden önce gönderilen mesajlar",
+    "btwTitle": "Bu arada — çalışan vekili bölmeyen takip mesajı olarak gönderilir",
+    "steerTitle": "Yönlendir — çalışan vekili böler ve bu mesajla yeniden yönlendirir",
+    "queueTitle": "Kuyrukta — mevcut vekil çalışması bitene kadar tutulur, sonra sırayla gönderilir",
+    "sortNewestTitle": "En yeni önce sıralandı — en eski önce sıralamak için tıklayın",
+    "sortOldestTitle": "En eski önce sıralandı — en yeni önce sıralamak için tıklayın",
+    "newest": "En yeni",
+    "oldest": "En eski",
+    "clear": "Temizle",
+    "clearTitle": "Tüm kuyruktaki mesajları temizle",
+    "closeTitle": "Kapat",
+    "emptyTitle": "Kuyruk boş",
+    "emptyBody": "Mesaj eklemek için girdinin yanındaki btw / steer / kuyruğa ekle düğmelerini kullanın. Kuyruktaki öğeler mevcut vekil çalışması bitince sırayla gönderilir.",
+    "removeTitle": "Kuyruktan kaldır",
+    "footer": "Mesajlar, mevcut vekil çalışması bitince varış sırasına göre gönderilir. En yeni önce görmek için sıralama düğmesini kullanın."
+  },
+  "checkpoint": {
+    "heading": "Oturum kontrol noktaları",
+    "countSuffix_one": "{{count}} kontrol noktası",
+    "countSuffix_other": "{{count}} kontrol noktası",
+    "description": "Oturumu herhangi bir kontrol noktasına geri sarın. Mesajlar ve dosya değişiklikleri o noktaya geri döner — LLM oradan hiçbir şey olmamış gibi devam eder.",
+    "emptyTitle": "Henüz kontrol noktası yok",
+    "emptyBody": "Her mesaj gönderdiğinizde kontrol noktaları otomatik oluşturulur. Birkaç mesaj gönderip geri dönün.",
+    "latest": "en son",
+    "msgSuffix_one": "{{count}} msg",
+    "msgSuffix_other": "{{count}} msg",
+    "footerPre": "Geri sarmak için herhangi bir kontrol noktasına tıklayın",
+    "footerPost": "kapatmak için"
   }
 }

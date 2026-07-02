@@ -803,5 +803,36 @@
     "descAuto": "O agente prossegue automaticamente após um breve atraso de confirmação.",
     "descEternal": "O agente executa de forma autônoma até o objetivo ser concluído.",
     "descEternalParallel": "Execução autônoma multi-agente — modo frota."
+  },
+  "queue": {
+    "heading": "Fila de mensagens",
+    "subtitle": "{{count}} na fila · mensagens enviadas antes do agente terminar",
+    "btwTitle": "A propósito — enviado como acompanhamento sem interromper o agente em execução",
+    "steerTitle": "Guiar — interrompe o agente em execução e o redireciona com esta mensagem",
+    "queueTitle": "Na fila — retido até o run do agente terminar, depois enviado em ordem",
+    "sortNewestTitle": "Ordenado do mais recente — clique para ordenar do mais antigo",
+    "sortOldestTitle": "Ordenado do mais antigo — clique para ordenar do mais recente",
+    "newest": "Mais recente",
+    "oldest": "Mais antigo",
+    "clear": "Limpar",
+    "clearTitle": "Limpar todas as mensagens da fila",
+    "closeTitle": "Fechar",
+    "emptyTitle": "A fila está vazia",
+    "emptyBody": "Use os botões btw / steer / adicionar à fila ao lado da entrada para adicionar mensagens. Os itens na fila são enviados em ordem quando o run do agente termina.",
+    "removeTitle": "Remover da fila",
+    "footer": "As mensagens são enviadas em ordem de chegada quando o run do agente termina. Use a ordenação para ver as mais recentes primeiro."
+  },
+  "checkpoint": {
+    "heading": "Pontos de controle da sessão",
+    "countSuffix_one": "{{count}} ponto de controle",
+    "countSuffix_other": "{{count}} pontos de controle",
+    "description": "Rebobine a sessão para qualquer ponto de controle. Mensagens e alterações de arquivo revertem para aquele ponto — o LLM continua de lá como se nada tivesse acontecido depois.",
+    "emptyTitle": "Ainda não há pontos de controle",
+    "emptyBody": "Pontos de controle são criados automaticamente a cada mensagem enviada. Envie algumas mensagens e volte.",
+    "latest": "recente",
+    "msgSuffix_one": "{{count}} msg",
+    "msgSuffix_other": "{{count}} msgs",
+    "footerPre": "Clique em qualquer ponto de controle para rebobinar",
+    "footerPost": "para fechar"
   }
 }

@@ -803,5 +803,36 @@
     "descAuto": "L'agente procede automaticamente dopo un breve ritardo di conferma.",
     "descEternal": "L'agente gira in autonomia fino al completamento dell'obiettivo.",
     "descEternalParallel": "Esecuzione autonoma multi-agente — modalità flotta."
+  },
+  "queue": {
+    "heading": "Coda dei messaggi",
+    "subtitle": "{{count}} in coda · messaggi inviati prima che l'agente finisca",
+    "btwTitle": "A proposito — inviato come follow-up senza interrompere l'agente in corso",
+    "steerTitle": "Guida — interrompe l'agente in corso e lo reindirizza con questo messaggio",
+    "queueTitle": "In coda — trattenuto fino al completamento del run dell'agente, poi inviato in ordine",
+    "sortNewestTitle": "Ordinato dal più recente — clicca per ordinare dal più vecchio",
+    "sortOldestTitle": "Ordinato dal più vecchio — clicca per ordinare dal più recente",
+    "newest": "Più recente",
+    "oldest": "Più vecchio",
+    "clear": "Svuota",
+    "clearTitle": "Cancella tutti i messaggi in coda",
+    "closeTitle": "Chiudi",
+    "emptyTitle": "La coda è vuota",
+    "emptyBody": "Usa i pulsanti btw / steer / aggiungi a coda accanto all'input per aggiungere messaggi. Gli elementi in coda sono inviati in ordine al completamento del run dell'agente.",
+    "removeTitle": "Rimuovi dalla coda",
+    "footer": "I messaggi sono inviati in ordine di arrivo al completamento del run dell'agente. Usa l'ordinamento per vedere i più recenti prima."
+  },
+  "checkpoint": {
+    "heading": "Checkpoint di sessione",
+    "countSuffix_one": "{{count}} checkpoint",
+    "countSuffix_other": "{{count}} checkpoint",
+    "description": "Riavvolgi la sessione a qualsiasi checkpoint. Messaggi e modifiche ai file tornano a quel punto — l'LLM continua da lì come se nulla fosse successo dopo.",
+    "emptyTitle": "Nessun checkpoint ancora",
+    "emptyBody": "I checkpoint sono creati automaticamente a ogni messaggio inviato. Invia qualche messaggio e torna.",
+    "latest": "recente",
+    "msgSuffix_one": "{{count}} msg",
+    "msgSuffix_other": "{{count}} msg",
+    "footerPre": "Clicca un checkpoint per riavvolgere",
+    "footerPost": "per chiudere"
   }
 }

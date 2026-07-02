@@ -803,5 +803,36 @@
     "descAuto": "L'agent continue automatiquement après un bref délai de confirmation.",
     "descEternal": "L'agent fonctionne de façon autonome jusqu'à la fin de l'objectif.",
     "descEternalParallel": "Exécution autonome multi-agents — mode flotte."
+  },
+  "queue": {
+    "heading": "File d'attente des messages",
+    "subtitle": "{{count}} en file · messages envoyés avant la fin de l'agent",
+    "btwTitle": "Au passage — envoyé en suivi sans interrompre l'agent en cours",
+    "steerTitle": "Piloter — interrompt l'agent en cours et le redirige avec ce message",
+    "queueTitle": "En file — retenu jusqu'à la fin du run de l'agent, puis envoyé dans l'ordre",
+    "sortNewestTitle": "Trié du plus récent — cliquer pour trier du plus ancien",
+    "sortOldestTitle": "Trié du plus ancien — cliquer pour trier du plus récent",
+    "newest": "Plus récent",
+    "oldest": "Plus ancien",
+    "clear": "Vider",
+    "clearTitle": "Effacer tous les messages en file",
+    "closeTitle": "Fermer",
+    "emptyTitle": "La file est vide",
+    "emptyBody": "Utilisez les boutons btw / steer / ajouter à la file à côté de l'entrée pour ajouter des messages. Les éléments en file sont envoyés dans l'ordre à la fin du run de l'agent.",
+    "removeTitle": "Retirer de la file",
+    "footer": "Les messages sont envoyés dans l'ordre d'arrivée à la fin du run de l'agent. Utilisez le tri pour voir les plus récents d'abord."
+  },
+  "checkpoint": {
+    "heading": "Points de contrôle de session",
+    "countSuffix_one": "{{count}} point de contrôle",
+    "countSuffix_other": "{{count}} points de contrôle",
+    "description": "Rembobiner la session à n'importe quel point de contrôle. Les messages et modifications de fichiers reviennent à ce point — le LLM continue comme si rien ne s'était passé après.",
+    "emptyTitle": "Pas encore de points de contrôle",
+    "emptyBody": "Les points de contrôle sont créés automatiquement à chaque message envoyé. Envoyez quelques messages et revenez.",
+    "latest": "récent",
+    "msgSuffix_one": "{{count}} msg",
+    "msgSuffix_other": "{{count}} msgs",
+    "footerPre": "Cliquer un point de contrôle pour rembobiner",
+    "footerPost": "pour fermer"
   }
 }
