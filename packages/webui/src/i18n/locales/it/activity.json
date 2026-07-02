@@ -695,7 +695,17 @@
     "retry": "Riprova",
     "assign": "Assegna",
     "assignTitle": "Assegna agente",
-    "unassigned": "Non assegnato"
+    "unassigned": "Non assegnato",
+    "statusPending": "In attesa",
+    "statusInProgress": "In corso",
+    "statusBlocked": "Bloccato",
+    "statusFailed": "Fallito",
+    "statusReview": "Revisione",
+    "statusDone": "Completato",
+    "startTitle": "Avvia",
+    "completeTitle": "Completa",
+    "fail": "Fallisci",
+    "failTitle": "Segna come fallito"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} chiamata strumento",
@@ -705,5 +715,14 @@
     "removeTitle": "Rimuovi riferimento",
     "linesCount_one": "{{count}} riga",
     "linesCount_other": "{{count}} righe"
+  },
+  "plan": {
+    "statusOpen": "Aperto",
+    "statusInProgress": "In corso",
+    "statusDone": "Completato",
+    "startTitle": "Avvia",
+    "doneTitle": "Segna come completato",
+    "reopenTitle": "Riapri",
+    "reopen": "Riapri"
   }
 }

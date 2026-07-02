@@ -695,7 +695,17 @@
     "retry": "Réessayer",
     "assign": "Affecter",
     "assignTitle": "Affecter un agent",
-    "unassigned": "Non affecté"
+    "unassigned": "Non affecté",
+    "statusPending": "En attente",
+    "statusInProgress": "En cours",
+    "statusBlocked": "Bloqué",
+    "statusFailed": "Échec",
+    "statusReview": "Revue",
+    "statusDone": "Terminé",
+    "startTitle": "Démarrer",
+    "completeTitle": "Terminer",
+    "fail": "Échouer",
+    "failTitle": "Marquer comme échoué"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} appel d'outil",
@@ -705,5 +715,14 @@
     "removeTitle": "Supprimer la référence",
     "linesCount_one": "{{count}} ligne",
     "linesCount_other": "{{count}} lignes"
+  },
+  "plan": {
+    "statusOpen": "Ouvert",
+    "statusInProgress": "En cours",
+    "statusDone": "Terminé",
+    "startTitle": "Démarrer",
+    "doneTitle": "Marquer comme terminé",
+    "reopenTitle": "Rouvrir",
+    "reopen": "Rouvrir"
   }
 }

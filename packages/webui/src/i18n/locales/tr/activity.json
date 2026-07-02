@@ -695,7 +695,17 @@
     "retry": "Yeniden dene",
     "assign": "Ata",
     "assignTitle": "Aracı ata",
-    "unassigned": "Atanmamış"
+    "unassigned": "Atanmamış",
+    "statusPending": "Bekliyor",
+    "statusInProgress": "Devam ediyor",
+    "statusBlocked": "Engelli",
+    "statusFailed": "Başarısız",
+    "statusReview": "İnceleme",
+    "statusDone": "Tamamlandı",
+    "startTitle": "Başlat",
+    "completeTitle": "Tamamla",
+    "fail": "Başarısız",
+    "failTitle": "Başarısız olarak işaretle"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} araç çağrısı",
@@ -705,5 +715,14 @@
     "removeTitle": "Referansı kaldır",
     "linesCount_one": "{{count}} satır",
     "linesCount_other": "{{count}} satır"
+  },
+  "plan": {
+    "statusOpen": "Açık",
+    "statusInProgress": "Devam ediyor",
+    "statusDone": "Tamamlandı",
+    "startTitle": "Başlat",
+    "doneTitle": "Tamamlandı olarak işaretle",
+    "reopenTitle": "Yeniden aç",
+    "reopen": "Yeniden aç"
   }
 }

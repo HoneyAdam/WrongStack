@@ -695,7 +695,17 @@
     "retry": "Erneut versuchen",
     "assign": "Zuweisen",
     "assignTitle": "Agent zuweisen",
-    "unassigned": "Nicht zugewiesen"
+    "unassigned": "Nicht zugewiesen",
+    "statusPending": "Ausstehend",
+    "statusInProgress": "In Arbeit",
+    "statusBlocked": "Blockiert",
+    "statusFailed": "Fehlgeschlagen",
+    "statusReview": "Review",
+    "statusDone": "Erledigt",
+    "startTitle": "Starten",
+    "completeTitle": "Abschließen",
+    "fail": "Fehlschlagen",
+    "failTitle": "Als fehlgeschlagen markieren"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} Werkzeugaufruf",
@@ -705,5 +715,14 @@
     "removeTitle": "Referenz entfernen",
     "linesCount_one": "{{count}} Zeile",
     "linesCount_other": "{{count}} Zeilen"
+  },
+  "plan": {
+    "statusOpen": "Offen",
+    "statusInProgress": "In Arbeit",
+    "statusDone": "Erledigt",
+    "startTitle": "Starten",
+    "doneTitle": "Als erledigt markieren",
+    "reopenTitle": "Wieder öffnen",
+    "reopen": "Wieder öffnen"
   }
 }

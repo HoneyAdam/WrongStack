@@ -695,7 +695,17 @@
     "retry": "Reintentar",
     "assign": "Asignar",
     "assignTitle": "Asignar agente",
-    "unassigned": "Sin asignar"
+    "unassigned": "Sin asignar",
+    "statusPending": "Pendiente",
+    "statusInProgress": "En curso",
+    "statusBlocked": "Bloqueado",
+    "statusFailed": "Fallido",
+    "statusReview": "Revisión",
+    "statusDone": "Completado",
+    "startTitle": "Iniciar",
+    "completeTitle": "Completar",
+    "fail": "Fallar",
+    "failTitle": "Marcar como fallido"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} llamada",
@@ -705,5 +715,14 @@
     "removeTitle": "Eliminar referencia",
     "linesCount_one": "{{count}} línea",
     "linesCount_other": "{{count}} líneas"
+  },
+  "plan": {
+    "statusOpen": "Abierto",
+    "statusInProgress": "En curso",
+    "statusDone": "Completado",
+    "startTitle": "Iniciar",
+    "doneTitle": "Marcar como completado",
+    "reopenTitle": "Reabrir",
+    "reopen": "Reabrir"
   }
 }

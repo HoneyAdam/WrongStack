@@ -695,7 +695,17 @@
     "retry": "Tentar novamente",
     "assign": "Atribuir",
     "assignTitle": "Atribuir agente",
-    "unassigned": "Não atribuído"
+    "unassigned": "Não atribuído",
+    "statusPending": "Pendente",
+    "statusInProgress": "Em andamento",
+    "statusBlocked": "Bloqueado",
+    "statusFailed": "Falhou",
+    "statusReview": "Revisão",
+    "statusDone": "Concluído",
+    "startTitle": "Iniciar",
+    "completeTitle": "Concluir",
+    "fail": "Falhar",
+    "failTitle": "Marcar como falha"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} chamada",
@@ -705,5 +715,14 @@
     "removeTitle": "Remover referência",
     "linesCount_one": "{{count}} linha",
     "linesCount_other": "{{count}} linhas"
+  },
+  "plan": {
+    "statusOpen": "Aberto",
+    "statusInProgress": "Em andamento",
+    "statusDone": "Concluído",
+    "startTitle": "Iniciar",
+    "doneTitle": "Marcar como concluído",
+    "reopenTitle": "Reabrir",
+    "reopen": "Reabrir"
   }
 }

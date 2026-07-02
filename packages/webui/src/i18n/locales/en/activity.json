@@ -695,7 +695,17 @@
     "retry": "Retry",
     "assign": "Assign",
     "assignTitle": "Assign agent",
-    "unassigned": "Unassigned"
+    "unassigned": "Unassigned",
+    "statusPending": "Pending",
+    "statusInProgress": "In Progress",
+    "statusBlocked": "Blocked",
+    "statusFailed": "Failed",
+    "statusReview": "Review",
+    "statusDone": "Done",
+    "startTitle": "Start",
+    "completeTitle": "Complete",
+    "fail": "Fail",
+    "failTitle": "Mark failed"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} tool call",
@@ -705,5 +715,14 @@
     "removeTitle": "Remove reference",
     "linesCount_one": "{{count}} line",
     "linesCount_other": "{{count}} lines"
+  },
+  "plan": {
+    "statusOpen": "Open",
+    "statusInProgress": "In Progress",
+    "statusDone": "Done",
+    "startTitle": "Start",
+    "doneTitle": "Mark done",
+    "reopenTitle": "Reopen",
+    "reopen": "Reopen"
   }
 }

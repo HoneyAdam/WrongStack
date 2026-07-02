@@ -1,5 +1,6 @@
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -10,10 +11,10 @@ interface PlanItem {
   status: 'open' | 'in_progress' | 'done';
 }
 
-const STATUS_CONFIG: Record<PlanItem['status'], { icon: React.ReactNode; label: string; color: string }> = {
-  open: { icon: <Circle className="w-3.5 h-3.5" />, label: 'Open', color: 'text-muted-foreground/50' },
-  in_progress: { icon: <Clock className="w-3.5 h-3.5 animate-spin" />, label: 'In Progress', color: 'text-yellow-500' },
-  done: { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: 'Done', color: 'text-emerald-500' },
+const STATUS_CONFIG: Record<PlanItem['status'], { icon: React.ReactNode; labelKey: string; color: string }> = {
+  open: { icon: <Circle className="w-3.5 h-3.5" />, labelKey: 'statusOpen', color: 'text-muted-foreground/50' },
+  in_progress: { icon: <Clock className="w-3.5 h-3.5 animate-spin" />, labelKey: 'statusInProgress', color: 'text-yellow-500' },
+  done: { icon: <CheckCircle2 className="w-3.5 h-3.5" />, labelKey: 'statusDone', color: 'text-emerald-500' },
 };
 
 /**
@@ -29,6 +30,7 @@ const STATUS_CONFIG: Record<PlanItem['status'], { icon: React.ReactNode; label: 
  * Auto-hides when the plan is empty.
  */
 export function PlanPanel(): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const [items, setItems] = useState<PlanItem[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const ws = getWSClient();
@@ -74,7 +76,7 @@ export function PlanPanel(): React.ReactElement | null {
     <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm overflow-hidden">
       <div className="px-3 py-1.5 flex items-center gap-2 border-b border-border/50">
         <h2 className="text-[11px] font-semibold text-foreground uppercase tracking-wider">
-          📋 Plan
+          📋 {t('activity:work.plan')}
         </h2>
         <span className="tabular text-[10px] text-muted-foreground ml-auto">
           {done}/{items.length}
@@ -94,7 +96,7 @@ export function PlanPanel(): React.ReactElement | null {
               onClick={() => toggle(status)}
               className="w-full px-3 py-1 flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              <span className="tabular">{isCollapsed ? '▶' : '▼'} {group.length} {cfg.label}</span>
+              <span className="tabular">{isCollapsed ? '▶' : '▼'} {group.length} {t(`activity:plan.${cfg.labelKey}`)}</span>
             </button>
             {!isCollapsed && group.map((it) => (
               <div
@@ -119,9 +121,9 @@ export function PlanPanel(): React.ReactElement | null {
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'in_progress'); }}
                       className="px-1.5 py-0.5 text-[9px] rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
-                      title="Start"
+                      title={t('activity:plan.startTitle')}
                     >
-                      Start
+                      {t('common:action.start')}
                     </button>
                   )}
                   {it.status !== 'done' && (
@@ -129,9 +131,9 @@ export function PlanPanel(): React.ReactElement | null {
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'done'); }}
                       className="px-1.5 py-0.5 text-[9px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
-                      title="Mark done"
+                      title={t('activity:plan.doneTitle')}
                     >
-                      Done
+                      {t('activity:plan.statusDone')}
                     </button>
                   )}
                   {it.status === 'done' && (
@@ -139,9 +141,9 @@ export function PlanPanel(): React.ReactElement | null {
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'open'); }}
                       className="px-1.5 py-0.5 text-[9px] rounded bg-muted text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                      title="Reopen"
+                      title={t('activity:plan.reopenTitle')}
                     >
-                      Reopen
+                      {t('activity:plan.reopen')}
                     </button>
                   )}
                 </div>
