@@ -88,6 +88,43 @@ describe('<PluginPicker /> rendering', () => {
     expect(text).toMatch(/No plugins available/);
   });
 
+  it('keeps the 🔒 out of the on/off state column (own column after the name)', () => {
+    const text = frame(ROWS, 0);
+    // Locked rows still show a uniform ●/○ state; the lock is a separate
+    // column. "🔒 on" was the old in-column rendering — it must not return.
+    expect(text).not.toMatch(/🔒 on/);
+    // wstack-git is locked AND enabled → its row has both ● on and 🔒.
+    const gitRow = text.split('\n').find((l) => l.includes('wstack-git')) ?? '';
+    expect(gitRow).toMatch(/● on/);
+    expect(gitRow).toMatch(/🔒/);
+  });
+
+  it('windows long lists to the terminal height with ↑/↓ overflow indicators', () => {
+    const many: PluginPickerItem[] = Array.from({ length: 30 }, (_, i) => ({
+      name: `plug-${String(i).padStart(2, '0')}`,
+      enabled: i % 2 === 0,
+      risk: 'low',
+      summary: `Row ${i}`,
+      lockable: true,
+    }));
+    // ink-testing-library reports no rows → the picker falls back to 24 rows
+    // → a 7-row window. Selecting the middle row must scroll the window there.
+    const text = frame(many, 15);
+    expect(text).toMatch(/↑ \d+ more/);
+    expect(text).toMatch(/↓ \d+ more/);
+    expect(text).toMatch(/plug-15/);
+    expect(text).not.toMatch(/plug-00/);
+    expect(text).not.toMatch(/plug-29/);
+    // Selecting the first row pins the window to the top: no ↑ indicator.
+    const top = frame(many, 0);
+    expect(top).not.toMatch(/↑ \d+ more/);
+    expect(top).toMatch(/plug-00/);
+    // Selecting the last row pins to the bottom: no ↓ indicator.
+    const bottom = frame(many, 29);
+    expect(bottom).not.toMatch(/↓ \d+ more/);
+    expect(bottom).toMatch(/plug-29/);
+  });
+
   it('renders the hint footer when busy or locked-row guidance is set', () => {
     const text =
       render(
