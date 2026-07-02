@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { Shield, Square, Terminal, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -27,6 +28,7 @@ export function ProcessMonitor({
   onClose,
   className,
 }: ProcessMonitorProps): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const [processes, setProcesses] = useState<TrackedProcess[]>([]);
   const ws = useWebSocket();
   const offRef = useRef<(() => void) | null>(null);
@@ -85,9 +87,9 @@ export function ProcessMonitor({
               <Terminal className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-sm font-semibold">Running Processes</h2>
+              <h2 className="text-sm font-semibold">{t('activity:process.heading')}</h2>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {running.length} active · {processes.length} total
+                {t('activity:process.subtitle', { active: running.length, total: processes.length })}
               </span>
             </div>
           </div>
@@ -99,7 +101,7 @@ export function ProcessMonitor({
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-destructive hover:bg-destructive/10 transition-colors font-medium"
               >
                 <Square className="h-3 w-3 fill-current" />
-                Kill All
+                {t('activity:process.killAll')}
               </button>
             )}
             <button
@@ -117,11 +119,8 @@ export function ProcessMonitor({
           {processes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
               <Terminal className="h-10 w-10 opacity-15" />
-              <p className="text-sm font-medium">No processes tracked</p>
-              <p className="text-xs text-center max-w-xs">
-                Processes appear here when the agent runs bash or exec tools.
-                Active processes show a pulsing LED.
-              </p>
+              <p className="text-sm font-medium">{t('activity:process.emptyTitle')}</p>
+              <p className="text-xs text-center max-w-xs">{t('activity:process.emptyBody')}</p>
             </div>
           ) : (
             <div className="divide-y">
@@ -162,16 +161,16 @@ export function ProcessMonitor({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-[10px] text-muted-foreground shrink-0">
-                            PID {proc.pid}
+                            {t('activity:process.pidLabel', { pid: proc.pid })}
                           </span>
                           <span className="font-medium truncate">{proc.tool}</span>
                           {isProtected && (
                             <span
                               className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium shrink-0"
-                              title="Protected — survives kill/killAll"
+                              title={t('activity:process.protectedTitle')}
                             >
                               <Shield className="h-2.5 w-2.5" />
-                              protected
+                              {t('activity:process.protected')}
                             </span>
                           )}
                         </div>
@@ -191,7 +190,7 @@ export function ProcessMonitor({
                           type="button"
                           onClick={() => handleKill(proc.pid)}
                           className="p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-colors"
-                          title={`Kill PID ${proc.pid}`}
+                          title={t('activity:process.killTitle', { pid: proc.pid })}
                         >
                           <Square className="h-3.5 w-3.5 fill-current" />
                         </button>
