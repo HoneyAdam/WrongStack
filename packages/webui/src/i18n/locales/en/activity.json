@@ -377,5 +377,17 @@
     "pageUptime": "Page Uptime",
     "sinceLoad": "Since page load",
     "rawData": "Raw Data"
+  },
+  "providerModels": {
+    "using": "Using",
+    "noModelPicked": "(no model picked)",
+    "clearAllowlist": "Clear allowlist",
+    "clearAllowlistAria": "Clear saved allowlist for {{provider}}",
+    "refresh": "Refresh from server",
+    "refreshAria": "Refresh model list for {{provider}}",
+    "probing": "Probing…",
+    "use": "Use",
+    "useModelAria": "Use model {{model}} for {{provider}}",
+    "differsHint": "Probed list differs from the saved allowlist — re-run {{command}} to persist."
   }
 }

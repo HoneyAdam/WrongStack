@@ -377,5 +377,17 @@
     "pageUptime": "Sayfa Çalışma Süresi",
     "sinceLoad": "Sayfa yüklenmesinden beri",
     "rawData": "Ham Veri"
+  },
+  "providerModels": {
+    "using": "Kullanılan",
+    "noModelPicked": "(model seçilmedi)",
+    "clearAllowlist": "İzin listesini temizle",
+    "clearAllowlistAria": "{{provider}} için kayıtlı izin listesini temizle",
+    "refresh": "Sunucudan yenile",
+    "refreshAria": "{{provider}} için model listesini yenile",
+    "probing": "Sorgulanıyor…",
+    "use": "Kullan",
+    "useModelAria": "{{provider}} için {{model}} modelini kullan",
+    "differsHint": "Sorgulanan liste kayıtlı izin listesinden farklı — kalıcı yapmak için {{command}} komutunu yeniden çalıştırın."
   }
 }

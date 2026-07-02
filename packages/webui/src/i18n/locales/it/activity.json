@@ -377,5 +377,17 @@
     "pageUptime": "Tempo di attività pagina",
     "sinceLoad": "Dal caricamento",
     "rawData": "Dati grezzi"
+  },
+  "providerModels": {
+    "using": "In uso",
+    "noModelPicked": "(nessun modello scelto)",
+    "clearAllowlist": "Cancella allowlist",
+    "clearAllowlistAria": "Cancella l'allowlist salvata per {{provider}}",
+    "refresh": "Aggiorna dal server",
+    "refreshAria": "Aggiorna l'elenco modelli per {{provider}}",
+    "probing": "Verifica…",
+    "use": "Usa",
+    "useModelAria": "Usa il modello {{model}} per {{provider}}",
+    "differsHint": "L'elenco verificato differisce dall'allowlist salvata — riesegui {{command}} per rendere permanente."
   }
 }

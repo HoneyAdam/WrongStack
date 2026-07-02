@@ -377,5 +377,17 @@
     "pageUptime": "Seiten-Laufzeit",
     "sinceLoad": "Seit Seitenladung",
     "rawData": "Rohdaten"
+  },
+  "providerModels": {
+    "using": "Verwendet",
+    "noModelPicked": "(kein Modell gewählt)",
+    "clearAllowlist": "Allowlist löschen",
+    "clearAllowlistAria": "Gespeicherte Allowlist für {{provider}} löschen",
+    "refresh": "Vom Server aktualisieren",
+    "refreshAria": "Modellliste für {{provider}} aktualisieren",
+    "probing": "Prüfe…",
+    "use": "Verwenden",
+    "useModelAria": "Modell {{model}} für {{provider}} verwenden",
+    "differsHint": "Die geprüfte Liste weicht von der gespeicherten Allowlist ab — führe {{command}} erneut aus, um zu speichern."
   }
 }

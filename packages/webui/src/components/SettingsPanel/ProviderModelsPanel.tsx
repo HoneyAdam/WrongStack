@@ -12,6 +12,7 @@
  * pattern as the surrounding `ProviderSection` for visual consistency.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import type { WrongStackWebSocketClient } from '../../lib/ws-client';
 import type { WSServerMessage } from '../../types';
 import { toast } from '../Toaster';
@@ -89,6 +90,7 @@ export function ProviderModelsPanel({
   onUndoClear,
 }: ProviderModelsPanelProps) {
   const [state, setState] = useState<RefreshState>(() => initialRefreshState());
+  const { t } = useAppTranslation();
   // Confirmation dialog state. Lives in the panel (not the parent) so
   // a single provider's accidental click doesn't open N modals across
   // the page. The dialog is mounted only when needed (after the user
@@ -211,14 +213,14 @@ export function ProviderModelsPanel({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs text-muted-foreground">Using</span>
+          <span className="text-xs text-muted-foreground">{t('activity:providerModels.using')}</span>
           {pickedId ? (
             <span className="text-xs font-mono px-2 py-0.5 rounded bg-primary/10 text-primary">
               {pickedId}
             </span>
           ) : (
             <span className="text-xs text-muted-foreground italic">
-              (no model picked)
+              {t('activity:providerModels.noModelPicked')}
             </span>
           )}
         </div>
@@ -228,10 +230,10 @@ export function ProviderModelsPanel({
               variant="ghost"
               size="sm"
               onClick={requestClear}
-              aria-label={`Clear saved allowlist for ${providerId}`}
+              aria-label={t('activity:providerModels.clearAllowlistAria', { provider: providerId })}
               data-action="clear-models"
             >
-              Clear allowlist
+              {t('activity:providerModels.clearAllowlist')}
             </Button>
           )}
           <Button
@@ -239,9 +241,9 @@ export function ProviderModelsPanel({
             size="sm"
             onClick={onRefresh}
             disabled={state.inFlight}
-            aria-label={`Refresh model list for ${providerId}`}
+            aria-label={t('activity:providerModels.refreshAria', { provider: providerId })}
           >
-            {state.inFlight ? 'Probing…' : 'Refresh from server'}
+            {state.inFlight ? t('activity:providerModels.probing') : t('activity:providerModels.refresh')}
           </Button>
         </div>
       </div>
@@ -270,9 +272,9 @@ export function ProviderModelsPanel({
                   size="sm"
                   onClick={() => onUseModel(id)}
                   className="text-xs h-5 px-1"
-                  aria-label={`Use model ${id} for ${providerId}`}
+                  aria-label={t('activity:providerModels.useModelAria', { model: id, provider: providerId })}
                 >
-                  Use
+                  {t('activity:providerModels.use')}
                 </Button>
               )}
             </li>
@@ -282,9 +284,7 @@ export function ProviderModelsPanel({
 
       {offerSave && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Probed list differs from the saved allowlist — re-run
-          <span className="font-mono"> wstack auth local --model first</span>
-          to persist.
+          {t('activity:providerModels.differsHint', { command: 'wstack auth local --model first' })}
         </p>
       )}
 

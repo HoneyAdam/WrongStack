@@ -377,5 +377,17 @@
     "pageUptime": "Tiempo de actividad",
     "sinceLoad": "Desde la carga",
     "rawData": "Datos sin procesar"
+  },
+  "providerModels": {
+    "using": "En uso",
+    "noModelPicked": "(ningún modelo elegido)",
+    "clearAllowlist": "Borrar lista permitida",
+    "clearAllowlistAria": "Borrar la lista permitida guardada para {{provider}}",
+    "refresh": "Actualizar del servidor",
+    "refreshAria": "Actualizar la lista de modelos para {{provider}}",
+    "probing": "Comprobando…",
+    "use": "Usar",
+    "useModelAria": "Usar el modelo {{model}} para {{provider}}",
+    "differsHint": "La lista comprobada difiere de la lista guardada — vuelve a ejecutar {{command}} para persistir."
   }
 }
