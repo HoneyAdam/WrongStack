@@ -507,3 +507,14 @@ export function detectLang(fenceInfo: string): Lang {
   const tag = fenceInfo.trim().toLowerCase().split(/\s+/)[0] ?? '';
   return LANG_ALIASES[tag] ?? 'plain';
 }
+
+/**
+ * Infer a supported Lang from a file path's extension (`foo/bar.tsx` → `ts`).
+ * Used by diff rendering to syntax-highlight changed/context lines of the
+ * touched file. Unknown or missing extensions fall back to `plain`.
+ */
+export function langFromPath(path: string): Lang {
+  const m = /\.([A-Za-z0-9]+)$/.exec(path.trim());
+  const ext = m?.[1]?.toLowerCase() ?? '';
+  return LANG_ALIASES[ext] ?? 'plain';
+}

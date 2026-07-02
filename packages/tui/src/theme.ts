@@ -119,7 +119,13 @@ export interface Theme {
     worktree: string;
     phase: string;
   };
-  /** Diff add/delete background blocks (content highlight). */
+  /**
+   * Diff add/delete row washes. Dark, low-luminance tints (deep green /
+   * deep maroon) so the row reads as added/removed while the foreground
+   * text — including syntax-highlight pastels — keeps full contrast on
+   * top. Mirrors the Claude Code diff look rather than a light pastel
+   * wash with dark text.
+   */
   diffAddBg: string;
   diffDelBg: string;
 }
@@ -145,9 +151,12 @@ export const theme: Theme = Object.freeze({
     worktree: pastel.green,
     phase: pastel.cyan,
   },
-  // Diff blocks render dark text on a pastel wash (see DiffBlock).
-  diffAddBg: pastel.green,
-  diffDelBg: pastel.red,
+  // Diff rows render light (pastel) text on a dark wash (see DiffBlock):
+  // deep green for additions, deep maroon for deletions — the Claude Code
+  // diff palette. Values are deliberately NOT from the `pastel` map: they
+  // must stay dark enough for white/syntax-colored foregrounds to read.
+  diffAddBg: '#1e4620',
+  diffDelBg: '#5a1e1e',
   // Whether the host terminal can render truecolor backgrounds. Diff blocks
   // downgrade to marker-only rendering when this is false (e.g. `TERM=xterm`,
   // `NO_COLOR=1`, captured/piped output).
