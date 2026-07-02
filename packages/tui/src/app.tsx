@@ -1,14 +1,6 @@
-import {
-  DefaultPromptLoader,
-  PromptUsageStore,
-  expectDefined,
-  projectSlug,
-  setBtwNote,
-} from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
-import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
   Agent,
   AttachmentStore,
@@ -22,30 +14,38 @@ import type {
   TokenCounter,
   TokenSavingTier,
 } from '@wrongstack/core';
-import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
-import { loadGoal, resolveWstackPaths } from '@wrongstack/core';
 import {
+  type AutonomyStage,
   applyTokenOverrides,
+  buildGoalPreamble,
   clearActiveKit,
   clearPersistedActiveKit,
+  DefaultPromptLoader,
+  DefaultSessionRewinder,
+  enhanceUserPrompt,
+  expectDefined,
+  formatTodosList,
   getDesignKitLoader,
+  InputBuilder,
   isDesignStack,
   loadActiveKit,
+  loadGoal,
   materializeTokens,
-  recordOverrides,
-  setActiveKit,
-  setDesignOverrides,
-} from '@wrongstack/core';
-import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wrongstack/core';
-import {
-  enhanceUserPrompt,
   normalizedEqual,
+  PromptUsageStore,
+  projectSlug,
   recentTextTurns,
+  recordOverrides,
+  resolveWstackPaths,
+  setActiveKit,
+  setBtwNote,
+  setDesignOverrides,
   shouldEnhance,
+  writeOut,
 } from '@wrongstack/core';
-import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
-import { getProcessRegistry, getIndexState, onIndexStateChange } from '@wrongstack/tools';
-import { Box, type DOMElement, Text, measureElement, useApp, useStdout } from './ink.js';
+import { toErrorMessage } from '@wrongstack/core/utils';
+import { routeImagesForModel, type VisionAdapters } from '@wrongstack/runtime/vision';
+import { getIndexState, getProcessRegistry, onIndexStateChange } from '@wrongstack/tools';
 import React, {
   useCallback,
   useEffect,
@@ -55,90 +55,100 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AgentsMonitor } from './components/agents-monitor.js';
-import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
-import { DesignPicker } from './components/design-picker.js';
+// Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
-  PromptPicker,
-  filterPromptPicker,
-  type PromptPickEntry,
-} from './components/prompt-picker.js';
+  type FleetEntry,
+  type ResumeSessionEntry,
+  reducer,
+  type Settings,
+  type SlashCommandMatch,
+  type State,
+} from './app-reducer.js';
+import { AgentsMonitor } from './components/agents-monitor.js';
+import { AuditPanel } from './components/audit-panel.js';
+import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
+import { CoordinatorPanel } from './components/coordinator-panel.js';
+import { DesignPicker } from './components/design-picker.js';
 import { EnhancePanel } from './components/enhance-panel.js';
 import { EscConfirmPrompt } from './components/esc-confirm-prompt.js';
-import { type SendMode, SendModePicker } from './components/send-mode-picker.js';
+import { F_KEY_ENTRIES, FKeyPicker } from './components/f-key-picker.js';
 import { FilePicker } from './components/file-picker.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
-import { FKeyPicker, F_KEY_ENTRIES } from './components/f-key-picker.js';
-import { actionForFKeyPanel } from './f-key-panels.js';
-import { MailboxPanel } from './components/mailbox-panel.js';
+import { GoalPanel } from './components/goal-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
-import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
-import { startHeapWatchdog } from './heap-watchdog.js';
-import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { Input, type KeyEvent } from './components/input.js';
+import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
+import { MailboxPanel } from './components/mailbox-panel.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
-import { SddBoardOverlay } from './components/sdd-board-overlay.js';
 import { PhasePanel } from './components/phase-panel.js';
-import { PluginPicker, type PluginPickerItem } from './components/plugin-picker.js';
-import { ProjectPicker } from './components/project-picker.js';
-import { QueuePanel } from './components/queue-panel.js';
-import { ProcessListMonitor } from './components/process-list.js';
-import { GoalPanel } from './components/goal-panel.js';
 import { PlanPanel } from './components/plan-panel.js';
-import { CoordinatorPanel } from './components/coordinator-panel.js';
-import { AuditPanel } from './components/audit-panel.js';
+import { PluginPicker, type PluginPickerItem } from './components/plugin-picker.js';
+import { ProcessListMonitor } from './components/process-list.js';
+import { ProjectPicker } from './components/project-picker.js';
+import {
+  filterPromptPicker,
+  type PromptPickEntry,
+  PromptPicker,
+} from './components/prompt-picker.js';
+import { QueuePanel } from './components/queue-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
+import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import { SddBoardOverlay } from './components/sdd-board-overlay.js';
+import { type SendMode, SendModePicker } from './components/send-mode-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
 import {
-  SettingsPicker,
-  THINKING_WORD_FIELD,
-  getSettingsFieldValue,
+  type ContextMode,
   formatAllSettingsSummary,
+  getSettingsFieldValue,
   resetSettingsFieldValue,
   resolveSettingsFieldValue,
+  SettingsPicker,
+  type StatuslineMode,
   settingsPickerJumpByName,
   settingsPickerJumpNames,
-  type ContextMode,
-  type StatuslineMode,
+  THINKING_WORD_FIELD,
 } from './components/settings-picker.js';
-import {
-  StatuslinePicker,
-  STATUSLINE_ITEMS,
-  isChipExpired,
-  type StatuslineItem,
-} from './components/statusline-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
-import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import {
   COMPACT_THRESHOLD,
+  type MailboxStatus,
   StatusBar,
   statusBarAutonomySpan,
   statusBarModelSpan,
   statusBarTodosSpan,
-  type MailboxStatus,
 } from './components/status-bar.js';
+import {
+  isChipExpired,
+  STATUSLINE_ITEMS,
+  type StatuslineItem,
+  StatuslinePicker,
+} from './components/statusline-picker.js';
 import { TodosMonitor } from './components/todos-monitor.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
+import { actionForFKeyPanel } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
-import { useQueueManager } from './hooks/use-queue-manager.js';
+import { startHeapWatchdog } from './heap-watchdog.js';
+import { hitRegion, statusBarLineRow } from './hit-test.js';
+import { useAutonomousCoordinator } from './hooks/use-autonomous-coordinator.js';
+import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
+import { useFileSearch } from './hooks/use-file-search.js';
 import { usePasteHandling } from './hooks/use-paste-handling.js';
 import { usePickerKeys } from './hooks/use-picker-keys.js';
-import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
-import { useAutonomousCoordinator } from './hooks/use-autonomous-coordinator.js';
-import { useFileSearch } from './hooks/use-file-search.js';
+import { useQueueManager } from './hooks/use-queue-manager.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
+import { Box, type DOMElement, measureElement, Text, useApp, useStdout } from './ink.js';
 import {
-  INLINE_TOKEN_SRC,
   deleteTokenBackward,
+  INLINE_TOKEN_SRC,
   inputIndexAtRowCol,
   layoutInputRows,
   tokenLengthForward,
@@ -151,22 +161,14 @@ import { createPsSlashCommand } from './ps-slash.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from './thinking-word.js';
+import { createPanelOpenDispatcher } from './on-panel-open.js';
 
-// Types imported from app-reducer.ts (single source of truth for reducer + State types)
-import {
-  type FleetEntry,
-  type ResumeSessionEntry,
-  type Settings,
-  type SlashCommandMatch,
-  type State,
-  reducer,
-} from './app-reducer.js';
 export {
-  reducer,
   type Action,
   type FleetEntry,
   type QueueItem,
   type ResumeSessionEntry,
+  reducer,
   type Settings,
   type SlashCommandMatch,
   type State,
@@ -850,10 +852,6 @@ const PASTE_THRESHOLD_CHARS = 200;
 /** Horizontal padding used by StatusBar line content (column where chips start). Must match the SB_PADX constant in status-bar.tsx. */
 const SB_PADX = 2;
 
-// Re-exported for backward compatibility with tests importing from '../src/app.js'.
-// Actual implementation lives in ./steering-preamble.ts.
-export { buildSteeringPreamble } from './steering-preamble.js';
-
 // `buildGoalPreamble` was relocated to @wrongstack/core so headless and
 // WebUI callers (which depend on @wrongstack/cli but not @wrongstack/tui)
 // can issue `/goal set` without dragging the TUI package in. Re-exported
@@ -861,6 +859,9 @@ export { buildSteeringPreamble } from './steering-preamble.js';
 // importing from @wrongstack/tui; also used locally within this file
 // where `/goal …` is wired into the chat-input handler.
 export { buildGoalPreamble } from '@wrongstack/core';
+// Re-exported for backward compatibility with tests importing from '../src/app.js'.
+// Actual implementation lives in ./steering-preamble.ts.
+export { buildSteeringPreamble } from './steering-preamble.js';
 
 /**
  * Normalize an SDD lifecycle outcome into a chat entry. Accepts the live
@@ -2832,6 +2833,28 @@ export function App({
       dispatch({ type: 'sessionsPanelBusy', on: false });
     }
   }, [getLiveSessions]);
+
+  // ── Slash-command → TUI panel bridge ────────────────────────────────
+  // Slash commands (e.g. `/plugin`, `/plugin menu`, `/f1`…`/f12`, `/audit`)
+  // call `onPanelOpen.current(action)` to dispatch a panel-open action. The
+  // CLI passes `onPanelOpen` from cli-main.ts → execution.ts → run-tui.ts;
+  // without binding `current` to a real dispatcher here, every such slash
+  // command silently falls through to its text response and the picker
+  // never opens. The dispatcher logic lives in `./on-panel-open.ts` so it
+  // can be exercised by `tests/on-panel-open-bridge.test.ts` without
+  // mounting React (ink-testing-library does not flush useEffects).
+  useEffect(() => {
+    if (!onPanelOpen) return;
+    const dispatcher = createPanelOpenDispatcher({
+      dispatch,
+      openProjectPicker,
+      openStatuslinePicker,
+    });
+    onPanelOpen.current = dispatcher;
+    return () => {
+      if (onPanelOpen) onPanelOpen.current = null;
+    };
+  }, [onPanelOpen, dispatch, openProjectPicker, openStatuslinePicker]);
   // Keep the F10 sessions panel live: refresh every 5s while open
   useEffect(() => {
     if (!state.sessionsPanelOpen || !getLiveSessions) return undefined;
