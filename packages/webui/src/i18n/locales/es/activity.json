@@ -246,5 +246,43 @@
     "contextPercent": "Contexto {{pct}}%",
     "doneCount": "{{count}} hechos",
     "errCount": "{{count}} err"
+  },
+  "context": {
+    "wsNotConnected": "WebSocket no conectado",
+    "noData": "No se recibieron datos de depuración. El servidor podría no admitir depuración de contexto.",
+    "title": "Desglose del contexto",
+    "windowUsage": "Uso de ventana",
+    "contextMode": "Modo de contexto",
+    "fetching": "Obteniendo el desglose del contexto…",
+    "systemPrompt": "Prompt del sistema",
+    "tools": "Herramientas",
+    "messages": "Mensajes",
+    "tokenAllocation": "Asignación de tokens",
+    "systemTitle": "Sistema: {{tokens}}",
+    "toolsTitle": "Herramientas: {{tokens}}",
+    "messagesTitle": "Mensajes: {{tokens}}",
+    "system": "Sistema",
+    "toolBreakdown": "Desglose de herramientas",
+    "messagesSummary": "Mensajes ({{count}}) — {{total}} tok"
+  },
+  "refine": {
+    "header": "✨ Refinar prompt",
+    "autoSend": "envío automático en {{count}} s",
+    "cancelTitle": "Cancelar (Esc)",
+    "editLabel": "Editar el prompt refinado:",
+    "editPlaceholder": "Editar el prompt refinado...",
+    "useEdit": "Usar edición",
+    "original": "Original",
+    "refined": "Refinado",
+    "yourLanguage": "(tu idioma)",
+    "refinedTitle": "Haz clic o pulsa Intro para usar esta versión",
+    "english": "Inglés",
+    "englishTitle": "Pulsa e para la versión en inglés",
+    "hintRefined": "refinado",
+    "hintEnglish": "Inglés",
+    "hintOriginal": "original",
+    "hintEdit": "editar",
+    "edit": "Editar",
+    "useRefined": "Usar refinado"
   }
 }

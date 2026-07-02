@@ -246,5 +246,43 @@
     "contextPercent": "Contesto {{pct}}%",
     "doneCount": "{{count}} completati",
     "errCount": "{{count}} err"
+  },
+  "context": {
+    "wsNotConnected": "WebSocket non connesso",
+    "noData": "Nessun dato di debug ricevuto. Il server potrebbe non supportare il debug del contesto.",
+    "title": "Dettaglio contesto",
+    "windowUsage": "Utilizzo finestra",
+    "contextMode": "Modalità contesto",
+    "fetching": "Recupero del dettaglio del contesto…",
+    "systemPrompt": "Prompt di sistema",
+    "tools": "Strumenti",
+    "messages": "Messaggi",
+    "tokenAllocation": "Allocazione token",
+    "systemTitle": "Sistema: {{tokens}}",
+    "toolsTitle": "Strumenti: {{tokens}}",
+    "messagesTitle": "Messaggi: {{tokens}}",
+    "system": "Sistema",
+    "toolBreakdown": "Dettaglio strumenti",
+    "messagesSummary": "Messaggi ({{count}}) — {{total}} tok"
+  },
+  "refine": {
+    "header": "✨ Affina prompt",
+    "autoSend": "invio automatico in {{count}} s",
+    "cancelTitle": "Annulla (Esc)",
+    "editLabel": "Modifica il prompt affinato:",
+    "editPlaceholder": "Modifica il prompt affinato...",
+    "useEdit": "Usa modifica",
+    "original": "Originale",
+    "refined": "Affinato",
+    "yourLanguage": "(la tua lingua)",
+    "refinedTitle": "Clicca o premi Invio per usare questa versione",
+    "english": "Inglese",
+    "englishTitle": "Premi e per la versione inglese",
+    "hintRefined": "affinato",
+    "hintEnglish": "Inglese",
+    "hintOriginal": "originale",
+    "hintEdit": "modifica",
+    "edit": "Modifica",
+    "useRefined": "Usa affinato"
   }
 }

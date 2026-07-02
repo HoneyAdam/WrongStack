@@ -246,5 +246,43 @@
     "contextPercent": "Kontext {{pct}}%",
     "doneCount": "{{count}} fertig",
     "errCount": "{{count}} Fehler"
+  },
+  "context": {
+    "wsNotConnected": "WebSocket nicht verbunden",
+    "noData": "Keine Debug-Daten empfangen. Der Server unterstützt möglicherweise kein Context-Debugging.",
+    "title": "Kontext-Aufschlüsselung",
+    "windowUsage": "Fensterauslastung",
+    "contextMode": "Kontextmodus",
+    "fetching": "Kontext-Aufschlüsselung wird geladen…",
+    "systemPrompt": "System-Prompt",
+    "tools": "Tools",
+    "messages": "Nachrichten",
+    "tokenAllocation": "Token-Verteilung",
+    "systemTitle": "System: {{tokens}}",
+    "toolsTitle": "Tools: {{tokens}}",
+    "messagesTitle": "Nachrichten: {{tokens}}",
+    "system": "System",
+    "toolBreakdown": "Tool-Aufschlüsselung",
+    "messagesSummary": "Nachrichten ({{count}}) — {{total}} Tok"
+  },
+  "refine": {
+    "header": "✨ Prompt verfeinern",
+    "autoSend": "Auto-Send in {{count}} s",
+    "cancelTitle": "Abbrechen (Esc)",
+    "editLabel": "Verfeinerten Prompt bearbeiten:",
+    "editPlaceholder": "Verfeinerten Prompt bearbeiten ...",
+    "useEdit": "Bearbeitung verwenden",
+    "original": "Original",
+    "refined": "Verfeinert",
+    "yourLanguage": "(deine Sprache)",
+    "refinedTitle": "Klicken oder Enter drücken, um diese Version zu verwenden",
+    "english": "Englisch",
+    "englishTitle": "e drücken, um die englische Version zu verwenden",
+    "hintRefined": "verfeinert",
+    "hintEnglish": "Englisch",
+    "hintOriginal": "original",
+    "hintEdit": "bearbeiten",
+    "edit": "Bearbeiten",
+    "useRefined": "Verfeinerte verwenden"
   }
 }

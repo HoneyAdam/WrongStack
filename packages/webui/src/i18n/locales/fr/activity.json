@@ -246,5 +246,43 @@
     "contextPercent": "Contexte {{pct}} %",
     "doneCount": "{{count}} terminé(s)",
     "errCount": "{{count}} err"
+  },
+  "context": {
+    "wsNotConnected": "WebSocket non connecté",
+    "noData": "Aucune donnée de débogage reçue. Le serveur ne prend peut-être pas en charge le débogage de contexte.",
+    "title": "Décomposition du contexte",
+    "windowUsage": "Utilisation de la fenêtre",
+    "contextMode": "Mode de contexte",
+    "fetching": "Récupération de la décomposition du contexte…",
+    "systemPrompt": "Prompt système",
+    "tools": "Outils",
+    "messages": "Messages",
+    "tokenAllocation": "Allocation des jetons",
+    "systemTitle": "Système : {{tokens}}",
+    "toolsTitle": "Outils : {{tokens}}",
+    "messagesTitle": "Messages : {{tokens}}",
+    "system": "Système",
+    "toolBreakdown": "Décomposition des outils",
+    "messagesSummary": "Messages ({{count}}) — {{total}} tok"
+  },
+  "refine": {
+    "header": "✨ Affiner le prompt",
+    "autoSend": "envoi auto dans {{count}} s",
+    "cancelTitle": "Annuler (Échap)",
+    "editLabel": "Modifier le prompt affiné :",
+    "editPlaceholder": "Modifier le prompt affiné...",
+    "useEdit": "Utiliser la modif.",
+    "original": "Original",
+    "refined": "Affiné",
+    "yourLanguage": "(votre langue)",
+    "refinedTitle": "Cliquez ou appuyez sur Entrée pour utiliser cette version",
+    "english": "Anglais",
+    "englishTitle": "Appuyez sur e pour la version anglaise",
+    "hintRefined": "affiné",
+    "hintEnglish": "Anglais",
+    "hintOriginal": "original",
+    "hintEdit": "modifier",
+    "edit": "Modifier",
+    "useRefined": "Utiliser l'affiné"
   }
 }

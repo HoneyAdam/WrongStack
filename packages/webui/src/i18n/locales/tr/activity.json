@@ -246,5 +246,43 @@
     "contextPercent": "Bağlam %{{pct}}",
     "doneCount": "{{count}} bitti",
     "errCount": "{{count}} hata"
+  },
+  "context": {
+    "wsNotConnected": "WebSocket bağlı değil",
+    "noData": "Hata ayıklama verisi alınamadı. Sunucu bağlam hata ayıklamayı desteklemiyor olabilir.",
+    "title": "Bağlam Dökümü",
+    "windowUsage": "Pencere Kullanımı",
+    "contextMode": "Bağlam Modu",
+    "fetching": "Bağlam dökümü getiriliyor…",
+    "systemPrompt": "Sistem Promptu",
+    "tools": "Araçlar",
+    "messages": "Mesajlar",
+    "tokenAllocation": "Token Dağılımı",
+    "systemTitle": "Sistem: {{tokens}}",
+    "toolsTitle": "Araçlar: {{tokens}}",
+    "messagesTitle": "Mesajlar: {{tokens}}",
+    "system": "Sistem",
+    "toolBreakdown": "Araç Dökümü",
+    "messagesSummary": "Mesajlar ({{count}}) — {{total}} tok"
+  },
+  "refine": {
+    "header": "✨ Promptu İyileştir",
+    "autoSend": "{{count}} sn içinde otomatik gönder",
+    "cancelTitle": "İptal (Esc)",
+    "editLabel": "İyileştirilmiş promptu düzenle:",
+    "editPlaceholder": "İyileştirilmiş promptu düzenle...",
+    "useEdit": "Düzenlemeyi Kullan",
+    "original": "Orijinal",
+    "refined": "İyileştirilmiş",
+    "yourLanguage": "(dilinizde)",
+    "refinedTitle": "Bu sürümü kullanmak için tıklayın veya Enter'a basın",
+    "english": "İngilizce",
+    "englishTitle": "İngilizce sürümü kullanmak için e'ye basın",
+    "hintRefined": "iyileştirilmiş",
+    "hintEnglish": "İngilizce",
+    "hintOriginal": "orijinal",
+    "hintEdit": "düzenle",
+    "edit": "Düzenle",
+    "useRefined": "İyileştirilmişi Kullan"
   }
 }

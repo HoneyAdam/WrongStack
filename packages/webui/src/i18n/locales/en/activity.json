@@ -246,5 +246,43 @@
     "contextPercent": "Context {{pct}}%",
     "doneCount": "{{count}} done",
     "errCount": "{{count}} err"
+  },
+  "context": {
+    "wsNotConnected": "WebSocket not connected",
+    "noData": "No debug data received. The server may not support context debugging.",
+    "title": "Context Breakdown",
+    "windowUsage": "Window Usage",
+    "contextMode": "Context Mode",
+    "fetching": "Fetching context breakdown…",
+    "systemPrompt": "System Prompt",
+    "tools": "Tools",
+    "messages": "Messages",
+    "tokenAllocation": "Token Allocation",
+    "systemTitle": "System: {{tokens}}",
+    "toolsTitle": "Tools: {{tokens}}",
+    "messagesTitle": "Messages: {{tokens}}",
+    "system": "System",
+    "toolBreakdown": "Tool Breakdown",
+    "messagesSummary": "Messages ({{count}}) — {{total}} tok"
+  },
+  "refine": {
+    "header": "✨ Refine Prompt",
+    "autoSend": "auto-send in {{count}}s",
+    "cancelTitle": "Cancel (Esc)",
+    "editLabel": "Edit refined prompt:",
+    "editPlaceholder": "Edit the refined prompt...",
+    "useEdit": "Use Edit",
+    "original": "Original",
+    "refined": "Refined",
+    "yourLanguage": "(your language)",
+    "refinedTitle": "Click or press Enter to use this version",
+    "english": "English",
+    "englishTitle": "Press e to use English version",
+    "hintRefined": "refined",
+    "hintEnglish": "English",
+    "hintOriginal": "original",
+    "hintEdit": "edit",
+    "edit": "Edit",
+    "useRefined": "Use Refined"
   }
 }
