@@ -132,5 +132,35 @@
     "completedByAt": "Completato da {{name}} il {{time}}",
     "outcome": "Risultato:",
     "task": "Attività:"
+  },
+  "sessions": {
+    "recentSessions": "Sessioni recenti",
+    "deleteEmptyTitle_one": "Eliminare {{count}} sessione vuota?",
+    "deleteEmptyTitle_other": "Eliminare {{count}} sessioni vuote?",
+    "deleteEmptyConfirmBody": "Le sessioni senza utilizzo di token vengono rimosse dal disco.",
+    "filterPlaceholder": "Filtra per titolo, modello, provider…",
+    "clearFilter": "Cancella filtro",
+    "noHistory": "Nessuna cronologia",
+    "noHistoryHint": "Le tue conversazioni appariranno qui",
+    "noMatches": "Nessuna corrispondenza",
+    "noMatchesHint": "Prova un filtro diverso",
+    "group": {
+      "favorites": "Preferiti",
+      "today": "Oggi",
+      "yesterday": "Ieri",
+      "thisWeek": "Questa settimana",
+      "earlier": "Precedenti"
+    },
+    "nicknamePlaceholder": "Soprannome",
+    "empty": "(vuoto)",
+    "resuming": "riprende…",
+    "active": "attiva",
+    "renameTitleNickname": "{{nickname}} — originale: {{title}}",
+    "renameTitle": "{{title}}\n\nDoppio clic per rinominare",
+    "unfavorite": "Rimuovi dai preferiti",
+    "markFavorite": "Segna come preferito",
+    "deleteSessionConfirmTitle": "Eliminare la sessione?",
+    "deleteSessionConfirmBody": "\"{{name}}\" verrà rimossa dal disco. Operazione irreversibile.",
+    "deleteSessionTitle": "Elimina sessione"
   }
 }

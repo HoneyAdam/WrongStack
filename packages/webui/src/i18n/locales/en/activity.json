@@ -132,5 +132,35 @@
     "completedByAt": "Completed by {{name}} at {{time}}",
     "outcome": "Outcome:",
     "task": "Task:"
+  },
+  "sessions": {
+    "recentSessions": "Recent sessions",
+    "deleteEmptyTitle_one": "Delete {{count}} empty session?",
+    "deleteEmptyTitle_other": "Delete {{count}} empty sessions?",
+    "deleteEmptyConfirmBody": "Sessions without any token usage are removed from disk.",
+    "filterPlaceholder": "Filter title, model, provider…",
+    "clearFilter": "Clear filter",
+    "noHistory": "No history yet",
+    "noHistoryHint": "Your conversations will appear here",
+    "noMatches": "No matches",
+    "noMatchesHint": "Try a different filter",
+    "group": {
+      "favorites": "Favorites",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "thisWeek": "This week",
+      "earlier": "Earlier"
+    },
+    "nicknamePlaceholder": "Nickname",
+    "empty": "(empty)",
+    "resuming": "resuming…",
+    "active": "active",
+    "renameTitleNickname": "{{nickname}} — original: {{title}}",
+    "renameTitle": "{{title}}\n\nDouble-click to rename",
+    "unfavorite": "Unfavorite",
+    "markFavorite": "Mark as favorite",
+    "deleteSessionConfirmTitle": "Delete session?",
+    "deleteSessionConfirmBody": "\"{{name}}\" will be removed from disk. This cannot be undone.",
+    "deleteSessionTitle": "Delete session"
   }
 }

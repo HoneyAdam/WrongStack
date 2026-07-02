@@ -132,5 +132,35 @@
     "completedByAt": "Terminé par {{name}} le {{time}}",
     "outcome": "Résultat :",
     "task": "Tâche :"
+  },
+  "sessions": {
+    "recentSessions": "Sessions récentes",
+    "deleteEmptyTitle_one": "Supprimer {{count}} session vide ?",
+    "deleteEmptyTitle_other": "Supprimer {{count}} sessions vides ?",
+    "deleteEmptyConfirmBody": "Les sessions sans aucune utilisation de jetons sont supprimées du disque.",
+    "filterPlaceholder": "Filtrer par titre, modèle, fournisseur…",
+    "clearFilter": "Effacer le filtre",
+    "noHistory": "Aucun historique",
+    "noHistoryHint": "Vos conversations apparaîtront ici",
+    "noMatches": "Aucun résultat",
+    "noMatchesHint": "Essayez un autre filtre",
+    "group": {
+      "favorites": "Favoris",
+      "today": "Aujourd'hui",
+      "yesterday": "Hier",
+      "thisWeek": "Cette semaine",
+      "earlier": "Plus ancien"
+    },
+    "nicknamePlaceholder": "Surnom",
+    "empty": "(vide)",
+    "resuming": "reprise…",
+    "active": "actif",
+    "renameTitleNickname": "{{nickname}} — original : {{title}}",
+    "renameTitle": "{{title}}\n\nDouble-cliquez pour renommer",
+    "unfavorite": "Retirer des favoris",
+    "markFavorite": "Marquer comme favori",
+    "deleteSessionConfirmTitle": "Supprimer la session ?",
+    "deleteSessionConfirmBody": "\"{{name}}\" sera supprimée du disque. Action irréversible.",
+    "deleteSessionTitle": "Supprimer la session"
   }
 }

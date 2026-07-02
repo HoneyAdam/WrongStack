@@ -132,5 +132,35 @@
     "completedByAt": "{{name}} tarafından {{time}} tarihinde tamamlandı",
     "outcome": "Sonuç:",
     "task": "Görev:"
+  },
+  "sessions": {
+    "recentSessions": "Son oturumlar",
+    "deleteEmptyTitle_one": "{{count}} boş oturum silinsin mi?",
+    "deleteEmptyTitle_other": "{{count}} boş oturum silinsin mi?",
+    "deleteEmptyConfirmBody": "Hiç token kullanımı olmayan oturumlar diskten kaldırılır.",
+    "filterPlaceholder": "Başlık, model, sağlayıcı filtrele…",
+    "clearFilter": "Filtreyi temizle",
+    "noHistory": "Henüz geçmiş yok",
+    "noHistoryHint": "Konuşmalarınız burada görünür",
+    "noMatches": "Eşleşme yok",
+    "noMatchesHint": "Farklı bir filtre deneyin",
+    "group": {
+      "favorites": "Favoriler",
+      "today": "Bugün",
+      "yesterday": "Dün",
+      "thisWeek": "Bu hafta",
+      "earlier": "Daha önce"
+    },
+    "nicknamePlaceholder": "Takma ad",
+    "empty": "(boş)",
+    "resuming": "devam ediliyor…",
+    "active": "etkin",
+    "renameTitleNickname": "{{nickname}} — özgün: {{title}}",
+    "renameTitle": "{{title}}\n\nYeniden adlandırmak için çift tıklayın",
+    "unfavorite": "Favoriden çıkar",
+    "markFavorite": "Favori olarak işaretle",
+    "deleteSessionConfirmTitle": "Oturum silinsin mi?",
+    "deleteSessionConfirmBody": "\"{{name}}\" diskten kaldırılacak. Bu geri alınamaz.",
+    "deleteSessionTitle": "Oturumu sil"
   }
 }

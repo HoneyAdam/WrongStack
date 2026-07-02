@@ -132,5 +132,35 @@
     "completedByAt": "Concluído por {{name}} em {{time}}",
     "outcome": "Resultado:",
     "task": "Tarefa:"
+  },
+  "sessions": {
+    "recentSessions": "Sessões recentes",
+    "deleteEmptyTitle_one": "Excluir {{count}} sessão vazia?",
+    "deleteEmptyTitle_other": "Excluir {{count}} sessões vazias?",
+    "deleteEmptyConfirmBody": "Sessões sem uso de tokens são removidas do disco.",
+    "filterPlaceholder": "Filtrar por título, modelo, provedor…",
+    "clearFilter": "Limpar filtro",
+    "noHistory": "Nenhum histórico ainda",
+    "noHistoryHint": "Suas conversas aparecerão aqui",
+    "noMatches": "Nenhum resultado",
+    "noMatchesHint": "Tente um filtro diferente",
+    "group": {
+      "favorites": "Favoritos",
+      "today": "Hoje",
+      "yesterday": "Ontem",
+      "thisWeek": "Esta semana",
+      "earlier": "Anteriores"
+    },
+    "nicknamePlaceholder": "Apelido",
+    "empty": "(vazio)",
+    "resuming": "retomando…",
+    "active": "ativa",
+    "renameTitleNickname": "{{nickname}} — original: {{title}}",
+    "renameTitle": "{{title}}\n\nClique duas vezes para renomear",
+    "unfavorite": "Remover dos favoritos",
+    "markFavorite": "Marcar como favorito",
+    "deleteSessionConfirmTitle": "Excluir a sessão?",
+    "deleteSessionConfirmBody": "\"{{name}}\" será removida do disco. Isso não pode ser desfeito.",
+    "deleteSessionTitle": "Excluir sessão"
   }
 }

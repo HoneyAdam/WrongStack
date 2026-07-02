@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import { confirmModal } from '../ConfirmModal';
 import { ScrollArea } from '../ui/scroll-area';
 
@@ -30,11 +31,11 @@ export const formatRelative = (iso: string): string => {
   const ts = Date.parse(iso);
   if (Number.isNaN(ts)) return '';
   const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 60_000) return i18n.t('common:time.justNow');
+  if (diff < 3_600_000) return i18n.t('common:time.minutesAgo', { count: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return i18n.t('common:time.hoursAgo', { count: Math.floor(diff / 3_600_000) });
   const days = Math.floor(diff / 86_400_000);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return i18n.t('common:time.daysAgo', { count: days });
   return new Date(ts).toLocaleDateString();
 };
 
@@ -57,6 +58,7 @@ export function SessionList({
   deleteSession,
 }: SessionListProps) {
   const favoriteSessionIds = useUIStore((s) => s.favoriteSessionIds);
+  const { t } = useAppTranslation();
   const toggleFavoriteSession = useUIStore((s) => s.toggleFavoriteSession);
   const sessionNicknames = useUIStore((s) => s.sessionNicknames);
   const setSessionNickname = useUIStore((s) => s.setSessionNickname);
@@ -90,11 +92,9 @@ export function SessionList({
   const handleDeleteEmpty = useCallback(async () => {
     if (emptySessionIds.length === 0) return;
     const ok = await confirmModal({
-      title: emptySessionIds.length === 1
-        ? 'Delete 1 empty session?'
-        : `Delete ${emptySessionIds.length} empty sessions?`,
-      message: 'Sessions without any token usage are removed from disk.',
-      confirmLabel: 'Delete',
+      title: t('activity:sessions.deleteEmptyTitle', { count: emptySessionIds.length }),
+      message: t('activity:sessions.deleteEmptyConfirmBody'),
+      confirmLabel: t('common:action.delete'),
       danger: true,
     });
     if (ok) {
@@ -130,23 +130,23 @@ export function SessionList({
     const favSet = new Set(favoriteSessionIds);
     const favorites = filtered.filter((e) => favSet.has(e.id));
     const out: Array<{ label: string; rows: typeof historyEntries; star?: boolean | undefined }> = [];
-    if (favorites.length) out.push({ label: 'Favorites', rows: favorites, star: true });
+    if (favorites.length) out.push({ label: 'favorites', rows: favorites, star: true });
     const dedupe = (arr: typeof historyEntries) => arr.filter((e) => !favSet.has(e.id));
     const today = dedupe(buckets.today);
     const yesterday = dedupe(buckets.yesterday);
     const week = dedupe(buckets.week);
     const older = dedupe(buckets.older);
-    if (today.length) out.push({ label: 'Today', rows: today });
-    if (yesterday.length) out.push({ label: 'Yesterday', rows: yesterday });
-    if (week.length) out.push({ label: 'This week', rows: week });
-    if (older.length) out.push({ label: 'Earlier', rows: older });
+    if (today.length) out.push({ label: 'today', rows: today });
+    if (yesterday.length) out.push({ label: 'yesterday', rows: yesterday });
+    if (week.length) out.push({ label: 'thisWeek', rows: week });
+    if (older.length) out.push({ label: 'earlier', rows: older });
     return out;
   })();
 
   return (
     <>
       <div className="flex items-center justify-between px-4 py-2 border-b">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">Recent sessions</span>
+        <span className="text-xs uppercase tracking-wider text-muted-foreground">{t('activity:sessions.recentSessions')}</span>
         <div className="flex items-center gap-1">
           {emptySessionIds.length > 0 && (
             <button
@@ -154,7 +154,7 @@ export function SessionList({
               className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-destructive"
               onClick={handleDeleteEmpty}
               disabled={!wsConnected}
-              title={`Delete ${emptySessionIds.length} empty session${emptySessionIds.length === 1 ? '' : 's'}`}
+              title={t('activity:sessions.deleteEmptyTitle', { count: emptySessionIds.length })}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -164,7 +164,7 @@ export function SessionList({
             className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted"
             onClick={() => listSessions(50)}
             disabled={!wsConnected}
-            title="Refresh"
+            title={t('common:action.refresh')}
           >
             {historyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </button>
@@ -178,11 +178,11 @@ export function SessionList({
               type="text"
               value={historyQuery}
               onChange={(e) => setHistoryQuery(e.target.value)}
-              placeholder="Filter title, model, provider…"
+              placeholder={t('activity:sessions.filterPlaceholder')}
               className="w-full pl-7 pr-7 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:bg-background focus:border-input focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
             />
             {historyQuery && (
-              <button type="button" onClick={() => setHistoryQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground p-0.5" title="Clear filter">
+              <button type="button" onClick={() => setHistoryQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground p-0.5" title={t('activity:sessions.clearFilter')}>
                 <X className="h-3 w-3" />
               </button>
             )}
@@ -196,14 +196,14 @@ export function SessionList({
         {historyEntries.length === 0 && !historyLoading ? (
           <div className="text-center text-muted-foreground py-8 px-4">
             <History className="h-8 w-8 mx-auto mb-3 opacity-20" />
-            <p className="text-sm font-medium">No history yet</p>
-            <p className="text-xs mt-1">Your conversations will appear here</p>
+            <p className="text-sm font-medium">{t('activity:sessions.noHistory')}</p>
+            <p className="text-xs mt-1">{t('activity:sessions.noHistoryHint')}</p>
           </div>
         ) : groupedHistory.length === 0 ? (
           <div className="text-center text-muted-foreground py-8 px-4">
             <Search className="h-8 w-8 mx-auto mb-3 opacity-20" />
-            <p className="text-sm font-medium">No matches</p>
-            <p className="text-xs mt-1">Try a different filter</p>
+            <p className="text-sm font-medium">{t('activity:sessions.noMatches')}</p>
+            <p className="text-xs mt-1">{t('activity:sessions.noMatchesHint')}</p>
           </div>
         ) : (
           <div className="p-2 space-y-3">
@@ -211,7 +211,7 @@ export function SessionList({
               <div key={group.label} className="space-y-1">
                 <div className={cn('sticky top-0 z-[1] px-1 pb-1 text-[10px] uppercase tracking-wider font-semibold bg-card/90 backdrop-blur-sm flex items-center gap-1', group.star ? 'text-amber-500' : 'text-muted-foreground/80')}>
                   {group.star && <Star className="h-3 w-3 fill-current" />}
-                  {group.label} <span className="text-muted-foreground/50 font-normal normal-case ml-1">({group.rows.length})</span>
+                  {t(`activity:sessions.group.${group.label}`)} <span className="text-muted-foreground/50 font-normal normal-case ml-1">({group.rows.length})</span>
                 </div>
                 {group.rows.map((entry) => (
                   <div key={entry.id} className={cn('group relative rounded-md border text-sm transition-colors', entry.isCurrent ? 'bg-primary/5 border-primary/40' : 'bg-card border-border/60 hover:bg-muted/40 hover:border-primary/40')}>
@@ -230,12 +230,12 @@ export function SessionList({
                             onClick={(e) => e.stopPropagation()}
                             onBlur={() => { setSessionNickname(entry.id, renameDraft); setRenamingId(null); }}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSessionNickname(entry.id, renameDraft); setRenamingId(null); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); } }}
-                            placeholder={entry.title || 'Nickname'}
+                            placeholder={entry.title || t('activity:sessions.nicknamePlaceholder')}
                             className="w-full text-sm bg-background border border-input rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
                           />
                         ) : (
-                          <div className="font-medium truncate text-foreground" title={sessionNicknames[entry.id] ? `${sessionNicknames[entry.id]} — original: ${entry.title}` : `${entry.title}\n\nDouble-click to rename`}>
-                            {sessionNicknames[entry.id] || entry.title || '(empty)'}
+                          <div className="font-medium truncate text-foreground" title={sessionNicknames[entry.id] ? t('activity:sessions.renameTitleNickname', { nickname: sessionNicknames[entry.id], title: entry.title }) : t('activity:sessions.renameTitle', { title: entry.title })}>
+                            {sessionNicknames[entry.id] || entry.title || t('activity:sessions.empty')}
                           </div>
                         )}
                         <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{entry.provider}/{entry.model}</div>
@@ -243,18 +243,18 @@ export function SessionList({
                           {resumingId === entry.id ? (
                             <span className="flex items-center gap-1 text-primary font-medium">
                               <Loader2 className="h-3 w-3 animate-spin" />
-                              resuming…
+                              {t('activity:sessions.resuming')}
                             </span>
                           ) : (
                             <span>{formatRelative(entry.startedAt)}</span>
                           )}
                           {entry.tokenTotal > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">{entry.tokenTotal.toLocaleString()} tok</span></>}
-                          {entry.isCurrent && <><span className="opacity-50">·</span><span className="text-primary font-medium">active</span></>}
+                          {entry.isCurrent && <><span className="opacity-50">·</span><span className="text-primary font-medium">{t('activity:sessions.active')}</span></>}
                         </div>
                       </div>
                     </button>
                     <div className="absolute right-2 top-2 flex items-center gap-1">
-                      <button type="button" onClick={() => toggleFavoriteSession(entry.id)} className={cn('transition-opacity hover:text-amber-500', favoriteSessionIds.includes(entry.id) ? 'opacity-100 text-amber-500' : 'opacity-0 group-hover:opacity-100 text-muted-foreground')} title={favoriteSessionIds.includes(entry.id) ? 'Unfavorite' : 'Mark as favorite'}>
+                      <button type="button" onClick={() => toggleFavoriteSession(entry.id)} className={cn('transition-opacity hover:text-amber-500', favoriteSessionIds.includes(entry.id) ? 'opacity-100 text-amber-500' : 'opacity-0 group-hover:opacity-100 text-muted-foreground')} title={favoriteSessionIds.includes(entry.id) ? t('activity:sessions.unfavorite') : t('activity:sessions.markFavorite')}>
                         <Star className={cn('h-3.5 w-3.5', favoriteSessionIds.includes(entry.id) && 'fill-current')} />
                       </button>
                       {!entry.isCurrent && (
@@ -262,15 +262,15 @@ export function SessionList({
                           type="button"
                           onClick={async () => {
                             const ok = await confirmModal({
-                              title: 'Delete session?',
-                              message: `"${sessionNicknames[entry.id] || entry.title || '(empty)'}" will be removed from disk. This cannot be undone.`,
-                              confirmLabel: 'Delete',
+                              title: t('activity:sessions.deleteSessionConfirmTitle'),
+                              message: t('activity:sessions.deleteSessionConfirmBody', { name: sessionNicknames[entry.id] || entry.title || t('activity:sessions.empty') }),
+                              confirmLabel: t('common:action.delete'),
                               danger: true,
                             });
                             if (ok) deleteSession(entry.id);
                           }}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                          title="Delete session"
+                          title={t('activity:sessions.deleteSessionTitle')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
