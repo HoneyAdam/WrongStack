@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { i18n, useAppTranslation } from '@/i18n';
 import { useUIStore } from '@/stores';
 
 interface PromptVar {
@@ -74,6 +75,7 @@ function render(content: string, values: Record<string, string>): string {
  * slash command (ui-store `promptLibraryOpen`).
  */
 export function PromptLibraryModal() {
+  const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const open = useUIStore((s) => s.promptLibraryOpen);
   const setOpen = useUIStore((s) => s.setPromptLibraryOpen);
@@ -208,7 +210,7 @@ export function PromptLibraryModal() {
         setCreateError(null);
         client.send({ type: 'prompts.list' });
       } else {
-        setCreateError(p.error ?? 'Could not save the prompt.');
+        setCreateError(p.error ?? i18n.t('activity:promptLib.saveFailed'));
       }
     };
     client.on('prompts.created', onCreated as (m: unknown) => void);
@@ -218,7 +220,7 @@ export function PromptLibraryModal() {
   const submitCreate = useCallback(() => {
     if (!client) return;
     if (!draft.title.trim() || !draft.content.trim()) {
-      setCreateError('Title and content are required.');
+      setCreateError(i18n.t('activity:promptLib.titleContentRequired'));
       return;
     }
     const variables = draft.vars
@@ -270,7 +272,7 @@ export function PromptLibraryModal() {
               ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search prompts…"
+              placeholder={t('activity:promptLib.searchPlaceholder')}
               className="w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
             />
             <button
@@ -282,7 +284,7 @@ export function PromptLibraryModal() {
               }}
               className="mt-2 w-full rounded border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              ＋ New prompt
+              {t('activity:promptLib.newPrompt')}
             </button>
             <div className="mt-2 flex flex-wrap gap-1">
               <button
@@ -293,7 +295,7 @@ export function PromptLibraryModal() {
                 }}
                 className={`rounded px-2 py-0.5 text-xs ${activeCat === null && !favoritesOnly && !recentOnly ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
               >
-                All
+                {t('activity:promptLib.all')}
               </button>
               <button
                 onClick={() => {
@@ -303,7 +305,7 @@ export function PromptLibraryModal() {
                 }}
                 className={`rounded px-2 py-0.5 text-xs ${recentOnly ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
               >
-                🕘 Recent
+                {t('activity:promptLib.recent')}
               </button>
               <button
                 onClick={() => {
@@ -313,7 +315,7 @@ export function PromptLibraryModal() {
                 }}
                 className={`rounded px-2 py-0.5 text-xs ${favoritesOnly ? 'bg-yellow-500 text-black' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
               >
-                ★ Favorites
+                {t('activity:promptLib.favorites')}
               </button>
               {categories.map((c) => (
                 <button
@@ -346,7 +348,7 @@ export function PromptLibraryModal() {
               </button>
             ))}
             {filtered.length === 0 && (
-              <div className="p-4 text-sm text-muted-foreground">No prompts match.</div>
+              <div className="p-4 text-sm text-muted-foreground">{t('activity:promptLib.noMatch')}</div>
             )}
           </div>
         </div>
@@ -356,7 +358,7 @@ export function PromptLibraryModal() {
           {creating ? (
             <>
               <div className="flex items-center justify-between border-b border-border p-3">
-                <div className="text-sm font-semibold">New prompt</div>
+                <div className="text-sm font-semibold">{t('activity:promptLib.newPromptHeading')}</div>
                 <button
                   onClick={() => {
                     setCreating(false);
@@ -364,20 +366,20 @@ export function PromptLibraryModal() {
                   }}
                   className="text-xs text-muted-foreground hover:text-foreground"
                 >
-                  Cancel
+                  {t('common:action.cancel')}
                 </button>
               </div>
               <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-auto p-3 text-xs">
                 <input
                   value={draft.title}
                   onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-                  placeholder="Title *"
+                  placeholder={t('activity:promptLib.titlePlaceholder')}
                   className="w-full rounded border border-border bg-background px-2 py-1 outline-none"
                 />
                 <input
                   value={draft.description}
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                  placeholder="One-line description"
+                  placeholder={t('activity:promptLib.descPlaceholder')}
                   className="w-full rounded border border-border bg-background px-2 py-1 outline-none"
                 />
                 <div className="flex gap-2">
@@ -385,7 +387,7 @@ export function PromptLibraryModal() {
                     list="prompt-category-list"
                     value={draft.category}
                     onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
-                    placeholder="Category"
+                    placeholder={t('activity:promptLib.categoryPlaceholder')}
                     className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none"
                   />
                   <datalist id="prompt-category-list">
@@ -396,19 +398,19 @@ export function PromptLibraryModal() {
                   <input
                     value={draft.tagsCsv}
                     onChange={(e) => setDraft((d) => ({ ...d, tagsCsv: e.target.value }))}
-                    placeholder="tags, comma, separated"
+                    placeholder={t('activity:promptLib.tagsPlaceholder')}
                     className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none"
                   />
                 </div>
                 <textarea
                   value={draft.content}
                   onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
-                  placeholder="Prompt content * — use {{name}} for variables"
+                  placeholder={t('activity:promptLib.contentPlaceholder')}
                   rows={6}
                   className="w-full resize-y rounded border border-border bg-background px-2 py-1 font-mono outline-none"
                 />
                 <div className="flex items-center justify-between pt-1">
-                  <span className="font-semibold text-muted-foreground">Variables</span>
+                  <span className="font-semibold text-muted-foreground">{t('activity:promptLib.variables')}</span>
                   <button
                     onClick={() =>
                       setDraft((d) => ({
@@ -427,7 +429,7 @@ export function PromptLibraryModal() {
                     }
                     className="rounded border border-border px-1.5 py-0.5 hover:bg-accent"
                   >
-                    ＋ var
+                    {t('activity:promptLib.addVar')}
                   </button>
                 </div>
                 {draft.vars.map((v, i) => (
@@ -443,7 +445,7 @@ export function PromptLibraryModal() {
                             ),
                           }))
                         }
-                        placeholder="name"
+                        placeholder={t('activity:promptLib.varNamePlaceholder')}
                         className="w-1/3 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
                       />
                       <input
@@ -456,7 +458,7 @@ export function PromptLibraryModal() {
                             ),
                           }))
                         }
-                        placeholder="description"
+                        placeholder={t('activity:promptLib.varDescPlaceholder')}
                         className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
                       />
                       <button
@@ -464,7 +466,7 @@ export function PromptLibraryModal() {
                           setDraft((d) => ({ ...d, vars: d.vars.filter((_, j) => j !== i) }))
                         }
                         className="rounded border border-border px-1.5 text-muted-foreground hover:bg-accent"
-                        title="Remove variable"
+                        title={t('activity:promptLib.removeVarTitle')}
                       >
                         ✕
                       </button>
@@ -483,7 +485,7 @@ export function PromptLibraryModal() {
                             }))
                           }
                         />
-                        required
+                        {t('activity:promptLib.required')}
                       </label>
                       <label className="flex items-center gap-1 text-muted-foreground">
                         <input
@@ -498,7 +500,7 @@ export function PromptLibraryModal() {
                             }))
                           }
                         />
-                        multiline
+                        {t('activity:promptLib.multiline')}
                       </label>
                       <input
                         value={v.enumCsv}
@@ -510,7 +512,7 @@ export function PromptLibraryModal() {
                             ),
                           }))
                         }
-                        placeholder="enum: a, b, c"
+                        placeholder={t('activity:promptLib.enumPlaceholder')}
                         className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
                       />
                     </div>
@@ -524,7 +526,7 @@ export function PromptLibraryModal() {
                   disabled={!draft.title.trim() || !draft.content.trim()}
                   className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
                 >
-                  Save prompt
+                  {t('activity:promptLib.savePrompt')}
                 </button>
               </div>
             </>
@@ -540,7 +542,7 @@ export function PromptLibraryModal() {
                 <button
                   onClick={() => toggleFavorite(selected)}
                   className="text-lg"
-                  title="Toggle favorite"
+                  title={t('activity:promptLib.toggleFavoriteTitle')}
                 >
                   {selected.favorite ? '★' : '☆'}
                 </button>
@@ -551,7 +553,7 @@ export function PromptLibraryModal() {
                 </pre>
                 {(selected.variables ?? []).length > 0 && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs font-semibold text-muted-foreground">Variables</div>
+                    <div className="text-xs font-semibold text-muted-foreground">{t('activity:promptLib.variables')}</div>
                     {selected.variables.map((v) => {
                       const label = (
                         <label className="text-xs text-muted-foreground">
@@ -573,7 +575,7 @@ export function PromptLibraryModal() {
                               onChange={(e) => set(e.target.value)}
                               className={fieldClass}
                             >
-                              <option value="">— select —</option>
+                              <option value="">{t('activity:promptLib.selectOption')}</option>
                               {v.enum.map((opt) => (
                                 <option key={opt} value={opt}>
                                   {opt}
@@ -616,13 +618,13 @@ export function PromptLibraryModal() {
                   disabled={!content || missing.length > 0}
                   className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
                 >
-                  {missing.length > 0 ? `Fill: ${missing.join(', ')}` : 'Insert into chat'}
+                  {missing.length > 0 ? t('activity:promptLib.fillMissing', { missing: missing.join(', ') }) : t('activity:promptLib.insertIntoChat')}
                 </button>
               </div>
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
-              Select a prompt to preview and insert.
+              {t('activity:promptLib.selectPromptHint')}
             </div>
           )}
         </div>
