@@ -389,5 +389,18 @@
     "use": "Utiliser",
     "useModelAria": "Utiliser le modèle {{model}} pour {{provider}}",
     "differsHint": "La liste vérifiée diffère de la liste enregistrée — relancez {{command}} pour persister."
+  },
+  "dock": {
+    "expandChip": "Déplier {{label}}",
+    "collapseChip": "Replier {{label}}",
+    "ahead": "{{count}} en avance",
+    "behind": "{{count}} en retard",
+    "linesAdded": "{{count}} lignes ajoutées",
+    "linesDeleted": "{{count}} lignes supprimées",
+    "untrackedFiles": "{{count}} fichiers non suivis",
+    "customizeTitle": "Personnaliser les puces du dock",
+    "dockChips": "Puces du dock",
+    "noActiveGoal": "Aucun objectif actif",
+    "noActiveGoalDetail": "Lancez un objectif depuis le chat ou la commande goal."
   }
 }

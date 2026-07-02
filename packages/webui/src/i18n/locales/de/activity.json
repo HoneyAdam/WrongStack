@@ -389,5 +389,18 @@
     "use": "Verwenden",
     "useModelAria": "Modell {{model}} für {{provider}} verwenden",
     "differsHint": "Die geprüfte Liste weicht von der gespeicherten Allowlist ab — führe {{command}} erneut aus, um zu speichern."
+  },
+  "dock": {
+    "expandChip": "{{label}} ausklappen",
+    "collapseChip": "{{label}} einklappen",
+    "ahead": "{{count}} voraus",
+    "behind": "{{count}} hinterher",
+    "linesAdded": "{{count}} Zeilen hinzugefügt",
+    "linesDeleted": "{{count}} Zeilen gelöscht",
+    "untrackedFiles": "{{count}} unversionierte Dateien",
+    "customizeTitle": "Dock-Chips anpassen",
+    "dockChips": "Dock-Chips",
+    "noActiveGoal": "Kein aktives Ziel",
+    "noActiveGoalDetail": "Starte ein Ziel aus dem Chat oder dem Goal-Befehl."
   }
 }

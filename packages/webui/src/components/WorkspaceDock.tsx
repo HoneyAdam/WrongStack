@@ -13,6 +13,7 @@
 
 import { Bot, GitBranch, ListTodo, Rocket, SlidersHorizontal, Target, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { openMainView } from '@/lib/view-navigation';
 import { cn } from '@/lib/utils';
 import { useGitInfo } from '@/hooks/useGitInfo';
@@ -99,11 +100,12 @@ function DockChip({
   onClick: () => void;
 }) {
   const tone = CHIP_TONES[section];
+  const { t } = useAppTranslation();
   return (
     <button
       type="button"
       onClick={onClick}
-      title={active ? `Collapse ${label}` : `Expand ${label}`}
+      title={active ? t('activity:dock.collapseChip', { label }) : t('activity:dock.expandChip', { label })}
       className={cn(
         'flex items-center gap-2 h-7 px-2.5 rounded-full border text-xs font-medium shrink-0 transition-colors',
         active ? tone.active : cn('border-border/40', tone.idle),
@@ -120,6 +122,7 @@ function DockChip({
 
 export function WorkspaceDock({ sessionId }: { sessionId: string }) {
   const dockSection = useUIStore((s) => s.dockSection);
+  const { t } = useAppTranslation();
   const toggleDockSection = useUIStore((s) => s.toggleDockSection);
   const hiddenChips = useUIStore((s) => s.hiddenChips);
   const toggleChipHidden = useUIStore((s) => s.toggleChipHidden);
@@ -246,27 +249,27 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
             <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
             <span className="font-semibold text-foreground">{gitInfo.branch}</span>
             {gitInfo.ahead > 0 && (
-              <span className="text-emerald-600 dark:text-emerald-400" title={`${gitInfo.ahead} ahead`}>
+              <span className="text-emerald-600 dark:text-emerald-400" title={t('activity:dock.ahead', { count: gitInfo.ahead })}>
                 ↑{gitInfo.ahead}
               </span>
             )}
             {gitInfo.behind > 0 && (
-              <span className="text-amber-600 dark:text-amber-400" title={`${gitInfo.behind} behind`}>
+              <span className="text-amber-600 dark:text-amber-400" title={t('activity:dock.behind', { count: gitInfo.behind })}>
                 ↓{gitInfo.behind}
               </span>
             )}
             {gitInfo.added > 0 && (
-              <span className="text-emerald-600 dark:text-emerald-400" title={`${gitInfo.added} lines added`}>
+              <span className="text-emerald-600 dark:text-emerald-400" title={t('activity:dock.linesAdded', { count: gitInfo.added })}>
                 +{gitInfo.added}
               </span>
             )}
             {gitInfo.deleted > 0 && (
-              <span className="text-red-600 dark:text-red-400" title={`${gitInfo.deleted} lines deleted`}>
+              <span className="text-red-600 dark:text-red-400" title={t('activity:dock.linesDeleted', { count: gitInfo.deleted })}>
                 -{gitInfo.deleted}
               </span>
             )}
             {gitInfo.untracked > 0 && (
-              <span className="text-muted-foreground" title={`${gitInfo.untracked} untracked files`}>
+              <span className="text-muted-foreground" title={t('activity:dock.untrackedFiles', { count: gitInfo.untracked })}>
                 {gitInfo.untracked}?
               </span>
             )}
@@ -285,14 +288,14 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              title="Customize dock chips"
+              title={t('activity:dock.customizeTitle')}
               className="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/40 text-muted-foreground hover:bg-muted/60 transition-colors shrink-0"
             >
               <SlidersHorizontal className="h-3 w-3" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuLabel>Dock chips</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('activity:dock.dockChips')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {CHIP_ORDER.map((section) => (
               <DropdownMenuCheckboxItem
@@ -314,7 +317,7 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
         goal ? (
           <GoalPanel goal={goal} />
         ) : (
-          <DockEmptyState title="No active goal" detail="Start a goal from chat or the goal command." />
+          <DockEmptyState title={t('activity:dock.noActiveGoal')} detail={t('activity:dock.noActiveGoalDetail')} />
         )
       )}
       {open === 'fleet' && <FleetPanel />}

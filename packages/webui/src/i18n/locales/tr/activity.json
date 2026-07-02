@@ -389,5 +389,18 @@
     "use": "Kullan",
     "useModelAria": "{{provider}} için {{model}} modelini kullan",
     "differsHint": "Sorgulanan liste kayıtlı izin listesinden farklı — kalıcı yapmak için {{command}} komutunu yeniden çalıştırın."
+  },
+  "dock": {
+    "expandChip": "{{label}} öğesini genişlet",
+    "collapseChip": "{{label}} öğesini daralt",
+    "ahead": "{{count}} ileri",
+    "behind": "{{count}} geri",
+    "linesAdded": "{{count}} satır eklendi",
+    "linesDeleted": "{{count}} satır silindi",
+    "untrackedFiles": "{{count}} izlenmeyen dosya",
+    "customizeTitle": "Dock çiplerini özelleştir",
+    "dockChips": "Dock çipleri",
+    "noActiveGoal": "Etkin hedef yok",
+    "noActiveGoalDetail": "Sohbetten veya hedef komutundan bir hedef başlatın."
   }
 }

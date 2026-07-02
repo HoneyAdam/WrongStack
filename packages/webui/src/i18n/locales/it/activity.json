@@ -389,5 +389,18 @@
     "use": "Usa",
     "useModelAria": "Usa il modello {{model}} per {{provider}}",
     "differsHint": "L'elenco verificato differisce dall'allowlist salvata — riesegui {{command}} per rendere permanente."
+  },
+  "dock": {
+    "expandChip": "Espandi {{label}}",
+    "collapseChip": "Comprimi {{label}}",
+    "ahead": "{{count}} in avanti",
+    "behind": "{{count}} indietro",
+    "linesAdded": "{{count}} righe aggiunte",
+    "linesDeleted": "{{count}} righe eliminate",
+    "untrackedFiles": "{{count}} file non tracciati",
+    "customizeTitle": "Personalizza chip del dock",
+    "dockChips": "Chip del dock",
+    "noActiveGoal": "Nessun obiettivo attivo",
+    "noActiveGoalDetail": "Avvia un obiettivo dalla chat o dal comando goal."
   }
 }

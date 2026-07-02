@@ -389,5 +389,18 @@
     "use": "Use",
     "useModelAria": "Use model {{model}} for {{provider}}",
     "differsHint": "Probed list differs from the saved allowlist — re-run {{command}} to persist."
+  },
+  "dock": {
+    "expandChip": "Expand {{label}}",
+    "collapseChip": "Collapse {{label}}",
+    "ahead": "{{count}} ahead",
+    "behind": "{{count}} behind",
+    "linesAdded": "{{count}} lines added",
+    "linesDeleted": "{{count}} lines deleted",
+    "untrackedFiles": "{{count}} untracked files",
+    "customizeTitle": "Customize dock chips",
+    "dockChips": "Dock chips",
+    "noActiveGoal": "No active goal",
+    "noActiveGoalDetail": "Start a goal from chat or the goal command."
   }
 }
