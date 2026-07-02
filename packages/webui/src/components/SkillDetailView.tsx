@@ -28,6 +28,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { i18n, useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
 import { markdownComponents } from './MessageBubble/utils';
@@ -56,8 +57,9 @@ function skillNameFromFile(fileName: string): string | null {
 }
 
 function ScopeBadge({ source }: { source: string }) {
+  const { t } = useAppTranslation();
   const scope = source === 'project' ? 'project' : source === 'user' ? 'user' : 'bundled';
-  const labels: Record<string, string> = { project: 'Project', user: 'Global', bundled: 'Bundled' };
+  const labelKeys: Record<string, string> = { project: 'scopeProject', user: 'scopeGlobal', bundled: 'scopeBundled' };
 
   return (
     <span
@@ -68,12 +70,13 @@ function ScopeBadge({ source }: { source: string }) {
         scope === 'bundled' && 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
       )}
     >
-      {labels[scope]}
+      {t(`activity:skillDetail.${labelKeys[scope]}`)}
     </span>
   );
 }
 
 export function SkillDetailView({ className }: { className?: string }) {
+  const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const skillsState = useUIStore((s) => s.skillsState);
   const setSkillsState = useUIStore((s) => s.setSkillsState);
@@ -191,7 +194,7 @@ export function SkillDetailView({ className }: { className?: string }) {
     // Timeout after 10 seconds
     const timeoutId = setTimeout(() => {
       setContentLoading(false);
-      setContentError('Request timed out. Please try again.');
+      setContentError(i18n.t('activity:skillDetail.timeoutError'));
     }, 10000);
 
     const handleSkillsContent = (msg: unknown) => {
@@ -234,7 +237,7 @@ export function SkillDetailView({ className }: { className?: string }) {
         });
         client.send({ type: 'skills.list' });
       } else {
-        setUpdateResult({ updated: [], unchanged: [], errors: [{ name: '', error: m.payload.error ?? 'Update failed' }] });
+        setUpdateResult({ updated: [], unchanged: [], errors: [{ name: '', error: m.payload.error ?? i18n.t('activity:skillDetail.updateFailed') }] });
       }
     };
 
@@ -377,7 +380,7 @@ export function SkillDetailView({ className }: { className?: string }) {
         client.send({ type: 'skills.content', payload: { name: selectedSkill.name, source: selectedSkill.source } });
         client.send({ type: 'skills.list' });
       } else {
-        setEditError(m.payload.error ?? 'Save failed');
+        setEditError(m.payload.error ?? i18n.t('activity:skillDetail.saveFailed'));
       }
       client.off('skills.edited', handler as (msg: unknown) => void);
     };
@@ -431,7 +434,7 @@ export function SkillDetailView({ className }: { className?: string }) {
           client.send({ type: 'skills.list' });
           handleClose();
         } else {
-          setEditError(m.payload.error ?? 'Uninstall failed');
+          setEditError(m.payload.error ?? i18n.t('activity:skillDetail.uninstallFailed'));
         }
         client.off('skills.uninstalled', handler as (msg: unknown) => void);
       };
@@ -446,16 +449,16 @@ export function SkillDetailView({ className }: { className?: string }) {
     return (
       <div className={cn('flex-1 flex flex-col items-center justify-center text-muted-foreground p-8', className)}>
         <BookOpen className="h-12 w-12 mb-4 opacity-20" />
-        <p className="text-base font-medium">No skill selected</p>
+        <p className="text-base font-medium">{t('activity:skillDetail.noSkillSelected')}</p>
         <p className="text-sm mt-1 text-center max-w-[300px]">
-          Select a skill from the sidebar to view its documentation
+          {t('activity:skillDetail.selectSkillHint')}
         </p>
         <button
           type="button"
           onClick={handleClose}
           className="mt-4 px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
         >
-          Go to chat
+          {t('activity:skillDetail.goToChat')}
         </button>
       </div>
     );
@@ -487,7 +490,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  title="Open source repo"
+                  title={t('activity:skillDetail.openSourceRepo')}
                 >
                   <Globe className="h-3 w-3 shrink-0" />
                   <span className="truncate font-mono">{selectedSkill.sourceUrl}</span>
@@ -496,7 +499,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   type="button"
                   onClick={handleCopySourceUrl}
                   className="flex items-center shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  title="Copy source URL"
+                  title={t('activity:skillDetail.copySourceUrl')}
                 >
                   {copiedSourceUrl ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
                 </button>
@@ -519,15 +522,15 @@ export function SkillDetailView({ className }: { className?: string }) {
               <div className="mt-2 text-xs space-y-1">
                 {updateResult.updated.length > 0 && (
                   <div className="text-green-600">
-                    ↑ Updated: {updateResult.updated.map((u) => `${u.name} (${u.oldRef} → ${u.newRef})`).join(', ')}
+                    {t('activity:skillDetail.updatedLabel', { list: updateResult.updated.map((u) => `${u.name} (${u.oldRef} → ${u.newRef})`).join(', ') })}
                   </div>
                 )}
                 {updateResult.unchanged.length > 0 && (
-                  <div className="text-muted-foreground">— Up to date: {updateResult.unchanged.join(', ')}</div>
+                  <div className="text-muted-foreground">{t('activity:skillDetail.upToDateLabel', { list: updateResult.unchanged.join(', ') })}</div>
                 )}
                 {updateResult.errors.length > 0 && (
                   <div className="text-destructive">
-                    ✗ {updateResult.errors.map((e) => `${e.name ? `${e.name}: ` : ''}${e.error}`).join('; ')}
+                    {t('activity:skillDetail.errorsLabel', { list: updateResult.errors.map((e) => `${e.name ? `${e.name}: ` : ''}${e.error}`).join('; ') })}
                   </div>
                 )}
               </div>
@@ -543,7 +546,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 onClick={handleCheckForUpdates}
                 disabled={checkingForUpdates}
                 className="flex items-center gap-1 px-2 py-1.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer disabled:opacity-50"
-                title="Check for updates"
+                title={t('activity:skillDetail.checkUpdatesTitle')}
               >
                 {checkingForUpdates ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </button>
@@ -555,7 +558,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 type="button"
                 onClick={handleExportSkill}
                 className="flex items-center gap-1 px-2 py-1.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
-                title="Export skill as .md"
+                title={t('activity:skillDetail.exportTitle')}
               >
                 <Download className="h-3.5 w-3.5" />
               </button>
@@ -566,7 +569,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 type="button"
                 onClick={handleStartEdit}
                 className="flex items-center gap-1 px-2 py-1.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
-                title="Edit skill"
+                title={t('activity:skillDetail.editTitle')}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -578,7 +581,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 type="button"
                 onClick={() => setUninstallConfirmSkill(selectedSkill)}
                 className="flex items-center gap-1 px-2 py-1.5 text-xs rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
-                title="Uninstall skill"
+                title={t('activity:skillDetail.uninstallTitle')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -589,7 +592,7 @@ export function SkillDetailView({ className }: { className?: string }) {
               type="button"
               onClick={handleClose}
               className="p-1.5 rounded hover:bg-accent text-muted-foreground cursor-pointer"
-              title="Close and go to chat"
+              title={t('activity:skillDetail.closeTitle')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -609,7 +612,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   ? 'text-muted-foreground/40 cursor-not-allowed'
                   : 'hover:bg-accent text-muted-foreground cursor-pointer',
               )}
-              title="Go back"
+              title={t('activity:skillDetail.backTitle')}
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -623,7 +626,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   ? 'text-muted-foreground/40 cursor-not-allowed'
                   : 'hover:bg-accent text-muted-foreground cursor-pointer',
               )}
-              title="Go forward"
+              title={t('activity:skillDetail.forwardTitle')}
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -667,7 +670,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <FolderOpen className="h-3 w-3" />
-                <span className="font-medium uppercase tracking-wide">Related Files</span>
+                <span className="font-medium uppercase tracking-wide">{t('activity:skillDetail.relatedFiles')}</span>
               </div>
               {skillContent.relatedFiles.map((file) => {
                 const derivedName = skillNameFromFile(file);
@@ -678,7 +681,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                     type="button"
                     onClick={() => handleNavigateToSkill(derivedName!)}
                     className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded bg-background border border-border hover:border-primary hover:text-primary transition-colors cursor-pointer"
-                    title={`Go to ${derivedName}`}
+                    title={t('activity:skillDetail.goToSkillTitle', { name: derivedName! })}
                   >
                     <ArrowUpRight className="h-2.5 w-2.5" />
                     {file}
@@ -696,7 +699,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <FileText className="h-3 w-3" />
-                <span className="font-medium uppercase tracking-wide">References</span>
+                <span className="font-medium uppercase tracking-wide">{t('activity:skillDetail.references')}</span>
               </div>
               {skillContent.references.map((ref) => {
                 const derivedName = skillNameFromFile(ref) ?? ref.replace(/\.md$/, '');
@@ -707,7 +710,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                     type="button"
                     onClick={() => handleNavigateToSkill(derivedName)}
                     className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded bg-primary/5 border border-primary/20 text-primary hover:bg-primary/10 hover:border-primary/30 transition-colors cursor-pointer"
-                    title={`Go to ${derivedName}`}
+                    title={t('activity:skillDetail.goToSkillTitle', { name: derivedName })}
                   >
                     <ArrowUpRight className="h-2.5 w-2.5" />
                     {derivedName}
@@ -728,7 +731,7 @@ export function SkillDetailView({ className }: { className?: string }) {
         {contentLoading ? (
           <div className="p-8 text-center text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-            <p>Loading skill content…</p>
+            <p>{t('activity:skillDetail.loadingContent')}</p>
           </div>
         ) : editMode ? (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
@@ -736,10 +739,10 @@ export function SkillDetailView({ className }: { className?: string }) {
             <div className="px-4 py-2 border-b shrink-0 flex items-center justify-between gap-2">
               <div className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground">
-                  Editing <span className="font-medium text-foreground">{selectedSkill.name}</span>
+                  {t('activity:skillDetail.editingLabel', { name: selectedSkill.name })}
                 </span>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {editStats.lines} line{editStats.lines !== 1 ? 's' : ''} · {editStats.words} word{editStats.words !== 1 ? 's' : ''} · {editStats.chars} char{editStats.chars !== 1 ? 's' : ''}
+                  {t('activity:skillDetail.editStats', { lines: editStats.lines, words: editStats.words, chars: editStats.chars })}
                 </span>
                 {charsWarning && (
                   <span
@@ -747,11 +750,11 @@ export function SkillDetailView({ className }: { className?: string }) {
                       charsWarning.level === 'critical' ? 'text-red-500 font-medium' : 'text-amber-500'
                     }`}
                   >
-                    ⚠ {(charsWarning.used / (1024 * 1024)).toFixed(1)}&nbsp;MB / {(charsWarning.limit / (1024 * 1024)).toFixed(0)}&nbsp;MB
+                    {t('activity:skillDetail.charsWarningFmt', { used: (charsWarning.used / (1024 * 1024)).toFixed(1), limit: (charsWarning.limit / (1024 * 1024)).toFixed(0) })}
                   </span>
                 )}
-                {draftSavedAt && <span className="text-xs text-green-500 animate-pulse">Draft saved</span>}
-                {draftRestored && <span className="text-xs text-amber-500 animate-pulse">Draft restored</span>}
+                {draftSavedAt && <span className="text-xs text-green-500 animate-pulse">{t('activity:skillDetail.draftSaved')}</span>}
+                {draftRestored && <span className="text-xs text-amber-500 animate-pulse">{t('activity:skillDetail.draftRestored')}</span>}
               </div>
               <div className="flex items-center gap-2">
                 {editError && <span className="text-xs text-destructive">{editError}</span>}
@@ -761,16 +764,16 @@ export function SkillDetailView({ className }: { className?: string }) {
                     onClick={handleDiscardDraft}
                     className="px-2 py-1 text-[10px] rounded border border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
                   >
-                    Discard draft
+                    {t('activity:skillDetail.discardDraft')}
                   </button>
                 )}
                 <button type="button" onClick={handleCancelEdit} className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors cursor-pointer">
-                  Cancel
+                  {t('common:action.cancel')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSplitPreview((v) => !v)}
-                  title={splitPreview ? 'Hide preview' : 'Split view'}
+                  title={splitPreview ? t('activity:skillDetail.hidePreviewTitle') : t('activity:skillDetail.splitViewTitle')}
                   className={`px-2 py-1 text-xs rounded border transition-colors cursor-pointer ${
                     splitPreview ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-accent text-muted-foreground'
                   }`}
@@ -783,7 +786,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   disabled={editSaving || !editContent.trim()}
                   className="px-3 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors cursor-pointer"
                 >
-                  {editSaving ? <Loader2 className="h-3 w-3 animate-spin inline" /> : 'Save'}
+                  {editSaving ? <Loader2 className="h-3 w-3 animate-spin inline" /> : t('common:action.save')}
                 </button>
               </div>
             </div>
@@ -798,7 +801,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                     language="markdown"
                     className="flex-1"
                     style={{ fontSize: 12, backgroundColor: 'transparent', minHeight: 0 }}
-                    placeholder="Skill content (markdown)..."
+                    placeholder={t('activity:skillDetail.contentPlaceholder')}
                   />
                 </div>
                 <div className="w-px bg-border flex-shrink-0" />
@@ -815,7 +818,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 language="markdown"
                 className="flex-1"
                 style={{ fontSize: 12, backgroundColor: 'transparent', minHeight: 0 }}
-                placeholder="Skill content (markdown)..."
+                placeholder={t('activity:skillDetail.contentPlaceholder')}
               />
             )}
           </div>
@@ -827,7 +830,7 @@ export function SkillDetailView({ className }: { className?: string }) {
           </div>
         ) : contentError ? (
           <div className="p-8 text-center">
-            <p className="text-destructive mb-2">Failed to load skill content</p>
+            <p className="text-destructive mb-2">{t('activity:skillDetail.loadFailed')}</p>
             <p className="text-xs text-muted-foreground">{contentError}</p>
             <button
               type="button"
@@ -840,12 +843,12 @@ export function SkillDetailView({ className }: { className?: string }) {
               }}
               className="mt-4 px-3 py-1.5 text-xs rounded border border-border hover:bg-accent transition-colors"
             >
-              Retry
+              {t('common:action.retry')}
             </button>
           </div>
         ) : (
           <div className="p-8 text-center text-muted-foreground">
-            No skill content available
+            {t('activity:skillDetail.noContent')}
           </div>
         )}
       </div>
@@ -862,20 +865,18 @@ export function SkillDetailView({ className }: { className?: string }) {
             <div className="flex shrink-0 items-center justify-between p-4 border-b">
               <div className="flex items-center gap-2">
                 <Trash2 className="h-4 w-4 text-destructive" />
-                <span className="font-semibold text-sm">Uninstall Skill</span>
+                <span className="font-semibold text-sm">{t('activity:skillDetail.uninstallSkillHeading')}</span>
               </div>
               <button type="button" onClick={() => setUninstallConfirmSkill(null)} className="p-1 rounded hover:bg-accent text-muted-foreground cursor-pointer">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-2">
-              <p className="text-sm">Uninstall <span className="font-semibold">{uninstallConfirmSkill.name}</span>?</p>
+              <p className="text-sm">{t('activity:skillDetail.uninstallConfirm', { name: uninstallConfirmSkill.name })}</p>
               <p className="text-xs text-muted-foreground">
-                This will remove the skill from{' '}
-                <span className="font-mono text-[10px]">
-                  {uninstallConfirmSkill.source === 'user' ? '~/.wrongstack/skills' : '.wrongstack/skills'}
-                </span>{' '}
-                and cannot be undone.
+                {t('activity:skillDetail.uninstallRemovePath', {
+                  path: uninstallConfirmSkill.source === 'user' ? '~/.wrongstack/skills' : '.wrongstack/skills',
+                })}
               </p>
             </div>
             <div className="flex shrink-0 justify-end gap-2 p-4 border-t bg-muted/20">
@@ -885,7 +886,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 disabled={uninstalling}
                 className="px-3 py-1.5 text-xs rounded border border-border hover:bg-accent transition-colors disabled:opacity-50"
               >
-                Cancel
+                {t('common:action.cancel')}
               </button>
               <button
                 type="button"
@@ -894,7 +895,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {uninstalling && <Loader2 className="h-3 w-3 animate-spin" />}
-                Uninstall
+                {t('activity:skillDetail.uninstallAction')}
               </button>
             </div>
           </div>
