@@ -159,7 +159,9 @@
     "completedBy": "Von {{name}} erledigt",
     "completedByAt": "Von {{name}} am {{time}} erledigt",
     "outcome": "Ergebnis:",
-    "task": "Aufgabe:"
+    "task": "Aufgabe:",
+    "messageNotFound": "Nachricht nicht gefunden",
+    "messageNotFoundHint": "Diese Nachricht wurde möglicherweise gelöscht oder bereinigt."
   },
   "sessions": {
     "recentSessions": "Letzte Sitzungen",

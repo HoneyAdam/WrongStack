@@ -433,7 +433,7 @@ export function FleetAgentRow({
         <SparklineChart bins={agent.sparklineBins} className="font-mono text-[9px]" />
         {agent.budgetWarning && (
           <span title={t('activity:fleet.hittingLimitTitle', { kind: agent.budgetWarning.kind, used: agent.budgetWarning.used, limit: agent.budgetWarning.limit })}>
-            <Zap className="h-3 w-3 shrink-0 text-amber-500" aria-label="budget warning" />
+            <Zap className="h-3 w-3 shrink-0 text-amber-500" aria-label={t('common:status.budgetWarning')} />
           </span>
         )}
       </div>

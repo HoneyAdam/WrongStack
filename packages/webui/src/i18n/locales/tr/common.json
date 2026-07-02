@@ -68,7 +68,12 @@
     "ready": "Hazır",
     "error": "Hata",
     "offline": "Çevrimdışı",
-    "online": "Çevrimiçi"
+    "online": "Çevrimiçi",
+    "live": "Canlı",
+    "budgetWarning": "bütçe uyarısı",
+    "running": "Çalışıyor",
+    "inProgress": "Devam ediyor",
+    "working": "çalışıyor"
   },
   "time": {
     "justNow": "az önce",

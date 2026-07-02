@@ -79,11 +79,12 @@ function EmptyState() {
 }
 
 function _MessageNotFound() {
+  const { t } = useAppTranslation();
   return (
     <div className="flex flex-col items-center justify-center gap-3 p-8 text-muted-foreground">
       <AlertCircle className="h-10 w-10 opacity-30" />
-      <div className="text-sm font-medium">Message not found</div>
-      <div className="text-xs opacity-60">This message may have been deleted or purged.</div>
+      <div className="text-sm font-medium">{t('activity:mailbox.messageNotFound')}</div>
+      <div className="text-xs opacity-60">{t('activity:mailbox.messageNotFoundHint')}</div>
     </div>
   );
 }

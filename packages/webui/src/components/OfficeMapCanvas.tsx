@@ -457,7 +457,7 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
     <div className="rounded-xl border-2 p-4 min-w-[200px] transition-all backdrop-blur-sm relative bg-slate-900/90">
       <NodeHandles />
       <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-purple-600 text-white text-[9px] rounded-full font-bold">
-        COORDINATOR
+        {t('activity:office.coordinator')}
       </div>
 
       <div className="flex items-center gap-3 mb-3 mt-2">

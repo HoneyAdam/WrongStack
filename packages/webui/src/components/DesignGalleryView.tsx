@@ -336,8 +336,8 @@ export function DesignGalleryView({ className }: { className?: string }) {
               >
                 {/* Live light + dark previews (override-applied for the active kit) */}
                 <div className="grid grid-cols-2">
-                  <KitPreview t={applyOv(kit.light, ov, 'light')} label="Light" />
-                  <KitPreview t={applyOv(kit.dark, ov, 'dark')} label="Dark" />
+                  <KitPreview t={applyOv(kit.light, ov, 'light')} label={t('activity:designStudio.light')} />
+                  <KitPreview t={applyOv(kit.dark, ov, 'dark')} label={t('activity:designStudio.dark')} />
                 </div>
                 <div className="p-3 border-t border-border/60 flex flex-col gap-1.5 bg-card">
                   <div className="flex items-center gap-1.5">

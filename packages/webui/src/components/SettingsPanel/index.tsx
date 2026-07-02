@@ -909,7 +909,7 @@ export function SettingsPanel() {
               <div className="pt-2 border-t">
                 <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
                   <Layers className="h-4 w-4 text-muted-foreground" />
-                  Model Routing
+                  {t('settings:agent.routingHeading')}
                 </h3>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,180px)_1fr_auto]">
                   <select

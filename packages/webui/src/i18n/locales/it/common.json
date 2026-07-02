@@ -68,7 +68,12 @@
     "ready": "Pronto",
     "error": "Errore",
     "offline": "Offline",
-    "online": "Online"
+    "online": "Online",
+    "live": "Live",
+    "budgetWarning": "avviso budget",
+    "running": "In corso",
+    "inProgress": "In corso",
+    "working": "lavora"
   },
   "time": {
     "justNow": "adesso",

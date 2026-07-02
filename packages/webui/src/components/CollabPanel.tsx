@@ -295,7 +295,7 @@ export function CollabPanel({ sessionId, className }: CollabPanelProps): React.R
         className,
       )}
     >
-      <span className="relative flex h-2 w-2" aria-label="Live">
+      <span className="relative flex h-2 w-2" aria-label={t('common:status.live')}>
         <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
       </span>

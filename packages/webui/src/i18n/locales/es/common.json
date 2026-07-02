@@ -68,7 +68,12 @@
     "ready": "Listo",
     "error": "Error",
     "offline": "Sin conexión",
-    "online": "En línea"
+    "online": "En línea",
+    "live": "En vivo",
+    "budgetWarning": "alerta de presupuesto",
+    "running": "En ejecución",
+    "inProgress": "En progreso",
+    "working": "trabajando"
   },
   "time": {
     "justNow": "justo ahora",

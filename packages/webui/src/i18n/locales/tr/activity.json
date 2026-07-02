@@ -159,7 +159,9 @@
     "completedBy": "{{name}} tarafından tamamlandı",
     "completedByAt": "{{name}} tarafından {{time}} tarihinde tamamlandı",
     "outcome": "Sonuç:",
-    "task": "Görev:"
+    "task": "Görev:",
+    "messageNotFound": "Mesaj bulunamadı",
+    "messageNotFoundHint": "Bu mesaj silinmiş veya temizlenmiş olabilir."
   },
   "sessions": {
     "recentSessions": "Son oturumlar",
