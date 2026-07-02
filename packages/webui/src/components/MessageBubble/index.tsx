@@ -26,6 +26,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DiffView, diffFromToolInput } from '../DiffView';
@@ -46,6 +47,7 @@ export const MessageBubble = memo(function MessageBubble({
   isFirst = false,
   isContinuation = false,
 }: MessageBubbleProps) {
+  const { t } = useAppTranslation();
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -85,7 +87,7 @@ export const MessageBubble = memo(function MessageBubble({
         addMessage({
           role: 'assistant',
           content:
-            '⚠️ _Auto-proceed paused — maximum consecutive automatic turns reached. Type anything to continue (autonomy stays on)._',
+            t('activity:message.autoPaused'),
         });
       }
       return;
@@ -200,7 +202,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div className={cn('flex flex-col gap-1.5 max-w-[85%]', isUser && 'items-end')}>
         {isFirst && !isContinuation && (
           <span className={cn('text-xs font-medium px-1', isUser ? 'text-primary' : isTool ? 'text-secondary' : isThinkingLog ? 'text-violet-600 dark:text-violet-400' : 'text-muted-foreground')}>
-            {isUser ? 'You' : isTool ? 'Tool' : isThinkingLog ? 'Thinking' : 'Assistant'}
+            {isUser ? t('activity:message.roleYou') : isTool ? t('activity:message.roleTool') : isThinkingLog ? t('activity:message.roleThinking') : t('activity:message.roleAssistant')}
           </span>
         )}
 
@@ -246,7 +248,7 @@ export const MessageBubble = memo(function MessageBubble({
                 {expanded && message.toolInput !== undefined && (() => {
                   const diffArgs = diffFromToolInput(message.toolName, message.toolInput);
                   if (diffArgs) return (<DiffView oldText={diffArgs.oldText} newText={diffArgs.newText} caption={diffArgs.caption} />);
-                  return (<div className="p-3 bg-muted/50 rounded-lg overflow-x-auto"><div className="flex items-center gap-1 text-muted-foreground mb-2 text-xs"><Clock className="h-3 w-3" /><span>Input</span></div><ToolInputView input={message.toolInput} /></div>);
+                  return (<div className="p-3 bg-muted/50 rounded-lg overflow-x-auto"><div className="flex items-center gap-1 text-muted-foreground mb-2 text-xs"><Clock className="h-3 w-3" /><span>{t('activity:message.inputLabel')}</span></div><ToolInputView input={message.toolInput} /></div>);
                 })()}
                 {expanded && message.toolResult !== undefined && message.toolResult.length > 0 && (
                   <div className="relative group/tool">
@@ -264,16 +266,16 @@ export const MessageBubble = memo(function MessageBubble({
                       <CopyButton text={message.toolResult} label="" className="bg-background/80 border rounded px-1.5 py-0.5" />
                       {message.toolResult.split('\n').length > 5 && (
                         <button type="button" onClick={(ev) => { ev.stopPropagation(); const ext = fileExtensionFor(message.toolName); const base = (message.toolName ?? 'output').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase(); downloadTextFile(`${base}-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`, message.toolResult ?? ''); }}
-                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground bg-background/80 border rounded px-1.5 py-0.5" title="Download as file"><Download className="h-3 w-3" /></button>
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground bg-background/80 border rounded px-1.5 py-0.5" title={t('activity:message.downloadTitle')}><Download className="h-3 w-3" /></button>
                       )}
                     </div>
                   </div>
                 )}
-                {expanded && message.toolResult !== undefined && message.toolResult.length === 0 && <span className="text-xs text-muted-foreground italic">(empty)</span>}
+                {expanded && message.toolResult !== undefined && message.toolResult.length === 0 && <span className="text-xs text-muted-foreground italic">{t('activity:message.empty')}</span>}
                 {!expanded && message.isError && message.toolResult && <div className="text-xs font-mono text-destructive truncate">{message.toolResult.split('\n')[0]}</div>}
                 {((message.toolResult !== undefined && message.toolResult.length > 0) || (message.toolInput !== undefined && Object.keys((message.toolInput as object) ?? {}).length > 0)) && (
                   <button type="button" onClick={() => toggleTool(message.id)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    {expanded ? 'Hide details' : `Show details${lines > 0 ? ` (${lines} line${lines === 1 ? '' : 's'})` : ''}`}
+                    {expanded ? t('activity:message.hideDetails') : lines > 0 ? t('activity:message.showDetailsLines', { count: lines }) : t('activity:message.showDetails')}
                   </button>
                 )}
               </div>
@@ -285,10 +287,10 @@ export const MessageBubble = memo(function MessageBubble({
                 rows={Math.min(8, Math.max(2, editValue.split('\n').length))}
                 className="w-full resize-none rounded-md border bg-background text-foreground px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] text-primary-foreground/60">⌘/Ctrl+Enter to save · Esc to cancel</span>
+                <span className="text-[10px] text-primary-foreground/60">{t('activity:message.editHint')}</span>
                 <div className="flex gap-1">
-                  <button type="button" onClick={cancelEdit} className="text-xs px-2 py-0.5 rounded border border-primary-foreground/30 hover:bg-primary-foreground/10">Cancel</button>
-                  <button type="button" onClick={saveEdit} disabled={!editValue.trim()} className="text-xs px-2 py-0.5 rounded bg-primary-foreground text-primary disabled:opacity-50">Save &amp; resend</button>
+                  <button type="button" onClick={cancelEdit} className="text-xs px-2 py-0.5 rounded border border-primary-foreground/30 hover:bg-primary-foreground/10">{t('common:action.cancel')}</button>
+                  <button type="button" onClick={saveEdit} disabled={!editValue.trim()} className="text-xs px-2 py-0.5 rounded bg-primary-foreground text-primary disabled:opacity-50">{t('activity:message.saveResend')}</button>
                 </div>
               </div>
             </div>
@@ -296,7 +298,7 @@ export const MessageBubble = memo(function MessageBubble({
             const log = message.thinkingLog;
             const lineCount = log.text.split('\n').length;
             const seconds = Math.max(0.1, log.durationMs / 1000);
-            const durationLabel = log.replayed ? 'replay' : `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+            const durationLabel = log.replayed ? t('activity:message.replay') : `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
             const preview = log.text.split('\n').slice(-4).join('\n').trim();
             return (
               <div className="min-w-0 max-w-[min(720px,85vw)]">
@@ -309,9 +311,9 @@ export const MessageBubble = memo(function MessageBubble({
                     {thinkingExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </span>
                   <Brain className="h-3.5 w-3.5" />
-                  <span className="min-w-0">Thinking process</span>
+                  <span className="min-w-0">{t('activity:message.thinkingProcess')}</span>
                   <span className="ml-0 text-[10px] font-mono font-normal text-muted-foreground sm:ml-auto">
-                    iter {log.iteration} · {durationLabel} · {lineCount} line{lineCount === 1 ? '' : 's'}
+                    {t('activity:message.thinkingMeta', { iter: log.iteration, dur: durationLabel, lines: t('activity:message.linesSuffix', { count: lineCount }) })}
                   </span>
                 </button>
                 <pre className={cn(
@@ -321,14 +323,14 @@ export const MessageBubble = memo(function MessageBubble({
                   {thinkingExpanded ? log.text : (preview || log.text)}
                 </pre>
                 <div className="mt-2 flex items-center gap-2">
-                  <CopyButton text={log.text} label="Copy log" className="opacity-70 hover:opacity-100 transition-opacity" />
+                  <CopyButton text={log.text} label={t('activity:message.copyLog')} className="opacity-70 hover:opacity-100 transition-opacity" />
                   {!thinkingExpanded && lineCount > 4 && (
                     <button
                       type="button"
                       onClick={() => setThinkingExpanded(true)}
                       className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      Show full log
+                      {t('activity:message.showFullLog')}
                     </button>
                   )}
                 </div>
@@ -349,9 +351,9 @@ export const MessageBubble = memo(function MessageBubble({
                 ) : (
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={markdownComponents}>{renderedContent}</ReactMarkdown>
                 )) : message.streaming ? (
-                  <span className="inline-block animate-pulse text-muted-foreground">Typing...</span>
+                  <span className="inline-block animate-pulse text-muted-foreground">{t('activity:message.typing')}</span>
                 ) : (
-                  <span className="text-muted-foreground italic">No content</span>
+                  <span className="text-muted-foreground italic">{t('activity:message.noContent')}</span>
                 )}
               </div>
             );
@@ -361,7 +363,7 @@ export const MessageBubble = memo(function MessageBubble({
         {/* Failed delivery indicator for optimistic user messages */}
         {isUser && message.status === 'failed' && (
           <span className="text-[10px] font-medium text-destructive flex items-center gap-1 px-1">
-            ⚠ Failed to send
+            {t('activity:message.failedToSend')}
           </span>
         )}
 
@@ -383,7 +385,7 @@ export const MessageBubble = memo(function MessageBubble({
           <span className="w-px h-3 bg-border/60 shrink-0" aria-hidden />
           {message.runSummary && (
             <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums"
-              title={[`Iterations: ${message.runSummary.iterations}`, `Tool calls: ${message.runSummary.tools}`, `Elapsed: ${(message.runSummary.durationMs / 1000).toFixed(2)}s`, message.runSummary.costDelta > 0 ? `Cost: ${message.runSummary.costDelta.toFixed(4)}` : ''].filter(Boolean).join('  ·  ')}>
+              title={[t('activity:message.rsIterations', { n: message.runSummary.iterations }), t('activity:message.rsTools', { n: message.runSummary.tools }), t('activity:message.rsElapsed', { s: `${(message.runSummary.durationMs / 1000).toFixed(2)}s` }), message.runSummary.costDelta > 0 ? t('activity:message.rsCost', { c: message.runSummary.costDelta.toFixed(4) }) : ''].filter(Boolean).join('  ·  ')}>
               {message.runSummary.iterations} iter{message.runSummary.tools > 0 ? ` · ${message.runSummary.tools} tool${message.runSummary.tools === 1 ? '' : 's'}` : ''} · {message.runSummary.durationMs < 60_000 ? `${(message.runSummary.durationMs / 1000).toFixed(1)}s` : `${Math.floor(message.runSummary.durationMs / 60_000)}m ${Math.floor((message.runSummary.durationMs % 60_000) / 1000)}s`}{message.runSummary.costDelta > 0 ? ` · ${message.runSummary.costDelta >= 0.01 ? message.runSummary.costDelta.toFixed(4) : message.runSummary.costDelta.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}` : ''}
             </span>
           )}
@@ -392,34 +394,34 @@ export const MessageBubble = memo(function MessageBubble({
             const dollars = (u.input * inputCost + u.output * outputCost + (u.cacheRead ?? 0) * cacheReadCost) / 1_000_000;
             const haveCost = inputCost > 0 || outputCost > 0;
             const dollarStr = dollars >= 0.01 ? `${dollars.toFixed(4)}` : dollars > 0 ? `${dollars.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}` : '';
-            return (<span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums" title={[`Input: ${u.input.toLocaleString()}`, `Output: ${u.output.toLocaleString()}`, u.cacheRead ? `Cache read: ${u.cacheRead.toLocaleString()}` : '', haveCost ? `Cost: ${dollarStr}` : ''].filter(Boolean).join('  ·  ')}>
+            return (<span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums" title={[t('activity:message.useInput', { n: u.input.toLocaleString() }), t('activity:message.useOutput', { n: u.output.toLocaleString() }), u.cacheRead ? t('activity:message.useCacheRead', { n: u.cacheRead.toLocaleString() }) : '', haveCost ? t('activity:message.useCost', { c: dollarStr }) : ''].filter(Boolean).join('  ·  ')}>
               {u.input.toLocaleString()}→{u.output.toLocaleString()}{u.cacheRead ? ` · ${u.cacheRead.toLocaleString()} ↺` : ''}{haveCost && dollarStr ? ` · ${dollarStr}` : ''}
             </span>);
           })()}
           {/* ── Actions — always visible, subtle opacity, full on hover ── */}
           {!isTool && message.content && !message.streaming && (
-            <CopyButton text={message.content} label="Copy" className="opacity-50 hover:opacity-100 transition-opacity" />
+            <CopyButton text={message.content} label={t('common:action.copy')} className="opacity-50 hover:opacity-100 transition-opacity" />
           )}
           {message.role === 'assistant' && message.content && !message.streaming && (
-            <button type="button" onClick={() => setShowRaw((v) => !v)} title={showRaw ? 'Show rendered markdown' : 'Show raw markdown source'}
+            <button type="button" onClick={() => setShowRaw((v) => !v)} title={showRaw ? t('activity:message.showRenderedTitle') : t('activity:message.showRawTitle')}
               className={cn('text-xs inline-flex items-center gap-1 transition-opacity', showRaw ? 'text-primary hover:text-primary/80 opacity-100' : 'opacity-50 hover:opacity-100 text-muted-foreground hover:text-foreground')}>
-              <FileCode2 className="h-3 w-3" /><span>{showRaw ? 'Rendered' : 'Raw'}</span>
+              <FileCode2 className="h-3 w-3" /><span>{showRaw ? t('activity:message.renderedLabel') : t('activity:message.rawLabel')}</span>
             </button>
           )}
           {isUser && !editing && !isLoading && message.content && (
-            <button type="button" onClick={startEdit} title="Edit & resend this prompt" className="opacity-50 hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-              <Pencil className="h-3 w-3" /><span>Edit</span>
+            <button type="button" onClick={startEdit} title={t('activity:message.editTitle')} className="opacity-50 hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+              <Pencil className="h-3 w-3" /><span>{t('activity:message.editLabel')}</span>
             </button>
           )}
           {message.role === 'assistant' && message.content && !message.streaming && (
-            <button type="button" onClick={() => togglePin(message.id)} title={isPinned ? 'Unpin' : 'Pin this answer'}
+            <button type="button" onClick={() => togglePin(message.id)} title={isPinned ? t('activity:message.unpinTitle') : t('activity:message.pinTitle')}
               className={cn('text-xs inline-flex items-center gap-1 transition-opacity', isPinned ? 'text-amber-500 hover:text-amber-600 opacity-100' : 'opacity-50 hover:opacity-100 text-muted-foreground hover:text-foreground')}>
-              {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}<span>{isPinned ? 'Pinned' : 'Pin'}</span>
+              {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}<span>{isPinned ? t('activity:message.pinnedLabel') : t('activity:message.pinLabel')}</span>
             </button>
           )}
           {isLatestAssistant && message.content && !message.streaming && (
-            <button type="button" onClick={regenerate} title="Regenerate this response" className="opacity-50 hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-              <RotateCcw className="h-3 w-3" /><span>Retry</span>
+            <button type="button" onClick={regenerate} title={t('activity:message.regenerateTitle')} className="opacity-50 hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+              <RotateCcw className="h-3 w-3" /><span>{t('activity:message.retryLabel')}</span>
             </button>
           )}
         </div>
