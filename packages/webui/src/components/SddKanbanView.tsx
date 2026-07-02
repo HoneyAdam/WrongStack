@@ -2,43 +2,44 @@ import { Check, GitBranch, Loader2, RotateCcw, X } from 'lucide-react';
 import { useMemo } from 'react';
 import { agentInitials, priorityStyle } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import type { BoardTaskItem, BoardTaskStatus } from '@/stores';
 
 /** Kanban columns, in workflow order. `displayStatus` drives placement. */
-const COLUMNS: Array<{ key: BoardTaskStatus; label: string; accent: string; head: string }> = [
+const COLUMNS: Array<{ key: BoardTaskStatus; labelKey: string; accent: string; head: string }> = [
   {
     key: 'pending',
-    label: 'Backlog',
+    labelKey: 'kanbanBacklog',
     accent: 'border-slate-600/40',
     head: 'text-muted-foreground',
   },
   {
     key: 'queued',
-    label: 'Ready',
+    labelKey: 'kanbanReady',
     accent: 'border-cyan-500/40',
     head: 'text-cyan-600 dark:text-cyan-300',
   },
   {
     key: 'in_progress',
-    label: 'Running',
+    labelKey: 'kanbanRunning',
     accent: 'border-amber-400/50',
     head: 'text-amber-600 dark:text-amber-300',
   },
   {
     key: 'review',
-    label: 'Review',
+    labelKey: 'kanbanReview',
     accent: 'border-sky-500/40',
     head: 'text-sky-600 dark:text-sky-300',
   },
   {
     key: 'failed',
-    label: 'Failed',
+    labelKey: 'kanbanFailed',
     accent: 'border-red-500/40',
     head: 'text-red-600 dark:text-red-300',
   },
   {
     key: 'completed',
-    label: 'Done',
+    labelKey: 'kanbanDone',
     accent: 'border-emerald-500/40',
     head: 'text-emerald-600 dark:text-emerald-300',
   },
@@ -58,6 +59,7 @@ export function SddKanbanView({
   selectedId: string | null;
   onTaskClick: (id: string) => void;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const byCol = useMemo(() => {
     const m = new Map<BoardTaskStatus, BoardTaskItem[]>();
     for (const c of COLUMNS) m.set(c.key, []);
@@ -83,7 +85,7 @@ export function SddKanbanView({
           <div key={col.key} className="flex min-h-0 w-64 shrink-0 flex-col">
             <div className={cn('mb-2 flex items-center gap-2 border-b-2 pb-1.5', col.accent)}>
               <span className={cn('text-xs font-bold uppercase tracking-wide', col.head)}>
-                {col.label}
+                {t(`activity:sdd.${col.labelKey}`)}
               </span>
               <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
                 {items.length}
@@ -100,7 +102,7 @@ export function SddKanbanView({
               ))}
               {items.length === 0 && (
                 <div className="rounded-md border border-dashed border-border py-6 text-center text-[10px] text-muted-foreground">
-                  empty
+                  {t('activity:sdd.kanbanEmpty')}
                 </div>
               )}
             </div>

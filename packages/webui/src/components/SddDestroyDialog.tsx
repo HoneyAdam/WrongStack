@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import type { SddBoardSnapshotUI } from '@/stores';
 import { Button } from './ui/button';
 import {
@@ -31,6 +32,7 @@ export function SddDestroyDialog({
   busy: boolean;
   onConfirm: (revertMerged: boolean) => void;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const mergedCount = snapshot?.mergedCommits?.length ?? 0;
   const baseBranch = snapshot?.baseBranch;
   const [revertMerged, setRevertMerged] = useState(false);
@@ -59,11 +61,10 @@ export function SddDestroyDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-red-500" />
-            Destroy SDD project?
+            {t('activity:sdd.destroyTitle')}
           </DialogTitle>
           <DialogDescription>
-            This wipes the run and its work. It cannot be undone (the optional commit revert is
-            history-preserving).
+            {t('activity:sdd.destroyDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -72,21 +73,23 @@ export function SddDestroyDialog({
             <li className="flex items-start gap-2">
               <span className="mt-0.5 text-red-500">■</span>
               <span>
-                Stop the run{runningAgents > 0 ? ` (${runningAgents} agent${runningAgents === 1 ? '' : 's'} working)` : ''}
+                {runningAgents > 0
+                  ? t('activity:sdd.stopRunAgents', { count: runningAgents })
+                  : t('activity:sdd.stopRun')}
               </span>
             </li>
           )}
           <li className="flex items-start gap-2">
             <span className="mt-0.5 text-red-500">■</span>
             <span>
-              Remove {worktreeCount > 0 ? `${worktreeCount} ` : 'all '}git worktree
-              {worktreeCount === 1 ? '' : 's'} + <code className="text-xs">wstack/ap/*</code> branches —{' '}
-              <span className="text-muted-foreground">including un-merged work</span>
+              {worktreeCount > 0
+                ? t('activity:sdd.removeWorktreesCount', { count: worktreeCount })
+                : t('activity:sdd.removeWorktreesAll')}
             </span>
           </li>
           <li className="flex items-start gap-2">
             <span className="mt-0.5 text-red-500">■</span>
-            <span>Delete all SDD artifacts (specs, task graph, board, session)</span>
+            <span>{t('activity:sdd.deleteArtifacts')}</span>
           </li>
         </ul>
 
@@ -99,10 +102,10 @@ export function SddDestroyDialog({
               className="mt-0.5 h-4 w-4 accent-amber-500"
             />
             <span>
-              Also <span className="font-medium">revert {mergedCount} merged commit{mergedCount === 1 ? '' : 's'}</span>{' '}
-              on <code className="text-xs">{baseBranch ?? 'the base branch'}</code>
+              <span className="font-medium">{t('activity:sdd.revertMerged', { count: mergedCount })}</span>{' '}
+              on <code className="text-xs">{baseBranch ?? t('activity:sdd.baseBranchFallback')}</code>
               <span className="block text-xs text-muted-foreground">
-                Adds revert commits (history preserved). Refused if the working tree is dirty.
+                {t('activity:sdd.revertHint')}
               </span>
             </span>
           </label>
@@ -111,13 +114,13 @@ export function SddDestroyDialog({
         <div className="flex items-start gap-2 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
           {mergedCount > 0 && !revertMerged
-            ? 'Merged commits will be left on the base branch. Tick the box above to undo them too.'
-            : 'Make sure you really want to abandon this run.'}
+            ? t('activity:sdd.noteLeaveMerged')
+            : t('activity:sdd.noteAbandon')}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" size="sm" disabled={busy} onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common:action.cancel')}
           </Button>
           <Button
             size="sm"
@@ -127,11 +130,11 @@ export function SddDestroyDialog({
           >
             {busy ? (
               <>
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Destroying…
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> {t('activity:sdd.destroying')}
               </>
             ) : (
               <>
-                <Trash2 className="mr-1 h-3.5 w-3.5" /> Destroy everything
+                <Trash2 className="mr-1 h-3.5 w-3.5" /> {t('activity:sdd.destroyAll')}
               </>
             )}
           </Button>
