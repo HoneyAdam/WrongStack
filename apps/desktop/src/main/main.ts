@@ -22,6 +22,7 @@ import type {
 } from '../shared/types.js';
 import { DesktopAgentBridge } from './agent-bridge.js';
 import { IPC } from './ipc.js';
+import { setMainLocale, tMain } from './i18n-main.js';
 import { DesktopRuntimeManager, preloadPath, rendererIndexPath, webuiPreloadPath } from './runtime-manager.js';
 import {
   buildWebuiCommandFallbackScript,
@@ -96,7 +97,7 @@ async function createWindow(): Promise<void> {
     height: windowState?.height ?? 860,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
-    title: 'WrongStack Desktop',
+    title: tMain('windowTitle'),
     backgroundColor: '#111217',
   };
   if (windowState?.x !== undefined) windowOptions.x = windowState.x;
@@ -677,7 +678,7 @@ async function openProject(requestedRoot?: string | undefined): Promise<ReturnTy
   let projectRoot = requestedRoot;
   if (!projectRoot) {
     const result = await dialog.showOpenDialog({
-      title: 'Open Project',
+      title: tMain('openProject'),
       properties: ['openDirectory'],
     });
     projectRoot = result.filePaths[0];
@@ -695,7 +696,7 @@ async function registerProject(
   let projectRoot = requestedRoot;
   if (!projectRoot) {
     const result = await dialog.showOpenDialog({
-      title: 'Register Project',
+      title: tMain('registerProject'),
       properties: ['openDirectory'],
     });
     projectRoot = result.filePaths[0];
@@ -797,13 +798,13 @@ function buildProjectsMenu(
 ): MenuItemConstructorOptions[] {
   const projectGroups = groupProjectRuntimesForMenu(runtimes);
   const menu: MenuItemConstructorOptions[] = [
-    { label: 'Open Project...', accelerator: 'CmdOrCtrl+O', click: () => void openProject() },
-    { label: 'Register Project...', click: () => void registerProject() },
+    { label: tMain('openProjectEllipsis'), accelerator: 'CmdOrCtrl+O', click: () => void openProject() },
+    { label: tMain('registerProjectEllipsis'), click: () => void registerProject() },
     { type: 'separator' },
   ];
 
   if (projectGroups.length === 0) {
-    menu.push({ label: 'No open project sessions', enabled: false });
+    menu.push({ label: tMain('noOpenProjectSessions'), enabled: false });
     return menu;
   }
 
@@ -812,12 +813,12 @@ function buildProjectsMenu(
       label: group.name,
       submenu: [
         {
-          label: 'New Session',
+          label: tMain('newSession'),
           click: () => actions.newSession(group.sessions[0]?.id ?? ''),
           enabled: Boolean(group.sessions[0]),
         },
         {
-          label: 'Reveal Project Folder',
+          label: tMain('revealProjectFolder'),
           click: () => actions.reveal(group.sessions[0]?.id ?? ''),
           enabled: Boolean(group.sessions[0]),
         },
@@ -835,12 +836,12 @@ function buildSessionMenu(
   actions: ProjectMenuActions,
 ): MenuItemConstructorOptions {
   const running = runtime.status === 'running';
-  const label = `Session ${index} · ${runtime.status}`;
+  const label = `${tMain('session')} ${index} · ${runtime.status}`;
   return {
     label,
     submenu: [
       {
-        label: 'Quick View',
+        label: tMain('quickView'),
         click: () => actions.activate(runtime.id),
       },
       {
@@ -848,66 +849,66 @@ function buildSessionMenu(
         enabled: running,
         submenu: [
           {
-            label: 'Chat',
+            label: tMain('chat'),
             click: () => actions.activateAndNavigate(runtime.id, { activity: 'chat', view: 'chat' }),
           },
           {
-            label: 'Focus Prompt',
+            label: tMain('focusPrompt'),
             click: () => actions.activateAndNavigate(runtime.id, { action: 'focus-chat' }),
           },
           {
-            label: 'Terminal',
+            label: tMain('terminal'),
             click: () => actions.activateAndNavigate(runtime.id, { terminal: 'toggle' }),
           },
           {
-            label: 'New Terminal',
+            label: tMain('newTerminal'),
             click: () => actions.activateAndNavigate(runtime.id, { terminal: 'new' }),
           },
           { type: 'separator' },
           {
-            label: 'Files',
+            label: tMain('files'),
             click: () => actions.activateAndNavigate(runtime.id, { activity: 'files', view: 'files' }),
           },
           {
-            label: 'Changes',
+            label: tMain('changes'),
             click: () => actions.activateAndNavigate(runtime.id, { activity: 'changes', view: 'changes' }),
           },
           {
-            label: 'Sessions',
+            label: tMain('sessions'),
             click: () => actions.activateAndNavigate(runtime.id, { view: 'sessions' }),
           },
           {
-            label: 'Fleet HQ',
+            label: tMain('fleetHQ'),
             click: () => actions.activateAndNavigate(runtime.id, { activity: 'officemap', view: 'officemap' }),
           },
           {
-            label: 'Settings',
+            label: tMain('settings'),
             click: () => actions.activateAndNavigate(runtime.id, { view: 'settings' }),
           },
           { type: 'separator' },
           {
-            label: 'Command Palette',
+            label: tMain('commandPalette'),
             click: () => actions.activateAndNavigate(runtime.id, { action: 'open-command-palette' }),
           },
           {
-            label: 'Model Switcher',
+            label: tMain('modelSwitcher'),
             click: () => actions.activateAndNavigate(runtime.id, { action: 'open-model-switcher' }),
           },
         ],
       },
       { type: 'separator' },
       {
-        label: 'Open in Browser',
+        label: tMain('openInBrowser'),
         enabled: running,
         click: () => actions.openBrowser(runtime.id),
       },
       {
-        label: 'Reload WebUI',
+        label: tMain('reloadWebui'),
         enabled: running,
         click: () => actions.reload(runtime.id),
       },
       {
-        label: 'Close Session',
+        label: tMain('closeSession'),
         click: () => actions.close(runtime.id),
       },
     ],
@@ -963,12 +964,12 @@ function configureApplicationMenu(): void {
   });
   const template: MenuItemConstructorOptions[] = [
     {
-      label: 'File',
+      label: tMain('file'),
       submenu: [
-        { label: 'Open Project...', accelerator: 'CmdOrCtrl+O', click: () => void openProject() },
-        { label: 'Register Project...', click: () => void registerProject() },
+        { label: tMain('openProjectEllipsis'), accelerator: 'CmdOrCtrl+O', click: () => void openProject() },
+        { label: tMain('registerProjectEllipsis'), click: () => void registerProject() },
         {
-          label: 'Remove Active Project from Registry',
+          label: tMain('removeActiveFromRegistry'),
           enabled: hasActiveProjectWebui,
           click: () => {
             if (active?.kind === 'project') void unregisterProject(active.root);
@@ -976,13 +977,13 @@ function configureApplicationMenu(): void {
         },
         { type: 'separator' },
         {
-          label: 'New Session for Active Project',
+          label: tMain('newSessionForActive'),
           accelerator: 'CmdOrCtrl+N',
           enabled: hasActiveProjectWebui,
           click: () => void openProjectSession(active?.id),
         },
         {
-          label: 'Settings',
+          label: tMain('settings'),
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             if (hasActiveWebui) navigate({ view: 'settings' });
@@ -991,7 +992,7 @@ function configureApplicationMenu(): void {
         },
         { type: 'separator' },
         {
-          label: 'Close Active Runtime',
+          label: tMain('closeActiveRuntime'),
           accelerator: 'CmdOrCtrl+W',
           enabled: hasActiveRuntime,
           click: () => {
@@ -1004,7 +1005,7 @@ function configureApplicationMenu(): void {
       ],
     },
     {
-      label: 'Projects',
+      label: tMain('projects'),
       submenu: buildProjectsMenu(snapshot.runtimes, {
         activate: (runtimeId) => void activateRuntime(runtimeId),
         activateAndNavigate,
@@ -1022,44 +1023,44 @@ function configureApplicationMenu(): void {
       }),
     },
     {
-      label: 'Workspace',
+      label: tMain('workspace'),
       submenu: [
-        webuiItem({ label: 'Open Chat', accelerator: 'CmdOrCtrl+1', click: () => navigate({ activity: 'chat', view: 'chat' }) }),
-        webuiItem({ label: 'Focus Prompt', accelerator: 'CmdOrCtrl+/', click: () => navigate({ action: 'focus-chat' }) }),
-        webuiItem({ label: 'Toggle Terminal', accelerator: 'CmdOrCtrl+`', click: () => navigate({ terminal: 'toggle' }) }),
-        webuiItem({ label: 'New Terminal', click: () => navigate({ terminal: 'new' }) }),
+        webuiItem({ label: tMain('openChat'), accelerator: 'CmdOrCtrl+1', click: () => navigate({ activity: 'chat', view: 'chat' }) }),
+        webuiItem({ label: tMain('focusPrompt'), accelerator: 'CmdOrCtrl+/', click: () => navigate({ action: 'focus-chat' }) }),
+        webuiItem({ label: tMain('toggleTerminal'), accelerator: 'CmdOrCtrl+`', click: () => navigate({ terminal: 'toggle' }) }),
+        webuiItem({ label: tMain('newTerminal'), click: () => navigate({ terminal: 'new' }) }),
         { type: 'separator' },
-        webuiItem({ label: 'Command Palette', accelerator: 'CmdOrCtrl+K', click: () => navigate({ action: 'open-command-palette' }) }),
-        webuiItem({ label: 'Quick Model Switcher', accelerator: 'CmdOrCtrl+M', click: () => navigate({ action: 'open-model-switcher' }) }),
+        webuiItem({ label: tMain('commandPalette'), accelerator: 'CmdOrCtrl+K', click: () => navigate({ action: 'open-command-palette' }) }),
+        webuiItem({ label: tMain('quickModelSwitcher'), accelerator: 'CmdOrCtrl+M', click: () => navigate({ action: 'open-model-switcher' }) }),
         webuiItem({
           type: 'checkbox',
-          label: 'YOLO Mode',
+          label: tMain('yoloMode'),
           checked: yoloChecked,
           accelerator: 'CmdOrCtrl+Shift+Y',
           click: () => navigate({ pref: { key: 'yolo', toggle: true } }),
         }),
         webuiItem({
           type: 'checkbox',
-          label: 'Next Prediction',
+          label: tMain('nextPrediction'),
           checked: nextPredictionChecked,
           click: () => navigate({ pref: { key: 'nextPrediction', toggle: true } }),
         }),
         webuiItem({
           type: 'checkbox',
-          label: 'Context Auto Compact',
+          label: tMain('contextAutoCompact'),
           checked: contextAutoCompactChecked,
           click: () => navigate({ pref: { key: 'contextAutoCompact', toggle: true } }),
         }),
         { type: 'separator' },
-        webuiItem({ label: 'Reload Active WebUI', accelerator: 'CmdOrCtrl+Shift+R', click: () => void reloadActiveWebuiView() }),
+        webuiItem({ label: tMain('reloadActiveWebui'), accelerator: 'CmdOrCtrl+Shift+R', click: () => void reloadActiveWebuiView() }),
       ],
     },
     {
-      label: 'View',
+      label: tMain('view'),
       submenu: [
         {
           type: 'checkbox',
-          label: 'Compact Desktop Sidebar',
+          label: tMain('compactDesktopSidebar'),
           accelerator: 'CmdOrCtrl+B',
           checked: shellSidebarCollapsed,
           click: () => setShellSidebarCollapsed(!shellSidebarCollapsed),
@@ -1083,6 +1084,13 @@ manager.on('changed', () => {
   configureApplicationMenu();
   syncActiveWebuiView();
   broadcastState();
+});
+
+// Renderer pushes its display locale here so the app menu + native dialogs
+// follow the user's language choice (see preload setLocale + renderer i18n).
+ipcMain.on(IPC.setLocale, (_event, locale: string) => {
+  setMainLocale(locale);
+  configureApplicationMenu();
 });
 
 bridge.on('changed', (conversation) => {

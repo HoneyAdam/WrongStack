@@ -102,6 +102,8 @@ export interface WrongStackDesktopApi {
   onConversationChanged(cb: (conversation: DesktopConversationSnapshot) => void): () => void;
   onWebuiStatusChanged(cb: (status: DesktopWebuiStatusSnapshot) => void): () => void;
   onShellSidebarCollapsedChanged(cb: (collapsed: boolean) => void): () => void;
+  /** Push the renderer's display locale to the main process (app menu + dialogs). */
+  setLocale(locale: string): void;
 }
 
 export interface WrongStackDesktopHostApi {

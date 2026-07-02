@@ -12,6 +12,15 @@ export type DesktopLocale = 'en' | 'tr' | 'de' | 'fr' | 'it' | 'es' | 'pt-BR';
 
 const STORAGE_KEY = 'wrongstack.desktop.locale';
 
+/** Push the display locale to the Electron main process so the app menu and
+ *  native dialogs follow the user's language. No-op outside the desktop shell. */
+function pushLocaleToMain(locale: DesktopLocale): void {
+  try {
+    (window as unknown as { wrongstackDesktop?: { setLocale?: (l: string) => void } })
+      .wrongstackDesktop?.setLocale?.(locale);
+  } catch { /* bridge not available (e.g. unit tests) */ }
+}
+
 function readLocale(): DesktopLocale {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -21,10 +30,13 @@ function readLocale(): DesktopLocale {
 }
 
 let currentLocale: DesktopLocale = readLocale();
+// Sync the main process with the persisted locale on shell boot.
+pushLocaleToMain(currentLocale);
 
 export function setLocale(locale: DesktopLocale): void {
   currentLocale = locale;
   try { localStorage.setItem(STORAGE_KEY, locale); } catch { /* ignore */ }
+  pushLocaleToMain(locale);
 }
 
 export function getLocale(): DesktopLocale {

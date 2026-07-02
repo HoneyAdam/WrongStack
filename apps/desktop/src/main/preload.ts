@@ -54,6 +54,9 @@ const api: WrongStackDesktopApi = {
     ipcRenderer.on(IPC.shellSidebarCollapsedChanged, handler);
     return () => ipcRenderer.off(IPC.shellSidebarCollapsedChanged, handler);
   },
+  setLocale: (locale: string) => {
+    ipcRenderer.send(IPC.setLocale, locale);
+  },
 };
 
 contextBridge.exposeInMainWorld('wrongstackDesktop', api);

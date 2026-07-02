@@ -24,4 +24,5 @@ export const IPC = {
   webuiCommandAck: 'desktop:webui-command-ack',
   webuiCommand: 'desktop:webui-command',
   shellSidebarCollapsedChanged: 'desktop:shell-sidebar-collapsed-changed',
+  setLocale: 'desktop:set-locale',
 } as const;
