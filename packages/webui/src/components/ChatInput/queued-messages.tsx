@@ -1,25 +1,26 @@
 import { ArrowDownAZ, ArrowUpAZ, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import type { QueuedItem, QueueMode } from '@/stores/chat-store';
 
 type SortDir = 'oldest' | 'newest';
 
-const MODE_META: Record<QueueMode, { label: string; tone: string; title: string }> = {
+const MODE_META: Record<QueueMode, { label: string; tone: string; titleKey: string }> = {
   btw: {
     label: 'btw',
     tone: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
-    title: 'By-the-way — sent without interrupting the running agent',
+    titleKey: 'btwTitle',
   },
   steer: {
     label: 'steer',
     tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
-    title: 'Steer — interrupts the running agent and redirects it',
+    titleKey: 'steerTitle',
   },
   queue: {
     label: 'queue',
     tone: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
-    title: 'Queued — held until the current agent run completes',
+    titleKey: 'queueTitle',
   },
 };
 
@@ -30,6 +31,7 @@ interface QueuedMessagesProps {
 }
 
 export function QueuedMessages({ queue, onClear, onRemove }: QueuedMessagesProps) {
+  const { t } = useAppTranslation();
   const [sortDir, setSortDir] = useState<SortDir>('oldest');
 
   // Sort a copy so the underlying store stays in arrival order.
@@ -47,7 +49,7 @@ export function QueuedMessages({ queue, onClear, onRemove }: QueuedMessagesProps
     <div className="rounded-lg border bg-muted/30 p-2 text-xs" data-testid="inline-queue">
       <div className="flex items-center justify-between mb-1.5 gap-2">
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium shrink-0">
-          Queue ({queue.length})
+          {t('activity:queue.heading')} ({queue.length})
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -59,8 +61,8 @@ export function QueuedMessages({ queue, onClear, onRemove }: QueuedMessagesProps
             )}
             title={
               sortDir === 'newest'
-                ? 'Sorted newest first — click to sort oldest first'
-                : 'Sorted oldest first — click to sort newest first'
+                ? t('activity:queue.sortNewestTitle')
+                : t('activity:queue.sortOldestTitle')
             }
             data-testid="inline-queue-sort"
           >
@@ -69,17 +71,17 @@ export function QueuedMessages({ queue, onClear, onRemove }: QueuedMessagesProps
             ) : (
               <ArrowUpAZ className="h-3 w-3" />
             )}
-            {sortDir === 'newest' ? 'Newest' : 'Oldest'}
+            {sortDir === 'newest' ? t('activity:queue.newest') : t('activity:queue.oldest')}
           </button>
           <button
             type="button"
             onClick={onClear}
             className="inline-flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors px-1.5 py-0.5 rounded text-[10px]"
-            title="Remove every queued message"
+            title={t('activity:queue.clearTitle')}
             data-testid="inline-queue-clear-all"
           >
             <Trash2 className="h-3 w-3" />
-            Clear all
+            {t('activity:queue.clear')}
           </button>
         </div>
       </div>
@@ -103,7 +105,7 @@ export function QueuedMessages({ queue, onClear, onRemove }: QueuedMessagesProps
                     'shrink-0 inline-flex items-center justify-center text-[9px] font-semibold uppercase tracking-wider px-1 py-px rounded border mt-0.5',
                     meta.tone,
                   )}
-                  title={meta.title}
+                  title={t(`activity:queue.${meta.titleKey}`)}
                 >
                   {meta.label}
                 </span>
@@ -113,7 +115,7 @@ export function QueuedMessages({ queue, onClear, onRemove }: QueuedMessagesProps
                 type="button"
                 onClick={() => onRemove(sourceIdx)}
                 className="text-muted-foreground hover:text-destructive shrink-0"
-                title="Remove from queue"
+                title={t('activity:queue.removeTitle')}
                 data-testid={`inline-queue-remove-${sourceIdx}`}
               >
                 ×

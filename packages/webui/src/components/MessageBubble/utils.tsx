@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { Check, Copy, FileCode2 } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
@@ -64,6 +65,7 @@ export const rehypePlugins = [rehypeHighlight];
 /** A copy button that shows a checkmark for 1.5s after successful copy.
  *  Used inside code block headers for better UX feedback. */
 function CodeCopyButton({ text }: { text: string }) {
+  const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(async () => {
     const ok = await copyToClipboard(text);
@@ -81,10 +83,10 @@ function CodeCopyButton({ text }: { text: string }) {
         'hover:bg-muted-foreground/10',
         copied ? 'text-emerald-500' : 'text-muted-foreground hover:text-foreground',
       )}
-      title={copied ? 'Copied!' : 'Copy code'}
+      title={copied ? t('common:action.copied') : t('common:action.copy')}
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-      <span>{copied ? 'Copied' : 'Copy'}</span>
+      <span>{copied ? t('common:action.copied') : t('common:action.copy')}</span>
     </button>
   );
 }
