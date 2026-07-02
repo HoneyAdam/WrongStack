@@ -18,6 +18,7 @@ import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
 import { FleetAgentRow } from './FleetMonitor';
 import { SideEffectTimeline } from './SideEffectTimeline';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
 import type { FleetTimelineEvent, SubagentView } from '@/stores';
 
@@ -58,6 +59,7 @@ export function InspectorPanel() {
   const toggleInspector = useUIStore((s) => s.toggleInspector);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
   const setInspectorTab = useUIStore((s) => s.setInspectorTab);
+  const { t } = useAppTranslation();
 
   // Fleet-wide signals (subscribed narrowly so tab switches / typing in the
   // chat don't re-render this component).
@@ -109,7 +111,7 @@ export function InspectorPanel() {
           'group w-full flex items-center justify-between gap-2 px-3 h-7 text-[11px]',
           'text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors',
         )}
-        title={inspectorOpen ? 'Hide inspector panel' : 'Show inspector panel (Fleet / Agents / Audit)'}
+        title={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
       >
         <span className="flex items-center gap-2 min-w-0">
           {inspectorOpen ? (
@@ -117,7 +119,7 @@ export function InspectorPanel() {
           ) : (
             <ChevronUp className="h-3.5 w-3.5 shrink-0" />
           )}
-          <span className="font-medium uppercase tracking-wider">Inspector</span>
+          <span className="font-medium uppercase tracking-wider">{t('activity:inspector.label')}</span>
           {/* Live summary — running count + tokens, even while collapsed */}
           {fleetTotal > 0 && (
             <>
@@ -150,7 +152,7 @@ export function InspectorPanel() {
                   setInspectorTab('sideEffects');
                 }}
                 className="flex items-center gap-1 text-yellow-500 hover:text-yellow-400 transition-colors"
-                title="Open Audit tab"
+                title={t('activity:inspector.openAudit')}
               >
                 <Activity className="h-3 w-3" />
                 <span className="tabular-nums">{sideEffectCount}</span>
@@ -179,7 +181,7 @@ export function InspectorPanel() {
               active={inspectorTab === 'fleet'}
               onClick={openFleetTab}
               icon={<Bot className="h-3.5 w-3.5" />}
-              label="Fleet"
+              label={t('activity:inspector.tabFleet')}
               count={fleetTotal}
               running={runningCount}
             />
@@ -187,14 +189,14 @@ export function InspectorPanel() {
               active={inspectorTab === 'agents'}
               onClick={openAgentsTab}
               icon={<Users className="h-3.5 w-3.5" />}
-              label="Agents"
+              label={t('activity:inspector.tabAgents')}
               count={fleetTotal}
             />
             <TabButton
               active={inspectorTab === 'sideEffects'}
               onClick={openSideEffectsTab}
               icon={<Activity className="h-3.5 w-3.5" />}
-              label="Audit"
+              label={t('activity:inspector.tabAudit')}
               count={sideEffectCount}
             />
             <div className="flex-1" />
@@ -202,8 +204,8 @@ export function InspectorPanel() {
               type="button"
               onClick={() => setInspectorOpen(false)}
               className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-              aria-label="Collapse inspector panel"
-              title="Collapse (Esc)"
+              aria-label={t('activity:inspector.collapseAria')}
+              title={t('activity:inspector.collapseTitle')}
             >
               <ChevronDown className="h-4 w-4" />
             </button>
@@ -316,6 +318,7 @@ function FleetTabContent({
   eventTimeline: FleetTimelineEvent[];
   onSelectAgent: (agent: SubagentView) => void;
 }) {
+  const { t } = useAppTranslation();
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Summary strip */}
@@ -325,7 +328,7 @@ function FleetTabContent({
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
           )}
           <span className="tabular-nums">
-            {runningCount} running · {fleetList.length} total
+            {t('activity:agents.runningCount', { count: runningCount })} · {t('activity:agents.totalCount', { count: fleetList.length })}
           </span>
         </span>
         <ConcurrencyGauge current={fleetConcurrency} max={fleetConcurrencyMax} showLabel />
@@ -339,8 +342,8 @@ function FleetTabContent({
       {fleetList.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
           <Users className="h-8 w-8 mb-2 opacity-20" />
-          <p className="text-xs font-medium">No agents active</p>
-          <p className="text-[11px] mt-0.5">Agents appear here when the fleet is active.</p>
+          <p className="text-xs font-medium">{t('activity:inspector.noAgentsActive')}</p>
+          <p className="text-[11px] mt-0.5">{t('activity:inspector.agentsAppearHint')}</p>
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-1.5">
@@ -381,11 +384,12 @@ function AgentsTabContent({
   selectedAgentId: string | null;
   onSelectAgent: (id: string) => void;
 }) {
+  const { t } = useAppTranslation();
   if (fleetList.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
         <Bot className="h-8 w-8 mb-2 opacity-20" />
-        <p className="text-xs font-medium">No agents active</p>
+        <p className="text-xs font-medium">{t('activity:inspector.noAgentsActive')}</p>
       </div>
     );
   }
@@ -419,7 +423,7 @@ function AgentsTabContent({
                   ? 'bg-primary/15 text-primary ring-1 ring-primary/40'
                   : 'hover:bg-accent text-muted-foreground',
               )}
-              title={`${agent.name}${i === selectedIdx ? ' (selected)' : ''}`}
+              title={i === selectedIdx ? t('activity:inspector.selected', { name: agent.name }) : agent.name}
             >
               <span
                 className={cn(

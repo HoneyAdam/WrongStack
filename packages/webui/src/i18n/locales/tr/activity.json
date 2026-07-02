@@ -69,5 +69,27 @@
     "refreshTitle": "Değişiklikleri yenile",
     "loading": "Değişiklikler yükleniyor…",
     "clean": "Değişiklik yok — çalışma ağacı temiz."
+  },
+  "inspector": {
+    "showPanel": "Denetçi panelini göster (Filo / Vekiller / Denetim)",
+    "hidePanel": "Denetçi panelini gizle",
+    "label": "Denetçi",
+    "openAudit": "Denetim sekmesini aç",
+    "tabFleet": "Filo",
+    "tabAgents": "Vekiller",
+    "tabAudit": "Denetim",
+    "collapseAria": "Denetçi panelini daralt",
+    "collapseTitle": "Daralt (Esc)",
+    "noAgentsActive": "Etkin vekil yok",
+    "agentsAppearHint": "Filo etkinken vekiller burada görünür.",
+    "selected": "{{name}} (seçili)"
+  },
+  "nextSteps": {
+    "header": "Sonraki adımlar",
+    "autoSubmitting": "otomatik gönderiliyor",
+    "clickToFill": "doldurmak için tıkla",
+    "clickToFillTitle": "Doldurmak için tıkla: {{text}}",
+    "auto": "otomatik",
+    "willAutoSubmit": "Geri sayımdan sonra otomatik gönderilecek"
   }
 }

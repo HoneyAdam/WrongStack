@@ -69,5 +69,27 @@
     "refreshTitle": "Refresh changes",
     "loading": "Loading changes…",
     "clean": "No changes — working tree is clean."
+  },
+  "inspector": {
+    "showPanel": "Show inspector panel (Fleet / Agents / Audit)",
+    "hidePanel": "Hide inspector panel",
+    "label": "Inspector",
+    "openAudit": "Open Audit tab",
+    "tabFleet": "Fleet",
+    "tabAgents": "Agents",
+    "tabAudit": "Audit",
+    "collapseAria": "Collapse inspector panel",
+    "collapseTitle": "Collapse (Esc)",
+    "noAgentsActive": "No agents active",
+    "agentsAppearHint": "Agents appear here when the fleet is active.",
+    "selected": "{{name}} (selected)"
+  },
+  "nextSteps": {
+    "header": "Next steps",
+    "autoSubmitting": "auto-submitting in",
+    "clickToFill": "click to fill input",
+    "clickToFillTitle": "Click to fill: {{text}}",
+    "auto": "auto",
+    "willAutoSubmit": "Will auto-submit after countdown"
   }
 }

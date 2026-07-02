@@ -1,6 +1,7 @@
 import { ArrowRight, Lightbulb, MousePointerClick, Timer } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 
 /** A single next-step suggestion extracted from the agent's output. */
 export interface NextStep {
@@ -237,6 +238,7 @@ export function NextStepsBar({
   /** Whether auto-submit is currently allowed (cap not reached). */
   canAutoSubmit?: boolean;
 }): React.ReactElement | null {
+  const { t } = useAppTranslation();
   if (steps.length === 0) return null;
 
   // Don't show countdown if the consecutive auto-submit cap has been reached
@@ -250,15 +252,15 @@ export function NextStepsBar({
         <span className="flex items-center justify-center w-5 h-5 rounded-md bg-primary/15 text-primary">
           <Lightbulb className="h-3 w-3" />
         </span>
-        <span className="text-xs font-semibold text-foreground/90">Next steps</span>
+        <span className="text-xs font-semibold text-foreground/90">{t('activity:nextSteps.header')}</span>
         {showAutoCountdown && autoStep ? (
           <span className="ml-auto flex items-center gap-1 text-xs text-primary">
             <Timer className="h-3 w-3" />
-            auto-submitting in <AutoCountdown delayMs={autoDelayMs} onComplete={() => onAutoSubmit?.(autoStep.text)} />
+            {t('activity:nextSteps.autoSubmitting')} <AutoCountdown delayMs={autoDelayMs} onComplete={() => onAutoSubmit?.(autoStep.text)} />
           </span>
         ) : (
           <span className="text-[10px] text-muted-foreground ml-auto">
-            click to fill input
+            {t('activity:nextSteps.clickToFill')}
           </span>
         )}
       </div>
@@ -277,7 +279,7 @@ export function NextStepsBar({
                   ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                   : 'border-transparent hover:bg-primary/[0.08] hover:shadow-sm hover:border-primary/20'
               }`}
-              title={`Click to fill: ${s.text}`}
+              title={t('activity:nextSteps.clickToFillTitle', { text: s.text })}
             >
               {/* Index badge */}
               <span
@@ -309,11 +311,11 @@ export function NextStepsBar({
               {s.auto && (
                 <span className="flex items-center gap-1 text-[10px] text-primary/70">
                   {autoMode && s.index === 1 && !showAutoCountdown ? (
-                    <span title="Will auto-submit after countdown">⏩</span>
+                    <span title={t('activity:nextSteps.willAutoSubmit')}>⏩</span>
                   ) : (
                     <Timer className="h-3 w-3" />
                   )}
-                  auto
+                  {t('activity:nextSteps.auto')}
                 </span>
               )}
               {/* Click indicator — visible on hover */}

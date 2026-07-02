@@ -69,5 +69,27 @@
     "refreshTitle": "Atualizar alterações",
     "loading": "Carregando alterações…",
     "clean": "Sem alterações — a árvore de trabalho está limpa."
+  },
+  "inspector": {
+    "showPanel": "Mostrar painel Inspetor (Frota / Agentes / Auditoria)",
+    "hidePanel": "Ocultar painel Inspetor",
+    "label": "Inspetor",
+    "openAudit": "Abrir aba Auditoria",
+    "tabFleet": "Frota",
+    "tabAgents": "Agentes",
+    "tabAudit": "Auditoria",
+    "collapseAria": "Recolher painel Inspetor",
+    "collapseTitle": "Recolher (Esc)",
+    "noAgentsActive": "Nenhum agente ativo",
+    "agentsAppearHint": "Os agentes aparecem aqui quando a frota está ativa.",
+    "selected": "{{name}} (selecionado)"
+  },
+  "nextSteps": {
+    "header": "Próximos passos",
+    "autoSubmitting": "envio automático em",
+    "clickToFill": "clique para preencher",
+    "clickToFillTitle": "Clique para preencher: {{text}}",
+    "auto": "auto",
+    "willAutoSubmit": "Envio automático após a contagem regressiva"
   }
 }

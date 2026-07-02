@@ -69,5 +69,27 @@
     "refreshTitle": "Änderungen aktualisieren",
     "loading": "Änderungen werden geladen…",
     "clean": "Keine Änderungen — Arbeitsbaum ist sauber."
+  },
+  "inspector": {
+    "showPanel": "Inspektor-Panel anzeigen (Fleet / Agents / Audit)",
+    "hidePanel": "Inspektor-Panel ausblenden",
+    "label": "Inspektor",
+    "openAudit": "Audit-Tab öffnen",
+    "tabFleet": "Fleet",
+    "tabAgents": "Agents",
+    "tabAudit": "Audit",
+    "collapseAria": "Inspektor-Panel einklappen",
+    "collapseTitle": "Einklappen (Esc)",
+    "noAgentsActive": "Keine Agents aktiv",
+    "agentsAppearHint": "Agents erscheinen hier, wenn die Fleet aktiv ist.",
+    "selected": "{{name}} (ausgewählt)"
+  },
+  "nextSteps": {
+    "header": "Nächste Schritte",
+    "autoSubmitting": "automatisches Senden in",
+    "clickToFill": "Klicken zum Ausfüllen",
+    "clickToFillTitle": "Klicken zum Ausfüllen: {{text}}",
+    "auto": "auto",
+    "willAutoSubmit": "Wird nach Countdown automatisch gesendet"
   }
 }
