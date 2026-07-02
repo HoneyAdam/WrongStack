@@ -15,5 +15,41 @@
   "empty": "(leer)",
   "messageCount_one": "{{count}} Nachricht",
   "messageCount_other": "{{count}} Nachrichten",
-  "thinking": "Denke nach…"
+  "thinking": "Denke nach…",
+  "input": {
+    "autoFencedAs": "Auto-umzäunt als",
+    "charsWord": "Zeichen",
+    "linesWord": "Zeilen",
+    "pastedWord": "Eingefügt",
+    "fencedHintPrefix": "— eingezäunte Codeblöcke rendern am besten mit",
+    "removeFencesTitle": "Zäune entfernen und Rohtext wiederherstellen",
+    "dismissTitle": "Verwerfen",
+    "pendingAttachmentAlt": "Ausstehender Anhang",
+    "imageAttached": "Bild angehängt",
+    "removeImageTitle": "Bild entfernen",
+    "referencesLabel": "Referenzen",
+    "clearAll": "Alle löschen",
+    "stopEditTitle": "Run stoppen und letzten Prompt bearbeiten (wiederverwenden + umschreiben)",
+    "abortTitle": "Aktuellen Run abbrechen",
+    "refineEnabledTitle": "Verfeinerung aktiv — zum Deaktivieren klicken",
+    "refineDisabledTitle": "Verfeinerung deaktiviert — zum Aktivieren klicken",
+    "btwRunningTitle": "btw — senden ohne den laufenden Agenten zu unterbrechen",
+    "btwIdleTitle": "btw — senden (Enter)",
+    "steerRunningTitle": "steer — laufenden Agenten unterbrechen und umleiten",
+    "steerIdleTitle": "steer — senden (kein Unterbrechungsziel im Leerlauf)",
+    "addQueueTitle": "zur Warteschlange — halten bis der aktuelle Run endet"
+  },
+  "header": {
+    "openSidebarTitle": "Seitenleiste öffnen (Ctrl+\\)",
+    "renameTitle": "Zum Umbenennen der Sitzung klicken",
+    "untitled": "Unbenannt",
+    "changeModelTitle": "Anbieter / Modell ändern (Ctrl+M)",
+    "iterationTitle": "Agent-Iteration — klicken um zur Live-Aktivität zu springen",
+    "runningProcessesTitle": "Laufende Prozesse",
+    "checkpointsTitle": "Sitzungs-Checkpoints — zurückspulen",
+    "scrollTopTitle": "Nach oben scrollen (älteste)",
+    "jkNavigateTitle": "j/k zum Navigieren",
+    "noProvider": "kein-anbieter",
+    "noModel": "kein-modell"
+  }
 }

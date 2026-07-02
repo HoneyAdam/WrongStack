@@ -15,5 +15,41 @@
   "empty": "(vacío)",
   "messageCount_one": "{{count}} mensaje",
   "messageCount_other": "{{count}} mensajes",
-  "thinking": "Pensando…"
+  "thinking": "Pensando…",
+  "input": {
+    "autoFencedAs": "Auto-cercado como",
+    "charsWord": "caracteres",
+    "linesWord": "líneas",
+    "pastedWord": "Pegado",
+    "fencedHintPrefix": "— los bloques de código cercados se ven mejor con",
+    "removeFencesTitle": "Quitar cercados y restaurar texto sin formato",
+    "dismissTitle": "Cerrar",
+    "pendingAttachmentAlt": "Adjunto pendiente",
+    "imageAttached": "Imagen adjunta",
+    "removeImageTitle": "Quitar imagen",
+    "referencesLabel": "Referencias",
+    "clearAll": "Borrar todo",
+    "stopEditTitle": "Detener el run y editar el último prompt (reutilizar + reescribir)",
+    "abortTitle": "Abortar el run actual",
+    "refineEnabledTitle": "Refinamiento activado — clic para desactivar",
+    "refineDisabledTitle": "Refinamiento desactivado — clic para activar",
+    "btwRunningTitle": "btw — enviar sin interrumpir el agente en ejecución",
+    "btwIdleTitle": "btw — enviar (Enter)",
+    "steerRunningTitle": "steer — interrumpir el agente en ejecución y redirigir",
+    "steerIdleTitle": "steer — enviar (sin objetivo de interrupción en reposo)",
+    "addQueueTitle": "añadir cola — retener hasta que termine el run actual"
+  },
+  "header": {
+    "openSidebarTitle": "Abrir barra lateral (Ctrl+\\)",
+    "renameTitle": "Clic para renombrar la sesión",
+    "untitled": "Sin título",
+    "changeModelTitle": "Cambiar proveedor / modelo (Ctrl+M)",
+    "iterationTitle": "Iteración del agente — clic para ir a la actividad en vivo",
+    "runningProcessesTitle": "Procesos en ejecución",
+    "checkpointsTitle": "Puntos de control de sesión — rebobinar",
+    "scrollTopTitle": "Desplazar arriba (más antiguo)",
+    "jkNavigateTitle": "j/k para navegar",
+    "noProvider": "sin-proveedor",
+    "noModel": "sin-modelo"
+  }
 }

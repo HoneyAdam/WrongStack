@@ -374,7 +374,7 @@ export function ChatView() {
                 size="icon"
                 className="h-7 w-7 shrink-0"
                 onClick={toggleSidebar}
-                title="Open sidebar (Ctrl+\\)"
+                title={t('chat:header.openSidebarTitle')}
               >
                 <PanelLeftOpen className="h-4 w-4" />
               </Button>
@@ -418,10 +418,10 @@ export function ChatView() {
                   type="button"
                   onClick={() => { setTitleDraft(nickname || sessionTitle || ''); setRenamingTitle(true); }}
                   className="flex items-center gap-1 text-[11px] font-medium text-foreground/80 hover:text-foreground truncate max-w-[12rem] shrink-0 px-1 -mx-1 rounded hover:bg-muted/50 transition-colors"
-                  title="Click to rename session"
+                  title={t('chat:header.renameTitle')}
                 >
                   <Pencil className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                  <span className="truncate">{nickname || sessionTitle || 'Untitled'}</span>
+                  <span className="truncate">{nickname || sessionTitle || t('chat:header.untitled')}</span>
                 </button>
               )
             )}
@@ -467,13 +467,13 @@ export function ChatView() {
               type="button"
               onClick={() => useUIStore.getState().setModelSwitcherOpen(true)}
               className="group hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-md border bg-background/50 hover:bg-accent hover:border-primary/40 transition-colors text-[11px] min-w-0 shrink-0"
-              title="Change provider / model (Ctrl+M)"
+              title={t('chat:header.changeModelTitle')}
             >
               <Cpu className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0" />
               <span className="font-mono truncate max-w-[9rem] xl:max-w-[16rem]">
-                <span className="text-muted-foreground">{provider || 'no-provider'}</span>
+                <span className="text-muted-foreground">{provider || t('chat:header.noProvider')}</span>
                 <span className="text-muted-foreground/40 mx-0.5">/</span>
-                <span className="font-medium">{model || 'no-model'}</span>
+                <span className="font-medium">{model || t('chat:header.noModel')}</span>
               </span>
             </button>
             {/* Mode pickers fold away below md — both remain reachable via
@@ -486,7 +486,7 @@ export function ChatView() {
               <button
                 type="button"
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0 hover:bg-primary/20 transition-colors cursor-pointer"
-                title="Agent iteration — click to jump to live activity"
+                title={t('chat:header.iterationTitle')}
                 onClick={() => document.getElementById('chat-activity')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
               >
                 <Activity className="h-3 w-3 animate-pulse" />
@@ -508,7 +508,7 @@ export function ChatView() {
               size="icon"
               className={cn('h-7 w-7 relative', processOpen && 'bg-amber-500/10 text-amber-600 dark:text-amber-400')}
               onClick={() => setProcessOpen((v) => !v)}
-              title="Running processes"
+              title={t('chat:header.runningProcessesTitle')}
             >
               <Terminal className="h-4 w-4" />
               {processOpen && (
@@ -520,7 +520,7 @@ export function ChatView() {
               size="icon"
               className={cn('h-7 w-7 relative', checkpointOpen && 'bg-violet-500/10 text-violet-600 dark:text-violet-400')}
               onClick={() => setCheckpointOpen((v) => !v)}
-              title="Session checkpoints — rewind"
+              title={t('chat:header.checkpointsTitle')}
             >
               <History className="h-4 w-4" />
               {checkpointOpen && (
@@ -608,7 +608,7 @@ export function ChatView() {
           <button
             type="button"
             onClick={scrollToTop}
-            title="Scroll to top (oldest)"
+            title={t('chat:header.scrollTopTitle')}
             className={cn(
               'absolute top-3 right-3 z-10',
               'flex items-center gap-1 px-2.5 py-1 rounded-full shadow-md border',
@@ -714,7 +714,7 @@ export function ChatView() {
             <kbd>Ctrl+L</kbd> clear
           </span>
           <span className="opacity-50">·</span>
-          <span title="j/k to navigate" className="inline-flex items-center gap-1">
+          <span title={t('chat:header.jkNavigateTitle')} className="inline-flex items-center gap-1">
             <kbd>j</kbd><kbd>k</kbd> navigate
           </span>
           <span className="opacity-50">·</span>

@@ -15,5 +15,41 @@
   "empty": "(boş)",
   "messageCount_one": "{{count}} mesaj",
   "messageCount_other": "{{count}} mesaj",
-  "thinking": "Düşünüyor…"
+  "thinking": "Düşünüyor…",
+  "input": {
+    "autoFencedAs": "Otomatik çitlendi:",
+    "charsWord": "karakter",
+    "linesWord": "satır",
+    "pastedWord": "Yapıştırıldı",
+    "fencedHintPrefix": "— çitli kod blokları en iyi şununla görünür:",
+    "removeFencesTitle": "Çitleri kaldır ve ham metni geri yükle",
+    "dismissTitle": "Kapat",
+    "pendingAttachmentAlt": "Bekleyen ek",
+    "imageAttached": "Görüntü eklendi",
+    "removeImageTitle": "Görüntüyü kaldır",
+    "referencesLabel": "Referanslar",
+    "clearAll": "Tümünü temizle",
+    "stopEditTitle": "Çalışmayı durdur ve son istemi düzenle (yeniden kullan + yeniden yaz)",
+    "abortTitle": "Mevcut çalışmayı iptal et",
+    "refineEnabledTitle": "İyileştirme etkin — devre dışı bırakmak için tıkla",
+    "refineDisabledTitle": "İyileştirme devre dışı — etkinleştirmek için tıkla",
+    "btwRunningTitle": "btw — çalışan ajanı bölmeden gönder",
+    "btwIdleTitle": "btw — gönder (Enter)",
+    "steerRunningTitle": "steer — çalışan ajanı böl ve yeniden yönlendir",
+    "steerIdleTitle": "steer — gönder (boştayken bölme hedefi yok)",
+    "addQueueTitle": "kuyruğa ekle — mevcut çalışma bitene kadar bekle"
+  },
+  "header": {
+    "openSidebarTitle": "Kenar çubuğunu aç (Ctrl+\\)",
+    "renameTitle": "Oturumu yeniden adlandırmak için tıkla",
+    "untitled": "Başlıksız",
+    "changeModelTitle": "Sağlayıcı / modeli değiştir (Ctrl+M)",
+    "iterationTitle": "Ajan iterasyonu — canlı etkinliğe atlamak için tıkla",
+    "runningProcessesTitle": "Çalışan süreçler",
+    "checkpointsTitle": "Oturum kontrol noktaları — geri sar",
+    "scrollTopTitle": "Başa kaydır (en eski)",
+    "jkNavigateTitle": "gezinmek için j/k",
+    "noProvider": "sağlayıcı-yok",
+    "noModel": "model-yok"
+  }
 }

@@ -15,5 +15,41 @@
   "empty": "(empty)",
   "messageCount_one": "{{count}} message",
   "messageCount_other": "{{count}} messages",
-  "thinking": "Thinking…"
+  "thinking": "Thinking…",
+  "input": {
+    "autoFencedAs": "Auto-fenced as",
+    "charsWord": "chars",
+    "linesWord": "lines",
+    "pastedWord": "Pasted",
+    "fencedHintPrefix": "— fenced code blocks render best with",
+    "removeFencesTitle": "Remove fences and restore raw text",
+    "dismissTitle": "Dismiss",
+    "pendingAttachmentAlt": "Pending attachment",
+    "imageAttached": "Image attached",
+    "removeImageTitle": "Remove image",
+    "referencesLabel": "References",
+    "clearAll": "Clear all",
+    "stopEditTitle": "Stop run and edit the last prompt (reuse + rewrite)",
+    "abortTitle": "Abort the current run",
+    "refineEnabledTitle": "Refining enabled — click to disable",
+    "refineDisabledTitle": "Refining disabled — click to enable",
+    "btwRunningTitle": "btw — send without interrupting the running agent",
+    "btwIdleTitle": "btw — send (Enter)",
+    "steerRunningTitle": "steer — interrupt the running agent and redirect",
+    "steerIdleTitle": "steer — send (no interrupt target while idle)",
+    "addQueueTitle": "add queue — hold until the current run completes"
+  },
+  "header": {
+    "openSidebarTitle": "Open sidebar (Ctrl+\\)",
+    "renameTitle": "Click to rename session",
+    "untitled": "Untitled",
+    "changeModelTitle": "Change provider / model (Ctrl+M)",
+    "iterationTitle": "Agent iteration — click to jump to live activity",
+    "runningProcessesTitle": "Running processes",
+    "checkpointsTitle": "Session checkpoints — rewind",
+    "scrollTopTitle": "Scroll to top (oldest)",
+    "jkNavigateTitle": "j/k to navigate",
+    "noProvider": "no-provider",
+    "noModel": "no-model"
+  }
 }

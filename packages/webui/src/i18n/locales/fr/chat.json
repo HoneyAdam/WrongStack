@@ -15,5 +15,41 @@
   "empty": "(vide)",
   "messageCount_one": "{{count}} message",
   "messageCount_other": "{{count}} messages",
-  "thinking": "Réflexion…"
+  "thinking": "Réflexion…",
+  "input": {
+    "autoFencedAs": "Auto-clôturé en",
+    "charsWord": "caractères",
+    "linesWord": "lignes",
+    "pastedWord": "Collé",
+    "fencedHintPrefix": "— les blocs de code clôturés s'affichent mieux avec",
+    "removeFencesTitle": "Retirer les clôtures et restaurer le texte brut",
+    "dismissTitle": "Fermer",
+    "pendingAttachmentAlt": "Pièce jointe en attente",
+    "imageAttached": "Image jointe",
+    "removeImageTitle": "Retirer l'image",
+    "referencesLabel": "Références",
+    "clearAll": "Tout effacer",
+    "stopEditTitle": "Arrêter le run et éditer le dernier prompt (réutiliser + réécrire)",
+    "abortTitle": "Abandonner le run en cours",
+    "refineEnabledTitle": "Affinage activé — cliquer pour désactiver",
+    "refineDisabledTitle": "Affinage désactivé — cliquer pour activer",
+    "btwRunningTitle": "btw — envoyer sans interrompre l'agent en cours",
+    "btwIdleTitle": "btw — envoyer (Entrée)",
+    "steerRunningTitle": "steer — interrompre l'agent en cours et rediriger",
+    "steerIdleTitle": "steer — envoyer (pas de cible d'interruption au repos)",
+    "addQueueTitle": "ajouter file — attendre la fin du run en cours"
+  },
+  "header": {
+    "openSidebarTitle": "Ouvrir la barre latérale (Ctrl+\\)",
+    "renameTitle": "Cliquer pour renommer la session",
+    "untitled": "Sans titre",
+    "changeModelTitle": "Changer de fournisseur / modèle (Ctrl+M)",
+    "iterationTitle": "Itération de l'agent — cliquer pour aller à l'activité en direct",
+    "runningProcessesTitle": "Processus en cours",
+    "checkpointsTitle": "Points de contrôle de session — rembobiner",
+    "scrollTopTitle": "Défiler vers le haut (le plus ancien)",
+    "jkNavigateTitle": "j/k pour naviguer",
+    "noProvider": "aucun-fournisseur",
+    "noModel": "aucun-modèle"
+  }
 }

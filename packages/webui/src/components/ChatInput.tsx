@@ -580,21 +580,20 @@ export function ChatInput({
           <span>
             {pasteHint.lang ? (
               <>
-                Auto-fenced as <span className="font-mono font-semibold">{pasteHint.lang}</span>
+                {t('chat:input.autoFencedAs')} <span className="font-mono font-semibold">{pasteHint.lang}</span>
                 {' — '}
                 <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span>{' '}
-                chars
+                {t('chat:input.charsWord')}
                 {' ('}
-                <span className="font-mono tabular-nums">{pasteHint.lines}</span> lines)
+                <span className="font-mono tabular-nums">{pasteHint.lines}</span> {t('chat:input.linesWord')})
               </>
             ) : (
               <>
-                Pasted{' '}
+                {t('chat:input.pastedWord')}{' '}
                 <span className="font-mono tabular-nums">{pasteHint.chars.toLocaleString()}</span>{' '}
-                chars
+                {t('chat:input.charsWord')}
                 {' ('}
-                <span className="font-mono tabular-nums">{pasteHint.lines}</span> lines) — fenced
-                code blocks render best with <span className="font-mono">```</span>.
+                <span className="font-mono tabular-nums">{pasteHint.lines}</span> {t('chat:input.linesWord')}) {t('chat:input.fencedHintPrefix')} <span className="font-mono">```</span>.
               </>
             )}
           </span>
@@ -604,16 +603,16 @@ export function ChatInput({
                 type="button"
                 onClick={pasteHint.undoFence}
                 className="underline underline-offset-2 hover:opacity-80"
-                title="Remove fences and restore raw text"
+                title={t('chat:input.removeFencesTitle')}
               >
-                Undo
+                {t('common:action.undo')}
               </button>
             )}
             <button
               type="button"
               onClick={() => setPasteHint(null)}
               className="opacity-60 hover:opacity-100 shrink-0"
-              title="Dismiss"
+              title={t('chat:input.dismissTitle')}
             >
               ×
             </button>
@@ -626,14 +625,14 @@ export function ChatInput({
         <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2 py-1.5">
           <img
             src={pendingImage}
-            alt="Pending attachment"
+            alt={t('chat:input.pendingAttachmentAlt')}
             className="h-12 w-12 rounded object-cover border border-border/50"
           />
-          <span className="text-xs text-muted-foreground">Image attached</span>
+          <span className="text-xs text-muted-foreground">{t('chat:input.imageAttached')}</span>
           <button
             type="button"
             onClick={clearPendingImage}
-            title="Remove image"
+            title={t('chat:input.removeImageTitle')}
             className="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             ×
@@ -681,7 +680,7 @@ export function ChatInput({
       {hasFileRefs && (
         <div className="flex flex-wrap items-center gap-2 px-1">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
-            References
+            {t('chat:input.referencesLabel')}
           </span>
           {fileRefs.map((ref) => (
             <FileReferenceChip
@@ -695,7 +694,7 @@ export function ChatInput({
             onClick={clearRefs}
             className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 shrink-0"
           >
-            Clear all
+            {t('chat:input.clearAll')}
           </button>
         </div>
       )}
@@ -878,7 +877,7 @@ export function ChatInput({
                 variant="outline"
                 onClick={handleStopAndEdit}
                 className="h-[44px] w-[44px] rounded-lg"
-                title="Stop run and edit the last prompt (reuse + rewrite)"
+                title={t('chat:input.stopEditTitle')}
                 data-testid="stop-and-edit"
               >
                 <Pencil className="h-4 w-4" />
@@ -889,7 +888,7 @@ export function ChatInput({
                 variant="destructive"
                 onClick={handleAbort}
                 className="h-[44px] w-[44px] rounded-lg"
-                title="Abort the current run"
+                title={t('chat:input.abortTitle')}
                 data-testid="stop"
               >
                 <Square className="h-4 w-4 fill-current" />
@@ -909,8 +908,8 @@ export function ChatInput({
               )}
               title={
                 refineEnabled
-                  ? 'Refining enabled — click to disable'
-                  : 'Refining disabled — click to enable'
+                  ? t('chat:input.refineEnabledTitle')
+                  : t('chat:input.refineDisabledTitle')
               }
             >
               <Sparkles className="h-4 w-4" />
@@ -947,8 +946,8 @@ export function ChatInput({
                 className="h-[44px] w-[44px] rounded-lg bg-sky-600 hover:bg-sky-700 text-white dark:bg-sky-500 dark:hover:bg-sky-600"
                 title={
                   isLoading
-                    ? 'btw — send without interrupting the running agent'
-                    : 'btw — send (Enter)'
+                    ? t('chat:input.btwRunningTitle')
+                    : t('chat:input.btwIdleTitle')
                 }
                 data-testid="send-btw"
               >
@@ -963,8 +962,8 @@ export function ChatInput({
                 className="h-[44px] w-[44px] rounded-lg border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
                 title={
                   isLoading
-                    ? 'steer — interrupt the running agent and redirect'
-                    : 'steer — send (no interrupt target while idle)'
+                    ? t('chat:input.steerRunningTitle')
+                    : t('chat:input.steerIdleTitle')
                 }
                 data-testid="send-steer"
               >
@@ -977,7 +976,7 @@ export function ChatInput({
                 disabled={!input.trim() || !client?.isConnected}
                 onClick={handleAddQueue}
                 className="h-[44px] w-[44px] rounded-lg border-indigo-500/50 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/10"
-                title="add queue — hold until the current run completes"
+                title={t('chat:input.addQueueTitle')}
                 data-testid="send-queue"
               >
                 <ListPlus className="h-4 w-4" />

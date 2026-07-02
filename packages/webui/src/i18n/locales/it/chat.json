@@ -15,5 +15,41 @@
   "empty": "(vuoto)",
   "messageCount_one": "{{count}} messaggio",
   "messageCount_other": "{{count}} messaggi",
-  "thinking": "Pensiero…"
+  "thinking": "Pensiero…",
+  "input": {
+    "autoFencedAs": "Recintato automaticamente come",
+    "charsWord": "caratteri",
+    "linesWord": "righe",
+    "pastedWord": "Incollato",
+    "fencedHintPrefix": "— i blocchi di codice recintati si rendono meglio con",
+    "removeFencesTitle": "Rimuovi i recinti e ripristina il testo grezzo",
+    "dismissTitle": "Chiudi",
+    "pendingAttachmentAlt": "Allegato in attesa",
+    "imageAttached": "Immagine allegata",
+    "removeImageTitle": "Rimuovi immagine",
+    "referencesLabel": "Riferimenti",
+    "clearAll": "Cancella tutto",
+    "stopEditTitle": "Ferma il run e modifica l'ultimo prompt (riusa + riscrivi)",
+    "abortTitle": "Interrompi il run corrente",
+    "refineEnabledTitle": "Affinamento attivo — clicca per disattivare",
+    "refineDisabledTitle": "Affinamento disattivato — clicca per attivare",
+    "btwRunningTitle": "btw — invia senza interrompere l'agent in corso",
+    "btwIdleTitle": "btw — invia (Invio)",
+    "steerRunningTitle": "steer — interrompi l'agent in corso e reindirizza",
+    "steerIdleTitle": "steer — invia (nessun obiettivo di interruzione a riposo)",
+    "addQueueTitle": "aggiungi coda — trattieni fino al termine del run corrente"
+  },
+  "header": {
+    "openSidebarTitle": "Apri barra laterale (Ctrl+\\)",
+    "renameTitle": "Clicca per rinominare la sessione",
+    "untitled": "Senza titolo",
+    "changeModelTitle": "Cambia provider / modello (Ctrl+M)",
+    "iterationTitle": "Iterazione agent — clicca per andare all'attività live",
+    "runningProcessesTitle": "Processi in corso",
+    "checkpointsTitle": "Checkpoint di sessione — riavvolgi",
+    "scrollTopTitle": "Scorri in alto (più vecchio)",
+    "jkNavigateTitle": "j/k per navigare",
+    "noProvider": "nessun-provider",
+    "noModel": "nessun-modello"
+  }
 }
