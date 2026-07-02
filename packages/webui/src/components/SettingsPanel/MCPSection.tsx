@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import { toast } from '@/components/Toaster';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import type { WSServerMessage } from '@/types';
@@ -51,22 +52,22 @@ export interface MCPServerConfig {
 }
 
 /** Map server status to a human-readable label and color */
-function statusInfo(status: MCPServer['status']): { label: string; color: string } {
+function statusInfo(status: MCPServer['status']): { color: string } {
   switch (status) {
     case 'connected':
-      return { label: 'Connected', color: 'bg-green-500' };
+      return { color: 'bg-green-500' };
     case 'connecting':
-      return { label: 'Connecting', color: 'bg-yellow-500' };
+      return { color: 'bg-yellow-500' };
     case 'sleeping':
-      return { label: 'Sleeping', color: 'bg-blue-500' };
+      return { color: 'bg-blue-500' };
     case 'discovering':
-      return { label: 'Discovering', color: 'bg-purple-500' };
+      return { color: 'bg-purple-500' };
     case 'error':
-      return { label: 'Error', color: 'bg-red-500' };
+      return { color: 'bg-red-500' };
     case 'stopped':
-      return { label: 'Stopped', color: 'bg-gray-500' };
+      return { color: 'bg-gray-500' };
     default:
-      return { label: 'Unknown', color: 'bg-gray-400' };
+      return { color: 'bg-gray-400' };
   }
 }
 
@@ -94,6 +95,7 @@ function ServerCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const { color } = statusInfo(server.status);
+  const { t } = useAppTranslation();
 
   return (
     <div className="border rounded-lg p-3 bg-card">
@@ -108,34 +110,34 @@ function ServerCard({
           <span className="text-xs text-muted-foreground">{server.transport}</span>
           {!server.enabled && (
             <Badge variant="outline" className="text-xs">
-              Disabled
+              {t('settings:mcp.disabled')}
             </Badge>
           )}
         </button>
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
           {server.status === 'sleeping' && (
-            <Button variant="ghost" size="sm" onClick={onWake} title="Wake server">
+            <Button variant="ghost" size="sm" onClick={onWake} title={t('settings:mcp.wakeTitle')}>
               <Sun className="w-4 h-4" />
             </Button>
           )}
           {(server.status === 'connected' || server.status === 'connecting') && (
-            <Button variant="ghost" size="sm" onClick={onSleep} title="Sleep server">
+            <Button variant="ghost" size="sm" onClick={onSleep} title={t('settings:mcp.sleepTitle')}>
               <Moon className="w-4 h-4" />
             </Button>
           )}
           {(server.status === 'stopped' || server.status === 'sleeping') && (
-            <Button variant="ghost" size="sm" onClick={onDiscover} title="Discover tools">
+            <Button variant="ghost" size="sm" onClick={onDiscover} title={t('settings:mcp.discoverTitle')}>
               <Search className="w-4 h-4" />
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={onEdit} title="Edit">
+          <Button variant="ghost" size="sm" onClick={onEdit} title={t('settings:mcp.editTitle')}>
             <Edit3 className="w-4 h-4" />
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={onRemove}
-            title="Remove"
+            title={t('settings:mcp.removeTitle')}
             className="text-destructive hover:text-destructive"
           >
             <Trash2 className="w-4 h-4" />
@@ -146,35 +148,35 @@ function ServerCard({
       {expanded && (
         <div className="mt-3 pl-6 text-sm space-y-2">
           <div className="grid grid-cols-2 gap-1">
-            <span className="text-muted-foreground">Status:</span>
+            <span className="text-muted-foreground">{t('settings:mcp.statusLabel')}</span>
             <span className="flex items-center gap-1">
               <span className={`inline-block w-2 h-2 rounded-full ${color}`} />
-              {statusInfo(server.status).label}
+              {t(`settings:mcp.status.${server.status}`, { defaultValue: server.status })}
             </span>
-            <span className="text-muted-foreground">Enabled:</span>
-            <span>{server.enabled ? 'Yes' : 'No'}</span>
+            <span className="text-muted-foreground">{t('settings:mcp.enabledLabel')}</span>
+            <span>{server.enabled ? t('settings:mcp.yes') : t('settings:mcp.no')}</span>
             {server.description && (
               <>
-                <span className="text-muted-foreground">Description:</span>
+                <span className="text-muted-foreground">{t('settings:mcp.descriptionLabel')}</span>
                 <span>{server.description}</span>
               </>
             )}
             {server.pid && (
               <>
-                <span className="text-muted-foreground">PID:</span>
+                <span className="text-muted-foreground">{t('settings:mcp.pidLabel')}</span>
                 <span>{server.pid}</span>
               </>
             )}
             {server.error && (
               <>
-                <span className="text-muted-foreground">Error:</span>
+                <span className="text-muted-foreground">{t('settings:mcp.errorLabel')}</span>
                 <span className="text-destructive">{server.error}</span>
               </>
             )}
           </div>
           {server.tools && server.tools.length > 0 && (
             <div>
-              <span className="text-muted-foreground">Tools ({server.tools.length}):</span>
+              <span className="text-muted-foreground">{t('settings:mcp.toolsLabel', { count: server.tools.length })}</span>
               <div className="flex flex-wrap gap-1 mt-1">
                 {server.tools.map((tool) => (
                   <Badge key={tool} variant="secondary" className="text-xs">
@@ -185,7 +187,7 @@ function ServerCard({
             </div>
           )}
           {(!server.tools || server.tools.length === 0) && server.status === 'connected' && (
-            <span className="text-muted-foreground">No tools discovered yet</span>
+            <span className="text-muted-foreground">{t('settings:mcp.noTools')}</span>
           )}
         </div>
       )}
@@ -207,6 +209,7 @@ function ServerDialog({
   prefillConfig?: MCPServerConfig;
   onSave: (config: MCPServerConfig) => void;
 }) {
+  const { t } = useAppTranslation();
   const [name, setName] = useState(server?.name ?? prefillConfig?.name ?? '');
   const [transport, setTransport] = useState(
     server?.transport ?? prefillConfig?.transport ?? 'stdio',
@@ -266,7 +269,7 @@ function ServerDialog({
 
   const handleSave = () => {
     if (!name.trim()) {
-      toast.error('Server name is required');
+      toast.error(t('settings:mcp.serverNameRequired'));
       return;
     }
     const parsedEnv: Record<string, string> = {};
@@ -300,21 +303,21 @@ function ServerDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? 'Edit MCP Server' : isPrefill ? 'Add MCP Server' : 'Add Custom MCP Server'}
+            {isEdit ? t('settings:mcp.dialogTitleEdit') : isPrefill ? t('settings:mcp.dialogTitleAdd') : t('settings:mcp.dialogTitleAddCustom')}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Name</label>
+            <label className="text-sm font-medium">{t('settings:mcp.fieldName')}</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., github, filesystem"
+              placeholder={t('settings:mcp.fieldNamePlaceholder')}
               disabled={isEdit || isPrefill}
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Transport</label>
+            <label className="text-sm font-medium">{t('settings:mcp.fieldTransport')}</label>
             <select
               className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               value={transport}
@@ -329,7 +332,7 @@ function ServerDialog({
           </div>
           {(transport === 'streamable-http' || transport === 'sse' || transport === 'http') && (
             <div className="space-y-2">
-              <label className="text-sm font-medium">URL</label>
+              <label className="text-sm font-medium">{t('settings:mcp.fieldUrl')}</label>
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -341,22 +344,22 @@ function ServerDialog({
           {transport === 'stdio' && (
             <>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Command</label>
+                <label className="text-sm font-medium">{t('settings:mcp.fieldCommand')}</label>
                 <Input
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
-                  placeholder="e.g., npx"
+                  placeholder={t('settings:mcp.fieldCommandPlaceholder')}
                   disabled={isPrefill}
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Args <span className="text-muted-foreground font-normal">(space-separated)</span>
+                  {t('settings:mcp.fieldArgs')} <span className="text-muted-foreground font-normal">{t('settings:mcp.fieldArgsHint')}</span>
                 </label>
                 <Input
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
-                  placeholder="e.g., -y @modelcontextprotocol/server-github"
+                  placeholder={t('settings:mcp.fieldArgsPlaceholder')}
                   disabled={isPrefill}
                 />
               </div>
@@ -364,8 +367,8 @@ function ServerDialog({
           )}
           <div className="space-y-2">
             <label className="text-sm font-medium">
-              Env vars{' '}
-              <span className="text-muted-foreground font-normal">(KEY=value, one per line)</span>
+              {t('settings:mcp.fieldEnv')}{' '}
+              <span className="text-muted-foreground font-normal">{t('settings:mcp.fieldEnvHint')}</span>
             </label>
             <textarea
               className="w-full h-20 px-3 py-2 rounded-md border border-input bg-background text-sm font-mono resize-none"
@@ -377,11 +380,11 @@ function ServerDialog({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Description</label>
+            <label className="text-sm font-medium">{t('settings:mcp.fieldDescription')}</label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="GitHub MCP server for repository access"
+              placeholder={t('settings:mcp.fieldDescriptionPlaceholder')}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -393,7 +396,7 @@ function ServerDialog({
               className="rounded"
             />
             <label htmlFor="server-enabled" className="text-sm">
-              Enable server
+              {t('settings:mcp.enableServer')}
             </label>
           </div>
           <div className="flex items-center gap-2">
@@ -405,18 +408,18 @@ function ServerDialog({
               className="rounded"
             />
             <label htmlFor="server-lazy" className="text-sm">
-              Lazy connect{' '}
+              {t('settings:mcp.lazyConnect')}{' '}
               <span className="text-muted-foreground font-normal">
-                (don't start until first tool call; auto-sleeps when idle)
+                {t('settings:mcp.lazyConnectHint')}
               </span>
             </label>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common:action.cancel')}
           </Button>
-          <Button onClick={handleSave}>{isEdit ? 'Save Changes' : 'Add Server'}</Button>
+          <Button onClick={handleSave}>{isEdit ? t('settings:mcp.saveChanges') : t('settings:mcp.addServer')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -433,6 +436,7 @@ function OfficialServerCard({
   isAdded: boolean;
   onAdd: () => void;
 }) {
+  const { t } = useAppTranslation();
   return (
     <div className="border rounded-lg p-3 bg-card flex items-start justify-between gap-3">
       <div className="flex-1 min-w-0">
@@ -450,7 +454,7 @@ function OfficialServerCard({
         <p className="text-xs text-muted-foreground mt-1">{server.description}</p>
         {server.requiresEnvVars && server.requiresEnvVars.length > 0 && (
           <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-            Requires: {server.requiresEnvVars.join(', ')}
+            {t('settings:mcp.requires', { vars: server.requiresEnvVars.join(', ') })}
           </p>
         )}
       </div>
@@ -458,12 +462,12 @@ function OfficialServerCard({
         {isAdded ? (
           <Button variant="ghost" size="sm" disabled>
             <Check className="w-4 h-4 mr-1" />
-            Added
+            {t('settings:mcp.added')}
           </Button>
         ) : (
           <Button size="sm" variant="outline" onClick={onAdd}>
             <Plus className="w-4 h-4 mr-1" />
-            Add
+            {t('common:action.add')}
           </Button>
         )}
       </div>
@@ -473,6 +477,7 @@ function OfficialServerCard({
 
 export function MCPSection(): ReactElement {
   const ws = useWebSocket();
+  const { t } = useAppTranslation();
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'list' | 'add' | 'recommended'>('list');
@@ -498,7 +503,7 @@ export function MCPSection(): ReactElement {
       if (msg.type === 'mcp.server.added') {
         const p = msg.payload as { server: MCPServer };
         setServers((prev) => [...prev.filter((s) => s.name !== p.server.name), p.server]);
-        toast.success(`Server "${p.server.name}" added`);
+        toast.success(i18n.t('settings:mcp.toastAdded', { name: p.server.name }));
       }
     };
 
@@ -506,7 +511,7 @@ export function MCPSection(): ReactElement {
       if (msg.type === 'mcp.server.removed') {
         const p = msg.payload as { name: string };
         setServers((prev) => prev.filter((s) => s.name !== p.name));
-        toast.success(`Server "${p.name}" removed`);
+        toast.success(i18n.t('settings:mcp.toastRemoved', { name: p.name }));
       }
     };
 
@@ -526,7 +531,7 @@ export function MCPSection(): ReactElement {
           ),
         );
         setPendingOp(null);
-        toast.success(`Discovered ${p.tools.length} tools from "${p.name}"`);
+        toast.success(i18n.t('settings:mcp.toastDiscovered', { count: p.tools.length, name: p.name }));
       }
     };
 
@@ -537,7 +542,7 @@ export function MCPSection(): ReactElement {
           prev.map((s) => (s.name === p.name ? { ...s, status: 'sleeping' as const } : s)),
         );
         setPendingOp(null);
-        toast.info(`Server "${p.name}" is now sleeping`);
+        toast.info(i18n.t('settings:mcp.toastSleeping', { name: p.name }));
       }
     };
 
@@ -561,7 +566,7 @@ export function MCPSection(): ReactElement {
           ),
         );
         setPendingOp(null);
-        toast.success(`Server "${p.name}" connected`);
+        toast.success(i18n.t('settings:mcp.toastConnected', { name: p.name }));
       }
     };
 
@@ -576,7 +581,7 @@ export function MCPSection(): ReactElement {
           ),
         );
         setPendingOp(null);
-        toast.success(`Server "${p.name}" reconnected`);
+        toast.success(i18n.t('settings:mcp.toastReconnected', { name: p.name }));
       }
     };
 
@@ -591,7 +596,7 @@ export function MCPSection(): ReactElement {
           ),
         );
         setPendingOp(null);
-        toast.warn(`Server "${p.name}" disconnected: ${p.reason}`);
+        toast.warn(i18n.t('settings:mcp.toastDisconnected', { name: p.name, reason: p.reason }));
       }
     };
 
@@ -602,7 +607,7 @@ export function MCPSection(): ReactElement {
           prev.map((s) => (s.name === p.name ? { ...s, status: 'error', error: p.error } : s)),
         );
         setPendingOp(null);
-        toast.error(`Server "${p.name}" error: ${p.error}`);
+        toast.error(i18n.t('settings:mcp.toastError', { name: p.name, error: p.error }));
       }
     };
 
@@ -666,9 +671,9 @@ export function MCPSection(): ReactElement {
   const handleRemove = useCallback(
     (name: string) => {
       void confirmModal({
-        title: `Remove server "${name}"?`,
-        message: 'This removes the MCP server from your configuration.',
-        confirmLabel: 'Remove',
+        title: t('settings:mcp.removeConfirmTitle', { name }),
+        message: t('settings:mcp.removeConfirmBody'),
+        confirmLabel: t('common:action.remove'),
         danger: true,
       }).then((ok) => {
         if (ok) ws.client?.removeMcpServer(name);
@@ -729,17 +734,17 @@ export function MCPSection(): ReactElement {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Server className="w-5 h-5" />
-          <h2 className="text-lg font-semibold">MCP Servers</h2>
+          <h2 className="text-lg font-semibold">{t('settings:mcp.heading')}</h2>
           {servers.length > 0 && (
             <span className="text-sm text-muted-foreground">
-              {connectedCount} connected · {sleepingCount} sleeping · {servers.length} total
+              {t('settings:mcp.summary', { connected: connectedCount, sleeping: sleepingCount, total: servers.length })}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading}>
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Refresh
+            {t('common:action.refresh')}
           </Button>
           <Button
             size="sm"
@@ -749,7 +754,7 @@ export function MCPSection(): ReactElement {
             }}
           >
             <Plus className="w-4 h-4 mr-1" />
-            Add Custom
+            {t('settings:mcp.addCustom')}
           </Button>
         </div>
       </div>
@@ -758,17 +763,16 @@ export function MCPSection(): ReactElement {
         <TabsList>
           <TabsTrigger value="recommended">
             <Star className="w-3.5 h-3.5 mr-1" />
-            Recommended
+            {t('settings:mcp.tabRecommended')}
           </TabsTrigger>
-          <TabsTrigger value="list">Servers</TabsTrigger>
-          <TabsTrigger value="add">Add Custom</TabsTrigger>
+          <TabsTrigger value="list">{t('settings:mcp.tabServers')}</TabsTrigger>
+          <TabsTrigger value="add">{t('settings:mcp.tabAddCustom')}</TabsTrigger>
         </TabsList>
 
         {/* Recommended tab — official MCP servers from the community */}
         <TabsContent value="recommended" className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            One-click add for popular MCP servers. Click Add to pre-fill the configuration, then
-            confirm. Servers requiring credentials will need their env vars set before use.
+            {t('settings:mcp.recommendedBody')}
           </p>
           <div className="grid gap-2">
             {OFFICIAL_SERVERS.map((server) => (
@@ -787,14 +791,14 @@ export function MCPSection(): ReactElement {
           {loading && servers.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
-              Loading servers...
+              {t('settings:mcp.loadingServers')}
             </div>
           ) : servers.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Server className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              <p>No MCP servers configured</p>
+              <p>{t('settings:mcp.noServers')}</p>
               <p className="text-sm">
-                Switch to the Recommended tab to add popular servers, or Add Custom for your own.
+                {t('settings:mcp.noServersHint')}
               </p>
             </div>
           ) : (
@@ -815,10 +819,9 @@ export function MCPSection(): ReactElement {
         {/* Add Custom tab */}
         <TabsContent value="add">
           <div className="text-sm text-muted-foreground">
-            <p>Configure a custom MCP server with stdio, SSE, or HTTP transport.</p>
+            <p>{t('settings:mcp.addCustomBody')}</p>
             <p className="mt-1">
-              For popular servers, use the Recommended tab instead — everything is pre-configured
-              for you.
+              {t('settings:mcp.addCustomBodyHint')}
             </p>
           </div>
         </TabsContent>
