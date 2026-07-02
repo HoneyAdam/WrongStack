@@ -418,5 +418,18 @@
     "hintPage": "←→ sayfa",
     "hintNavigate": "↑↓ listede gezin",
     "hintEsc": "Esc kapat"
+  },
+  "terminal": {
+    "resize": "Terminalleri yeniden boyutlandır",
+    "labelSingular": "Terminal",
+    "labelPlural": "Terminaller",
+    "projectShell": "Proje kabuğu",
+    "maxTerminals": "En fazla {{count}} terminal",
+    "newTerminal": "Yeni terminal",
+    "restart": "Etkin terminali yeniden başlat",
+    "closeAll": "Tüm terminalleri kapat",
+    "closeDock": "Terminal dock'unu kapat (Ctrl+`)",
+    "closeTab": "{{name}} öğesini kapat",
+    "processExited": "[işlem {{code}} koduyla çıktı]"
   }
 }

@@ -418,5 +418,18 @@
     "hintPage": "←→ pagina",
     "hintNavigate": "↑↓ naviga elenco",
     "hintEsc": "Esc chiudi"
+  },
+  "terminal": {
+    "resize": "Ridimensiona terminali",
+    "labelSingular": "Terminale",
+    "labelPlural": "Terminali",
+    "projectShell": "Shell del progetto",
+    "maxTerminals": "Massimo {{count}} terminali",
+    "newTerminal": "Nuovo terminale",
+    "restart": "Riavvia terminale attivo",
+    "closeAll": "Chiudi tutti i terminali",
+    "closeDock": "Chiudi dock del terminale (Ctrl+`)",
+    "closeTab": "Chiudi {{name}}",
+    "processExited": "[processo terminato con codice {{code}}]"
   }
 }

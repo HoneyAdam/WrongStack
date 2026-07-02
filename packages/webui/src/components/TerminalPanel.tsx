@@ -11,6 +11,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import {
   clampTerminalHeight,
   TERMINAL_HEIGHT_STORAGE_KEY,
@@ -106,6 +107,7 @@ export function TerminalPanel({
   onClose: () => void;
 }) {
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const { t } = useAppTranslation();
   const terminalCounterRef = useRef(1);
   const [height, setHeight] = useState(() => readStoredTerminalHeight(desktopShell));
   const [tabs, setTabs] = useState<TerminalTab[]>(() => [createTerminalTab(1)]);
@@ -243,7 +245,7 @@ export function TerminalPanel({
       <div
         role="separator"
         aria-orientation="horizontal"
-        title="Resize terminals"
+        title={t('activity:terminal.resize')}
         onPointerDown={startResize}
         className="h-1.5 cursor-ns-resize bg-[#181825] hover:bg-primary/35 transition-colors"
       />
@@ -255,9 +257,9 @@ export function TerminalPanel({
       >
         <div className="flex min-w-0 items-center gap-2 text-xs text-[#cdd6f4]">
           <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
-          <span className="font-medium">{desktopShell ? 'Terminal' : 'Terminals'}</span>
+          <span className="font-medium">{desktopShell ? t('activity:terminal.labelSingular') : t('activity:terminal.labelPlural')}</span>
           <span className="min-w-0 truncate text-[#a6adc8]">
-            {projectName || cwd || 'Project shell'}
+            {projectName || cwd || t('activity:terminal.projectShell')}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -267,8 +269,8 @@ export function TerminalPanel({
             disabled={tabs.length >= MAX_TERMINALS}
             title={
               tabs.length >= MAX_TERMINALS
-                ? `Maximum ${MAX_TERMINALS} terminals`
-                : 'New terminal'
+                ? t('activity:terminal.maxTerminals', { count: MAX_TERMINALS })
+                : t('activity:terminal.newTerminal')
             }
             className="inline-flex items-center justify-center h-6 w-6 rounded text-[#a6adc8] hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
@@ -278,7 +280,7 @@ export function TerminalPanel({
             type="button"
             onClick={() => activeTab && restartTerminal(activeTab.id)}
             disabled={!activeTab}
-            title="Restart active terminal"
+            title={t('activity:terminal.restart')}
             className="inline-flex items-center justify-center h-6 w-6 rounded text-[#a6adc8] hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <RotateCcw className="h-3.5 w-3.5" />
@@ -287,7 +289,7 @@ export function TerminalPanel({
             type="button"
             onClick={closeAllTerminals}
             disabled={tabs.length === 0}
-            title="Close all terminals"
+            title={t('activity:terminal.closeAll')}
             className="inline-flex items-center justify-center h-6 w-6 rounded text-[#a6adc8] hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -295,7 +297,7 @@ export function TerminalPanel({
           <button
             type="button"
             onClick={onClose}
-            title="Close terminal dock (Ctrl+`)"
+            title={t('activity:terminal.closeDock')}
             className="inline-flex items-center justify-center h-6 w-6 rounded text-[#a6adc8] hover:bg-white/10 transition-colors"
           >
             <X className="h-4 w-4" />
@@ -347,7 +349,7 @@ export function TerminalPanel({
                 closeTerminal(tab.id);
               }}
               className="mr-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[#a6adc8] opacity-70 hover:bg-white/10 hover:opacity-100"
-              title={`Close ${tab.name}`}
+              title={t('activity:terminal.closeTab', { name: tab.name })}
             >
               <X className="h-3 w-3" />
             </button>
@@ -433,7 +435,7 @@ function TerminalSession({
     });
     const offExit = ws.on('terminal.exit', (msg: WSServerMessage) => {
       if (msg.type === 'terminal.exit' && msg.payload.id === id) {
-        term.write(`\r\n\x1b[2m[process exited with code ${msg.payload.exitCode}]\x1b[0m\r\n`);
+        term.write(`\r\n\x1b[2m${i18n.t('activity:terminal.processExited', { code: msg.payload.exitCode })}\x1b[0m\r\n`);
         onExitRef.current(msg.payload.exitCode);
       }
     });
