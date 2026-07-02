@@ -229,6 +229,12 @@ export interface StatuslineCommandDeps {
       StatuslineConfigKey
     >,
   ) => Promise<void>;
+  /**
+   * Slash-command → TUI panel bridge. When present (TUI mounted), a bare
+   * `/statusline` opens the interactive picker instead of printing the
+   * chip list; the text output remains the REPL/args fallback.
+   */
+  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
 }
 
 /** Item descriptions for help display */
@@ -298,6 +304,13 @@ export function buildStatuslineCommand(deps: StatuslineCommandDeps): SlashComman
       const trimmed = args.trim();
       const parts = trimmed.split(/\s+/);
       const [item, action] = parts;
+
+      // No args → open the TUI picker when the bridge is live (same UX as
+      // /plugin and /settings); fall back to the text listing in the REPL.
+      if (!item && deps.onPanelOpen?.current) {
+        const opened = deps.onPanelOpen.current('statuslineOpen');
+        if (opened) return { message: 'Opened statusline picker.' };
+      }
 
       // No args → show current config
       if (!item) {

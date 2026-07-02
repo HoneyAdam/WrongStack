@@ -617,6 +617,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
       getConfig: opts.statuslineConfig?.get ?? (async () => ({})),
       setConfig: opts.statuslineConfig?.set ?? (async () => {}),
       saveStatuslineHiddenItems: opts.saveStatuslineHiddenItems ?? (async () => {}),
+      onPanelOpen: opts.onPanelOpen,
     }),
     buildShadowCommand(opts),
     buildAuditCommand(opts),

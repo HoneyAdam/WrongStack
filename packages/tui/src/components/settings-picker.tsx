@@ -1,4 +1,4 @@
-import { Box, Text } from '../ink.js';
+import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
 import { MAX_TUI_THINKING_WORD_LENGTH } from '../thinking-word.js';
 
@@ -1311,8 +1311,14 @@ export function SettingsPicker({
 
   // Compute visible window. On small terminals, the picker can overflow;
   // we show at most VISIBLE_FIELDS around the current selection so every
-  // field stays reachable.
-  const VISIBLE_FIELDS = 8;
+  // field stays reachable. The window grows with the terminal: 8 fields is
+  // the floor (the historical fixed size), taller terminals show more.
+  // Reserved rows: picker chrome (border/title/legend/scroll indicators/
+  // footer, ~9) + the input box, statusline and key-hint bar below (~8)
+  // + up to 9 section-header lines that render inside the window.
+  const { stdout } = useStdout();
+  const termRows = stdout?.rows ?? 24;
+  const VISIBLE_FIELDS = Math.max(8, termRows - 26);
   const totalFields = fieldRowIndex.length; // = SETTINGS_FIELD_COUNT
   const windowStart =
     totalFields <= VISIBLE_FIELDS

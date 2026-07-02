@@ -8,7 +8,7 @@
 
 | Usage | Effect |
 |---|---|
-| `/statusline` | Show current status bar configuration |
+| `/statusline` | TUI: open the interactive statusline picker (same as F12); REPL: show current configuration |
 | `/statusline todos on\|off` | Toggle todos item |
 | `/statusline plan on\|off` | Toggle plan item |
 | `/statusline fleet on\|off` | Toggle fleet item |
