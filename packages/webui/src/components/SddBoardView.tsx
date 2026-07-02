@@ -4,6 +4,7 @@ import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { agentInitials, fmtDuration, SDD_AGENT_COLORS, SDD_RUN_STATUS } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
+import { i18n, useAppTranslation } from '@/i18n';
 import { type BoardTaskItem, type SddLifecycleResultUI, useSddBoardStore } from '@/stores';
 import { SddActivityFeed } from './SddActivityFeed';
 import { SddDestroyDialog } from './SddDestroyDialog';
@@ -53,6 +54,7 @@ function ProgressRing({ pct }: { pct: number }): React.ReactElement {
  * ring, a live agent roster, and run controls (pause / resume / stop / retry).
  */
 export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactElement {
+  const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const snapshot = useSddBoardStore((s) => s.snapshot);
   const lifecycleResult = useSddBoardStore((s) => s.lifecycleResult);
@@ -223,7 +225,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-orange-400" />
             <h1 className="text-lg font-semibold text-foreground">
-              {snapshot?.title ?? 'Live SDD Board'}
+              {snapshot?.title ?? t('activity:sddBoard.titleFallback')}
             </h1>
             {snapshot && (
               <span
@@ -238,7 +240,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
             {snapshot?.defaultModel && (
               <span
                 className="flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-                title="Run-level default worker model (per-task overrides take precedence)"
+                title={t('activity:sddBoard.defaultModelTitle')}
               >
                 <Cpu className="h-3 w-3 text-violet-400" />
                 {snapshot.defaultModel}
@@ -261,7 +263,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
-                    {m === 'graph' ? 'Graph' : 'Kanban'}
+                    {m === 'graph' ? t('activity:sddBoard.graphLabel') : t('activity:sddBoard.kanbanLabel')}
                   </button>
                 ))}
               </div>
@@ -270,10 +272,10 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
               <button
                 type="button"
                 onClick={onRetryAllFailed}
-                title="Requeue every failed task to pending"
+                title={t('activity:sddBoard.retryAllTitle')}
                 className="inline-flex items-center gap-1 rounded-md bg-orange-500/15 px-2.5 py-1 text-xs font-medium text-orange-600 dark:text-orange-300 hover:bg-orange-500/25"
               >
-                <RotateCcw className="h-3.5 w-3.5" /> Retry failed ({p?.failed})
+                <RotateCcw className="h-3.5 w-3.5" /> {t('activity:sddBoard.retryFailed', { count: p?.failed ?? 0 })}
               </button>
             )}
             {active && (
@@ -284,7 +286,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                     onClick={() => send({ type: 'sdd.board.resume', payload: {} })}
                     className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 px-2.5 py-1 text-xs font-medium text-sky-600 dark:text-sky-300 hover:bg-sky-500/25"
                   >
-                    <Play className="h-3.5 w-3.5" /> Resume
+                    <Play className="h-3.5 w-3.5" /> {t('activity:sddBoard.resume')}
                   </button>
                 ) : (
                   <button
@@ -292,7 +294,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                     onClick={() => send({ type: 'sdd.board.pause', payload: {} })}
                     className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-300 hover:bg-amber-500/25"
                   >
-                    <Pause className="h-3.5 w-3.5" /> Pause
+                    <Pause className="h-3.5 w-3.5" /> {t('activity:sddBoard.pause')}
                   </button>
                 )}
                 <button
@@ -300,7 +302,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                   onClick={() => send({ type: 'sdd.board.stop', payload: {} })}
                   className="inline-flex items-center gap-1 rounded-md bg-red-500/15 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-300 hover:bg-red-500/25"
                 >
-                  <Square className="h-3.5 w-3.5" /> Stop
+                  <Square className="h-3.5 w-3.5" /> {t('activity:sddBoard.stop')}
                 </button>
               </>
             )}
@@ -312,19 +314,19 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                 <button
                   type="button"
                   onClick={onCleanWorktrees}
-                  title="Remove the run's git worktrees + wstack/ap branches"
+                  title={t('activity:sddBoard.cleanTitle')}
                   className="inline-flex items-center gap-1 rounded-md bg-slate-500/15 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-500/25"
                 >
-                  <Eraser className="h-3.5 w-3.5" /> Clean worktrees
+                  <Eraser className="h-3.5 w-3.5" /> {t('activity:sddBoard.cleanWorktrees')}
                 </button>
                 {(snapshot.mergedCommits?.length ?? 0) > 0 && (
                   <button
                     type="button"
                     onClick={onRollback}
-                    title={`Revert ${snapshot.mergedCommits?.length} merged commit(s) on ${snapshot.baseBranch ?? 'the base branch'}`}
+                    title={t('activity:sddBoard.rollbackTitle', { count: snapshot.mergedCommits?.length ?? 0, base: snapshot.baseBranch ?? t('activity:sdd.baseBranchFallback') })}
                     className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-300 hover:bg-amber-500/25"
                   >
-                    <Undo2 className="h-3.5 w-3.5" /> Rollback ({snapshot.mergedCommits?.length})
+                    <Undo2 className="h-3.5 w-3.5" /> {t('activity:sddBoard.rollback', { count: snapshot.mergedCommits?.length ?? 0 })}
                   </button>
                 )}
               </>
@@ -334,16 +336,16 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
             {snapshot &&
               (destroying ? (
                 <span className="inline-flex items-center gap-1 rounded-md bg-red-500/15 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-300">
-                  <RotateCcw className="h-3.5 w-3.5 animate-spin" /> {active ? 'Stopping…' : 'Destroying…'}
+                  <RotateCcw className="h-3.5 w-3.5 animate-spin" /> {active ? t('activity:sddBoard.stopping') : t('activity:sddBoard.destroying')}
                 </span>
               ) : (
                 <button
                   type="button"
                   onClick={() => setDestroyOpen(true)}
-                  title="Stop, remove all worktrees, optionally revert merged commits, and delete the SDD project"
+                  title={t('activity:sddBoard.destroyTitle')}
                   className="inline-flex items-center gap-1 rounded-md bg-red-600/90 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700"
                 >
-                  <Trash2 className="h-3.5 w-3.5" /> Destroy
+                  <Trash2 className="h-3.5 w-3.5" /> {t('activity:sddBoard.destroy')}
                 </button>
               ))}
             <Button variant="ghost" size="icon" onClick={onClose}>
@@ -359,28 +361,28 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-3 text-xs">
                 <Stat
-                  label="done"
+                  label={t('activity:sddBoard.statDone')}
                   value={`${p.completed}/${p.total}`}
                   color="text-emerald-600 dark:text-emerald-300"
                 />
                 {p.inProgress > 0 && (
                   <Stat
-                    label="running"
+                    label={t('activity:sddBoard.statRunning')}
                     value={p.inProgress}
                     color="text-amber-600 dark:text-amber-300"
                   />
                 )}
                 {p.failed > 0 && (
-                  <Stat label="failed" value={p.failed} color="text-red-600 dark:text-red-300" />
+                  <Stat label={t('activity:sddBoard.statFailed')} value={p.failed} color="text-red-600 dark:text-red-300" />
                 )}
                 <Stat
-                  label="wave"
+                  label={t('activity:sddBoard.statWave')}
                   value={snapshot.wave + 1}
                   color="text-violet-600 dark:text-violet-300"
                 />
                 {active && snapshot.startedAt > 0 && (
                   <Stat
-                    label="elapsed"
+                    label={t('activity:sddBoard.statElapsed')}
                     value={fmtDuration(now - snapshot.startedAt)}
                     color="text-foreground"
                   />
@@ -389,7 +391,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
               {/* Live agent roster */}
               <div className="flex min-h-[24px] items-center gap-1.5">
                 {roster.length === 0 ? (
-                  <span className="text-[11px] text-muted-foreground">no active workers</span>
+                  <span className="text-[11px] text-muted-foreground">{t('activity:sddBoard.noActiveWorkers')}</span>
                 ) : (
                   roster.map((a, i) => (
                     <span
@@ -427,7 +429,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
         <div className="flex items-start gap-2 border-b border-rose-500/30 bg-rose-500/5 px-4 py-2 text-xs text-rose-600 dark:text-rose-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <div className="font-semibold">Deadlock — tasks blocked by failed work:</div>
+            <div className="font-semibold">{t('activity:sddBoard.deadlock')}</div>
             {chains.map((c) => (
               <div key={c.blocked} className="font-mono">
                 {c.blocked} ← {c.blockedBy.join(', ')}
@@ -443,11 +445,9 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
           {!snapshot ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
               <Zap className="h-10 w-10 text-violet-500/40" />
-              <p className="text-foreground">No active SDD run.</p>
+              <p className="text-foreground">{t('activity:sddBoard.noRunTitle')}</p>
               <p className="max-w-sm text-center text-xs text-muted-foreground">
-                Start one from the <span className="text-violet-400">New SDD Project</span> wizard,
-                or via <code className="rounded bg-muted px-1">/sdd execute</code> in the CLI —
-                agents appear here live, each working an isolated worktree.
+                {t('activity:sddBoard.noRunBody')}
               </p>
             </div>
           ) : viewMode === 'graph' ? (
@@ -458,7 +458,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                 onTaskClick={onTaskClick}
               />
               <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-2 py-0.5 text-[10px] text-muted-foreground backdrop-blur">
-                click a task for details
+                {t('activity:sddBoard.clickTaskHint')}
               </div>
             </>
           ) : (
@@ -512,16 +512,19 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
 /** Human one-liner for a lifecycle outcome. */
 function lifecycleMessage(r: SddLifecycleResultUI): string {
-  const op = r.op === 'cleanup_worktrees' ? 'Clean' : r.op === 'rollback' ? 'Rollback' : 'Destroy';
-  if (!r.ok) return `${op} failed: ${r.reason ?? 'unknown error'}`;
+  const opKey = r.op === 'cleanup_worktrees' ? 'lcClean' : r.op === 'rollback' ? 'lcRollback' : 'lcDestroy';
+  const op = i18n.t(`activity:sddBoard.${opKey}`);
+  if (!r.ok) return i18n.t('activity:sddBoard.lcFailed', { op, reason: r.reason ?? i18n.t('activity:sddBoard.lcUnknownError') });
   const parts: string[] = [];
-  if (typeof r.removed === 'number') parts.push(`${r.removed} worktree${r.removed === 1 ? '' : 's'} removed`);
+  if (typeof r.removed === 'number') parts.push(i18n.t('activity:sddBoard.lcWorktrees', { count: r.removed }));
   if (typeof r.reverted === 'number' && r.reverted > 0)
-    parts.push(`${r.reverted} commit${r.reverted === 1 ? '' : 's'} reverted`);
-  if (r.deleted?.length) parts.push(`deleted ${r.deleted.join(', ')}`);
-  const body = parts.length ? parts.join(' · ') : 'nothing to do';
+    parts.push(i18n.t('activity:sddBoard.lcCommits', { count: r.reverted }));
+  if (r.deleted?.length) parts.push(i18n.t('activity:sddBoard.lcDeleted', { items: r.deleted.join(', ') }));
+  const body = parts.length ? parts.join(' · ') : i18n.t('activity:sddBoard.lcNothing');
   // A destroy that was asked to revert but couldn't carries an ok:true + reason.
-  return r.reason ? `${op}: ${body} — note: ${r.reason}` : `${op}: ${body}`;
+  return r.reason
+    ? i18n.t('activity:sddBoard.lcNote', { op, body, reason: r.reason })
+    : i18n.t('activity:sddBoard.lcOk', { op, body });
 }
 
 function LifecycleResultBanner({
