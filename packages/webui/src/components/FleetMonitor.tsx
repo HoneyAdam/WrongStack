@@ -35,6 +35,7 @@ import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
 import { AgentTranscript } from '@/components/AgentTranscript';
 import { SparklineChart } from '@/components/ui/sparkline';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { compareAgentsByActivity, tallyAgents } from '@/lib/agent-status';
 import type { SubagentView } from '@/stores';
 import { EMPTY_AGENT_TRANSCRIPT, useFleetStore } from '@/stores';
@@ -47,12 +48,12 @@ export interface FleetMonitorProps {
 
 import { fmtCost, fmtTok, fmtElapsed } from './dashboard-primitives.js';
 
-const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean; color: string }> = {
-  running: { led: 'bg-emerald-500', label: 'running', pulse: true, color: 'text-emerald-500' },
-  completed: { led: 'bg-emerald-500', label: 'done', pulse: false, color: 'text-emerald-500' },
-  failed: { led: 'bg-destructive', label: 'failed', pulse: false, color: 'text-destructive' },
-  timeout: { led: 'bg-amber-500', label: 'timeout', pulse: false, color: 'text-amber-500' },
-  stopped: { led: 'bg-muted-foreground', label: 'stopped', pulse: false, color: 'text-muted-foreground' },
+const STATUS_META: Record<SubagentView['status'], { led: string; labelKey: string; pulse: boolean; color: string }> = {
+  running: { led: 'bg-emerald-500', labelKey: 'statusRunning', pulse: true, color: 'text-emerald-500' },
+  completed: { led: 'bg-emerald-500', labelKey: 'statusDone', pulse: false, color: 'text-emerald-500' },
+  failed: { led: 'bg-destructive', labelKey: 'statusFailed', pulse: false, color: 'text-destructive' },
+  timeout: { led: 'bg-amber-500', labelKey: 'statusTimeout', pulse: false, color: 'text-amber-500' },
+  stopped: { led: 'bg-muted-foreground', labelKey: 'statusStopped', pulse: false, color: 'text-muted-foreground' },
 };
 
 // ── Agent Detail Panel ─────────────────────────────────────────────────
@@ -64,6 +65,7 @@ function FleetAgentDetailPanel({
   agent: SubagentView;
   now: number;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
   const [showFullToolLog, setShowFullToolLog] = useState(false);
   const transcript = useFleetStore((s) => s.agentTranscripts.get(agent.id) ?? EMPTY_AGENT_TRANSCRIPT);
@@ -113,11 +115,11 @@ function FleetAgentDetailPanel({
                       ? 'bg-destructive/15 text-destructive'
                       : 'bg-muted text-muted-foreground'
                 )}>
-                  {meta.label}
+                  {t(`activity:fleet.${meta.labelKey}`)}
                 </span>
               </div>
               <span className="text-[10px] text-muted-foreground font-mono">
-                session: {agent.sessionId?.slice(0, 12)}…
+                {t('activity:fleet.sessionPrefix')} {agent.sessionId?.slice(0, 12)}…
               </span>
             </div>
           </div>
@@ -134,12 +136,12 @@ function FleetAgentDetailPanel({
 
         {/* Activity sparkline */}
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/30">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Activity</span>
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('activity:fleet.activity')}</span>
           <SparklineChart bins={agent.sparklineBins} className="font-mono text-[9px]" />
           {agent.budgetWarning && (
             <span className="ml-auto flex items-center gap-1 text-[10px] text-amber-500">
               <Zap className="h-3 w-3" />
-              budget warning
+              {t('activity:fleet.budgetWarning')}
             </span>
           )}
         </div>
@@ -147,7 +149,7 @@ function FleetAgentDetailPanel({
         {/* Task description */}
         {agent.description && (
           <div className="px-3 py-2 rounded-lg bg-muted/20 border border-border/50">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Current Task</span>
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">{t('activity:fleet.currentTask')}</span>
             <p className="text-xs mt-1 text-foreground/80">{agent.description}</p>
           </div>
         )}
@@ -159,7 +161,7 @@ function FleetAgentDetailPanel({
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <Cpu className="h-3 w-3" /> Provider / Model
+              <Cpu className="h-3 w-3" /> {t('activity:fleet.providerModel')}
             </div>
             <div className="text-sm font-mono font-medium">
               {agent.provider ?? '?'}/{agent.model ?? '?'}
@@ -167,41 +169,41 @@ function FleetAgentDetailPanel({
           </div>
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <Activity className="h-3 w-3" /> Performance
+              <Activity className="h-3 w-3" /> {t('activity:fleet.performance')}
             </div>
             <div className="space-y-1">
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Iterations</span>
+                <span className="text-muted-foreground">{t('activity:fleet.iterations')}</span>
                 <span className="font-mono font-medium">{agent.iteration}</span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Tool Calls</span>
+                <span className="text-muted-foreground">{t('activity:fleet.toolCalls')}</span>
                 <span className="font-mono font-medium">{agent.toolCalls}</span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Unique Tools</span>
+                <span className="text-muted-foreground">{t('activity:fleet.uniqueTools')}</span>
                 <span className="font-mono font-medium">{uniqueTools}</span>
               </div>
             </div>
           </div>
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <DollarSign className="h-3 w-3" /> Cost
+              <DollarSign className="h-3 w-3" /> {t('activity:fleet.cost')}
             </div>
             <div className="text-lg font-mono font-bold text-emerald-500">
               {fmtCost(agent.costUsd)}
             </div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              avg {avgToolDuration}ms per tool
+              {t('activity:fleet.avgPerTool', { ms: avgToolDuration })}
             </div>
           </div>
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <Database className="h-3 w-3" /> Context
+              <Database className="h-3 w-3" /> {t('activity:fleet.context')}
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Tokens</span>
+                <span className="text-muted-foreground">{t('activity:fleet.tokens')}</span>
                 <span className="font-mono font-medium">{fmtTok(agent.ctxTokens)}</span>
               </div>
               <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
@@ -218,7 +220,7 @@ function FleetAgentDetailPanel({
                 />
               </div>
               <span className="text-[10px] text-muted-foreground tabular-nums font-mono">
-                {ctxPct}% used
+                {t('activity:fleet.ctxUsed', { pct: ctxPct })}
               </span>
             </div>
           </div>
@@ -240,10 +242,10 @@ function FleetAgentDetailPanel({
             <span className="text-sm font-mono font-medium">{agent.currentTool}</span>
             {active ? (
               <span className="ml-auto flex items-center gap-1.5 text-[10px] text-primary">
-                <Loader2 className="h-3 w-3 animate-spin" /> running…
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('activity:fleet.running')}
               </span>
             ) : (
-              <span className="ml-auto text-[10px] text-muted-foreground">completed</span>
+              <span className="ml-auto text-[10px] text-muted-foreground">{t('activity:fleet.completed')}</span>
             )}
           </div>
         )}
@@ -256,12 +258,12 @@ function FleetAgentDetailPanel({
                 {isStream ? (
                   <>
                     <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                    Live Output
+                    {t('activity:fleet.liveOutput')}
                   </>
                 ) : (
                   <>
                     <FolderOpen className="h-3 w-3" />
-                    Final Output
+                    {t('activity:fleet.finalOutput')}
                   </>
                 )}
               </span>
@@ -270,7 +272,7 @@ function FleetAgentDetailPanel({
                 onClick={() => handleCopy(outputText)}
                 className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
-                {copied ? '✓ Copied' : 'Copy'}
+                {copied ? `✓ ${t('common:action.copied')}` : t('common:action.copy')}
               </button>
             </div>
             <pre className="p-4 text-xs whitespace-pre-wrap font-mono text-foreground/80 leading-relaxed max-h-64 overflow-y-auto">
@@ -280,7 +282,7 @@ function FleetAgentDetailPanel({
         ) : active ? (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
             <Loader2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50 animate-spin" />
-            <span className="text-xs text-muted-foreground">Waiting for output…</span>
+            <span className="text-xs text-muted-foreground">{t('activity:fleet.waitingOutput')}</span>
           </div>
         ) : null}
 
@@ -290,10 +292,10 @@ function FleetAgentDetailPanel({
             <Zap className="h-5 w-5 text-amber-500 shrink-0" />
             <div>
               <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
-                ⚡ Budget Warning
+                {t('activity:fleet.budgetWarningTitle')}
               </span>
               <p className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-                Hitting {agent.budgetWarning.kind} limit ({agent.budgetWarning.used}/{agent.budgetWarning.limit})
+                {t('activity:fleet.hittingLimit', { kind: agent.budgetWarning.kind, used: agent.budgetWarning.used, limit: agent.budgetWarning.limit })}
               </p>
             </div>
           </div>
@@ -305,10 +307,10 @@ function FleetAgentDetailPanel({
             <Zap className="h-5 w-5 text-amber-500 shrink-0" />
             <div>
               <span className="text-sm font-medium">
-                {agent.extensions} Budget Extension{agent.extensions === 1 ? '' : 's'}
+                {t('activity:fleet.budgetExt', { count: agent.extensions })}
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Agent extended its budget {agent.extensions} time{agent.extensions === 1 ? '' : 's'} due to long-running tasks
+                {t('activity:fleet.extendedTimes', { count: agent.extensions })}
               </p>
             </div>
           </div>
@@ -319,7 +321,7 @@ function FleetAgentDetailPanel({
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
             <div className="flex items-center gap-2 mb-2">
               <XCircle className="h-4 w-4 text-destructive" />
-              <span className="text-[10px] font-semibold text-destructive uppercase tracking-wider">Error</span>
+              <span className="text-[10px] font-semibold text-destructive uppercase tracking-wider">{t('activity:fleet.errorLabel')}</span>
             </div>
             <p className="text-sm text-destructive/90">{agent.error.message}</p>
           </div>
@@ -330,7 +332,7 @@ function FleetAgentDetailPanel({
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
             <div className="flex items-center gap-2 mb-2">
               <XCircle className="h-4 w-4 text-destructive" />
-              <span className="text-[10px] font-semibold text-destructive uppercase tracking-wider">Failure Reason</span>
+              <span className="text-[10px] font-semibold text-destructive uppercase tracking-wider">{t('activity:fleet.failureReason')}</span>
             </div>
             <p className="text-sm text-destructive/90">{agent.failureReason}</p>
           </div>
@@ -346,7 +348,7 @@ function FleetAgentDetailPanel({
             >
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                 <Wrench className="h-3 w-3" />
-                Tool Log ({agent.toolLog.length} calls)
+                {t('activity:fleet.toolLog', { count: agent.toolLog.length })}
               </span>
               <ChevronRight className={cn('h-4 w-4 text-muted-foreground transition-transform', showFullToolLog && 'rotate-90')} />
             </button>
@@ -368,7 +370,7 @@ function FleetAgentDetailPanel({
                       {tl.durationMs >= 1000 ? `${(tl.durationMs / 1000).toFixed(2)}s` : `${tl.durationMs}ms`}
                     </span>
                     {!tl.ok && (
-                      <span className="ml-auto text-[10px] text-destructive font-medium">Failed</span>
+                      <span className="ml-auto text-[10px] text-destructive font-medium">{t('activity:fleet.failed')}</span>
                     )}
                     <span className="ml-auto text-[9px] text-muted-foreground tabular-nums">
                       {new Date(tl.at).toLocaleTimeString()}
@@ -397,6 +399,7 @@ export function FleetAgentRow({
   isLeader: boolean;
   onClick: () => void;
 }) {
+  const { t } = useAppTranslation();
   const meta = STATUS_META[agent.status];
   const active = agent.status === 'running';
   const ctxPct = Math.min(100, Math.max(0, agent.ctxPct));
@@ -416,20 +419,20 @@ export function FleetAgentRow({
         <span className={cn('led shrink-0', meta.led, meta.pulse && 'led-pulse')} />
         <span className="truncate font-medium">{agent.name}</span>
         {isLeader && (
-          <Crown className="h-3 w-3 shrink-0 text-amber-500" aria-label="leader" />
+          <Crown className="h-3 w-3 shrink-0 text-amber-500" aria-label={t('activity:fleet.leader')} />
         )}
       </div>
 
       {/* Status */}
       <span className={cn('text-[10px] tabular-nums', active ? 'text-emerald-500' : 'text-muted-foreground')}>
-        {meta.label}
+        {t(`activity:fleet.${meta.labelKey}`)}
       </span>
 
       {/* Sparkline */}
       <div className="flex items-center gap-1 min-w-0">
         <SparklineChart bins={agent.sparklineBins} className="font-mono text-[9px]" />
         {agent.budgetWarning && (
-          <span title={`⚡ hitting ${agent.budgetWarning.kind} limit (${agent.budgetWarning.used}/${agent.budgetWarning.limit})`}>
+          <span title={t('activity:fleet.hittingLimitTitle', { kind: agent.budgetWarning.kind, used: agent.budgetWarning.used, limit: agent.budgetWarning.limit })}>
             <Zap className="h-3 w-3 shrink-0 text-amber-500" aria-label="budget warning" />
           </span>
         )}
@@ -489,6 +492,7 @@ export function FleetMonitor({
   onClose,
   onSelectAgent,
 }: FleetMonitorProps) {
+  const { t } = useAppTranslation();
   const fleetAgents = useFleetStore((s) => s.agents);
   const leaderId = useFleetStore((s) => s.leaderId);
   const fleetTokensIn = useFleetStore((s) => s.fleetTokensIn);
@@ -503,8 +507,8 @@ export function FleetMonitor({
 
   // Live clock
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => clearInterval(t);
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
   }, []);
 
   const fleetList = useMemo(() => {
@@ -584,17 +588,17 @@ export function FleetMonitor({
           <div className="flex items-center gap-3">
             <Bot className="h-5 w-5 text-primary" />
             <h2 className="text-sm font-semibold flex items-center gap-2">
-              FLEET MONITOR
+              {t('activity:fleet.fleetMonitor')}
               {runningCount > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-emerald-500 font-normal">
                   <span className="led led-pulse bg-emerald-500" />
-                  {runningCount} running
+                  {t('activity:fleet.runningCount', { count: runningCount })}
                 </span>
               )}
             </h2>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>
-                {fleetList.length} total agents
+                {t('activity:fleet.totalAgents', { count: fleetList.length })}
               </span>
               <ConcurrencyGauge
                 current={fleetConcurrency}
@@ -610,13 +614,13 @@ export function FleetMonitor({
             <span className="text-xs text-muted-foreground tabular-nums font-mono">
               {leaderId
                 ? `👑 ${fleetAgents.get(leaderId)?.name ?? leaderId}`
-                : 'no leader'}
+                : t('activity:fleet.noLeader')}
             </span>
             <button
               type="button"
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-muted transition-colors"
-              aria-label="Close fleet monitor"
+              aria-label={t('activity:fleet.closeFleet')}
             >
               <XCircle className="h-4 w-4" />
             </button>
@@ -633,15 +637,15 @@ export function FleetMonitor({
           {/* Column headers */}
           <div className="border-b bg-card/80 px-3 py-2 overflow-x-auto">
             <div className="grid min-w-[650px] grid-cols-[140px_60px_1fr_60px_60px_60px_60px_50px_50px] gap-x-2 text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
-              <span>Name</span>
-              <span>Status</span>
-              <span>Activity</span>
-              <span>Iters</span>
-              <span>Tools</span>
-              <span>Cost</span>
-              <span>CTX</span>
-              <span>Ext</span>
-              <span>Reason</span>
+              <span>{t('activity:fleet.colName')}</span>
+              <span>{t('activity:fleet.colStatus')}</span>
+              <span>{t('activity:fleet.colActivity')}</span>
+              <span>{t('activity:fleet.colIters')}</span>
+              <span>{t('activity:fleet.colTools')}</span>
+              <span>{t('activity:fleet.colCost')}</span>
+              <span>{t('activity:fleet.colCtx')}</span>
+              <span>{t('activity:fleet.colExt')}</span>
+              <span>{t('activity:fleet.colReason')}</span>
             </div>
           </div>
 
@@ -650,8 +654,8 @@ export function FleetMonitor({
             {fleetList.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <Users className="h-12 w-12 mb-3 opacity-20" />
-                <p className="text-sm font-medium">No agents active</p>
-                <p className="text-xs mt-1">Agents appear here when the fleet is active.</p>
+                <p className="text-sm font-medium">{t('activity:fleet.noAgentsActive')}</p>
+                <p className="text-xs mt-1">{t('activity:fleet.agentsAppear')}</p>
               </div>
             ) : (
               <div className="p-2 space-y-0.5">
@@ -673,7 +677,7 @@ export function FleetMonitor({
             <div className="px-4 py-2 border-b">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-2">
                 <Clock className="h-3 w-3" />
-                Agent Timeline
+                {t('activity:fleet.agentTimeline')}
               </span>
             </div>
             <div className="px-4 py-2 max-h-32 overflow-y-auto">
@@ -682,7 +686,7 @@ export function FleetMonitor({
             <div className="border-t border-dashed" />
             <div className="px-4 py-2 max-h-40 overflow-y-auto">
               {fleetAgentTimeline.length === 0 ? (
-                <p className="text-[10px] text-muted-foreground italic">No agent conversation events yet.</p>
+                <p className="text-[10px] text-muted-foreground italic">{t('activity:fleet.noAgentEvents')}</p>
               ) : (
                 <div className="space-y-1">
                   {fleetAgentTimeline.slice(0, 15).map((entry) => {
@@ -704,9 +708,9 @@ export function FleetMonitor({
               )}
             </div>
             <div className="px-4 py-1.5 border-t text-[10px] text-muted-foreground flex items-center gap-4">
-              <span>↑↓ navigate</span>
-              <span>↵ select detail</span>
-              <span>Esc deselect / close</span>
+              <span>{t('activity:fleet.navHint')}</span>
+              <span>{t('activity:fleet.selectDetailHint')}</span>
+              <span>{t('activity:fleet.escHint')}</span>
             </div>
           </div>
         </div>
@@ -719,13 +723,13 @@ export function FleetMonitor({
               <div className="shrink-0 px-4 py-2 border-b bg-card/80 flex items-center gap-2">
                 <ArrowRight className="h-4 w-4 text-primary" />
                 <span className="text-xs font-semibold text-primary">{selectedAgent.name}</span>
-                <span className="text-[10px] text-muted-foreground">detailed view</span>
+                <span className="text-[10px] text-muted-foreground">{t('activity:fleet.detailedView')}</span>
                 <button
                   type="button"
                   onClick={() => setSelectedIdx(null)}
                   className="ml-auto text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
                 >
-                  ✕ close
+                  {t('activity:fleet.closeBtn')}
                 </button>
               </div>
               {/* Detail content */}
@@ -742,25 +746,24 @@ export function FleetMonitor({
             <div className="text-center space-y-3 max-w-sm">
               <Users className="h-12 w-12 text-muted-foreground/30 mx-auto" />
               <p className="text-sm text-muted-foreground">
-                Select an agent to view detailed information
+                {t('activity:fleet.selectAgentDetail')}
               </p>
               <p className="text-xs text-muted-foreground/60">
-                Click on any agent in the list to see detailed metrics, tool logs,
-                streaming output, and more — similar to the chat history detailed view.
+                {t('activity:fleet.selectAgentBody')}
               </p>
               <div className="flex items-center justify-center gap-4 pt-2">
                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">↑</kbd>
                   <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">↓</kbd>
-                  <span>navigate</span>
+                  <span>{t('activity:fleet.navigateWord')}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">Enter</kbd>
-                  <span>select</span>
+                  <span>{t('activity:fleet.selectWord')}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">Esc</kbd>
-                  <span>deselect</span>
+                  <span>{t('activity:fleet.deselectWord')}</span>
                 </div>
               </div>
             </div>
