@@ -57,7 +57,6 @@ import React, {
 } from 'react';
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
-  type Action,
   type FleetEntry,
   type ResumeSessionEntry,
   reducer,
@@ -162,6 +161,7 @@ import { createPsSlashCommand } from './ps-slash.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from './thinking-word.js';
+import { createPanelOpenDispatcher } from './on-panel-open.js';
 
 export {
   type Action,
@@ -2840,58 +2840,17 @@ export function App({
   // CLI passes `onPanelOpen` from cli-main.ts → execution.ts → run-tui.ts;
   // without binding `current` to a real dispatcher here, every such slash
   // command silently falls through to its text response and the picker
-  // never opens. Installing the binding after all `openXxxPicker` callbacks
-  // have been declared lets us reuse them where they need async loading
-  // (project picker, statusline picker).
-  //
-  // The installed function returns `true` when it dispatched the action, so
-  // the slash command suppresses its fallback message; `false` lets the
-  // caller fall through to text output (headless / REPL mode).
+  // never opens. The dispatcher logic lives in `./on-panel-open.ts` so it
+  // can be exercised by `tests/on-panel-open-bridge.test.ts` without
+  // mounting React (ink-testing-library does not flush useEffects).
   useEffect(() => {
     if (!onPanelOpen) return;
-    onPanelOpen.current = (action: string): boolean => {
-      switch (action) {
-        case 'pluginPickerOpen':
-          // The picker self-loads via getPluginItems in its own refresh
-          // effect, so we just dispatch the open action.
-          dispatch({ type: 'pluginPickerOpen' });
-          return true;
-        case 'projectPickerOpen':
-          // Items must be loaded from the host before opening — delegate to
-          // the same async opener that F1 uses.
-          void openProjectPicker();
-          return true;
-        case 'statuslineOpen':
-          // statuslineOpen requires a hiddenItems snapshot — delegate to the
-          // existing callback which knows how to compute it.
-          openStatuslinePicker();
-          return true;
-        case 'toggleMonitor':
-          dispatch({ type: 'toggleMonitor' });
-          return true;
-        case 'toggleAuditPanel':
-          dispatch({ type: 'toggleAuditPanel' });
-          return true;
-        // All other toggle* panels share the same handler in the reducer —
-        // the action type string IS the dispatch type. Dispatching them
-        // verbatim works because the reducer's switch covers every F-key
-        // panel action.
-        case 'toggleAgentsMonitor':
-        case 'toggleWorktreeMonitor':
-        case 'togglePlanPanel':
-        case 'toggleTodosMonitor':
-        case 'toggleQueuePanel':
-        case 'toggleProcessList':
-        case 'toggleGoalPanel':
-        case 'toggleSessionsPanel':
-        case 'toggleCoordinatorMonitor':
-          dispatch({ type: action } as Action);
-          return true;
-        default:
-          // Unknown action — let the slash command fall back to text.
-          return false;
-      }
-    };
+    const dispatcher = createPanelOpenDispatcher({
+      dispatch,
+      openProjectPicker,
+      openStatuslinePicker,
+    });
+    onPanelOpen.current = dispatcher;
     return () => {
       if (onPanelOpen) onPanelOpen.current = null;
     };
