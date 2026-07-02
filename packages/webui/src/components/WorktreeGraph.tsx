@@ -1,4 +1,5 @@
 import { expectDefined } from '@wrongstack/core';
+import { useAppTranslation } from '@/i18n';
 import type { WorktreeHandleView } from '@/types';
 const LANE_COLORS = ['#3b82f6', '#06b6d4', '#22c55e', '#eab308', '#f97316', '#a855f7', '#ec4899'];
 
@@ -41,6 +42,7 @@ export function WorktreeGraph({
   worktrees: WorktreeHandleView[];
   baseBranch: string;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const nodes = deriveWorktreeGraph(worktrees);
   const height = Math.max(120, 60 + nodes.length * 48 + 20);
   const trunkX = 40;
@@ -54,9 +56,9 @@ export function WorktreeGraph({
         viewBox={`0 0 600 ${height}`}
         className="min-w-[420px]"
         role="img"
-        aria-label={`Worktree branch graph off ${baseBranch || 'HEAD'}`}
+        aria-label={t('activity:worktree.graphAria', { base: baseBranch || 'HEAD' })}
       >
-        <title>{`Worktree branch graph off ${baseBranch || 'HEAD'}`}</title>
+        <title>{t('activity:worktree.graphAria', { base: baseBranch || 'HEAD' })}</title>
         {/* trunk */}
         <line x1={trunkX} y1={20} x2={trunkX} y2={height - 10} stroke="#F93951" strokeWidth={3} />
         <text x={trunkX - 4} y={14} fontSize={11} fill="#9ca3af">{baseBranch || 'HEAD'}</text>
@@ -95,7 +97,7 @@ export function WorktreeGraph({
                 {conflict
                   ? `⚠ ${n.handle.status}`
                   : merged
-                    ? `✓ merged → ${baseBranch}`
+                    ? t('activity:worktree.mergedLabel', { base: baseBranch })
                     : `+${n.handle.insertions}/-${n.handle.deletions} · ${n.handle.ownerLabel}`}
               </text>
             </g>
