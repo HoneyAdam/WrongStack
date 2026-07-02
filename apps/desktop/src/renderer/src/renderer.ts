@@ -5,6 +5,7 @@ import type {
   DesktopWebuiStatusSnapshot,
   DesktopWebuiCommand,
 } from '../../shared/types.js';
+import { t } from './i18n.js';
 import './styles.css';
 
 const appRootElement = document.querySelector<HTMLDivElement>('#app');
@@ -128,9 +129,9 @@ function renderDesktopRail(): string {
         <button class="rail-button accent" title="Open project folder" data-action="open-project" ${busy ? 'disabled' : ''}>
           ${iconSvg('folder-plus')}
         </button>
-        ${renderDesktopPanelButton('Workspace', 'monitor', 'workspace')}
-        ${renderDesktopPanelButton('Projects', 'folder', 'projects', projectCountLabel())}
-        ${renderDesktopPanelButton('Quick actions', 'command', 'quick')}
+        ${renderDesktopPanelButton(t('workspace'), 'monitor', 'workspace')}
+        ${renderDesktopPanelButton(t('projects'), 'folder', 'projects', projectCountLabel())}
+        ${renderDesktopPanelButton(t('quickActions'), 'command', 'quick')}
       </div>
       ${renderCollapsedRuntimeButtons()}
       <div class="rail-spacer"></div>
@@ -139,9 +140,9 @@ function renderDesktopRail(): string {
       </button>
       <button
         class="rail-button rail-toggle"
-        title="${shellSidebarCollapsed ? 'Expand desktop sidebar' : 'Collapse desktop sidebar'}"
+        title="${shellSidebarCollapsed ? t('expandSidebar') : t('collapseSidebar')}"
         data-action="toggle-shell-sidebar"
-        aria-label="${shellSidebarCollapsed ? 'Expand desktop sidebar' : 'Collapse desktop sidebar'}"
+        aria-label="${shellSidebarCollapsed ? t('expandSidebar') : t('collapseSidebar')}"
         aria-pressed="${shellSidebarCollapsed ? 'true' : 'false'}"
       >
         ${iconSvg('chevron')}
@@ -207,19 +208,19 @@ function renderSidebarPane(active: DesktopRuntimeRecord | undefined): string {
 
 function renderPaneHeader(active: DesktopRuntimeRecord | undefined): string {
   const title =
-    desktopPanel === 'projects' ? 'Projects' : desktopPanel === 'quick' ? 'Quick' : 'Workspace';
+    desktopPanel === 'projects' ? t('projects') : desktopPanel === 'quick' ? t('quick') : t('workspace');
   const subtitle =
     desktopPanel === 'projects'
       ? `${projectCountLabel()} projects`
       : desktopPanel === 'quick'
         ? active?.status === 'running'
-          ? 'WebUI commands'
-          : 'No active WebUI'
+          ? t('webuiCommands')
+          : t('noActiveWebui')
         : active
           ? active.name
           : state.restoring
             ? 'Restoring'
-            : 'No project';
+            : t('noProject');
   return `
     <header class="pane-header">
       <div class="pane-title-block">
@@ -293,7 +294,7 @@ function renderActiveProject(active: DesktopRuntimeRecord | undefined): string {
         <span>Active</span>
         <span class="status-chip idle">${state.restoring ? 'Restoring' : 'Idle'}</span>
       </header>
-        <div class="project-empty">${state.restoring ? 'Restoring last workspace...' : 'No project'}</div>
+        <div class="project-empty">${state.restoring ? `${t('restoring')}...` : t('noProject')}</div>
       </section>
     `;
   }
@@ -349,7 +350,7 @@ function renderWebuiStatus(active: DesktopRuntimeRecord): string {
       ? ` · ${webuiStatus.pendingCommands} queued`
       : '';
   const prefs = renderWebuiPrefBadges(active);
-  const label = status === 'ready' ? 'WebUI ready' : status === 'loading' ? 'WebUI loading' : status === 'error' ? 'WebUI error' : 'WebUI idle';
+  const label = status === 'ready' ? t('webuiReady') : status === 'loading' ? t('webuiLoading') : status === 'error' ? t('webuiError') : t('webuiIdle');
   return `
     <div class="webui-state">
       <span class="status-dot status-${status === 'ready' ? 'running' : status === 'error' ? 'error' : status === 'loading' ? 'starting' : 'stopped'}"></span>
@@ -362,9 +363,9 @@ function renderWebuiStatus(active: DesktopRuntimeRecord): string {
 function renderWebuiPrefBadges(active: DesktopRuntimeRecord): string {
   if (webuiStatus.runtimeId !== active.id || !webuiStatus.prefs) return '';
   const labels: string[] = [];
-  if (webuiStatus.prefs.yolo === true) labels.push('YOLO');
-  if (webuiStatus.prefs.nextPrediction === true) labels.push('Next');
-  if (webuiStatus.prefs.contextAutoCompact === true) labels.push('Compact');
+  if (webuiStatus.prefs.yolo === true) labels.push(t('yolo'));
+  if (webuiStatus.prefs.nextPrediction === true) labels.push(t('next'));
+  if (webuiStatus.prefs.contextAutoCompact === true) labels.push(t('compact'));
   return labels.length > 0 ? ` · ${labels.join(' · ')}` : '';
 }
 
@@ -391,16 +392,16 @@ function renderLauncher(active: DesktopRuntimeRecord | undefined): string {
     <section class="panel launcher-panel">
       <header class="panel-header">
         <span>Quick</span>
-        <span class="count">${enabled ? 'Ready' : 'Offline'}</span>
+        <span class="count">${enabled ? t('ready') : t('offline')}</span>
       </header>
       ${renderLauncherFeedback()}
       <div class="quick-action-grid">
         ${[
-          renderShortcut('Chat', 'message', { activity: 'chat', view: 'chat' }, disabled),
-          renderShortcut('Prompt', 'cursor', { action: 'focus-chat' }, disabled),
-          renderShortcut('Terminal', 'terminal', { terminal: true }, disabled),
-          renderShortcut('New Term', 'plus', { terminal: 'new' }, disabled),
-          renderShortcut('YOLO', 'shield', { pref: { key: 'yolo', toggle: true } }, disabled, yoloActive),
+          renderShortcut(t('chat'), 'message', { activity: 'chat', view: 'chat' }, disabled),
+          renderShortcut(t('prompt'), 'cursor', { action: 'focus-chat' }, disabled),
+          renderShortcut(t('terminal'), 'terminal', { terminal: true }, disabled),
+          renderShortcut(t('newTerm'), 'plus', { terminal: 'new' }, disabled),
+          renderShortcut(t('yolo'), 'shield', { pref: { key: 'yolo', toggle: true } }, disabled, yoloActive),
         ].join('')}
       </div>
     </section>
@@ -470,7 +471,7 @@ function renderProjectPicker(variant: ProjectPickerVariant): string {
         }
         ${
           visibleProjects.length === 0
-            ? `<div class="empty compact-empty">${total === 0 ? 'No registered projects' : 'No matching projects'}</div>`
+            ? `<div class="empty compact-empty">${total === 0 ? t('noRegisteredProjects') : t('noMatchingProjects')}</div>`
             : `<div class="project-list">${visibleProjects.map(renderProjectItem).join('')}</div>`
         }
       </div>
@@ -481,9 +482,9 @@ function renderProjectPicker(variant: ProjectPickerVariant): string {
 function renderProjectTabs(recentCount: number, registeredCount: number, allCount: number): string {
   return `
     <div class="project-tabs" role="tablist" aria-label="Project lists">
-      ${renderProjectTab('recent', 'Recent', recentCount)}
-      ${renderProjectTab('registered', 'Registered', registeredCount)}
-      ${renderProjectTab('all', 'All', allCount)}
+      ${renderProjectTab('recent', t('recent'), recentCount)}
+      ${renderProjectTab('registered', t('registered'), registeredCount)}
+      ${renderProjectTab('all', t('all'), allCount)}
     </div>
   `;
 }
@@ -633,7 +634,7 @@ function renderProjectSessionTree(): string {
       <div class="runtime-list project-session-tree">
         ${
           groups.length === 0
-            ? `<div class="empty compact-empty">${state.restoring ? 'Restoring sessions...' : 'No open project sessions'}</div>`
+            ? `<div class="empty compact-empty">${state.restoring ? `${t('restoring')}...` : t('noOpenProjectSessions')}</div>`
             : groups.map(renderRuntimeGroup).join('')
         }
       </div>
@@ -652,7 +653,7 @@ function groupRuntimesByProject(runtimes: DesktopRuntimeRecord[]): RuntimeProjec
     }
     groups.set(key, {
       key,
-      name: runtime.kind === 'global-settings' ? 'Global Settings' : basenameFromPath(runtime.root) || runtime.name,
+      name: runtime.kind === 'global-settings' ? t('globalSettings') : basenameFromPath(runtime.root) || runtime.name,
       root: runtime.root,
       kind: runtime.kind,
       sessions: [runtime],
@@ -758,7 +759,7 @@ function renderRuntimeGroupStatus(group: RuntimeProjectGroup): string {
 
 function renderRuntimeSession(runtime: DesktopRuntimeRecord, index: number): string {
   const isActive = runtime.id === state.activeRuntimeId;
-  const label = runtime.kind === 'global-settings' ? 'Settings' : `Session ${index}`;
+  const label = runtime.kind === 'global-settings' ? t('settings') : `Session ${index}`;
   const meta = runtime.status === 'error'
     ? runtime.error ?? 'Error'
     : `HTTP ${runtime.httpPort} · WS ${runtime.wsPort}`;
@@ -817,7 +818,7 @@ function renderStage(active: DesktopRuntimeRecord | undefined): string {
       <section class="stage-card error-card">
         <div class="stage-kicker">Runtime Error</div>
         <h1>${escapeHtml(active.name)}</h1>
-        <pre>${escapeHtml(active.error ?? 'Unknown error')}</pre>
+        <pre>${escapeHtml(active.error ?? t('unknownError'))}</pre>
         ${renderRuntimeLogs(active)}
       </section>
     `;
@@ -825,7 +826,7 @@ function renderStage(active: DesktopRuntimeRecord | undefined): string {
   return `
     <section class="stage-card">
       <div class="stage-kicker">WrongStack Desktop</div>
-      <h1>${state.restoring ? 'Restoring' : 'Open Project'}</h1>
+      <h1>${state.restoring ? t('restoring') : t('openProject')}</h1>
       <div class="stage-actions">
         <button class="primary-action inline" data-action="open-project" ${busy ? 'disabled' : ''}>
           ${iconSvg('folder-plus')}<span>Open Project</span>
@@ -842,10 +843,10 @@ function renderStage(active: DesktopRuntimeRecord | undefined): string {
 }
 
 function runtimeStatusLabel(runtime: DesktopRuntimeRecord): string {
-  if (runtime.status === 'starting') return 'Starting';
-  if (runtime.status === 'running') return 'Running';
-  if (runtime.status === 'error') return 'Error';
-  return 'Stopped';
+  if (runtime.status === 'starting') return t('starting');
+  if (runtime.status === 'running') return t('running');
+  if (runtime.status === 'error') return t('error');
+  return t('stopped');
 }
 
 async function refresh(): Promise<void> {
@@ -901,7 +902,7 @@ appRoot.addEventListener('click', (event) => {
   if (action === 'webui-command') {
     const raw = actionTarget.dataset.command;
     if (!raw) return;
-    const label = actionTarget.dataset.label ?? 'Command';
+    const label = actionTarget.dataset.label ?? t('command');
     const commandKey = raw;
     try {
       const command = JSON.parse(raw) as DesktopWebuiCommand;
@@ -1187,7 +1188,7 @@ function launcherCommandKey(command: DesktopWebuiCommand): string {
 }
 
 function runtimeInitials(runtime: DesktopRuntimeRecord): string {
-  const source = runtime.kind === 'global-settings' ? 'GS' : runtime.name || basenameFromPath(runtime.root);
+  const source = runtime.kind === 'global-settings' ? t('gs') : runtime.name || basenameFromPath(runtime.root);
   const words = source
     .replace(/[_-]+/g, ' ')
     .split(/\s+/)
