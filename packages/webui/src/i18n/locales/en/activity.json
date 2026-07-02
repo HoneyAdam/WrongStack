@@ -847,5 +847,30 @@
     "iterations": "iterations",
     "deliverables": "Deliverables",
     "recentActivity": "Recent Activity"
+  },
+  "worktree": {
+    "cleanTitle_one": "Clean {{count}} orphaned worktree?",
+    "cleanTitle_other": "Clean {{count}} orphaned worktrees?",
+    "cleanMessage": "Force-removes every leftover git worktree + wstack/ap branch from previous runs. Un-merged work in them is discarded.",
+    "cleanConfirm": "Clean orphans",
+    "orphanCount_one": "{{count}} orphaned worktree from previous runs",
+    "orphanCount_other": "{{count}} orphaned worktrees from previous runs",
+    "andMore": "…and {{count}} more",
+    "cleanButtonTitle": "Force-remove all orphaned worktrees + branches",
+    "removed_one": "✓ Removed {{count}} orphaned worktree.",
+    "removed_other": "✓ Removed {{count}} orphaned worktrees.",
+    "cleanupFailed": "cleanup failed",
+    "lanesHeading": "Worktrees",
+    "base": "base",
+    "isolatedCount_one": "{{count}} isolated",
+    "isolatedCount_other": "{{count}} isolated",
+    "statusAllocating": "allocating",
+    "statusActive": "active",
+    "statusCommitting": "committing",
+    "statusMerging": "merging",
+    "statusMerged": "merged",
+    "statusConflict": "conflict",
+    "statusFailed": "failed",
+    "conflictBadge": "CONFLICT"
   }
 }

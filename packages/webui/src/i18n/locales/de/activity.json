@@ -847,5 +847,30 @@
     "iterations": "Iterationen",
     "deliverables": "Lieferobjekte",
     "recentActivity": "Letzte Aktivität"
+  },
+  "worktree": {
+    "cleanTitle_one": "{{count}} verwaisten Worktree entfernen?",
+    "cleanTitle_other": "{{count}} verwaiste Worktrees entfernen?",
+    "cleanMessage": "Entfernt jeden übriggebliebenen Git-Worktree + wstack/ap-Branch vorheriger Läufe zwangsweise. Nicht gemergte Arbeit darin geht verloren.",
+    "cleanConfirm": "Verwaiste entfernen",
+    "orphanCount_one": "{{count}} verwaister Worktree aus vorherigen Läufen",
+    "orphanCount_other": "{{count}} verwaiste Worktrees aus vorherigen Läufen",
+    "andMore": "…und {{count}} weitere",
+    "cleanButtonTitle": "Alle verwaisten Worktrees + Branches zwangsweise entfernen",
+    "removed_one": "✓ {{count}} verwaister Worktree entfernt.",
+    "removed_other": "✓ {{count}} verwaiste Worktrees entfernt.",
+    "cleanupFailed": "Bereinigung fehlgeschlagen",
+    "lanesHeading": "Worktrees",
+    "base": "Basis",
+    "isolatedCount_one": "{{count}} isoliert",
+    "isolatedCount_other": "{{count}} isoliert",
+    "statusAllocating": "zuweisend",
+    "statusActive": "aktiv",
+    "statusCommitting": "committend",
+    "statusMerging": "mergend",
+    "statusMerged": "gemergt",
+    "statusConflict": "Konflikt",
+    "statusFailed": "fehlgeschlagen",
+    "conflictBadge": "KONFLIKT"
   }
 }

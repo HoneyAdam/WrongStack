@@ -847,5 +847,30 @@
     "iterations": "iteraciones",
     "deliverables": "Entregables",
     "recentActivity": "Actividad reciente"
+  },
+  "worktree": {
+    "cleanTitle_one": "¿Limpiar {{count}} worktree huérfano?",
+    "cleanTitle_other": "¿Limpiar {{count}} worktrees huérfanos?",
+    "cleanMessage": "Elimina a la fuerza cada worktree git + rama wstack/ap sobrante de runs anteriores. El trabajo sin mergear en ellos se pierde.",
+    "cleanConfirm": "Limpiar huérfanos",
+    "orphanCount_one": "{{count}} worktree huérfano de runs anteriores",
+    "orphanCount_other": "{{count}} worktrees huérfanos de runs anteriores",
+    "andMore": "…y {{count}} más",
+    "cleanButtonTitle": "Eliminar a la fuerza todos los worktrees + ramas huérfanos",
+    "removed_one": "✓ {{count}} worktree huérfano eliminado.",
+    "removed_other": "✓ {{count}} worktrees huérfanos eliminados.",
+    "cleanupFailed": "limpieza fallida",
+    "lanesHeading": "Worktrees",
+    "base": "base",
+    "isolatedCount_one": "{{count}} aislado",
+    "isolatedCount_other": "{{count}} aislados",
+    "statusAllocating": "asignando",
+    "statusActive": "activo",
+    "statusCommitting": "commitiendo",
+    "statusMerging": "mergeando",
+    "statusMerged": "mergeado",
+    "statusConflict": "conflicto",
+    "statusFailed": "fallido",
+    "conflictBadge": "CONFLICTO"
   }
 }

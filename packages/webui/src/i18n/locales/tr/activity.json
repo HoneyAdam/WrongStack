@@ -847,5 +847,30 @@
     "iterations": "yineleme",
     "deliverables": "Teslimatlar",
     "recentActivity": "Son etkinlik"
+  },
+  "worktree": {
+    "cleanTitle_one": "{{count}} yetim worktree temizlensin mi?",
+    "cleanTitle_other": "{{count}} yetim worktree temizlensin mi?",
+    "cleanMessage": "Önceki çalışmalardan kalan tüm git worktree + wstack/ap dalını zorla kaldırır. İçlerindeki birleştirilmemiş çalışma kaybolur.",
+    "cleanConfirm": "Yetimleri temizle",
+    "orphanCount_one": "Önceki çalışmalardan {{count}} yetim worktree",
+    "orphanCount_other": "Önceki çalışmalardan {{count}} yetim worktree",
+    "andMore": "…ve {{count}} daha",
+    "cleanButtonTitle": "Tüm yetim worktree + dalları zorla kaldır",
+    "removed_one": "✓ {{count}} yetim worktree kaldırıldı.",
+    "removed_other": "✓ {{count}} yetim worktree kaldırıldı.",
+    "cleanupFailed": "temizlik başarısız",
+    "lanesHeading": "Worktree'ler",
+    "base": "taban",
+    "isolatedCount_one": "{{count}} yalıtılmış",
+    "isolatedCount_other": "{{count}} yalıtılmış",
+    "statusAllocating": "ayrılıyor",
+    "statusActive": "etkin",
+    "statusCommitting": "işleniyor",
+    "statusMerging": "birleştiriliyor",
+    "statusMerged": "birleştirildi",
+    "statusConflict": "çakışma",
+    "statusFailed": "başarısız",
+    "conflictBadge": "ÇAKIŞMA"
   }
 }
