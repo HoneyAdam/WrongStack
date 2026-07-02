@@ -4062,7 +4062,6 @@ export function App({
     fleetStreamController,
     enhanceController,
     agentsMonitorController,
-    onPanelOpen,
   });
 
   // Install the leader-abort handler for the /interrupt slash command. Slash

@@ -24,12 +24,6 @@ export interface UseTuiControllersOptions {
   fleetStreamController?: FleetStreamController | undefined;
   enhanceController?: EnhanceController | undefined;
   agentsMonitorController?: AgentsMonitorController | undefined;
-  /**
-   * Mutable ref for opening TUI panels from slash commands. The slash commands
-   * call `onPanelOpen.current(action)` to open panels. The App sets
-   * `onPanelOpen.current` to its actual dispatch function on mount.
-   */
-  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
 }
 
 /**
@@ -47,7 +41,6 @@ export function useTuiControllers({
   fleetStreamController,
   enhanceController,
   agentsMonitorController,
-  onPanelOpen,
 }: UseTuiControllersOptions): void {
   useEffect(() => {
     if (!fleetStreamController) return;
@@ -98,17 +91,11 @@ export function useTuiControllers({
     if (agentsMonitorController) agentsMonitorController.visible = agentsMonitorOpen;
   }, [agentsMonitorController, agentsMonitorOpen]);
 
-  // Wire onPanelOpen — slash commands call `onPanelOpen.current(action)` to open panels.
-  useEffect(() => {
-    if (!onPanelOpen) return;
-    onPanelOpen.current = (action: string) => {
-      // All known F-key panel actions are simple toggles or opens.
-      // Dispatch the action and return true to indicate success.
-      dispatch({ type: action } as Action);
-      return true;
-    };
-    return () => {
-      onPanelOpen.current = null;
-    };
-  }, [onPanelOpen, dispatch]);
+  // NOTE: `onPanelOpen` is deliberately NOT wired here. The panel-open bridge
+  // lives in app.tsx's mount effect via `createPanelOpenDispatcher` (see
+  // on-panel-open.ts), which knows the per-action requirements
+  // (projectPickerOpen must fetch items first, statuslineOpen needs a
+  // hiddenItems snapshot). A second naive installer here ran later in effect
+  // order and overwrote the real dispatcher with a blind dispatch-anything
+  // handler — breaking those payload-carrying actions.
 }

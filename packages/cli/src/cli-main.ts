@@ -2983,6 +2983,12 @@ export async function main(argv: string[]): Promise<number> {
     saveStatuslineHiddenItems,
     getPluginItems: getPluginPickerItems,
     onPluginToggle: togglePluginFromPicker,
+    // Panel-open bridge: the SAME mutable ref handed to the slash commands
+    // above. execution.ts forwards it into runTui, where app.tsx binds
+    // `current` to the real dispatcher on mount. Without this line the ref
+    // stays null forever and `/plugin` (and every other panel-opening slash
+    // command) silently falls back to its plain-text output.
+    onPanelOpen,
     getYolo: setYoloMode,
     onYolo: setYoloMode,
     getAutonomy: () => autonomyMode,
