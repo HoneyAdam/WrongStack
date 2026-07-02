@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import {
   Activity,
   ArrowRightLeft,
@@ -14,8 +15,10 @@ export type AutonomyMode = 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-par
 
 export interface AutonomyOption {
   mode: AutonomyMode;
+  /** Display label — left verbatim (autonomy mode names are domain terms). */
   label: string;
-  description: string;
+  /** i18n key under activity:autonomy.* for the description. */
+  descKey: string;
   icon: React.ReactNode;
 }
 
@@ -23,31 +26,31 @@ const AUTONOMY_OPTIONS: AutonomyOption[] = [
   {
     mode: 'off',
     label: 'Off',
-    description: 'Full manual control — agent waits for your input.',
+    descKey: 'descOff',
     icon: <Pause className="h-3.5 w-3.5" />,
   },
   {
     mode: 'suggest',
     label: 'Suggest',
-    description: 'Agent suggests next steps but waits for approval.',
+    descKey: 'descSuggest',
     icon: <ArrowRightLeft className="h-3.5 w-3.5" />,
   },
   {
     mode: 'auto',
     label: 'Auto',
-    description: 'Agent auto-proceeds after brief confirmation delay.',
+    descKey: 'descAuto',
     icon: <Play className="h-3.5 w-3.5" />,
   },
   {
     mode: 'eternal',
     label: 'Eternal',
-    description: 'Agent runs autonomously until goal is complete.',
+    descKey: 'descEternal',
     icon: <Activity className="h-3.5 w-3.5" />,
   },
   {
     mode: 'eternal-parallel',
     label: 'Eternal Parallel',
-    description: 'Multi-agent autonomous execution — fleet mode.',
+    descKey: 'descEternalParallel',
     icon: <Activity className="h-3.5 w-3.5" />,
   },
 ];
@@ -71,6 +74,7 @@ export function AutonomyPicker({
   className,
   compact = false,
 }: AutonomyPickerProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -115,7 +119,7 @@ export function AutonomyPicker({
           tone,
           className,
         )}
-        title={`Autonomy: ${current?.label ?? value}`}
+        title={t('activity:autonomy.titlePrefix', { label: current?.label ?? value })}
       >
         {current?.icon}
         {!compact && <span className="truncate max-w-[7rem]">{current?.label ?? value}</span>}
@@ -125,7 +129,7 @@ export function AutonomyPicker({
       {open && (
         <div className="absolute top-full mt-1 right-0 z-50 w-56 rounded-lg border bg-popover shadow-lg p-1">
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1">
-            Autonomy Mode
+            {t('activity:autonomy.heading')}
           </div>
           {AUTONOMY_OPTIONS.map((opt) => (
             <button
@@ -145,7 +149,7 @@ export function AutonomyPicker({
               <span className="mt-0.5 text-muted-foreground">{opt.icon}</span>
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium">{opt.label}</span>
-                <p className="text-[10px] text-muted-foreground leading-snug">{opt.description}</p>
+                <p className="text-[10px] text-muted-foreground leading-snug">{t(`activity:autonomy.${opt.descKey}`)}</p>
               </div>
               {value === opt.mode && (
                 <span className="h-1.5 w-1.5 rounded-full bg-primary mt-2 shrink-0" />

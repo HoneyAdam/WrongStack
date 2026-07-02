@@ -1,6 +1,7 @@
 import { AlertCircle, Bot, Brain, Check, CircleDot, Copy, Info, MessageSquareText, Wrench } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { i18n, useAppTranslation } from '@/i18n';
 import type { AgentTranscriptEntry, AgentTranscriptKind } from '@/stores';
 
 interface AgentTranscriptProps {
@@ -16,50 +17,50 @@ interface AgentTranscriptProps {
 const KIND_META: Record<
   AgentTranscriptKind,
   {
-    label: string;
+    labelKey: string;
     icon: React.ComponentType<{ className?: string | undefined }>;
     tone: string;
     bubble: string;
   }
 > = {
   text: {
-    label: 'Assistant',
+    labelKey: 'kindAssistant',
     icon: MessageSquareText,
     tone: 'text-primary',
     bubble: 'border-border bg-card',
   },
   thinking: {
-    label: 'Thinking',
+    labelKey: 'kindThinking',
     icon: Brain,
     tone: 'text-violet-500',
     bubble: 'border-violet-500/20 bg-violet-500/5',
   },
   tool_use: {
-    label: 'Tool call',
+    labelKey: 'kindToolCall',
     icon: Wrench,
     tone: 'text-amber-500',
     bubble: 'border-amber-500/20 bg-amber-500/5',
   },
   tool_result: {
-    label: 'Tool result',
+    labelKey: 'kindToolResult',
     icon: Check,
     tone: 'text-emerald-500',
     bubble: 'border-emerald-500/20 bg-emerald-500/5',
   },
   error: {
-    label: 'Error',
+    labelKey: 'kindError',
     icon: AlertCircle,
     tone: 'text-destructive',
     bubble: 'border-destructive/25 bg-destructive/5',
   },
   status: {
-    label: 'Status',
+    labelKey: 'kindStatus',
     icon: Info,
     tone: 'text-muted-foreground',
     bubble: 'border-border bg-muted/25',
   },
   system: {
-    label: 'System',
+    labelKey: 'kindSystem',
     icon: CircleDot,
     tone: 'text-muted-foreground',
     bubble: 'border-border bg-muted/25',
@@ -78,7 +79,7 @@ function transcriptText(entries: AgentTranscriptEntry[]): string {
       const meta = KIND_META[entry.kind] ?? KIND_META.status;
       const time = formatTime(entry.ts);
       const tool = entry.toolName ? ` [${entry.toolName}]` : '';
-      return `[${time}] ${entry.agentName} · ${meta.label}${tool}\n${entry.content}`;
+      return `[${time}] ${entry.agentName} · ${i18n.t(`activity:transcript.${meta.labelKey}`)}${tool}\n${entry.content}`;
     })
     .join('\n\n');
 }
@@ -89,9 +90,10 @@ export function AgentTranscript({
   className,
   compact = false,
   maxHeightClassName,
-  title = 'Chat history',
+  title,
   showHeader = true,
 }: AgentTranscriptProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
   const copyText = useMemo(() => transcriptText(entries), [entries]);
   const handleCopy = useCallback(async () => {
@@ -112,7 +114,7 @@ export function AgentTranscript({
           <div className="flex min-w-0 items-center gap-2">
             <Bot className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {title}
+              {title ?? t('activity:transcript.title')}
             </span>
             {agentName && (
               <span className="truncate text-[10px] text-muted-foreground">
@@ -128,17 +130,17 @@ export function AgentTranscript({
             onClick={handleCopy}
             disabled={entries.length === 0}
             className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            title="Copy agent chat history"
+            title={t('activity:transcript.copyTitle')}
           >
             {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? t('common:action.copied') : t('common:action.copy')}
           </button>
         </div>
       )}
       <div className={cn('space-y-2 overflow-y-auto p-2', maxHeightClassName ?? (compact ? 'max-h-72' : 'max-h-[32rem]'))}>
         {entries.length === 0 ? (
           <div className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
-            No chat history for this agent yet.
+            {t('activity:transcript.empty')}
           </div>
         ) : (
           entries.map((entry) => {
@@ -156,7 +158,7 @@ export function AgentTranscript({
                 <div className="flex min-w-0 items-center gap-2">
                   <Icon className={cn('h-3.5 w-3.5 shrink-0', meta.tone)} />
                   <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {meta.label}
+                    {t(`activity:transcript.${meta.labelKey}`)}
                   </span>
                   {entry.toolName && (
                     <span className="min-w-0 truncate rounded bg-background/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">

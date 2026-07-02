@@ -1,22 +1,13 @@
 import { expectDefined } from '@wrongstack/core';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useSessionStore } from '@/stores';
 import { Check, ChevronDown, Gauge, Wrench, Zap, FileSearch } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const FALLBACK_MODES = [
-  {
-    id: 'balanced',
-    name: 'Balanced',
-    description: 'Default rolling compaction',
-    thresholds: { warn: 0.6, soft: 0.75, hard: 0.9 },
-    preserveK: 10,
-    eliseThreshold: 2000,
-  },
-];
-
 export function ContextModePicker() {
+  const { t } = useAppTranslation();
   const contextMode = useSessionStore((s) => s.contextMode);
   const contextModes = useSessionStore((s) => s.contextModes);
   const { listContextModes, switchContextMode, client } = useWebSocket();
@@ -67,7 +58,18 @@ export function ContextModePicker() {
     setOpen(false);
   }, [client]);
 
-  const items = contextModes.length > 0 ? contextModes : FALLBACK_MODES;
+  const items = contextModes.length > 0
+    ? contextModes
+    : [
+        {
+          id: 'balanced',
+          name: t('activity:ctxMode.fallbackName'),
+          description: t('activity:ctxMode.fallbackDesc'),
+          thresholds: { warn: 0.6, soft: 0.75, hard: 0.9 },
+          preserveK: 10,
+          eliseThreshold: 2000,
+        },
+      ];
   const active = items.find((m) => m.id === contextMode) ?? expectDefined(items[0]);
 
   return (
@@ -80,10 +82,10 @@ export function ContextModePicker() {
             'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
             'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 transition-colors border border-transparent hover:border-emerald-500/30',
           )}
-          title="Context-window mode"
+          title={t('activity:ctxMode.triggerTitle')}
         >
           <Gauge className="h-3 w-3" />
-          ctx: <span className="font-mono">{contextMode || active.id}</span>
+          {t('activity:ctxMode.ctxPrefix')} <span className="font-mono">{contextMode || active.id}</span>
           <ChevronDown className="h-3 w-3 opacity-60" />
         </button>
 
@@ -97,14 +99,14 @@ export function ContextModePicker() {
               'text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors',
               opsOpen && 'bg-accent/50 text-foreground',
             )}
-            title="Context operations"
+            title={t('activity:ctxMode.opsHeading')}
           >
             <Wrench className="h-3 w-3" />
           </button>
           {opsOpen && (
             <div className="absolute top-full right-0 mt-1 w-52 rounded-md border bg-popover shadow-lg z-40 py-1">
               <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b">
-                Context Operations
+                {t('activity:ctxMode.opsHeading')}
               </div>
               <button
                 type="button"
@@ -113,8 +115,8 @@ export function ContextModePicker() {
               >
                 <Zap className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                 <div>
-                  <div className="text-xs">Compact Now</div>
-                  <div className="text-[10px] text-muted-foreground">Elide old tool output</div>
+                  <div className="text-xs">{t('activity:ctxMode.compactNow')}</div>
+                  <div className="text-[10px] text-muted-foreground">{t('activity:ctxMode.compactNowDesc')}</div>
                 </div>
               </button>
               <button
@@ -124,8 +126,8 @@ export function ContextModePicker() {
               >
                 <Zap className="h-3.5 w-3.5 shrink-0 text-red-400" />
                 <div>
-                  <div className="text-xs">Compact Aggressive</div>
-                  <div className="text-[10px] text-muted-foreground">Maximum elision now</div>
+                  <div className="text-xs">{t('activity:ctxMode.compactAggressive')}</div>
+                  <div className="text-[10px] text-muted-foreground">{t('activity:ctxMode.compactAggressiveDesc')}</div>
                 </div>
               </button>
               <button
@@ -135,8 +137,8 @@ export function ContextModePicker() {
               >
                 <Wrench className="h-3.5 w-3.5 shrink-0 text-blue-400" />
                 <div>
-                  <div className="text-xs">Repair Context</div>
-                  <div className="text-[10px] text-muted-foreground">Fix orphan tool-use blocks</div>
+                  <div className="text-xs">{t('activity:ctxMode.repairContext')}</div>
+                  <div className="text-[10px] text-muted-foreground">{t('activity:ctxMode.repairDesc')}</div>
                 </div>
               </button>
               <div className="border-t mt-1 pt-1 px-3 py-1.5">
@@ -153,8 +155,8 @@ export function ContextModePicker() {
                 >
                   <FileSearch className="h-3.5 w-3.5 shrink-0 text-green-400" />
                   <div>
-                    <div className="text-xs">Debug Context</div>
-                    <div className="text-[10px] text-muted-foreground">Size breakdown per section</div>
+                    <div className="text-xs">{t('activity:ctxMode.debugContext')}</div>
+                    <div className="text-[10px] text-muted-foreground">{t('activity:ctxMode.debugDesc')}</div>
                   </div>
                 </button>
               </div>
@@ -166,7 +168,7 @@ export function ContextModePicker() {
       {open && (
         <div className="absolute top-full left-0 mt-1 w-80 rounded-md border bg-popover shadow-lg z-30 py-1">
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b">
-            Context Window
+            {t('activity:ctxMode.windowHeading')}
           </div>
           {items.map((m) => (
             <button
@@ -202,7 +204,7 @@ export function ContextModePicker() {
                 </div>
                 {(m.preserveK || m.eliseThreshold) && (
                   <div className="mt-1 text-[10px] text-muted-foreground/80">
-                    keep {m.preserveK ?? '-'} recent · elide {m.eliseThreshold ?? '-'}+ tokens
+                    {t('activity:ctxMode.keepElide', { k: m.preserveK ?? '-', t: m.eliseThreshold ?? '-' })}
                   </div>
                 )}
               </div>
