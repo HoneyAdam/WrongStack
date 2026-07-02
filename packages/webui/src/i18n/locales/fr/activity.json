@@ -515,5 +515,17 @@
       "read": "Lu",
       "completed": "Terminé"
     }
+  },
+  "sdd": {
+    "status": {
+      "pending": "en attente",
+      "queued": "en file",
+      "in_progress": "en cours",
+      "blocked": "bloqué",
+      "review": "revue",
+      "failed": "échoué",
+      "completed": "terminé",
+      "cancelled": "annulé"
+    }
   }
 }

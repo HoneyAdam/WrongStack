@@ -515,5 +515,17 @@
       "read": "Read",
       "completed": "Completed"
     }
+  },
+  "sdd": {
+    "status": {
+      "pending": "pending",
+      "queued": "queued",
+      "in_progress": "running",
+      "blocked": "blocked",
+      "review": "review",
+      "failed": "failed",
+      "completed": "done",
+      "cancelled": "cancelled"
+    }
   }
 }

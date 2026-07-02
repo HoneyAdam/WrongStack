@@ -24,6 +24,7 @@ import '@xyflow/react/dist/style.css';
 import { Check, Loader2, X, GitBranch, RotateCcw, CircleDot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { statusStyle, priorityStyle, agentInitials } from '@/lib/sdd-theme';
+import { useAppTranslation } from '@/i18n';
 
 export type FlowStatus =
   | 'pending'
@@ -58,16 +59,16 @@ const NODE_W = 240;
 
 const STATUS: Record<
   FlowStatus,
-  { ring: string; chip: string; dot: string; label: string }
+  { ring: string; chip: string; dot: string }
 > = {
-  pending: { ring: 'border-slate-600/50', chip: 'bg-slate-700/40 text-slate-400', dot: 'bg-slate-500', label: 'pending' },
-  queued: { ring: 'border-cyan-500/50', chip: 'bg-cyan-500/15 text-cyan-300', dot: 'bg-cyan-400', label: 'queued' },
-  in_progress: { ring: 'border-amber-400/70', chip: 'bg-amber-500/20 text-amber-300', dot: 'bg-amber-400', label: 'running' },
-  blocked: { ring: 'border-fuchsia-500/50', chip: 'bg-fuchsia-500/15 text-fuchsia-300', dot: 'bg-fuchsia-400', label: 'blocked' },
-  review: { ring: 'border-sky-500/50', chip: 'bg-sky-500/15 text-sky-300', dot: 'bg-sky-400', label: 'review' },
-  failed: { ring: 'border-red-500/60', chip: 'bg-red-500/15 text-red-300', dot: 'bg-red-400', label: 'failed' },
-  completed: { ring: 'border-emerald-500/55', chip: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400', label: 'done' },
-  cancelled: { ring: 'border-slate-500/50', chip: 'bg-slate-600/25 text-slate-400', dot: 'bg-slate-500', label: 'cancelled' },
+  pending: { ring: 'border-slate-600/50', chip: 'bg-slate-700/40 text-slate-400', dot: 'bg-slate-500' },
+  queued: { ring: 'border-cyan-500/50', chip: 'bg-cyan-500/15 text-cyan-300', dot: 'bg-cyan-400' },
+  in_progress: { ring: 'border-amber-400/70', chip: 'bg-amber-500/20 text-amber-300', dot: 'bg-amber-400' },
+  blocked: { ring: 'border-fuchsia-500/50', chip: 'bg-fuchsia-500/15 text-fuchsia-300', dot: 'bg-fuchsia-400' },
+  review: { ring: 'border-sky-500/50', chip: 'bg-sky-500/15 text-sky-300', dot: 'bg-sky-400' },
+  failed: { ring: 'border-red-500/60', chip: 'bg-red-500/15 text-red-300', dot: 'bg-red-400' },
+  completed: { ring: 'border-emerald-500/55', chip: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400' },
+  cancelled: { ring: 'border-slate-500/50', chip: 'bg-slate-600/25 text-slate-400', dot: 'bg-slate-500' },
 };
 
 interface TaskNodeData extends Record<string, unknown> {
@@ -78,6 +79,7 @@ interface TaskNodeData extends Record<string, unknown> {
 
 function TaskNode({ data }: { data: TaskNodeData }) {
   const t = data.task;
+  const { t: tt } = useAppTranslation();
   const s = STATUS[t.displayStatus];
   const running = t.displayStatus === 'in_progress';
   const StatusIcon =
@@ -116,7 +118,7 @@ function TaskNode({ data }: { data: TaskNodeData }) {
         <span className={cn('font-mono text-[10px] font-bold uppercase', priorityStyle(t.priority).text)}>
           {t.priority[0]}
         </span>
-        <span className={cn('ml-auto rounded px-1.5 py-px text-[9px] font-medium', s.chip)}>{s.label}</span>
+        <span className={cn('ml-auto rounded px-1.5 py-px text-[9px] font-medium', s.chip)}>{tt(`activity:sdd.status.${t.displayStatus}`)}</span>
       </div>
 
       {/* title */}

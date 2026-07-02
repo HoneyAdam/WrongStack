@@ -515,5 +515,17 @@
       "read": "Lido",
       "completed": "Concluído"
     }
+  },
+  "sdd": {
+    "status": {
+      "pending": "pendente",
+      "queued": "em fila",
+      "in_progress": "em execução",
+      "blocked": "bloqueado",
+      "review": "revisão",
+      "failed": "falhou",
+      "completed": "concluído",
+      "cancelled": "cancelado"
+    }
   }
 }

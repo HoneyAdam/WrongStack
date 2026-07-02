@@ -515,5 +515,17 @@
       "read": "Okundu",
       "completed": "Tamamlandı"
     }
+  },
+  "sdd": {
+    "status": {
+      "pending": "bekliyor",
+      "queued": "sırada",
+      "in_progress": "çalışıyor",
+      "blocked": "engellendi",
+      "review": "inceleme",
+      "failed": "başarısız",
+      "completed": "bitti",
+      "cancelled": "iptal edildi"
+    }
   }
 }
