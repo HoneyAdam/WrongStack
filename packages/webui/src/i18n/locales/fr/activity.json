@@ -431,5 +431,41 @@
     "closeDock": "Fermer le dock de terminal (Ctrl+`)",
     "closeTab": "Fermer {{name}}",
     "processExited": "[processus terminé avec le code {{code}}]"
+  },
+  "sessionWatch": {
+    "liveStream": "Flux en direct",
+    "events_one": "{{count}} événement",
+    "events_other": "{{count}} événements",
+    "interruptTitle": "Arrêter coopérativement cet agent à sa prochaine étape (pas un kill de processus)",
+    "interrupt": "⏸ Interrompre",
+    "interrupting": "…",
+    "loading": "Chargement de la session…",
+    "done": "✓✓ terminé",
+    "read": "✓ lu",
+    "delivered": "⏳ livré",
+    "agent": "Agent",
+    "you": "Vous",
+    "working": "{{name}} · en cours",
+    "claude": "Claude",
+    "priority": "Priorité",
+    "placeholder": "{{label}} → cette session…",
+    "send": "Envoyer",
+    "sendHint": "⌘/Ctrl+Entrée pour envoyer · visible à la prochaine itération de l'agent",
+    "msgType": {
+      "steerLabel": "🔄 Orienter",
+      "steerHint": "Ajuster le comportement en cours de tâche",
+      "askLabel": "❓ Demander",
+      "askHint": "Question — attend une réponse",
+      "assignLabel": "📋 Assigner",
+      "assignHint": "Une tâche à traiter",
+      "noteLabel": "💬 Note",
+      "noteHint": "Pour info, non urgent"
+    },
+    "sentRunning": "Livré — l'agent en cours le verra à sa prochaine étape",
+    "sentIdle": "Livré — la cible est inactive ; apparaît dans sa boîte, lu à la prochaine exécution",
+    "sentFailed": "Échec : {{error}}",
+    "interruptReason": "L'opérateur a demandé l'arrêt depuis Fleet HQ",
+    "interruptSent": "Interruption envoyée — l'agent s'arrête à la prochaine étape (pas un kill)",
+    "interruptFailed": "Échec de l'interruption : {{error}}"
   }
 }

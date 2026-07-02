@@ -431,5 +431,41 @@
     "closeDock": "Cerrar el dock de terminal (Ctrl+`)",
     "closeTab": "Cerrar {{name}}",
     "processExited": "[proceso terminado con código {{code}}]"
+  },
+  "sessionWatch": {
+    "liveStream": "Transmisión en vivo",
+    "events_one": "{{count}} evento",
+    "events_other": "{{count}} eventos",
+    "interruptTitle": "Detener cooperativamente a este agente en su próximo paso (no es un kill)",
+    "interrupt": "⏸ Interrumpir",
+    "interrupting": "…",
+    "loading": "Cargando sesión…",
+    "done": "✓✓ hecho",
+    "read": "✓ leído",
+    "delivered": "⏳ entregado",
+    "agent": "Agente",
+    "you": "Tú",
+    "working": "{{name}} · trabajando",
+    "claude": "Claude",
+    "priority": "Prioridad",
+    "placeholder": "{{label}} → esta sesión…",
+    "send": "Enviar",
+    "sendHint": "⌘/Ctrl+Enter para enviar · visible en la próxima iteración del agente",
+    "msgType": {
+      "steerLabel": "🔄 Dirigir",
+      "steerHint": "Ajustar el comportamiento durante la tarea",
+      "askLabel": "❓ Preguntar",
+      "askHint": "Pregunta — espera respuesta",
+      "assignLabel": "📋 Asignar",
+      "assignHint": "Una tarea en la que actuar",
+      "noteLabel": "💬 Nota",
+      "noteHint": "Para tu información, no urgente"
+    },
+    "sentRunning": "Entregado — el agente en ejecución lo verá en su próximo paso",
+    "sentIdle": "Entregado — el objetivo está inactivo; aparece en su buzón, leído en su próxima ejecución",
+    "sentFailed": "Falló: {{error}}",
+    "interruptReason": "El operador solicitó la detención desde Fleet HQ",
+    "interruptSent": "Interrupción enviada — el agente se detiene en su próximo paso (no es un kill)",
+    "interruptFailed": "Interrupción fallida: {{error}}"
   }
 }

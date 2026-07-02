@@ -431,5 +431,41 @@
     "closeDock": "Terminal dock'unu kapat (Ctrl+`)",
     "closeTab": "{{name}} öğesini kapat",
     "processExited": "[işlem {{code}} koduyla çıktı]"
+  },
+  "sessionWatch": {
+    "liveStream": "Canlı akış",
+    "events_one": "{{count}} olay",
+    "events_other": "{{count}} olay",
+    "interruptTitle": "Bu vekili bir sonraki adımında kooperatif biçimde durdur (süreç öldürme değil)",
+    "interrupt": "⏸ Böl",
+    "interrupting": "…",
+    "loading": "Oturum yükleniyor…",
+    "done": "✓✓ bitti",
+    "read": "✓ okundu",
+    "delivered": "⏳ teslim edildi",
+    "agent": "Vekil",
+    "you": "Sen",
+    "working": "{{name}} · çalışıyor",
+    "claude": "Claude",
+    "priority": "Öncelik",
+    "placeholder": "{{label}} → bu oturuma…",
+    "send": "Gönder",
+    "sendHint": "⌘/Ctrl+Enter ile gönder · vekilin bir sonraki yinelemesinde görülür",
+    "msgType": {
+      "steerLabel": "🔄 Yönlendir",
+      "steerHint": "Görev sırasında davranışı ayarla",
+      "askLabel": "❓ Sor",
+      "askHint": "Soru — yanıt bekler",
+      "assignLabel": "📋 Ata",
+      "assignHint": "Üzerinde işlem yapılacak görev",
+      "noteLabel": "💬 Not",
+      "noteHint": "Bilgi için, acil değil"
+    },
+    "sentRunning": "Teslim edildi — çalışan vekil bir sonraki adımda görür",
+    "sentIdle": "Teslim edildi — hedef boşta; posta kutusunda görünür, bir sonraki çalıştığında okunur",
+    "sentFailed": "Başarısız: {{error}}",
+    "interruptReason": "Operatör Fleet HQ'dan durdurma istedi",
+    "interruptSent": "Kesme gönderildi — vekil bir sonraki adımda durur (öldürme değil)",
+    "interruptFailed": "Kesme başarısız: {{error}}"
   }
 }

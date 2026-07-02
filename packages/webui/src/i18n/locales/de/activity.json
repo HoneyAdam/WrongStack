@@ -431,5 +431,41 @@
     "closeDock": "Terminal-Dock schließen (Ctrl+`)",
     "closeTab": "{{name}} schließen",
     "processExited": "[Prozess mit Code {{code}} beendet]"
+  },
+  "sessionWatch": {
+    "liveStream": "Live-Stream",
+    "events_one": "{{count}} Ereignis",
+    "events_other": "{{count}} Ereignisse",
+    "interruptTitle": "Diesen Agenten kooperativ beim nächsten Schritt stoppen (kein Process-Kill)",
+    "interrupt": "⏸ Unterbrechen",
+    "interrupting": "…",
+    "loading": "Sitzung wird geladen…",
+    "done": "✓✓ erledigt",
+    "read": "✓ gelesen",
+    "delivered": "⏳ zugestellt",
+    "agent": "Agent",
+    "you": "Du",
+    "working": "{{name}} · arbeitet",
+    "claude": "Claude",
+    "priority": "Priorität",
+    "placeholder": "{{label}} → an diese Sitzung…",
+    "send": "Senden",
+    "sendHint": "⌘/Ctrl+Enter zum Senden · beim nächsten Iterationsschritt des Agenten sichtbar",
+    "msgType": {
+      "steerLabel": "🔄 Lenken",
+      "steerHint": "Verhalten während der Aufgabe anpassen",
+      "askLabel": "❓ Fragen",
+      "askHint": "Frage — erwartet eine Antwort",
+      "assignLabel": "📋 Zuweisen",
+      "assignHint": "Eine zu erledigende Aufgabe",
+      "noteLabel": "💬 Notiz",
+      "noteHint": "Zur Info, nicht dringend"
+    },
+    "sentRunning": "Zugestellt — der laufende Agent sieht es beim nächsten Schritt",
+    "sentIdle": "Zugestellt — Ziel ist inaktiv; erscheint im Postfach, gelesen beim nächsten Lauf",
+    "sentFailed": "Fehlgeschlagen: {{error}}",
+    "interruptReason": "Operator hat Stopp aus Fleet HQ angefordert",
+    "interruptSent": "Unterbrechung gesendet — Agent stoppt beim nächsten Schritt (kein Kill)",
+    "interruptFailed": "Unterbrechung fehlgeschlagen: {{error}}"
   }
 }

@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useMonitorStore } from '@/stores/monitor-store';
 import { WatchMessageBubble } from './WatchMessageBubble.js';
@@ -58,12 +59,7 @@ interface ThreadMsg {
 }
 
 type MsgType = 'steer' | 'ask' | 'assign' | 'note';
-const MSG_TYPES: { value: MsgType; label: string; hint: string }[] = [
-  { value: 'steer', label: '🔄 Steer', hint: 'Adjust behavior mid-task' },
-  { value: 'ask', label: '❓ Ask', hint: 'Question — expects a reply' },
-  { value: 'assign', label: '📋 Assign', hint: 'A task to act on' },
-  { value: 'note', label: '💬 Note', hint: 'FYI, non-urgent' },
-];
+const MSG_TYPES: MsgType[] = ['steer', 'ask', 'assign', 'note'];
 
 const POLL_MS = 2500;
 
@@ -78,6 +74,7 @@ export function SessionWatchPanel({
   limit?: number;
 }) {
   const [data, setData] = useState<WatchResponse | null>(null);
+  const { t } = useAppTranslation();
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -121,9 +118,9 @@ export function SessionWatchPanel({
       (a) => a.status === 'running' || a.status === 'streaming',
     );
     if (busy?.currentTool) return `🔧 ${busy.currentTool}`;
-    if (busy) return `${busy.name ?? busy.id} · working`;
+    if (busy) return t('activity:sessionWatch.working', { name: busy.name ?? busy.id });
     return null;
-  }, [targetSession]);
+  }, [targetSession, t]);
 
   // Live assistant text streaming in right now (the registry's throttled tail),
   // shown below the finished JSONL turns until the completed turn lands. Carries
@@ -135,9 +132,9 @@ export function SessionWatchPanel({
         (x) => x.partialText && (x.status === 'streaming' || x.status === 'running'),
       ) ?? targetSession.agents.find((x) => x.partialText);
     if (!a?.partialText) return null;
-    const label = a.id === 'leader' ? 'Claude' : a.name || a.id;
+    const label = a.id === 'leader' ? t('activity:sessionWatch.claude') : a.name || a.id;
     return { label, text: a.partialText };
-  }, [targetSession]);
+  }, [targetSession, t]);
 
   const load = useCallback(async () => {
     try {
@@ -219,12 +216,12 @@ export function SessionWatchPanel({
       setDraft('');
       setSent(
         isRunning
-          ? 'Delivered — the running agent sees it on its next step'
-          : 'Delivered — target is idle; appears in its mailbox, read when it next runs',
+          ? i18n.t('activity:sessionWatch.sentRunning')
+          : i18n.t('activity:sessionWatch.sentIdle'),
       );
       void loadThread();
     } catch (e) {
-      setSent(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      setSent(i18n.t('activity:sessionWatch.sentFailed', { error: e instanceof Error ? e.message : String(e) }));
     } finally {
       setSending(false);
     }
@@ -240,13 +237,13 @@ export function SessionWatchPanel({
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Operator requested stop from Fleet HQ' }),
+        body: JSON.stringify({ reason: i18n.t('activity:sessionWatch.interruptReason') }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setSent('Interrupt sent — agent stops at its next step (not a kill)');
+      setSent(i18n.t('activity:sessionWatch.interruptSent'));
       void loadThread();
     } catch (e) {
-      setSent(`Interrupt failed: ${e instanceof Error ? e.message : String(e)}`);
+      setSent(i18n.t('activity:sessionWatch.interruptFailed', { error: e instanceof Error ? e.message : String(e) }));
     } finally {
       setInterrupting(false);
     }
@@ -264,12 +261,12 @@ export function SessionWatchPanel({
               isRunning ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground',
             )}
           />
-          Live stream
+          {t('activity:sessionWatch.liveStream')}
         </div>
         <div className="flex items-center gap-2">
           {data && (
             <div className="text-[10px] text-muted-foreground">
-              {data.total} event{data.total === 1 ? '' : 's'} · {data.status}
+              {t('activity:sessionWatch.events', { count: data.total })} · {data.status}
             </div>
           )}
           {isRunning && (
@@ -277,10 +274,10 @@ export function SessionWatchPanel({
               type="button"
               onClick={() => void interrupt()}
               disabled={interrupting}
-              title="Cooperatively stop this agent at its next step (not a process kill)"
+              title={t('activity:sessionWatch.interruptTitle')}
               className="rounded border border-destructive/40 bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/25 disabled:opacity-40 transition-colors"
             >
-              {interrupting ? '…' : '⏸ Interrupt'}
+              {interrupting ? t('activity:sessionWatch.interrupting') : t('activity:sessionWatch.interrupt')}
             </button>
           )}
         </div>
@@ -295,7 +292,7 @@ export function SessionWatchPanel({
         className="min-h-0 min-w-0 flex-1 overflow-y-auto space-y-1.5 pr-1"
       >
         {entries.length === 0 && !error && (
-          <div className="text-[11px] text-muted-foreground italic">Loading session…</div>
+          <div className="text-[11px] text-muted-foreground italic">{t('activity:sessionWatch.loading')}</div>
         )}
         {entries.map((e, i) => (
           <WatchMessageBubble
@@ -328,13 +325,13 @@ export function SessionWatchPanel({
           + the agent's replies. Last few only, oldest→newest. */}
       {thread.length > 0 && (
         <div className="mt-2 pt-2 border-t border-border shrink-0 max-h-28 overflow-y-auto space-y-1">
-          <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Messages</div>
+          <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('activity:mailbox.messages')}</div>
           {thread.slice(-6).map((m) => {
             const status = m.completed
-              ? '✓✓ done'
+              ? t('activity:sessionWatch.done')
               : m.readByLeader
-                ? '✓ read'
-                : '⏳ delivered';
+                ? t('activity:sessionWatch.read')
+                : t('activity:sessionWatch.delivered');
             return (
               <div key={m.id} className="text-[10px] leading-snug">
                 <span
@@ -343,7 +340,7 @@ export function SessionWatchPanel({
                     m.fromLeader ? 'text-accent' : 'text-primary',
                   )}
                 >
-                  {m.fromLeader ? 'Agent' : 'You'}
+                  {m.fromLeader ? t('activity:sessionWatch.agent') : t('activity:sessionWatch.you')}
                 </span>
                 <span className="text-foreground whitespace-pre-wrap break-words">{m.body}</span>
                 {!m.fromLeader && (
@@ -372,19 +369,19 @@ export function SessionWatchPanel({
           <select
             value={msgType}
             onChange={(ev) => setMsgType(ev.target.value as MsgType)}
-            title={MSG_TYPES.find((t) => t.value === msgType)?.hint}
+            title={t(`activity:sessionWatch.msgType.${msgType}Hint`)}
             className="rounded bg-muted border border-border px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           >
-            {MSG_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
+            {MSG_TYPES.map((mt) => (
+              <option key={mt} value={mt}>
+                {t(`activity:sessionWatch.msgType.${mt}Label`)}
               </option>
             ))}
           </select>
           <select
             value={priority}
             onChange={(ev) => setPriority(ev.target.value as 'low' | 'normal' | 'high')}
-            title="Priority"
+            title={t('activity:sessionWatch.priority')}
             className="rounded bg-muted border border-border px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           >
             <option value="high">high</option>
@@ -403,7 +400,7 @@ export function SessionWatchPanel({
               }
             }}
             rows={2}
-            placeholder={`${MSG_TYPES.find((t) => t.value === msgType)?.label ?? 'Send'} → this session…`}
+            placeholder={t('activity:sessionWatch.placeholder', { label: t(`activity:sessionWatch.msgType.${msgType}Label`) })}
             className="flex-1 resize-none rounded-md bg-muted border border-border px-2 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button
@@ -412,11 +409,11 @@ export function SessionWatchPanel({
             disabled={sending || !draft.trim()}
             className="shrink-0 rounded-md bg-primary text-primary-foreground px-2.5 py-1.5 text-xs hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {sending ? '…' : 'Send'}
+            {sending ? '…' : t('activity:sessionWatch.send')}
           </button>
         </div>
         {sent && <div className="mt-1 text-[10px] text-muted-foreground">{sent}</div>}
-        <div className="mt-0.5 text-[9px] text-muted-foreground">⌘/Ctrl+Enter to send · seen on the agent's next iteration</div>
+        <div className="mt-0.5 text-[9px] text-muted-foreground">{t('activity:sessionWatch.sendHint')}</div>
       </div>
     </div>
   );

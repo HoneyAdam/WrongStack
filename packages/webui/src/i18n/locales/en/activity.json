@@ -431,5 +431,41 @@
     "closeDock": "Close terminal dock (Ctrl+`)",
     "closeTab": "Close {{name}}",
     "processExited": "[process exited with code {{code}}]"
+  },
+  "sessionWatch": {
+    "liveStream": "Live stream",
+    "events_one": "{{count}} event",
+    "events_other": "{{count}} events",
+    "interruptTitle": "Cooperatively stop this agent at its next step (not a process kill)",
+    "interrupt": "⏸ Interrupt",
+    "interrupting": "…",
+    "loading": "Loading session…",
+    "done": "✓✓ done",
+    "read": "✓ read",
+    "delivered": "⏳ delivered",
+    "agent": "Agent",
+    "you": "You",
+    "working": "{{name}} · working",
+    "claude": "Claude",
+    "priority": "Priority",
+    "placeholder": "{{label}} → this session…",
+    "send": "Send",
+    "sendHint": "⌘/Ctrl+Enter to send · seen on the agent's next iteration",
+    "msgType": {
+      "steerLabel": "🔄 Steer",
+      "steerHint": "Adjust behavior mid-task",
+      "askLabel": "❓ Ask",
+      "askHint": "Question — expects a reply",
+      "assignLabel": "📋 Assign",
+      "assignHint": "A task to act on",
+      "noteLabel": "💬 Note",
+      "noteHint": "FYI, non-urgent"
+    },
+    "sentRunning": "Delivered — the running agent sees it on its next step",
+    "sentIdle": "Delivered — target is idle; appears in its mailbox, read when it next runs",
+    "sentFailed": "Failed: {{error}}",
+    "interruptReason": "Operator requested stop from Fleet HQ",
+    "interruptSent": "Interrupt sent — agent stops at its next step (not a kill)",
+    "interruptFailed": "Interrupt failed: {{error}}"
   }
 }

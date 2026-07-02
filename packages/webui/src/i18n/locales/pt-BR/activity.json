@@ -431,5 +431,41 @@
     "closeDock": "Fechar o dock de terminal (Ctrl+`)",
     "closeTab": "Fechar {{name}}",
     "processExited": "[processo encerrado com código {{code}}]"
+  },
+  "sessionWatch": {
+    "liveStream": "Transmissão ao vivo",
+    "events_one": "{{count}} evento",
+    "events_other": "{{count}} eventos",
+    "interruptTitle": "Parar cooperativamente este agente em seu próximo passo (não é um kill)",
+    "interrupt": "⏸ Interromper",
+    "interrupting": "…",
+    "loading": "Carregando sessão…",
+    "done": "✓✓ concluído",
+    "read": "✓ lido",
+    "delivered": "⏳ entregue",
+    "agent": "Agente",
+    "you": "Você",
+    "working": "{{name}} · trabalhando",
+    "claude": "Claude",
+    "priority": "Prioridade",
+    "placeholder": "{{label}} → esta sessão…",
+    "send": "Enviar",
+    "sendHint": "⌘/Ctrl+Enter para enviar · visível na próxima iteração do agente",
+    "msgType": {
+      "steerLabel": "🔄 Direcionar",
+      "steerHint": "Ajustar o comportamento durante a tarefa",
+      "askLabel": "❓ Perguntar",
+      "askHint": "Pergunta — espera resposta",
+      "assignLabel": "📋 Atribuir",
+      "assignHint": "Uma tarefa a realizar",
+      "noteLabel": "💬 Nota",
+      "noteHint": "Para informação, não urgente"
+    },
+    "sentRunning": "Entregue — o agente em execução verá no próximo passo",
+    "sentIdle": "Entregue — o alvo está inativo; aparece em sua caixa, lido na próxima execução",
+    "sentFailed": "Falhou: {{error}}",
+    "interruptReason": "O operador solicitou a parada pelo Fleet HQ",
+    "interruptSent": "Interrupção enviada — o agente para no próximo passo (não é um kill)",
+    "interruptFailed": "Interrupção falhou: {{error}}"
   }
 }
