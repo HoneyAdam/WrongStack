@@ -11,6 +11,7 @@
 
 import { Check, Download, Palette, ShieldCheck, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { colorToHex } from '@/lib/color';
 import { cn } from '@/lib/utils';
@@ -126,11 +127,12 @@ function ColorEditor({
   onSet: (key: string, hex: string) => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>('light');
+  const { t } = useAppTranslation();
   const merged = applyOv(theme === 'light' ? kit.light : kit.dark, overrides, theme);
   return (
     <div className="mt-1 rounded-lg border border-border/60 p-2 bg-muted/30">
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-[10px] font-semibold uppercase text-muted-foreground">Colors</span>
+        <span className="text-[10px] font-semibold uppercase text-muted-foreground">{t('activity:design.colors')}</span>
         <div className="ml-auto inline-flex rounded border border-border/60 overflow-hidden">
           {(['light', 'dark'] as ThemeName[]).map((th) => (
             <button
@@ -173,6 +175,7 @@ function ColorEditor({
 
 export function DesignGalleryView({ className }: { className?: string }) {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const [kits, setKits] = useState<Kit[]>([]);
   const [activeKit, setActiveKit] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Tokens>({});
@@ -203,7 +206,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
     };
     const onMat = (msg: unknown) => {
       const p = (msg as { payload?: { ok?: boolean; path?: string; error?: string } }).payload;
-      setStatus(p?.ok ? `Wrote ${p.path}` : `Materialize failed: ${p?.error ?? 'error'}`);
+      setStatus(p?.ok ? i18n.t('activity:design.wrote', { path: p.path }) : i18n.t('activity:design.materializeFailed', { error: p?.error ?? 'error' }));
     };
     const onVer = (msg: unknown) => {
       const p = (
@@ -218,14 +221,14 @@ export function DesignGalleryView({ className }: { className?: string }) {
         }
       ).payload;
       if (!p?.ok) {
-        setStatus(`Verify: ${p?.error ?? 'error'}`);
+        setStatus(i18n.t('activity:design.verifyError', { error: p?.error ?? 'error' }));
         return;
       }
       const pct = Math.round((p.score ?? 1) * 100);
       setStatus(
         p.violationCount
-          ? `Verify: ${pct}% on-palette — ${p.violationCount} off-palette in ${p.filesScanned} file(s)`
-          : `Verify: clean ✓ (${p.filesScanned} file(s) on-palette)`,
+          ? i18n.t('activity:design.verifyOffPalette', { pct, count: p.violationCount, files: p.filesScanned })
+          : i18n.t('activity:design.verifyClean', { files: p.filesScanned }),
       );
     };
     client.on('design.list', onList);
@@ -258,12 +261,12 @@ export function DesignGalleryView({ className }: { className?: string }) {
   );
 
   const materialize = useCallback(() => {
-    setStatus('Writing theme file…');
+    setStatus(i18n.t('activity:design.writing'));
     client?.send({ type: 'design.materialize', payload: { stack } });
   }, [client, stack]);
 
   const verify = useCallback(() => {
-    setStatus('Scanning UI files…');
+    setStatus(i18n.t('activity:design.scanning'));
     client?.send({ type: 'design.verify' });
   }, [client]);
 
@@ -285,19 +288,19 @@ export function DesignGalleryView({ className }: { className?: string }) {
     <div className={cn('flex h-full min-h-0 min-w-0 flex-col', className)}>
       <div className="flex min-w-0 items-center gap-2 px-4 py-3 border-b border-border/60">
         <Palette className="w-5 h-5 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Design Studio — Gallery</h2>
-        <span className="text-xs text-muted-foreground">{filtered.length} kits</span>
+        <h2 className="text-sm font-semibold">{t('activity:design.heading')}</h2>
+        <span className="text-xs text-muted-foreground">{t('activity:design.kitsCount', { count: filtered.length })}</span>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search kits…"
+          placeholder={t('activity:design.searchPlaceholder')}
           className="ml-2 text-xs bg-transparent border border-border/60 rounded px-2 py-1 w-44"
         />
         <select
           value={stack}
           onChange={(e) => setStack(e.target.value)}
           className="text-xs bg-transparent border border-border/60 rounded px-1.5 py-1"
-          title="Stack for Use + Materialize"
+          title={t('activity:design.stackTitle')}
         >
           {STACKS.map((s) => (
             <option key={s} value={s}>
@@ -312,7 +315,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
           type="button"
           onClick={() => showPanel('chat')}
           className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground"
-          title="Close"
+          title={t('common:action.close')}
         >
           <X className="w-4 h-4" />
         </button>
@@ -342,7 +345,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
                     <code className="text-[10px] text-muted-foreground">{kit.id}</code>
                     {isActive && (
                       <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase text-primary ml-auto">
-                        <Check className="w-3 h-3" /> Active
+                        <Check className="w-3 h-3" /> {t('activity:design.active')}
                       </span>
                     )}
                   </div>
@@ -358,16 +361,16 @@ export function DesignGalleryView({ className }: { className?: string }) {
                           : 'bg-primary text-primary-foreground hover:opacity-90',
                       )}
                     >
-                      {isActive ? 'Reapply' : 'Use'}
+                      {isActive ? t('activity:design.reapply') : t('activity:design.use')}
                     </button>
                     {isActive && (
                       <button
                         type="button"
                         onClick={materialize}
                         className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded font-medium border border-border/60 hover:bg-muted"
-                        title={`Write tokens to a ${stack} theme file`}
+                        title={t('activity:design.materializeTitle', { stack })}
                       >
-                        <Download className="w-3 h-3" /> Materialize
+                        <Download className="w-3 h-3" /> {t('activity:design.materialize')}
                       </button>
                     )}
                     {isActive && (
@@ -375,9 +378,9 @@ export function DesignGalleryView({ className }: { className?: string }) {
                         type="button"
                         onClick={verify}
                         className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded font-medium border border-border/60 hover:bg-muted"
-                        title="Scan UI files for off-palette colors"
+                        title={t('activity:design.verifyTitle')}
                       >
-                        <ShieldCheck className="w-3 h-3" /> Verify
+                        <ShieldCheck className="w-3 h-3" /> {t('activity:design.verify')}
                       </button>
                     )}
                     <span className="text-[10px] text-muted-foreground truncate">

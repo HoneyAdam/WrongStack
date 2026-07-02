@@ -535,5 +535,26 @@
     "jsonLines": "JSON · {{count}} satır",
     "collapse": "daralt",
     "expand": "genişlet"
+  },
+  "design": {
+    "heading": "Tasarım Stüdyosu — Galeri",
+    "kitsCount": "{{count}} kit",
+    "searchPlaceholder": "Kit ara…",
+    "stackTitle": "Use + Materialize için yığın",
+    "wrote": "{{path}} yazıldı",
+    "materializeFailed": "Materialize başarısız: {{error}}",
+    "verifyError": "Doğrula: {{error}}",
+    "verifyOffPalette": "Doğrula: %{{pct}} palet üzerinde — {{files}} dosyada {{count}} palet dışı",
+    "verifyClean": "Doğrula: temiz ✓ ({{files}} dosya palet üzerinde)",
+    "writing": "Tema dosyası yazılıyor…",
+    "scanning": "Arayüz dosyaları taranıyor…",
+    "active": "Etkin",
+    "reapply": "Yeniden uygula",
+    "use": "Kullan",
+    "materializeTitle": "Token'ları bir {{stack}} tema dosyasına yaz",
+    "materialize": "Materialize",
+    "verifyTitle": "Palet dışı renkler için arayüz dosyalarını tara",
+    "verify": "Doğrula",
+    "colors": "Renkler"
   }
 }

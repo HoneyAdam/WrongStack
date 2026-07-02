@@ -535,5 +535,26 @@
     "jsonLines": "JSON · {{count}} lines",
     "collapse": "collapse",
     "expand": "expand"
+  },
+  "design": {
+    "heading": "Design Studio — Gallery",
+    "kitsCount": "{{count}} kits",
+    "searchPlaceholder": "Search kits…",
+    "stackTitle": "Stack for Use + Materialize",
+    "wrote": "Wrote {{path}}",
+    "materializeFailed": "Materialize failed: {{error}}",
+    "verifyError": "Verify: {{error}}",
+    "verifyOffPalette": "Verify: {{pct}}% on-palette — {{count}} off-palette in {{files}} file(s)",
+    "verifyClean": "Verify: clean ✓ ({{files}} file(s) on-palette)",
+    "writing": "Writing theme file…",
+    "scanning": "Scanning UI files…",
+    "active": "Active",
+    "reapply": "Reapply",
+    "use": "Use",
+    "materializeTitle": "Write tokens to a {{stack}} theme file",
+    "materialize": "Materialize",
+    "verifyTitle": "Scan UI files for off-palette colors",
+    "verify": "Verify",
+    "colors": "Colors"
   }
 }
