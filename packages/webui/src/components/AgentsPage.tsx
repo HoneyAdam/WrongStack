@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { EMPTY_AGENT_TRANSCRIPT, useChatStore, useConfigStore, useFleetStore, useSessionStore } from '@/stores';
 import type { SubagentView } from '@/stores';
 import {
@@ -35,36 +36,42 @@ function shortSessionId(sessionId: string): string {
   return leaf.length > 12 ? `${leaf.slice(0, 12)}…` : leaf;
 }
 
-const STATUS_META: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
+const STATUS_META: Record<string, { icon: React.ReactNode; color: string; labelKey: string; ns: 'fleet' | 'agents' }> = {
   running: {
     icon: <span className="led text-[hsl(var(--success))] led-pulse" />,
     color: 'text-[hsl(var(--success))]',
-    label: 'running',
+    labelKey: 'statusRunning',
+    ns: 'fleet',
   },
   idle: {
     icon: <span className="led text-muted-foreground" />,
     color: 'text-muted-foreground',
-    label: 'idle',
+    labelKey: 'statusIdle',
+    ns: 'agents',
   },
   completed: {
     icon: <CheckCircle2 className="h-3.5 w-3.5" />,
     color: 'text-[hsl(var(--success))]',
-    label: 'done',
+    labelKey: 'statusDone',
+    ns: 'fleet',
   },
   failed: {
     icon: <XCircle className="h-3.5 w-3.5" />,
     color: 'text-destructive',
-    label: 'failed',
+    labelKey: 'statusFailed',
+    ns: 'fleet',
   },
   timeout: {
     icon: <Clock className="h-3.5 w-3.5" />,
     color: 'text-[hsl(var(--warning))]',
-    label: 'timeout',
+    labelKey: 'statusTimeout',
+    ns: 'fleet',
   },
   stopped: {
     icon: <span className="led text-muted-foreground" />,
     color: 'text-muted-foreground',
-    label: 'stopped',
+    labelKey: 'statusStopped',
+    ns: 'fleet',
   },
 };
 
@@ -105,6 +112,11 @@ interface LeaderEntry {
 
 type AgentView = SubagentView | LeaderEntry;
 
+function statusLabel(status: string, t: (key: string) => string): string {
+  const m = STATUS_META[status];
+  return m ? t(`activity:${m.ns}.${m.labelKey}`) : status;
+}
+
 // ── Agent Detail ──────────────────────────────────────────────────────
 
 function AgentDetailPanel({
@@ -114,6 +126,7 @@ function AgentDetailPanel({
   agent: AgentView;
   now: number;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
   const [showFullToolLog, setShowFullToolLog] = useState(false);
   const handleCopy = useCallback(async (text: string) => {
@@ -168,12 +181,12 @@ function AgentDetailPanel({
                       ? 'bg-destructive/15 text-destructive'
                       : 'bg-muted text-muted-foreground'
                 )}>
-                  {STATUS_META[agent.status]?.label ?? agent.status}
+                  {statusLabel(agent.status, t)}
                 </span>
               </div>
               {'sessionId' in agent && agent.sessionId && (
                 <span className="text-[10px] text-muted-foreground font-mono">
-                  session: {agent.sessionId.slice(0, 12)}…
+                  {t('activity:fleet.sessionPrefix')} {agent.sessionId.slice(0, 12)}…
                 </span>
               )}
             </div>
@@ -192,11 +205,11 @@ function AgentDetailPanel({
         {/* Activity sparkline */}
         {spark && (
           <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/30">
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Activity</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('activity:fleet.activity')}</span>
             <span className="text-sm text-[hsl(var(--success))] font-mono tracking-[-0.1em]">{spark}</span>
             {lastTool && (
               <span className="text-[10px] text-muted-foreground ml-auto">
-                last: <span className="font-mono">{lastTool.name}</span>
+                {t('activity:agents.lastToolLabel')} <span className="font-mono">{lastTool.name}</span>
                 <span className="tabular-nums"> {lastTool.durationMs}ms</span>
                 {!lastTool.ok && <span className="text-destructive ml-1">✗</span>}
               </span>
@@ -207,7 +220,7 @@ function AgentDetailPanel({
         {/* Task description */}
         {agent.description && (
           <div className="px-3 py-2 rounded-lg bg-muted/20 border border-border/50">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Current Task</span>
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">{t('activity:fleet.currentTask')}</span>
             <p className="text-xs mt-1 text-foreground/80">{agent.description}</p>
           </div>
         )}
@@ -219,7 +232,7 @@ function AgentDetailPanel({
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <Cpu className="h-3 w-3" /> Provider / Model
+              <Cpu className="h-3 w-3" /> {t('activity:fleet.providerModel')}
             </div>
             <div className="text-sm font-mono font-medium">
               {agent.provider ?? '?'}/{agent.model ?? '?'}
@@ -227,41 +240,41 @@ function AgentDetailPanel({
           </div>
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <Activity className="h-3 w-3" /> Performance
+              <Activity className="h-3 w-3" /> {t('activity:fleet.performance')}
             </div>
             <div className="space-y-1">
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Iterations</span>
+                <span className="text-muted-foreground">{t('activity:fleet.iterations')}</span>
                 <span className="font-mono font-medium">L{getIterations(agent)}</span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Tool Calls</span>
+                <span className="text-muted-foreground">{t('activity:fleet.toolCalls')}</span>
                 <span className="font-mono font-medium">{agent.toolCalls}</span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Unique Tools</span>
+                <span className="text-muted-foreground">{t('activity:fleet.uniqueTools')}</span>
                 <span className="font-mono font-medium">{uniqueTools}</span>
               </div>
             </div>
           </div>
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <DollarSign className="h-3 w-3" /> Cost
+              <DollarSign className="h-3 w-3" /> {t('activity:fleet.cost')}
             </div>
             <div className="text-lg font-mono font-bold text-[hsl(var(--success))]">
               {fmtCost(agent.costUsd)}
             </div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              avg {avgToolDuration}ms per tool
+              {t('activity:fleet.avgPerTool', { ms: avgToolDuration })}
             </div>
           </div>
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
-              <Database className="h-3 w-3" /> Context
+              <Database className="h-3 w-3" /> {t('activity:fleet.context')}
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">Tokens</span>
+                <span className="text-muted-foreground">{t('activity:fleet.tokens')}</span>
                 <span className="font-mono font-medium">{fmtTok(agent.ctxTokens)}</span>
               </div>
               <ContextFillBar pct={ctxPct} tokens={agent.ctxTokens} maxTokens={agent.maxContext} />
@@ -273,7 +286,7 @@ function AgentDetailPanel({
         {agent.maxContext > 0 && (
           <div className="rounded-lg border bg-card p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Context Usage</span>
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wider">{t('activity:agents.contextUsage')}</span>
               <span className={cn(
                 'text-[11px] font-mono font-medium',
                 ctxPct >= 85 ? 'text-destructive' : ctxPct >= 70 ? 'text-amber-500' : 'text-[hsl(var(--success))]'
@@ -295,10 +308,10 @@ function AgentDetailPanel({
             <span className="text-sm font-mono font-medium">{tool}</span>
             {active ? (
               <span className="ml-auto flex items-center gap-1.5 text-[10px] text-primary">
-                <Loader2 className="h-3 w-3 animate-spin" /> running…
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('activity:fleet.running')}
               </span>
             ) : (
-              <span className="ml-auto text-[10px] text-muted-foreground">completed</span>
+              <span className="ml-auto text-[10px] text-muted-foreground">{t('activity:fleet.completed')}</span>
             )}
           </div>
         )}
@@ -319,12 +332,12 @@ function AgentDetailPanel({
                 {isStream ? (
                   <>
                     <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                    Live Output
+                    {t('activity:fleet.liveOutput')}
                   </>
                 ) : (
                   <>
                     <FolderOpen className="h-3 w-3" />
-                    Final Output
+                    {t('activity:fleet.finalOutput')}
                   </>
                 )}
               </span>
@@ -334,7 +347,7 @@ function AgentDetailPanel({
                 className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 {copied ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('common:action.copied') : t('common:action.copy')}
               </button>
             </div>
             <pre className="p-4 text-xs whitespace-pre-wrap font-mono text-foreground/80 leading-relaxed max-h-64 overflow-y-auto">
@@ -344,7 +357,7 @@ function AgentDetailPanel({
         ) : active ? (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
             <Loader2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50 animate-spin" />
-            <span className="text-xs text-muted-foreground">Waiting for output…</span>
+            <span className="text-xs text-muted-foreground">{t('activity:fleet.waitingOutput')}</span>
           </div>
         ) : null}
 
@@ -354,10 +367,10 @@ function AgentDetailPanel({
             <Zap className="h-5 w-5 text-amber-500 shrink-0" />
             <div>
               <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
-                ⚡ Budget Warning
+                {t('activity:fleet.budgetWarningTitle')}
               </span>
               <p className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-                Hitting {agent.budgetWarning.kind} limit ({agent.budgetWarning.used}/{agent.budgetWarning.limit})
+                {t('activity:fleet.hittingLimit', { kind: agent.budgetWarning.kind, used: agent.budgetWarning.used, limit: agent.budgetWarning.limit })}
               </p>
             </div>
           </div>
@@ -369,10 +382,10 @@ function AgentDetailPanel({
             <Zap className="h-5 w-5 text-[hsl(var(--warning))] shrink-0" />
             <div>
               <span className="text-sm font-medium">
-                {agent.extensions} Budget Extension{agent.extensions === 1 ? '' : 's'}
+                {t('activity:fleet.budgetExt', { count: agent.extensions })}
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Agent extended its budget {agent.extensions} time{agent.extensions === 1 ? '' : 's'} due to long-running tasks
+                {t('activity:fleet.extendedTimes', { count: agent.extensions })}
               </p>
             </div>
           </div>
@@ -383,7 +396,7 @@ function AgentDetailPanel({
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
             <div className="flex items-center gap-2 mb-2">
               <XCircle className="h-4 w-4 text-destructive" />
-              <span className="text-[10px] font-semibold text-destructive uppercase tracking-wider">Error</span>
+              <span className="text-[10px] font-semibold text-destructive uppercase tracking-wider">{t('activity:fleet.errorLabel')}</span>
             </div>
             <p className="text-sm text-destructive/90">{agent.error.message}</p>
           </div>
@@ -399,7 +412,7 @@ function AgentDetailPanel({
             >
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                 <Wrench className="h-3 w-3" />
-                Tool Log ({agent.toolLog.length} calls)
+                {t('activity:fleet.toolLog', { count: agent.toolLog.length })}
               </span>
               <ChevronRight className={cn('h-4 w-4 text-muted-foreground transition-transform', showFullToolLog && 'rotate-90')} />
             </button>
@@ -421,7 +434,7 @@ function AgentDetailPanel({
                       {tl.durationMs >= 1000 ? `${(tl.durationMs / 1000).toFixed(2)}s` : `${tl.durationMs}ms`}
                     </span>
                     {!tl.ok && (
-                      <span className="ml-auto text-[10px] text-destructive font-medium">Failed</span>
+                      <span className="ml-auto text-[10px] text-destructive font-medium">{t('activity:fleet.failed')}</span>
                     )}
                     <span className="ml-auto text-[9px] text-muted-foreground tabular-nums">
                       {new Date(tl.at).toLocaleTimeString()}
@@ -452,6 +465,7 @@ function AgentRow({
   onClick: () => void;
   onContextClick: () => void;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const meta = STATUS_META[agent.status] ?? STATUS_META.idle;
   const active = agent.status === 'running';
   const modelLabel = agent.provider && agent.model
@@ -491,7 +505,7 @@ function AgentRow({
       {'sessionId' in agent && agent.sessionId && (
         <span
           className="shrink-0 text-[9px] font-mono text-muted-foreground/50 bg-muted/40 px-1 py-0.5 rounded select-none"
-          title={`Session: ${agent.sessionId}${projectName ? ` · Project: ${projectName}` : ''}`}
+          title={`${t('activity:agents.sessionTitle', { sid: agent.sessionId })}${projectName ? t('activity:agents.projectSuffix', { name: projectName }) : ''}`}
         >
           {shortSessionId(agent.sessionId)}
         </span>
@@ -535,7 +549,7 @@ function AgentRow({
 
       {/* Elapsed */}
       <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 ml-auto">
-        {active ? fmtElapsed(Math.max(0, now - agent.startedAt)) : STATUS_META[agent.status]?.label ?? ''}
+        {active ? fmtElapsed(Math.max(0, now - agent.startedAt)) : statusLabel(agent.status, t)}
       </span>
 
       {/* Cost */}
@@ -563,6 +577,7 @@ export function AgentsPage({
 }: {
   className?: string | undefined;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const fleetAgents = useFleetStore((s) => s.agents);
   const sessionStore = useSessionStore();
   const { provider, model } = useConfigStore();
@@ -575,8 +590,8 @@ export function AgentsPage({
 
   // Live clock
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => clearInterval(t);
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
   }, []);
 
   // ── Build leader entry ──
@@ -729,21 +744,21 @@ export function AgentsPage({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-semibold flex items-center gap-1.5">
                 <Bot className="h-4 w-4 text-primary" />
-                AGENTS · LIVE
+                {t('activity:agents.agentsLive')}
               </h2>
               <span className="text-muted-foreground/40">│</span>
               {counts.running > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-[hsl(var(--success))] font-medium">
                   <span className="led led-pulse text-[hsl(var(--success))]" />
-                  {counts.running} running
+                  {t('activity:fleet.runningCount', { count: counts.running })}
                 </span>
               )}
               <span className="text-[11px] text-muted-foreground">
-                {counts.completed} done
+                {t('activity:agents.doneCount', { count: counts.completed })}
               </span>
               {counts.failed > 0 && (
                 <span className="text-[11px] text-destructive">
-                  {counts.failed} failed
+                  {t('activity:agents.failedCount', { count: counts.failed })}
                 </span>
               )}
             </div>
@@ -751,7 +766,7 @@ export function AgentsPage({
             {/* Model mapping */}
             {modelMap.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">models</span>
+                <span className="text-[10px] text-muted-foreground">{t('activity:agents.modelsLabel')}</span>
                 {modelMap.map(([name, mod]) => (
                   <span key={name} className="text-[10px] text-muted-foreground font-mono">
                     {name}:{mod}
@@ -762,21 +777,21 @@ export function AgentsPage({
 
             {/* Totals row */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] text-muted-foreground">shown</span>
+              <span className="text-[10px] text-muted-foreground">{t('activity:agents.shownLabel')}</span>
               <span className="text-[10px] font-medium">{sorted.length}</span>
-              <span className="text-[10px] text-muted-foreground">total</span>
+              <span className="text-[10px] text-muted-foreground">{t('activity:agents.totalLabel')}</span>
               <span className="text-[10px] text-[hsl(var(--success))] font-medium tabular-nums">
                 {fmtCost(totalCost)}
               </span>
               <span className="text-[10px] text-muted-foreground">
-                (leader {fmtCost(leaderEntry.costUsd)} · fleet {fmtCost(totalCost - leaderEntry.costUsd)})
+                {t('activity:agents.leaderFleetTotals', { leader: fmtCost(leaderEntry.costUsd), fleet: fmtCost(totalCost - leaderEntry.costUsd) })}
               </span>
             </div>
 
             {/* Navigation hint */}
             <div className="flex items-center gap-2">
               <span className="text-[9px] text-muted-foreground/60">
-                j/k or ↑↓ to navigate
+                {t('activity:agents.navHintJk')}
               </span>
               {selected && (
                 <button
@@ -784,7 +799,7 @@ export function AgentsPage({
                   onClick={() => setSelectedId(null)}
                   className="text-[9px] text-muted-foreground/60 hover:text-foreground transition-colors"
                 >
-                  · Esc to close detail
+                  {t('activity:agents.escCloseDetail')}
                 </button>
               )}
             </div>
@@ -798,10 +813,10 @@ export function AgentsPage({
               <div className="text-center space-y-2">
                 <Bot className="h-8 w-8 text-muted-foreground/40 mx-auto" />
                 <p className="text-sm text-muted-foreground">
-                  No agents running.
+                  {t('activity:agents.noAgentsRunning')}
                 </p>
                 <p className="text-xs text-muted-foreground/60">
-                  Agents appear here when the fleet is active.
+                  {t('activity:fleet.agentsAppear')}
                 </p>
               </div>
             </div>
@@ -822,14 +837,14 @@ export function AgentsPage({
                 const rows: React.ReactNode[] = [];
                 for (const [sid, agents] of entries) {
                   if (multiSession) {
-                    const label = sid === '__unknown__' ? 'Unknown session' : sid.slice(0, 8);
+                    const label = sid === '__unknown__' ? t('activity:agents.unknownSession') : sid.slice(0, 8);
                     const agentCount = agents.length;
                     rows.push(
                       <button
                         type="button"
                         key={`grp-${sid}`}
                         className="text-[9px] text-muted-foreground/50 font-mono px-2 pt-3 pb-1 uppercase tracking-wider hover:text-muted-foreground hover:bg-muted/30 rounded transition-colors cursor-pointer w-full text-left"
-                        title={`Session: ${sid} — click to copy ID`}
+                        title={t('activity:agents.sessionCopyTitle', { sid })}
                         onClick={async () => {
                           try {
                             await navigator.clipboard.writeText(sid);
@@ -840,10 +855,10 @@ export function AgentsPage({
                       >
                         {label}
                         {sid !== '__unknown__' && (
-                          <span className="ml-1.5 text-[8px] opacity-60">session</span>
+                          <span className="ml-1.5 text-[8px] opacity-60">{t('activity:agents.sessionWord')}</span>
                         )}
                         <span className="ml-1 text-[8px] opacity-40">
-                          · {agentCount} agent{agentCount !== 1 ? 's' : ''}
+                          · {t('activity:agents.agentsCountSuffix', { count: agentCount })}
                         </span>
                       </button>,
                     );
@@ -876,13 +891,13 @@ export function AgentsPage({
             <div className="shrink-0 px-4 py-2 border-b bg-card/80 flex items-center gap-2">
               <ArrowRight className="h-4 w-4 text-primary" />
               <span className="text-xs font-semibold text-primary">{selected.name}</span>
-              <span className="text-[10px] text-muted-foreground">detailed view</span>
+              <span className="text-[10px] text-muted-foreground">{t('activity:fleet.detailedView')}</span>
               <button
                 type="button"
                 onClick={() => setSelectedId(null)}
                 className="ml-auto text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
               >
-                ✕ close
+                {t('activity:fleet.closeBtn')}
               </button>
             </div>
             {/* Detail content */}
@@ -899,25 +914,24 @@ export function AgentsPage({
           <div className="text-center space-y-3 max-w-sm">
             <Bot className="h-12 w-12 text-muted-foreground/30 mx-auto" />
             <p className="text-sm text-muted-foreground">
-              Select an agent to view detailed information
+              {t('activity:fleet.selectAgentDetail')}
             </p>
             <p className="text-xs text-muted-foreground/60">
-              Click on any agent in the list to see detailed metrics, tool logs,
-              streaming output, and more — similar to the chat history detailed view.
+              {t('activity:fleet.selectAgentBody')}
             </p>
             <div className="flex items-center justify-center gap-4 pt-2">
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">j</kbd>
                 <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">k</kbd>
-                <span>navigate</span>
+                <span>{t('activity:fleet.navigateWord')}</span>
               </div>
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">Enter</kbd>
-                <span>select</span>
+                <span>{t('activity:fleet.selectWord')}</span>
               </div>
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <kbd className="px-1.5 py-0.5 rounded bg-muted border text-[9px]">Esc</kbd>
-                <span>deselect</span>
+                <span>{t('activity:fleet.deselectWord')}</span>
               </div>
             </div>
           </div>

@@ -80,7 +80,8 @@
     "agentsCountSuffix_one": "{{count}} aracı",
     "agentsCountSuffix_other": "{{count}} aracı",
     "sessionTitle": "Oturum: {{sid}}",
-    "projectSuffix": " · Proje: {{name}}"
+    "projectSuffix": " · Proje: {{name}}",
+    "statusIdle": "boşta"
   },
   "changes": {
     "fileCount_one": "{{count}} dosya",

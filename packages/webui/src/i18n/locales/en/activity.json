@@ -80,7 +80,8 @@
     "agentsCountSuffix_one": "{{count}} agent",
     "agentsCountSuffix_other": "{{count}} agents",
     "sessionTitle": "Session: {{sid}}",
-    "projectSuffix": " · Project: {{name}}"
+    "projectSuffix": " · Project: {{name}}",
+    "statusIdle": "idle"
   },
   "changes": {
     "fileCount_one": "{{count}} file",
