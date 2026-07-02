@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import {
   CheckCircle2,
   ChevronDown,
@@ -22,31 +23,31 @@ const TREND_ICON: Record<string, ReactNode> = {
   stable: <Minus className="h-3.5 w-3.5 text-amber-500" />,
 };
 
-const STATE_CONFIG: Record<GoalState['goalState'], { color: string; bg: string; label: string }> = {
+const STATE_CONFIG: Record<GoalState['goalState'], { color: string; bg: string; labelKey: string }> = {
   active: {
     color: 'text-emerald-600 dark:text-emerald-400',
     bg: 'bg-emerald-100 dark:bg-emerald-900/40',
-    label: 'Active',
+    labelKey: 'statusActive',
   },
   paused: {
     color: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-100 dark:bg-amber-900/40',
-    label: 'Paused',
+    labelKey: 'statusPaused',
   },
   completed: {
     color: 'text-blue-600 dark:text-blue-400',
     bg: 'bg-blue-100 dark:bg-blue-900/40',
-    label: 'Done',
+    labelKey: 'statusDone',
   },
   failed: {
     color: 'text-red-600 dark:text-red-400',
     bg: 'bg-red-100 dark:bg-red-900/40',
-    label: 'Failed',
+    labelKey: 'statusFailed',
   },
   abandoned: {
     color: 'text-stone-600 dark:text-stone-400',
     bg: 'bg-stone-100 dark:bg-stone-900/40',
-    label: 'Abandoned',
+    labelKey: 'statusAbandoned',
   },
 };
 
@@ -58,6 +59,7 @@ export interface GoalPanelProps {
 }
 
 export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const [collapsed, setCollapsed] = useState(false);
 
   // Request goal data on mount and poll every 10s so the panel stays
@@ -101,7 +103,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
       >
         <Target className="h-4 w-4 text-rose-500" />
         <span className="text-xs font-semibold text-foreground flex-1 min-w-0 truncate">
-          Goal
+          {t('activity:goal.heading')}
         </span>
         <span
           className={cn(
@@ -110,7 +112,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
             stateCfg.color,
           )}
         >
-          {stateCfg.label}
+          {t(`activity:goal.${stateCfg.labelKey}`)}
         </span>
         {collapsed ? (
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -129,7 +131,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
             {goal.refinedGoal && goal.refinedGoal !== goal.goal && (
               <div className="mt-1.5 p-2 rounded bg-accent/40 border border-border/50">
                 <p className="text-[10px] text-muted-foreground mb-0.5 uppercase tracking-wider font-medium">
-                  Refined
+                  {t('activity:goal.refined')}
                 </p>
                 <p className="text-xs leading-relaxed whitespace-pre-wrap break-words">
                   {goal.refinedGoal}
@@ -142,7 +144,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
           <div className="space-y-1">
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-muted-foreground uppercase tracking-wider font-medium">
-                Progress
+                {t('activity:goal.progress')}
               </span>
               <span className="flex items-center gap-1 tabular-nums">
                 {trendIcon}
@@ -171,7 +173,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <Clock className="h-3 w-3" />
             <span className="tabular-nums font-medium">{goal.iterations}</span>
-            <span>iterations</span>
+            <span>{t('activity:goal.iterations')}</span>
             {goal.lastStatus && <span className="text-border">·</span>}
             {goal.lastStatus && <span className="truncate">{goal.lastStatus}</span>}
           </div>
@@ -180,7 +182,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
           {totalDeliverables > 0 && (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                <span>Deliverables</span>
+                <span>{t('activity:goal.deliverables')}</span>
                 <span className="tabular-nums">
                   {completedDeliverables}/{totalDeliverables}
                 </span>
@@ -213,7 +215,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
           {recentJournal.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                Recent Activity
+                {t('activity:goal.recentActivity')}
               </p>
               <div className="space-y-1">
                 {recentJournal.map((entry, i) => (
