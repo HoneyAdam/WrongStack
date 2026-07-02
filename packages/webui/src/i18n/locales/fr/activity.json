@@ -834,5 +834,18 @@
     "msgSuffix_other": "{{count}} msgs",
     "footerPre": "Cliquer un point de contrôle pour rembobiner",
     "footerPost": "pour fermer"
+  },
+  "goal": {
+    "statusActive": "Actif",
+    "statusPaused": "En pause",
+    "statusDone": "Terminé",
+    "statusFailed": "Échec",
+    "statusAbandoned": "Abandonné",
+    "heading": "Objectif",
+    "refined": "Raffiné",
+    "progress": "Progression",
+    "iterations": "itérations",
+    "deliverables": "Livrables",
+    "recentActivity": "Activité récente"
   }
 }

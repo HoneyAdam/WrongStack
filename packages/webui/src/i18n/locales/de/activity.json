@@ -834,5 +834,18 @@
     "msgSuffix_other": "{{count}} Nachrichten",
     "footerPre": "Beliebigen Checkpoint zum Zurückspulen klicken",
     "footerPost": "zum Schließen"
+  },
+  "goal": {
+    "statusActive": "Aktiv",
+    "statusPaused": "Pausiert",
+    "statusDone": "Erledigt",
+    "statusFailed": "Fehlgeschlagen",
+    "statusAbandoned": "Aufgegeben",
+    "heading": "Ziel",
+    "refined": "Verfeinert",
+    "progress": "Fortschritt",
+    "iterations": "Iterationen",
+    "deliverables": "Lieferobjekte",
+    "recentActivity": "Letzte Aktivität"
   }
 }

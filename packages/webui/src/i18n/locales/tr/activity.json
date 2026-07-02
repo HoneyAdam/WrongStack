@@ -834,5 +834,18 @@
     "msgSuffix_other": "{{count}} msg",
     "footerPre": "Geri sarmak için herhangi bir kontrol noktasına tıklayın",
     "footerPost": "kapatmak için"
+  },
+  "goal": {
+    "statusActive": "Etkin",
+    "statusPaused": "Duraklatıldı",
+    "statusDone": "Tamamlandı",
+    "statusFailed": "Başarısız",
+    "statusAbandoned": "Terk edildi",
+    "heading": "Hedef",
+    "refined": "Arıtılmış",
+    "progress": "İlerleme",
+    "iterations": "yineleme",
+    "deliverables": "Teslimatlar",
+    "recentActivity": "Son etkinlik"
   }
 }

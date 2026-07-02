@@ -834,5 +834,18 @@
     "msgSuffix_other": "{{count}} msgs",
     "footerPre": "Click any checkpoint to rewind",
     "footerPost": "to close"
+  },
+  "goal": {
+    "statusActive": "Active",
+    "statusPaused": "Paused",
+    "statusDone": "Done",
+    "statusFailed": "Failed",
+    "statusAbandoned": "Abandoned",
+    "heading": "Goal",
+    "refined": "Refined",
+    "progress": "Progress",
+    "iterations": "iterations",
+    "deliverables": "Deliverables",
+    "recentActivity": "Recent Activity"
   }
 }
