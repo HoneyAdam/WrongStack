@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
+import { useAppTranslation } from '@/i18n';
 import { useConfigStore } from '@/stores';
 import { Loader2, RotateCcw, WifiOff, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -16,6 +17,7 @@ import { useEffect, useState } from 'react';
  * dismissing.
  */
 export function ConnectionBanner() {
+  const { t } = useAppTranslation();
   const wsStatus = useConfigStore((s) => s.wsStatus);
   const wsUrl = useConfigStore((s) => s.wsUrl);
   const [dismissed, setDismissed] = useState(false);
@@ -67,8 +69,8 @@ export function ConnectionBanner() {
       <div className="flex-1 min-w-0">
         <div className="font-medium">
           {isReconnecting
-            ? `Reconnecting to backend (attempt ${wsStatus.attempt}) — retrying in ${remaining}s`
-            : 'Disconnected from backend'}
+            ? t('activity:connection.reconnecting', { attempt: wsStatus.attempt, remaining })
+            : t('activity:connection.disconnected')}
         </div>
         {errorText && <div className="text-xs opacity-80 truncate">{errorText}</div>}
       </div>
@@ -80,16 +82,16 @@ export function ConnectionBanner() {
           'hover:bg-background/30 transition-colors shrink-0',
           isReconnecting ? 'border-orange-500/40' : 'border-red-500/40',
         )}
-        title="Retry connection now"
+        title={t('activity:connection.retryTitle')}
       >
         <RotateCcw className="h-3 w-3" />
-        Retry now
+        {t('activity:connection.retry')}
       </button>
       <button
         type="button"
         onClick={() => setDismissed(true)}
         className="text-current/60 hover:text-current shrink-0"
-        title="Dismiss (chip in topbar still shows status)"
+        title={t('activity:connection.dismissTitle')}
       >
         <X className="h-4 w-4" />
       </button>

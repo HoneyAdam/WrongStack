@@ -68,7 +68,15 @@
     "fileCount_other": "{{count}} files",
     "refreshTitle": "Refresh changes",
     "loading": "Loading changes…",
-    "clean": "No changes — working tree is clean."
+    "clean": "No changes — working tree is clean.",
+    "selectPrompt": "Select a changed file to view its diff.",
+    "unified": "Unified",
+    "unifiedTitle": "Unified diff",
+    "edit": "Edit",
+    "editTitle": "Side-by-side editable diff",
+    "loadingDiff": "Loading diff…",
+    "binary": "Binary file — diff not shown.",
+    "tooLarge": "File too large to diff."
   },
   "inspector": {
     "showPanel": "Show inspector panel (Fleet / Agents / Audit)",
@@ -631,5 +639,12 @@
     "reasonPlaceholder": "reason (audit log)",
     "queueInjection": "Queue injection",
     "controllerInjection": "controller injection"
+  },
+  "connection": {
+    "reconnecting": "Reconnecting to backend (attempt {{attempt}}) — retrying in {{remaining}}s",
+    "disconnected": "Disconnected from backend",
+    "retry": "Retry now",
+    "retryTitle": "Retry connection now",
+    "dismissTitle": "Dismiss (chip in topbar still shows status)"
   }
 }

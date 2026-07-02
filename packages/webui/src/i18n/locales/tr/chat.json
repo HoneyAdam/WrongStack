@@ -14,5 +14,6 @@
   "newSession": "Yeni oturum",
   "empty": "(boş)",
   "messageCount_one": "{{count}} mesaj",
-  "messageCount_other": "{{count}} mesaj"
+  "messageCount_other": "{{count}} mesaj",
+  "thinking": "Düşünüyor…"
 }

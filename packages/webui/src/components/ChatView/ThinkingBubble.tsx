@@ -1,4 +1,5 @@
 import { useChatStore } from '@/stores';
+import { useAppTranslation } from '@/i18n';
 import { Brain } from 'lucide-react';
 
 /**
@@ -7,6 +8,7 @@ import { Brain } from 'lucide-react';
  * stream without re-rendering the full message list.
  */
 export function ThinkingBubble() {
+  const { t } = useAppTranslation();
   const buf = useChatStore((s) => s.thinkingBuffer);
   if (!buf) return null;
   const tailLines = buf.split('\n').slice(-6);
@@ -18,7 +20,7 @@ export function ThinkingBubble() {
       </div>
       <div className="flex flex-col gap-1 max-w-[85%] min-w-0">
         <span className="text-xs font-medium text-violet-600 dark:text-violet-400 px-1">
-          Thinking…
+          {t('chat:thinking')}
         </span>
         <div className="rounded-2xl rounded-bl-md px-3 py-2 bg-violet-500/[0.04] border border-violet-500/20 text-foreground/80">
           <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed italic max-h-32 overflow-hidden">

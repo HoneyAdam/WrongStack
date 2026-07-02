@@ -68,7 +68,15 @@
     "fileCount_other": "{{count}} dosya",
     "refreshTitle": "Değişiklikleri yenile",
     "loading": "Değişiklikler yükleniyor…",
-    "clean": "Değişiklik yok — çalışma ağacı temiz."
+    "clean": "Değişiklik yok — çalışma ağacı temiz.",
+    "selectPrompt": "Farkı görüntülemek için değiştirilmiş bir dosya seçin.",
+    "unified": "Birleşik",
+    "unifiedTitle": "Birleşik diff",
+    "edit": "Düzenle",
+    "editTitle": "Yan yana düzenlenebilir diff",
+    "loadingDiff": "Diff yükleniyor…",
+    "binary": "İkili dosya — diff gösterilmiyor.",
+    "tooLarge": "Dosya diff için çok büyük."
   },
   "inspector": {
     "showPanel": "Denetçi panelini göster (Filo / Vekiller / Denetim)",
@@ -631,5 +639,12 @@
     "reasonPlaceholder": "neden (denetim günlüğü)",
     "queueInjection": "Enjeksiyonu sıraya al",
     "controllerInjection": "kontrolör enjeksiyonu"
+  },
+  "connection": {
+    "reconnecting": "Arka uca yeniden bağlanılıyor (deneme {{attempt}}) — {{remaining}} sn içinde yeniden denenecek",
+    "disconnected": "Arka uçtan bağlantı kesildi",
+    "retry": "Şimdi yeniden dene",
+    "retryTitle": "Bağlantıyı şimdi yeniden dene",
+    "dismissTitle": "Kapat (üst çubuktaki chip durumu hâlâ gösterir)"
   }
 }

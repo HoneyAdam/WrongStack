@@ -14,5 +14,6 @@
   "newSession": "Neue Sitzung",
   "empty": "(leer)",
   "messageCount_one": "{{count}} Nachricht",
-  "messageCount_other": "{{count}} Nachrichten"
+  "messageCount_other": "{{count}} Nachrichten",
+  "thinking": "Denke nach…"
 }

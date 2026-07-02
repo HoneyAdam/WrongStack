@@ -68,7 +68,15 @@
     "fileCount_other": "{{count}} arquivos",
     "refreshTitle": "Atualizar alterações",
     "loading": "Carregando alterações…",
-    "clean": "Sem alterações — a árvore de trabalho está limpa."
+    "clean": "Sem alterações — a árvore de trabalho está limpa.",
+    "selectPrompt": "Selecione um arquivo alterado para ver seu diff.",
+    "unified": "Unificado",
+    "unifiedTitle": "Diff unificado",
+    "edit": "Editar",
+    "editTitle": "Diff lado a lado editável",
+    "loadingDiff": "Carregando diff…",
+    "binary": "Arquivo binário — diff não mostrado.",
+    "tooLarge": "Arquivo grande demais para diff."
   },
   "inspector": {
     "showPanel": "Mostrar painel Inspetor (Frota / Agentes / Auditoria)",
@@ -631,5 +639,12 @@
     "reasonPlaceholder": "motivo (log de auditoria)",
     "queueInjection": "Enfileirar injeção",
     "controllerInjection": "injeção controlador"
+  },
+  "connection": {
+    "reconnecting": "Reconectando ao backend (tentativa {{attempt}}) — tentando novamente em {{remaining}} s",
+    "disconnected": "Desconectado do backend",
+    "retry": "Tentar novamente",
+    "retryTitle": "Tentar conexão novamente agora",
+    "dismissTitle": "Fechar (o chip na barra superior ainda mostra o status)"
   }
 }

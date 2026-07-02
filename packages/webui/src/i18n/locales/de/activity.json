@@ -68,7 +68,15 @@
     "fileCount_other": "{{count}} Dateien",
     "refreshTitle": "Änderungen aktualisieren",
     "loading": "Änderungen werden geladen…",
-    "clean": "Keine Änderungen — Arbeitsbaum ist sauber."
+    "clean": "Keine Änderungen — Arbeitsbaum ist sauber.",
+    "selectPrompt": "Wähle eine geänderte Datei, um den Diff anzuzeigen.",
+    "unified": "Vereinigt",
+    "unifiedTitle": "Vereinigter Diff",
+    "edit": "Bearbeiten",
+    "editTitle": "Side-by-side bearbeitbarer Diff",
+    "loadingDiff": "Diff wird geladen…",
+    "binary": "Binärdatei — Diff nicht angezeigt.",
+    "tooLarge": "Datei zu groß für Diff."
   },
   "inspector": {
     "showPanel": "Inspektor-Panel anzeigen (Fleet / Agents / Audit)",
@@ -631,5 +639,12 @@
     "reasonPlaceholder": "Grund (Audit-Log)",
     "queueInjection": "Injektion einreihen",
     "controllerInjection": "Controller-Injektion"
+  },
+  "connection": {
+    "reconnecting": "Verbinde erneut mit Backend (Versuch {{attempt}}) — erneut in {{remaining}} s",
+    "disconnected": "Verbindung zum Backend getrennt",
+    "retry": "Jetzt erneut versuchen",
+    "retryTitle": "Verbindung jetzt erneut versuchen",
+    "dismissTitle": "Verwerfen (Chip in der Topbar zeigt weiterhin den Status)"
   }
 }
