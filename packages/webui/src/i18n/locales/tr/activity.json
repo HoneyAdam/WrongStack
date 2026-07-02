@@ -47,5 +47,27 @@
     "monitors": "İzleyiciler",
     "fleetMonitor": "Filo İzleyici",
     "agentsMonitor": "Vekil İzleyici"
+  },
+  "sidePanel": {
+    "dragHint": "Yeniden boyutlandırmak için sürükle · sıfırlamak için çift tıkla",
+    "collapse": "Paneli daralt (Ctrl+\\)"
+  },
+  "history": {
+    "openDashboard": "Oturum panosunu aç"
+  },
+  "agents": {
+    "pending": "bekliyor…",
+    "empty": "Henüz vekil yok",
+    "emptyHint": "Filo etkinken alt vekiller burada görünür.",
+    "runningCount": "{{count}} çalışıyor",
+    "totalCount": "toplam {{count}}",
+    "openFull": "Tam vekil görünümünü aç"
+  },
+  "changes": {
+    "fileCount_one": "{{count}} dosya",
+    "fileCount_other": "{{count}} dosya",
+    "refreshTitle": "Değişiklikleri yenile",
+    "loading": "Değişiklikler yükleniyor…",
+    "clean": "Değişiklik yok — çalışma ağacı temiz."
   }
 }

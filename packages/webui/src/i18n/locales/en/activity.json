@@ -47,5 +47,27 @@
     "monitors": "Monitors",
     "fleetMonitor": "Fleet Monitor",
     "agentsMonitor": "Agents Monitor"
+  },
+  "sidePanel": {
+    "dragHint": "Drag to resize · double-click to reset",
+    "collapse": "Collapse panel (Ctrl+\\)"
+  },
+  "history": {
+    "openDashboard": "Open sessions dashboard"
+  },
+  "agents": {
+    "pending": "pending…",
+    "empty": "No agents yet",
+    "emptyHint": "Subagents appear here when the fleet is active.",
+    "runningCount": "{{count}} running",
+    "totalCount": "{{count}} total",
+    "openFull": "Open full agents view"
+  },
+  "changes": {
+    "fileCount_one": "{{count}} file",
+    "fileCount_other": "{{count}} files",
+    "refreshTitle": "Refresh changes",
+    "loading": "Loading changes…",
+    "clean": "No changes — working tree is clean."
   }
 }

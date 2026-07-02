@@ -47,5 +47,27 @@
     "monitors": "Moniteurs",
     "fleetMonitor": "Moniteur de flotte",
     "agentsMonitor": "Moniteur d'agents"
+  },
+  "sidePanel": {
+    "dragHint": "Glisser pour redimensionner · double-clic pour réinitialiser",
+    "collapse": "Réduire le panneau (Ctrl+\\)"
+  },
+  "history": {
+    "openDashboard": "Ouvrir le tableau de bord des sessions"
+  },
+  "agents": {
+    "pending": "en attente…",
+    "empty": "Aucun agent pour le moment",
+    "emptyHint": "Les sous-agents apparaissent ici lorsque la flotte est active.",
+    "runningCount": "{{count}} en cours",
+    "totalCount": "{{count}} au total",
+    "openFull": "Ouvrir la vue complète des agents"
+  },
+  "changes": {
+    "fileCount_one": "{{count}} fichier",
+    "fileCount_other": "{{count}} fichiers",
+    "refreshTitle": "Actualiser les modifications",
+    "loading": "Chargement des modifications…",
+    "clean": "Aucune modification — l'arbre de travail est propre."
   }
 }

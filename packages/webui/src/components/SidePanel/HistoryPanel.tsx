@@ -10,12 +10,14 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { showPanel } from '@/lib/view-navigation';
 import { useConfigStore, useHistoryStore, useSessionStore } from '@/stores';
 import { SessionList } from './SessionList';
+import { useAppTranslation } from '@/i18n';
 
 export function HistoryPanel() {
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const { entries, loading, error } = useHistoryStore();
   const { listSessions, resumeSession, deleteSession } = useWebSocket();
   const activeSessionId = useSessionStore((s) => s.session?.id);
+  const { t } = useAppTranslation();
 
   const [query, setQuery] = useState('');
 
@@ -47,7 +49,7 @@ export function HistoryPanel() {
           className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <LayoutGrid className="h-3 w-3" />
-          Open sessions dashboard
+          {t('activity:history.openDashboard')}
         </button>
       </div>
     </div>

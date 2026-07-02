@@ -11,6 +11,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { showPanel } from '@/lib/view-navigation';
 import { type GitChangedFile, useConfigStore, useGitChangesStore } from '@/stores';
+import { useAppTranslation } from '@/i18n';
 
 /** Visual treatment for each git status letter. */
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -70,6 +71,7 @@ function FileRow({
 
 export function ChangesPanel() {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const files = useGitChangesStore((s) => s.files);
   const error = useGitChangesStore((s) => s.error);
@@ -100,7 +102,7 @@ export function ChangesPanel() {
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
         <span className="text-[11px] text-muted-foreground font-mono">
-          {files.length} {files.length === 1 ? 'file' : 'files'}
+          {t('activity:changes.fileCount', { count: files.length })}
           {files.length > 0 && (
             <>
               {' · '}
@@ -112,7 +114,7 @@ export function ChangesPanel() {
         <button
           type="button"
           onClick={refresh}
-          title="Refresh changes"
+          title={t('activity:changes.refreshTitle')}
           className="h-6 w-6 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground"
         >
           {loadingList ? (
@@ -129,7 +131,7 @@ export function ChangesPanel() {
         ) : files.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-2 py-10 text-center text-xs text-muted-foreground">
             <GitCompare className="h-6 w-6 opacity-40" />
-            {loadingList ? 'Loading changes…' : 'No changes — working tree is clean.'}
+            {loadingList ? t('activity:changes.loading') : t('activity:changes.clean')}
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">

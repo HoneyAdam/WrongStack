@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
 import { useFleetStore, useUIStore } from '@/stores';
 import { AgentDetail } from '../FleetPanel';
+import { useAppTranslation } from '@/i18n';
 
 const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean }> =
   {
@@ -29,6 +30,7 @@ function fmtCost(v: number): string {
 
 function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void }) {
   const meta = STATUS_META[agent.status];
+  const { t } = useAppTranslation();
   const active = agent.status === 'running';
   return (
     <button
@@ -55,7 +57,7 @@ function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void
             {agent.model}
           </span>
         ) : (
-          <span className="text-[10px] text-muted-foreground italic">pending…</span>
+          <span className="text-[10px] text-muted-foreground italic">{t('activity:agents.pending')}</span>
         )}
         <span className="tabular ml-auto text-[10px] text-foreground/70">
           {fmtCost(agent.costUsd)}
@@ -73,6 +75,7 @@ function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void
 
 export function AgentsPanel() {
   const fleetAgents = useFleetStore((s) => s.agents);
+  const { t } = useAppTranslation();
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const fleetList = useMemo(() => {
@@ -96,8 +99,8 @@ export function AgentsPanel() {
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center text-muted-foreground">
           <Bot className="h-8 w-8 mx-auto mb-3 opacity-20" />
-          <p className="text-sm font-medium">No agents yet</p>
-          <p className="text-xs mt-1">Subagents appear here when the fleet is active.</p>
+          <p className="text-sm font-medium">{t('activity:agents.empty')}</p>
+          <p className="text-xs mt-1">{t('activity:agents.emptyHint')}</p>
         </div>
       </div>
     );
@@ -108,8 +111,8 @@ export function AgentsPanel() {
       <div className="px-3 py-2 border-b text-[10px] text-muted-foreground flex items-center gap-2">
         <span className="font-semibold uppercase tracking-wider">Fleet</span>
         <span className="ml-auto tabular-nums">
-          {running > 0 ? `${running} running · ` : ''}
-          {fleetList.length} total
+          {running > 0 ? <>{t('activity:agents.runningCount', { count: running })} · </> : null}
+          {t('activity:agents.totalCount', { count: fleetList.length })}
         </span>
       </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-2 space-y-1.5">
@@ -124,7 +127,7 @@ export function AgentsPanel() {
           className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <LayoutGrid className="h-3 w-3" />
-          Open full agents view
+          {t('activity:agents.openFull')}
         </button>
       </div>
       {selectedAgent && (

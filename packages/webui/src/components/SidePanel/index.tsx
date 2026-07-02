@@ -10,8 +10,8 @@ import { PanelLeftClose } from 'lucide-react';
 import { useEffect } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import {
-  type Activity,
   SIDEBAR_DEFAULT_WIDTH,
   useConfigStore,
   useFileStore,
@@ -30,19 +30,6 @@ import { DesignStudioPanel } from './DesignStudioPanel';
 import { WorktreesPanel } from './WorktreesPanel';
 import { OfficeMapSettingsPanel } from '../OfficeMapSettingsPanel';
 
-const PANEL_TITLE: Record<Activity, string> = {
-  chat: 'Session',
-  agents: 'Agents',
-  history: 'History',
-  files: 'Files',
-  changes: 'Changes',
-  mailbox: 'Mailbox',
-  skills: 'Skills',
-  design: 'Design Studio',
-  worktrees: 'Worktrees',
-  officemap: 'Office Map',
-};
-
 export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | undefined }) {
   const activeActivity = useUIStore((s) => s.activeActivity);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
@@ -50,6 +37,7 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const effectiveWidth = desktopShell ? Math.min(sidebarWidth, 280) : sidebarWidth;
 
   // Load the file tree when the Files panel is shown.
@@ -103,7 +91,7 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
         onMouseDown={startDrag}
         onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
         className="group/handle absolute top-0 right-0 h-full w-2 cursor-col-resize z-10 flex items-center justify-end"
-        title="Drag to resize · double-click to reset"
+        title={t('activity:sidePanel.dragHint')}
       >
         <div className="h-full w-px bg-border group-hover/handle:bg-primary/60 group-hover/handle:w-0.5 transition-all" />
       </div>
@@ -116,14 +104,14 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
         )}
       >
         <span className="text-xs font-semibold tracking-tight text-muted-foreground uppercase">
-          {PANEL_TITLE[activeActivity]}
+          {t(`activity:nav.${activeActivity}`)}
         </span>
         <Button
           variant="ghost"
           size="icon"
           className="h-6 w-6"
           onClick={() => setSidebarOpen(false)}
-          title="Collapse panel (Ctrl+\)"
+          title={t('activity:sidePanel.collapse')}
         >
           <PanelLeftClose className="h-3.5 w-3.5" />
         </Button>
