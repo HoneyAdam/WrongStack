@@ -1,6 +1,7 @@
 import { AlertTriangle, Eraser, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useAppTranslation } from '@/i18n';
 import { useWorktreeStore } from '@/stores';
 import { confirmModal } from './ConfirmModal';
 
@@ -14,6 +15,7 @@ const shortBranch = (b?: string) => (b ? b.replace(/^wstack\/ap\//, '') : '');
  * way in a clean project. Drop it next to <WorktreeLanes />.
  */
 export function WorktreeOrphans(): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const orphans = useWorktreeStore((s) => s.orphans);
   const canClean = useWorktreeStore((s) => s.canClean);
@@ -34,10 +36,9 @@ export function WorktreeOrphans(): React.ReactElement | null {
   const onClean = async () => {
     const n = orphans.length;
     const ok = await confirmModal({
-      title: `Clean ${n} orphaned worktree${n === 1 ? '' : 's'}?`,
-      message:
-        'Force-removes every leftover git worktree + wstack/ap branch from previous runs. Un-merged work in them is discarded.',
-      confirmLabel: 'Clean orphans',
+      title: t('activity:worktree.cleanTitle', { count: n }),
+      message: t('activity:worktree.cleanMessage'),
+      confirmLabel: t('activity:worktree.cleanConfirm'),
       danger: true,
     });
     if (!ok) return;
@@ -54,7 +55,7 @@ export function WorktreeOrphans(): React.ReactElement | null {
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <div className="min-w-0 flex-1">
             <div className="font-medium text-amber-700 dark:text-amber-300">
-              {orphans.length} orphaned worktree{orphans.length === 1 ? '' : 's'} from previous runs
+              {t('activity:worktree.orphanCount', { count: orphans.length })}
             </div>
             <div className="mt-0.5 max-h-16 overflow-auto font-mono text-[10px] text-muted-foreground">
               {orphans.slice(0, 8).map((o, i) => (
@@ -63,14 +64,14 @@ export function WorktreeOrphans(): React.ReactElement | null {
                   {shortBranch(o.branch) || o.dir}
                 </div>
               ))}
-              {orphans.length > 8 && <div>…and {orphans.length - 8} more</div>}
+              {orphans.length > 8 && <div>{t('activity:worktree.andMore', { count: orphans.length - 8 })}</div>}
             </div>
           </div>
           <button
             type="button"
             disabled={!canClean || cleaning}
             onClick={onClean}
-            title={canClean ? 'Force-remove all orphaned worktrees + branches' : blockedReason}
+            title={canClean ? t('activity:worktree.cleanButtonTitle') : blockedReason}
             className="inline-flex shrink-0 items-center gap-1 rounded bg-amber-600/90 px-2 py-1 font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {cleaning ? (
@@ -78,7 +79,7 @@ export function WorktreeOrphans(): React.ReactElement | null {
             ) : (
               <Eraser className="h-3.5 w-3.5" />
             )}
-            Clean orphans
+            {t('activity:worktree.cleanConfirm')}
           </button>
         </div>
       ) : null}
@@ -87,8 +88,8 @@ export function WorktreeOrphans(): React.ReactElement | null {
           className={cleanResult.ok ? 'mt-1 text-emerald-600 dark:text-emerald-400' : 'mt-1 text-rose-500'}
         >
           {cleanResult.ok
-            ? `✓ Removed ${cleanResult.removed} orphaned worktree${cleanResult.removed === 1 ? '' : 's'}.`
-            : `✗ ${cleanResult.reason ?? 'cleanup failed'}`}
+            ? t('activity:worktree.removed', { count: cleanResult.removed })
+            : `✗ ${cleanResult.reason ?? t('activity:worktree.cleanupFailed')}`}
         </div>
       )}
     </div>

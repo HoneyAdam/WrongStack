@@ -1,18 +1,19 @@
 import type { WorktreeHandleView } from '@/types';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 
-const STATUS_META: Record<string, { icon: string; label: string; tint: string; dot: string }> = {
-  allocating:    { icon: '○', label: 'allocating', tint: 'border-zinc-400/40', dot: 'bg-zinc-400' },
-  active:        { icon: '●', label: 'active',     tint: 'border-amber-400/40', dot: 'bg-amber-400 animate-pulse' },
-  committing:    { icon: '◐', label: 'committing', tint: 'border-cyan-400/40', dot: 'bg-cyan-400 animate-pulse' },
-  merging:       { icon: '⇡', label: 'merging',    tint: 'border-blue-400/40', dot: 'bg-blue-400 animate-pulse' },
-  merged:        { icon: '✓', label: 'merged',     tint: 'border-emerald-400/40', dot: 'bg-emerald-400' },
-  'needs-review':{ icon: '⚠', label: 'conflict',   tint: 'border-fuchsia-400/50', dot: 'bg-fuchsia-400' },
-  failed:        { icon: '✗', label: 'failed',     tint: 'border-rose-400/50', dot: 'bg-rose-400' },
+const STATUS_META: Record<string, { icon: string; labelKey: string; tint: string; dot: string }> = {
+  allocating:    { icon: '○', labelKey: 'statusAllocating', tint: 'border-zinc-400/40', dot: 'bg-zinc-400' },
+  active:        { icon: '●', labelKey: 'statusActive',     tint: 'border-amber-400/40', dot: 'bg-amber-400 animate-pulse' },
+  committing:    { icon: '◐', labelKey: 'statusCommitting', tint: 'border-cyan-400/40', dot: 'bg-cyan-400 animate-pulse' },
+  merging:       { icon: '⇡', labelKey: 'statusMerging',    tint: 'border-blue-400/40', dot: 'bg-blue-400 animate-pulse' },
+  merged:        { icon: '✓', labelKey: 'statusMerged',     tint: 'border-emerald-400/40', dot: 'bg-emerald-400' },
+  'needs-review':{ icon: '⚠', labelKey: 'statusConflict',   tint: 'border-fuchsia-400/50', dot: 'bg-fuchsia-400' },
+  failed:        { icon: '✗', labelKey: 'statusFailed',     tint: 'border-rose-400/50', dot: 'bg-rose-400' },
 };
 
 function meta(status: string) {
-  return STATUS_META[status] ?? { icon: '?', label: status, tint: 'border-border', dot: 'bg-muted-foreground' };
+  return STATUS_META[status] ?? { icon: '?', labelKey: '', tint: 'border-border', dot: 'bg-muted-foreground' };
 }
 
 const shortBranch = (b: string) => b.replace(/^wstack\/ap\//, '');
@@ -29,16 +30,17 @@ export function WorktreeLanes({
   worktrees: WorktreeHandleView[];
   baseBranch: string;
 }): React.ReactElement | null {
+  const { t } = useAppTranslation();
   if (worktrees.length === 0) return null;
   const sorted = [...worktrees].sort((a, b) => a.allocatedAt - b.allocatedAt);
 
   return (
     <div className="rounded-lg border bg-card/50 backdrop-blur-sm px-3 py-3">
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-semibold tracking-wide uppercase text-[10px]">Worktrees</span>
-        <span className="opacity-60">· base</span>
+        <span className="font-semibold tracking-wide uppercase text-[10px]">{t('activity:worktree.lanesHeading')}</span>
+        <span className="opacity-60">· {t('activity:worktree.base')}</span>
         <code className="font-mono text-primary">{baseBranch || 'HEAD'}</code>
-        <span className="opacity-60">· {sorted.length} isolated</span>
+        <span className="opacity-60">· {t('activity:worktree.isolatedCount', { count: sorted.length })}</span>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -63,7 +65,7 @@ export function WorktreeLanes({
 
               {/* live diff-stat badge */}
               {conflict ? (
-                <span className="font-mono text-xs font-bold text-fuchsia-400">CONFLICT</span>
+                <span className="font-mono text-xs font-bold text-fuchsia-400">{t('activity:worktree.conflictBadge')}</span>
               ) : (
                 <span className="flex items-center gap-1 font-mono text-xs transition-all duration-500">
                   <span className="text-emerald-500">+{w.insertions}</span>
@@ -80,7 +82,7 @@ export function WorktreeLanes({
                   style={{ width: `${magnitude}%` }}
                 />
               </div>
-              <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">{m.label}</span>
+              <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">{m.labelKey ? t(`activity:worktree.${m.labelKey}`) : w.status}</span>
 
               {/* flowing recent activity (last item) */}
               {w.recentActivity.length > 0 ? (
