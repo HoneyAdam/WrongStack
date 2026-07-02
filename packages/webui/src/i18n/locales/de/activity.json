@@ -527,5 +527,13 @@
       "completed": "erledigt",
       "cancelled": "abgebrochen"
     }
+  },
+  "toolResult": {
+    "collapseToLines": "Auf erste {{count}} Zeilen einklappen",
+    "showAllLines": "Alle {{total}} Zeilen anzeigen ({{more}} mehr)",
+    "exitCode": "Exit-Code:",
+    "jsonLines": "JSON · {{count}} Zeilen",
+    "collapse": "einklappen",
+    "expand": "ausklappen"
   }
 }

@@ -527,5 +527,13 @@
       "completed": "bitti",
       "cancelled": "iptal edildi"
     }
+  },
+  "toolResult": {
+    "collapseToLines": "İlk {{count}} satıra daralt",
+    "showAllLines": "Tümünü göster: {{total}} satır ({{more}} satır daha)",
+    "exitCode": "çıkış kodu:",
+    "jsonLines": "JSON · {{count}} satır",
+    "collapse": "daralt",
+    "expand": "genişlet"
   }
 }

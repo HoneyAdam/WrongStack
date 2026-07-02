@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 
 /** When a tool dumps hundreds of lines of output, the chat turns into a
  *  scroll-wall. This threshold gates the auto-collapse: anything longer
@@ -49,6 +50,7 @@ function CollapsibleText({
   // simple mode wants collapsed-by-default even for short bodies; extend
   // mode keeps the historical behaviour (collapsed only when long).
   const [expanded, setExpanded] = useState(defaultCollapsed ? false : !isLong);
+  const { t } = useAppTranslation();
   const shown = expanded ? text : lines.slice(0, LONG_PEEK_LINES).join('\n');
   // Only emit the gutter when the body won't wrap (alignment would break
   // otherwise) AND the user actually expanded it / it's not super short.
@@ -96,12 +98,12 @@ function CollapsibleText({
           {expanded ? (
             <>
               <ChevronsUp className="h-3 w-3" />
-              Collapse to first {LONG_PEEK_LINES} lines
+              {t('activity:toolResult.collapseToLines', { count: LONG_PEEK_LINES })}
             </>
           ) : (
             <>
               <ChevronsDown className="h-3 w-3" />
-              Show all {lines.length} lines ({lines.length - LONG_PEEK_LINES} more)
+              {t('activity:toolResult.showAllLines', { total: lines.length, more: lines.length - LONG_PEEK_LINES })}
             </>
           )}
         </button>
@@ -143,6 +145,7 @@ export const ToolResult = memo(function ToolResult({
   renderMode,
 }: Props) {
   const shape = useMemo(() => detectShape(toolName, result), [toolName, result]);
+  const { t } = useAppTranslation();
   // `simple` starts the body collapsed so the user sees only the meta
   // (line count / exit code) until they explicitly expand. `extend`
   // (the default) preserves the historical auto-collapse behaviour for
@@ -195,7 +198,7 @@ export const ToolResult = memo(function ToolResult({
           >
             {shape.exitCode !== undefined && (
               <span>
-                exit code: <span className="font-mono">{shape.exitCode}</span>
+                {t('activity:toolResult.exitCode')} <span className="font-mono">{shape.exitCode}</span>
               </span>
             )}
             {shape.duration && <span>{shape.duration}</span>}
@@ -277,6 +280,7 @@ function JsonResult({
    *  so the user sees only the line-count badge until they expand. */
   defaultCollapsed?: boolean | undefined;
 }) {
+  const { t } = useAppTranslation();
   const pretty = useMemo(() => {
     try {
       return JSON.stringify(value, null, 2);
@@ -305,9 +309,9 @@ function JsonResult({
       >
         <span className="flex items-center gap-1">
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          <span className="font-mono">JSON · {lineCount} lines</span>
+          <span className="font-mono">{t('activity:toolResult.jsonLines', { count: lineCount })}</span>
         </span>
-        <span>{expanded ? 'collapse' : 'expand'}</span>
+        <span>{expanded ? t('activity:toolResult.collapse') : t('activity:toolResult.expand')}</span>
       </button>
       {expanded && (
         <pre

@@ -527,5 +527,13 @@
       "completed": "concluído",
       "cancelled": "cancelado"
     }
+  },
+  "toolResult": {
+    "collapseToLines": "Recolher para as primeiras {{count}} linhas",
+    "showAllLines": "Mostrar todas as {{total}} linhas ({{more}} a mais)",
+    "exitCode": "código de saída:",
+    "jsonLines": "JSON · {{count}} linhas",
+    "collapse": "recolher",
+    "expand": "expandir"
   }
 }
