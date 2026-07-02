@@ -1,6 +1,9 @@
 import * as path from 'node:path';
 import type { Context } from '../core/context.js';
+import type { TextBlock } from '../types/blocks.js';
 import type {
+  CompletedWorkEvidence,
+  CompletedWorkSource,
   ContextEvidenceState,
   ToolOutputMetadata,
 } from '../types/context-evidence.js';
@@ -27,6 +30,7 @@ export function createContextEvidenceState(): ContextEvidenceState {
     toolCalls: [],
     fileGraph: {},
     repeatedReads: [],
+    completedWork: [],
     updatedAt: Date.now(),
   };
 }
@@ -213,7 +217,93 @@ function ensureEvidence(ctx: Context): ContextEvidenceState {
     (ctx as never as { contextEvidence: ContextEvidenceState }).contextEvidence =
       createContextEvidenceState();
   }
+  // States restored from sessions persisted before the completed-work
+  // ledger existed lack the array — heal in place so recorders can push.
+  ctx.contextEvidence.completedWork ??= [];
   return ctx.contextEvidence;
+}
+
+// ── Completed-work ledger ──────────────────────────────────────────────────
+
+/** Bound on retained ledger entries — oldest are dropped first. */
+const MAX_COMPLETED_WORK = 50;
+/** How many (newest) entries render into the system-prompt block. */
+const LEDGER_BLOCK_ITEMS = 20;
+
+/** Marker prefixing the ledger's system-prompt block (also used to find/replace it). */
+export const COMPLETED_WORK_LEDGER_MARKER = '[completed_work_ledger]';
+
+export interface RecordCompletedWorkInput {
+  /** Stable dedupe key, e.g. `task:<id>` — re-completion updates in place. */
+  key: string;
+  source: CompletedWorkSource;
+  summary: string;
+  /** Optional pointer to proof (test run, commit hash, file path). */
+  evidence?: string | undefined;
+  /** Epoch ms; defaults to now. */
+  completedAt?: number | undefined;
+}
+
+/**
+ * Append one finished unit of work to the session ledger and refresh the
+ * `[completed_work_ledger]` system-prompt block. Deduped by `key` (newest
+ * wins), bounded to {@link MAX_COMPLETED_WORK} entries.
+ */
+export function recordCompletedWorkEvidence(
+  ctx: Context,
+  input: RecordCompletedWorkInput,
+): CompletedWorkEvidence {
+  const state = ensureEvidence(ctx);
+  const entry: CompletedWorkEvidence = {
+    key: input.key,
+    source: input.source,
+    summary: normalizeWhitespace(input.summary).slice(0, 300),
+    completedAt: input.completedAt ?? Date.now(),
+    ...(input.evidence !== undefined && { evidence: input.evidence }),
+  };
+  const existing = state.completedWork.findIndex((item) => item.key === entry.key);
+  if (existing >= 0) state.completedWork.splice(existing, 1);
+  state.completedWork.push(entry);
+  if (state.completedWork.length > MAX_COMPLETED_WORK) {
+    state.completedWork.splice(0, state.completedWork.length - MAX_COMPLETED_WORK);
+  }
+  state.updatedAt = Date.now();
+  syncCompletedWorkLedgerBlock(ctx);
+  return entry;
+}
+
+/** Render the ledger's system-prompt block text (marker + newest entries). */
+export function formatCompletedWorkLedger(items: readonly CompletedWorkEvidence[]): string {
+  const lines = items
+    .slice(-LEDGER_BLOCK_ITEMS)
+    .map(
+      (item) =>
+        `- [${item.source}] ${item.summary}${item.evidence ? ` (evidence: ${item.evidence})` : ''}`,
+    );
+  return (
+    `${COMPLETED_WORK_LEDGER_MARKER}\n` +
+    'Work already completed this session — do not redo it; build on it:\n' +
+    lines.join('\n')
+  );
+}
+
+/**
+ * Upsert the `[completed_work_ledger]` block in `ctx.systemPrompt` (removed
+ * again when the ledger is empty). Idempotent — safe to call after every
+ * ledger mutation.
+ */
+export function syncCompletedWorkLedgerBlock(ctx: Context): void {
+  const state = ensureEvidence(ctx);
+  const idx = ctx.systemPrompt.findIndex(
+    (block) => block.type === 'text' && block.text.startsWith(COMPLETED_WORK_LEDGER_MARKER),
+  );
+  if (state.completedWork.length === 0) {
+    if (idx >= 0) ctx.systemPrompt.splice(idx, 1);
+    return;
+  }
+  const block: TextBlock = { type: 'text', text: formatCompletedWorkLedger(state.completedWork) };
+  if (idx >= 0) ctx.systemPrompt[idx] = block;
+  else ctx.systemPrompt.push(block);
 }
 
 function isGoalish(text: string): boolean {

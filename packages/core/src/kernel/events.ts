@@ -1004,13 +1004,14 @@ export interface EventMap {
       | 'todos'
       | 'queue'
       | 'tasks'
+      | 'completed-work'
       | 'memory'
       | 'annotations'
       | 'audit'
       | 'replay'
       | 'config';
     filePath: string;
-    /** Session store: load|list|summary|index_read. Goal store: load. Plan store: load. Memory store: readAll. Annotations: list. Audit: verify|load. Replay: load|lookup. Config: read_json|load_sync. */
+    /** Session store: load|list|summary|index_read. Goal store: load. Plan store: load. Memory store: readAll. Annotations: list. Audit: verify|load. Replay: load|lookup. Config: read_json|load_sync. Completed-work: load. */
     operation: string;
     outcome: 'success' | 'failure';
     durationMs: number;
@@ -1031,6 +1032,7 @@ export interface EventMap {
       | 'todos'
       | 'queue'
       | 'tasks'
+      | 'completed-work'
       | 'memory'
       | 'annotations'
       | 'audit'
@@ -1040,7 +1042,8 @@ export interface EventMap {
     /** Session store: create|resume|append|flush|close|index_append|compact|checkpoint.
      * Goal store: save|update|delete. Plan store: save. Project manifest: manifest_write.
      * Todos: save. Queue: write|clear. Tasks: save. Memory: remember|forget|clear|consolidate.
-     * Annotations: add|resolve|evict. Audit: record. Replay: record|compact. Config: persist_sync. */
+     * Annotations: add|resolve|evict. Audit: record. Replay: record|compact. Config: persist_sync.
+     * Completed-work: save. */
     operation: string;
     outcome: 'success' | 'failure';
     durationMs: number;
@@ -1062,6 +1065,7 @@ export interface EventMap {
       | 'todos'
       | 'queue'
       | 'tasks'
+      | 'completed-work'
       | 'memory'
       | 'annotations'
       | 'audit'
