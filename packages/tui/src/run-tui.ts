@@ -15,6 +15,11 @@ import {
   type AutonomyStage,
   GlobalMailbox,
   createHqPublisherFromEnv,
+  startFleetTelemetryBridge,
+  startBrainTelemetryBridge,
+  startWorktreeTelemetryBridge,
+  startToolTelemetryBridge,
+  startCostTelemetryBridge,
   resolveProjectDir,
   wstackGlobalRoot,
 } from '@wrongstack/core';
@@ -772,6 +777,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // have no other activity to drive the registration.
   let clientHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let clientSyncTimer: ReturnType<typeof setInterval> | null = null;
+  const stopHqAuxBridges: Array<() => void> = [];
   const CLIENT_HEARTBEAT_MS = 15_000;
   /** Sync client counts from the shared registry every 30s so closed clients disappear promptly. */
   const CLIENT_SYNC_MS = 30_000;
@@ -787,6 +793,35 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
         appConfig: opts.appConfig,
       } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
       hqPublisher?.connect();
+      // Auxiliary telemetry bridges — forward fleet/brain/worktree/tool/cost
+      // signals to HQ so the command center dashboard is fully populated.
+      // All best-effort; never break the TUI on failure.
+      const tuiSessionId = opts.getSessionId?.() ?? opts.projectRoot;
+      try {
+        stopHqAuxBridges.push(
+          startFleetTelemetryBridge({ events: opts.events, publisher: hqPublisher!, runId: tuiSessionId, sessionId: tuiSessionId }),
+        );
+      } catch { /* optional */ }
+      try {
+        stopHqAuxBridges.push(
+          startBrainTelemetryBridge({ events: opts.events, publisher: hqPublisher!, sessionId: tuiSessionId }),
+        );
+      } catch { /* optional */ }
+      try {
+        stopHqAuxBridges.push(
+          startWorktreeTelemetryBridge({ events: opts.events, publisher: hqPublisher!, sessionId: tuiSessionId }),
+        );
+      } catch { /* optional */ }
+      try {
+        stopHqAuxBridges.push(
+          startToolTelemetryBridge({ events: opts.events, publisher: hqPublisher!, projectRoot: opts.projectRoot, sessionId: tuiSessionId }),
+        );
+      } catch { /* optional */ }
+      try {
+        stopHqAuxBridges.push(
+          startCostTelemetryBridge({ events: opts.events, publisher: hqPublisher!, sessionId: tuiSessionId }),
+        );
+      } catch { /* optional */ }
       const mailbox = new GlobalMailbox(projectDir, opts.events, hqPublisher);
       // Unique per-process: tui@<uuid>
       const clientId = `tui@${randomUUID().slice(0, 8)}`;
@@ -850,6 +885,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       clearInterval(clientSyncTimer);
       clientSyncTimer = null;
     }
+    for (const stop of stopHqAuxBridges) {
+      try { stop(); } catch { /* ignore */ }
+    }
+    stopHqAuxBridges.length = 0;
   };
 
   // Register immediately (fire-and-forget)

@@ -6,8 +6,8 @@ import { GlobalMailbox } from '../coordination/global-mailbox.js';
 import type { EventBus } from '../kernel/events.js';
 import type { HqClientConfig } from '../types/config.js';
 import { hqAuthFilePath, readHqRuntimeFileSync, resolveHqDataDir, type HqAuthFile } from './auth-store.js';
-import type { HqClientIdentity, HqProjectIdentity, HqRedactionPolicy } from './protocol.js';
-import { HqPublisher, type HqSocketFactory } from './publisher.js';
+import type { HqClientCapability, HqClientIdentity, HqProjectIdentity, HqRedactionPolicy } from './protocol.js';
+import { HqPublisher, type HqPublisherCommandHandler, type HqSocketFactory } from './publisher.js';
 
 export interface HqPublisherEnvConfig {
   url: string;
@@ -94,6 +94,10 @@ export interface CreateHqPublisherOptions {
   config?: HqPublisherEnvConfig;
   appConfig?: { hq?: HqClientConfig | undefined } | undefined;
   redactionPolicy?: Partial<HqRedactionPolicy>;
+  /** Forwarded to the HqPublisher constructor (Phase 4 control plane). */
+  capabilities?: readonly HqClientCapability[];
+  /** Forwarded to the HqPublisher constructor (Phase 4 control plane). */
+  onCommand?: HqPublisherCommandHandler;
 }
 
 export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqPublisher | undefined {
@@ -136,6 +140,8 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
     project,
     ...(options.socketFactory ? { socketFactory: options.socketFactory } : {}),
     ...(redactionPolicy !== undefined ? { redactionPolicy } : {}),
+    ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
+    ...(options.onCommand !== undefined ? { onCommand: options.onCommand } : {}),
   });
 }
 

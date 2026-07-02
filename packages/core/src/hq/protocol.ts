@@ -97,7 +97,9 @@ export type HqEventType =
   | 'agent.status'
   | 'session.snapshot'
   | 'session.transcript'
-  | 'session.ended';
+  | 'session.ended'
+  | 'brain.event'
+  | 'worktree.event';
 
 export interface HqClientHeartbeatPayload {
   uptimeMs: number;
@@ -202,6 +204,86 @@ export interface HqFleetEventPayload {
   event: string;
   summary?: string;
   data?: unknown;
+}
+
+// ── Brain decision telemetry ───────────────────────────────────────────────
+//
+// The Brain (decision layer) routes autonomous decisions through a three-tier
+// chain. These envelopes let the HQ command center observe decision requests,
+// answers, denials, ask-human escalations, and self-activated interventions
+// across every connected machine — without coupling HQ to the in-process
+// Brain. All payloads are plain serializable data (no closures); the rich
+// BrainDecisionRequest / BrainDecision shapes are forwarded as-is.
+
+export type HqBrainEventKind =
+  | 'decision_requested'
+  | 'decision_answered'
+  | 'decision_ask_human'
+  | 'human_answered'
+  | 'decision_denied'
+  | 'intervention';
+
+export interface HqBrainEventPayload {
+  /** Which brain lifecycle event this is (mirrors the EventBus `brain.*` name suffix). */
+  kind: HqBrainEventKind;
+  /** The decision request id, when present (decision_request/answer/deny). */
+  requestId?: string;
+  /** Short human-readable question the brain was asked. */
+  question?: string;
+  /** The source that triggered the decision (e.g. 'autonomy', 'system'). */
+  source?: string;
+  /** Resolved risk tier, when known (e.g. 'low' | 'medium' | 'high'). */
+  risk?: string;
+  /** The chosen decision kind, when answered/denied (e.g. 'answer' | 'ask_human' | 'deny'). */
+  decision?: string;
+  /** Free-text rationale or answer payload, when present. */
+  detail?: string;
+  /** For `intervention`: the watched signal that engaged the brain. */
+  interventionKind?: 'tool_failure_streak' | 'error_storm';
+  /** For `intervention`: true when a steer was actually delivered to the agent. */
+  intervened?: boolean;
+  /** Epoch milliseconds at which the event occurred. */
+  at: number;
+}
+
+// ── Worktree lifecycle telemetry ────────────────────────────────────────────
+//
+// AutoPhase allocates one git worktree per phase so parallelizable phases run
+// isolated, then merges them back sequentially. These envelopes let HQ render
+// live build phase swim-lanes / DAG across every connected machine. All fields
+// are plain serializable data (the EventBus `worktree.*` payloads forwarded
+// with the type tag added).
+
+export type HqWorktreeEventKind =
+  | 'allocated'
+  | 'committed'
+  | 'merged'
+  | 'conflict'
+  | 'released'
+  | 'failed';
+
+export interface HqWorktreeEventPayload {
+  /** Which worktree lifecycle event this is (mirrors `worktree.<kind>`). */
+  kind: HqWorktreeEventKind;
+  handleId: string;
+  ownerId: string;
+  ownerLabel?: string;
+  slug?: string;
+  branch?: string;
+  baseBranch?: string;
+  /** For `committed`: diff stats. */
+  insertions?: number;
+  deletions?: number;
+  files?: number;
+  sha?: string;
+  /** For `merged`: whether the merge was a squash. */
+  squash?: boolean;
+  /** For `conflict`: the list of conflicting files. */
+  conflictFiles?: readonly string[];
+  /** For `released`: whether the worktree was kept (true) or pruned (false). */
+  kept?: boolean;
+  /** For `failed`: the error message. */
+  error?: string;
 }
 
 // ── Session telemetry (live terminals + full chat transcript) ──────────────
@@ -720,6 +802,7 @@ export function parseHqFrame(raw: string | Buffer): HqParseResult {
           projectId: obj.projectId,
           commandId: obj.commandId,
           status: obj.status as HqClientCommandAckMessage['status'],
+          ...(typeof obj.message === 'string' ? { message: obj.message } : {}),
         },
       };
     default: {
@@ -740,6 +823,13 @@ const KNOWN_HQ_EVENT_PAYLOAD_TYPES = new Set<string>([
   'session.snapshot',
   'session.transcript',
   'session.ended',
+  'fleet.snapshot',
+  'fleet.event',
+  'brain.event',
+  'worktree.event',
+  'tool.started',
+  'tool.completed',
+  'session.usage',
 ]);
 
 function isHqMailboxMessageSummary(x: unknown): x is HqMailboxMessageSummary {
@@ -913,6 +1003,108 @@ function isHqSessionEndedPayload(x: unknown): x is HqSessionEndedPayload {
   return typeof v.sessionId === 'string' && typeof v.endedAt === 'string';
 }
 
+const HQ_FLEET_SUBAGENT_STATUS = new Set<string>([
+  'pending',
+  'running',
+  'idle',
+  'completed',
+  'failed',
+  'stopped',
+]);
+
+function isHqSubagentSummary(x: unknown): x is HqSubagentSummary {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.subagentId === 'string' &&
+    typeof v.status === 'string' &&
+    HQ_FLEET_SUBAGENT_STATUS.has(v.status)
+  );
+}
+
+function isHqFleetSnapshotPayload(x: unknown): x is HqFleetSnapshotPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  if (
+    typeof v.runId !== 'string' ||
+    typeof v.activeSubagents !== 'number' ||
+    typeof v.queuedTasks !== 'number' ||
+    typeof v.completedTasks !== 'number' ||
+    typeof v.failedTasks !== 'number' ||
+    !Array.isArray(v.subagents)
+  ) {
+    return false;
+  }
+  for (const s of v.subagents) {
+    if (!isHqSubagentSummary(s)) return false;
+  }
+  return true;
+}
+
+function isHqFleetEventPayload(x: unknown): x is HqFleetEventPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return typeof v.runId === 'string' && typeof v.event === 'string';
+}
+
+const HQ_BRAIN_EVENT_KINDS = new Set<string>([
+  'decision_requested',
+  'decision_answered',
+  'decision_ask_human',
+  'human_answered',
+  'decision_denied',
+  'intervention',
+]);
+
+function isHqBrainEventPayload(x: unknown): x is HqBrainEventPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  if (typeof v.kind !== 'string' || !HQ_BRAIN_EVENT_KINDS.has(v.kind)) return false;
+  if (typeof v.at !== 'number') return false;
+  return true;
+}
+
+const HQ_WORKTREE_EVENT_KINDS = new Set<string>([
+  'allocated',
+  'committed',
+  'merged',
+  'conflict',
+  'released',
+  'failed',
+]);
+
+function isHqWorktreeEventPayload(x: unknown): x is HqWorktreeEventPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  if (typeof v.kind !== 'string' || !HQ_WORKTREE_EVENT_KINDS.has(v.kind)) return false;
+  if (typeof v.handleId !== 'string' || typeof v.ownerId !== 'string') return false;
+  return true;
+}
+
+function isHqToolStartedPayload(x: unknown): x is HqToolStartedPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return typeof v.toolName === 'string';
+}
+
+function isHqToolCompletedPayload(x: unknown): x is HqToolCompletedPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.toolName === 'string' &&
+    typeof v.status === 'string' &&
+    typeof v.durationMs === 'number'
+  );
+}
+
+function isHqUsagePayload(x: unknown): x is HqUsagePayload {
+  if (typeof x !== 'object' || x === null) return false;
+  // HqUsagePayload has all-optional numeric fields; accept any object so the
+  // cost signal is never dropped on a partial payload, but require it be a
+  // plain object (not array/null) to keep the downstream typed.
+  return !Array.isArray(x);
+}
+
 /**
  * Validate the `payload` field of a {@link HqEventEnvelope} for known
  * event types. Returns `{ ok: true, payload }` with a narrowed payload
@@ -958,6 +1150,34 @@ export function parseHqEventPayload(
         : { ok: false, reason: 'malformed-payload' };
     case 'session.ended':
       return isHqSessionEndedPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'fleet.snapshot':
+      return isHqFleetSnapshotPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'fleet.event':
+      return isHqFleetEventPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'brain.event':
+      return isHqBrainEventPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'worktree.event':
+      return isHqWorktreeEventPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'tool.started':
+      return isHqToolStartedPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'tool.completed':
+      return isHqToolCompletedPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'session.usage':
+      return isHqUsagePayload(payload)
         ? { ok: true, payload }
         : { ok: false, reason: 'malformed-payload' };
     default: {

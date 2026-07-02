@@ -420,4 +420,62 @@ describe('parseHqEventPayload', () => {
       expect(result.payload).toEqual({ sessionId: 's_1' });
     }
   });
+
+  // ── Phase 1 telemetry event payloads ────────────────────────────────────
+
+  it('validates fleet.snapshot payloads', () => {
+    const valid = {
+      runId: 'run-1',
+      activeSubagents: 2,
+      queuedTasks: 1,
+      completedTasks: 3,
+      failedTasks: 0,
+      subagents: [{ subagentId: 's1', status: 'running' }],
+    };
+    expect(parseHqEventPayload('fleet.snapshot', valid).ok).toBe(true);
+    expect(parseHqEventPayload('fleet.snapshot', { ...valid, runId: 123 }).ok).toBe(false);
+    expect(parseHqEventPayload('fleet.snapshot', { ...valid, subagents: [{ subagentId: 'x' }] }).ok).toBe(false);
+    expect(parseHqEventPayload('fleet.snapshot', { ...valid, activeSubagents: 'x' }).ok).toBe(false);
+  });
+
+  it('validates fleet.event payloads', () => {
+    expect(parseHqEventPayload('fleet.event', { runId: 'r1', event: 'spawned' }).ok).toBe(true);
+    expect(parseHqEventPayload('fleet.event', { event: 'spawned' }).ok).toBe(false);
+  });
+
+  it('validates brain.event payloads', () => {
+    expect(parseHqEventPayload('brain.event', { kind: 'decision_requested', at: 1000 }).ok).toBe(true);
+    expect(parseHqEventPayload('brain.event', { kind: 'bogus', at: 1000 }).ok).toBe(false);
+    expect(parseHqEventPayload('brain.event', { kind: 'intervention', at: 'x' }).ok).toBe(false);
+    expect(parseHqEventPayload('brain.event', { kind: 'intervention' }).ok).toBe(false);
+  });
+
+  it('validates worktree.event payloads', () => {
+    expect(
+      parseHqEventPayload('worktree.event', { kind: 'allocated', handleId: 'h1', ownerId: 'p1' }).ok,
+    ).toBe(true);
+    expect(parseHqEventPayload('worktree.event', { kind: 'allocated', handleId: 'h1' }).ok).toBe(false);
+    expect(parseHqEventPayload('worktree.event', { kind: 'bogus', handleId: 'h1', ownerId: 'p1' }).ok).toBe(false);
+  });
+
+  it('validates tool.started payloads', () => {
+    expect(parseHqEventPayload('tool.started', { toolName: 'bash' }).ok).toBe(true);
+    expect(parseHqEventPayload('tool.started', { name: 'bash' }).ok).toBe(false);
+  });
+
+  it('validates tool.completed payloads', () => {
+    expect(parseHqEventPayload('tool.completed', { toolName: 'bash', status: 'success', durationMs: 100 }).ok).toBe(
+      true,
+    );
+    expect(
+      parseHqEventPayload('tool.completed', { toolName: 'bash', status: 'success', durationMs: 'x' }).ok,
+    ).toBe(false);
+  });
+
+  it('validates session.usage payloads (accepts partial numeric object)', () => {
+    expect(parseHqEventPayload('session.usage', { inputTokens: 100, costUsd: 0.01 }).ok).toBe(true);
+    expect(parseHqEventPayload('session.usage', {}).ok).toBe(true);
+    expect(parseHqEventPayload('session.usage', [1, 2, 3]).ok).toBe(false);
+    expect(parseHqEventPayload('session.usage', null).ok).toBe(false);
+  });
 });

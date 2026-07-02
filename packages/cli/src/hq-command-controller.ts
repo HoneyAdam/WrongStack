@@ -1,0 +1,174 @@
+/**
+ * HQ command controller — the client-side dispatch surface for Phase 4 of the
+ * HQ command center. A mutable holder (mirroring the established
+ * `interruptController` pattern in cli-main.ts) that the `onCommand` handler
+ * on the HQ publisher reads lazily, because several of its targets
+ * (`director`, the rebound `interruptLeader`) are not yet defined at HQ-connect
+ * time.
+ *
+ * The five command types route through the agent's own decision loop or the
+ * project mailbox, so they inherit existing guardrails. `run-command` (raw
+ * shell) is deliberately NOT wired here — it requires a separately-audited
+ * escalation policy (operator flag + per-token `control.execute` + allowlist)
+ * and is left as a stub that rejects until that policy exists.
+ *
+ * @module hq-command-controller
+ */
+import type { HqPublisherCommandResult } from '@wrongstack/core';
+import type { GlobalMailbox } from '@wrongstack/core';
+import type { HqCommand } from '@wrongstack/core';
+
+/**
+ * Mutable holder for the command dispatch targets. Each field is populated
+ * lazily as the corresponding subsystem comes online (director on
+ * `onDirectorReady`, interruptLeader rebound by the REPL/TUI, …). The
+ * `onCommand` handler reads these at dispatch time, not at construction.
+ */
+export interface HqCommandController {
+  /** Project mailbox used to deliver steer/broadcast messages. */
+  steerMailbox?: GlobalMailbox;
+  /** Abort the session leader's running Agent.run(). Returns true if a run was aborted. */
+  interruptLeader: () => boolean;
+  /** Terminate a specific subagent by id. Returns true if terminated. */
+  terminateAgent?: (subagentId: string) => boolean | Promise<boolean>;
+  /** Stop the entire fleet (all running/idle subagents). Returns kill count. */
+  killFleet?: () => number | Promise<number>;
+  /** Spawn a subagent of the given role. Returns the new subagentId. */
+  spawnAgent?: (role: string, task?: string, maxIterations?: number) => Promise<string>;
+  /** Derive the session-unique mailbox tag for addressing (e.g. `leader@<tag>`). */
+  sessionTag: () => string;
+  /** Whether raw shell execution is explicitly opted-in by the operator. */
+  allowRunCommand: () => boolean;
+}
+
+/**
+ * Build the `onCommand` handler for an HQ publisher. The handler validates
+ * the command, dispatches through the controller, and returns an ack result
+ * (or throws to produce a `failed` ack — the publisher's `handleCommandBatch`
+ * wraps it). Best-effort: a dispatch failure never breaks the host.
+ */
+export function createHqCommandDispatcher(
+  controller: HqCommandController,
+): (command: { commandId: string; type: string; payload: unknown }) => Promise<HqPublisherCommandResult> {
+  return async (command) => {
+    const cmd = command as { commandId: string; type: string; payload: Record<string, unknown> };
+    try {
+      const result = await dispatch(controller, cmd.commandId, cmd.type as HqCommand['type'], cmd.payload);
+      return result;
+    } catch (err) {
+      return {
+        commandId: command.commandId,
+        status: 'failed',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
+}
+
+async function dispatch(
+  controller: HqCommandController,
+  commandId: string,
+  type: HqCommand['type'],
+  payload: Record<string, unknown>,
+): Promise<HqPublisherCommandResult> {
+  switch (type) {
+    case 'steer': {
+      const mailbox = controller.steerMailbox;
+      if (mailbox === undefined) {
+        return { commandId, status: 'rejected', message: 'no mailbox available' };
+      }
+      const to = typeof payload['to'] === 'string' ? payload['to'] : 'leader';
+      const subject = typeof payload['subject'] === 'string' ? payload['subject'] : 'HQ steer';
+      const body = typeof payload['body'] === 'string' ? payload['body'] : '';
+      const priority = payload['priority'] === 'high' ? 'high' : payload['priority'] === 'low' ? 'low' : 'normal';
+      const from = `hq@${controller.sessionTag()}`;
+      await mailbox.send({ from, to, type: 'steer', subject, body, priority });
+      return { commandId, status: 'accepted', message: `steered ${to}` };
+    }
+
+    case 'broadcast': {
+      const mailbox = controller.steerMailbox;
+      if (mailbox === undefined) {
+        return { commandId, status: 'rejected', message: 'no mailbox available' };
+      }
+      const subject = typeof payload['subject'] === 'string' ? payload['subject'] : 'HQ broadcast';
+      const body = typeof payload['body'] === 'string' ? payload['body'] : '';
+      const priority = payload['priority'] === 'high' ? 'high' : payload['priority'] === 'low' ? 'low' : 'normal';
+      const from = `hq@${controller.sessionTag()}`;
+      await mailbox.send({ from, to: 'all', type: 'broadcast', subject, body, priority });
+      return { commandId, status: 'accepted', message: 'broadcast sent' };
+    }
+
+    case 'abort': {
+      const target = typeof payload['target'] === 'string' ? payload['target'] : 'leader';
+      if (target === 'leader') {
+        const aborted = controller.interruptLeader();
+        return {
+          commandId,
+          status: aborted ? 'completed' : 'accepted',
+          message: aborted ? 'leader aborted' : 'no active leader run',
+        };
+      }
+      if (target === 'fleet') {
+        const killed = (await controller.killFleet?.()) ?? 0;
+        return {
+          commandId,
+          status: 'completed',
+          message: `fleet stopped (${killed} agents)`,
+        };
+      }
+      // Specific subagent id.
+      const terminated = (await controller.terminateAgent?.(target)) ?? false;
+      return {
+        commandId,
+        status: terminated ? 'completed' : 'rejected',
+        message: terminated ? `agent ${target} terminated` : `agent ${target} not found`,
+      };
+    }
+
+    case 'spawn': {
+      const role = typeof payload['role'] === 'string' ? payload['role'] : '';
+      const task = typeof payload['task'] === 'string' ? payload['task'] : undefined;
+      const maxIterations = typeof payload['maxIterations'] === 'number' ? payload['maxIterations'] : undefined;
+      if (controller.spawnAgent === undefined) {
+        return { commandId, status: 'rejected', message: 'no director active' };
+      }
+      const subagentId = await controller.spawnAgent(role, task, maxIterations);
+      return { commandId, status: 'completed', message: `spawned ${subagentId}` };
+    }
+
+    case 'run-command': {
+      // RCE gate: require explicit operator opt-in. Without it, reject every
+      // run-command so a stolen client token can never gain shell access.
+      if (!controller.allowRunCommand()) {
+        return {
+          commandId,
+          status: 'rejected',
+          message: 'run-command requires operator opt-in (--hq-allow-exec)',
+        };
+      }
+      // Even with opt-in, we do NOT exec shell directly — we route through the
+      // agent as a steer so the agent's own permission policy still applies.
+      // A full direct-exec path is deferred until a separately-audited
+      // escalation policy + allowlist exists.
+      const mailbox = controller.steerMailbox;
+      const command = typeof payload['command'] === 'string' ? payload['command'] : '';
+      if (mailbox !== undefined && command.length > 0) {
+        const from = `hq@${controller.sessionTag()}`;
+        await mailbox.send({
+          from,
+          to: 'leader',
+          type: 'steer',
+          subject: 'Run command (HQ)',
+          body: `Run the following shell command:\n\n\`\`\`\n${command}\n\`\`\``,
+          priority: 'high',
+        });
+        return { commandId, status: 'accepted', message: 'run-command routed to leader as steer' };
+      }
+      return { commandId, status: 'rejected', message: 'cannot route run-command (no mailbox)' };
+    }
+
+    default:
+      return { commandId, status: 'rejected', message: `unknown command type: ${type}` };
+  }
+}

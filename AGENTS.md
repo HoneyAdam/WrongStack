@@ -266,6 +266,74 @@ A **CollabSession** (triggered by `/collab <paths>` or `collab_debug` tool) runs
 - `packages/tui/src/components/fleet-monitor.tsx` — Ctrl+F dashboard
 - `packages/tui/src/components/fleet-panel.tsx` — status bar compact view
 
+### HQ Command Center (port 3499)
+
+`wstack --hq` starts a project-independent, cross-machine command center. It
+is the **only deliberately cross-machine** server in WrongStack — every other
+surface (WebUI, mailbox-serve, MCP serve) is loopback-only. HQ aggregates
+telemetry from every connected terminal/TUI/REPL/WebUI across machines and,
+since the 2026-07 enhancement, can also steer them.
+
+**Architecture:** hub-and-spoke over two WebSocket channels:
+- `/ws/client` — TUI/REPL/WebUI/CLI surfaces **publish** telemetry as versioned
+  `HqEventEnvelope`s (envelope shape: `{id,type,schemaVersion,timestamp,
+  clientId,projectId,sessionId?,runId?,seq,payload}`). Protocol version
+  `HQ_PROTOCOL_VERSION = 1`.
+- `/ws/browser` — HQ dashboard **subscribes** to `hq.snapshot` (debounced 250ms)
+  + `hq.event` (transient) + `hq.alert` (Phase 6) frames.
+
+**Telemetry bridge model:** every surface wires an `HqPublisher` + a set of
+bridges (template: `agent-bridge.ts`). Each bridge subscribes to the local
+EventBus and forwards serializable events as HQ envelopes. All event payloads
+are plain data — no closures. Bridges:
+- `session-bridge` → `session.snapshot`/`session.transcript`/`session.ended`
+- `agent-bridge` → `agent.message`/`agent.status`
+- `fleet-bridge` → `fleet.snapshot` (from `coordinator.stats`)
+- `brain-bridge` → `brain.event` (decision/intervention lifecycle)
+- `worktree-bridge` → `worktree.event` (allocated/committed/merged/conflict/…)
+- `tool-bridge` → `tool.started`/`tool.completed` (input summarized via redaction)
+- `cost-bridge` → `session.usage` (from `token.accounted` — granular cost feed)
+
+Wiring call-sites: `cli-main.ts` (~L1370), `packages/webui/src/server/
+pre-context-services.ts`, `packages/tui/src/run-tui.ts`.
+
+**Persistence (Phase 2):** survives restart — `<dataDir>/events.jsonl`
+(append-only, rotated at 50K lines), `snapshot.json` (atomic checkpoint on
+every debounced broadcast), `timeseries.jsonl` (5-min cost/activity buckets).
+Restart hydration re-seeds the in-memory rings. HTTP: `/api/events`,
+`/api/trends/cost`.
+
+**Control plane (Phase 3-4):** two-directional. Browser → `POST /api/command`
+→ per-client queue → client polls via `client.command_poll` → `hq.command_batch`
+→ client executes → `client.command_ack`. Token scope model: `HqToken.capabilities`
+(opt-in — absent = unrestricted for backward-compat; `control.enqueue` for
+browser tokens, `control.execute` for client `run-command`). Five command
+types: `steer`, `abort`, `spawn`, `broadcast`, `run-command` (RCE-gated: needs
+`--hq-allow-exec` + `control.execute`; even then routes as a steer, never
+direct shell — the agent's own permission policy still applies). Client-side
+dispatch: `hq-command-controller.ts` (mutable holder, lazy-populated like
+`interruptController`).
+
+**Alerting (Phase 6):** `HqAlertEngine` evaluates the live snapshot every 15s
+against rules (fleet cost threshold, all-machines-stale, high concurrency,
+fleet failure spike). Dedup via state machine — only transitions emit
+`hq.alert`. HTTP: `/api/alerts` (active + history).
+
+**Security:** separate browser/client token sets in `<dataDir>/auth.json`
+(first-run auto-minted; open mode when a set is empty). `redactionPolicy`
+operator-overridable. `control.receive` capability negotiated at hello.
+
+**Code references:**
+- `packages/core/src/hq/` — protocol, publisher, factory, auth-store, bridges,
+  redaction, persistence, commands, alerts, transcript-mapper
+- `packages/cli/src/hq-server.ts` — the server (port 3499, both WS channels,
+  HTTP API, persistence, alert engine, control queue)
+- `packages/cli/src/hq-dashboard-html.ts` — inline HTML dashboard (to be
+  replaced by a React app in `packages/webui-hq/` — Phase 5)
+- `packages/cli/src/hq-command-controller.ts` — client-side command dispatch
+- `packages/cli/src/hq-publisher.ts` — CLI publisher wrapper
+- `packages/cli/src/boot/short-circuit-hq.ts` — `--hq` boot path
+
 ### TUI Fleet Commands
 
 | Key / Command | Effect |

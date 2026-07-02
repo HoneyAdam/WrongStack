@@ -1368,4 +1368,196 @@ describe('HQ server fleet telemetry', () => {
 
     client.close();
   });
+
+  it('aggregates fleet.snapshot into the fleets[] rollup and derives sessions[] from liveSessions', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrame('c1', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 20));
+    // Send a session snapshot so sessions[] can be derived, and a fleet snapshot
+    // so fleets[] is populated — both Phase 1 telemetry feeds.
+    client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-fleet'));
+    client.send(
+      JSON.stringify({
+        type: 'client.event',
+        event: {
+          id: 'fs-1', type: 'fleet.snapshot', schemaVersion: HQ_PROTOCOL_VERSION,
+          timestamp: new Date().toISOString(), clientId: 'c1', projectId: 'projX', runId: 's-fleet', seq: 3,
+          payload: {
+            runId: 's-fleet',
+            activeSubagents: 2,
+            queuedTasks: 1,
+            completedTasks: 4,
+            failedTasks: 0,
+            subagents: [
+              { subagentId: 'sub-1', status: 'running' },
+              { subagentId: 'sub-2', status: 'idle' },
+            ],
+          },
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 40));
+
+    const fleet = (await (await fetch(`http://127.0.0.1:${handle.port}/api/fleet`)).json()) as {
+      sessions: { sessionId: string; projectId: string; status: string }[];
+      fleets: { runId: string; projectId: string; activeSubagents: number; queuedTasks: number; completedTasks: number }[];
+    };
+
+    // fleets[] rollup reflects the coordinator snapshot
+    expect(fleet.fleets).toHaveLength(1);
+    const f = fleet.fleets[0]!;
+    expect(f.runId).toBe('s-fleet');
+    expect(f.projectId).toBe('projX');
+    expect(f.activeSubagents).toBe(2);
+    expect(f.queuedTasks).toBe(1);
+    expect(f.completedTasks).toBe(4);
+
+    // sessions[] is now derived from liveSessions (was empty before Phase 1)
+    expect(fleet.sessions).toHaveLength(1);
+    expect(fleet.sessions[0]!.sessionId).toBe('s-fleet');
+    expect(fleet.sessions[0]!.projectId).toBe('projX');
+
+    client.close();
+  });
+});
+
+describe('HQ control plane (Phase 3)', () => {
+  function helloFrameControl(clientId: string, machineId: string, projectId: string): string {
+    return JSON.stringify({
+      type: 'client.hello',
+      payload: {
+        protocolVersion: HQ_PROTOCOL_VERSION,
+        client: { clientId, kind: 'tui', machineId, hostname: machineId + '.local', pid: 1, startedAt: new Date().toISOString() },
+        project: { projectId, projectRoot: '/r/' + projectId, projectName: projectId, machineId, workspaceKind: 'git' },
+        capabilities: ['telemetry.publish', 'control.receive'],
+      },
+    });
+  }
+
+  /** A client that does NOT advertise control.receive (for the 409 test). */
+  function helloFrameNoControl(clientId: string, machineId: string, projectId: string): string {
+    return JSON.stringify({
+      type: 'client.hello',
+      payload: {
+        protocolVersion: HQ_PROTOCOL_VERSION,
+        client: { clientId, kind: 'tui', machineId, hostname: machineId + '.local', pid: 1, startedAt: new Date().toISOString() },
+        project: { projectId, projectRoot: '/r/' + projectId, projectName: projectId, machineId, workspaceKind: 'git' },
+        capabilities: ['telemetry.publish'],
+      },
+    });
+  }
+
+  function nextMessage(ws: WebSocket, predicate: (m: { type: string }) => boolean, timeout = 3000): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout waiting for message')), timeout);
+      const handler = (raw: { toString: () => string }): void => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (predicate(msg)) {
+            clearTimeout(timer);
+            ws.off('message', handler);
+            resolve(msg);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.on('message', handler);
+    });
+  }
+
+  it('enqueues a command via POST /api/command, delivers it on poll, and records the ack', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrameControl('ctrl-1', 'mach-C', 'projC'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Enqueue a steer command from the browser (open mode — no token required).
+    const postRes = await fetch(`http://127.0.0.1:${handle.port}/api/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: 'ctrl-1', type: 'steer', payload: { to: 'leader', subject: 'pivot', body: 'switch to plan B' } }),
+    });
+    expect(postRes.status).toBe(202);
+    const postBody = (await postRes.json()) as { commandId: string; queued: boolean };
+    expect(postBody.queued).toBe(true);
+    expect(postBody.commandId).toBeTruthy();
+
+    // Client polls — server should respond with a command_batch.
+    client.send(JSON.stringify({ type: 'client.command_poll', clientId: 'ctrl-1', projectId: 'projC' }));
+    const batch = (await nextMessage(client, (m) => m.type === 'hq.command_batch')) as {
+      type: 'hq.command_batch';
+      commands: { commandId: string; type: string; payload: { to: string; subject: string } }[];
+    };
+    expect(batch.commands).toHaveLength(1);
+    expect(batch.commands[0]!.type).toBe('steer');
+    expect(batch.commands[0]!.payload.to).toBe('leader');
+    expect(batch.commands[0]!.payload.subject).toBe('pivot');
+
+    // Client acks.
+    client.send(
+      JSON.stringify({
+        type: 'client.command_ack',
+        clientId: 'ctrl-1',
+        projectId: 'projC',
+        commandId: batch.commands[0]!.commandId,
+        status: 'completed',
+        message: 'steered',
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+
+    // The audit log reflects the ack.
+    const auditRes = await fetch(`http://127.0.0.1:${handle.port}/api/commands`);
+    const auditBody = (await auditRes.json()) as {
+      commands: { commandId: string; status: string; ackStatus?: string; ackMessage?: string }[];
+    };
+    const entry = auditBody.commands.find((c) => c.commandId === batch.commands[0]!.commandId);
+    expect(entry).toBeDefined();
+    expect(entry!.status).toBe('acked');
+    expect(entry!.ackStatus).toBe('completed');
+    expect(entry!.ackMessage).toBe('steered');
+
+    client.close();
+  });
+
+  it('rejects a command to a client without control.receive capability', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    // This client does NOT advertise control.receive.
+    client.send(helloFrameNoControl('ctrl-2', 'mach-D', 'projD'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    const postRes = await fetch(`http://127.0.0.1:${handle.port}/api/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: 'ctrl-2', type: 'abort', payload: { target: 'leader' } }),
+    });
+    expect(postRes.status).toBe(409);
+    const body = (await postRes.json()) as { error: string };
+    expect(body.error).toContain('control');
+
+    client.close();
+  });
+
+  it('returns 404 for a command to an unknown client', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+    const postRes = await fetch(`http://127.0.0.1:${handle.port}/api/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: 'ghost', type: 'steer', payload: { to: 'leader', subject: 'x', body: 'y' } }),
+    });
+    expect(postRes.status).toBe(404);
+  });
 });

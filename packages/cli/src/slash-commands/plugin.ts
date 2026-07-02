@@ -32,7 +32,7 @@ export function buildPluginCommand(opts: SlashCommandContext): SlashCommand {
     ].join('\n'),
     async run(args) {
       const trimmed = args.trim();
-      if ((trimmed === 'menu' || trimmed === '') && opts.onPanelOpen.current) {
+      if ((trimmed === 'menu' || trimmed === '') && opts.onPanelOpen?.current) {
         const opened = opts.onPanelOpen.current('pluginPickerOpen');
         if (opened) return { message: 'Opened plugin menu.' };
       }

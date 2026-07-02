@@ -17,6 +17,7 @@ import {
   type HqClientIdentity,
   type HqEventEnvelope,
   type HqEventType,
+  type HqFleetSnapshotPayload,
   type HqMailboxEventPayload,
   type HqMailboxSnapshotPayload,
   type HqProjectIdentity,
@@ -136,7 +137,7 @@ export class HqPublisher {
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
     this.now = options.now ?? (() => new Date().toISOString());
     this.idFactory = options.idFactory ?? randomUUID;
-    this.capabilities = options.capabilities ?? ['telemetry.publish', 'mailbox.summary'];
+    this.capabilities = options.capabilities ?? ['telemetry.publish', 'mailbox.summary', 'fleet.summary', 'session.summary'];
     this.reconnect = options.reconnect ?? true;
     this.reconnectBaseMs = options.reconnectBaseMs ?? DEFAULT_RECONNECT_BASE_MS;
     this.reconnectMaxMs = options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS;
@@ -303,6 +304,20 @@ export class HqPublisher {
       type: 'session.ended',
       payload,
       sessionId: payload.sessionId,
+      ...(opts?.timestamp !== undefined ? { timestamp: opts.timestamp } : {}),
+    });
+  }
+
+  /** Publish a fleet (multi-agent coordinator) snapshot. */
+  publishFleetSnapshot(
+    payload: HqFleetSnapshotPayload,
+    opts?: { sessionId?: string; timestamp?: string },
+  ): HqEventEnvelope<HqFleetSnapshotPayload> {
+    return this.publishEvent({
+      type: 'fleet.snapshot',
+      payload,
+      runId: payload.runId,
+      ...(opts?.sessionId !== undefined ? { sessionId: opts.sessionId } : {}),
       ...(opts?.timestamp !== undefined ? { timestamp: opts.timestamp } : {}),
     });
   }

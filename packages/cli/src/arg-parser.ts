@@ -42,6 +42,7 @@ export const BOOLEAN_FLAGS = new Set([
   'no-interactive',
   'token-saving-mode',
   'hq',
+  'hq-allow-exec',
 ]);
 
 // ------------------------------------------------------------------ main args
