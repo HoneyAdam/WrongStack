@@ -696,5 +696,14 @@
     "assign": "Zuweisen",
     "assignTitle": "Agent zuweisen",
     "unassigned": "Nicht zugewiesen"
+  },
+  "toolGroup": {
+    "toolCalls_one": "{{count}} Werkzeugaufruf",
+    "toolCalls_other": "{{count}} Werkzeugaufrufe"
+  },
+  "fileRef": {
+    "removeTitle": "Referenz entfernen",
+    "linesCount_one": "{{count}} Zeile",
+    "linesCount_other": "{{count}} Zeilen"
   }
 }

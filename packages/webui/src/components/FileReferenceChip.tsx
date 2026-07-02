@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { fileIcon, fileIconColor } from '@/lib/file-icons';
+import { useAppTranslation } from '@/i18n';
 import type { FileReference } from '@/stores/file-reference-store';
 import { X } from 'lucide-react';
 
@@ -20,11 +21,13 @@ function tooltipText(ref: FileReference): string {
 }
 
 export function FileReferenceChip({ ref, onRemove }: FileReferenceChipProps) {
+  const { t } = useAppTranslation();
   const name = basename(ref.path);
   const Icon = fileIcon(name);
   const colorClass = fileIconColor(name, false);
   const label = ref.kind === 'file' ? name : `${name}:${ref.startLine}-${ref.endLine}`;
-  const snippetBadge = ref.kind === 'snippet' ? `${ref.content.split('\n').length} lines` : null;
+  const lineCount = ref.kind === 'snippet' ? ref.content.split('\n').length : 0;
+  const snippetBadge = lineCount > 0 ? t('activity:fileRef.linesCount', { count: lineCount }) : null;
 
   return (
     <div
@@ -44,7 +47,7 @@ export function FileReferenceChip({ ref, onRemove }: FileReferenceChipProps) {
         type="button"
         onClick={onRemove}
         className="inline-flex items-center justify-center h-4 w-4 rounded-full text-muted-foreground hover:bg-background hover:text-foreground transition-colors shrink-0"
-        title="Remove reference"
+        title={t('activity:fileRef.removeTitle')}
       >
         <X className="h-3 w-3" />
       </button>

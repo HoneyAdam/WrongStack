@@ -1,5 +1,6 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { i18n } from '@/i18n';
 import { Button } from './ui/button';
 
 interface Props {
@@ -40,10 +41,9 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex min-h-[100dvh] items-center justify-center bg-background">
           <div className="flex flex-col items-center gap-4 p-8 max-w-md text-center">
             <AlertTriangle className="h-12 w-12 text-destructive" />
-            <h1 className="text-lg font-semibold">Something went wrong</h1>
+            <h1 className="text-lg font-semibold">{i18n.t('common:error.title')}</h1>
             <p className="text-sm text-muted-foreground">
-              A rendering error occurred. Your session is still active on the server — reloading
-              will pick up where you left off.
+              {i18n.t('common:error.body')}
             </p>
             <pre className="text-xs font-mono text-muted-foreground bg-muted/50 rounded p-3 max-h-32 overflow-auto w-full text-left">
               {this.state.error.message}
@@ -51,10 +51,10 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
                 <RefreshCw className="h-4 w-4 mr-1" />
-                Reload page
+                {i18n.t('common:error.reload')}
               </Button>
               <Button size="sm" onClick={this.handleReset}>
-                Try again
+                {i18n.t('common:error.tryAgain')}
               </Button>
             </div>
           </div>

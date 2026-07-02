@@ -78,5 +78,11 @@
     "hoursAgo_other": "il y a {{count}} heures",
     "daysAgo_one": "il y a {{count}} jour",
     "daysAgo_other": "il y a {{count}} jours"
+  },
+  "error": {
+    "title": "Une erreur est survenue",
+    "body": "Une erreur de rendu s'est produite. Votre session est toujours active sur le serveur — recharger reprendra là où vous étiez.",
+    "reload": "Recharger la page",
+    "tryAgain": "Réessayer"
   }
 }

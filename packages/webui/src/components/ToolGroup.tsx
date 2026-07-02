@@ -1,5 +1,6 @@
 import { expectDefined } from '@wrongstack/core';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import type { ChatMessage } from '@/stores';
 import { CheckCircle2, ChevronDown, ChevronRight, Loader2, Terminal, XCircle } from 'lucide-react';
 import { memo, useState } from 'react';
@@ -32,6 +33,7 @@ export const ToolGroup = memo(function ToolGroup({
   defaultOpen = false,
   isContinuation = false,
 }: ToolGroupProps) {
+  const { t } = useAppTranslation();
   const [open, setOpen] = useState(defaultOpen);
 
   // Single tool? Render as a normal bubble — grouping overhead is just noise.
@@ -76,7 +78,7 @@ export const ToolGroup = memo(function ToolGroup({
           )}
           <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-mono text-xs">
-            {tools.length} tool call{tools.length === 1 ? '' : 's'}
+            {t('activity:toolGroup.toolCalls', { count: tools.length })}
           </span>
           {running > 0 ? (
             <Loader2 className="h-3 w-3 animate-spin text-amber-500" />

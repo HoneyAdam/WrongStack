@@ -78,5 +78,11 @@
     "hoursAgo_other": "{{count}} ore fa",
     "daysAgo_one": "{{count}} giorno fa",
     "daysAgo_other": "{{count}} giorni fa"
+  },
+  "error": {
+    "title": "Qualcosa è andato storto",
+    "body": "Si è verificato un errore di rendering. La tua sessione è ancora attiva sul server — ricaricare riprenderà da dove eri rimasto.",
+    "reload": "Ricarica pagina",
+    "tryAgain": "Riprova"
   }
 }

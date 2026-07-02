@@ -78,5 +78,11 @@
     "hoursAgo_other": "{{count}} hours ago",
     "daysAgo_one": "{{count}} day ago",
     "daysAgo_other": "{{count}} days ago"
+  },
+  "error": {
+    "title": "Something went wrong",
+    "body": "A rendering error occurred. Your session is still active on the server — reloading will pick up where you left off.",
+    "reload": "Reload page",
+    "tryAgain": "Try again"
   }
 }

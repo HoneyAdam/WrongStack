@@ -78,5 +78,11 @@
     "hoursAgo_other": "{{count}} saat önce",
     "daysAgo_one": "{{count}} gün önce",
     "daysAgo_other": "{{count}} gün önce"
+  },
+  "error": {
+    "title": "Bir şeyler ters gitti",
+    "body": "Bir oluşturma hatası oluştu. Oturumunuz sunucuda hâlâ etkin — yeniden yüklemek kaldığınız yerden devam eder.",
+    "reload": "Sayfayı yeniden yükle",
+    "tryAgain": "Tekrar dene"
   }
 }

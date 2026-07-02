@@ -696,5 +696,14 @@
     "assign": "Atribuir",
     "assignTitle": "Atribuir agente",
     "unassigned": "Não atribuído"
+  },
+  "toolGroup": {
+    "toolCalls_one": "{{count}} chamada",
+    "toolCalls_other": "{{count}} chamadas"
+  },
+  "fileRef": {
+    "removeTitle": "Remover referência",
+    "linesCount_one": "{{count}} linha",
+    "linesCount_other": "{{count}} linhas"
   }
 }

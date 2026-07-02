@@ -696,5 +696,14 @@
     "assign": "Affecter",
     "assignTitle": "Affecter un agent",
     "unassigned": "Non affecté"
+  },
+  "toolGroup": {
+    "toolCalls_one": "{{count}} appel d'outil",
+    "toolCalls_other": "{{count}} appels d'outil"
+  },
+  "fileRef": {
+    "removeTitle": "Supprimer la référence",
+    "linesCount_one": "{{count}} ligne",
+    "linesCount_other": "{{count}} lignes"
   }
 }

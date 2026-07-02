@@ -696,5 +696,14 @@
     "assign": "Asignar",
     "assignTitle": "Asignar agente",
     "unassigned": "Sin asignar"
+  },
+  "toolGroup": {
+    "toolCalls_one": "{{count}} llamada",
+    "toolCalls_other": "{{count}} llamadas"
+  },
+  "fileRef": {
+    "removeTitle": "Eliminar referencia",
+    "linesCount_one": "{{count}} línea",
+    "linesCount_other": "{{count}} líneas"
   }
 }

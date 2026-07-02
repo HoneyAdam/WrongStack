@@ -78,5 +78,11 @@
     "hoursAgo_other": "há {{count}} horas",
     "daysAgo_one": "há {{count}} dia",
     "daysAgo_other": "há {{count}} dias"
+  },
+  "error": {
+    "title": "Algo deu errado",
+    "body": "Ocorreu um erro de renderização. Sua sessão ainda está ativa no servidor — recarregar continuará de onde você parou.",
+    "reload": "Recarregar página",
+    "tryAgain": "Tentar novamente"
   }
 }

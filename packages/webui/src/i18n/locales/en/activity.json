@@ -696,5 +696,14 @@
     "assign": "Assign",
     "assignTitle": "Assign agent",
     "unassigned": "Unassigned"
+  },
+  "toolGroup": {
+    "toolCalls_one": "{{count}} tool call",
+    "toolCalls_other": "{{count}} tool calls"
+  },
+  "fileRef": {
+    "removeTitle": "Remove reference",
+    "linesCount_one": "{{count}} line",
+    "linesCount_other": "{{count}} lines"
   }
 }

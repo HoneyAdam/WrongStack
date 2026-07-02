@@ -696,5 +696,14 @@
     "assign": "Ata",
     "assignTitle": "Aracı ata",
     "unassigned": "Atanmamış"
+  },
+  "toolGroup": {
+    "toolCalls_one": "{{count}} araç çağrısı",
+    "toolCalls_other": "{{count}} araç çağrısı"
+  },
+  "fileRef": {
+    "removeTitle": "Referansı kaldır",
+    "linesCount_one": "{{count}} satır",
+    "linesCount_other": "{{count}} satır"
   }
 }
