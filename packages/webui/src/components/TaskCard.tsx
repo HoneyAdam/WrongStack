@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock, Pause, RotateCcw, UserCog, XCircle } from 'lucide-react';
 import type React from 'react';
 import { useState } from 'react';
@@ -85,6 +86,7 @@ export function TaskCard({
   compact,
   className,
 }: TaskCardProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const status = TASK_STATUS_CONFIG[task.status];
   const [assigning, setAssigning] = useState(false);
   const running = task.status === 'in_progress';
@@ -162,7 +164,7 @@ export function TaskCard({
               onClick={() => onStatusChange(task.id, 'in_progress')}
               className="px-2 py-0.5 text-[10px] rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
             >
-              Start
+              {t('activity:task.start')}
             </button>
           )}
           {onStatusChange && task.status === 'in_progress' && (
@@ -171,7 +173,7 @@ export function TaskCard({
               onClick={() => onStatusChange(task.id, 'completed')}
               className="px-2 py-0.5 text-[10px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
             >
-              Complete
+              {t('activity:task.complete')}
             </button>
           )}
           {onRetry && (task.status === 'failed' || task.status === 'completed') && (
@@ -180,7 +182,7 @@ export function TaskCard({
               onClick={() => onRetry(task.id)}
               className="px-2 py-0.5 text-[10px] rounded bg-muted text-muted-foreground hover:bg-muted/70 transition-colors inline-flex items-center gap-1"
             >
-              <RotateCcw className="w-3 h-3" /> Retry
+              <RotateCcw className="w-3 h-3" /> {t('activity:task.retry')}
             </button>
           )}
           {onAssign && agents && agents.length > 0 && (
@@ -195,7 +197,7 @@ export function TaskCard({
                 onBlur={() => setAssigning(false)}
                 className="px-1 py-0.5 text-[10px] rounded border border-border bg-card"
               >
-                <option value="">Unassigned</option>
+                <option value="">{t('activity:task.unassigned')}</option>
                 {agents.map((a) => (
                   <option key={a} value={a}>
                     {a}
@@ -207,9 +209,9 @@ export function TaskCard({
                 type="button"
                 onClick={() => setAssigning(true)}
                 className="px-2 py-0.5 text-[10px] rounded bg-muted text-muted-foreground hover:bg-muted/70 transition-colors inline-flex items-center gap-1"
-                title="Assign agent"
+                title={t('activity:task.assignTitle')}
               >
-                <UserCog className="w-3 h-3" /> Assign
+                <UserCog className="w-3 h-3" /> {t('activity:task.assign')}
               </button>
             )
           )}

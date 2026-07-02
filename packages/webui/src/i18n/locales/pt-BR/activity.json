@@ -681,5 +681,20 @@
     "todos": "A fazer",
     "tasks": "Tarefas",
     "plan": "Plano"
+  },
+  "todos": {
+    "toggleAria": "Alternar: {{content}}",
+    "removeTitle": "Remover tarefa",
+    "removeAria": "Remover \"{{content}}\"",
+    "completedCount_one": "{{count}} concluída",
+    "completedCount_other": "{{count}} concluídas"
+  },
+  "task": {
+    "start": "Iniciar",
+    "complete": "Concluir",
+    "retry": "Tentar novamente",
+    "assign": "Atribuir",
+    "assignTitle": "Atribuir agente",
+    "unassigned": "Não atribuído"
   }
 }

@@ -681,5 +681,20 @@
     "todos": "À faire",
     "tasks": "Tâches",
     "plan": "Plan"
+  },
+  "todos": {
+    "toggleAria": "Basculer : {{content}}",
+    "removeTitle": "Supprimer la tâche",
+    "removeAria": "Supprimer « {{content}} »",
+    "completedCount_one": "{{count}} terminée",
+    "completedCount_other": "{{count}} terminées"
+  },
+  "task": {
+    "start": "Démarrer",
+    "complete": "Terminer",
+    "retry": "Réessayer",
+    "assign": "Affecter",
+    "assignTitle": "Affecter un agent",
+    "unassigned": "Non affecté"
   }
 }

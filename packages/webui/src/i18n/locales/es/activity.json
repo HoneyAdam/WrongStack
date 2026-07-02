@@ -681,5 +681,20 @@
     "todos": "Por hacer",
     "tasks": "Tareas",
     "plan": "Plan"
+  },
+  "todos": {
+    "toggleAria": "Alternar: {{content}}",
+    "removeTitle": "Eliminar tarea",
+    "removeAria": "Eliminar \"{{content}}\"",
+    "completedCount_one": "{{count}} completada",
+    "completedCount_other": "{{count}} completadas"
+  },
+  "task": {
+    "start": "Iniciar",
+    "complete": "Completar",
+    "retry": "Reintentar",
+    "assign": "Asignar",
+    "assignTitle": "Asignar agente",
+    "unassigned": "Sin asignar"
   }
 }

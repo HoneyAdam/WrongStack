@@ -681,5 +681,20 @@
     "todos": "Da fare",
     "tasks": "Attività",
     "plan": "Piano"
+  },
+  "todos": {
+    "toggleAria": "Attiva/disattiva: {{content}}",
+    "removeTitle": "Rimuovi attività",
+    "removeAria": "Rimuovi \"{{content}}\"",
+    "completedCount_one": "{{count}} completata",
+    "completedCount_other": "{{count}} completate"
+  },
+  "task": {
+    "start": "Avvia",
+    "complete": "Completa",
+    "retry": "Riprova",
+    "assign": "Assegna",
+    "assignTitle": "Assegna agente",
+    "unassigned": "Non assegnato"
   }
 }

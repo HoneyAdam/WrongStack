@@ -681,5 +681,20 @@
     "todos": "Todos",
     "tasks": "Tasks",
     "plan": "Plan"
+  },
+  "todos": {
+    "toggleAria": "Toggle: {{content}}",
+    "removeTitle": "Remove todo",
+    "removeAria": "Remove \"{{content}}\"",
+    "completedCount_one": "{{count}} completed",
+    "completedCount_other": "{{count}} completed"
+  },
+  "task": {
+    "start": "Start",
+    "complete": "Complete",
+    "retry": "Retry",
+    "assign": "Assign",
+    "assignTitle": "Assign agent",
+    "unassigned": "Unassigned"
   }
 }

@@ -681,5 +681,20 @@
     "todos": "Yapılacaklar",
     "tasks": "Görevler",
     "plan": "Plan"
+  },
+  "todos": {
+    "toggleAria": "Durumu değiştir: {{content}}",
+    "removeTitle": "Todo'yu kaldır",
+    "removeAria": "\"{{content}}\" kaldır",
+    "completedCount_one": "{{count}} tamamlandı",
+    "completedCount_other": "{{count}} tamamlandı"
+  },
+  "task": {
+    "start": "Başlat",
+    "complete": "Tamamla",
+    "retry": "Yeniden dene",
+    "assign": "Ata",
+    "assignTitle": "Aracı ata",
+    "unassigned": "Atanmamış"
   }
 }
