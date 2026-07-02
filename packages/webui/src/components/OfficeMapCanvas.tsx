@@ -53,6 +53,7 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { AgentTranscript } from './AgentTranscript';
 import {
   EMPTY_AGENT_TRANSCRIPT,
@@ -794,6 +795,7 @@ function LiveFeed({ events, now }: { events: VizEvent[]; now: number }) {
 // ── Main Canvas Component ────────────────────────────────────────────────────
 
 export function OfficeMapCanvas() {
+  const { t } = useAppTranslation();
   const { fitView } = useReactFlow();
 
   // Store subscriptions
@@ -1503,9 +1505,9 @@ export function OfficeMapCanvas() {
         <div className="bg-slate-800/90 backdrop-blur px-4 py-2 rounded-lg border border-slate-700 shadow-xl">
           <div className="text-xs font-bold text-slate-300 flex items-center gap-2">
             <Building2 className="h-4 w-4 text-purple-400" />
-            WrongStack Fleet HQ
+            {t('activity:office.fleetHq')}
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-2" />
-            <span className="text-[10px] text-gray-400 font-normal">LIVE</span>
+            <span className="text-[10px] text-gray-400 font-normal">{t('activity:office.live')}</span>
           </div>
         </div>
       </div>
@@ -1513,19 +1515,19 @@ export function OfficeMapCanvas() {
       {/* Legend */}
       {showLegend && (
       <div className="absolute bottom-4 left-4 z-10 bg-slate-800/90 backdrop-blur rounded-lg border border-slate-700 p-3 text-[10px]">
-        <div className="font-bold text-gray-300 mb-2">Status</div>
+        <div className="font-bold text-gray-300 mb-2">{t('activity:office.legendStatus')}</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-gray-400">Active</span>
+            <span className="text-gray-400">{t('activity:office.legendActive')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-gray-500" />
-            <span className="text-gray-400">Idle</span>
+            <span className="text-gray-400">{t('activity:office.legendIdle')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-gray-400">Error</span>
+            <span className="text-gray-400">{t('activity:office.legendError')}</span>
           </div>
         </div>
       </div>
@@ -1534,19 +1536,19 @@ export function OfficeMapCanvas() {
       {/* Connection type legend */}
       {showLegend && (
       <div className="absolute bottom-4 right-4 z-10 bg-slate-800/90 backdrop-blur rounded-lg border border-slate-700 p-3 text-[10px]">
-        <div className="font-bold text-gray-300 mb-2">Connections</div>
+        <div className="font-bold text-gray-300 mb-2">{t('activity:office.legendConnections')}</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-yellow-400">✉</span>
-            <span className="text-gray-400">Mail</span>
+            <span className="text-gray-400">{t('activity:office.legendMail')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-purple-400">→</span>
-            <span className="text-gray-400">Task</span>
+            <span className="text-gray-400">{t('activity:office.legendTask')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-emerald-400">●</span>
-            <span className="text-gray-400">Status</span>
+            <span className="text-gray-400">{t('activity:office.legendStatusConn')}</span>
           </div>
         </div>
       </div>
@@ -1575,16 +1577,16 @@ export function OfficeMapCanvas() {
           <button
             type="button"
             onClick={onArrange}
-            title="Snap nodes back to the floor plan"
+            title={t('activity:office.arrangeTitle')}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-slate-800/90 border border-slate-700 text-xs text-slate-200 hover:bg-slate-700 transition-colors"
           >
             <LayoutGrid className="h-3.5 w-3.5" />
-            Arrange
+            {t('activity:office.arrange')}
           </button>
           <button
             type="button"
             onClick={() => setShowFeed(!showFeed)}
-            title="Toggle the live activity feed"
+            title={t('activity:office.feedTitle')}
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
               showFeed
@@ -1593,12 +1595,12 @@ export function OfficeMapCanvas() {
             )}
           >
             <ScrollText className="h-3.5 w-3.5" />
-            Feed
+            {t('activity:office.feed')}
           </button>
           <button
             type="button"
             onClick={() => setBroadcastOpen((v) => !v)}
-            title="Broadcast a message to every live session in this project"
+            title={t('activity:office.broadcastTitle')}
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
               broadcastOpen
@@ -1607,7 +1609,7 @@ export function OfficeMapCanvas() {
             )}
           >
             <Send className="h-3.5 w-3.5" />
-            Broadcast
+            {t('activity:office.broadcast')}
           </button>
         </Panel>
         {background !== 'none' && (
@@ -1663,7 +1665,7 @@ export function OfficeMapCanvas() {
         <div className="absolute top-16 right-4 z-30 w-80 rounded-lg border border-amber-500/40 bg-slate-900/97 p-3 shadow-2xl backdrop-blur">
           <div className="mb-1.5 flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-300">
-              <Send className="h-3.5 w-3.5" /> Broadcast to all sessions
+              <Send className="h-3.5 w-3.5" /> {t('activity:office.broadcastToAll')}
             </div>
             <button
               type="button"
@@ -1683,18 +1685,18 @@ export function OfficeMapCanvas() {
               }
             }}
             rows={3}
-            placeholder="Message every live agent in this project…"
+            placeholder={t('activity:office.broadcastPlaceholder')}
             className="w-full resize-none rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-gray-200 placeholder:text-gray-600 focus:border-amber-500/50 focus:outline-none"
           />
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[9px] text-gray-600">⌘/Ctrl+Enter to send</span>
+            <span className="text-[9px] text-gray-600">{t('activity:office.broadcastSendHint')}</span>
             <button
               type="button"
               onClick={() => void sendBroadcast()}
               disabled={broadcasting || !broadcastDraft.trim()}
               className="rounded-md border border-amber-500/40 bg-amber-500/20 px-2.5 py-1 text-[11px] text-amber-200 transition-colors hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {broadcasting ? '…' : 'Broadcast'}
+              {broadcasting ? '…' : t('activity:office.broadcast')}
             </button>
           </div>
           {broadcastResult && (
@@ -1724,7 +1726,7 @@ export function OfficeMapCanvas() {
               {selectedNode.data.sessionId && (
                 <button
                   type="button"
-                  title="Open full operation view"
+                  title={t('activity:office.openFullView')}
                   onClick={() =>
                     setWatch({
                       sessionId: selectedNode.data.sessionId!,
@@ -1814,7 +1816,7 @@ export function OfficeMapCanvas() {
                     <Row k="Unread" v={d.unreadCount || 0} accent="text-amber-600 dark:text-amber-400" />
                     {mailboxMessages.length > 0 && (
                       <div className="mt-1 space-y-1 border-t border-border pt-2">
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Recent</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('activity:office.recent')}</div>
                         {[...mailboxMessages]
                           .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
                           .slice(0, 6)
@@ -1829,7 +1831,7 @@ export function OfficeMapCanvas() {
                                   )}
                                 />
                                 <div className="min-w-0 flex-1">
-                                  <div className="truncate text-foreground/80">{m.subject || '(no subject)'}</div>
+                                  <div className="truncate text-foreground/80">{m.subject || t('activity:office.noSubject')}</div>
                                   <div className="truncate font-mono text-[9px] text-muted-foreground">
                                     {m.from} → {m.to} · {fmtAgo(m.timestamp, now)}
                                   </div>
@@ -1870,14 +1872,14 @@ export function OfficeMapCanvas() {
               <div className="min-w-0">
                 <div className="truncate text-sm font-bold text-foreground">{watch.label}</div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Full operation stream
+                  {t('activity:office.fullOperationStream')}
                 </div>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setWatch(null)}
-              title="Close (Esc)"
+              title={t('activity:office.closeEsc')}
               className="text-muted-foreground hover:text-foreground text-xl leading-none shrink-0"
             >
               ×
