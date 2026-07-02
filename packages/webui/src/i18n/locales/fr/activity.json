@@ -871,6 +871,8 @@
     "statusMerged": "fusionné",
     "statusConflict": "conflit",
     "statusFailed": "échec",
-    "conflictBadge": "CONFLIT"
+    "conflictBadge": "CONFLIT",
+    "graphAria": "Graphe de branches worktree à partir de {{base}}",
+    "mergedLabel": "✓ fusionné → {{base}}"
   }
 }

@@ -871,6 +871,8 @@
     "statusMerged": "birleştirildi",
     "statusConflict": "çakışma",
     "statusFailed": "başarısız",
-    "conflictBadge": "ÇAKIŞMA"
+    "conflictBadge": "ÇAKIŞMA",
+    "graphAria": "{{base}} dışında worktree dal grafiği",
+    "mergedLabel": "✓ {{base}} ile birleştirildi"
   }
 }

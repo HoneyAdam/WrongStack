@@ -871,6 +871,8 @@
     "statusMerged": "mergado",
     "statusConflict": "conflito",
     "statusFailed": "falhou",
-    "conflictBadge": "CONFLITO"
+    "conflictBadge": "CONFLITO",
+    "graphAria": "Grafo de ramos worktree a partir de {{base}}",
+    "mergedLabel": "✓ mergedo → {{base}}"
   }
 }
