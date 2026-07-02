@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AlertCircle, Bot, Clock, Terminal, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { CopyButton } from './MessageBubble/CopyButton.js';
 import { ToolInputView } from './MessageBubble/ToolInputView.js';
 import { ErrorBodyWithStack } from './MessageBubble/ErrorBody.js';
@@ -50,7 +51,7 @@ const ROLE_CONFIG: Record<
   WatchEntry['role'],
   {
     Icon: typeof User;
-    label: string;
+    labelKey: string;
     avatarBg: string;
     avatarColor: string;
     avatarRing: string;
@@ -61,7 +62,7 @@ const ROLE_CONFIG: Record<
 > = {
   user: {
     Icon: User,
-    label: 'You',
+    labelKey: 'activity:message.roleYou',
     avatarBg: 'bg-primary',
     avatarColor: 'text-primary-foreground',
     avatarRing: 'ring-2 ring-offset-2 ring-offset-background ring-primary/20',
@@ -71,7 +72,7 @@ const ROLE_CONFIG: Record<
   },
   assistant: {
     Icon: Bot,
-    label: 'Assistant',
+    labelKey: 'activity:message.roleAssistant',
     avatarBg: 'bg-accent',
     avatarColor: 'text-accent-foreground',
     avatarRing: 'ring-2 ring-offset-2 ring-offset-background ring-accent/20',
@@ -81,7 +82,7 @@ const ROLE_CONFIG: Record<
   },
   tool: {
     Icon: Terminal,
-    label: 'Tool',
+    labelKey: 'activity:message.roleTool',
     avatarBg: 'bg-secondary',
     avatarColor: 'text-secondary-foreground',
     avatarRing: 'ring-2 ring-offset-2 ring-offset-background ring-secondary/20',
@@ -91,7 +92,7 @@ const ROLE_CONFIG: Record<
   },
   system: {
     Icon: Bot,
-    label: 'System',
+    labelKey: 'activity:transcript.kindSystem',
     avatarBg: 'bg-muted',
     avatarColor: 'text-muted-foreground',
     avatarRing: 'ring-2 ring-offset-2 ring-offset-background ring-muted/20',
@@ -101,7 +102,7 @@ const ROLE_CONFIG: Record<
   },
   error: {
     Icon: AlertCircle,
-    label: 'Error',
+    labelKey: 'activity:transcript.kindError',
     avatarBg: 'bg-destructive',
     avatarColor: 'text-destructive-foreground',
     avatarRing: 'ring-2 ring-offset-2 ring-offset-background ring-destructive/20',
@@ -112,6 +113,7 @@ const ROLE_CONFIG: Record<
 };
 
 function WatchBubbleContent({ entry }: { entry: WatchEntry }) {
+  const { t } = useAppTranslation();
   if (entry.role === 'error') {
     return <ErrorBodyWithStack text={entry.text} />;
   }
@@ -122,7 +124,7 @@ function WatchBubbleContent({ entry }: { entry: WatchEntry }) {
         {/* Tool name header */}
         <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
           <Terminal className="h-3 w-3" />
-          <span className="font-mono">{entry.tool ?? 'tool'}</span>
+          <span className="font-mono">{entry.tool ?? t('activity:watch.toolFallback')}</span>
           {entry.durationMs !== undefined && (
             <span className="ml-auto text-[10px] text-muted-foreground font-normal tabular-nums">
               <Clock className="h-3 w-3 inline mr-0.5 align-text-bottom" />
@@ -170,7 +172,7 @@ function WatchBubbleContent({ entry }: { entry: WatchEntry }) {
         {/* Error banner */}
         {entry.isError && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-            <span className="text-xs font-medium text-destructive">Tool failed</span>
+            <span className="text-xs font-medium text-destructive">{t('activity:watch.toolFailed')}</span>
             {entry.text && (
               <pre className="mt-1 text-xs whitespace-pre-wrap text-destructive/80">
                 {entry.text}
@@ -200,6 +202,7 @@ export function WatchMessageBubble({
   entry,
   isContinuation = false,
 }: WatchMessageBubbleProps) {
+  const { t } = useAppTranslation();
   const cfg = ROLE_CONFIG[entry.role];
   const Icon = cfg.Icon;
 
@@ -227,7 +230,7 @@ export function WatchMessageBubble({
         {!isContinuation && (
           <div className="flex items-center gap-2">
             <span className={cn('text-xs font-medium', cfg.textColor)}>
-              {entry.role === 'tool' && entry.tool ? entry.tool : cfg.label}
+              {entry.role === 'tool' && entry.tool ? entry.tool : t(cfg.labelKey)}
             </span>
             <span className="text-xs text-muted-foreground">
               {new Date(entry.ts).toLocaleTimeString([], {
@@ -265,7 +268,7 @@ export function WatchMessageBubble({
         {/* Copy button — group-hover for hover visibility */}
         {entry.text && entry.role !== 'error' && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-            <CopyButton text={entry.text} label="Copy" />
+            <CopyButton text={entry.text} label={t('common:action.copy')} />
           </div>
         )}
       </div>
