@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import { Activity, AlertCircle, BarChart3, Clock, Eye, FileWarning, Gauge, RefreshCw, Server, TrendingUp } from 'lucide-react';
 
 interface FileWatcherMetrics {
@@ -41,6 +42,7 @@ function MetricCard({
   color?: string;
   trend?: 'up' | 'down' | 'neutral';
 }) {
+  const { t } = useAppTranslation();
   return (
     <div className="bg-card rounded-lg border p-4 shadow-sm">
       <div className="flex items-start justify-between">
@@ -58,7 +60,7 @@ function MetricCard({
           {trend === 'up' && <TrendingUp className="w-3 h-3 text-green-500" />}
           {trend === 'down' && <TrendingUp className="w-3 h-3 text-red-500 rotate-180" />}
           <span className="text-xs text-muted-foreground">
-            {trend === 'up' ? 'Increasing' : trend === 'down' ? 'Decreasing' : 'Stable'}
+            {trend === 'up' ? t('activity:debug.trendUp') : trend === 'down' ? t('activity:debug.trendDown') : t('activity:debug.trendStable')}
           </span>
         </div>
       )}
@@ -80,6 +82,7 @@ function _StatusBadge({ active }: { active: boolean }) {
 }
 
 export function DebugDashboard() {
+  const { t } = useAppTranslation();
   const [data, setData] = useState<DebugData>({
     fileWatcher: null,
     system: null,
@@ -121,7 +124,7 @@ export function DebugDashboard() {
     } catch (err) {
       setData((prev) => ({
         ...prev,
-        error: err instanceof Error ? err.message : 'Failed to fetch metrics',
+        error: err instanceof Error ? err.message : i18n.t('activity:debug.fetchFailed'),
       }));
     } finally {
       setIsLoading(false);
@@ -147,16 +150,16 @@ export function DebugDashboard() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <BarChart3 className="w-7 h-7" />
-              Debug Dashboard
+              {t('activity:debug.heading')}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Real-time monitoring for WrongStack WebUI
+              {t('activity:debug.subtitle')}
             </p>
           </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
               <RefreshCw className="w-4 h-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Refresh:</span>
+              <span className="text-muted-foreground">{t('activity:debug.refreshLabel')}</span>
               <select
                 value={refreshInterval}
                 onChange={(e) => setRefreshInterval(Number(e.target.value))}
@@ -174,7 +177,7 @@ export function DebugDashboard() {
               className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('common:action.refresh')}
             </button>
           </div>
         </div>
@@ -183,7 +186,7 @@ export function DebugDashboard() {
         {data.lastUpdated && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Clock className="w-4 h-4" />
-            Last updated: {data.lastUpdated.toLocaleTimeString()}
+            {t('activity:debug.lastUpdated', { time: data.lastUpdated.toLocaleTimeString() })}
           </div>
         )}
 
@@ -192,7 +195,7 @@ export function DebugDashboard() {
           <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             <div>
-              <p className="font-medium">Failed to fetch metrics</p>
+              <p className="font-medium">{t('activity:debug.fetchFailed')}</p>
               <p className="text-sm opacity-80">{data.error}</p>
             </div>
           </div>
@@ -202,34 +205,34 @@ export function DebugDashboard() {
         <section>
           <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
             <Eye className="w-5 h-5" />
-            File Watcher
+            {t('activity:debug.fileWatcher')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
-              title="Watcher Status"
-              value={data.fileWatcher?.watcherActive ? 'Running' : 'Stopped'}
+              title={t('activity:debug.watcherStatus')}
+              value={data.fileWatcher?.watcherActive ? t('activity:debug.running') : t('activity:debug.stopped')}
               icon={Server}
               color={data.fileWatcher?.watcherActive ? 'text-green-500' : 'text-red-500'}
             />
             <MetricCard
-              title="Active Projects"
+              title={t('activity:debug.activeProjects')}
               value={data.fileWatcher?.activeProjects ?? 0}
-              subtitle="Projects being watched"
+              subtitle={t('activity:debug.projectsWatched')}
               icon={FileWarning}
               color="text-purple-500"
             />
             <MetricCard
-              title="File Changes"
+              title={t('activity:debug.fileChanges')}
               value={data.fileWatcher?.fileChangesDetected ?? 0}
-              subtitle="Total detected"
+              subtitle={t('activity:debug.totalDetected')}
               icon={Activity}
               color="text-blue-500"
               trend="neutral"
             />
             <MetricCard
-              title="Files Processed"
+              title={t('activity:debug.filesProcessed')}
               value={data.fileWatcher?.filesProcessed ?? 0}
-              subtitle="After hash filter"
+              subtitle={t('activity:debug.afterHash')}
               icon={Gauge}
               color="text-cyan-500"
             />
@@ -237,30 +240,30 @@ export function DebugDashboard() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
             <MetricCard
-              title="Broadcasts Sent"
+              title={t('activity:debug.broadcastsSent')}
               value={data.fileWatcher?.broadcastsSent ?? 0}
-              subtitle="To WebUI clients"
+              subtitle={t('activity:debug.toClients')}
               icon={TrendingUp}
               color="text-green-500"
             />
             <MetricCard
-              title="Debounce Resets"
+              title={t('activity:debug.debounceResets')}
               value={data.fileWatcher?.debounceResets ?? 0}
-              subtitle="Rapid successive writes"
+              subtitle={t('activity:debug.rapidWrites')}
               icon={RefreshCw}
               color="text-orange-500"
             />
             <MetricCard
-              title="Avg Debounce Delay"
+              title={t('activity:debug.avgDebounce')}
               value={`${(data.fileWatcher?.averageDebounceDelayMs ?? 0).toFixed(1)}ms`}
-              subtitle="Actual delay applied"
+              subtitle={t('activity:debug.actualDelay')}
               icon={Clock}
               color="text-yellow-500"
             />
             <MetricCard
-              title="Total Delay"
+              title={t('activity:debug.totalDelay')}
               value={`${(data.fileWatcher?.totalDebounceDelayMs ?? 0).toFixed(0)}ms`}
-              subtitle="Sum of all delays"
+              subtitle={t('activity:debug.sumDelays')}
               icon={BarChart3}
               color="text-indigo-500"
             />
@@ -271,27 +274,27 @@ export function DebugDashboard() {
         <section>
           <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
             <Gauge className="w-5 h-5" />
-            Browser Performance
+            {t('activity:debug.browserPerf')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <MetricCard
-              title="Heap Used"
+              title={t('activity:debug.heapUsed')}
               value={formatBytes(data.system?.memoryUsage?.heapUsed ?? 0)}
-              subtitle="JavaScript heap"
+              subtitle={t('activity:debug.jsHeap')}
               icon={BarChart3}
               color="text-blue-500"
             />
             <MetricCard
-              title="Heap Total"
+              title={t('activity:debug.heapTotal')}
               value={formatBytes(data.system?.memoryUsage?.heapTotal ?? 0)}
-              subtitle="Total heap size"
+              subtitle={t('activity:debug.totalHeap')}
               icon={BarChart3}
               color="text-green-500"
             />
             <MetricCard
-              title="Page Uptime"
+              title={t('activity:debug.pageUptime')}
               value={formatUptime(data.system?.uptime ?? 0)}
-              subtitle="Since page load"
+              subtitle={t('activity:debug.sinceLoad')}
               icon={Clock}
               color="text-purple-500"
             />
@@ -302,7 +305,7 @@ export function DebugDashboard() {
         <section>
           <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
             <Activity className="w-5 h-5" />
-            Raw Data
+            {t('activity:debug.rawData')}
           </h2>
           <div className="bg-card rounded-lg border p-4 shadow-sm">
             <pre className="text-xs font-mono overflow-x-auto">
