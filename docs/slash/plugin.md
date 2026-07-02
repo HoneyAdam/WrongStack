@@ -10,11 +10,14 @@ Manages the lifecycle of installed plugins via the `onPlugin` callback. Delegate
 |---|---|
 | `/plugin` | List configured plugins |
 | `/plugin status` | Same as list |
+| `/plugin menu` | Open the TUI plugin picker when available; otherwise show the audit report |
+| `/plugin report` | Show effective state, risk, and lock/toggle policy for built-in plugin rows |
 | `/plugin official` | List official bundled plugins and their aliases |
 | `/plugin install <alias\|package>` | Add and enable a plugin |
 | `/plugin add <alias\|package>` | Alias for install |
 | `/plugin enable <alias\|package>` | Enable a configured plugin |
 | `/plugin disable <alias\|package>` | Disable a configured plugin |
+| `/plugin toggle <name>` | Toggle a safe audit-list plugin row |
 | `/plugin remove <alias\|package>` | Remove from config |
 
 ## Official plugin aliases

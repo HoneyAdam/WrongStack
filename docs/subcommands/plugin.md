@@ -2,7 +2,7 @@
 
 ## What it does
 
-Manages WrongStack plugins: install, remove, enable, disable. Plugins extend WrongStack's capabilities via the plugin API.
+Manages WrongStack plugins: inspect, install, remove, enable, disable, and toggle. Plugins extend WrongStack's capabilities via the plugin API.
 
 ## Subcommands
 
@@ -10,16 +10,19 @@ Manages WrongStack plugins: install, remove, enable, disable. Plugins extend Wro
 |---|---|
 | `wstack plugin` | List configured plugins with status |
 | `wstack plugins` | Alias for `wstack plugin` |
+| `wstack plugin report` | Show effective state, risk, and lock/toggle policy for built-in plugin rows |
+| `wstack plugin menu` | Non-interactive fallback that prints the same audit report |
 | `wstack plugin install <name\|alias>` | Install and enable a plugin |
 | `wstack plugin add <name>` | Alias for install |
 | `wstack plugin remove <name>` | Remove from config |
 | `wstack plugin enable <name>` | Enable a configured plugin |
 | `wstack plugin disable <name>` | Disable a configured plugin |
+| `wstack plugin toggle <name>` | Toggle a safe audit-list plugin row |
 
 ## Official plugins
 
 | Alias | Plugin package |
-|---|---|---|
+|---|---|
 | `telegram` | `@wrongstack/telegram` — Telegram bridge |
 | `lsp` | `@wrongstack/plug-lsp` — LSP-backed tools |
 

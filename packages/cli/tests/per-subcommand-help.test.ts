@@ -107,16 +107,19 @@ describe('mcpHelp', () => {
 });
 
 describe('pluginHelp', () => {
-  it('renders the plugin subcommand table with list / official / add / install / remove / enable / disable', () => {
+  it('renders the plugin subcommand table with list / report / menu / official / add / install / toggle / remove / enable / disable', () => {
     const renderer = makeRenderer();
     expect(renderFocusedHelp('plugin', renderer)).toBe(true);
     const out = capture(renderer);
     expect(out).toContain('wstack plugin');
     expect(out).toContain('Subcommands');
     expect(out).toContain('list');
+    expect(out).toContain('report');
+    expect(out).toContain('menu');
     expect(out).toContain('official');
     expect(out).toContain('add <id>');
     expect(out).toContain('install');
+    expect(out).toContain('toggle <id>');
     expect(out).toContain('remove <id>');
     expect(out).toContain('enable <id>');
     expect(out).toContain('disable <id>');
@@ -321,6 +324,37 @@ describe('plugin:add deep help', () => {
   });
 });
 
+describe('plugin:report / plugin:toggle / plugin:menu deep help', () => {
+  it('plugin:report explains effective state and lock policy', () => {
+    const renderer = makeRenderer();
+    renderDeepHelp('plugin:report', renderer);
+    const out = capture(renderer);
+    expect(out).toContain('wstack plugin report');
+    expect(out).toContain('effective state');
+    expect(out).toContain('toggleable');
+    expect(out).toContain('locked');
+  });
+
+  it('plugin:toggle mentions the audit-list name and locked rows', () => {
+    const renderer = makeRenderer();
+    renderDeepHelp('plugin:toggle', renderer);
+    const out = capture(renderer);
+    expect(out).toContain('wstack plugin toggle');
+    expect(out).toContain('<name>');
+    expect(out).toContain('format-on-save');
+    expect(out).toContain('Locked');
+  });
+
+  it('plugin:menu documents the non-interactive report fallback', () => {
+    const renderer = makeRenderer();
+    renderDeepHelp('plugin:menu', renderer);
+    const out = capture(renderer);
+    expect(out).toContain('wstack plugin menu');
+    expect(out).toContain('interactive plugin picker');
+    expect(out).toContain('audit report');
+  });
+});
+
 describe('models:add deep help', () => {
   it('lists every capability flag from the handler (--provider, --name, --max-context, --max-output, --tools, --vision, --reasoning, --streaming, --json-mode)', () => {
     const renderer = makeRenderer();
@@ -467,7 +501,7 @@ describe('deepSubcommandsWithFocusedHelp', () => {
     // The deep-help table covers all the deep subcommands
     // the user explicitly listed across two turns:
     //   - `mcp:add`/`mcp:remove`/`mcp:restart`
-    //   - `plugin:add`/`remove`/`enable`/`disable`/`list`/`official`
+    //   - `plugin:add`/`remove`/`enable`/`disable`/`toggle`/`list`/`report`/`menu`/`official`
     //   - `models:add`/`remove`/`refresh`/`list`
     //   - `audit --list`/`replay --list`
     //   - `sessions:resume`/`fleet`/`show`/`list`/`config`
@@ -479,7 +513,8 @@ describe('deepSubcommandsWithFocusedHelp', () => {
     const expected = new Set([
       'mcp:add', 'mcp:remove', 'mcp:restart',
       'plugin:add', 'plugin:remove', 'plugin:enable', 'plugin:disable',
-      'plugin:list', 'plugin:official', 'plugin:officials',
+      'plugin:toggle', 'plugin:list', 'plugin:report', 'plugin:menu',
+      'plugin:official', 'plugin:officials',
       'models:add', 'models:remove', 'models:refresh', 'models:list',
       'audit:list', 'replay:list',
       'sessions:resume', 'sessions:fleet', 'sessions:show',

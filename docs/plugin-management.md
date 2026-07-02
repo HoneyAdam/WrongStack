@@ -10,9 +10,12 @@ WrongStack plugins are regular npm/workspace packages that export a default
 wstack plugin list
 wstack plugin status
 wstack plugins list
+wstack plugin report
+wstack plugin menu
 wstack plugin official
 wstack plugin install telegram
 wstack plugin add @wrongstack/telegram
+wstack plugin toggle format-on-save
 wstack plugin add @wrongstack/telegram --disabled
 wstack plugin disable @wrongstack/telegram
 wstack plugin enable @wrongstack/telegram
@@ -20,7 +23,9 @@ wstack plugin remove @wrongstack/telegram
 ```
 
 `plugin` and `plugins` are aliases. `status` is an alias for `list`.
-`install` is an alias for `add`.
+`install` is an alias for `add`. `report` prints the built-in plugin audit
+table, including effective state, risk, and whether a row can be toggled.
+`menu` opens the TUI picker when available and otherwise prints the same report.
 Official aliases currently include `telegram` -> `@wrongstack/telegram`
 and `lsp` -> `@wrongstack/plug-lsp`. `add`, `install`, and `enable` also set
 `features.plugins: true` in the global config.
@@ -34,16 +39,19 @@ The same management surface is available in an interactive session:
 ```text
 /plugin list
 /plugin status
+/plugin menu
+/plugin report
 /plugin official
 /plugin install telegram
+/plugin toggle format-on-save
 /plugin disable telegram
 /plugin enable telegram
 /plugin remove telegram
 ```
 
 Slash commands update config immediately, but plugin code is loaded at boot.
-Restart WrongStack after install/enable/disable/remove to change the current
-session's loaded plugins.
+Restart WrongStack after install/enable/disable/toggle/remove to change the
+current session's loaded plugins.
 
 ## Config Shape
 

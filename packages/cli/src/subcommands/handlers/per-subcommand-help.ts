@@ -366,15 +366,18 @@ const helpTable: Record<string, PerSubcommandHelp> = {
     name: 'plugin',
     title: 'wstack plugin — manage tool plugins',
     description:
-      'List, install, add, remove, enable, and disable tool plugins. ' +
+      'List, inspect, install, add, remove, enable, disable, and toggle tool plugins. ' +
       'Plugins extend the agent with custom tool packs (e.g. GitHub, ' +
       'Playwright, project-local helpers).',
     usage:
-      'wstack plugin [list|status|official|add|install|remove|enable|disable] [...]',
+      'wstack plugin [list|status|report|menu|official|add|install|toggle|remove|enable|disable] [...]',
     subcommands: [
       { name: 'list', description: 'List installed plugins (alias: status).' },
+      { name: 'report', description: 'Show effective state, risk, and lock/toggle policy.' },
+      { name: 'menu', description: 'Print the audit report outside the TUI plugin picker.' },
       { name: 'official', description: 'List plugins from the official registry.' },
       { name: 'add <id>', description: 'Add a plugin by id (alias: install).' },
+      { name: 'toggle <id>', description: 'Toggle a safe audit-list plugin row.' },
       { name: 'remove <id>', description: 'Remove an installed plugin (aliases: rm, uninstall).' },
       { name: 'enable <id>', description: 'Re-enable a previously-disabled plugin.' },
       { name: 'disable <id>', description: 'Temporarily disable a plugin without removing it.' },
@@ -801,6 +804,40 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
     subcommands: [
       { name: '<spec|alias>', description: 'The specifier or official alias to disable.' },
     ],
+  },
+  'plugin:toggle': {
+    name: 'plugin:toggle',
+    title: 'wstack plugin toggle <name> — toggle an audit-list plugin row',
+    description:
+      'Toggle one built-in audit-list plugin by its runtime name. Default-active ' +
+      'plugins are disabled by writing `{ enabled: false }` overrides; enabling ' +
+      'them again removes that override. Locked safety and core rows are refused. ' +
+      'Requires a restart for loaded plugin code to change in the current session.',
+    usage: 'wstack plugin toggle <name>',
+    subcommands: [
+      { name: '<name>', description: 'Audit-list runtime name, e.g. `format-on-save`.' },
+    ],
+    seeAlso: 'wstack plugin report (see which rows are locked or toggleable)',
+  },
+  'plugin:report': {
+    name: 'plugin:report',
+    title: 'wstack plugin report — show the plugin audit table',
+    description:
+      'Print the built-in plugin audit table. Each row shows effective state, ' +
+      'whether that state came from config or default boot behavior, risk, and ' +
+      'whether the row is toggleable or locked.',
+    usage: 'wstack plugin report (alias: wstack plugin audit)',
+    seeAlso: 'wstack plugin toggle <name> (toggle safe rows); wstack plugin list',
+  },
+  'plugin:menu': {
+    name: 'plugin:menu',
+    title: 'wstack plugin menu — open or describe the plugin picker',
+    description:
+      'In the TUI, `/plugin menu` opens the interactive plugin picker. From ' +
+      'the non-interactive `wstack plugin menu` surface, the command prints ' +
+      'the same audit report as `wstack plugin report`.',
+    usage: 'wstack plugin menu',
+    seeAlso: '/plugin menu (interactive picker in the TUI); wstack plugin report',
   },
 
   // -- models --------------------------------------------------------------
