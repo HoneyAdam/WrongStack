@@ -1149,6 +1149,7 @@
     "split": "Split",
     "splitHint": "One sub-task per line — Title :: description (description optional)",
     "splitPlaceholder": "Write the data layer :: add the repository\nWire the UI",
-    "splitInto": "Split into sub-tasks"
+    "splitInto": "Split into sub-tasks",
+    "deleteTitle": "Remove this not-started task from the run"
   }
 }

@@ -1149,6 +1149,7 @@
     "split": "Dividir",
     "splitHint": "Uma subtarefa por linha — Título :: descrição (descrição opcional)",
     "splitPlaceholder": "Escreva a camada de dados :: adicione o repositório\nConecte a UI",
-    "splitInto": "Dividir em subtarefas"
+    "splitInto": "Dividir em subtarefas",
+    "deleteTitle": "Remover esta tarefa não iniciada do run"
   }
 }

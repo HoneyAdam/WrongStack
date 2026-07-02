@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';
 import { agentInitials, fmtDuration, priorityStyle, statusStyle } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import type { BoardTaskItem, SddBoardFeedEntry } from '@/stores';
 import { ModelPicker } from './ModelPicker';
 
@@ -55,6 +56,7 @@ export function SddTaskDrawer({
   onSplit: (id: string, subtasks: Array<{ title: string; description: string }>) => void;
   onSelectTask: (id: string) => void;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const s = statusStyle(task.displayStatus);
   const StatusIcon = s.icon;
   const running = task.displayStatus === 'in_progress';
@@ -126,7 +128,7 @@ export function SddTaskDrawer({
           type="button"
           onClick={onClose}
           className="text-muted-foreground hover:text-foreground"
-          title="Back to activity"
+          title={t('activity:sddTask.backTitle')}
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
@@ -160,7 +162,7 @@ export function SddTaskDrawer({
             <div className="leading-tight">
               <div className="text-xs font-medium text-foreground">{task.agentName}</div>
               <div className="text-[10px] text-muted-foreground">
-                {running ? 'working on this task' : 'assigned'}
+                {running ? t('activity:sddTask.workingOn') : t('activity:sddTask.assigned')}
               </div>
             </div>
           </div>
@@ -168,14 +170,14 @@ export function SddTaskDrawer({
 
         {/* meta grid */}
         <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-          <Meta label="Priority">
+          <Meta label={t('activity:sddTask.metaPriority')}>
             <span className={cn('font-medium uppercase', priorityStyle(task.priority).text)}>
               {task.priority}
             </span>
           </Meta>
-          <Meta label="Type">{task.type}</Meta>
+          <Meta label={t('activity:sddTask.metaType')}>{task.type}</Meta>
           {elapsed && (
-            <Meta label={task.completedAt ? 'Duration' : 'Elapsed'}>
+            <Meta label={task.completedAt ? t('activity:sddTask.metaDuration') : t('activity:sddTask.metaElapsed')}>
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3 text-muted-foreground" />
                 {elapsed}
@@ -183,7 +185,7 @@ export function SddTaskDrawer({
             </Meta>
           )}
           {task.retries ? (
-            <Meta label="Retries">
+            <Meta label={t('activity:sddTask.metaRetries')}>
               <span className="flex items-center gap-1 text-red-400">
                 <RotateCcw className="h-3 w-3" />
                 {task.retries}
@@ -191,7 +193,7 @@ export function SddTaskDrawer({
             </Meta>
           ) : null}
           {task.worktreeBranch && (
-            <Meta label="Worktree" full>
+            <Meta label={t('activity:sddTask.metaWorktree')} full>
               <span
                 className="flex items-center gap-1 font-mono text-foreground"
                 title={task.worktreeBranch}
@@ -206,10 +208,10 @@ export function SddTaskDrawer({
         {/* per-task model assignment (overrides the run default) */}
         <div>
           <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Worker model
+            {t('activity:sddTask.workerModel')}
             {!task.model && defaultModel && (
               <span className="font-normal normal-case text-muted-foreground">
-                · run default: {defaultModel}
+                · {t('activity:sddTask.runDefault', { model: defaultModel })}
               </span>
             )}
           </div>
@@ -217,7 +219,7 @@ export function SddTaskDrawer({
             value={task.model}
             provider={task.provider}
             candidates={modelCandidates}
-            placeholder={defaultModel ? `Run default (${defaultModel})` : 'Run default'}
+            placeholder={defaultModel ? t('activity:sddTask.runDefaultPlaceholderModel', { model: defaultModel }) : t('activity:sddTask.runDefaultPlaceholder')}
             onPick={(model, provider) => onSetModel(task.id, model, provider)}
             onReset={task.model ? () => onSetModel(task.id, undefined, undefined) : undefined}
           />
@@ -238,9 +240,9 @@ export function SddTaskDrawer({
         {/* per-task verification command (completion gate) */}
         <div>
           <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Verification command
+            {t('activity:sddTask.verificationCmd')}
             <span className="font-normal normal-case text-muted-foreground">
-              · gates completion (exit 0)
+              · {t('activity:sddTask.gatesCompletion')}
             </span>
           </div>
           {verifyEditing ? (
@@ -258,7 +260,7 @@ export function SddTaskDrawer({
                     setVerifyEditing(false);
                   }
                 }}
-                placeholder="e.g. pnpm vitest run path/to/file"
+                placeholder={t('activity:sddTask.verifyPlaceholder')}
                 className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground"
               />
               <div className="flex gap-1">
@@ -270,7 +272,7 @@ export function SddTaskDrawer({
                   }}
                   className="rounded bg-primary px-2 py-0.5 text-[10px] text-primary-foreground hover:opacity-90"
                 >
-                  Save
+                  {t('common:action.save')}
                 </button>
                 <button
                   type="button"
@@ -280,7 +282,7 @@ export function SddTaskDrawer({
                   }}
                   className="rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/80"
                 >
-                  Cancel
+                  {t('common:action.cancel')}
                 </button>
               </div>
             </div>
@@ -294,14 +296,14 @@ export function SddTaskDrawer({
                 onClick={() => setVerifyEditing(true)}
                 className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/80"
               >
-                Edit
+                {t('common:action.edit')}
               </button>
               <button
                 type="button"
                 onClick={() => onSetVerification(task.id, undefined)}
                 className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/80"
               >
-                Clear
+                {t('common:action.clear')}
               </button>
             </div>
           ) : (
@@ -310,7 +312,7 @@ export function SddTaskDrawer({
               onClick={() => setVerifyEditing(true)}
               className="rounded border border-dashed border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted"
             >
-              + Add verification command
+              {t('activity:sddTask.addVerify')}
             </button>
           )}
         </div>
@@ -319,7 +321,7 @@ export function SddTaskDrawer({
         {task.description && (
           <div>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Description
+              {t('activity:sddTask.description')}
             </div>
             <p className="whitespace-pre-wrap rounded-md bg-muted p-2 text-[11px] leading-relaxed text-foreground">
               {task.description}
@@ -331,7 +333,7 @@ export function SddTaskDrawer({
         {taskEvents.length > 0 && (
           <div>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Timeline
+              {t('activity:sddTask.timeline')}
             </div>
             <div className="space-y-1 border-l border-border pl-2.5">
               {taskEvents.map((e, i) => (
@@ -361,7 +363,7 @@ export function SddTaskDrawer({
         {/* dependency chain */}
         {task.deps.length > 0 && (
           <DepList
-            title="Depends on"
+            title={t('activity:sddTask.dependsOn')}
             shortIds={task.deps}
             byShort={byShort}
             onSelectTask={onSelectTask}
@@ -369,7 +371,7 @@ export function SddTaskDrawer({
         )}
         {dependents.length > 0 && (
           <DepList
-            title="Blocks"
+            title={t('activity:sddTask.blocks')}
             shortIds={dependents.map((d) => d.shortId)}
             byShort={byShort}
             onSelectTask={onSelectTask}
@@ -389,7 +391,7 @@ export function SddTaskDrawer({
                 if (e.key === 'Enter') submitReassign();
                 if (e.key === 'Escape') setReassigning(false);
               }}
-              placeholder="New worker name…"
+              placeholder={t('activity:sddTask.newWorkerPlaceholder')}
               className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-violet-500"
             />
             <button
@@ -411,7 +413,7 @@ export function SddTaskDrawer({
         ) : confirm ? (
           <div className="sdd-rise flex items-center gap-2">
             <span className="flex-1 text-xs text-foreground">
-              {confirm === 'stop' ? 'Stop this running task?' : 'Delete this task from the run?'}
+              {confirm === 'stop' ? t('activity:sddTask.confirmStop') : t('activity:sddTask.confirmDelete')}
             </span>
             <button
               type="button"
@@ -422,7 +424,7 @@ export function SddTaskDrawer({
               }}
               className="inline-flex items-center gap-1 rounded-md bg-red-500/20 px-2.5 py-1.5 text-xs font-medium text-red-700 dark:text-red-200 hover:bg-red-500/30"
             >
-              <Check className="h-3.5 w-3.5" /> {confirm === 'stop' ? 'Stop' : 'Delete'}
+              <Check className="h-3.5 w-3.5" /> {confirm === 'stop' ? t('common:action.stop') : t('common:action.delete')}
             </button>
             <button
               type="button"
@@ -437,46 +439,46 @@ export function SddTaskDrawer({
             <button
               type="button"
               onClick={() => onRetry(task.id)}
-              title="Requeue this task to pending"
+              title={t('activity:sddTask.retryTitle')}
               className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-orange-500/15 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-300 hover:bg-orange-500/25"
             >
-              <RotateCcw className="h-3.5 w-3.5" /> Retry
+              <RotateCcw className="h-3.5 w-3.5" /> {t('common:action.retry')}
             </button>
             <button
               type="button"
               onClick={() => setReassigning(true)}
               className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-violet-500/15 py-1.5 text-xs font-medium text-violet-600 dark:text-violet-300 hover:bg-violet-500/25"
             >
-              <UserCog className="h-3.5 w-3.5" /> Reassign
+              <UserCog className="h-3.5 w-3.5" /> {t('activity:sddTask.reassign')}
             </button>
             {running && (
               <button
                 type="button"
                 onClick={() => setConfirm('stop')}
-                title="Abort the worker on this task"
+                title={t('activity:sddTask.stopTitle')}
                 className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-red-500/15 py-1.5 text-xs font-medium text-red-600 dark:text-red-300 hover:bg-red-500/25"
               >
-                <Square className="h-3.5 w-3.5" /> Stop
+                <Square className="h-3.5 w-3.5" /> {t('common:action.stop')}
               </button>
             )}
             {!running && (
               <button
                 type="button"
                 onClick={() => setSplitting(true)}
-                title="Split this task into sub-tasks delegated to separate workers"
+                title={t('activity:sddTask.splitTitle')}
                 className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-sky-500/15 py-1.5 text-xs font-medium text-sky-600 dark:text-sky-300 hover:bg-sky-500/25"
               >
-                <Split className="h-3.5 w-3.5" /> Split
+                <Split className="h-3.5 w-3.5" /> {t('activity:sddTask.split')}
               </button>
             )}
             {deletable && (
               <button
                 type="button"
                 onClick={() => setConfirm('delete')}
-                title="Remove this not-started task from the run"
+                title={t('activity:sddTask.deleteTitle')}
                 className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-red-500/10 py-1.5 text-xs font-medium text-red-600 dark:text-red-300/90 hover:bg-red-500/20"
               >
-                <Trash2 className="h-3.5 w-3.5" /> Delete
+                <Trash2 className="h-3.5 w-3.5" /> {t('common:action.delete')}
               </button>
             )}
           </div>
@@ -484,7 +486,7 @@ export function SddTaskDrawer({
         {splitting && (
           <div className="mt-2 flex flex-col gap-2">
             <label className="text-[11px] text-muted-foreground" htmlFor="sdd-split-input">
-              One sub-task per line — <code>Title :: description</code> (description optional)
+              {t('activity:sddTask.splitHint')}
             </label>
             <textarea
               id="sdd-split-input"
@@ -492,7 +494,7 @@ export function SddTaskDrawer({
               rows={3}
               value={splitText}
               onChange={(e) => setSplitText(e.target.value)}
-              placeholder={'Write the data layer :: add the repository\nWire the UI'}
+              placeholder={t('activity:sddTask.splitPlaceholder')}
               className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
             <div className="flex gap-2">
@@ -501,7 +503,7 @@ export function SddTaskDrawer({
                 onClick={submitSplit}
                 className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-sky-500/20 py-1.5 text-xs font-medium text-sky-700 dark:text-sky-200 hover:bg-sky-500/30"
               >
-                <Split className="h-3.5 w-3.5" /> Split into sub-tasks
+                <Split className="h-3.5 w-3.5" /> {t('activity:sddTask.splitInto')}
               </button>
               <button
                 type="button"

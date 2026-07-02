@@ -1149,6 +1149,7 @@
     "split": "Diviser",
     "splitHint": "Une sous-tâche par ligne — Titre :: description (description facultative)",
     "splitPlaceholder": "Écrire la couche données :: ajouter le dépôt\nCâbler l'UI",
-    "splitInto": "Diviser en sous-tâches"
+    "splitInto": "Diviser en sous-tâches",
+    "deleteTitle": "Retirer cette tâche non démarrée du run"
   }
 }

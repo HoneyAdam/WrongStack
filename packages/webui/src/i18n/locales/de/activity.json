@@ -1149,6 +1149,7 @@
     "split": "Aufteilen",
     "splitHint": "Eine Sub-Task pro Zeile — Titel :: Beschreibung (Beschreibung optional)",
     "splitPlaceholder": "Datenlayer schreiben :: Repository hinzufügen\nUI verdrahten",
-    "splitInto": "In Sub-Tasks aufteilen"
+    "splitInto": "In Sub-Tasks aufteilen",
+    "deleteTitle": "Diese nicht gestartete Task aus dem Run entfernen"
   }
 }

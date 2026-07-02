@@ -1149,6 +1149,7 @@
     "split": "Dividi",
     "splitHint": "Una sotto-attività per riga — Titolo :: descrizione (descrizione facoltativa)",
     "splitPlaceholder": "Scrivi il layer dati :: aggiungi il repository\nCollega l'UI",
-    "splitInto": "Dividi in sotto-attività"
+    "splitInto": "Dividi in sotto-attività",
+    "deleteTitle": "Rimuovi questa attività non avviata dal run"
   }
 }

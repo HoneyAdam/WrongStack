@@ -1149,6 +1149,7 @@
     "split": "Böl",
     "splitHint": "Satır başına bir alt görev — Başlık :: açıklama (açıklama isteğe bağlı)",
     "splitPlaceholder": "Veri katmanını yaz :: depoyu ekle\nArayüzü bağla",
-    "splitInto": "Alt görevlere böl"
+    "splitInto": "Alt görevlere böl",
+    "deleteTitle": "Bu başlatılmamış görevi çalışmadan kaldır"
   }
 }

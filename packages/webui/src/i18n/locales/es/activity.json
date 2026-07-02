@@ -1149,6 +1149,7 @@
     "split": "Dividir",
     "splitHint": "Una subtarea por línea — Título :: descripción (descripción opcional)",
     "splitPlaceholder": "Escribe la capa de datos :: añade el repositorio\nConecta la UI",
-    "splitInto": "Dividir en subtareas"
+    "splitInto": "Dividir en subtareas",
+    "deleteTitle": "Quitar esta tarea no iniciada del run"
   }
 }
