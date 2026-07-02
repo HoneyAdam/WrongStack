@@ -896,5 +896,16 @@
     "moveDown": "Sposta giù",
     "manualPlaceholder": "provider/modello",
     "addTitle": "Aggiungi riferimento modello"
+  },
+  "liveSessions": {
+    "loading": "Caricamento sessioni...",
+    "apiUnavailable": "API di sessione non disponibile:",
+    "empty": "Nessuna sessione live. Apri un'altra istanza wstack per vederla qui.",
+    "heading": "Sessioni live ({{count}})",
+    "autoRefresh": "aggiornamento automatico ogni 5 s",
+    "pidLabel": "PID {{pid}}",
+    "agentMeta": "{{iter}} iter · {{tools}} strumenti · {{ago}}",
+    "andMore": "... e altre {{count}}",
+    "noAgents": "Nessun agente"
   }
 }

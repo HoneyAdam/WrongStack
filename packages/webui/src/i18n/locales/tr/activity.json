@@ -896,5 +896,16 @@
     "moveDown": "Aşağı taşı",
     "manualPlaceholder": "sağlayıcı/model",
     "addTitle": "Model referansı ekle"
+  },
+  "liveSessions": {
+    "loading": "Oturumler yükleniyor...",
+    "apiUnavailable": "Oturum API'si kullanılamıyor:",
+    "empty": "Canlı oturum yok. Burada görmek için başka bir wstack örneği açın.",
+    "heading": "Canlı oturumlar ({{count}})",
+    "autoRefresh": "5 sn'de bir otomatik yenile",
+    "pidLabel": "PID {{pid}}",
+    "agentMeta": "{{iter}} yineleme · {{tools}} araç · {{ago}}",
+    "andMore": "... ve {{count}} daha",
+    "noAgents": "Aracı yok"
   }
 }

@@ -896,5 +896,16 @@
     "moveDown": "Move down",
     "manualPlaceholder": "provider/model",
     "addTitle": "Add model reference"
+  },
+  "liveSessions": {
+    "loading": "Loading sessions...",
+    "apiUnavailable": "Session API unavailable:",
+    "empty": "No live sessions. Open another wstack instance to see it here.",
+    "heading": "Live Sessions ({{count}})",
+    "autoRefresh": "auto-refresh every 5s",
+    "pidLabel": "PID {{pid}}",
+    "agentMeta": "{{iter}} iter · {{tools}} tools · {{ago}}",
+    "andMore": "... and {{count}} more",
+    "noAgents": "No agents"
   }
 }

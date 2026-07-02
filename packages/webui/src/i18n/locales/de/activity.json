@@ -896,5 +896,16 @@
     "moveDown": "Nach unten",
     "manualPlaceholder": "anbieter/modell",
     "addTitle": "Modellreferenz hinzufügen"
+  },
+  "liveSessions": {
+    "loading": "Sitzungen werden geladen...",
+    "apiUnavailable": "Sitzungs-API nicht verfügbar:",
+    "empty": "Keine Live-Sitzungen. Öffne eine weitere wstack-Instanz, um sie hier zu sehen.",
+    "heading": "Live-Sitzungen ({{count}})",
+    "autoRefresh": "Auto-Aktualisierung alle 5 s",
+    "pidLabel": "PID {{pid}}",
+    "agentMeta": "{{iter}} Iterationen · {{tools}} Tools · {{ago}}",
+    "andMore": "... und {{count}} weitere",
+    "noAgents": "Keine Agents"
   }
 }
