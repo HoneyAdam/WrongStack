@@ -271,7 +271,10 @@
     "messagesTitle": "Nachrichten: {{tokens}}",
     "system": "System",
     "toolBreakdown": "Tool-Aufschlüsselung",
-    "messagesSummary": "Nachrichten ({{count}}) — {{total}} Tok"
+    "messagesSummary": "Nachrichten ({{count}}) — {{total}} Tok",
+    "barWithTokens": "Kontextfenster: {{tokens}} / {{max}} Token ({{pct}})",
+    "barPct": "Kontextfenster: {{pct}}",
+    "barClick": " — für Aufschlüsselung klicken"
   },
   "refine": {
     "header": "✨ Prompt verfeinern",
@@ -646,5 +649,20 @@
     "retry": "Jetzt erneut versuchen",
     "retryTitle": "Verbindung jetzt erneut versuchen",
     "dismissTitle": "Verwerfen (Chip in der Topbar zeigt weiterhin den Status)"
+  },
+  "mode": {
+    "modePrefix": "Modus:",
+    "activeTitle": "Aktiver Modus",
+    "heading": "Modus",
+    "defaultName": "Standard",
+    "defaultDesc": "Standard-Agent-Verhalten"
+  },
+  "cost": {
+    "clickTitle": "Klicken für Kostenaufschlüsselung pro Zug",
+    "heading": "Kostenaufschlüsselung",
+    "noPricing": "Keine Preisgebung für das aktuelle Modell — Kostenwerte sind null.",
+    "noTurns": "Noch keine abgeschlossenen Züge. Führe einen Prompt aus, um hier die Kosten pro Zug zu sehen.",
+    "topExpensive_one": "Teuerster Zug",
+    "topExpensive_other": "Die {{count}} teuersten Züge"
   }
 }

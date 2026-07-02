@@ -271,7 +271,10 @@
     "messagesTitle": "Messages: {{tokens}}",
     "system": "System",
     "toolBreakdown": "Tool Breakdown",
-    "messagesSummary": "Messages ({{count}}) — {{total}} tok"
+    "messagesSummary": "Messages ({{count}}) — {{total}} tok",
+    "barWithTokens": "Context window: {{tokens}} / {{max}} tokens ({{pct}})",
+    "barPct": "Context window: {{pct}}",
+    "barClick": " — click for breakdown"
   },
   "refine": {
     "header": "✨ Refine Prompt",
@@ -646,5 +649,20 @@
     "retry": "Retry now",
     "retryTitle": "Retry connection now",
     "dismissTitle": "Dismiss (chip in topbar still shows status)"
+  },
+  "mode": {
+    "modePrefix": "mode:",
+    "activeTitle": "Active mode",
+    "heading": "Mode",
+    "defaultName": "Default",
+    "defaultDesc": "Standard agent behaviour"
+  },
+  "cost": {
+    "clickTitle": "Click for per-turn cost breakdown",
+    "heading": "Cost breakdown",
+    "noPricing": "No pricing for the current model — cost figures are zero.",
+    "noTurns": "No completed turns yet. Run a prompt to see per-turn cost here.",
+    "topExpensive_one": "Top {{count}} expensive turn",
+    "topExpensive_other": "Top {{count}} expensive turns"
   }
 }

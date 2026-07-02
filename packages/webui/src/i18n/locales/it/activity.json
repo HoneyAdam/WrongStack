@@ -271,7 +271,10 @@
     "messagesTitle": "Messaggi: {{tokens}}",
     "system": "Sistema",
     "toolBreakdown": "Dettaglio strumenti",
-    "messagesSummary": "Messaggi ({{count}}) — {{total}} tok"
+    "messagesSummary": "Messaggi ({{count}}) — {{total}} tok",
+    "barWithTokens": "Finestra di contesto: {{tokens}} / {{max}} token ({{pct}})",
+    "barPct": "Finestra di contesto: {{pct}}",
+    "barClick": " — clicca per il dettaglio"
   },
   "refine": {
     "header": "✨ Affina prompt",
@@ -646,5 +649,20 @@
     "retry": "Riprova ora",
     "retryTitle": "Riprova la connessione ora",
     "dismissTitle": "Chiudi (il chip nella barra superiore mostra ancora lo stato)"
+  },
+  "mode": {
+    "modePrefix": "modalità:",
+    "activeTitle": "Modalità attiva",
+    "heading": "Modalità",
+    "defaultName": "Predefinito",
+    "defaultDesc": "Comportamento standard dell'agente"
+  },
+  "cost": {
+    "clickTitle": "Clicca per il dettaglio dei costi per turno",
+    "heading": "Dettaglio costi",
+    "noPricing": "Nessuna tariffazione per il modello attuale — i valori di costo sono zero.",
+    "noTurns": "Nessun turno completato ancora. Esegui un prompt per vedere il costo per turno qui.",
+    "topExpensive_one": "Turno più costoso",
+    "topExpensive_other": "I {{count}} turni più costosi"
   }
 }

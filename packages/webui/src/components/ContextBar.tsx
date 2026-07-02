@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { fmtTok } from '@/components/ChatView/utils';
 
 /**
@@ -68,6 +69,7 @@ export function ContextBar({
   className,
   onClick,
 }: ContextBarProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const clamped = clampPct(pct);
   const eighths = Math.round((clamped / 100) * segments * 8);
 
@@ -101,9 +103,9 @@ export function ContextBar({
       )}
       title={
         (tokens !== undefined && maxTokens !== undefined
-          ? `Context window: ${tokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctText})`
-          : `Context window: ${pctText}`) +
-        (onClick ? ' — click for breakdown' : '')
+          ? t('activity:context.barWithTokens', { tokens: tokens.toLocaleString(), max: maxTokens.toLocaleString(), pct: pctText })
+          : t('activity:context.barPct', { pct: pctText })) +
+        (onClick ? t('activity:context.barClick') : '')
       }
       onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick(); } } : undefined}
@@ -142,6 +144,7 @@ export function ContextFillBar({
   className,
   onClick,
 }: Omit<ContextBarProps, 'segments'>): React.ReactElement {
+  const { t } = useAppTranslation();
   const clamped = clampPct(pct);
   const pctText = `${Math.round(clamped)}%`;
   const tokenText =
@@ -158,9 +161,9 @@ export function ContextFillBar({
       )}
       title={
         (tokens !== undefined && maxTokens !== undefined
-          ? `Context window: ${tokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctText})`
-          : `Context window: ${pctText}`) +
-        (onClick ? ' — click for breakdown' : '')
+          ? t('activity:context.barWithTokens', { tokens: tokens.toLocaleString(), max: maxTokens.toLocaleString(), pct: pctText })
+          : t('activity:context.barPct', { pct: pctText })) +
+        (onClick ? t('activity:context.barClick') : '')
       }
       onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick(); } } : undefined}

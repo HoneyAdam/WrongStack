@@ -271,7 +271,10 @@
     "messagesTitle": "Mesajlar: {{tokens}}",
     "system": "Sistem",
     "toolBreakdown": "Araç Dökümü",
-    "messagesSummary": "Mesajlar ({{count}}) — {{total}} tok"
+    "messagesSummary": "Mesajlar ({{count}}) — {{total}} tok",
+    "barWithTokens": "Bağlam penceresi: {{tokens}} / {{max}} token ({{pct}})",
+    "barPct": "Bağlam penceresi: {{pct}}",
+    "barClick": " — döküm için tıklayın"
   },
   "refine": {
     "header": "✨ Promptu İyileştir",
@@ -646,5 +649,20 @@
     "retry": "Şimdi yeniden dene",
     "retryTitle": "Bağlantıyı şimdi yeniden dene",
     "dismissTitle": "Kapat (üst çubuktaki chip durumu hâlâ gösterir)"
+  },
+  "mode": {
+    "modePrefix": "kip:",
+    "activeTitle": "Etkin kip",
+    "heading": "Kip",
+    "defaultName": "Varsayılan",
+    "defaultDesc": "Standart vekil davranışı"
+  },
+  "cost": {
+    "clickTitle": "Tur başına maliyet dökümü için tıklayın",
+    "heading": "Maliyet dökümü",
+    "noPricing": "Geçerli model için fiyatlandırma yok — maliyet değerleri sıfır.",
+    "noTurns": "Henüz tamamlanmış tur yok. Tur başına maliyeti burada görmek için bir komut çalıştırın.",
+    "topExpensive_one": "En pahalı {{count}} tur",
+    "topExpensive_other": "En pahalı {{count}} tur"
   }
 }

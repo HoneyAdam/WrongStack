@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useChatStore, useSessionStore } from '@/stores';
 import { useEffect, useRef, useState } from 'react';
 
@@ -13,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
  * unchanged.
  */
 export function CostChip() {
+  const { t } = useAppTranslation();
   const cost = useSessionStore((s) => s.cost);
   const inputCost = useSessionStore((s) => s.inputCost);
   const outputCost = useSessionStore((s) => s.outputCost);
@@ -83,7 +85,7 @@ export function CostChip() {
         className={cn(
           'font-medium text-green-600 dark:text-green-400 hover:underline tabular-nums',
         )}
-        title="Click for per-turn cost breakdown"
+        title={t('activity:cost.clickTitle')}
       >
         ${cost.toFixed(4)}
       </button>
@@ -91,7 +93,7 @@ export function CostChip() {
         <div className="absolute right-0 top-full mt-1 z-30 w-80 rounded-md border bg-popover shadow-lg p-3 text-foreground">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-              Cost breakdown
+              {t('activity:cost.heading')}
             </span>
             <span className="font-mono tabular-nums text-sm font-semibold text-green-600 dark:text-green-400">
               {fmt$(cost)}
@@ -116,17 +118,17 @@ export function CostChip() {
             </div>
           ) : (
             <div className="text-[11px] text-muted-foreground italic mb-3 border-b pb-2">
-              No pricing for the current model — cost figures are zero.
+              {t('activity:cost.noPricing')}
             </div>
           )}
           {turns.length === 0 ? (
             <div className="text-xs text-muted-foreground italic">
-              No completed turns yet. Run a prompt to see per-turn cost here.
+              {t('activity:cost.noTurns')}
             </div>
           ) : (
             <>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1">
-                Top {turns.length} expensive turn{turns.length === 1 ? '' : 's'}
+                {t('activity:cost.topExpensive', { count: turns.length })}
               </div>
               <ul className="space-y-1">
                 {turns.map((t) => (

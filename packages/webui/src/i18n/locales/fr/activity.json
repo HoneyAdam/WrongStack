@@ -271,7 +271,10 @@
     "messagesTitle": "Messages : {{tokens}}",
     "system": "Système",
     "toolBreakdown": "Décomposition des outils",
-    "messagesSummary": "Messages ({{count}}) — {{total}} tok"
+    "messagesSummary": "Messages ({{count}}) — {{total}} tok",
+    "barWithTokens": "Fenêtre de contexte : {{tokens}} / {{max}} jetons ({{pct}})",
+    "barPct": "Fenêtre de contexte : {{pct}}",
+    "barClick": " — cliquez pour la répartition"
   },
   "refine": {
     "header": "✨ Affiner le prompt",
@@ -646,5 +649,20 @@
     "retry": "Réessayer",
     "retryTitle": "Réessayer la connexion maintenant",
     "dismissTitle": "Ignorer (la puce dans la barre supérieure affiche toujours le statut)"
+  },
+  "mode": {
+    "modePrefix": "mode :",
+    "activeTitle": "Mode actif",
+    "heading": "Mode",
+    "defaultName": "Par défaut",
+    "defaultDesc": "Comportement standard de l'agent"
+  },
+  "cost": {
+    "clickTitle": "Cliquez pour la répartition des coûts par tour",
+    "heading": "Répartition des coûts",
+    "noPricing": "Aucune tarification pour le modèle actuel — les valeurs de coût sont nulles.",
+    "noTurns": "Aucun tour terminé pour le moment. Lancez un prompt pour voir le coût par tour ici.",
+    "topExpensive_one": "Tour le plus cher",
+    "topExpensive_other": "Les {{count}} tours les plus chers"
   }
 }

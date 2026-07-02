@@ -1,5 +1,6 @@
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useSessionStore } from '@/stores';
 import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
  * page reload.
  */
 export function ModePicker() {
+  const { t } = useAppTranslation();
   const mode = useSessionStore((s) => s.mode);
   const modes = useSessionStore((s) => s.modes);
   const { listModes, switchMode } = useWebSocket();
@@ -45,7 +47,13 @@ export function ModePicker() {
   const items =
     modes.length > 0
       ? modes
-      : [{ id: 'default', name: 'Default', description: 'Standard agent behaviour' }];
+      : [
+          {
+            id: 'default',
+            name: t('activity:mode.defaultName'),
+            description: t('activity:mode.defaultDesc'),
+          },
+        ];
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -56,15 +64,15 @@ export function ModePicker() {
           'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
           'bg-accent/40 text-foreground hover:bg-accent transition-colors border border-transparent hover:border-primary/30',
         )}
-        title="Active mode"
+        title={t('activity:mode.activeTitle')}
       >
-        mode: <span className="font-mono">{mode || 'default'}</span>
+        {t('activity:mode.modePrefix')} <span className="font-mono">{mode || 'default'}</span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
       {open && (
         <div className="absolute top-full left-0 mt-1 w-64 rounded-md border bg-popover shadow-lg z-30 py-1">
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b">
-            Mode
+            {t('activity:mode.heading')}
           </div>
           {items.map((m) => (
             <button
