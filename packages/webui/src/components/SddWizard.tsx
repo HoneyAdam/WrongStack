@@ -19,6 +19,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { openMainView } from '@/lib/view-navigation';
 import { priorityStyle } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useSddWizardStore } from '@/stores';
 import { FallbackEditor } from './FallbackEditor';
 import { ModelPicker } from './ModelPicker';
@@ -26,13 +27,13 @@ import { type FlowTask, SddFlowGraph } from './SddFlowGraph';
 import { Button } from './ui/button';
 
 const PHASE_LABEL: Record<string, string> = {
-  idle: 'Start',
-  questioning: 'Interview',
-  spec_review: 'Spec Review',
-  implementation: 'Planning',
-  task_review: 'Task Review',
-  executing: 'Running',
-  done: 'Done',
+  idle: 'phaseStart',
+  questioning: 'phaseInterview',
+  spec_review: 'phaseSpecReview',
+  implementation: 'phasePlanning',
+  task_review: 'phaseTaskReview',
+  executing: 'phaseRunning',
+  done: 'phaseDone',
 };
 
 const PHASE_ORDER = ['questioning', 'spec_review', 'implementation', 'task_review', 'executing'];
@@ -44,6 +45,7 @@ const PHASE_ORDER = ['questioning', 'spec_review', 'implementation', 'task_revie
  * CLI's director-backed fleet or the runtime light factory respectively).
  */
 export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElement {
+  const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const snapshot = useSddWizardStore((s) => s.snapshot);
   const agentText = useSddWizardStore((s) => s.agentText);
@@ -117,9 +119,9 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
     send({ type: 'sdd.spec.start', payload: { goal: g } });
   };
   const sendReply = () => {
-    const t = reply.trim();
-    if (!t || busy) return;
-    send({ type: 'sdd.spec.message', payload: { text: t } });
+    const text = reply.trim();
+    if (!text || busy) return;
+    send({ type: 'sdd.spec.message', payload: { text } });
     setReply('');
   };
   const approve = () => !busy && send({ type: 'sdd.spec.approve', payload: {} });
@@ -159,13 +161,13 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-violet-400" />
           <div>
-            <h1 className="text-lg font-semibold">{snapshot?.title || 'New SDD Project'}</h1>
+            <h1 className="text-lg font-semibold">{snapshot?.title || t('activity:sddWizard.titleFallback')}</h1>
             {started && (
               <p className="text-xs text-muted-foreground">
-                {PHASE_LABEL[phase] ?? phase}
+                {t(`activity:sddWizard.${PHASE_LABEL[phase] ?? 'phaseStart'}`)}
                 {phase === 'questioning' &&
-                  ` · ${snapshot?.questionCount}/${snapshot?.maxQuestions} questions`}
-                {snapshot && snapshot.taskCount > 0 ? ` · ${snapshot.taskCount} tasks` : ''}
+                  ` · ${t('activity:sddWizard.questionsSuffix', { cur: snapshot?.questionCount ?? 0, max: snapshot?.maxQuestions ?? 0 })}`}
+                {snapshot && snapshot.taskCount > 0 ? ` · ${t('activity:sddWizard.tasksSuffix', { count: snapshot.taskCount })}` : ''}
               </p>
             )}
           </div>
@@ -177,7 +179,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
               <button
                 type="button"
                 onClick={() => setRunCfgOpen((o) => !o)}
-                title="Run config — default model + fallback chain"
+                title={t('activity:sddWizard.runCfgTitle')}
                 className={cn(
                   'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium',
                   runModel || runFallbacks.length
@@ -186,27 +188,27 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                 )}
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                {runModel ? runModel : 'Models'}
+                {runModel ? runModel : t('activity:sddWizard.modelsLabel')}
               </button>
               <button
                 type="button"
                 onClick={startRun}
                 className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
               >
-                <Rocket className="h-3.5 w-3.5" /> Start Run
+                <Rocket className="h-3.5 w-3.5" /> {t('activity:sddWizard.startRun')}
               </button>
 
               {runCfgOpen && (
                 <div className="sdd-rise absolute right-0 top-9 z-50 w-72 rounded-lg border border-border bg-popover p-3 shadow-xl">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Default worker model
+                    {t('activity:sddWizard.defaultWorkerModel')}
                   </div>
                   <ModelPicker
                     value={runModel}
                     provider={runProvider}
                     candidates={modelCandidates}
-                    placeholder="Leader / session default"
-                    resetLabel="Use session default"
+                    placeholder={t('activity:sddWizard.leaderDefaultPlaceholder')}
+                    resetLabel={t('activity:sddWizard.useSessionDefault')}
                     onPick={(model, provider) => {
                       setRunModel(model);
                       setRunProvider(provider);
@@ -221,7 +223,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                     }
                   />
                   <div className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Fallback chain
+                    {t('activity:sddWizard.fallbackChain')}
                   </div>
                   <FallbackEditor
                     value={runFallbacks}
@@ -229,14 +231,13 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                     onChange={setRunFallbacks}
                   />
                   <p className="mt-2 text-[10px] text-muted-foreground">
-                    Applies to every task. Override per-task from the live board after the run
-                    starts.
+                    {t('activity:sddWizard.appliesToAll')}
                   </p>
 
                   {/* Parallelism + isolation */}
                   <div className="mt-3 flex items-center justify-between gap-2">
                     <label htmlFor="sdd-slots" className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Parallel agents
+                      {t('activity:sddWizard.parallelAgents')}
                     </label>
                     <input
                       id="sdd-slots"
@@ -253,7 +254,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                   </div>
                   <label className="mt-2 flex cursor-pointer items-center justify-between gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Isolate in git worktrees
+                      {t('activity:sddWizard.isolateWorktrees')}
                     </span>
                     <input
                       type="checkbox"
@@ -264,8 +265,8 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                   </label>
                   <p className="mt-1 text-[10px] text-muted-foreground">
                     {runWorktrees
-                      ? 'Each task runs in its own worktree, squash-merged back on completion.'
-                      : 'Tasks run directly on the current branch (no isolation).'}
+                      ? t('activity:sddWizard.worktreeOn')
+                      : t('activity:sddWizard.worktreeOff')}
                   </p>
                 </div>
               )}
@@ -296,7 +297,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                   )}
                 >
                   {done && <Check className="mr-0.5 inline h-3 w-3" />}
-                  {PHASE_LABEL[p]}
+                  {t(`activity:sddWizard.${PHASE_LABEL[p]}`)}
                 </span>
                 {i < PHASE_ORDER.length - 1 && <span className="text-muted-foreground/40">→</span>}
               </span>
@@ -316,7 +317,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
           // ── Goal entry ──
           <div className="mx-auto mt-8 max-w-xl">
             <label className="mb-2 block text-sm font-medium" htmlFor="sdd-goal">
-              What do you want to build?
+              {t('activity:sddWizard.goalPrompt')}
             </label>
             <textarea
               id="sdd-goal"
@@ -326,24 +327,22 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) startGoal();
               }}
               rows={4}
-              placeholder="e.g. Add OAuth login (Google + GitHub) with session management"
+              placeholder={t('activity:sddWizard.goalPlaceholder')}
               className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-violet-500"
             />
             <Button className="mt-3" onClick={startGoal} disabled={!goal.trim() || submitting}>
               {submitting ? (
                 <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Starting interview…
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> {t('activity:sddWizard.startingInterview')}
                 </>
               ) : (
                 <>
-                  <Sparkles className="mr-1.5 h-4 w-4" /> Start Interview
+                  <Sparkles className="mr-1.5 h-4 w-4" /> {t('activity:sddWizard.startInterview')}
                 </>
               )}
             </Button>
             <p className="mt-3 text-xs text-muted-foreground">
-              An isolated agent interviews you to build a spec, decomposes it into a
-              dependency-ordered task graph, then a real multi-agent fleet executes it — watch live
-              on the board.
+              {t('activity:sddWizard.introBody')}
             </p>
           </div>
         ) : (
@@ -360,8 +359,8 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                 >
                   {graphOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   <Network className="h-3.5 w-3.5" />
-                  Task graph · {snapshot?.taskCount} tasks, dependency-ordered
-                  <span className="ml-auto text-slate-500">{graphOpen ? 'drag to explore' : 'show'}</span>
+                  {t('activity:sddWizard.taskGraphSummary', { count: snapshot?.taskCount ?? 0 })}
+                  <span className="ml-auto text-slate-500">{graphOpen ? t('activity:sddWizard.dragToExplore') : t('activity:sddWizard.show')}</span>
                 </button>
                 {graphOpen && (
                   <div className="h-[32dvh] min-h-[200px]">
@@ -377,7 +376,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
               {snapshot?.goal && (
                 <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                   <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Target className="h-3 w-3" /> Goal
+                    <Target className="h-3 w-3" /> {t('activity:sddWizard.goalLabel')}
                   </div>
                   <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
                     {snapshot.goal}
@@ -441,7 +440,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                     className="flex w-full items-center gap-1.5 border-b border-border/60 px-3 py-2 text-sm font-semibold hover:bg-muted/40"
                   >
                     {planOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                    <Sparkles className="h-3.5 w-3.5 text-violet-400" /> Implementation plan
+                    <Sparkles className="h-3.5 w-3.5 text-violet-400" /> {t('activity:sddWizard.implementationPlan')}
                   </button>
                   {planOpen && (
                     <div className="max-h-[40dvh] overflow-auto px-3 py-2">
@@ -468,10 +467,10 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                 <Button variant="secondary" onClick={approve} disabled={busy}>
                   <Check className="mr-1.5 h-4 w-4" />
                   {phase === 'spec_review'
-                    ? 'Approve spec → plan implementation'
+                    ? t('activity:sddWizard.approveSpec')
                     : phase === 'task_review'
-                      ? 'Approve tasks'
-                      : 'Approve plan'}
+                      ? t('activity:sddWizard.approveTasks')
+                      : t('activity:sddWizard.approvePlan')}
                 </Button>
               )}
               <div ref={bottomRef} />
@@ -493,7 +492,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
               }
             }}
             rows={1}
-            placeholder={phase === 'questioning' ? 'Answer the question…' : 'Request a change…'}
+            placeholder={phase === 'questioning' ? t('activity:sddWizard.answerPlaceholder') : t('activity:sddWizard.changePlaceholder')}
             disabled={busy}
             className="max-h-32 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-violet-500 disabled:opacity-50"
           />
