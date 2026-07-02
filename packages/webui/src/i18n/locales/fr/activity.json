@@ -284,5 +284,19 @@
     "hintEdit": "modifier",
     "edit": "Modifier",
     "useRefined": "Utiliser l'affiné"
+  },
+  "specs": {
+    "heading": "Spécifications",
+    "subtitle": "Afficher et gérer le développement piloté par les spécifications",
+    "empty": "Aucune spec trouvée. Utilisez {{command}} pour en créer une.",
+    "tasks": "Tâches ({{count}})",
+    "doneCount": "{{count}} terminée(s)",
+    "runningCount": "{{count}} en cours",
+    "pendingCount": "{{count}} en attente",
+    "runTitle": "Exécuter cette spec comme un tableau AutoPhase en direct",
+    "run": "Exécuter",
+    "list": "Liste",
+    "graph": "Graphe",
+    "loadingTasks": "Chargement des tâches…"
   }
 }

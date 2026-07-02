@@ -284,5 +284,19 @@
     "hintEdit": "bearbeiten",
     "edit": "Bearbeiten",
     "useRefined": "Verfeinerte verwenden"
+  },
+  "specs": {
+    "heading": "Spezifikationen",
+    "subtitle": "Spezifikationsgetriebene Entwicklung anzeigen und verwalten",
+    "empty": "Keine Specs gefunden. Mit {{command}} eine erstellen.",
+    "tasks": "Aufgaben ({{count}})",
+    "doneCount": "{{count}} erledigt",
+    "runningCount": "{{count}} läuft",
+    "pendingCount": "{{count}} ausstehend",
+    "runTitle": "Dieses Spec als Live-AutoPhase-Board ausführen",
+    "run": "Ausführen",
+    "list": "Liste",
+    "graph": "Graph",
+    "loadingTasks": "Aufgaben werden geladen…"
   }
 }

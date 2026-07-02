@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { openMainView } from '@/lib/view-navigation';
 import { useSpecsStore, type SpecDetail, type SpecListItem } from '@/stores';
@@ -32,6 +33,7 @@ function detailToPhases(detail: SpecDetail): unknown[] {
  */
 export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElement {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const specs = useSpecsStore((s) => s.specs);
   const detail = useSpecsStore((s) => s.detail);
   const expandedSpecId = useSpecsStore((s) => s.expandedSpecId);
@@ -82,9 +84,9 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
         <div className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-orange-500" />
           <div>
-            <h1 className="text-lg font-semibold">Specifications</h1>
+            <h1 className="text-lg font-semibold">{t('activity:specs.heading')}</h1>
             <p className="text-xs text-muted-foreground">
-              View and manage specification-driven development
+              {t('activity:specs.subtitle')}
             </p>
           </div>
         </div>
@@ -96,7 +98,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {specs.length === 0 ? (
           <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-            No specs found. Use <code className="mx-1 rounded bg-muted px-1">/sdd</code> to create one.
+            {t('activity:specs.empty', { command: '/sdd' })}
           </div>
         ) : (
           <div className="space-y-3">
@@ -142,12 +144,12 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
                       {/* Tasks header + List/Graph toggle */}
                       <div className="mb-3 flex items-center justify-between">
                         <div className="text-sm font-medium">
-                          Tasks ({detail?.total ?? spec.total})
+                          {t('activity:specs.tasks', { count: detail?.total ?? spec.total })}
                           {detail && (
                             <span className="ml-3 text-xs font-normal text-muted-foreground">
-                              <span className="text-emerald-500">{counts.done} done</span>{' '}
-                              <span className="text-sky-500">{counts.running} running</span>{' '}
-                              <span>{counts.pending} pending</span>
+                              <span className="text-emerald-500">{t('activity:specs.doneCount', { count: counts.done })}</span>{' '}
+                              <span className="text-sky-500">{t('activity:specs.runningCount', { count: counts.running })}</span>{' '}
+                              <span>{t('activity:specs.pendingCount', { count: counts.pending })}</span>
                             </span>
                           )}
                         </div>
@@ -156,10 +158,10 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
                           type="button"
                           disabled={!detail || detail.specId !== spec.id}
                           onClick={() => runSpec(spec)}
-                          title="Run this spec as a live AutoPhase board"
+                          title={t('activity:specs.runTitle')}
                           className="inline-flex items-center gap-1 rounded-md bg-orange-500/15 px-2.5 py-1 text-xs font-medium text-orange-500 transition-colors hover:bg-orange-500/25 disabled:opacity-40"
                         >
-                          <Play className="h-3.5 w-3.5" /> Run
+                          <Play className="h-3.5 w-3.5" /> {t('activity:specs.run')}
                         </button>
                         <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
                           <button
@@ -170,7 +172,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
                               mode === 'list' ? 'bg-primary/15 text-primary' : 'text-muted-foreground',
                             )}
                           >
-                            <LayoutList className="h-3.5 w-3.5" /> List
+                            <LayoutList className="h-3.5 w-3.5" /> {t('activity:specs.list')}
                           </button>
                           <button
                             type="button"
@@ -180,7 +182,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
                               mode === 'graph' ? 'bg-primary/15 text-primary' : 'text-muted-foreground',
                             )}
                           >
-                            <Network className="h-3.5 w-3.5" /> Graph
+                            <Network className="h-3.5 w-3.5" /> {t('activity:specs.graph')}
                           </button>
                         </div>
                         </div>
@@ -188,7 +190,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
 
                       {!detail || detail.specId !== spec.id ? (
                         <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                          Loading tasks…
+                          {t('activity:specs.loadingTasks')}
                         </div>
                       ) : mode === 'graph' ? (
                         <DependencyGraph columns={detail.columns} />

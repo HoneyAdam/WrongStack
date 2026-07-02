@@ -284,5 +284,19 @@
     "hintEdit": "düzenle",
     "edit": "Düzenle",
     "useRefined": "İyileştirilmişi Kullan"
+  },
+  "specs": {
+    "heading": "Spesifikasyonlar",
+    "subtitle": "Spesifikasyon güdümlü geliştirmeyi görüntüle ve yönet",
+    "empty": "Spesifikasyon bulunamadı. Oluşturmak için {{command}} kullanın.",
+    "tasks": "Görevler ({{count}})",
+    "doneCount": "{{count}} tamamlandı",
+    "runningCount": "{{count}} çalışıyor",
+    "pendingCount": "{{count}} bekliyor",
+    "runTitle": "Bu spesifikasyonu canlı bir AutoPhase panosu olarak çalıştır",
+    "run": "Çalıştır",
+    "list": "Liste",
+    "graph": "Graf",
+    "loadingTasks": "Görevler yükleniyor…"
   }
 }

@@ -284,5 +284,19 @@
     "hintEdit": "modifica",
     "edit": "Modifica",
     "useRefined": "Usa affinato"
+  },
+  "specs": {
+    "heading": "Specifiche",
+    "subtitle": "Visualizza e gestisci lo sviluppo guidato dalle specifiche",
+    "empty": "Nessuna spec trovata. Usa {{command}} per crearne una.",
+    "tasks": "Attività ({{count}})",
+    "doneCount": "{{count}} completate",
+    "runningCount": "{{count}} in corso",
+    "pendingCount": "{{count}} in attesa",
+    "runTitle": "Esegui questa spec come una bacheca AutoPhase live",
+    "run": "Esegui",
+    "list": "Lista",
+    "graph": "Grafo",
+    "loadingTasks": "Caricamento attività…"
   }
 }

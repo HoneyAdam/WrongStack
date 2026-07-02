@@ -284,5 +284,19 @@
     "hintEdit": "editar",
     "edit": "Editar",
     "useRefined": "Usar refinado"
+  },
+  "specs": {
+    "heading": "Especificações",
+    "subtitle": "Ver e gerenciar o desenvolvimento orientado por especificações",
+    "empty": "Nenhuma spec encontrada. Use {{command}} para criar uma.",
+    "tasks": "Tarefas ({{count}})",
+    "doneCount": "{{count}} concluídas",
+    "runningCount": "{{count}} em execução",
+    "pendingCount": "{{count}} pendentes",
+    "runTitle": "Executar esta spec como um painel AutoPhase ao vivo",
+    "run": "Executar",
+    "list": "Lista",
+    "graph": "Grafo",
+    "loadingTasks": "Carregando tarefas…"
   }
 }

@@ -284,5 +284,19 @@
     "hintEdit": "edit",
     "edit": "Edit",
     "useRefined": "Use Refined"
+  },
+  "specs": {
+    "heading": "Specifications",
+    "subtitle": "View and manage specification-driven development",
+    "empty": "No specs found. Use {{command}} to create one.",
+    "tasks": "Tasks ({{count}})",
+    "doneCount": "{{count}} done",
+    "runningCount": "{{count}} running",
+    "pendingCount": "{{count}} pending",
+    "runTitle": "Run this spec as a live AutoPhase board",
+    "run": "Run",
+    "list": "List",
+    "graph": "Graph",
+    "loadingTasks": "Loading tasks…"
   }
 }
