@@ -467,5 +467,17 @@
     "interruptReason": "Operatör Fleet HQ'dan durdurma istedi",
     "interruptSent": "Kesme gönderildi — vekil bir sonraki adımda durur (öldürme değil)",
     "interruptFailed": "Kesme başarısız: {{error}}"
+  },
+  "sideEffects": {
+    "empty": "Henüz kayıtlı yan etki yok.",
+    "emptyHint": "Bash komutları, paket kurulumları ve ağ istekleri burada görünür.",
+    "heading": "Yan Etkiler",
+    "exportTitle": "Filtrelenmiş yan etkileri CSV olarak dışa aktar",
+    "all": "Tümü",
+    "colTime": "Zaman",
+    "colTool": "Araç",
+    "colRisk": "Risk",
+    "colDetail": "Detay",
+    "colOutcome": "Sonuç"
   }
 }

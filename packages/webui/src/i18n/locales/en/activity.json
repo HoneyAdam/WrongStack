@@ -467,5 +467,17 @@
     "interruptReason": "Operator requested stop from Fleet HQ",
     "interruptSent": "Interrupt sent — agent stops at its next step (not a kill)",
     "interruptFailed": "Interrupt failed: {{error}}"
+  },
+  "sideEffects": {
+    "empty": "No side effects recorded yet.",
+    "emptyHint": "Bash commands, package installs, and network requests will appear here.",
+    "heading": "Side Effects",
+    "exportTitle": "Export filtered side effects as CSV",
+    "all": "All",
+    "colTime": "Time",
+    "colTool": "Tool",
+    "colRisk": "Risk",
+    "colDetail": "Detail",
+    "colOutcome": "Outcome"
   }
 }

@@ -467,5 +467,17 @@
     "interruptReason": "L'opérateur a demandé l'arrêt depuis Fleet HQ",
     "interruptSent": "Interruption envoyée — l'agent s'arrête à la prochaine étape (pas un kill)",
     "interruptFailed": "Échec de l'interruption : {{error}}"
+  },
+  "sideEffects": {
+    "empty": "Aucun effet de bord enregistré pour le moment.",
+    "emptyHint": "Les commandes bash, installations de paquets et requêtes réseau apparaîtront ici.",
+    "heading": "Effets de bord",
+    "exportTitle": "Exporter les effets de bord filtrés en CSV",
+    "all": "Tous",
+    "colTime": "Heure",
+    "colTool": "Outil",
+    "colRisk": "Risque",
+    "colDetail": "Détail",
+    "colOutcome": "Résultat"
   }
 }

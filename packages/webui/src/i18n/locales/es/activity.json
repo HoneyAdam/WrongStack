@@ -467,5 +467,17 @@
     "interruptReason": "El operador solicitó la detención desde Fleet HQ",
     "interruptSent": "Interrupción enviada — el agente se detiene en su próximo paso (no es un kill)",
     "interruptFailed": "Interrupción fallida: {{error}}"
+  },
+  "sideEffects": {
+    "empty": "Aún no se han registrado efectos secundarios.",
+    "emptyHint": "Los comandos bash, las instalaciones de paquetes y las solicitudes de red aparecerán aquí.",
+    "heading": "Efectos secundarios",
+    "exportTitle": "Exportar los efectos secundarios filtrados como CSV",
+    "all": "Todos",
+    "colTime": "Hora",
+    "colTool": "Herramienta",
+    "colRisk": "Riesgo",
+    "colDetail": "Detalle",
+    "colOutcome": "Resultado"
   }
 }

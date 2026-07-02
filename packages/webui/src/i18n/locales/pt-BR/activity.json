@@ -467,5 +467,17 @@
     "interruptReason": "O operador solicitou a parada pelo Fleet HQ",
     "interruptSent": "Interrupção enviada — o agente para no próximo passo (não é um kill)",
     "interruptFailed": "Interrupção falhou: {{error}}"
+  },
+  "sideEffects": {
+    "empty": "Nenhum efeito colateral registrado ainda.",
+    "emptyHint": "Comandos bash, instalações de pacotes e requisições de rede aparecerão aqui.",
+    "heading": "Efeitos colaterais",
+    "exportTitle": "Exportar efeitos colaterais filtrados como CSV",
+    "all": "Todos",
+    "colTime": "Hora",
+    "colTool": "Ferramenta",
+    "colRisk": "Risco",
+    "colDetail": "Detalhe",
+    "colOutcome": "Resultado"
   }
 }

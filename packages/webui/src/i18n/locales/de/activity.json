@@ -467,5 +467,17 @@
     "interruptReason": "Operator hat Stopp aus Fleet HQ angefordert",
     "interruptSent": "Unterbrechung gesendet — Agent stoppt beim nächsten Schritt (kein Kill)",
     "interruptFailed": "Unterbrechung fehlgeschlagen: {{error}}"
+  },
+  "sideEffects": {
+    "empty": "Noch keine Seiteneffekte aufgezeichnet.",
+    "emptyHint": "Bash-Befehle, Paketinstallationen und Netzwerkanfragen erscheinen hier.",
+    "heading": "Seiteneffekte",
+    "exportTitle": "Gefilterte Seiteneffekte als CSV exportieren",
+    "all": "Alle",
+    "colTime": "Zeit",
+    "colTool": "Tool",
+    "colRisk": "Risiko",
+    "colDetail": "Detail",
+    "colOutcome": "Ergebnis"
   }
 }

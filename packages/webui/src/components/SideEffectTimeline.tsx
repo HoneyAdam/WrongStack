@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { Activity, RefreshCw, Terminal, Package, Globe, ChevronUp, ChevronDown, Download } from 'lucide-react';
 import { useSideEffectStore } from '@/stores';
 import type { SideEffectEntry } from '@/stores';
@@ -89,6 +90,7 @@ function exportCSV(entries: SideEffectEntry[]): void {
 export function SideEffectTimeline() {
   const sideEffects = useSideEffectStore((s) => s.sideEffects);
   const loading = useSideEffectStore((s) => s.loading);
+  const { t } = useAppTranslation();
 
   const [riskFilter, setRiskFilter] = useState<RiskFilter>('all');
   const [sortKey, setSortKey] = useState<SortKey>('time');
@@ -137,9 +139,9 @@ export function SideEffectTimeline() {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-8 text-zinc-500">
         <Activity className="h-8 w-8 opacity-40" />
-        <p className="text-sm">No side effects recorded yet.</p>
+        <p className="text-sm">{t('activity:sideEffects.empty')}</p>
         <p className="text-xs text-zinc-600">
-          Bash commands, package installs, and network requests will appear here.
+          {t('activity:sideEffects.emptyHint')}
         </p>
       </div>
     );
@@ -155,14 +157,14 @@ export function SideEffectTimeline() {
       {/* Header: title + refresh */}
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-          Side Effects ({filtered.length}{riskFilter !== 'all' ? `/${sideEffects.length}` : ''})
+          {t('activity:sideEffects.heading')} ({filtered.length}{riskFilter !== 'all' ? `/${sideEffects.length}` : ''})
         </h3>
         <div className="flex items-center gap-1">
           <button
             onClick={() => exportCSV(filtered)}
             disabled={filtered.length === 0}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Export filtered side effects as CSV"
+            title={t('activity:sideEffects.exportTitle')}
           >
             <Download className="h-3 w-3" />
             CSV
@@ -172,7 +174,7 @@ export function SideEffectTimeline() {
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
           >
             <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
-            Refresh
+            {t('common:action.refresh')}
           </button>
         </div>
       </div>
@@ -190,7 +192,7 @@ export function SideEffectTimeline() {
                 : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400',
             )}
           >
-            {risk === 'all' ? 'All' : risk}
+            {risk === 'all' ? t('activity:sideEffects.all') : risk}
           </button>
         ))}
       </div>
@@ -204,22 +206,22 @@ export function SideEffectTimeline() {
                 className="cursor-pointer select-none px-2 py-1 text-left font-medium hover:text-zinc-300"
                 onClick={() => toggleSort('time')}
               >
-                Time <SortIcon column="time" />
+                {t('activity:sideEffects.colTime')} <SortIcon column="time" />
               </th>
               <th
                 className="cursor-pointer select-none px-2 py-1 text-left font-medium hover:text-zinc-300"
                 onClick={() => toggleSort('tool')}
               >
-                Tool <SortIcon column="tool" />
+                {t('activity:sideEffects.colTool')} <SortIcon column="tool" />
               </th>
               <th
                 className="cursor-pointer select-none px-2 py-1 text-left font-medium hover:text-zinc-300"
                 onClick={() => toggleSort('risk')}
               >
-                Risk <SortIcon column="risk" />
+                {t('activity:sideEffects.colRisk')} <SortIcon column="risk" />
               </th>
-              <th className="px-2 py-1 text-left font-medium">Detail</th>
-              <th className="px-2 py-1 text-left font-medium">Outcome</th>
+              <th className="px-2 py-1 text-left font-medium">{t('activity:sideEffects.colDetail')}</th>
+              <th className="px-2 py-1 text-left font-medium">{t('activity:sideEffects.colOutcome')}</th>
             </tr>
           </thead>
           <tbody>

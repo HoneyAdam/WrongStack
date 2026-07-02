@@ -467,5 +467,17 @@
     "interruptReason": "L'operatore ha richiesto l'arresto da Fleet HQ",
     "interruptSent": "Interruzione inviata — l'agente si ferma al prossimo passo (non un kill)",
     "interruptFailed": "Interruzione non riuscita: {{error}}"
+  },
+  "sideEffects": {
+    "empty": "Nessun effetto collaterale registrato ancora.",
+    "emptyHint": "I comandi bash, le installazioni di pacchetti e le richieste di rete appariranno qui.",
+    "heading": "Effetti collaterali",
+    "exportTitle": "Esporta gli effetti collaterali filtrati come CSV",
+    "all": "Tutti",
+    "colTime": "Ora",
+    "colTool": "Strumento",
+    "colRisk": "Rischio",
+    "colDetail": "Dettaglio",
+    "colOutcome": "Esito"
   }
 }
