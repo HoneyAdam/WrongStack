@@ -10,13 +10,21 @@ import type {
   SlashCommandRegistry,
   TokenCounter,
 } from '@wrongstack/core';
-import { writeErr, type AutonomyStage, GlobalMailbox, createHqPublisherFromEnv, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
+import {
+  writeErr,
+  type AutonomyStage,
+  GlobalMailbox,
+  createHqPublisherFromEnv,
+  resolveProjectDir,
+  wstackGlobalRoot,
+} from '@wrongstack/core';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import { render } from 'ink';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import React from 'react';
 import { App } from './app.js';
+import type { PluginPickerItem } from './components/plugin-picker.js';
 import type { StatuslineItem } from './components/statusline-picker.js';
 import { MOUSE_OFF } from './mouse.js';
 import { startTerminalTitle } from './terminal-title.js';
@@ -85,9 +93,9 @@ export interface RunTuiOptions {
    * Returns an unsubscribe function. TUI uses this to render each
    * iteration as a live timeline entry as it lands.
    */
-  subscribeEternalIteration?: ((
-    fn: (entry: import('@wrongstack/core').JournalEntry) => void,
-  ) => () => void) | undefined;
+  subscribeEternalIteration?:
+    | ((fn: (entry: import('@wrongstack/core').JournalEntry) => void) => () => void)
+    | undefined;
   /**
    * Subscribe to per-iteration stage transitions from the autonomy engines.
    * TUI uses this to render live status in the status bar.
@@ -102,15 +110,17 @@ export interface RunTuiOptions {
   /** Last 3 chars of the active API key — shown in the banner for visual key-pick verification. */
   keyTail?: string | undefined;
   /** Snapshot of keyed providers + their model lists for the `/model` picker. Async — the catalog fetch may need to hit disk/network. */
-  getPickableProviders?: (() => Promise<import('./components/model-picker.js').ProviderOption[]>) | undefined;
+  getPickableProviders?:
+    | (() => Promise<import('./components/model-picker.js').ProviderOption[]>)
+    | undefined;
   /** Apply a (provider, model) pair after the picker confirms. Returns an error string on failure. */
   switchProviderAndModel?:
     | ((providerId: string, modelId: string) => string | null | Promise<string | null>)
     | undefined;
   /** Apply an autonomy mode after the picker confirms. Returns an error string on failure. */
-  switchAutonomy?: ((
-    mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel',
-  ) => string | null) | undefined;
+  switchAutonomy?:
+    | ((mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => string | null)
+    | undefined;
   /**
    * Model-specific maxContext (tokens), resolved by the CLI via the
    * ModelsRegistry. When omitted, the TUI falls back to the provider
@@ -156,24 +166,30 @@ export interface RunTuiOptions {
    * @wrongstack/providers. On App unmount, the default stderr callback
    * is restored.
    */
-  registerDebugStreamCallback?: ((cb: (stats: {
-    chunkCount: number;
-    lastChunkSize: number;
-    lastDeltaMs: number;
-    totalBytes: number;
-    lastChunkAt: string;
-  }) => void) => void) | undefined;
+  registerDebugStreamCallback?:
+    | ((
+        cb: (stats: {
+          chunkCount: number;
+          lastChunkSize: number;
+          lastDeltaMs: number;
+          totalBytes: number;
+          lastChunkAt: string;
+        }) => void,
+      ) => void)
+    | undefined;
   /** Called on App unmount — restores the default stderr debug-stream callback. */
   restoreDebugStreamCallback?: (() => void) | undefined;
   /** Called from /clear so the TUI can wipe its history entries while agent.ctx + memory are cleared separately. */
-  onClearHistory?: ((
-    dispatch: React.Dispatch<
-      | { type: 'clearHistory' }
-      | { type: 'resetContextChip' }
-      | { type: 'streamReset' }
-      | { type: 'toolStreamClear' }
-    >,
-  ) => void) | undefined;
+  onClearHistory?:
+    | ((
+        dispatch: React.Dispatch<
+          | { type: 'clearHistory' }
+          | { type: 'resetContextChip' }
+          | { type: 'streamReset' }
+          | { type: 'toolStreamClear' }
+        >,
+      ) => void)
+    | undefined;
 
   // --- Fleet surface (director mode) ---
 
@@ -201,10 +217,12 @@ export interface RunTuiOptions {
    * the App installs a dispatch-backed `setEnabled` here on mount so
    * both sides stay synchronized.
    */
-  fleetStreamController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  } | undefined;
+  fleetStreamController?:
+    | {
+        enabled: boolean;
+        setEnabled: (enabled: boolean) => void;
+      }
+    | undefined;
   /**
    * Controller for the `/interrupt` slash command. The App installs the real
    * `abortLeader` on mount so the command can abort the in-flight leader run.
@@ -220,10 +238,12 @@ export interface RunTuiOptions {
    * (run in the CLI process) flips the TUI's reducer flag. Mirrors
    * `fleetStreamController`.
    */
-  enhanceController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  } | undefined;
+  enhanceController?:
+    | {
+        enabled: boolean;
+        setEnabled: (enabled: boolean) => void;
+      }
+    | undefined;
   /**
    * Controller for status bar hidden items. App installs a dispatch-backed
    * setter on mount so the /statusline slash command can update the TUI's
@@ -243,10 +263,12 @@ export interface RunTuiOptions {
    * setter on mount so the `/agents on|off` slash command can toggle the
    * overlay without a round-trip.
    */
-  agentsMonitorController?: {
-    visible: boolean;
-    setVisible: (visible: boolean) => void;
-  } | undefined;
+  agentsMonitorController?:
+    | {
+        visible: boolean;
+        setVisible: (visible: boolean) => void;
+      }
+    | undefined;
   /**
    * Mutable ref for opening TUI panels from slash commands. The slash commands
    * call `onPanelOpen.current(action)` to open panels. The App sets
@@ -293,7 +315,9 @@ export interface RunTuiOptions {
    * Returns an unsubscribe function. The TUI uses this to drive the
    * PhaseMonitor and PhasePanel live views via dispatch actions.
    */
-  subscribeAutoPhase?: ((handler: (event: string, payload: unknown) => void) => () => void) | undefined;
+  subscribeAutoPhase?:
+    | ((handler: (event: string, payload: unknown) => void) => () => void)
+    | undefined;
   /**
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
@@ -303,19 +327,27 @@ export interface RunTuiOptions {
    * Persist settings changes. Returns null on success, or an
    * error string on failure (so the TUI can display it as a hint).
    */
-  saveSettings?: ((s: import('./app-state.js').Settings) =>
-    | string
-    | null
-    | Promise<string | null>) | undefined;
+  saveSettings?:
+    | ((s: import('./app-state.js').Settings) => string | null | Promise<string | null>)
+    | undefined;
+  /** Load toggleable plugin rows for the interactive plugin picker. */
+  getPluginItems?: (() => PluginPickerItem[]) | undefined;
+  /** Toggle one plugin from the interactive picker and return refreshed rows. */
+  onPluginToggle?:
+    | ((name: string) => Promise<{
+        items: PluginPickerItem[];
+        message?: string | undefined;
+        error?: string | undefined;
+      }>)
+    | undefined;
   /**
    * Predict likely next steps after a completed turn. The CLI wires this from
    * the session provider and the `/next` toggle; it returns [] when prediction
    * is disabled or autonomy isn't 'off'. Display-only — never executed.
    */
-  predictNext?: ((input: {
-    userRequest: string;
-    assistantSummary: string;
-  }) => Promise<string[]>) | undefined;
+  predictNext?:
+    | ((input: { userRequest: string; assistantSummary: string }) => Promise<string[]>)
+    | undefined;
   /**
    * Called after each agent turn with the assistant's final output text.
    * The host parses "💡 Next steps" suggestions from the text and stores
@@ -353,35 +385,43 @@ export interface RunTuiOptions {
    * Used to render tool entries (name, duration, ok/error) in the TUI on
    * resume. Events are `tool_call_end` records from the session JSONL.
    */
-  restoredToolCalls?: Array<{
-    name: string;
-    id: string;
-    durationMs: number;
-    ok: boolean;
-    outputBytes?: number | undefined;
-    outputTokens?: number | undefined;
-    outputLines?: number | undefined;
-  }> | undefined;
+  restoredToolCalls?:
+    | Array<{
+        name: string;
+        id: string;
+        durationMs: number;
+        ok: boolean;
+        outputBytes?: number | undefined;
+        outputTokens?: number | undefined;
+        outputLines?: number | undefined;
+      }>
+    | undefined;
 
   /**
    * List recent session summaries for the /resume picker. The CLI reads
    * from the session store and returns ResumeSessionEntry-shaped data.
    */
-  listSessions?: ((limit?: number) => Promise<import('./app-state.js').ResumeSessionEntry[]>) | undefined;
+  listSessions?:
+    | ((limit?: number) => Promise<import('./app-state.js').ResumeSessionEntry[]>)
+    | undefined;
 
   /**
    * Resume a session by id: load JSONL events, replay history entries,
    * rebuild agent context, and return hydrated entries for the TUI to
    * display. Returns null when resume fails.
    */
-  onResumeSession?: ((sessionId: string) => Promise<{
-    entries: import('./components/history/types.js').HistoryEntry[];
-    nextId: number;
-    sessionId: string;
-  } | null>) | undefined;
+  onResumeSession?:
+    | ((sessionId: string) => Promise<{
+        entries: import('./components/history/types.js').HistoryEntry[];
+        nextId: number;
+        sessionId: string;
+      } | null>)
+    | undefined;
 
   // --- Project / Session switching ---
-  getProjectPickerItems?: (() => Promise<import('./components/project-picker.js').ProjectPickerItem[]>) | undefined;
+  getProjectPickerItems?:
+    | (() => Promise<import('./components/project-picker.js').ProjectPickerItem[]>)
+    | undefined;
   onProjectSelect?: ((key: string, kind: 'project' | 'action') => void) | undefined;
   /**
    * Request the TUI to exit with a specific code. Used by the project picker
@@ -390,8 +430,12 @@ export interface RunTuiOptions {
    * actual project switch.
    */
   requestExit?: (code: number) => void;
-  getLiveSessions?: (() => Promise<import('./components/sessions-panel.js').LiveSessionEntry[]>) | undefined;
-  onSwitchToSession?: ((sessionId: string, projectRoot: string, projectName: string) => void) | undefined;
+  getLiveSessions?:
+    | (() => Promise<import('./components/sessions-panel.js').LiveSessionEntry[]>)
+    | undefined;
+  onSwitchToSession?:
+    | ((sessionId: string, projectRoot: string, projectName: string) => void)
+    | undefined;
   /**
    * When true, the agents monitor (F3) is open by default at TUI startup.
    * Used by the `wrongstack quick` command to show agents panel immediately.
@@ -428,19 +472,25 @@ export interface RunTuiOptions {
   /** Stop the AutonomousCoordinator loop. */
   onCoordinatorStop?: (() => void) | undefined;
   /** List pending coordinator tasks claimable by this terminal. */
-  onCoordinatorTasks?: (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>) | undefined;
+  onCoordinatorTasks?:
+    | (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>)
+    | undefined;
   /** Claim a coordinator task. Returns description on success. */
-  onCoordinatorClaim?: ((taskId: string) => Promise<string | null | { description: string }>) | undefined;
+  onCoordinatorClaim?:
+    | ((taskId: string) => Promise<string | null | { description: string }>)
+    | undefined;
   /** Mark a claimed task as completed. */
   onCoordinatorComplete?: ((taskId: string, result?: string) => Promise<string | null>) | undefined;
   /** Mark a claimed task as failed. */
   onCoordinatorFail?: ((taskId: string, error: string) => Promise<string | null>) | undefined;
   /** Get coordinator stats for status display. */
-  onCoordinatorStatus?: (() => Promise<{
-    goals: { total: number; done: number; pending: number; failed: number };
-    dag: { running: number; ready: number; done: number; failed: number };
-    auction: { pending: number; inProgress: number };
-  } | null>) | undefined;
+  onCoordinatorStatus?:
+    | (() => Promise<{
+        goals: { total: number; done: number; pending: number; failed: number };
+        dag: { running: number; ready: number; done: number; failed: number };
+        auction: { pending: number; inProgress: number };
+      } | null>)
+    | undefined;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -482,7 +532,11 @@ const origConsoleTrace = console.trace;
 const origStderrWrite = process.stderr.write.bind(process.stderr);
 
 const consoleNoop = (..._args: unknown[]): void => {};
-const stderrNoop = ((_chunk: string | Uint8Array, _encodingOrCb?: BufferEncoding | ((err?: Error) => void), _cb?: (err?: Error) => void): boolean => {
+const stderrNoop = ((
+  _chunk: string | Uint8Array,
+  _encodingOrCb?: BufferEncoding | ((err?: Error) => void),
+  _cb?: (err?: Error) => void,
+): boolean => {
   // Preserve Node's callback contract so callers that pass a cb don't hang.
   // process.stderr.write has two overloads:
   //   write(buffer, cb?)          → second arg is a callback
@@ -720,7 +774,12 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     if (!opts.projectRoot) return null;
     try {
       const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
-      const hqPublisher = createHqPublisherFromEnv({ clientKind: 'tui', projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot), appConfig: opts.appConfig } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
+      const hqPublisher = createHqPublisherFromEnv({
+        clientKind: 'tui',
+        projectRoot: opts.projectRoot,
+        projectName: path.basename(opts.projectRoot),
+        appConfig: opts.appConfig,
+      } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
       hqPublisher?.connect();
       const mailbox = new GlobalMailbox(projectDir, opts.events, hqPublisher);
       // Unique per-process: tui@<uuid>
@@ -735,9 +794,11 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
 
       // Heartbeat to keep registration alive
       clientHeartbeatTimer = setInterval(() => {
-        mailbox.clientHeartbeat({ clientId, sessionId: opts.getSessionId?.() ?? opts.projectRoot }).catch(() => {
-          // best-effort — ignore heartbeat failures during shutdown
-        });
+        mailbox
+          .clientHeartbeat({ clientId, sessionId: opts.getSessionId?.() ?? opts.projectRoot })
+          .catch(() => {
+            // best-effort — ignore heartbeat failures during shutdown
+          });
       }, CLIENT_HEARTBEAT_MS);
       clientHeartbeatTimer.unref();
 
@@ -759,8 +820,12 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
         }
       };
       // First sync after 5s (give other clients time to register), then every CLIENT_SYNC_MS
-      setTimeout(() => { void syncClients(); }, 5_000);
-      clientSyncTimer = setInterval(() => { void syncClients(); }, CLIENT_SYNC_MS);
+      setTimeout(() => {
+        void syncClients();
+      }, 5_000);
+      clientSyncTimer = setInterval(() => {
+        void syncClients();
+      }, CLIENT_SYNC_MS);
       clientSyncTimer.unref();
 
       return clientId;
@@ -899,6 +964,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           projectRoot: opts.projectRoot,
           getSettings: opts.getSettings,
           saveSettings: opts.saveSettings,
+          getPluginItems: opts.getPluginItems,
+          onPluginToggle: opts.onPluginToggle,
           predictNext: opts.predictNext,
           onSuggestionsParsed: opts.onSuggestionsParsed,
           getSuggestions: opts.getSuggestions,

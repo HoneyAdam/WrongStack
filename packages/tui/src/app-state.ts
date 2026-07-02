@@ -1,6 +1,12 @@
 // State, Action, and supporting types extracted from app-reducer.ts.
 // This file has NO React or Ink dependencies — pure type definitions.
-import type { AutonomyStage, ContentBlock, DesignKitEntry, SddBoardSnapshot, TokenSavingTier } from '@wrongstack/core';
+import type {
+  AutonomyStage,
+  ContentBlock,
+  DesignKitEntry,
+  SddBoardSnapshot,
+  TokenSavingTier,
+} from '@wrongstack/core';
 import type { AutonomyOption } from './components/autonomy-picker.js';
 import type { HistoryEntry } from './components/history.js';
 import type { ProviderOption } from './components/model-picker.js';
@@ -17,6 +23,7 @@ import type {
 } from './components/settings-picker.js';
 import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
 import type { ProjectPickerItem } from './components/project-picker.js';
+import type { PluginPickerItem } from './components/plugin-picker.js';
 import type { PromptPickEntry } from './components/prompt-picker.js';
 import type { SendMode } from './components/send-mode-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
@@ -205,13 +212,15 @@ export type State = {
     risk: 'low' | 'medium' | 'high' | 'critical';
     question: string;
     context?: string | undefined;
-    options?: Array<{
-      id: string;
-      label: string;
-      risk?: string | undefined;
-      consequence?: string | undefined;
-      recommended?: boolean | undefined;
-    }> | undefined;
+    options?:
+      | Array<{
+          id: string;
+          label: string;
+          risk?: string | undefined;
+          consequence?: string | undefined;
+          recommended?: boolean | undefined;
+        }>
+      | undefined;
   } | null;
   nextId: number;
   picker: { open: boolean; query: string; matches: string[]; selected: number };
@@ -375,6 +384,14 @@ export type State = {
     visibleChips: ChipMeta[];
     hint?: string | undefined;
   };
+  /** Plugin toggle editor — opened by `/plugin menu` or `/settings plugins`. */
+  pluginPicker: {
+    open: boolean;
+    items: PluginPickerItem[];
+    selected: number;
+    busy: boolean;
+    hint?: string | undefined;
+  };
   /** Project switcher panel — opened by F1 or `/project`. */
   projectPicker: {
     open: boolean;
@@ -459,7 +476,12 @@ export type State = {
   leader: {
     iterations: number;
     toolCalls: number;
-    recentTools: Array<{ name: string; ok?: boolean | undefined; durationMs?: number | undefined; at: number }>;
+    recentTools: Array<{
+      name: string;
+      ok?: boolean | undefined;
+      durationMs?: number | undefined;
+      at: number;
+    }>;
     currentTool?: { name: string; startedAt: number } | undefined;
     startedAt: number;
     lastEventAt: number;
@@ -575,7 +597,9 @@ export type State = {
         totalTasks: number;
         startedAt?: number | undefined;
         /** Tasks currently executing in this phase, with the agent on each. */
-        activeTasks?: Array<{ taskId: string; title: string; agent?: string | undefined }> | undefined;
+        activeTasks?:
+          | Array<{ taskId: string; title: string; agent?: string | undefined }>
+          | undefined;
       }
     >;
     /** Active phase IDs (running phases). */
@@ -801,7 +825,12 @@ export type Action =
   | { type: 'designPickerClose' }
   | { type: 'designPickerMove'; delta: number }
   | { type: 'designPickerStack'; stack: string }
-  | { type: 'promptPickerOpen'; all: PromptPickEntry[]; categories: string[]; recentSlugs: string[] }
+  | {
+      type: 'promptPickerOpen';
+      all: PromptPickEntry[];
+      categories: string[];
+      recentSlugs: string[];
+    }
   | { type: 'promptPickerClose' }
   | { type: 'promptPickerMove'; delta: number }
   | { type: 'promptPickerCategory'; delta: number }
@@ -906,6 +935,12 @@ export type Action =
    * Replaces the entire visibleChips array.
    */
   | { type: 'statuslineVisibleChipsSync'; visibleChips: ChipMeta[] }
+  | { type: 'pluginPickerOpen'; items?: PluginPickerItem[] | undefined }
+  | { type: 'pluginPickerClose' }
+  | { type: 'pluginPickerMove'; delta: number }
+  | { type: 'pluginPickerSetItems'; items: PluginPickerItem[] }
+  | { type: 'pluginPickerBusy'; busy: boolean }
+  | { type: 'pluginPickerHint'; text?: string | undefined }
   | { type: 'projectPickerOpen'; items: ProjectPickerItem[] }
   | { type: 'projectPickerClose' }
   | { type: 'projectPickerMove'; delta: number }
@@ -1016,7 +1051,12 @@ export type Action =
   | { type: 'leaderIterStart' }
   | { type: 'leaderIterEnd' }
   | { type: 'leaderToolStart'; name: string }
-  | { type: 'leaderToolEnd'; name: string; ok?: boolean | undefined; durationMs?: number | undefined }
+  | {
+      type: 'leaderToolEnd';
+      name: string;
+      ok?: boolean | undefined;
+      durationMs?: number | undefined;
+    }
   | { type: 'leaderCtxPct'; load: number; tokens: number; maxContext: number }
   | { type: 'setStreamFleet'; enabled: boolean }
   | { type: 'toggleMonitor' }
@@ -1130,7 +1170,10 @@ export type Action =
   | { type: 'togglePlanPanel' }
   | { type: 'toggleGoalPanel' }
   | { type: 'toggleSessionsPanel' }
-  | { type: 'sessionsPanelSet'; sessions: import('./components/sessions-panel.js').LiveSessionEntry[] }
+  | {
+      type: 'sessionsPanelSet';
+      sessions: import('./components/sessions-panel.js').LiveSessionEntry[];
+    }
   | { type: 'sessionsPanelMove'; delta: number }
   | { type: 'sessionsPanelBusy'; on: boolean }
   | { type: 'sessionResumeConfirmSet'; sessionId: string; sessionName: string }

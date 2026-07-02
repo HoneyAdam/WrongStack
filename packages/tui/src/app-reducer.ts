@@ -33,7 +33,13 @@ import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinki
 import type { Action, QueueItem, State } from './app-state.js';
 import { SEND_MODE_OPTIONS, nextSendModeIndex } from './components/send-mode-picker.js';
 
-import { closePanels, pruneToolInput, firstSelectable, skipDivider, MAX_TOOL_STREAM_RETAINED_CHARS } from './reducers/helpers.js';
+import {
+  closePanels,
+  pruneToolInput,
+  firstSelectable,
+  skipDivider,
+  MAX_TOOL_STREAM_RETAINED_CHARS,
+} from './reducers/helpers.js';
 import { reduceFleetState } from './reducers/fleet.js';
 
 // Re-export extracted functions for backward compatibility.
@@ -52,8 +58,6 @@ export type {
   SlashCommandMatch,
   State,
 } from './app-state.js';
-
-
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -578,7 +582,8 @@ export function reducer(state: State, action: Action): State {
           // while a non-zero persisted value (loaded from disk) takes
           // priority on a fresh open.
           field: action.lastSettingsField || state.settingsPicker.lastSettingsField || 0,
-          lastSettingsField: action.lastSettingsField || state.settingsPicker.lastSettingsField || 0,
+          lastSettingsField:
+            action.lastSettingsField || state.settingsPicker.lastSettingsField || 0,
           mode: action.mode,
           delayMs: action.delayMs,
           titleAnimation: action.titleAnimation,
@@ -654,7 +659,12 @@ export function reducer(state: State, action: Action): State {
       // even if the picker is closed before the auto-save effect fires.
       return {
         ...state,
-        settingsPicker: { ...state.settingsPicker, field, lastSettingsField: field, hint: undefined },
+        settingsPicker: {
+          ...state.settingsPicker,
+          field,
+          lastSettingsField: field,
+          hint: undefined,
+        },
       };
     }
     case 'settingsFilterSet':
@@ -1080,7 +1090,12 @@ export function reducer(state: State, action: Action): State {
       if (raw.length === 0) {
         return {
           ...state,
-          settingsPicker: { ...sp, thinkingWordEditing: false, thinkingWordDraft: '', hint: undefined },
+          settingsPicker: {
+            ...sp,
+            thinkingWordEditing: false,
+            thinkingWordDraft: '',
+            hint: undefined,
+          },
         };
       }
       const normalized = normalizeTuiThinkingWord(raw);
@@ -1186,6 +1201,48 @@ export function reducer(state: State, action: Action): State {
         ...state,
         statuslinePicker: { ...state.statuslinePicker, visibleChips: action.visibleChips },
       };
+    case 'pluginPickerOpen': {
+      const items = action.items ?? state.pluginPicker.items;
+      return {
+        ...state,
+        ...closePanels(state),
+        pluginPicker: {
+          open: true,
+          items,
+          selected: Math.min(state.pluginPicker.selected, Math.max(0, items.length - 1)),
+          busy: items.length === 0,
+          hint: undefined,
+        },
+      };
+    }
+    case 'pluginPickerClose':
+      return { ...state, pluginPicker: { ...state.pluginPicker, open: false, busy: false } };
+    case 'pluginPickerMove': {
+      const count = state.pluginPicker.items.length;
+      if (count === 0) return state;
+      return {
+        ...state,
+        pluginPicker: {
+          ...state.pluginPicker,
+          selected: (state.pluginPicker.selected + action.delta + count) % count,
+          hint: undefined,
+        },
+      };
+    }
+    case 'pluginPickerSetItems':
+      return {
+        ...state,
+        pluginPicker: {
+          ...state.pluginPicker,
+          items: action.items,
+          selected: Math.min(state.pluginPicker.selected, Math.max(0, action.items.length - 1)),
+          busy: false,
+        },
+      };
+    case 'pluginPickerBusy':
+      return { ...state, pluginPicker: { ...state.pluginPicker, busy: action.busy } };
+    case 'pluginPickerHint':
+      return { ...state, pluginPicker: { ...state.pluginPicker, hint: action.text } };
     case 'projectPickerOpen':
       return {
         ...state,
