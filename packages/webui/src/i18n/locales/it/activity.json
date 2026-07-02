@@ -874,5 +874,16 @@
     "conflictBadge": "CONFLITTO",
     "graphAria": "Grafo dei branch worktree da {{base}}",
     "mergedLabel": "✓ mergiato → {{base}}"
+  },
+  "process": {
+    "heading": "Processi in esecuzione",
+    "subtitle": "{{active}} attivi · {{total}} totali",
+    "killAll": "Termina tutti",
+    "emptyTitle": "Nessun processo tracciato",
+    "emptyBody": "I processi appaiono qui quando l'agente esegue strumenti bash o exec. I processi attivi mostrano un LED pulsante.",
+    "pidLabel": "PID {{pid}}",
+    "protected": "protetto",
+    "protectedTitle": "Protetto — sopravvive a kill/killAll",
+    "killTitle": "Termina PID {{pid}}"
   }
 }

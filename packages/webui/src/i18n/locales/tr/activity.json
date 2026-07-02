@@ -874,5 +874,16 @@
     "conflictBadge": "ÇAKIŞMA",
     "graphAria": "{{base}} dışında worktree dal grafiği",
     "mergedLabel": "✓ {{base}} ile birleştirildi"
+  },
+  "process": {
+    "heading": "Çalışan süreçler",
+    "subtitle": "{{active}} etkin · {{total}} toplam",
+    "killAll": "Tümünü sonlandır",
+    "emptyTitle": "İzlenen süreç yok",
+    "emptyBody": "Vekil bash veya exec araçlarını çalıştırdığında süreçler burada görünür. Etkin süreçler nabız atan LED gösterir.",
+    "pidLabel": "PID {{pid}}",
+    "protected": "korumalı",
+    "protectedTitle": "Korumalı — kill/killAll'dan sağ kalır",
+    "killTitle": "PID {{pid}} sonlandır"
   }
 }
