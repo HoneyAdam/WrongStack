@@ -261,8 +261,17 @@ export async function createPreContextServices(
     // ── HQ session telemetry ──
     let stopHqSessionBridge: (() => void) | undefined;
     let hqTelemetryPublisher: { close(): void } | undefined;
+    const stopHqAuxBridges: Array<() => void> = [];
     try {
-      const { createHqPublisherFromEnv, startSessionTelemetryBridge } = await import('@wrongstack/core');
+      const {
+        createHqPublisherFromEnv,
+        startSessionTelemetryBridge,
+        startFleetTelemetryBridge,
+        startBrainTelemetryBridge,
+        startWorktreeTelemetryBridge,
+        startToolTelemetryBridge,
+        startCostTelemetryBridge,
+      } = await import('@wrongstack/core');
       const hqTelemetry = createHqPublisherFromEnv({
         clientKind: 'webui',
         projectRoot,
@@ -278,6 +287,34 @@ export async function createPreContextServices(
           projectName: path.basename(projectRoot), globalRoot: wpaths.globalRoot,
           initialAgents: statusTracker?.getAgents(), startedAt: new Date().toISOString(),
         });
+        // Auxiliary telemetry bridges — forward fleet/brain/worktree/tool/cost
+        // signals to HQ so the command center dashboard is fully populated.
+        // All best-effort; never break the WebUI on failure.
+        try {
+          stopHqAuxBridges.push(
+            startFleetTelemetryBridge({ events, publisher: hqTelemetry, runId: session.id, sessionId: session.id }),
+          );
+        } catch { /* optional */ }
+        try {
+          stopHqAuxBridges.push(
+            startBrainTelemetryBridge({ events, publisher: hqTelemetry, sessionId: session.id }),
+          );
+        } catch { /* optional */ }
+        try {
+          stopHqAuxBridges.push(
+            startWorktreeTelemetryBridge({ events, publisher: hqTelemetry, sessionId: session.id }),
+          );
+        } catch { /* optional */ }
+        try {
+          stopHqAuxBridges.push(
+            startToolTelemetryBridge({ events, publisher: hqTelemetry, projectRoot, sessionId: session.id }),
+          );
+        } catch { /* optional */ }
+        try {
+          stopHqAuxBridges.push(
+            startCostTelemetryBridge({ events, publisher: hqTelemetry, sessionId: session.id }),
+          );
+        } catch { /* optional */ }
       }
     } catch {
       /* telemetry optional */
@@ -288,6 +325,9 @@ export async function createPreContextServices(
         await registry.markClosing();
         statusTracker?.stop();
         stopHqSessionBridge?.();
+        for (const stop of stopHqAuxBridges) {
+          try { stop(); } catch { /* ignore */ }
+        }
         hqTelemetryPublisher?.close();
       } catch {
         /* ignore */

@@ -60,6 +60,13 @@ export function resolveHqDataDir(override?: string, env: NodeJS.ProcessEnv = pro
  * `/ws/browser`) and client tokens (validated on `/ws/client`). The two
  * are stored in separate lists so a browser-only token cannot be replayed
  * against the client channel and vice versa.
+ *
+ * `capabilities` scopes what a token may do. When absent the token is
+ * unrestricted (backward-compat with tokens minted before Phase 3). Known
+ * capability strings:
+ *   - `control.enqueue` — browser token may enqueue commands to clients
+ *   - `control.execute` — client token may execute `run-command` commands
+ *   - `telemetry.publish` — client token may publish telemetry
  */
 export interface HqToken {
   id: string;
@@ -67,6 +74,23 @@ export interface HqToken {
   label?: string;
   createdAt: string;
   lastUsedAt?: string;
+  /**
+   * Optional capability scope. When absent, the token is unrestricted
+   * (backward-compat). When present, only the listed capabilities are
+   * granted.
+   */
+  capabilities?: string[];
+}
+
+/**
+ * Check whether a token grants a capability. A token with no `capabilities`
+ * field is unrestricted (backward-compat). Otherwise the capability must be
+ * explicitly listed.
+ */
+export function tokenHasCapability(token: HqToken | undefined, capability: string): boolean {
+  if (token === undefined) return false;
+  if (token.capabilities === undefined) return true;
+  return token.capabilities.includes(capability);
 }
 
 /**

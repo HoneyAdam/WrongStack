@@ -29,6 +29,8 @@ import {
   type HqClientCapability,
   type HqClientRecord,
   type HqEventEnvelope,
+  type HqFleetSnapshotPayload,
+  type HqFleetSummary,
   type HqMachineRecord,
   type HqMailboxEventPayload,
   type HqMailboxSnapshotPayload,
@@ -38,13 +40,24 @@ import {
   type HqRedactionPolicy,
   type HqSessionEndedPayload,
   type HqSessionSnapshotPayload,
+  type HqSessionSummary,
   type HqSnapshot,
+  type HqTimeseriesSample,
   type HqTranscriptAppendPayload,
   type HqTranscriptEntry,
   type HqWelcomePayload,
   buildTranscriptFromEvents,
+  createHqPersistence,
+  HqCommandAuditLog,
+  HqAlertEngine,
+  toAlertMessage,
+  type HqCommand,
+  type HqCommandAuditEntry,
+  type HqPersistence,
+  type HqQueuedCommand,
   ensureHqFirstRunAuthFile,
   parseHqEventPayload,
+  validateHqCommand,
   parseHqFrame,
   resolveHqDataDir,
   scrubAndTruncateHqPreview,
@@ -53,6 +66,7 @@ import {
 // Inlined from @wrongstack/webui/server — avoids a hard dependency on the webui package.
 import { WebSocket, WebSocketServer } from 'ws';
 import { HQ_HTML } from './hq-dashboard-html.js';
+import { resolveHqDistDir, serveHqStatic } from './hq-static-serve.js';
 
 export interface HqServerOptions {
   host?: string;
@@ -116,6 +130,18 @@ interface ConnectedClient {
    * each `session.snapshot` envelope and removed on `session.ended`.
    */
   sessions: Map<string, HqSessionSnapshotPayload>;
+  /**
+   * Latest fleet (multi-agent coordinator) snapshot keyed by runId —
+   * replaced on each `fleet.snapshot` envelope from this client. Feeds the
+   * `fleets[]` rollup in {@link buildSnapshot}.
+   */
+  fleets: Map<string, HqFleetSnapshotPayload>;
+  /**
+   * Per-client command queue (Phase 3 control plane). Commands enqueued by
+   * a browser via `POST /api/command` land here and are drained when the
+   * client sends `client.command_poll`. Bounded; overflow drops oldest.
+   */
+  commandQueue: HqQueuedCommand[];
 }
 
 /**
@@ -182,6 +208,25 @@ const CLIENT_CLEANUP_INTERVAL_MS = 30_000; // every 30 s
 
 function displayHost(host: string): string {
   return host === '0.0.0.0' ? '127.0.0.1' : host;
+}
+
+/** Read the full body of an HTTP request as a UTF-8 string (capped at 1 MB). */
+function readRequestBody(req: http.IncomingMessage, maxBytes = 1_000_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
 }
 
 function buildHttpUrl(host: string, port: number, token?: string): string {
@@ -457,6 +502,8 @@ function startHqServerWithAuth(
     operatorPolicy: HqRedactionPolicy;
     browserTokens: Set<string>;
     clientTokens: Set<string>;
+    /** Browser token objects keyed by token string — for capability checks. */
+    browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
   } = {
     operatorPolicy: {
       ...DEFAULT_HQ_REDACTION_POLICY,
@@ -464,6 +511,9 @@ function startHqServerWithAuth(
     },
     browserTokens: new Set((authFile.browserTokens ?? []).map((t) => t.token)),
     clientTokens: new Set((authFile.clientTokens ?? []).map((t) => t.token)),
+    browserTokenObjs: new Map(
+      (authFile.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
+    ),
   };
 
   // Surface the resolved data directory + whether an operator override
@@ -491,8 +541,51 @@ function startHqServerWithAuth(
     // events so a late-connecting browser — including one on another machine —
     // can replay a subagent's full conversation, not just messages seen live.
     const agentMessages = new Map<string, HqTranscriptEntry[]>();
-    const snapshotBroadcaster = createSnapshotBroadcaster(clients, browsers);
 
+    // ── Persistence (Phase 2) ──────────────────────────────────────────────
+    // Survives restart: event log, snapshot checkpoint, cost/activity trends.
+    // All writes are best-effort and fire-and-forget so the server hot path is
+    // never blocked. Hydrated from disk on boot so a restarted HQ shows prior
+    // history immediately. Declared before the snapshot broadcaster because
+    // the broadcaster checkpoints into the snapshot store on each serialize.
+    const persistence = createHqPersistence(dataDir);
+    const auditLog = new HqCommandAuditLog();
+    // ── Alerting (Phase 6) — evaluates the live snapshot against rules and
+    // broadcasts `hq.alert` to browsers when a threshold is crossed.
+    const alertEngine = new HqAlertEngine({
+      onAlert: (alert) => {
+        const msg = toAlertMessage(alert);
+        const data = JSON.stringify(msg);
+        for (const ws of browsers) {
+          if (ws.readyState === WebSocket.OPEN) ws.send(data);
+        }
+      },
+    });
+    void persistence.eventLog.hydrate();
+    void persistence.timeseries.load();
+    // Seed the in-memory eventLog from the persisted log so a restarted HQ
+    // shows recent history in the dashboard before new events arrive.
+    persistence.eventLog.recent(MAX_EVENT_LOG).then((prior) => {
+      // Newest-first from recent(); push oldest-first into the in-memory ring.
+      for (let i = prior.length - 1; i >= 0; i--) eventLog.push(prior[i]!);
+    }).catch(() => { /* best-effort */ });
+
+    // Flush the timeseries store every 60s so buckets reach disk periodically
+    // even under light load. Unref'd so it never keeps the process alive.
+    const timeseriesFlushTimer = setInterval(() => {
+      persistence.timeseries.flush();
+    }, 60_000);
+    timeseriesFlushTimer.unref?.();
+
+    const snapshotBroadcaster = createSnapshotBroadcaster(clients, browsers, persistence);
+
+    // Start periodic alert evaluation against the latest snapshot. The engine
+    // reads the snapshot fresh on each tick (15s, unref'd) so alerts reflect
+    // current state. Dedup prevents alert storms — only transitions emit.
+    const stopAlertEngine = alertEngine.startPeriodic(
+      () => buildSnapshot(clients),
+      undefined,
+    );
     // Stale-client cleanup: periodically evict clients that have gone silent.
     // This catches crash / network-drop disconnects where the remote never
     // sent a WebSocket close frame, so the 'close' event never fires.
@@ -536,10 +629,16 @@ function startHqServerWithAuth(
         }
       }
 
-      // ── HQ dashboard — always serve the dedicated HQ HTML interface ──
-      // HQ is the central monitoring interface, not the WebUI. Serve the
-      // inline HTML dashboard directly — it fetches /api/snapshot for
-      // initial state and connects via WS for live updates.
+      // ── HQ dashboard — serve the React app if built, else inline fallback ──
+      // The React app (packages/webui-hq) is the primary dashboard. When unbuilt
+      // (or the package is absent), fall back to the self-contained inline HTML
+      // so HQ is always functional — even offline with no build step.
+      const hqDistDir = resolveHqDistDir();
+      if (hqDistDir !== null && (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/'))) {
+        const served = serveHqStatic(req, res, url.pathname, hqDistDir);
+        if (served.handled) return;
+      }
+
       if (url.pathname === '/' || url.pathname === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(HQ_HTML);
@@ -581,6 +680,144 @@ function startHqServerWithAuth(
       if (url.pathname === '/api/fleet' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(buildSnapshot(clients)));
+        return;
+      }
+
+      // ── Persistence-backed history + trends (Phase 2) ────────────────
+      // GET /api/events?limit=&type= — recent persisted event envelopes.
+      if (url.pathname === '/api/events' && req.method === 'GET') {
+        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
+        const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+        const typeFilter = url.searchParams.get('type') ?? undefined;
+        const events = await persistence.eventLog.recent(limit, typeFilter);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ events, total: events.length }));
+        return;
+      }
+
+      // GET /api/trends/cost?since= — time-bucketed cost/activity samples.
+      if (url.pathname === '/api/trends/cost' && req.method === 'GET') {
+        const rawSince = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
+        const since = Number.isFinite(rawSince) ? rawSince : 0;
+        const samples: HqTimeseriesSample[] = await persistence.timeseries.read(since);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ samples }));
+        return;
+      }
+
+      // ── Control plane (Phase 3) ─────────────────────────────────────────
+      // POST /api/command — enqueue a command to a connected client. Requires
+      // a browser token with the `control.enqueue` capability (or open mode
+      // where any browser token suffices). The target client must advertise
+      // the `control.receive` capability.
+      if (url.pathname === '/api/command' && req.method === 'POST') {
+        // Auth: reuse the browser-token gate already active for this request.
+        const suppliedToken = extractBrowserToken(req, url);
+        const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
+        if (inBrowserTokenMode) {
+          if (!suppliedToken || !mutableAuth.browserTokens.has(suppliedToken)) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized' }));
+            return;
+          }
+        }
+        // Capability check: the browser token must grant control.enqueue.
+        // In open mode (no browser tokens configured), control is allowed.
+        const tokenObj = suppliedToken !== undefined ? mutableAuth.browserTokenObjs.get(suppliedToken) : undefined;
+        const canEnqueue =
+          !inBrowserTokenMode ||
+          tokenObj?.capabilities === undefined ||
+          tokenObj.capabilities.includes('control.enqueue');
+        if (!canEnqueue) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+          return;
+        }
+
+        let body: { clientId?: string; type?: string; payload?: unknown };
+        try {
+          body = JSON.parse(await readRequestBody(req)) as { clientId?: string; type?: string; payload?: unknown };
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid json body' }));
+          return;
+        }
+        if (typeof body.clientId !== 'string' || typeof body.type !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'missing clientId or type' }));
+          return;
+        }
+
+        // Find the target client across all connected sockets (dedupe by clientId).
+        let target: ConnectedClient | undefined;
+        for (const c of clients.values()) {
+          if (c.clientId === body.clientId) {
+            target = c;
+            break;
+          }
+        }
+        if (target === undefined) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'client not connected', clientId: body.clientId }));
+          return;
+        }
+        // The target must advertise control.receive.
+        if (!target.capabilities.includes('control.receive')) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'client does not accept control commands', clientId: body.clientId }));
+          return;
+        }
+
+        const commandId = randomUUID();
+        const queued: HqQueuedCommand = {
+          commandId,
+          type: body.type,
+          createdAt: new Date().toISOString(),
+          payload: body.payload ?? {},
+          requiresAck: true,
+        };
+        // Validate the command shape before enqueuing.
+        const validated: HqCommand | null = validateHqCommand(queued);
+        if (validated === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'unrecognized or malformed command', type: body.type }));
+          return;
+        }
+
+        target.commandQueue.push(queued);
+        // Bounded queue: drop oldest on overflow.
+        if (target.commandQueue.length > 200) target.commandQueue.splice(0, target.commandQueue.length - 200);
+
+        const auditEntry: HqCommandAuditEntry = {
+          commandId,
+          type: validated.type,
+          clientId: target.clientId,
+          enqueuedBy: tokenObj?.id ?? 'open-mode',
+          enqueuedAt: queued.createdAt,
+          status: 'queued',
+        };
+        auditLog.record(auditEntry);
+
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ commandId, queued: true, clientId: target.clientId }));
+        return;
+      }
+
+      // GET /api/commands?limit= — recent command audit entries.
+      if (url.pathname === '/api/commands' && req.method === 'GET') {
+        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
+        const limit = Math.min(1000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ commands: auditLog.recent(limit) }));
+        return;
+      }
+
+      // GET /api/alerts?limit= — recent alert history + currently-active alerts.
+      if (url.pathname === '/api/alerts' && req.method === 'GET') {
+        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
+        const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ active: alertEngine.activeAlerts(), history: alertEngine.recentAlerts(limit) }));
         return;
       }
 
@@ -667,7 +904,7 @@ function startHqServerWithAuth(
       if (pathname === '/ws/browser') {
         handleBrowser(ws, snapshotBroadcaster, browsers);
       } else {
-        handleClient(ws, clients, browsers, eventLog, mutableAuth.operatorPolicy, snapshotBroadcaster, transcripts, agentMessages);
+        handleClient(ws, clients, browsers, eventLog, mutableAuth.operatorPolicy, snapshotBroadcaster, transcripts, agentMessages, persistence, auditLog);
       }
     });
 
@@ -684,6 +921,9 @@ function startHqServerWithAuth(
         };
         mutableAuth.browserTokens = new Set((next.browserTokens ?? []).map((t) => t.token));
         mutableAuth.clientTokens = new Set((next.clientTokens ?? []).map((t) => t.token));
+        mutableAuth.browserTokenObjs = new Map(
+          (next.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
+        );
         console.warn(JSON.stringify({
           level: 'info',
           event: 'hq.auth.reloaded',
@@ -756,13 +996,30 @@ function startHqServerWithAuth(
               }
               closed = true;
               clearInterval(cleanupTimer);
+              clearInterval(timeseriesFlushTimer);
+              stopAlertEngine();
               authWatcher.close();
               snapshotBroadcaster.close();
+              // Final flush so the last batch of timeseries buckets reach disk.
+              persistence.timeseries.flush();
               for (const ws of browsers) ws.close(1001, 'HQ shutting down');
               for (const ws of clients.keys()) ws.close(1001, 'HQ shutting down');
               wss.close();
               httpServer.close(() => {
-                void clearHqRuntimeMarker(dataDir, hqUrl).finally(() => res());
+                // Drain the queued persistence writes BEFORE resolving.
+                // The event-log / snapshot / timeseries stores are all
+                // fire-and-forget write chains; resolving close() while an
+                // appendFile/atomicWrite is still in flight both drops the
+                // final flush on real shutdowns and lets a caller's
+                // `fs.rm(dataDir)` race the write (ENOTEMPTY on Windows).
+                void Promise.all([
+                  persistence.eventLog.drain(),
+                  persistence.snapshotStore.drain(),
+                  persistence.timeseries.drain(),
+                ])
+                  .then(() => clearHqRuntimeMarker(dataDir, hqUrl))
+                  .catch(() => undefined)
+                  .finally(() => res());
               });
             }),
         };
@@ -810,8 +1067,24 @@ function handleClient(
   snapshotBroadcaster: HqSnapshotBroadcaster,
   transcripts: Map<string, TranscriptRing>,
   agentMessages: Map<string, HqTranscriptEntry[]>,
+  persistence?: HqPersistence,
+  auditLog?: HqCommandAuditLog,
 ): void {
   let registered = false;
+
+  /**
+   * Record an event into both the in-memory ring and the persistent log, and
+   * fold any cost/tool signal into the timeseries store. Best-effort: never
+   * throws into the message handler.
+   */
+  function persistEvent(event: HqEventEnvelope): void {
+    eventLog.push(event);
+    if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+    if (persistence !== undefined) {
+      persistence.eventLog.append(event);
+      recordTimeseriesSignal(persistence, event);
+    }
+  }
 
   // Per-connection error handler. An oversized inbound frame makes the `ws`
   // receiver throw (`RangeError: Max payload size exceeded`, close 1009) and
@@ -866,6 +1139,8 @@ function handleClient(
         mailboxes: new Map(),
         machineId: payload.client.machineId || payload.project.machineId,
         sessions: new Map(),
+        fleets: new Map(),
+        commandQueue: [],
       };
       clients.set(ws, client);
       registered = true;
@@ -896,14 +1171,57 @@ function handleClient(
         seq: 0,
         payload: { client: payload.client, project: payload.project },
       };
-      eventLog.push(event);
-      if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+      persistEvent(event);
       snapshotBroadcaster.broadcast();
       broadcastEvent(event, browsers);
       return;
     }
 
     if (!registered) return;
+
+    // ── Phase 3 control plane: client polls for commands & acks them ──────
+    // The client SDK (HqPublisher) polls every ~2s with an `afterCommandId`
+    // cursor; we drain the per-client queue back to it as a `hq.command_batch`.
+    if (frame.type === 'client.command_poll') {
+      const client = clients.get(ws);
+      if (client) {
+        client.lastSeenAt = new Date().toISOString();
+        const afterId = frame.afterCommandId;
+        let toSend: HqQueuedCommand[];
+        if (afterId === undefined) {
+          toSend = client.commandQueue.slice();
+        } else {
+          const idx = client.commandQueue.findIndex((c) => c.commandId === afterId);
+          toSend = idx >= 0 ? client.commandQueue.slice(idx + 1) : client.commandQueue.slice();
+        }
+        if (toSend.length > 0) {
+          const batch = JSON.stringify({ type: 'hq.command_batch', commands: toSend });
+          if (ws.readyState === WebSocket.OPEN) ws.send(batch);
+          for (const cmd of toSend) {
+            auditLog?.update(cmd.commandId, { status: 'delivered' });
+          }
+        }
+        // Bounded queue: drop delivered commands older than the cursor to
+        // avoid unbounded growth on a long-lived client.
+        const limit = frame.limit ?? 25;
+        if (client.commandQueue.length > Math.max(limit * 4, 100)) {
+          client.commandQueue.splice(0, client.commandQueue.length - Math.max(limit * 4, 100));
+        }
+      }
+      return;
+    }
+
+    if (frame.type === 'client.command_ack') {
+      const client = clients.get(ws);
+      if (client) client.lastSeenAt = new Date().toISOString();
+      auditLog?.update(frame.commandId, {
+        status: 'acked',
+        ackStatus: frame.status,
+        ...(frame.message !== undefined ? { ackMessage: frame.message } : {}),
+        ackedAt: new Date().toISOString(),
+      });
+      return;
+    }
 
     if (frame.type === 'client.event') {
       const event = frame.event;
@@ -921,8 +1239,7 @@ function handleClient(
         if (payloadResult.ok) {
           const payload = payloadResult.payload as HqMailboxSnapshotPayload;
           client.mailboxes.set(client.projectId + ':' + payload.mailboxId, payload);
-          eventLog.push(event);
-          if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+          persistEvent(event);
           snapshotBroadcaster.broadcast();
           broadcastEvent(event, browsers);
           return;
@@ -948,8 +1265,7 @@ function handleClient(
           sanitizedSummary === undefined
             ? event
             : { ...event, payload: { ...payload, summary: sanitizedSummary } };
-        eventLog.push(sanitizedEvent);
-        if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+        persistEvent(sanitizedEvent);
         broadcastEvent(sanitizedEvent, browsers);
         return;
       }
@@ -970,6 +1286,20 @@ function handleClient(
         if (result.ok) {
           const payload = result.payload as HqSessionEndedPayload;
           client.sessions.delete(payload.sessionId);
+          snapshotBroadcaster.broadcast();
+        }
+        return;
+      }
+
+      // Fleet snapshots — authoritative coordinator rollups. Store per
+      // (client, runId) so buildSnapshot can populate fleets[] the same way
+      // it folds sessions. Validate via parseHqEventPayload so a malformed
+      // snapshot cannot poison the map.
+      if (event.type === 'fleet.snapshot' && client !== undefined) {
+        const result = parseHqEventPayload(event.type, event.payload);
+        if (result.ok) {
+          const payload = result.payload as HqFleetSnapshotPayload;
+          client.fleets.set(payload.runId, payload);
           snapshotBroadcaster.broadcast();
         }
         return;
@@ -1011,15 +1341,13 @@ function handleClient(
           agentMessages.set(subId, ring);
           evictOldest(agentMessages, MAX_AGENT_RINGS);
         }
-        eventLog.push(event);
-        if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+        persistEvent(event);
         broadcastEvent(event, browsers);
         return;
       }
 
       // Other event types pass through unchanged.
-      eventLog.push(event);
-      if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
+      persistEvent(event);
       broadcastEvent(event, browsers);
     }
   });
@@ -1040,6 +1368,32 @@ function hqMachineKey(hostname: string | undefined, machineId: string | undefine
   return hn ? `host:${hn.toLowerCase()}` : `mid:${machineId || 'local'}`;
 }
 
+/**
+ * Fold a cost/tool signal from an event envelope into the timeseries store.
+ * Recognizes `session.usage` (cost/tokens) and `tool.completed` (tool call).
+ * Best-effort, never throws.
+ */
+function recordTimeseriesSignal(persistence: HqPersistence, event: HqEventEnvelope): void {
+  try {
+    if (event.type === 'session.usage') {
+      const p = event.payload as { costUsd?: number; inputTokens?: number; outputTokens?: number };
+      persistence.timeseries.record({
+        ts: Date.parse(event.timestamp) || Date.now(),
+        ...(typeof p.costUsd === 'number' ? { costUsd: p.costUsd } : {}),
+        ...(typeof p.inputTokens === 'number' ? { inputTokens: p.inputTokens } : {}),
+        ...(typeof p.outputTokens === 'number' ? { outputTokens: p.outputTokens } : {}),
+      });
+    } else if (event.type === 'tool.completed') {
+      persistence.timeseries.record({
+        ts: Date.parse(event.timestamp) || Date.now(),
+        toolCalls: 1,
+      });
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
   const now = new Date().toISOString();
   // Dedupe client records by clientId — one process may hold two sockets (a
@@ -1049,6 +1403,8 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
   const mailboxSummaries: HqMailboxSummary[] = [];
   // Live sessions, deduped by sessionId across sockets (latest wins).
   const sessionById = new Map<string, HqSessionSnapshotPayload>();
+  // Fleet snapshots, deduped by runId across sockets (latest wins).
+  const fleetByRunId = new Map<string, { payload: HqFleetSnapshotPayload; clientId: string; projectId: string; lastActivityAt: string }>();
 
   for (const client of clients.values()) {
     const machineId = client.machineId || client.project.machineId || '';
@@ -1104,6 +1460,11 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
         onlineAgentCount: snapshot.totals.onlineAgents,
         lastActivityAt: now,
       });
+    }
+
+    // Collect fleet snapshots — latest per runId wins.
+    for (const fleet of client.fleets.values()) {
+      fleetByRunId.set(fleet.runId, { payload: fleet, clientId: client.clientId, projectId: client.projectId, lastActivityAt: now });
     }
   }
 
@@ -1224,12 +1585,46 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
     incomplete += m.incompleteCount;
   }
 
+  // Derive session summaries from live sessions (the spine of the fleet tree)
+  // so the dashboard's sessions[] rollup is populated alongside liveSessions.
+  const sessions: HqSessionSummary[] = liveSessions.map((s) => {
+    let sessionCost = 0;
+    for (const agent of s.agents) {
+      if (typeof agent.costUsd === 'number') sessionCost += agent.costUsd;
+    }
+    const provider = s.agents.find((a) => a.model !== undefined)?.model;
+    return {
+      sessionId: s.sessionId,
+      projectId: s.projectId,
+      clientId: `${s.machineId}:${s.clientKind}`,
+      status: s.status === 'active' ? 'running' : 'idle',
+      ...(provider !== undefined ? { model: provider } : {}),
+      startedAt: s.startedAt,
+      lastActivityAt: s.lastActivityAt,
+      ...(sessionCost > 0 ? { costUsd: sessionCost } : {}),
+    };
+  });
+
+  // Derive fleet summaries from collected coordinator snapshots so the
+  // dashboard's fleets[] rollup reflects every connected machine's fleet.
+  const fleets: HqFleetSummary[] = Array.from(fleetByRunId.values()).map((f) => ({
+    runId: f.payload.runId,
+    projectId: f.projectId,
+    clientId: f.clientId,
+    activeSubagents: f.payload.activeSubagents,
+    queuedTasks: f.payload.queuedTasks,
+    completedTasks: f.payload.completedTasks,
+    failedTasks: f.payload.failedTasks,
+    ...(f.payload.totalCostUsd !== undefined ? { totalCostUsd: f.payload.totalCostUsd } : {}),
+    lastActivityAt: f.lastActivityAt,
+  }));
+
   return {
     generatedAt: now,
     clients: clientRecords,
     projects,
-    sessions: [],
-    fleets: [],
+    sessions,
+    fleets,
     mailboxes: mailboxSummaries,
     machines,
     liveSessions,
@@ -1258,6 +1653,7 @@ const HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS = 250;
 function createSnapshotBroadcaster(
   clients: Map<WebSocket, ConnectedClient>,
   browsers: Set<WebSocket>,
+  persistence?: HqPersistence,
 ): HqSnapshotBroadcaster {
   let cached = '';
   let dirty = true;
@@ -1265,9 +1661,13 @@ function createSnapshotBroadcaster(
 
   const serialize = (): string => {
     if (!dirty && cached.length > 0) return cached;
-    const msg: HqBrowserMessage = { type: 'hq.snapshot', snapshot: buildSnapshot(clients) };
+    const snapshot = buildSnapshot(clients);
+    const msg: HqBrowserMessage = { type: 'hq.snapshot', snapshot };
     cached = JSON.stringify(msg);
     dirty = false;
+    // Persist the snapshot checkpoint (best-effort, fire-and-forget) so a
+    // restarted HQ can re-seed its in-memory state from disk.
+    if (persistence !== undefined) persistence.snapshotStore.save(snapshot);
     return cached;
   };
 

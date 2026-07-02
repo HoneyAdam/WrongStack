@@ -68,6 +68,11 @@ import {
   SddRunRegistry,
   SlashCommandRegistry,
   startSessionTelemetryBridge,
+  startFleetTelemetryBridge,
+  startBrainTelemetryBridge,
+  startWorktreeTelemetryBridge,
+  startToolTelemetryBridge,
+  startCostTelemetryBridge,
   type SystemPromptBuilder,
   startPackageOutdatedWatcher,
   startTechStackConsumer,
@@ -101,6 +106,7 @@ import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from './context-
 import { type ExecutionDeps, execute } from './execution.js';
 import { createFallbackModelExtension } from './fallback-model.js';
 import { createCliHqPublisher, startCliHqConnection } from './hq-publisher.js';
+import { createHqCommandDispatcher, type HqCommandController } from './hq-command-controller.js';
 import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from './hooks-wiring.js';
 import { MultiAgentHost } from './multi-agent.js';
 import { createAgentMonitorService } from '@wrongstack/core/coordination';
@@ -1348,15 +1354,43 @@ export async function main(argv: string[]): Promise<number> {
   // before the agent's next step.
   let hqPublisher: ReturnType<typeof createCliHqPublisher>;
   let stopHqSessionBridge: (() => void) | undefined;
+  const stopHqAuxBridges: Array<() => void> = [];
+
+  // ── Phase 4 control plane — HQ command dispatch holder ──────────────────
+  // Mutable holder (mirrors the `interruptController` pattern): populated
+  // lazily as `director` comes online and `interruptController.abortLeader`
+  // is rebound by the REPL/TUI. The `onCommand` handler reads these at
+  // dispatch time so a command arriving before the director exists is
+  // cleanly rejected instead of crashing.
+  const hqCommandController: HqCommandController = {
+    steerMailbox: brainMailbox,
+    interruptLeader: () => false, // rebound when the REPL/TUI mounts
+    sessionTag: () => mailboxSessionTag(session.id),
+    allowRunCommand: () => flags['hq-allow-exec'] === true,
+  };
+  const hqOnCommand = createHqCommandDispatcher(hqCommandController);
+
   const hqConnection = startCliHqConnection({
     clientKind: tuiOwnsScreen ? 'tui' : 'cli',
     projectRoot,
     projectName: path.basename(projectRoot),
     appConfig: config,
+    onCommand: hqOnCommand,
+    capabilities: ['telemetry.publish', 'mailbox.summary', 'fleet.summary', 'session.summary', 'control.receive'],
     onConnect: (publisher) => {
       hqPublisher = publisher;
       stopHqSessionBridge?.();
       stopHqSessionBridge = undefined;
+      // Drain any auxiliary bridges from a previous connection before
+      // re-establishing them, so a reconnect never double-subscribes.
+      for (const stop of stopHqAuxBridges) {
+        try {
+          stop();
+        } catch {
+          /* best-effort */
+        }
+      }
+      stopHqAuxBridges.length = 0;
       try {
         stopHqSessionBridge = startSessionTelemetryBridge({
           publisher,
@@ -1371,10 +1405,70 @@ export async function main(argv: string[]): Promise<number> {
       } catch {
         // HQ session telemetry is optional.
       }
+      // ── Auxiliary telemetry bridges — forward richer signals (fleet
+      // stats, brain decisions, worktree lifecycle, tool activity, cost)
+      // to HQ so the command center dashboard is fully populated. All are
+      // best-effort and never break the host on failure. The session id is
+      // the canonical runId (namespace-stable per session), used by the
+      // fleet bridge to identify this coordinator instance.
+      try {
+        stopHqAuxBridges.push(
+          startFleetTelemetryBridge({
+            events,
+            publisher,
+            runId: session.id,
+            sessionId: session.id,
+          }),
+        );
+      } catch {
+        /* optional */
+      }
+      try {
+        stopHqAuxBridges.push(
+          startBrainTelemetryBridge({ events, publisher, sessionId: session.id }),
+        );
+      } catch {
+        /* optional */
+      }
+      try {
+        stopHqAuxBridges.push(
+          startWorktreeTelemetryBridge({ events, publisher, sessionId: session.id }),
+        );
+      } catch {
+        /* optional */
+      }
+      try {
+        stopHqAuxBridges.push(
+          startToolTelemetryBridge({
+            events,
+            publisher,
+            projectRoot,
+            sessionId: session.id,
+          }),
+        );
+      } catch {
+        /* optional */
+      }
+      try {
+        stopHqAuxBridges.push(
+          startCostTelemetryBridge({ events, publisher, sessionId: session.id }),
+        );
+      } catch {
+        /* optional */
+      }
     },
   });
   hqPublisher = hqConnection.getPublisher();
   teardownHandlers.push(() => stopHqSessionBridge?.());
+  teardownHandlers.push(() => {
+    for (const stop of stopHqAuxBridges) {
+      try {
+        stop();
+      } catch {
+        /* best-effort */
+      }
+    }
+  });
   teardownHandlers.push(() => hqConnection.stop());
 
   // ── Agent Monitor → HQ Bridge ───────────────────────────────────
@@ -1671,6 +1765,55 @@ export async function main(argv: string[]): Promise<number> {
   // below. `/interrupt` pairs this with `onFleetKill` to stop everything.
   const interruptController = {
     abortLeader: (): boolean => false,
+  };
+  // Wire the HQ command controller's leader-abort to the shared interrupt
+  // controller so an HQ `abort leader` command reaches the live RunController
+  // once the REPL/TUI rebinds `abortLeader`.
+  hqCommandController.interruptLeader = () => interruptController.abortLeader();
+  // Populate the fleet hooks lazily — `director` is null until --director or
+  // /autonomy parallel promotes the host. An HQ command arriving before then
+  // is cleanly rejected by the dispatcher (returns `undefined` → rejected).
+  hqCommandController.killFleet = async () => {
+    if (!director) return 0;
+    const s = director.status();
+    let killed = 0;
+    for (const sa of s.subagents) {
+      if (sa.status === 'running' || sa.status === 'idle') {
+        try {
+          await director.remove(sa.id);
+          killed++;
+        } catch { /* best-effort */ }
+      }
+    }
+    return killed;
+  };
+  hqCommandController.terminateAgent = async (subagentId: string) => {
+    if (!director) return false;
+    try {
+      await director.terminate(subagentId);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  hqCommandController.spawnAgent = async (role: string, task?: string, maxIterations?: number) => {
+    if (!director) {
+      throw new AgentError({
+        message: 'No director active — start with --director or use /autonomy parallel.',
+        code: 'AGENT_RUN_FAILED',
+        context: { phase: 'hq-spawn', role },
+      });
+    }
+    const base = FLEET_ROSTER[role] ?? {
+      id: `manual-${Date.now()}`,
+      name: role,
+      maxIterations: maxIterations ?? 50,
+      maxToolCalls: 200,
+    };
+    // Carry the optional task description into the spawn config so the
+    // spawned agent picks it up as its initial instruction.
+    const cfg = task !== undefined ? { ...base, task } : base;
+    return director.spawn(cfg);
   };
 
   // Shared controller for the `/enhance on|off` prompt-refinement toggle.
