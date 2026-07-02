@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { formatRelative, getEmptySessionIds } from '../../src/components/SidePanel/SessionList';
+import { i18n } from '../../src/i18n';
 
 type SessionEntry = { id: string; tokenTotal: number; isCurrent: boolean };
 
@@ -85,22 +86,24 @@ describe('formatRelative', () => {
 
   it('returns "just now" for timestamps < 1 minute ago', () => {
     const recent = new Date(FIXED_NOW - 30_000).toISOString(); // 30s ago
-    expect(formatRelative(recent)).toBe('just now');
+    expect(formatRelative(recent)).toBe(i18n.t('common:time.justNow'));
   });
 
+  // formatRelative is i18n-backed (common:time.*) — assert against the
+  // translator's own output so the tests hold in any active UI locale.
   it('returns minutes ago for < 1 hour', () => {
     const fiveMinAgo = new Date(FIXED_NOW - 5 * 60_000).toISOString();
-    expect(formatRelative(fiveMinAgo)).toBe('5m ago');
+    expect(formatRelative(fiveMinAgo)).toBe(i18n.t('common:time.minutesAgo', { count: 5 }));
   });
 
   it('returns hours ago for < 1 day', () => {
     const threeHoursAgo = new Date(FIXED_NOW - 3 * 3_600_000).toISOString();
-    expect(formatRelative(threeHoursAgo)).toBe('3h ago');
+    expect(formatRelative(threeHoursAgo)).toBe(i18n.t('common:time.hoursAgo', { count: 3 }));
   });
 
   it('returns days ago for < 7 days', () => {
     const twoDaysAgo = new Date(FIXED_NOW - 2 * 86_400_000).toISOString();
-    expect(formatRelative(twoDaysAgo)).toBe('2d ago');
+    expect(formatRelative(twoDaysAgo)).toBe(i18n.t('common:time.daysAgo', { count: 2 }));
   });
 
   it('returns locale date string for >= 7 days', () => {
