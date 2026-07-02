@@ -9,6 +9,7 @@
 
 import { Activity, Bot, Cpu, Users, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { type BackgroundStyle, useMonitorStore, useOfficeMapStore } from '@/stores';
 
 function Toggle({
@@ -44,14 +45,15 @@ function Toggle({
   );
 }
 
-const BACKGROUNDS: { value: BackgroundStyle; label: string }[] = [
-  { value: 'dots', label: 'Dots' },
-  { value: 'lines', label: 'Lines' },
-  { value: 'cross', label: 'Cross' },
-  { value: 'none', label: 'None' },
+const BACKGROUNDS: { value: BackgroundStyle; labelKey: string }[] = [
+  { value: 'dots', labelKey: 'bgDots' },
+  { value: 'lines', labelKey: 'bgLines' },
+  { value: 'cross', labelKey: 'bgCross' },
+  { value: 'none', labelKey: 'bgNone' },
 ];
 
 export function OfficeMapSettingsPanel() {
+  const { t } = useAppTranslation();
   const {
     showHud,
     showLegend,
@@ -76,18 +78,18 @@ export function OfficeMapSettingsPanel() {
       {/* Live stats summary */}
       <div>
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          Live
+          {t('activity:officeMap.liveHeading')}
         </div>
         <div className="space-y-1.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-muted-foreground">
-              <Users className="h-3.5 w-3.5" /> Clients
+              <Users className="h-3.5 w-3.5" /> {t('activity:officeMap.clients')}
             </span>
             <span className="font-mono">{totalClients}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-muted-foreground">
-              <Bot className="h-3.5 w-3.5" /> Agents
+              <Bot className="h-3.5 w-3.5" /> {t('activity:officeMap.agents')}
             </span>
             <span className="font-mono">
               {activeAgents}
@@ -97,7 +99,7 @@ export function OfficeMapSettingsPanel() {
           {currentSession.model && (
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Cpu className="h-3.5 w-3.5" /> Model
+                <Cpu className="h-3.5 w-3.5" /> {t('activity:officeMap.model')}
               </span>
               <span className="font-mono truncate max-w-[140px]" title={currentSession.model}>
                 {currentSession.model.split('/').pop()}
@@ -107,14 +109,14 @@ export function OfficeMapSettingsPanel() {
           {currentSession.mode && (
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Zap className="h-3.5 w-3.5" /> Mode
+                <Zap className="h-3.5 w-3.5" /> {t('activity:officeMap.mode')}
               </span>
               <span className="font-mono uppercase text-[10px]">{currentSession.mode}</span>
             </div>
           )}
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-muted-foreground">
-              <Activity className="h-3.5 w-3.5" /> Tool calls
+              <Activity className="h-3.5 w-3.5" /> {t('activity:officeMap.toolCalls')}
             </span>
             <span className="font-mono">{fmtNum(currentSession.toolCalls)}</span>
           </div>
@@ -124,21 +126,21 @@ export function OfficeMapSettingsPanel() {
       {/* Display toggles */}
       <div>
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-          Display
+          {t('activity:officeMap.displayHeading')}
         </div>
         <div className="space-y-0.5">
-          <Toggle label="Stats HUD" checked={showHud} onChange={setShowHud} />
-          <Toggle label="Legends" checked={showLegend} onChange={setShowLegend} />
-          <Toggle label="Minimap" checked={showMinimap} onChange={setShowMinimap} />
-          <Toggle label="Zoom controls" checked={showControls} onChange={setShowControls} />
-          <Toggle label="Animate wires" checked={animateEdges} onChange={setAnimateEdges} />
+          <Toggle label={t('activity:officeMap.statsHud')} checked={showHud} onChange={setShowHud} />
+          <Toggle label={t('activity:officeMap.legends')} checked={showLegend} onChange={setShowLegend} />
+          <Toggle label={t('activity:officeMap.minimap')} checked={showMinimap} onChange={setShowMinimap} />
+          <Toggle label={t('activity:officeMap.zoomControls')} checked={showControls} onChange={setShowControls} />
+          <Toggle label={t('activity:officeMap.animateWires')} checked={animateEdges} onChange={setAnimateEdges} />
         </div>
       </div>
 
       {/* Background style */}
       <div>
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 px-2">
-          Background
+          {t('activity:officeMap.backgroundHeading')}
         </div>
         <div className="flex flex-wrap gap-1 px-2">
           {BACKGROUNDS.map((b) => (
@@ -153,7 +155,7 @@ export function OfficeMapSettingsPanel() {
                   : 'bg-muted text-muted-foreground hover:bg-accent',
               )}
             >
-              {b.label}
+              {t(`activity:officeMap.${b.labelKey}`)}
             </button>
           ))}
         </div>

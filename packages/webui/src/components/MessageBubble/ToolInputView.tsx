@@ -1,7 +1,9 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useState } from 'react';
 
 export function ToolInputView({ input }: { input: unknown }) {
+  const { t } = useAppTranslation();
   const [openKeys, setOpenKeys] = useState<Record<string, boolean>>({});
   if (input === null || input === undefined || typeof input !== 'object' || Array.isArray(input)) {
     return (
@@ -12,7 +14,7 @@ export function ToolInputView({ input }: { input: unknown }) {
   }
   const entries = Object.entries(input as Record<string, unknown>);
   if (entries.length === 0) {
-    return <span className="text-xs text-muted-foreground italic">(no params)</span>;
+    return <span className="text-xs text-muted-foreground italic">{t('activity:toolInput.noParams')}</span>;
   }
   return (
     <div className="text-xs font-mono">
@@ -40,8 +42,8 @@ export function ToolInputView({ input }: { input: unknown }) {
         }
         const open = !!openKeys[k];
         const summary = Array.isArray(v)
-          ? `[${v.length} item${v.length === 1 ? '' : 's'}]`
-          : `{${Object.keys(v as object).length} key${Object.keys(v as object).length === 1 ? '' : 's'}}`;
+          ? `[${t('activity:toolInput.itemCount', { count: v.length })}]`
+          : `{${t('activity:toolInput.keyCount', { count: Object.keys(v as object).length })}}`;
         return (
           <div key={k} className="py-0.5">
             <button
