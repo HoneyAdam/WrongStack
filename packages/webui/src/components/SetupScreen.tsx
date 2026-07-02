@@ -921,11 +921,11 @@ export function SetupScreen() {
           if (!isInitialLoadRef.current) {
             const diff = local.length - previousProviderCount;
             if (diff > 0) {
-              toast.success(`${local.length} providers loaded (${diff} new)`);
+              toast.success(i18n.t('setup:screen.toasts.providersLoadedNew', { count: local.length, diff }));
             } else if (diff < 0) {
-              toast.success(`${local.length} providers loaded (${Math.abs(diff)} removed)`);
+              toast.success(i18n.t('setup:screen.toasts.providersLoadedRemoved', { count: local.length, diff: Math.abs(diff) }));
             } else {
-              toast.success(`${local.length} providers loaded (no changes)`);
+              toast.success(i18n.t('setup:screen.toasts.providersLoadedNoChanges', { count: local.length }));
             }
             setPreviousProviderCount(local.length);
           }
@@ -952,11 +952,11 @@ export function SetupScreen() {
           if (!isInitialLoadRef.current) {
             const diff = result.length - previousProviderCount;
             if (diff > 0) {
-              toast.success(`${result.length} providers loaded (${diff} new)`);
+              toast.success(i18n.t('setup:screen.toasts.providersLoadedNew', { count: result.length, diff }));
             } else if (diff < 0) {
-              toast.success(`${result.length} providers loaded (${Math.abs(diff)} removed)`);
+              toast.success(i18n.t('setup:screen.toasts.providersLoadedRemoved', { count: result.length, diff: Math.abs(diff) }));
             } else {
-              toast.success(`${result.length} providers loaded (no changes)`);
+              toast.success(i18n.t('setup:screen.toasts.providersLoadedNoChanges', { count: result.length }));
             }
             setPreviousProviderCount(result.length);
           }
@@ -976,7 +976,7 @@ export function SetupScreen() {
 
         // Show error toast on refresh (not initial load)
         if (!isInitialLoadRef.current) {
-          toast.error('Failed to refresh providers');
+          toast.error(i18n.t('setup:screen.toasts.providersRefreshFailed'));
         }
       })
       .finally(() => {
@@ -1001,7 +1001,7 @@ export function SetupScreen() {
       catalogTimeout = null;
       setIsLoadingCatalog(false);
       setCatalogError(
-        'The backend is not responding. It may have crashed or the connection dropped.',
+        i18n.t('setup:screen.errors.backendNotResponding'),
       );
     }, 8000);
     const clearCatalogTimeout = () => {
@@ -1082,15 +1082,15 @@ export function SetupScreen() {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffSec = Math.floor(diffMs / 1000);
-    if (diffSec < 10) return 'just now';
-    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 10) return t('setup:screen.time.justNow');
+    if (diffSec < 60) return t('setup:screen.time.secondsAgo', { count: diffSec });
     const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffMin < 60) return t('setup:screen.time.minutesAgo', { count: diffMin });
     const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
+    if (diffHr < 24) return t('setup:screen.time.hoursAgo', { count: diffHr });
     const diffDay = Math.floor(diffHr / 24);
-    return `${diffDay}d ago`;
-  }, []);
+    return t('setup:screen.time.daysAgo', { count: diffDay });
+  }, [t]);
 
   const handleKeySaved = useCallback((providerId: string) => {
     setSavedProviderIds((prev) => new Set([...prev, providerId]));
@@ -1157,7 +1157,7 @@ export function SetupScreen() {
     timeoutId = setTimeout(() => {
       cleanup();
       off();
-      toast.error('Model switch timed out. Please try again.');
+      toast.error(i18n.t('setup:screen.errors.modelSwitchTimeout'));
     }, 5000);
   }, [selectedProvider, selectedModel, setProvider, setModel, wsUrl]);
 
@@ -1176,15 +1176,15 @@ export function SetupScreen() {
             <Zap className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Welcome to WrongStack</h1>
+            <h1 className="text-lg font-semibold">{t('setup:screen.header.title')}</h1>
             <p className="text-xs text-muted-foreground">
-              Add at least one API key to get started
+              {t('setup:screen.header.subtitle')}
             </p>
           </div>
         </div>
         {hasAnyKey && (
           <Button onClick={handleFinishSetup} size="sm">
-            Continue
+            {t('setup:screen.header.continue')}
             <ArrowRight className="h-4 w-4 ml-1.5" />
           </Button>
         )}
@@ -1198,17 +1198,17 @@ export function SetupScreen() {
             <div className="flex items-center gap-2 text-sm">
               <div className="flex items-center gap-1.5 text-primary font-medium">
                 <KeyRound className="h-4 w-4" />
-                <span>Add API Keys</span>
+                <span>{t('setup:screen.steps.addKeys')}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Bot className="h-4 w-4" />
-                <span>Pick a Model</span>
+                <span>{t('setup:screen.steps.pickModel')}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Sparkles className="h-4 w-4" />
-                <span>Start</span>
+                <span>{t('setup:screen.steps.start')}</span>
               </div>
             </div>
 
@@ -1216,10 +1216,9 @@ export function SetupScreen() {
             <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
               <Shield className="h-5 w-5 text-primary shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium">Your keys stay on your machine</p>
+                <p className="text-sm font-medium">{t('setup:screen.security.title')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  API keys are encrypted and stored locally. They&apos;re only sent to the
-                  provider&apos;s API endpoint — never to us or any third party.
+                  {t('setup:screen.security.body')}
                 </p>
               </div>
             </div>
@@ -1232,7 +1231,7 @@ export function SetupScreen() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-destructive">
-                    Can&apos;t reach the backend
+                    {t('setup:screen.errors.backendUnreachable')}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     {catalogError}
@@ -1240,7 +1239,7 @@ export function SetupScreen() {
                 </div>
                 <Button onClick={handleRetryCatalog} size="sm" variant="outline">
                   <Loader2 className="h-4 w-4 mr-2" />
-                  Retry
+                  {t('setup:screen.errors.retry')}
                 </Button>
               </div>
             ) : (
@@ -1248,13 +1247,13 @@ export function SetupScreen() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                      Popular Providers
+                      {t('setup:screen.providers.popular')}
                     </h2>
                     <div className="flex items-center gap-2">
                       {isLoadingPopular && (
                         <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                           <Loader2 className="h-3 w-3 animate-spin" />
-                          Updating...
+                          {t('setup:screen.providers.updating')}
                         </span>
                       )}
                       {lastUpdatedAt && !isLoadingPopular && (
@@ -1270,10 +1269,10 @@ export function SetupScreen() {
                         onClick={handleRefreshProviders}
                         disabled={isLoadingPopular}
                         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Refresh provider list"
+                        title={t('setup:screen.providers.refreshTitle')}
                       >
                         <RefreshCw className={cn('h-3 w-3', isLoadingPopular && 'animate-spin')} />
-                        Refresh
+                        {t('setup:screen.providers.refresh')}
                       </button>
                     </div>
                   </div>
@@ -1294,7 +1293,7 @@ export function SetupScreen() {
                 {additionalCatalog.length > 0 && (
                   <div className="space-y-3">
                     <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                      More Providers
+                      {t('setup:screen.providers.more')}
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {additionalCatalog.map((p) => (
@@ -1303,7 +1302,7 @@ export function SetupScreen() {
                           popular={{
                             id: p.id,
                             name: p.name,
-                            description: `${p.family} · ${p.modelCount} models`,
+                            description: t('setup:screen.providers.catalogDescription', { family: p.family, count: p.modelCount }),
                             icon: '🔗',
                             color:
                               'from-slate-500/20 to-slate-500/5 border-slate-500/30 hover:border-slate-500/50',
@@ -1322,7 +1321,7 @@ export function SetupScreen() {
                 {/* Custom provider */}
                 <div className="space-y-3">
                   <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                    Self-hosted
+                    {t('setup:screen.providers.selfHosted')}
                   </h2>
                   <CustomProviderSection onKeySaved={handleKeySaved} />
                 </div>
@@ -1340,7 +1339,7 @@ export function SetupScreen() {
               <div className="sticky bottom-0 bg-background/80 backdrop-blur-sm py-4 -mx-6 px-6 border-t">
                 <Button onClick={handleFinishSetup} className="w-full" size="lg">
                   <Bot className="h-4 w-4 mr-2" />
-                  Pick a model and start
+                  {t('setup:screen.start.pickAndStart')}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </div>
@@ -1353,17 +1352,17 @@ export function SetupScreen() {
             <div className="flex items-center gap-2 text-sm">
               <div className="flex items-center gap-1.5 text-emerald-500">
                 <Check className="h-4 w-4" />
-                <span>Keys</span>
+                <span>{t('setup:screen.steps.keys')}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
               <div className="flex items-center gap-1.5 text-primary font-medium">
                 <Bot className="h-4 w-4" />
-                <span>Pick a Model</span>
+                <span>{t('setup:screen.steps.pickModel')}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Sparkles className="h-4 w-4" />
-                <span>Start</span>
+                <span>{t('setup:screen.steps.start')}</span>
               </div>
             </div>
 
@@ -1372,14 +1371,14 @@ export function SetupScreen() {
               onClick={() => setStep('keys')}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              ← Add more keys
+              {t('setup:screen.start.addMoreKeys')}
             </button>
 
             {/* Provider selector */}
             <div className="space-y-3">
               <h2 className="text-base font-semibold flex items-center gap-2">
                 <Bot className="h-4 w-4 text-primary" />
-                Choose a Provider
+                {t('setup:screen.start.chooseProvider')}
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {savedProviders.map((p) => (
@@ -1399,8 +1398,7 @@ export function SetupScreen() {
                   >
                     <span className="font-medium">{p.id}</span>
                     <span className="block text-[11px] text-muted-foreground mt-0.5">
-                      {p.apiKeys.filter((k) => k.isActive).length} active key
-                      {p.apiKeys.filter((k) => k.isActive).length !== 1 ? 's' : ''}
+                      {t('setup:screen.start.activeKeys', { count: p.apiKeys.filter((k) => k.isActive).length })}
                     </span>
                   </button>
                 ))}
@@ -1412,10 +1410,10 @@ export function SetupScreen() {
               <div className="space-y-3">
                 <h2 className="text-base font-semibold flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-primary" />
-                  Choose a Model
+                  {t('setup:screen.start.chooseModel')}
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Models available for {selectedProvider}
+                  {t('setup:screen.start.modelsFor', { provider: selectedProvider })}
                 </p>
                 {isLoadingModels ? (
                   <div className="flex items-center justify-center py-8">
@@ -1471,7 +1469,7 @@ export function SetupScreen() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground py-8 text-center">
-                    No models available. Check your API key and try again.
+                    {t('setup:screen.errors.noModels')}
                   </p>
                 )}
               </div>
@@ -1487,7 +1485,7 @@ export function SetupScreen() {
                 </div>
                 <Button onClick={handleStartSession} className="w-full" size="lg">
                   <Bot className="h-4 w-4 mr-2" />
-                  Start Session
+                  {t('setup:screen.start.startSession')}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </div>
