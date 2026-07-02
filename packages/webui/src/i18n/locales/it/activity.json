@@ -919,5 +919,31 @@
     "showStack_other": "Mostra trace dello stack ({{count}} frame)",
     "hideStack_one": "Nascondi trace dello stack ({{count}} frame)",
     "hideStack_other": "Nascondi trace dello stack ({{count}} frame)"
+  },
+  "officeMap": {
+    "liveHeading": "Live",
+    "clients": "Client",
+    "agents": "Agenti",
+    "model": "Modello",
+    "mode": "Modalità",
+    "toolCalls": "Chiamate strum.",
+    "displayHeading": "Display",
+    "statsHud": "HUD stat",
+    "legends": "Legende",
+    "minimap": "Minimappa",
+    "zoomControls": "Controlli zoom",
+    "animateWires": "Anima fili",
+    "backgroundHeading": "Sfondo",
+    "bgDots": "Punti",
+    "bgLines": "Linee",
+    "bgCross": "Croce",
+    "bgNone": "Nessuno"
+  },
+  "toolInput": {
+    "noParams": "(nessun parametro)",
+    "itemCount_one": "{{count}} elemento",
+    "itemCount_other": "{{count}} elementi",
+    "keyCount_one": "{{count}} chiave",
+    "keyCount_other": "{{count}} chiavi"
   }
 }

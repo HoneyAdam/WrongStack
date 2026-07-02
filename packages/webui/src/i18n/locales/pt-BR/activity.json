@@ -919,5 +919,31 @@
     "showStack_other": "Mostrar rastreamento de pilha ({{count}} quadros)",
     "hideStack_one": "Ocultar rastreamento de pilha ({{count}} quadro)",
     "hideStack_other": "Ocultar rastreamento de pilha ({{count}} quadros)"
+  },
+  "officeMap": {
+    "liveHeading": "Ao vivo",
+    "clients": "Clientes",
+    "agents": "Agentes",
+    "model": "Modelo",
+    "mode": "Modo",
+    "toolCalls": "Chamadas",
+    "displayHeading": "Exibição",
+    "statsHud": "HUD de stats",
+    "legends": "Legendas",
+    "minimap": "Minimapa",
+    "zoomControls": "Controles de zoom",
+    "animateWires": "Animar fios",
+    "backgroundHeading": "Fundo",
+    "bgDots": "Pontos",
+    "bgLines": "Linhas",
+    "bgCross": "Cruz",
+    "bgNone": "Nenhum"
+  },
+  "toolInput": {
+    "noParams": "(sem parâmetros)",
+    "itemCount_one": "{{count}} item",
+    "itemCount_other": "{{count}} itens",
+    "keyCount_one": "{{count}} chave",
+    "keyCount_other": "{{count}} chaves"
   }
 }

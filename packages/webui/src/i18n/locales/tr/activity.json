@@ -919,5 +919,31 @@
     "showStack_other": "Yığın izini göster ({{count}} kare)",
     "hideStack_one": "Yığın izini gizle ({{count}} kare)",
     "hideStack_other": "Yığın izini gizle ({{count}} kare)"
+  },
+  "officeMap": {
+    "liveHeading": "Canlı",
+    "clients": "İstemciler",
+    "agents": "Aracılar",
+    "model": "Model",
+    "mode": "Kip",
+    "toolCalls": "Araç çağrıları",
+    "displayHeading": "Görünüm",
+    "statsHud": "İstatistik HUD",
+    "legends": "Açıklamalar",
+    "minimap": "Mini harita",
+    "zoomControls": "Yakınlaştırma kontrolleri",
+    "animateWires": "Bağlantıları animasyonla",
+    "backgroundHeading": "Arka plan",
+    "bgDots": "Noktalar",
+    "bgLines": "Çizgiler",
+    "bgCross": "Çapraz",
+    "bgNone": "Yok"
+  },
+  "toolInput": {
+    "noParams": "(parametre yok)",
+    "itemCount_one": "{{count}} öğe",
+    "itemCount_other": "{{count}} öğe",
+    "keyCount_one": "{{count}} anahtar",
+    "keyCount_other": "{{count}} anahtar"
   }
 }

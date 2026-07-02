@@ -919,5 +919,31 @@
     "showStack_other": "Stack-Trace zeigen ({{count}} Frames)",
     "hideStack_one": "Stack-Trace verbergen ({{count}} Frame)",
     "hideStack_other": "Stack-Trace verbergen ({{count}} Frames)"
+  },
+  "officeMap": {
+    "liveHeading": "Live",
+    "clients": "Clients",
+    "agents": "Agents",
+    "model": "Modell",
+    "mode": "Modus",
+    "toolCalls": "Tool-Aufrufe",
+    "displayHeading": "Anzeige",
+    "statsHud": "Stats-HUD",
+    "legends": "Legenden",
+    "minimap": "Minimap",
+    "zoomControls": "Zoom-Steuerung",
+    "animateWires": "Kabel animieren",
+    "backgroundHeading": "Hintergrund",
+    "bgDots": "Punkte",
+    "bgLines": "Linien",
+    "bgCross": "Kreuz",
+    "bgNone": "Keine"
+  },
+  "toolInput": {
+    "noParams": "(keine Parameter)",
+    "itemCount_one": "{{count}} Element",
+    "itemCount_other": "{{count}} Elemente",
+    "keyCount_one": "{{count}} Schlüssel",
+    "keyCount_other": "{{count}} Schlüssel"
   }
 }
