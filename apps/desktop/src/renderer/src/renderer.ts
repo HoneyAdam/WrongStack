@@ -123,10 +123,10 @@ function render(): void {
 
 function renderDesktopRail(): string {
   return `
-    <nav class="desktop-rail" aria-label="Desktop navigation">
+    <nav class="desktop-rail" aria-label="${t('desktopNavAria')}">
       <div class="rail-brand" title="WrongStack Desktop">WS</div>
       <div class="rail-section">
-        <button class="rail-button accent" title="Open project folder" data-action="open-project" ${busy ? 'disabled' : ''}>
+        <button class="rail-button accent" title="${t('openProjectFolderTitle')}" data-action="open-project" ${busy ? 'disabled' : ''}>
           ${iconSvg('folder-plus')}
         </button>
         ${renderDesktopPanelButton(t('workspace'), 'monitor', 'workspace')}
@@ -135,7 +135,7 @@ function renderDesktopRail(): string {
       </div>
       ${renderCollapsedRuntimeButtons()}
       <div class="rail-spacer"></div>
-      <button class="rail-button" title="Global settings" data-action="open-settings" ${busy ? 'disabled' : ''}>
+      <button class="rail-button" title="${t('globalSettings')}" data-action="open-settings" ${busy ? 'disabled' : ''}>
         ${iconSvg('settings')}
       </button>
       <button
@@ -279,7 +279,7 @@ function renderShellError(): string {
   return `
     <div class="shell-error" role="alert">
       <div class="shell-error-copy">${escapeHtml(shellError)}</div>
-      <button class="icon-button" title="Dismiss" data-action="clear-error">
+      <button class="icon-button" title="${t('dismiss')}" data-action="clear-error">
         ${iconSvg('x')}
       </button>
     </div>
@@ -291,7 +291,7 @@ function renderActiveProject(active: DesktopRuntimeRecord | undefined): string {
     return `
       <section class="panel active-panel">
         <header class="panel-header">
-        <span>Active</span>
+        <span>${t('active')}</span>
         <span class="status-chip idle">${state.restoring ? t('restoring') : t('idle')}</span>
       </header>
         <div class="project-empty">${state.restoring ? `${t('restoring')}...` : t('noProject')}</div>
@@ -302,12 +302,12 @@ function renderActiveProject(active: DesktopRuntimeRecord | undefined): string {
   return `
     <section class="panel active-panel">
       <header class="panel-header">
-        <span>Active</span>
+        <span>${t('active')}</span>
         <span class="status-chip ${active.status}">${escapeHtml(runtimeStatusLabel(active))}</span>
       </header>
       <div class="active-project">
         <div class="active-title">${escapeHtml(active.name)}</div>
-        ${active.kind === 'global-settings' ? '<div class="runtime-kind">Global settings workspace</div>' : ''}
+        ${active.kind === 'global-settings' ? `<div class="runtime-kind">${t('globalSettingsWorkspace')}</div>` : ''}
         <div class="active-path">${escapeHtml(active.root)}</div>
         <div class="active-meta">
           <span>HTTP ${active.httpPort}</span>
@@ -325,17 +325,17 @@ function renderActiveProject(active: DesktopRuntimeRecord | undefined): string {
         ${
           active.kind === 'project'
             ? `<button class="secondary-action project-session-action" data-action="new-project-session" data-runtime="${escapeAttr(active.id)}">
-          ${iconSvg('plus')}<span>New Session</span>
+          ${iconSvg('plus')}<span>${t('newSession')}</span>
         </button>`
             : ''
         }
-        <button class="icon-tool-button" title="Reveal project folder" data-action="reveal-root" data-runtime="${escapeAttr(active.id)}">
+        <button class="icon-tool-button" title="${t('revealProjectFolder')}" data-action="reveal-root" data-runtime="${escapeAttr(active.id)}">
           ${iconSvg('folder')}
         </button>
-        <button class="icon-tool-button" title="Open active WebUI in browser" data-action="open-browser" data-runtime="${escapeAttr(active.id)}">
+        <button class="icon-tool-button" title="${t('openInBrowser')}" data-action="open-browser" data-runtime="${escapeAttr(active.id)}">
           ${iconSvg('external')}
         </button>
-        <button class="icon-tool-button" title="Reload active WebUI" data-action="reload-webui" data-runtime="${escapeAttr(active.id)}">
+        <button class="icon-tool-button" title="${t('refresh')}" data-action="reload-webui" data-runtime="${escapeAttr(active.id)}">
           ${iconSvg('refresh')}
         </button>
       </div>
@@ -391,7 +391,7 @@ function renderLauncher(active: DesktopRuntimeRecord | undefined): string {
   return `
     <section class="panel launcher-panel">
       <header class="panel-header">
-        <span>Quick</span>
+        <span>${t('quick')}</span>
         <span class="count">${enabled ? t('ready') : t('offline')}</span>
       </header>
       ${renderLauncherFeedback()}
@@ -430,10 +430,10 @@ function renderProjectPicker(variant: ProjectPickerVariant): string {
   return `
     <section class="panel projects-panel projects-panel-${variant}">
       <header class="panel-header projects-header">
-        <span>Projects</span>
+        <span>${t('projects')}</span>
         <span class="panel-header-actions">
           <span class="count">${visibleTotal}/${filteredTotal || total}</span>
-          <button class="panel-header-button" title="Register project folder" data-action="register-project" ${busy ? 'disabled' : ''}>
+          <button class="panel-header-button" title="${t('registerProjectFolder')}" data-action="register-project" ${busy ? 'disabled' : ''}>
             ${iconSvg('folder-plus')}
           </button>
         </span>
@@ -446,14 +446,14 @@ function renderProjectPicker(variant: ProjectPickerVariant): string {
             class="project-search-input"
             type="search"
             value="${escapeAttr(projectSearch)}"
-            placeholder="Find project"
-            aria-label="Find project"
+            placeholder="${t('findProject')}"
+            aria-label="${t('findProject')}"
             autocomplete="off"
             spellcheck="false"
           />
           ${
             projectSearch
-              ? `<button class="project-search-clear" title="Clear project search" data-action="clear-project-search">${iconSvg('x')}</button>`
+              ? `<button class="project-search-clear" title="${t('clearProjectSearch')}" data-action="clear-project-search">${iconSvg('x')}</button>`
               : ''
           }
         </div>
@@ -461,10 +461,10 @@ function renderProjectPicker(variant: ProjectPickerVariant): string {
           variant === 'full' || variant === 'embedded'
             ? `<div class="project-picker-actions">
           <button class="secondary-action compact-action" data-action="open-project" ${busy ? 'disabled' : ''}>
-            ${iconSvg('folder')}<span>Open</span>
+            ${iconSvg('folder')}<span>${t('open')}</span>
           </button>
           <button class="secondary-action compact-action" data-action="register-project" ${busy ? 'disabled' : ''}>
-            ${iconSvg('folder-plus')}<span>Register</span>
+            ${iconSvg('folder-plus')}<span>${t('register')}</span>
           </button>
         </div>`
             : ''
@@ -481,7 +481,7 @@ function renderProjectPicker(variant: ProjectPickerVariant): string {
 
 function renderProjectTabs(recentCount: number, registeredCount: number, allCount: number): string {
   return `
-    <div class="project-tabs" role="tablist" aria-label="Project lists">
+    <div class="project-tabs" role="tablist" aria-label="${t('projectLists')}">
       ${renderProjectTab('recent', t('recent'), recentCount)}
       ${renderProjectTab('registered', t('registered'), registeredCount)}
       ${renderProjectTab('all', t('all'), allCount)}
@@ -522,14 +522,14 @@ function renderProjectItem(project: DesktopProjectEntry): string {
           <span class="project-item-title">${escapeHtml(title)}</span>
           <span class="project-item-path">${escapeHtml(subtitle)}</span>
         </span>
-        ${openRuntime ? '<span class="project-open-dot" title="Open"></span>' : ''}
+        ${openRuntime ? `<span class="project-open-dot" title="${t('open')}"></span>` : ''}
       </button>
       <button
         class="project-remove-button"
         data-action="unregister-project"
         data-project-root="${escapeAttr(project.root)}"
-        title="Remove from project registry"
-        aria-label="Remove ${escapeAttr(title)} from project registry"
+        title="${t('removeFromRegistry')}"
+        aria-label="${t('removeFromRegistry')}"
       >
         ${iconSvg('x')}
       </button>
@@ -609,13 +609,13 @@ function renderRuntimeList(): string {
   return `
     <section class="panel runtime-panel">
       <header class="panel-header">
-        <span>Runtimes</span>
+        <span>${t('runtimes')}</span>
         <span class="count">${groups.length}/${state.runtimes.length}</span>
       </header>
       <div class="runtime-list">
         ${
           state.runtimes.length === 0
-            ? '<div class="empty">None</div>'
+            ? `<div class="empty">${t('none')}</div>`
             : groups.map(renderRuntimeGroup).join('')
         }
       </div>
@@ -628,7 +628,7 @@ function renderProjectSessionTree(): string {
   return `
     <section class="panel runtime-panel project-sessions-panel">
       <header class="panel-header">
-        <span>Sessions</span>
+        <span>${t('sessions')}</span>
         <span class="count">${groups.length}/${groups.reduce((sum, group) => sum + group.sessions.length, 0)}</span>
       </header>
       <div class="runtime-list project-session-tree">
@@ -719,7 +719,7 @@ function renderRuntimeGroup(group: RuntimeProjectGroup): string {
         </button>
         ${
           group.kind === 'project' && firstSession
-            ? `<button class="icon-button runtime-add-session" title="New session" data-action="new-project-session" data-runtime="${escapeAttr(firstSession.id)}">
+            ? `<button class="icon-button runtime-add-session" title="${t('newSession')}" data-action="new-project-session" data-runtime="${escapeAttr(firstSession.id)}">
           ${iconSvg('plus')}
         </button>`
             : ''
@@ -774,25 +774,25 @@ function renderRuntimeSession(runtime: DesktopRuntimeRecord, index: number): str
         </span>
       </button>
       <div class="runtime-session-actions" aria-label="${escapeAttr(label)} actions">
-        <button class="runtime-session-action primary" title="Quick view" data-action="activate" data-runtime="${escapeAttr(runtime.id)}">
-          ${iconSvg('monitor')}<span>Quick</span>
+        <button class="runtime-session-action primary" title="${t('quickView')}" data-action="activate" data-runtime="${escapeAttr(runtime.id)}">
+          ${iconSvg('monitor')}<span>${t('quick')}</span>
         </button>
-        <button class="runtime-session-action" title="Open chat" data-action="session-webui-command" data-runtime="${escapeAttr(runtime.id)}" data-command="${escapeAttr(launcherCommandKey({ activity: 'chat', view: 'chat' }))}" data-label="Chat" ${disabled}>
-          ${iconSvg('message')}<span>Chat</span>
+        <button class="runtime-session-action" title="${t('openChat')}" data-action="session-webui-command" data-runtime="${escapeAttr(runtime.id)}" data-command="${escapeAttr(launcherCommandKey({ activity: 'chat', view: 'chat' }))}" data-label="Chat" ${disabled}>
+          ${iconSvg('message')}<span>${t('chat')}</span>
         </button>
-        <button class="runtime-session-action" title="Open terminal" data-action="session-webui-command" data-runtime="${escapeAttr(runtime.id)}" data-command="${escapeAttr(launcherCommandKey({ terminal: 'toggle' }))}" data-label="Terminal" ${disabled}>
-          ${iconSvg('terminal')}<span>Term</span>
+        <button class="runtime-session-action" title="${t('openTerminal')}" data-action="session-webui-command" data-runtime="${escapeAttr(runtime.id)}" data-command="${escapeAttr(launcherCommandKey({ terminal: 'toggle' }))}" data-label="Terminal" ${disabled}>
+          ${iconSvg('terminal')}<span>${t('term')}</span>
         </button>
-        <button class="runtime-session-action" title="Open files" data-action="session-webui-command" data-runtime="${escapeAttr(runtime.id)}" data-command="${escapeAttr(launcherCommandKey({ activity: 'files', view: 'files' }))}" data-label="Files" ${disabled}>
-          ${iconSvg('files')}<span>Files</span>
+        <button class="runtime-session-action" title="${t('openFiles')}" data-action="session-webui-command" data-runtime="${escapeAttr(runtime.id)}" data-command="${escapeAttr(launcherCommandKey({ activity: 'files', view: 'files' }))}" data-label="Files" ${disabled}>
+          ${iconSvg('files')}<span>${t('files')}</span>
         </button>
-        <button class="runtime-session-icon" title="Open in browser" data-action="open-browser" data-runtime="${escapeAttr(runtime.id)}" ${disabled}>
+        <button class="runtime-session-icon" title="${t('openInBrowser')}" data-action="open-browser" data-runtime="${escapeAttr(runtime.id)}" ${disabled}>
           ${iconSvg('external')}
         </button>
-        <button class="runtime-session-icon" title="Reload WebUI" data-action="session-reload-webui" data-runtime="${escapeAttr(runtime.id)}" ${disabled}>
+        <button class="runtime-session-icon" title="${t('refresh')}" data-action="session-reload-webui" data-runtime="${escapeAttr(runtime.id)}" ${disabled}>
           ${iconSvg('refresh')}
         </button>
-        <button class="runtime-session-icon danger" title="Close session" data-action="close" data-runtime="${escapeAttr(runtime.id)}">
+        <button class="runtime-session-icon danger" title="${t('closeSession')}" data-action="close" data-runtime="${escapeAttr(runtime.id)}">
           ${iconSvg('x')}
         </button>
       </div>
@@ -807,7 +807,7 @@ function renderStage(active: DesktopRuntimeRecord | undefined): string {
   if (active?.status === 'starting') {
     return `
       <section class="stage-card">
-        <div class="stage-kicker">Starting</div>
+        <div class="stage-kicker">${t('starting')}</div>
         <h1>${escapeHtml(active.name)}</h1>
         <div class="stage-path">${escapeHtml(active.root)}</div>
       </section>
@@ -816,7 +816,7 @@ function renderStage(active: DesktopRuntimeRecord | undefined): string {
   if (active?.status === 'error') {
     return `
       <section class="stage-card error-card">
-        <div class="stage-kicker">Runtime Error</div>
+        <div class="stage-kicker">${t('runtimeError')}</div>
         <h1>${escapeHtml(active.name)}</h1>
         <pre>${escapeHtml(active.error ?? t('unknownError'))}</pre>
         ${renderRuntimeLogs(active)}
@@ -829,13 +829,13 @@ function renderStage(active: DesktopRuntimeRecord | undefined): string {
       <h1>${state.restoring ? t('restoring') : t('openProject')}</h1>
       <div class="stage-actions">
         <button class="primary-action inline" data-action="open-project" ${busy ? 'disabled' : ''}>
-          ${iconSvg('folder-plus')}<span>Open Project</span>
+          ${iconSvg('folder-plus')}<span>${t('openProject')}</span>
         </button>
         <button class="secondary-action inline" data-action="register-project" ${busy ? 'disabled' : ''}>
-          ${iconSvg('folder')}<span>Register</span>
+          ${iconSvg('folder')}<span>${t('register')}</span>
         </button>
         <button class="secondary-action inline" data-action="open-settings" ${busy ? 'disabled' : ''}>
-          ${iconSvg('settings')}<span>Settings</span>
+          ${iconSvg('settings')}<span>${t('settings')}</span>
         </button>
       </div>
     </section>
