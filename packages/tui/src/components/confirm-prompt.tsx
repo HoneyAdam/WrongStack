@@ -1,6 +1,9 @@
 import { Box, Text, useInput } from '../ink.js';
 import { writeOut } from '@wrongstack/core';
 import React from 'react';
+import { langFromPath } from '../highlight.js';
+import { theme } from '../theme.js';
+import { DiffBlock, parseUnifiedDiff } from './history/code-block.js';
 
 export type ConfirmDecision = 'yes' | 'no' | 'always' | 'deny';
 
@@ -66,7 +69,10 @@ function stringifyInput(input: unknown): string {
   if (!input || typeof input !== 'object') return '';
   const obj = input as Record<string, unknown>;
   return Object.entries(obj)
-    .filter(([k]) => k !== 'content' && k !== 'new_string')
+    // `content`/`new_string` are bulky payloads; `diff` is rendered as a
+    // proper DiffBlock below the summary — repeating its raw text here
+    // would just be noise.
+    .filter(([k]) => k !== 'content' && k !== 'new_string' && k !== 'diff')
     .map(([k, v]) => `${k}: ${truncate(JSON.stringify(v), 80)}`)
     .join('  ');
 }
@@ -80,6 +86,9 @@ function hasDiff(input: unknown): boolean {
     input && typeof input === 'object' && 'diff' in (input as Record<string, unknown>),
   );
 }
+
+/** Max diff lines shown inside the approval dialog before truncation. */
+const CONFIRM_DIFF_MAX_LINES = 20;
 
 function renderDiffLine(line: string): React.ReactElement {
   const prefix = line.startsWith('+')
@@ -97,11 +106,34 @@ function renderDiffLine(line: string): React.ReactElement {
   );
 }
 
-function renderDiff(diff: string): React.ReactElement {
+/**
+ * Pending-edit preview inside the approval dialog. Rendered with the same
+ * Claude-Code-style `DiffBlock` the committed tool entries use (single
+ * line-number gutter, dark add/del washes, syntax highlighting from the
+ * target file's extension), so the "what you approve" preview and the
+ * "what happened" entry look identical. Falls back to the flat per-line
+ * coloring when the string doesn't parse as a unified diff.
+ */
+function renderDiff(diff: string, path: string | undefined): React.ReactElement {
+  const preview = parseUnifiedDiff(diff, CONFIRM_DIFF_MAX_LINES);
+  if (preview.rows.length > 0) {
+    return (
+      <DiffBlock
+        rows={preview.rows}
+        hidden={preview.hidden}
+        added={preview.added}
+        removed={preview.removed}
+        hiddenAdded={preview.hiddenAdded}
+        hiddenRemoved={preview.hiddenRemoved}
+        useColor={theme.supportsBackground}
+        lang={langFromPath(path ?? '')}
+      />
+    );
+  }
   const lines = diff
     .split('\n')
     .filter((l) => l.length > 0)
-    .slice(0, 20);
+    .slice(0, CONFIRM_DIFF_MAX_LINES);
   return (
     <Box flexDirection="column" paddingX={2}>
       {lines.map((l) => renderDiffLine(l))}
@@ -147,8 +179,9 @@ export function ConfirmPrompt({
 
   const inputSummary = stringifyInput(input);
   const showDiff = hasDiff(input);
-  const inp = input as { diff?: unknown | undefined };
+  const inp = input as { diff?: unknown | undefined; path?: unknown | undefined };
   const diff = typeof inp?.diff === 'string' ? inp.diff : '';
+  const diffPath = typeof inp?.path === 'string' ? inp.path : undefined;
 
   // NOTE: no marginY here — the call site wraps this in a measured Box that
   // owns the vertical margin, so `measureElement` on the wrapper reports the
@@ -168,7 +201,7 @@ export function ConfirmPrompt({
       {inputSummary ? <Text dimColor>{inputSummary}</Text> : null}
       {showDiff && diff ? (
         <Box flexDirection="column" marginY={1}>
-          {renderDiff(diff)}
+          {renderDiff(diff, diffPath)}
         </Box>
       ) : null}
       <Text dimColor>─────────────────</Text>
