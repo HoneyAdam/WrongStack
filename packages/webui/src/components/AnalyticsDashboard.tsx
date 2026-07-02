@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getWSClient } from '@/lib/ws-client';
+import { useAppTranslation } from '@/i18n';
 import { useConfigStore } from '@/stores';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ function StatCard({
 // ── Main component ─────────────────────────────────────────────────────
 
 export function AnalyticsDashboard() {
+  const { t } = useAppTranslation();
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [events, setEvents] = useState<AnalyticsEvent[]>([]);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
@@ -226,8 +228,8 @@ export function AnalyticsDashboard() {
       );
     };
     load();
-    const t = setInterval(load, 10_000);
-    return () => clearInterval(t);
+    const id = setInterval(load, 10_000);
+    return () => clearInterval(id);
   }, [fetchSummary, fetchEvents, fetchSessions, fetchStats]);
 
   // Compute derived stats. Memoized to avoid redoing the reduce/sort work on
@@ -293,7 +295,7 @@ export function AnalyticsDashboard() {
     return (
       <div className="flex items-center gap-2 p-4 text-slate-400">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading analytics...
+        {t('activity:analytics.loading')}
       </div>
     );
   }
@@ -306,10 +308,10 @@ export function AnalyticsDashboard() {
           <div className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-cyan-400" />
             <h1 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
-              Analytics Dashboard
+              {t('activity:analytics.heading')}
             </h1>
           </div>
-          <span className="text-xs text-slate-600">auto-refresh every 10s</span>
+          <span className="text-xs text-slate-600">{t('activity:analytics.autoRefresh')}</span>
         </div>
       </div>
 
@@ -319,43 +321,43 @@ export function AnalyticsDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard
             icon={<Activity className="h-4 w-4" />}
-            label="Live Sessions"
+            label={t('activity:analytics.liveSessions')}
             value={sessions.length}
             color="text-cyan-400"
           />
           <StatCard
             icon={<Users className="h-4 w-4" />}
-            label="Agents"
+            label={t('activity:analytics.agents')}
             value={`${activeAgents}/${totalAgents}`}
-            sub={activeAgents > 0 ? `${activeAgents} active` : undefined}
+            sub={activeAgents > 0 ? t('activity:analytics.agentsActive', { count: activeAgents }) : undefined}
             color="text-blue-400"
           />
           <StatCard
             icon={<MessageSquare className="h-4 w-4" />}
-            label="Total Events"
+            label={t('activity:analytics.totalEvents')}
             value={summary?.totalEvents ?? 0}
-            sub={`${summary?.uniqueCategories ?? 0} categories`}
+            sub={t('activity:analytics.categoriesSub', { count: summary?.uniqueCategories ?? 0 })}
             color="text-violet-400"
           />
           <StatCard
             icon={<Terminal className="h-4 w-4" />}
-            label="Tool Calls"
+            label={t('activity:analytics.toolCalls')}
             value={totalToolCalls}
-            sub={`${totalIterations} iterations`}
+            sub={t('activity:analytics.iterationsSub', { count: totalIterations })}
             color="text-emerald-400"
           />
           <StatCard
             icon={<DollarSign className="h-4 w-4" />}
-            label="Session Cost"
+            label={t('activity:analytics.sessionCost')}
             value={stats ? fmtCost(stats.cost) : '—'}
-            sub={stats ? `${fmtTokens(stats.usage.input)} in / ${fmtTokens(stats.usage.output)} out` : undefined}
+            sub={stats ? t('activity:analytics.tokensSub', { input: fmtTokens(stats.usage.input), output: fmtTokens(stats.usage.output) }) : undefined}
             color="text-amber-400"
           />
           <StatCard
             icon={<Cpu className="h-4 w-4" />}
-            label="Session Duration"
+            label={t('activity:analytics.sessionDuration')}
             value={stats ? fmtDuration(stats.elapsedMs) : '—'}
-            sub={stats ? `${stats.messages} messages` : undefined}
+            sub={stats ? t('activity:analytics.messagesSub', { count: stats.messages }) : undefined}
             color="text-rose-400"
           />
         </div>
@@ -366,10 +368,10 @@ export function AnalyticsDashboard() {
           <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <TrendingUp className="h-3.5 w-3.5 text-cyan-400" />
-              Events by Category
+              {t('activity:analytics.eventsByCategory')}
             </h3>
             {categoryEntries.length === 0 ? (
-              <p className="text-slate-600 text-xs">No events recorded yet.</p>
+              <p className="text-slate-600 text-xs">{t('activity:analytics.noEvents')}</p>
             ) : (
               <div className="space-y-1.5">
                 {categoryEntries.map(([cat, count]) => {
@@ -396,10 +398,10 @@ export function AnalyticsDashboard() {
           <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <BarChart3 className="h-3.5 w-3.5 text-violet-400" />
-              Top Events
+              {t('activity:analytics.topEvents')}
             </h3>
             {eventEntries.length === 0 ? (
-              <p className="text-slate-600 text-xs">No events recorded yet.</p>
+              <p className="text-slate-600 text-xs">{t('activity:analytics.noEvents')}</p>
             ) : (
               <div className="space-y-1.5">
                 {eventEntries.map(([evt, count]) => {
@@ -429,37 +431,37 @@ export function AnalyticsDashboard() {
           <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <DollarSign className="h-3.5 w-3.5 text-amber-400" />
-              Active Session Usage
+              {t('activity:analytics.activeSessionUsage')}
             </h3>
             {stats ? (
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
-                  <span className="text-slate-500">Provider</span>
+                  <span className="text-slate-500">{t('activity:analytics.provider')}</span>
                   <p className="text-slate-200 font-mono mt-0.5">{stats.provider}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Model</span>
+                  <span className="text-slate-500">{t('activity:analytics.model')}</span>
                   <p className="text-slate-200 font-mono mt-0.5">{stats.model}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Input Tokens</span>
+                  <span className="text-slate-500">{t('activity:analytics.inputTokens')}</span>
                   <p className="text-slate-200 tabular-nums mt-0.5">{fmtTokens(stats.usage.input)}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Output Tokens</span>
+                  <span className="text-slate-500">{t('activity:analytics.outputTokens')}</span>
                   <p className="text-slate-200 tabular-nums mt-0.5">{fmtTokens(stats.usage.output)}</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Cache Ratio</span>
+                  <span className="text-slate-500">{t('activity:analytics.cacheRatio')}</span>
                   <p className="text-slate-200 tabular-nums mt-0.5">{(stats.cache.ratio * 100).toFixed(1)}%</p>
                 </div>
                 <div>
-                  <span className="text-slate-500">Files Read</span>
+                  <span className="text-slate-500">{t('activity:analytics.filesRead')}</span>
                   <p className="text-slate-200 tabular-nums mt-0.5">{stats.readFiles}</p>
                 </div>
               </div>
             ) : (
-              <p className="text-slate-600 text-xs">No active session or waiting for data&hellip;</p>
+              <p className="text-slate-600 text-xs">{t('activity:analytics.noSession')}</p>
             )}
           </div>
 
@@ -467,32 +469,32 @@ export function AnalyticsDashboard() {
           <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-              Health &amp; Errors
+              {t('activity:analytics.healthErrors')}
             </h3>
             <div className="space-y-2 text-xs">
               {summary ? (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Error events</span>
+                    <span className="text-slate-500">{t('activity:analytics.errorEvents')}</span>
                     <span className="text-red-400 tabular-nums">{errorCount}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Warning events</span>
+                    <span className="text-slate-500">{t('activity:analytics.warningEvents')}</span>
                     <span className="text-amber-400 tabular-nums">{warningCount}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Cache hit rate</span>
+                    <span className="text-slate-500">{t('activity:analytics.cacheHitRate')}</span>
                     <span className="text-emerald-400 tabular-nums">
                       {stats ? `${(stats.cache.ratio * 100).toFixed(1)}%` : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Total categories</span>
+                    <span className="text-slate-500">{t('activity:analytics.totalCategories')}</span>
                     <span className="text-slate-300 tabular-nums">{summary.uniqueCategories}</span>
                   </div>
                 </>
               ) : (
-                <p className="text-slate-600">Waiting for data&hellip;</p>
+                <p className="text-slate-600">{t('activity:analytics.waitingData')}</p>
               )}
             </div>
           </div>
@@ -502,10 +504,10 @@ export function AnalyticsDashboard() {
         <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Activity className="h-3.5 w-3.5 text-cyan-400" />
-            Recent Events
+            {t('activity:analytics.recentEvents')}
           </h3>
           {events.length === 0 ? (
-            <p className="text-slate-600 text-xs">No recent events. Interact with the UI to generate events.</p>
+            <p className="text-slate-600 text-xs">{t('activity:analytics.noRecentEvents')}</p>
           ) : (
             <div className="max-h-64 overflow-y-auto space-y-1">
               {reversedEvents.map((evt, i) => (
