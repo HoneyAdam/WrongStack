@@ -1,5 +1,6 @@
 import { expectDefined } from '@wrongstack/core';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { memo, useMemo } from 'react';
 interface DiffViewProps {
   oldText: string;
@@ -24,12 +25,13 @@ interface DiffViewProps {
  * note); that's a UI guard, not a hard limit on the underlying tool.
  */
 export const DiffView = memo(function DiffView({ oldText, newText, caption, fill }: DiffViewProps) {
+  const { t } = useAppTranslation();
   const rows = useMemo(() => computeDiff(oldText, newText), [oldText, newText]);
 
   if (rows === null) {
     return (
       <div className="text-xs text-muted-foreground italic px-3 py-2">
-        Diff omitted (file too large to render inline).
+        {t('activity:diff.tooLarge')}
       </div>
     );
   }

@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';
 import { useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { ModelPicker } from './ModelPicker';
 
 /**
@@ -13,8 +14,8 @@ export function FallbackEditor({
   value,
   candidates,
   onChange,
-  placeholder = 'Add a fallback model…',
-  emptyHint = 'Tried in order when the primary model rate-limits or stalls.',
+  placeholder,
+  emptyHint,
 }: {
   value: string[];
   candidates: ModelCandidate[];
@@ -22,6 +23,7 @@ export function FallbackEditor({
   placeholder?: string | undefined;
   emptyHint?: string | undefined;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const [manualRef, setManualRef] = useState('');
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -58,7 +60,7 @@ export function FallbackEditor({
                 onClick={() => move(i, -1)}
                 disabled={i === 0}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                title="Move up"
+                title={t('activity:fallback.moveUp')}
               >
                 <ArrowUp className="h-3 w-3" />
               </button>
@@ -67,7 +69,7 @@ export function FallbackEditor({
                 onClick={() => move(i, 1)}
                 disabled={i === value.length - 1}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                title="Move down"
+                title={t('activity:fallback.moveDown')}
               >
                 <ArrowDown className="h-3 w-3" />
               </button>
@@ -75,7 +77,7 @@ export function FallbackEditor({
                 type="button"
                 onClick={() => remove(i)}
                 className="text-muted-foreground hover:text-red-400"
-                title="Remove"
+                title={t('common:action.remove')}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -83,7 +85,7 @@ export function FallbackEditor({
           ))}
         </ol>
       )}
-      <ModelPicker candidates={candidates} placeholder={placeholder} onPick={add} />
+      <ModelPicker candidates={candidates} placeholder={placeholder ?? t('activity:fallback.placeholder')} onPick={add} />
       <div className="flex gap-1.5">
         <input
           value={manualRef}
@@ -91,21 +93,21 @@ export function FallbackEditor({
           onKeyDown={(e) => {
             if (e.key === 'Enter') addManual();
           }}
-          placeholder="provider/model"
+          placeholder={t('activity:fallback.manualPlaceholder')}
           className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs outline-none placeholder:text-muted-foreground"
         />
         <button
           type="button"
           onClick={addManual}
           className="rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted"
-          title="Add model reference"
+          title={t('activity:fallback.addTitle')}
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
       {value.length === 0 && (
         <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Plus className="h-2.5 w-2.5" /> {emptyHint}
+          <Plus className="h-2.5 w-2.5" /> {emptyHint ?? t('activity:fallback.emptyHint')}
         </p>
       )}
     </div>
