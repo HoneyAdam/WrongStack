@@ -342,7 +342,10 @@
       "in_progress": "In Arbeit",
       "review": "Review",
       "failed": "Fehlgeschlagen",
-      "completed": "Erledigt"
+      "completed": "Erledigt",
+      "queued": "In Warteschlange",
+      "blocked": "Blockiert",
+      "cancelled": "Abgebrochen"
     },
     "newTaskTitle": "Neue Aufgabe",
     "newTaskPlaceholder": "Aufgabentitel…",
@@ -351,7 +354,10 @@
     "summary": "{{phases}} Phasen · {{tasks}} Aufgaben",
     "phases": "Phasen",
     "statusTab": "Status",
-    "dropHere": "Aufgaben hier ablegen"
+    "dropHere": "Aufgaben hier ablegen",
+    "emptySpec": "Noch keine Aufgaben in dieser Spec.",
+    "depGraphHeading": "Abhängigkeitsgraph",
+    "worktreePrefix": "Worktree: {{branch}}"
   },
   "debug": {
     "trendUp": "Steigend",
@@ -537,7 +543,9 @@
       "failed": "fehlgeschlagen",
       "completed": "erledigt",
       "cancelled": "abgebrochen"
-    }
+    },
+    "activityHeading": "Aktivität",
+    "feedEmpty": "Noch nichts — Ereignisse erscheinen hier, sobald Agents Aufgaben übernehmen und abschließen."
   },
   "toolResult": {
     "collapseToLines": "Auf erste {{count}} Zeilen einklappen",
@@ -705,7 +713,8 @@
     "startTitle": "Starten",
     "completeTitle": "Abschließen",
     "fail": "Fehlschlagen",
-    "failTitle": "Als fehlgeschlagen markieren"
+    "failTitle": "Als fehlgeschlagen markieren",
+    "boardCount": "{{total}} Aufgaben · {{done}} erledigt"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} Werkzeugaufruf",
@@ -724,5 +733,75 @@
     "doneTitle": "Als erledigt markieren",
     "reopenTitle": "Wieder öffnen",
     "reopen": "Wieder öffnen"
+  },
+  "filePicker": {
+    "heading": "@ Dateien",
+    "noMatch": "Keine Dateien passen zu „{{query}}“",
+    "searching": "Projekt wird durchsucht…"
+  },
+  "toast": {
+    "dismiss": "Verwerfen"
+  },
+  "search": {
+    "placeholder": "Im Chat suchen…",
+    "prevHit": "Vorheriger Treffer",
+    "nextHit": "Nächster Treffer",
+    "close": "Schließen (Esc)"
+  },
+  "phase": {
+    "statusPending": "Ausstehend",
+    "statusReady": "Bereit",
+    "statusRunning": "Läuft",
+    "statusPaused": "Pausiert",
+    "statusCompleted": "Abgeschlossen",
+    "statusFailed": "Fehlgeschlagen",
+    "statusSkipped": "Übersprungen",
+    "heading": "Phasen",
+    "autonomousOn": "● Autonom",
+    "autonomousOff": "○ Manuell",
+    "autonomousOnTitle": "Autonomer Modus aktiv — klicken zum Pausieren",
+    "autonomousOffTitle": "Manueller Modus — klicken zum Aktivieren des autonomen Modus",
+    "overallProgress": "Gesamtfortschritt",
+    "tasksSuffix": "{{done}}/{{total}} Aufgaben",
+    "agentsSuffix_one": "{{count}} Agent",
+    "agentsSuffix_other": "{{count}} Agents"
+  },
+  "ctxMode": {
+    "triggerTitle": "Kontextfenster-Modus",
+    "ctxPrefix": "ctx:",
+    "opsHeading": "Kontextoperationen",
+    "compactNow": "Jetzt komprimieren",
+    "compactNowDesc": "Alte Tool-Ausgaben kürzen",
+    "compactAggressive": "Aggressiv komprimieren",
+    "compactAggressiveDesc": "Maximale Kürzung jetzt",
+    "repairContext": "Kontext reparieren",
+    "repairDesc": "Verwaiste Tool-Use-Blöcke beheben",
+    "debugContext": "Kontext debuggen",
+    "debugDesc": "Größenaufschlüsselung pro Abschnitt",
+    "windowHeading": "Kontextfenster",
+    "keepElide": "{{k}} letzte behalten · {{t}}+ Token kürzen",
+    "fallbackName": "Ausgeglichen",
+    "fallbackDesc": "Standard-Rolling-Komprimierung"
+  },
+  "transcript": {
+    "kindAssistant": "Assistent",
+    "kindThinking": "Denken",
+    "kindToolCall": "Werkzeugaufruf",
+    "kindToolResult": "Werkzeugergebnis",
+    "kindError": "Fehler",
+    "kindStatus": "Status",
+    "kindSystem": "System",
+    "title": "Chat-Verlauf",
+    "copyTitle": "Agenten-Chatverlauf kopieren",
+    "empty": "Noch kein Chat-Verlauf für diesen Agenten."
+  },
+  "autonomy": {
+    "heading": "Autonomiemodus",
+    "titlePrefix": "Autonomie: {{label}}",
+    "descOff": "Volle manuelle Kontrolle — Agent wartet auf deine Eingabe.",
+    "descSuggest": "Agent schlägt nächste Schritte vor, wartet aber auf Genehmigung.",
+    "descAuto": "Agent setzt nach kurzer Bestätigungsverzögerung automatisch fort.",
+    "descEternal": "Agent läuft autonom, bis das Ziel erreicht ist.",
+    "descEternalParallel": "Multi-Agenten autonome Ausführung — Fleet-Modus."
   }
 }

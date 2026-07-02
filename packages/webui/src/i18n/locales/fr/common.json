@@ -34,7 +34,8 @@
     "saving": "Enregistrement…",
     "searchPlaceholder": "Rechercher…",
     "always": "Toujours",
-    "deny": "Refuser"
+    "deny": "Refuser",
+    "undo": "Annuler"
   },
   "confirm": {
     "title": "Approbation requise : {{tool}}",

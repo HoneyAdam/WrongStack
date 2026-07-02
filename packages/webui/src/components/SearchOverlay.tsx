@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useChatStore, useUIStore, type ChatMessage } from '@/stores';
 import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -36,6 +37,7 @@ export function messageSearchText(m: ChatMessage): string {
  * class applied.
  */
 export function SearchOverlay() {
+  const { t } = useAppTranslation();
   const open = useUIStore((s) => s.searchOpen);
   const setOpen = useUIStore((s) => s.setSearchOpen);
   const query = useUIStore((s) => s.searchQuery);
@@ -196,7 +198,7 @@ export function SearchOverlay() {
               step(-1);
             }
           }}
-          placeholder="Search in chat…"
+          placeholder={t('activity:search.placeholder')}
           className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
         />
         <span className="text-xs text-muted-foreground tabular-nums shrink-0">
@@ -209,7 +211,7 @@ export function SearchOverlay() {
           className={cn(
             'p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed',
           )}
-          title="Previous hit"
+          title={t('activity:search.prevHit')}
         >
           <ArrowUp className="h-3.5 w-3.5" />
         </button>
@@ -220,7 +222,7 @@ export function SearchOverlay() {
           className={cn(
             'p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed',
           )}
-          title="Next hit"
+          title={t('activity:search.nextHit')}
         >
           <ArrowDown className="h-3.5 w-3.5" />
         </button>
@@ -228,7 +230,7 @@ export function SearchOverlay() {
           type="button"
           onClick={() => setOpen(false)}
           className="p-1 rounded hover:bg-muted text-muted-foreground"
-          title="Close (Esc)"
+          title={t('activity:search.close')}
         >
           <X className="h-3.5 w-3.5" />
         </button>

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import type React from 'react';
 import { TaskCard, type TaskItem } from './TaskCard';
 
@@ -29,22 +30,31 @@ export function TaskBoard({
   onTaskStatusChange,
   className,
 }: TaskBoardProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const grouped = {
-    in_progress: tasks.filter((t) => t.status === 'in_progress'),
-    pending: tasks.filter((t) => t.status === 'pending' || t.status === 'blocked'),
-    review: tasks.filter((t) => t.status === 'review'),
-    failed: tasks.filter((t) => t.status === 'failed'),
-    completed: tasks.filter((t) => t.status === 'completed'),
+    in_progress: tasks.filter((task) => task.status === 'in_progress'),
+    pending: tasks.filter((task) => task.status === 'pending' || task.status === 'blocked'),
+    review: tasks.filter((task) => task.status === 'review'),
+    failed: tasks.filter((task) => task.status === 'failed'),
+    completed: tasks.filter((task) => task.status === 'completed'),
   };
 
   const statusOrder = ['in_progress', 'pending', 'review', 'failed', 'completed'] as const;
-  const groupLabels: Record<(typeof statusOrder)[number], string> = {
-    in_progress: 'In Progress',
-    pending: 'Pending',
-    review: 'Review',
-    failed: 'Failed',
-    completed: 'Completed',
+  const groupLabelKey: Record<(typeof statusOrder)[number], string> = {
+    in_progress: 'statusInProgress',
+    pending: 'statusPending',
+    review: 'statusReview',
+    failed: 'statusFailed',
+    completed: 'statusDone',
   };
+  const badgeKey: Record<string, string> = {
+    running: 'statusRunning',
+    completed: 'statusCompleted',
+    failed: 'statusFailed',
+    paused: 'statusPaused',
+    ready: 'statusReady',
+  };
+  const completedCount = tasks.filter((task) => task.status === 'completed').length;
 
   return (
     <div className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}>
@@ -54,7 +64,7 @@ export function TaskBoard({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{phaseName}</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {tasks.length} tasks · {tasks.filter((t) => t.status === 'completed').length} completed
+              {t('activity:task.boardCount', { total: tasks.length, done: completedCount })}
             </p>
           </div>
           <div
@@ -69,17 +79,9 @@ export function TaskBoard({
                     : 'bg-muted text-muted-foreground',
             )}
           >
-            {phaseStatus === 'running'
-              ? 'Running'
-              : phaseStatus === 'completed'
-                ? 'Completed'
-                : phaseStatus === 'failed'
-                  ? 'Failed'
-                  : phaseStatus === 'paused'
-                    ? 'Paused'
-                    : phaseStatus === 'ready'
-                      ? 'Ready'
-                      : 'Pending'}
+            {badgeKey[phaseStatus]
+              ? t(`activity:phase.${badgeKey[phaseStatus]}`)
+              : t('activity:phase.statusPending')}
           </div>
         </div>
       </div>
@@ -92,7 +94,7 @@ export function TaskBoard({
           return (
             <div key={groupKey}>
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                {groupLabels[groupKey]} ({groupTasks.length})
+                {t(`activity:task.${groupLabelKey[groupKey]}`)} ({groupTasks.length})
               </h3>
               <div className="space-y-2">
                 {groupTasks.map((task) => (

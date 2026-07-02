@@ -342,7 +342,10 @@
       "in_progress": "Devam Ediyor",
       "review": "İnceleme",
       "failed": "Başarısız",
-      "completed": "Bitti"
+      "completed": "Bitti",
+      "queued": "Sırada",
+      "blocked": "Engelli",
+      "cancelled": "İptal edildi"
     },
     "newTaskTitle": "Yeni görev",
     "newTaskPlaceholder": "Görev başlığı…",
@@ -351,7 +354,10 @@
     "summary": "{{phases}} aşama · {{tasks}} görev",
     "phases": "Aşamalar",
     "statusTab": "Durum",
-    "dropHere": "Görevleri buraya bırakın"
+    "dropHere": "Görevleri buraya bırakın",
+    "emptySpec": "Bu spec'te henüz görev yok.",
+    "depGraphHeading": "Bağımlılık grafiği",
+    "worktreePrefix": "worktree: {{branch}}"
   },
   "debug": {
     "trendUp": "Artıyor",
@@ -537,7 +543,9 @@
       "failed": "başarısız",
       "completed": "bitti",
       "cancelled": "iptal edildi"
-    }
+    },
+    "activityHeading": "Etkinlik",
+    "feedEmpty": "Henüz bir şey yok — aracılar görevleri alıp bitirdikçe olaylar burada görünür."
   },
   "toolResult": {
     "collapseToLines": "İlk {{count}} satıra daralt",
@@ -705,7 +713,8 @@
     "startTitle": "Başlat",
     "completeTitle": "Tamamla",
     "fail": "Başarısız",
-    "failTitle": "Başarısız olarak işaretle"
+    "failTitle": "Başarısız olarak işaretle",
+    "boardCount": "{{total}} görev · {{done}} tamamlandı"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} araç çağrısı",
@@ -724,5 +733,75 @@
     "doneTitle": "Tamamlandı olarak işaretle",
     "reopenTitle": "Yeniden aç",
     "reopen": "Yeniden aç"
+  },
+  "filePicker": {
+    "heading": "@ Dosyalar",
+    "noMatch": "\"{{query}}\" ile eşleşen dosya yok",
+    "searching": "Proje aranıyor…"
+  },
+  "toast": {
+    "dismiss": "Kapat"
+  },
+  "search": {
+    "placeholder": "Sohbette ara…",
+    "prevHit": "Önceki eşleşme",
+    "nextHit": "Sonraki eşleşme",
+    "close": "Kapat (Esc)"
+  },
+  "phase": {
+    "statusPending": "Bekliyor",
+    "statusReady": "Hazır",
+    "statusRunning": "Çalışıyor",
+    "statusPaused": "Duraklatıldı",
+    "statusCompleted": "Tamamlandı",
+    "statusFailed": "Başarısız",
+    "statusSkipped": "Atlandı",
+    "heading": "Aşamalar",
+    "autonomousOn": "● Otonom",
+    "autonomousOff": "○ Manuel",
+    "autonomousOnTitle": "Otonom mod etkin — duraklatmak için tıklayın",
+    "autonomousOffTitle": "Manuel mod — otonomu etkinleştirmek için tıklayın",
+    "overallProgress": "Genel ilerleme",
+    "tasksSuffix": "{{done}}/{{total}} görev",
+    "agentsSuffix_one": "{{count}} aracı",
+    "agentsSuffix_other": "{{count}} aracı"
+  },
+  "ctxMode": {
+    "triggerTitle": "Bağlam penceresi kipi",
+    "ctxPrefix": "ctx:",
+    "opsHeading": "Bağlam işlemleri",
+    "compactNow": "Şimdi sıkıştır",
+    "compactNowDesc": "Eski araç çıktısını ele",
+    "compactAggressive": "Agresif sıkıştır",
+    "compactAggressiveDesc": "Şimdi maksimum eleme",
+    "repairContext": "Bağlamı onar",
+    "repairDesc": "Yetim tool-use bloklarını düzelt",
+    "debugContext": "Bağlamı hata ayıkla",
+    "debugDesc": "Bölüm başına boyut dökümü",
+    "windowHeading": "Bağlam penceresi",
+    "keepElide": "{{k}} yakınını tut · {{t}}+ tokeni ele",
+    "fallbackName": "Dengeli",
+    "fallbackDesc": "Varsayılan rolling sıkıştırma"
+  },
+  "transcript": {
+    "kindAssistant": "Asistan",
+    "kindThinking": "Düşünme",
+    "kindToolCall": "Araç çağrısı",
+    "kindToolResult": "Araç sonucu",
+    "kindError": "Hata",
+    "kindStatus": "Durum",
+    "kindSystem": "Sistem",
+    "title": "Sohbet geçmişi",
+    "copyTitle": "Aracı sohbet geçmişini kopyala",
+    "empty": "Bu aracı için henüz sohbet geçmişi yok."
+  },
+  "autonomy": {
+    "heading": "Otonomi modu",
+    "titlePrefix": "Otonomi: {{label}}",
+    "descOff": "Tam manuel kontrol — vekil girdinizi bekler.",
+    "descSuggest": "Vekil sonraki adımları önerir ama onay bekler.",
+    "descAuto": "Vekil kısa onay gecikmesinden sonra otomatik ilerler.",
+    "descEternal": "Vekil hedef tamamlanana kadar otonom çalışır.",
+    "descEternalParallel": "Çok aracılı otonom yürütme — filo modu."
   }
 }

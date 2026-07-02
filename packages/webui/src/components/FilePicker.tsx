@@ -2,6 +2,7 @@ import { expectDefined } from '@wrongstack/core';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
+import { useAppTranslation } from '@/i18n';
 import { useConfigStore } from '@/stores';
 import { FileText, Folder } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -20,6 +21,7 @@ interface FilePickerProps {
  * debounce so we don't spam the backend on every keystroke.
  */
 export function FilePicker({ query, onPick, onClose }: FilePickerProps) {
+  const { t } = useAppTranslation();
   const ws = useWebSocket();
   const wsUrl = useConfigStore((s) => s.wsUrl);
   const [files, setFiles] = useState<string[]>([]);
@@ -81,12 +83,12 @@ export function FilePicker({ query, onPick, onClose }: FilePickerProps) {
   return (
     <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border bg-popover shadow-md p-1 text-sm max-h-72 overflow-auto">
       <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1 flex items-center justify-between">
-        <span>@ Files {query && `· "${query}"`}</span>
+        <span>{t('activity:filePicker.heading')} {query && `· "${query}"`}</span>
         <span>↑/↓ select · ↵ insert · Esc dismiss</span>
       </div>
       {files.length === 0 ? (
         <div className="px-3 py-2 text-xs text-muted-foreground italic">
-          {query ? `No files match "${query}"` : 'Searching project…'}
+          {query ? t('activity:filePicker.noMatch', { query }) : t('activity:filePicker.searching')}
         </div>
       ) : (
         files.map((p, i) => (

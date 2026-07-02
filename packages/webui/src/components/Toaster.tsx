@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { cn } from '@/lib/utils';
+import { i18n, useAppTranslation } from '@/i18n';
 
 /**
  * Browser-safe unique id. Uses the Web Crypto `crypto.randomUUID()` when
@@ -81,7 +82,7 @@ export const toast = {
    * for {@link ACTION_TTL_MS} so the user has time to react; letting it
    * expire is the same as not undoing.
    */
-  undoable: (msg: string, onUndo: () => void, label = 'Undo', ttl = ACTION_TTL_MS) =>
+  undoable: (msg: string, onUndo: () => void, label = i18n.t('common:action.undo'), ttl = ACTION_TTL_MS) =>
     useToastStore
       .getState()
       .push({ message: msg, variant: 'info', ttl, action: { label, onClick: onUndo } }),
@@ -96,6 +97,7 @@ function Icon({ variant }: { variant: ToastVariant }) {
 }
 
 function ToastItem({ entry }: { entry: ToastEntry }) {
+  const { t } = useAppTranslation();
   const dismiss = useToastStore((s) => s.dismiss);
   useEffect(() => {
     const t = setTimeout(() => dismiss(entry.id), entry.ttl);
@@ -131,7 +133,7 @@ function ToastItem({ entry }: { entry: ToastEntry }) {
         type="button"
         onClick={() => dismiss(entry.id)}
         className="text-muted-foreground hover:text-foreground"
-        title="Dismiss"
+        title={t('activity:toast.dismiss')}
       >
         <X className="h-3.5 w-3.5" />
       </button>

@@ -342,7 +342,10 @@
       "in_progress": "In Progress",
       "review": "Review",
       "failed": "Failed",
-      "completed": "Done"
+      "completed": "Done",
+      "queued": "Queued",
+      "blocked": "Blocked",
+      "cancelled": "Cancelled"
     },
     "newTaskTitle": "New task",
     "newTaskPlaceholder": "Task title…",
@@ -351,7 +354,10 @@
     "summary": "{{phases}} phases · {{tasks}} tasks",
     "phases": "Phases",
     "statusTab": "Status",
-    "dropHere": "Drop tasks here"
+    "dropHere": "Drop tasks here",
+    "emptySpec": "No tasks in this spec yet.",
+    "depGraphHeading": "Dependency Graph",
+    "worktreePrefix": "worktree: {{branch}}"
   },
   "debug": {
     "trendUp": "Increasing",
@@ -537,7 +543,9 @@
       "failed": "failed",
       "completed": "done",
       "cancelled": "cancelled"
-    }
+    },
+    "activityHeading": "Activity",
+    "feedEmpty": "Nothing yet — events appear here as agents pick up and finish tasks."
   },
   "toolResult": {
     "collapseToLines": "Collapse to first {{count}} lines",
@@ -705,7 +713,8 @@
     "startTitle": "Start",
     "completeTitle": "Complete",
     "fail": "Fail",
-    "failTitle": "Mark failed"
+    "failTitle": "Mark failed",
+    "boardCount": "{{total}} tasks · {{done}} completed"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} tool call",
@@ -724,5 +733,75 @@
     "doneTitle": "Mark done",
     "reopenTitle": "Reopen",
     "reopen": "Reopen"
+  },
+  "filePicker": {
+    "heading": "@ Files",
+    "noMatch": "No files match \"{{query}}\"",
+    "searching": "Searching project…"
+  },
+  "toast": {
+    "dismiss": "Dismiss"
+  },
+  "search": {
+    "placeholder": "Search in chat…",
+    "prevHit": "Previous hit",
+    "nextHit": "Next hit",
+    "close": "Close (Esc)"
+  },
+  "phase": {
+    "statusPending": "Pending",
+    "statusReady": "Ready",
+    "statusRunning": "Running",
+    "statusPaused": "Paused",
+    "statusCompleted": "Completed",
+    "statusFailed": "Failed",
+    "statusSkipped": "Skipped",
+    "heading": "Phases",
+    "autonomousOn": "● Autonomous",
+    "autonomousOff": "○ Manual",
+    "autonomousOnTitle": "Autonomous mode active — click to pause",
+    "autonomousOffTitle": "Manual mode — click to enable autonomous",
+    "overallProgress": "Overall Progress",
+    "tasksSuffix": "{{done}}/{{total}} tasks",
+    "agentsSuffix_one": "{{count}} agent",
+    "agentsSuffix_other": "{{count}} agents"
+  },
+  "ctxMode": {
+    "triggerTitle": "Context-window mode",
+    "ctxPrefix": "ctx:",
+    "opsHeading": "Context Operations",
+    "compactNow": "Compact Now",
+    "compactNowDesc": "Elide old tool output",
+    "compactAggressive": "Compact Aggressive",
+    "compactAggressiveDesc": "Maximum elision now",
+    "repairContext": "Repair Context",
+    "repairDesc": "Fix orphan tool-use blocks",
+    "debugContext": "Debug Context",
+    "debugDesc": "Size breakdown per section",
+    "windowHeading": "Context Window",
+    "keepElide": "keep {{k}} recent · elide {{t}}+ tokens",
+    "fallbackName": "Balanced",
+    "fallbackDesc": "Default rolling compaction"
+  },
+  "transcript": {
+    "kindAssistant": "Assistant",
+    "kindThinking": "Thinking",
+    "kindToolCall": "Tool call",
+    "kindToolResult": "Tool result",
+    "kindError": "Error",
+    "kindStatus": "Status",
+    "kindSystem": "System",
+    "title": "Chat history",
+    "copyTitle": "Copy agent chat history",
+    "empty": "No chat history for this agent yet."
+  },
+  "autonomy": {
+    "heading": "Autonomy Mode",
+    "titlePrefix": "Autonomy: {{label}}",
+    "descOff": "Full manual control — agent waits for your input.",
+    "descSuggest": "Agent suggests next steps but waits for approval.",
+    "descAuto": "Agent auto-proceeds after brief confirmation delay.",
+    "descEternal": "Agent runs autonomously until goal is complete.",
+    "descEternalParallel": "Multi-agent autonomous execution — fleet mode."
   }
 }

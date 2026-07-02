@@ -342,7 +342,10 @@
       "in_progress": "Em progresso",
       "review": "Revisão",
       "failed": "Falhou",
-      "completed": "Concluído"
+      "completed": "Concluído",
+      "queued": "Em fila",
+      "blocked": "Bloqueado",
+      "cancelled": "Cancelado"
     },
     "newTaskTitle": "Nova tarefa",
     "newTaskPlaceholder": "Título da tarefa…",
@@ -351,7 +354,10 @@
     "summary": "{{phases}} fases · {{tasks}} tarefas",
     "phases": "Fases",
     "statusTab": "Status",
-    "dropHere": "Solte as tarefas aqui"
+    "dropHere": "Solte as tarefas aqui",
+    "emptySpec": "Ainda não há tarefas nesta spec.",
+    "depGraphHeading": "Grafo de dependências",
+    "worktreePrefix": "worktree: {{branch}}"
   },
   "debug": {
     "trendUp": "Aumentando",
@@ -537,7 +543,9 @@
       "failed": "falhou",
       "completed": "concluído",
       "cancelled": "cancelado"
-    }
+    },
+    "activityHeading": "Atividade",
+    "feedEmpty": "Ainda nada — os eventos aparecem aqui conforme os agentes pegam e concluem tarefas."
   },
   "toolResult": {
     "collapseToLines": "Recolher para as primeiras {{count}} linhas",
@@ -705,7 +713,8 @@
     "startTitle": "Iniciar",
     "completeTitle": "Concluir",
     "fail": "Falhar",
-    "failTitle": "Marcar como falha"
+    "failTitle": "Marcar como falha",
+    "boardCount": "{{total}} tarefas · {{done}} concluídas"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} chamada",
@@ -724,5 +733,75 @@
     "doneTitle": "Marcar como concluído",
     "reopenTitle": "Reabrir",
     "reopen": "Reabrir"
+  },
+  "filePicker": {
+    "heading": "@ Arquivos",
+    "noMatch": "Nenhum arquivo corresponde a \"{{query}}\"",
+    "searching": "Pesquisando no projeto…"
+  },
+  "toast": {
+    "dismiss": "Dispensar"
+  },
+  "search": {
+    "placeholder": "Pesquisar no chat…",
+    "prevHit": "Resultado anterior",
+    "nextHit": "Próximo resultado",
+    "close": "Fechar (Esc)"
+  },
+  "phase": {
+    "statusPending": "Pendente",
+    "statusReady": "Pronto",
+    "statusRunning": "Em execução",
+    "statusPaused": "Em pausa",
+    "statusCompleted": "Concluído",
+    "statusFailed": "Falhou",
+    "statusSkipped": "Ignorado",
+    "heading": "Fases",
+    "autonomousOn": "● Autônomo",
+    "autonomousOff": "○ Manual",
+    "autonomousOnTitle": "Modo autônomo ativo — clique para pausar",
+    "autonomousOffTitle": "Modo manual — clique para ativar o autônomo",
+    "overallProgress": "Progresso geral",
+    "tasksSuffix": "{{done}}/{{total}} tarefas",
+    "agentsSuffix_one": "{{count}} agente",
+    "agentsSuffix_other": "{{count}} agentes"
+  },
+  "ctxMode": {
+    "triggerTitle": "Modo de janela de contexto",
+    "ctxPrefix": "ctx:",
+    "opsHeading": "Operações de contexto",
+    "compactNow": "Compactar agora",
+    "compactNowDesc": "Omitir saída de ferramenta antiga",
+    "compactAggressive": "Compactação agressiva",
+    "compactAggressiveDesc": "Omissão máxima agora",
+    "repairContext": "Reparar contexto",
+    "repairDesc": "Corrigir blocos tool-use órfãos",
+    "debugContext": "Depurar contexto",
+    "debugDesc": "Detalhamento de tamanho por seção",
+    "windowHeading": "Janela de contexto",
+    "keepElide": "manter {{k}} recentes · omitir {{t}}+ tokens",
+    "fallbackName": "Equilibrado",
+    "fallbackDesc": "Compactação rolling padrão"
+  },
+  "transcript": {
+    "kindAssistant": "Assistente",
+    "kindThinking": "Pensamento",
+    "kindToolCall": "Chamada de ferramenta",
+    "kindToolResult": "Resultado de ferramenta",
+    "kindError": "Erro",
+    "kindStatus": "Status",
+    "kindSystem": "Sistema",
+    "title": "Histórico do chat",
+    "copyTitle": "Copiar histórico de chat do agente",
+    "empty": "Ainda não há histórico de chat para este agente."
+  },
+  "autonomy": {
+    "heading": "Modo de autonomia",
+    "titlePrefix": "Autonomia: {{label}}",
+    "descOff": "Controle manual total — o agente espera sua entrada.",
+    "descSuggest": "O agente sugere os próximos passos mas aguarda aprovação.",
+    "descAuto": "O agente prossegue automaticamente após um breve atraso de confirmação.",
+    "descEternal": "O agente executa de forma autônoma até o objetivo ser concluído.",
+    "descEternalParallel": "Execução autônoma multi-agente — modo frota."
   }
 }

@@ -342,7 +342,10 @@
       "in_progress": "En cours",
       "review": "Revue",
       "failed": "Échoué",
-      "completed": "Terminé"
+      "completed": "Terminé",
+      "queued": "En file",
+      "blocked": "Bloqué",
+      "cancelled": "Annulé"
     },
     "newTaskTitle": "Nouvelle tâche",
     "newTaskPlaceholder": "Titre de la tâche…",
@@ -351,7 +354,10 @@
     "summary": "{{phases}} phases · {{tasks}} tâches",
     "phases": "Phases",
     "statusTab": "Statut",
-    "dropHere": "Déposer les tâches ici"
+    "dropHere": "Déposer les tâches ici",
+    "emptySpec": "Aucune tâche dans cette spec pour le moment.",
+    "depGraphHeading": "Graphe de dépendances",
+    "worktreePrefix": "worktree : {{branch}}"
   },
   "debug": {
     "trendUp": "En hausse",
@@ -537,7 +543,9 @@
       "failed": "échoué",
       "completed": "terminé",
       "cancelled": "annulé"
-    }
+    },
+    "activityHeading": "Activité",
+    "feedEmpty": "Rien pour l'instant — les événements apparaissent ici à mesure que les agents prennent et terminent des tâches."
   },
   "toolResult": {
     "collapseToLines": "Réduire aux {{count}} premières lignes",
@@ -705,7 +713,8 @@
     "startTitle": "Démarrer",
     "completeTitle": "Terminer",
     "fail": "Échouer",
-    "failTitle": "Marquer comme échoué"
+    "failTitle": "Marquer comme échoué",
+    "boardCount": "{{total}} tâches · {{done}} terminées"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} appel d'outil",
@@ -724,5 +733,75 @@
     "doneTitle": "Marquer comme terminé",
     "reopenTitle": "Rouvrir",
     "reopen": "Rouvrir"
+  },
+  "filePicker": {
+    "heading": "@ Fichiers",
+    "noMatch": "Aucun fichier ne correspond à « {{query}} »",
+    "searching": "Recherche dans le projet…"
+  },
+  "toast": {
+    "dismiss": "Ignorer"
+  },
+  "search": {
+    "placeholder": "Rechercher dans le chat…",
+    "prevHit": "Résultat précédent",
+    "nextHit": "Résultat suivant",
+    "close": "Fermer (Esc)"
+  },
+  "phase": {
+    "statusPending": "En attente",
+    "statusReady": "Prêt",
+    "statusRunning": "En cours",
+    "statusPaused": "En pause",
+    "statusCompleted": "Terminé",
+    "statusFailed": "Échec",
+    "statusSkipped": "Ignoré",
+    "heading": "Phases",
+    "autonomousOn": "● Autonome",
+    "autonomousOff": "○ Manuel",
+    "autonomousOnTitle": "Mode autonome actif — cliquer pour mettre en pause",
+    "autonomousOffTitle": "Mode manuel — cliquer pour activer l'autonome",
+    "overallProgress": "Progression globale",
+    "tasksSuffix": "{{done}}/{{total}} tâches",
+    "agentsSuffix_one": "{{count}} agent",
+    "agentsSuffix_other": "{{count}} agents"
+  },
+  "ctxMode": {
+    "triggerTitle": "Mode de fenêtre de contexte",
+    "ctxPrefix": "ctx :",
+    "opsHeading": "Opérations de contexte",
+    "compactNow": "Compacter maintenant",
+    "compactNowDesc": "Élider les anciennes sorties d'outil",
+    "compactAggressive": "Compaction agressive",
+    "compactAggressiveDesc": "Élision maximale maintenant",
+    "repairContext": "Réparer le contexte",
+    "repairDesc": "Corriger les blocs tool-use orphelins",
+    "debugContext": "Déboguer le contexte",
+    "debugDesc": "Répartition de la taille par section",
+    "windowHeading": "Fenêtre de contexte",
+    "keepElide": "garder {{k}} récents · élider {{t}}+ jetons",
+    "fallbackName": "Équilibré",
+    "fallbackDesc": "Compaction roulante par défaut"
+  },
+  "transcript": {
+    "kindAssistant": "Assistant",
+    "kindThinking": "Réflexion",
+    "kindToolCall": "Appel d'outil",
+    "kindToolResult": "Résultat d'outil",
+    "kindError": "Erreur",
+    "kindStatus": "Statut",
+    "kindSystem": "Système",
+    "title": "Historique du chat",
+    "copyTitle": "Copier l'historique du chat de l'agent",
+    "empty": "Pas encore d'historique de chat pour cet agent."
+  },
+  "autonomy": {
+    "heading": "Mode d'autonomie",
+    "titlePrefix": "Autonomie : {{label}}",
+    "descOff": "Contrôle manuel total — l'agent attend votre saisie.",
+    "descSuggest": "L'agent suggère les prochaines étapes mais attend une approbation.",
+    "descAuto": "L'agent continue automatiquement après un bref délai de confirmation.",
+    "descEternal": "L'agent fonctionne de façon autonome jusqu'à la fin de l'objectif.",
+    "descEternalParallel": "Exécution autonome multi-agents — mode flotte."
   }
 }

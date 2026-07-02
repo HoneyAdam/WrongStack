@@ -34,7 +34,8 @@
     "saving": "Kaydediliyor…",
     "searchPlaceholder": "Ara…",
     "always": "Her zaman",
-    "deny": "Reddet"
+    "deny": "Reddet",
+    "undo": "Geri al"
   },
   "confirm": {
     "title": "Onay gerekli: {{tool}}",

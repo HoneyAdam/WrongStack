@@ -342,7 +342,10 @@
       "in_progress": "In corso",
       "review": "Revisione",
       "failed": "Fallito",
-      "completed": "Completato"
+      "completed": "Completato",
+      "queued": "In coda",
+      "blocked": "Bloccato",
+      "cancelled": "Annullato"
     },
     "newTaskTitle": "Nuova attività",
     "newTaskPlaceholder": "Titolo attività…",
@@ -351,7 +354,10 @@
     "summary": "{{phases}} fasi · {{tasks}} attività",
     "phases": "Fasi",
     "statusTab": "Stato",
-    "dropHere": "Trascina le attività qui"
+    "dropHere": "Trascina le attività qui",
+    "emptySpec": "Nessuna attività in questa spec ancora.",
+    "depGraphHeading": "Grafo delle dipendenze",
+    "worktreePrefix": "worktree: {{branch}}"
   },
   "debug": {
     "trendUp": "In aumento",
@@ -537,7 +543,9 @@
       "failed": "fallito",
       "completed": "completato",
       "cancelled": "annullato"
-    }
+    },
+    "activityHeading": "Attività",
+    "feedEmpty": "Ancora nulla — gli eventi appaiono qui man mano che gli agenti prendono e completano le attività."
   },
   "toolResult": {
     "collapseToLines": "Comprimi alle prime {{count}} righe",
@@ -705,7 +713,8 @@
     "startTitle": "Avvia",
     "completeTitle": "Completa",
     "fail": "Fallisci",
-    "failTitle": "Segna come fallito"
+    "failTitle": "Segna come fallito",
+    "boardCount": "{{total}} attività · {{done}} completate"
   },
   "toolGroup": {
     "toolCalls_one": "{{count}} chiamata strumento",
@@ -724,5 +733,75 @@
     "doneTitle": "Segna come completato",
     "reopenTitle": "Riapri",
     "reopen": "Riapri"
+  },
+  "filePicker": {
+    "heading": "@ File",
+    "noMatch": "Nessun file corrisponde a \"{{query}}\"",
+    "searching": "Ricerca nel progetto…"
+  },
+  "toast": {
+    "dismiss": "Chiudi"
+  },
+  "search": {
+    "placeholder": "Cerca nella chat…",
+    "prevHit": "Risultato precedente",
+    "nextHit": "Risultato successivo",
+    "close": "Chiudi (Esc)"
+  },
+  "phase": {
+    "statusPending": "In attesa",
+    "statusReady": "Pronto",
+    "statusRunning": "In esecuzione",
+    "statusPaused": "In pausa",
+    "statusCompleted": "Completato",
+    "statusFailed": "Fallito",
+    "statusSkipped": "Saltato",
+    "heading": "Fasi",
+    "autonomousOn": "● Autonomo",
+    "autonomousOff": "○ Manuale",
+    "autonomousOnTitle": "Modalità autonoma attiva — clicca per mettere in pausa",
+    "autonomousOffTitle": "Modalità manuale — clicca per attivare l'autonomo",
+    "overallProgress": "Progresso complessivo",
+    "tasksSuffix": "{{done}}/{{total}} attività",
+    "agentsSuffix_one": "{{count}} agente",
+    "agentsSuffix_other": "{{count}} agenti"
+  },
+  "ctxMode": {
+    "triggerTitle": "Modalità finestra di contesto",
+    "ctxPrefix": "ctx:",
+    "opsHeading": "Operazioni di contesto",
+    "compactNow": "Compatta ora",
+    "compactNowDesc": "Ometti output strumento vecchi",
+    "compactAggressive": "Compattazione aggressiva",
+    "compactAggressiveDesc": "Omissione massima ora",
+    "repairContext": "Ripara contesto",
+    "repairDesc": "Correggi blocchi tool-use orfani",
+    "debugContext": "Debug contesto",
+    "debugDesc": "Dettaglio dimensioni per sezione",
+    "windowHeading": "Finestra di contesto",
+    "keepElide": "mantieni {{k}} recenti · ometti {{t}}+ token",
+    "fallbackName": "Bilanciato",
+    "fallbackDesc": "Compattazione rolling predefinita"
+  },
+  "transcript": {
+    "kindAssistant": "Assistente",
+    "kindThinking": "Pensiero",
+    "kindToolCall": "Chiamata strumento",
+    "kindToolResult": "Risultato strumento",
+    "kindError": "Errore",
+    "kindStatus": "Stato",
+    "kindSystem": "Sistema",
+    "title": "Cronologia chat",
+    "copyTitle": "Copia cronologia chat agente",
+    "empty": "Nessuna cronologia chat per questo agente ancora."
+  },
+  "autonomy": {
+    "heading": "Modalità autonomia",
+    "titlePrefix": "Autonomia: {{label}}",
+    "descOff": "Controllo manuale totale — l'agente attende il tuo input.",
+    "descSuggest": "L'agente suggerisce i prossimi passi ma attende approvazione.",
+    "descAuto": "L'agente procede automaticamente dopo un breve ritardo di conferma.",
+    "descEternal": "L'agente gira in autonomia fino al completamento dell'obiettivo.",
+    "descEternalParallel": "Esecuzione autonoma multi-agente — modalità flotta."
   }
 }

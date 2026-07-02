@@ -34,7 +34,8 @@
     "saving": "Wird gespeichert…",
     "searchPlaceholder": "Suchen…",
     "always": "Immer",
-    "deny": "Ablehnen"
+    "deny": "Ablehnen",
+    "undo": "Rückgängig"
   },
   "confirm": {
     "title": "Freigabe erforderlich: {{tool}}",

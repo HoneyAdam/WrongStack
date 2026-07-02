@@ -34,7 +34,8 @@
     "saving": "Salvataggio…",
     "searchPlaceholder": "Cerca…",
     "always": "Sempre",
-    "deny": "Nega"
+    "deny": "Nega",
+    "undo": "Annulla"
   },
   "confirm": {
     "title": "Approvazione richiesta: {{tool}}",

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import type { BoardTaskItem, BoardTaskStatus, SpecColumn } from '@/stores';
 import {
   Ban,
@@ -48,24 +49,25 @@ export interface DependencyGraphProps {
  * title and dependency refs (← t01). A status legend sits above the columns.
  */
 export function DependencyGraph({ columns, onTaskClick }: DependencyGraphProps): React.ReactElement {
+  const { t } = useAppTranslation();
   if (columns.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-sm text-slate-400">
-        No tasks in this spec yet.
+        {t('activity:board.emptySpec')}
       </div>
     );
   }
 
   return (
     <div className="rounded-lg border border-white/10 bg-[#0f1115] p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-200">Dependency Graph</h3>
+      <h3 className="mb-3 text-sm font-semibold text-slate-200">{t('activity:board.depGraphHeading')}</h3>
 
       {/* Legend */}
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
         {LEGEND.map((s) => (
           <span key={s} className={cn('inline-flex items-center gap-1.5', STATUS[s].text)}>
             {STATUS[s].icon}
-            <span className="text-slate-400">{STATUS[s].label}</span>
+            <span className="text-slate-400">{t(`activity:board.status.${s}`)}</span>
           </span>
         ))}
       </div>
@@ -105,6 +107,7 @@ function TaskNodeCard({
 }): React.ReactElement {
   const s = STATUS[task.displayStatus];
   const prio = PRIORITY[task.priority];
+  const { t } = useAppTranslation();
   return (
     <button
       type="button"
@@ -133,7 +136,7 @@ function TaskNodeCard({
               ? 'bg-sky-500/15 text-sky-400'
               : 'bg-white/5 text-slate-400',
           )}
-          title={task.worktreeBranch ? `worktree: ${task.worktreeBranch}` : undefined}
+          title={task.worktreeBranch ? t('activity:board.worktreePrefix', { branch: task.worktreeBranch }) : undefined}
         >
           {task.displayStatus === 'in_progress' && <Loader2 className="h-3 w-3 animate-spin" />}
           <span>{task.agentName}</span>

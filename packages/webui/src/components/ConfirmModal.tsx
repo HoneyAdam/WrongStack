@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
+import { useAppTranslation } from '@/i18n';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -69,6 +70,7 @@ export function confirmModal(options: ConfirmModalOptions): Promise<boolean> {
 }
 
 export function ConfirmModalHost() {
+  const { t } = useAppTranslation();
   const request = useConfirmModalStore((s) => s.request);
   const settle = useConfirmModalStore((s) => s.settle);
 
@@ -99,7 +101,7 @@ export function ConfirmModalHost() {
         </DialogHeader>
         <DialogFooter className="gap-2">
           <Button variant="outline" size="sm" onClick={() => settle(false)}>
-            {request?.cancelLabel ?? 'Cancel'}
+            {request?.cancelLabel ?? t('common:action.cancel')}
           </Button>
           <Button
             variant={request?.danger ? 'destructive' : 'default'}
@@ -107,7 +109,7 @@ export function ConfirmModalHost() {
             autoFocus
             onClick={() => settle(true)}
           >
-            {request?.confirmLabel ?? 'Confirm'}
+            {request?.confirmLabel ?? t('common:action.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -157,6 +159,7 @@ export function promptModal(options: PromptModalOptions): Promise<string | null>
 }
 
 export function PromptModalHost() {
+  const { t } = useAppTranslation();
   const request = usePromptModalStore((s) => s.request);
   const settle = usePromptModalStore((s) => s.settle);
   const [value, setValue] = useState('');
@@ -197,10 +200,10 @@ export function PromptModalHost() {
         />
         <DialogFooter className="gap-2">
           <Button variant="outline" size="sm" onClick={() => settle(null)}>
-            {request?.cancelLabel ?? 'Cancel'}
+            {request?.cancelLabel ?? t('common:action.cancel')}
           </Button>
           <Button size="sm" disabled={value.trim().length === 0} onClick={submit}>
-            {request?.confirmLabel ?? 'OK'}
+            {request?.confirmLabel ?? t('common:action.ok')}
           </Button>
         </DialogFooter>
       </DialogContent>

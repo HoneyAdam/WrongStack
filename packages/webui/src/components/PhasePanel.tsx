@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock, Pause, Play, SkipForward, XCircle } from 'lucide-react';
 import type React from 'react';
 import type { TaskItem } from './TaskBoard';
@@ -81,12 +82,13 @@ export function PhasePanel({
   onToggleAutonomous,
   className,
 }: PhasePanelProps): React.ReactElement {
+  const { t } = useAppTranslation();
   return (
     <div className={cn('flex h-full min-h-0 min-w-0 flex-col border-r border-border bg-card', className)}>
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-foreground">Phases</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t('activity:phase.heading')}</h2>
           <button
             type="button"
             onClick={onToggleAutonomous}
@@ -96,16 +98,16 @@ export function PhasePanel({
                 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
             )}
-            title={autonomous ? 'Autonomous mode active — click to pause' : 'Manual mode — click to enable autonomous'}
+            title={autonomous ? t('activity:phase.autonomousOnTitle') : t('activity:phase.autonomousOffTitle')}
           >
-            {autonomous ? '● Autonomous' : '○ Manual'}
+            {autonomous ? t('activity:phase.autonomousOn') : t('activity:phase.autonomousOff')}
           </button>
         </div>
 
         {/* Overall Progress */}
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Overall Progress</span>
+            <span>{t('activity:phase.overallProgress')}</span>
             <span>{overallPercent}%</span>
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -151,7 +153,7 @@ export function PhasePanel({
               <div className="mt-2 space-y-1">
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">
-                    {phase.completedTasks}/{phase.taskCount} tasks
+                    {t('activity:phase.tasksSuffix', { done: phase.completedTasks, total: phase.taskCount })}
                   </span>
                   <span className="text-muted-foreground">
                     {phase.progressPercent}%
@@ -179,7 +181,7 @@ export function PhasePanel({
                   <span>· {formatDuration(phase.actualDurationMs)}</span>
                 )}
                 {phase.assignedAgents.length > 0 && (
-                  <span>· {phase.assignedAgents.length} agent{phase.assignedAgents.length === 1 ? '' : 's'}</span>
+                  <span>· {t('activity:phase.agentsSuffix', { count: phase.assignedAgents.length })}</span>
                 )}
               </div>
             </button>

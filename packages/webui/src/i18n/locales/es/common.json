@@ -34,7 +34,8 @@
     "saving": "Guardando…",
     "searchPlaceholder": "Buscar…",
     "always": "Siempre",
-    "deny": "Denegar"
+    "deny": "Denegar",
+    "undo": "Deshacer"
   },
   "confirm": {
     "title": "Aprobación requerida: {{tool}}",
