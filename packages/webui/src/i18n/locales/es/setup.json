@@ -47,5 +47,103 @@
     "keyPlaceholder": "Pega tu clave de API",
     "connect": "Conectar",
     "connected": "Conectado"
+  },
+  "screen": {
+    "header": {
+      "title": "Te damos la bienvenida a WrongStack",
+      "subtitle": "Añade al menos una clave de API para empezar",
+      "continue": "Continuar"
+    },
+    "steps": {
+      "addKeys": "Añadir claves de API",
+      "pickModel": "Elegir un modelo",
+      "start": "Empezar",
+      "keys": "Claves"
+    },
+    "security": {
+      "title": "Tus claves se quedan en tu equipo",
+      "body": "Las claves de API se cifran y se guardan localmente. Solo se envían al endpoint de API del proveedor — nunca a nosotros ni a terceros."
+    },
+    "errors": {
+      "backendUnreachable": "No se puede acceder al backend",
+      "backendNotResponding": "El backend no responde. Puede que se haya bloqueado o que se haya interrumpido la conexión.",
+      "retry": "Reintentar",
+      "modelSwitchTimeout": "El cambio de modelo superó el tiempo de espera. Inténtalo de nuevo.",
+      "noModels": "No hay modelos disponibles. Comprueba tu clave de API e inténtalo de nuevo."
+    },
+    "providers": {
+      "popular": "Proveedores populares",
+      "more": "Más proveedores",
+      "selfHosted": "Autoalojado",
+      "updating": "Actualizando...",
+      "refresh": "Actualizar",
+      "refreshTitle": "Actualizar la lista de proveedores",
+      "modelsAvailable_one": "{{count}} modelo disponible",
+      "modelsAvailable_other": "{{count}} modelos disponibles",
+      "catalogDescription": "{{family}} · {{count}} modelos"
+    },
+    "start": {
+      "pickAndStart": "Elige un modelo y empieza",
+      "addMoreKeys": "← Añadir más claves",
+      "chooseProvider": "Elige un proveedor",
+      "chooseModel": "Elige un modelo",
+      "modelsFor": "Modelos disponibles para {{provider}}",
+      "activeKeys_one": "{{count}} clave activa",
+      "activeKeys_other": "{{count}} claves activas",
+      "startSession": "Iniciar sesión"
+    },
+    "card": {
+      "keySaved": "Clave guardada",
+      "referral": "Referido",
+      "save": "Guardar",
+      "getKey": "Obtén tu clave de API",
+      "copied": "Copiado",
+      "copyReferral": "Copiar enlace de referido",
+      "share": "Compartir",
+      "qrAlt": "Código QR de referido de {{name}}"
+    },
+    "share": {
+      "title": "Compartir referido de {{name}}",
+      "description": "¡Comparte este enlace de referido con tus amigos y gana recompensas!",
+      "hint": "Escanea el código QR o copia el enlace para compartir",
+      "twitter": "Compartir en X/Twitter",
+      "linkedin": "Compartir en LinkedIn",
+      "telegram": "Compartir en Telegram",
+      "whatsapp": "Compartir en WhatsApp",
+      "reddit": "Compartir en Reddit",
+      "facebook": "Compartir en Facebook",
+      "email": "Compartir por correo"
+    },
+    "custom": {
+      "title": "Proveedor personalizado / autoalojado",
+      "description": "Añade cualquier endpoint compatible con OpenAI (Ollama, vLLM, Together, etc.)",
+      "localServers": "Servidores locales — haz clic para autocompletar",
+      "providerId": "ID del proveedor *",
+      "family": "Familia",
+      "familyOpenAiCompatible": "Compatible con OpenAI",
+      "baseUrl": "URL base (opcional)",
+      "apiKey": "Clave de API (opcional — algunos proveedores locales no la necesitan)",
+      "apiKeyPlaceholder": "Clave de API (si se requiere)",
+      "add": "Añadir proveedor"
+    },
+    "time": {
+      "justNow": "justo ahora",
+      "secondsAgo": "hace {{count}} s",
+      "minutesAgo": "hace {{count}} min",
+      "hoursAgo": "hace {{count}} h",
+      "daysAgo": "hace {{count}} d"
+    },
+    "toasts": {
+      "keySaved": "Clave de API de {{name}} guardada",
+      "keySaveFailed": "Error al guardar la clave de API de {{name}}",
+      "referralCopied": "Enlace de referido copiado al portapapeles",
+      "referralCopyFailed": "Error al copiar el enlace de referido",
+      "providerAdded": "Proveedor «{{id}}» añadido",
+      "providerAddFailed": "Error al añadir el proveedor",
+      "providersLoadedNew": "{{count}} proveedores cargados ({{diff}} nuevo)",
+      "providersLoadedRemoved": "{{count}} proveedores cargados ({{diff}} eliminado)",
+      "providersLoadedNoChanges": "{{count}} proveedores cargados (sin cambios)",
+      "providersRefreshFailed": "Error al actualizar los proveedores"
+    }
   }
 }

@@ -47,5 +47,103 @@
     "keyPlaceholder": "Paste your API key",
     "connect": "Connect",
     "connected": "Connected"
+  },
+  "screen": {
+    "header": {
+      "title": "Welcome to WrongStack",
+      "subtitle": "Add at least one API key to get started",
+      "continue": "Continue"
+    },
+    "steps": {
+      "addKeys": "Add API Keys",
+      "pickModel": "Pick a Model",
+      "start": "Start",
+      "keys": "Keys"
+    },
+    "security": {
+      "title": "Your keys stay on your machine",
+      "body": "API keys are encrypted and stored locally. They're only sent to the provider's API endpoint — never to us or any third party."
+    },
+    "errors": {
+      "backendUnreachable": "Can't reach the backend",
+      "backendNotResponding": "The backend is not responding. It may have crashed or the connection dropped.",
+      "retry": "Retry",
+      "modelSwitchTimeout": "Model switch timed out. Please try again.",
+      "noModels": "No models available. Check your API key and try again."
+    },
+    "providers": {
+      "popular": "Popular Providers",
+      "more": "More Providers",
+      "selfHosted": "Self-hosted",
+      "updating": "Updating...",
+      "refresh": "Refresh",
+      "refreshTitle": "Refresh provider list",
+      "modelsAvailable_one": "{{count}} model available",
+      "modelsAvailable_other": "{{count}} models available",
+      "catalogDescription": "{{family}} · {{count}} models"
+    },
+    "start": {
+      "pickAndStart": "Pick a model and start",
+      "addMoreKeys": "← Add more keys",
+      "chooseProvider": "Choose a Provider",
+      "chooseModel": "Choose a Model",
+      "modelsFor": "Models available for {{provider}}",
+      "activeKeys_one": "{{count}} active key",
+      "activeKeys_other": "{{count}} active keys",
+      "startSession": "Start Session"
+    },
+    "card": {
+      "keySaved": "Key saved",
+      "referral": "Referral",
+      "save": "Save",
+      "getKey": "Get your API key",
+      "copied": "Copied",
+      "copyReferral": "Copy referral link",
+      "share": "Share",
+      "qrAlt": "{{name}} referral QR code"
+    },
+    "share": {
+      "title": "Share {{name}} Referral",
+      "description": "Share this referral link with friends and earn rewards!",
+      "hint": "Scan the QR code or copy the link to share",
+      "twitter": "Share on X/Twitter",
+      "linkedin": "Share on LinkedIn",
+      "telegram": "Share on Telegram",
+      "whatsapp": "Share on WhatsApp",
+      "reddit": "Share on Reddit",
+      "facebook": "Share on Facebook",
+      "email": "Share via Email"
+    },
+    "custom": {
+      "title": "Custom / Self-hosted Provider",
+      "description": "Add any OpenAI-compatible endpoint (Ollama, vLLM, Together, etc.)",
+      "localServers": "Local servers — click to pre-fill",
+      "providerId": "Provider ID *",
+      "family": "Family",
+      "familyOpenAiCompatible": "OpenAI Compatible",
+      "baseUrl": "Base URL (optional)",
+      "apiKey": "API Key (optional — some local providers don't need one)",
+      "apiKeyPlaceholder": "API key (if required)",
+      "add": "Add Provider"
+    },
+    "time": {
+      "justNow": "just now",
+      "secondsAgo": "{{count}}s ago",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago"
+    },
+    "toasts": {
+      "keySaved": "{{name}} API key saved",
+      "keySaveFailed": "Failed to save {{name}} API key",
+      "referralCopied": "Referral link copied to clipboard",
+      "referralCopyFailed": "Failed to copy referral link",
+      "providerAdded": "Provider \"{{id}}\" added",
+      "providerAddFailed": "Failed to add provider",
+      "providersLoadedNew": "{{count}} providers loaded ({{diff}} new)",
+      "providersLoadedRemoved": "{{count}} providers loaded ({{diff}} removed)",
+      "providersLoadedNoChanges": "{{count}} providers loaded (no changes)",
+      "providersRefreshFailed": "Failed to refresh providers"
+    }
   }
 }

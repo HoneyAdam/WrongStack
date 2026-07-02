@@ -47,5 +47,103 @@
     "keyPlaceholder": "Collez votre clé API",
     "connect": "Connecter",
     "connected": "Connecté"
+  },
+  "screen": {
+    "header": {
+      "title": "Bienvenue sur WrongStack",
+      "subtitle": "Ajoutez au moins une clé API pour démarrer",
+      "continue": "Continuer"
+    },
+    "steps": {
+      "addKeys": "Ajouter des clés API",
+      "pickModel": "Choisir un modèle",
+      "start": "Démarrer",
+      "keys": "Clés"
+    },
+    "security": {
+      "title": "Vos clés restent sur votre machine",
+      "body": "Les clés API sont chiffrées et stockées localement. Elles ne sont envoyées qu'au point de terminaison API du fournisseur — jamais à nous ni à un tiers."
+    },
+    "errors": {
+      "backendUnreachable": "Backend inaccessible",
+      "backendNotResponding": "Le backend ne répond pas. Il a peut-être planté ou la connexion a été interrompue.",
+      "retry": "Réessayer",
+      "modelSwitchTimeout": "Le changement de modèle a expiré. Veuillez réessayer.",
+      "noModels": "Aucun modèle disponible. Vérifiez votre clé API et réessayez."
+    },
+    "providers": {
+      "popular": "Fournisseurs populaires",
+      "more": "Plus de fournisseurs",
+      "selfHosted": "Auto-hébergé",
+      "updating": "Mise à jour...",
+      "refresh": "Actualiser",
+      "refreshTitle": "Actualiser la liste des fournisseurs",
+      "modelsAvailable_one": "{{count}} modèle disponible",
+      "modelsAvailable_other": "{{count}} modèles disponibles",
+      "catalogDescription": "{{family}} · {{count}} modèles"
+    },
+    "start": {
+      "pickAndStart": "Choisir un modèle et démarrer",
+      "addMoreKeys": "← Ajouter d'autres clés",
+      "chooseProvider": "Choisir un fournisseur",
+      "chooseModel": "Choisir un modèle",
+      "modelsFor": "Modèles disponibles pour {{provider}}",
+      "activeKeys_one": "{{count}} clé active",
+      "activeKeys_other": "{{count}} clés actives",
+      "startSession": "Démarrer la session"
+    },
+    "card": {
+      "keySaved": "Clé enregistrée",
+      "referral": "Parrainage",
+      "save": "Enregistrer",
+      "getKey": "Obtenir votre clé API",
+      "copied": "Copié",
+      "copyReferral": "Copier le lien de parrainage",
+      "share": "Partager",
+      "qrAlt": "QR code de parrainage {{name}}"
+    },
+    "share": {
+      "title": "Partager le parrainage {{name}}",
+      "description": "Partagez ce lien de parrainage avec vos amis et gagnez des récompenses !",
+      "hint": "Scannez le QR code ou copiez le lien pour partager",
+      "twitter": "Partager sur X/Twitter",
+      "linkedin": "Partager sur LinkedIn",
+      "telegram": "Partager sur Telegram",
+      "whatsapp": "Partager sur WhatsApp",
+      "reddit": "Partager sur Reddit",
+      "facebook": "Partager sur Facebook",
+      "email": "Partager par e-mail"
+    },
+    "custom": {
+      "title": "Fournisseur personnalisé / auto-hébergé",
+      "description": "Ajoutez n'importe quel point de terminaison compatible OpenAI (Ollama, vLLM, Together, etc.)",
+      "localServers": "Serveurs locaux — cliquez pour pré-remplir",
+      "providerId": "ID du fournisseur *",
+      "family": "Famille",
+      "familyOpenAiCompatible": "Compatible OpenAI",
+      "baseUrl": "URL de base (facultatif)",
+      "apiKey": "Clé API (facultatif — certains fournisseurs locaux n'en ont pas besoin)",
+      "apiKeyPlaceholder": "Clé API (si requise)",
+      "add": "Ajouter le fournisseur"
+    },
+    "time": {
+      "justNow": "à l'instant",
+      "secondsAgo": "il y a {{count}} s",
+      "minutesAgo": "il y a {{count}} min",
+      "hoursAgo": "il y a {{count}} h",
+      "daysAgo": "il y a {{count}} j"
+    },
+    "toasts": {
+      "keySaved": "Clé API {{name}} enregistrée",
+      "keySaveFailed": "Échec de l'enregistrement de la clé API {{name}}",
+      "referralCopied": "Lien de parrainage copié dans le presse-papiers",
+      "referralCopyFailed": "Échec de la copie du lien de parrainage",
+      "providerAdded": "Fournisseur « {{id}} » ajouté",
+      "providerAddFailed": "Échec de l'ajout du fournisseur",
+      "providersLoadedNew": "{{count}} fournisseurs chargés ({{diff}} nouveau)",
+      "providersLoadedRemoved": "{{count}} fournisseurs chargés ({{diff}} supprimé)",
+      "providersLoadedNoChanges": "{{count}} fournisseurs chargés (aucun changement)",
+      "providersRefreshFailed": "Échec de l'actualisation des fournisseurs"
+    }
   }
 }

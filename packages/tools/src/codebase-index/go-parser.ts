@@ -15,7 +15,11 @@ import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export async function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): Promise<FileSymbols> {
+export async function parseSymbols(opts: {
+  file: string;
+  content: string;
+  lang: SymbolLang;
+}): Promise<FileSymbols> {
   const { file, content, lang } = opts;
 
   try {
@@ -263,59 +267,78 @@ func formatType(t ast.Expr) string {
 }
 `;
 
-async function syncGoParse(filePath: string, content: string, lang: SymbolLang): Promise<FileSymbols> {
-	// Feed the source over stdin — never pass the target .go file as a CLI arg.
-	// `go run script.go target.go` makes the toolchain treat target.go as a
-	// second package file ("named files must all be in one directory") and
-	// refuses *_test.go outright. Reading from stdin sidesteps both, and lets
-	// us parse the in-memory content without touching disk.
-	const tmpDir = path.join(os.tmpdir(), 'ws-go-parse');
-	try {
-		await fs.mkdir(tmpDir, { recursive: true });
-		const scriptPath = path.join(tmpDir, 'parse.go');
-		await fs.writeFile(scriptPath, GO_PARSE_SCRIPT, 'utf8');
+async function syncGoParse(
+  filePath: string,
+  content: string,
+  lang: SymbolLang,
+): Promise<FileSymbols> {
+  // Feed the source over stdin — never pass the target .go file as a CLI arg.
+  // `go run script.go target.go` makes the toolchain treat target.go as a
+  // second package file ("named files must all be in one directory") and
+  // refuses *_test.go outright. Reading from stdin sidesteps both, and lets
+  // us parse the in-memory content without touching disk.
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-go-parse-'));
+  try {
+    const scriptPath = path.join(tmpDir, 'parse.go');
+    await fs.writeFile(scriptPath, GO_PARSE_SCRIPT, 'utf8');
 
-		// argv-array form (no shell): avoids any quoting/metachar issues in the
-		// temp script path. The target source is fed via stdin, not as an arg.
-		const proc = spawn('go', ['run', scriptPath], {
-			stdio: ['pipe', 'pipe', 'pipe'],
-			windowsHide: true,
-		});
+    // argv-array form (no shell): avoids any quoting/metachar issues in the
+    // temp script path. The target source is fed via stdin, not as an arg.
+    const proc = spawn('go', ['run', scriptPath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
 
-		let stdout = '';
-		proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    let stdout = '';
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
 
-		// Write source via stdin so `go run` receives it without touching disk
-		proc.stdin?.write(content);
-		proc.stdin?.end();
+    // Write source via stdin so `go run` receives it without touching disk
+    proc.stdin?.write(content);
+    proc.stdin?.end();
 
-		const { code } = await Promise.race([
-			new Promise<{ code: number | null }>((resolve) => { proc.on('close', (c) => resolve({ code: c })); }),
-			new Promise<{ code: number | null }>((_, reject) =>
-				setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('timeout')); }, 15_000)
-			),
-		]).catch(() => ({ code: -1 }));
+    const { code } = await Promise.race([
+      new Promise<{ code: number | null }>((resolve) => {
+        proc.on('close', (c) => resolve({ code: c }));
+      }),
+      new Promise<{ code: number | null }>((_, reject) =>
+        setTimeout(() => {
+          proc.kill('SIGKILL');
+          reject(new Error('timeout'));
+        }, 15_000),
+      ),
+    ]).catch(() => ({ code: -1 }));
 
-		if (code !== 0 || !stdout.trim()) {
-			return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
-		}
+    if (code !== 0 || !stdout.trim()) {
+      return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
+    }
 
-		const raw = JSON.parse(stdout.trim()) as Array<{ name: string; kind: string; line: number; col: number; signature: string; scope: string }>;
-		const symbols: IndexSymbol[] = raw.map((s) => ({
-			id: 0,
-			lang,
-			kind: s.kind as IndexSymbol['kind'],
-			name: s.name,
-			file: filePath,
-			line: s.line,
-			col: s.col,
-			signature: s.signature ?? '',
-			docComment: '',
-			scope: s.scope ?? '',
-			text: `${s.name} ${s.signature ?? ''}`.trim(),
-		}));
-		return { file: filePath, lang, symbols, mtimeMs: Date.now() };
-	} catch {
-		return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
-	}
+    const raw = JSON.parse(stdout.trim()) as Array<{
+      name: string;
+      kind: string;
+      line: number;
+      col: number;
+      signature: string;
+      scope: string;
+    }>;
+    const symbols: IndexSymbol[] = raw.map((s) => ({
+      id: 0,
+      lang,
+      kind: s.kind as IndexSymbol['kind'],
+      name: s.name,
+      file: filePath,
+      line: s.line,
+      col: s.col,
+      signature: s.signature ?? '',
+      docComment: '',
+      scope: s.scope ?? '',
+      text: `${s.name} ${s.signature ?? ''}`.trim(),
+    }));
+    return { file: filePath, lang, symbols, mtimeMs: Date.now() };
+  } catch {
+    return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 }

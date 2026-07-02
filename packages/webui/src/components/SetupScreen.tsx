@@ -38,6 +38,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { cn } from '@/lib/utils';
+import { useAppTranslation, i18n } from '@/i18n';
 import { LOCAL_PRESET_FAMILY, LOCAL_SERVER_PRESETS } from './SettingsPanel/local-presets';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -226,6 +227,7 @@ function ProviderKeyCard({
   savedProvider?: SavedProvider;
   onKeySaved: (providerId: string) => void;
 }) {
+  const { t } = useAppTranslation();
   const [key, setKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(!!savedProvider?.apiKeys.some((k) => k.isActive));
@@ -266,7 +268,7 @@ function ProviderKeyCard({
       }
       setSaved(true);
       setKey('');
-      toast.success(`${popular.name} API key saved`);
+      toast.success(t('setup:screen.toasts.keySaved', { name: popular.name }));
       onKeySaved(popular.id);
 
       // Track the key save event
@@ -285,7 +287,7 @@ function ProviderKeyCard({
         trackReferralConversion(popular.id, popular.name);
       }
     } catch {
-      toast.error(`Failed to save ${popular.name} API key`);
+      toast.error(t('setup:screen.toasts.keySaveFailed', { name: popular.name }));
 
       // Track the failed save event
       trackEvent('provider_key_save_failed', 'error', {
@@ -311,7 +313,7 @@ function ProviderKeyCard({
     try {
       await navigator.clipboard.writeText(popular.referral!.url);
       setCopied(true);
-      toast.success('Referral link copied to clipboard');
+      toast.success(t('setup:screen.toasts.referralCopied'));
       setTimeout(() => setCopied(false), 2000);
 
       // Track the referral link copy event
@@ -324,7 +326,7 @@ function ProviderKeyCard({
         },
       });
     } catch {
-      toast.error('Failed to copy referral link');
+      toast.error(t('setup:screen.toasts.referralCopyFailed'));
 
       // Track the failed copy event
       trackEvent('referral_link_copy_failed', 'error', {
@@ -356,13 +358,13 @@ function ProviderKeyCard({
             {saved && (
               <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 <Check className="h-2.5 w-2.5" />
-                Key saved
+                {t('setup:screen.card.keySaved')}
               </span>
             )}
             {popular.referral && !saved && (
               <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                 <Gift className="h-2.5 w-2.5" />
-                Referral
+                {t('setup:screen.card.referral')}
               </span>
             )}
           </div>
@@ -393,7 +395,7 @@ function ProviderKeyCard({
                   {isSaving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    'Save'
+                    t('setup:screen.card.save')
                   )}
                 </Button>
               </div>
@@ -424,7 +426,7 @@ function ProviderKeyCard({
                     }
                   }}
                 >
-                  Get your API key <ExternalLink className="h-3 w-3" />
+                  {t('setup:screen.card.getKey')} <ExternalLink className="h-3 w-3" />
                 </a>
               )}
               {popular.referral && (
@@ -436,11 +438,11 @@ function ProviderKeyCard({
                   >
                     {copied ? (
                       <>
-                        <Check className="h-3 w-3" /> Copied
+                        <Check className="h-3 w-3" /> {t('setup:screen.card.copied')}
                       </>
                     ) : (
                       <>
-                        <Copy className="h-3 w-3" /> Copy referral link
+                        <Copy className="h-3 w-3" /> {t('setup:screen.card.copyReferral')}
                       </>
                     )}
                   </button>
@@ -449,7 +451,7 @@ function ProviderKeyCard({
                     onClick={() => setShareModalOpen(true)}
                     className="inline-flex items-center gap-1 text-[11px] text-amber-600/80 dark:text-amber-400/80 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
                   >
-                    <Share2 className="h-3 w-3" /> Share
+                    <Share2 className="h-3 w-3" /> {t('setup:screen.card.share')}
                   </button>
                 </div>
               )}
@@ -460,7 +462,7 @@ function ProviderKeyCard({
               onClick={() => setShowModels(!showModels)}
               className="mt-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
             >
-              {catalogProvider?.modelCount} models available
+              {t('setup:screen.providers.modelsAvailable', { count: catalogProvider?.modelCount ?? 0 })}
               {showModels ? (
                 <ChevronDown className="h-3 w-3" />
               ) : (
@@ -477,10 +479,10 @@ function ProviderKeyCard({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Gift className="h-4 w-4 text-amber-500" />
-              Share {popular.name} Referral
+              {t('setup:screen.share.title', { name: popular.name })}
             </DialogTitle>
             <DialogDescription>
-              Share this referral link with friends and earn rewards!
+              {t('setup:screen.share.description')}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center gap-4 py-4">
@@ -495,7 +497,7 @@ function ProviderKeyCard({
                   <div className="rounded-lg border border-border p-2 bg-white">
                     <img
                       src={qrDataUrl}
-                      alt={`${popular.name} referral QR code`}
+                      alt={t('setup:screen.card.qrAlt', { name: popular.name })}
                       className="w-[200px] h-[200px]"
                     />
                   </div>
@@ -525,7 +527,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs hover:bg-slate-800 transition-colors"
-                      title="Share on X/Twitter"
+                      title={t('setup:screen.share.twitter')}
                     >
                       <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -550,7 +552,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0A66C2] text-white text-xs hover:bg-[#0958a8] transition-colors"
-                      title="Share on LinkedIn"
+                      title={t('setup:screen.share.linkedin')}
                     >
                       <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
@@ -574,7 +576,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#26A5E4] text-white text-xs hover:bg-[#1e96d1] transition-colors"
-                      title="Share on Telegram"
+                      title={t('setup:screen.share.telegram')}
                     >
                       <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
@@ -599,7 +601,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#25D366] text-white text-xs hover:bg-[#1fb859] transition-colors"
-                      title="Share on WhatsApp"
+                      title={t('setup:screen.share.whatsapp')}
                     >
                       <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.134 1.585 5.934L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
@@ -624,7 +626,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FF4500] text-white text-xs hover:bg-[#e03d00] transition-colors"
-                      title="Share on Reddit"
+                      title={t('setup:screen.share.reddit')}
                     >
                       <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 0 1.108-.701 1.25 1.25 0 0 1 2.144.33zm-8.811 8.748c-.968 0-1.754.786-1.754 1.754 0 .968.786 1.754 1.754 1.754.968 0 1.754-.786 1.754-1.754 0-.968-.786-1.754-1.754-1.754zm7.944 0c-.968 0-1.754.786-1.754 1.754 0 .968.786 1.754 1.754 1.754.968 0 1.754-.786 1.754-1.754 0-.968-.786-1.754-1.754-1.754z" />
@@ -649,7 +651,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1877F2] text-white text-xs hover:bg-[#166fe5] transition-colors"
-                      title="Share on Facebook"
+                      title={t('setup:screen.share.facebook')}
                     >
                       <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
@@ -674,7 +676,7 @@ function ProviderKeyCard({
                         });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs hover:bg-muted/80 transition-colors"
-                      title="Share via Email"
+                      title={t('setup:screen.share.email')}
                     >
                       <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25H4.5a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
@@ -702,7 +704,7 @@ function ProviderKeyCard({
                     </Button>
                   </div>
                   <p className="text-[11px] text-muted-foreground text-center">
-                    Scan the QR code or copy the link to share
+                    {t('setup:screen.share.hint')}
                   </p>
                 </div>
               </>
@@ -717,6 +719,7 @@ function ProviderKeyCard({
 // ── Custom Provider Section ─────────────────────────────────────────────────
 
 function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string) => void }) {
+  const { t } = useAppTranslation();
   const [expanded, setExpanded] = useState(false);
   const [providerId, setProviderId] = useState('');
   const [family, setFamily] = useState<string>('openai-compatible');
@@ -738,14 +741,14 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           apiKey: key.trim() || undefined,
         },
       });
-      toast.success(`Provider "${providerId.trim()}" added`);
+      toast.success(t('setup:screen.toasts.providerAdded', { id: providerId.trim() }));
       onKeySaved(providerId.trim());
       setProviderId('');
       setBaseUrl('');
       setKey('');
       setExpanded(false);
     } catch {
-      toast.error('Failed to add provider');
+      toast.error(t('setup:screen.toasts.providerAddFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -762,9 +765,9 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           <Plus className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="flex-1">
-          <h3 className="text-sm font-medium">Custom / Self-hosted Provider</h3>
+          <h3 className="text-sm font-medium">{t('setup:screen.custom.title')}</h3>
           <p className="text-xs text-muted-foreground">
-            Add any OpenAI-compatible endpoint (Ollama, vLLM, Together, etc.)
+            {t('setup:screen.custom.description')}
           </p>
         </div>
         <ChevronRight
@@ -781,7 +784,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
               Click a preset to pre-fill id / family / baseUrl. */}
           <div className="space-y-1.5 pt-3">
             <span className="text-[11px] font-medium text-muted-foreground block">
-              Local servers — click to pre-fill
+              {t('setup:screen.custom.localServers')}
             </span>
             <div className="flex flex-wrap gap-1.5">
               {LOCAL_SERVER_PRESETS.map((preset) => (
@@ -806,7 +809,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
-                Provider ID *
+                {t('setup:screen.custom.providerId')}
               </label>
               <Input
                 placeholder="e.g. my-llm"
@@ -817,14 +820,14 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
             </div>
             <div>
               <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
-                Family
+                {t('setup:screen.custom.family')}
               </label>
               <select
                 value={family}
                 onChange={(e) => setFamily(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               >
-                <option value="openai-compatible">OpenAI Compatible</option>
+                <option value="openai-compatible">{t('setup:screen.custom.familyOpenAiCompatible')}</option>
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
                 <option value="google">Google</option>
@@ -833,7 +836,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           </div>
           <div>
             <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
-              Base URL (optional)
+              {t('setup:screen.custom.baseUrl')}
             </label>
             <Input
               placeholder="e.g. http://localhost:11434/v1"
@@ -844,11 +847,11 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           </div>
           <div>
             <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
-              API Key (optional — some local providers don&apos;t need one)
+              {t('setup:screen.custom.apiKey')}
             </label>
             <Input
               type="password"
-              placeholder="API key (if required)"
+              placeholder={t('setup:screen.custom.apiKeyPlaceholder')}
               value={key}
               onChange={(e) => setKey(e.target.value)}
               className="text-sm font-mono"
@@ -856,7 +859,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           </div>
           <Button onClick={handleSave} disabled={!providerId.trim() || isSaving} size="sm">
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Add Provider
+            {t('setup:screen.custom.add')}
           </Button>
         </div>
       )}
@@ -867,6 +870,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
 // ── Setup Screen ──────────────────────────────────────────────────────────────
 
 export function SetupScreen() {
+  const { t } = useAppTranslation();
   const { model, setProvider, setModel, wsConnected, wsUrl } = useConfigStore();
   useWebSocket();
 

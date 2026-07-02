@@ -47,5 +47,103 @@
     "keyPlaceholder": "Incolla la tua chiave API",
     "connect": "Connetti",
     "connected": "Connesso"
+  },
+  "screen": {
+    "header": {
+      "title": "Benvenuto in WrongStack",
+      "subtitle": "Aggiungi almeno una chiave API per iniziare",
+      "continue": "Continua"
+    },
+    "steps": {
+      "addKeys": "Aggiungi chiavi API",
+      "pickModel": "Scegli un modello",
+      "start": "Avvia",
+      "keys": "Chiavi"
+    },
+    "security": {
+      "title": "Le tue chiavi restano sul tuo dispositivo",
+      "body": "Le chiavi API sono crittografate e salvate localmente. Vengono inviate solo all'endpoint API del provider — mai a noi o a terzi."
+    },
+    "errors": {
+      "backendUnreachable": "Backend non raggiungibile",
+      "backendNotResponding": "Il backend non risponde. Potrebbe essersi bloccato o la connessione potrebbe essere caduta.",
+      "retry": "Riprova",
+      "modelSwitchTimeout": "Timeout del cambio modello. Riprova.",
+      "noModels": "Nessun modello disponibile. Controlla la tua chiave API e riprova."
+    },
+    "providers": {
+      "popular": "Provider popolari",
+      "more": "Altri provider",
+      "selfHosted": "Self-hosted",
+      "updating": "Aggiornamento...",
+      "refresh": "Aggiorna",
+      "refreshTitle": "Aggiorna l'elenco dei provider",
+      "modelsAvailable_one": "{{count}} modello disponibile",
+      "modelsAvailable_other": "{{count}} modelli disponibili",
+      "catalogDescription": "{{family}} · {{count}} modelli"
+    },
+    "start": {
+      "pickAndStart": "Scegli un modello e avvia",
+      "addMoreKeys": "← Aggiungi altre chiavi",
+      "chooseProvider": "Scegli un provider",
+      "chooseModel": "Scegli un modello",
+      "modelsFor": "Modelli disponibili per {{provider}}",
+      "activeKeys_one": "{{count}} chiave attiva",
+      "activeKeys_other": "{{count}} chiavi attive",
+      "startSession": "Avvia sessione"
+    },
+    "card": {
+      "keySaved": "Chiave salvata",
+      "referral": "Invito",
+      "save": "Salva",
+      "getKey": "Ottieni la tua chiave API",
+      "copied": "Copiato",
+      "copyReferral": "Copia link di invito",
+      "share": "Condividi",
+      "qrAlt": "Codice QR di invito {{name}}"
+    },
+    "share": {
+      "title": "Condividi invito {{name}}",
+      "description": "Condividi questo link di invito con gli amici e ottieni ricompense!",
+      "hint": "Scansiona il codice QR o copia il link per condividere",
+      "twitter": "Condividi su X/Twitter",
+      "linkedin": "Condividi su LinkedIn",
+      "telegram": "Condividi su Telegram",
+      "whatsapp": "Condividi su WhatsApp",
+      "reddit": "Condividi su Reddit",
+      "facebook": "Condividi su Facebook",
+      "email": "Condividi via email"
+    },
+    "custom": {
+      "title": "Provider personalizzato / self-hosted",
+      "description": "Aggiungi qualsiasi endpoint compatibile con OpenAI (Ollama, vLLM, Together, ecc.)",
+      "localServers": "Server locali — clicca per precompilare",
+      "providerId": "ID provider *",
+      "family": "Famiglia",
+      "familyOpenAiCompatible": "Compatibile con OpenAI",
+      "baseUrl": "URL di base (facoltativo)",
+      "apiKey": "Chiave API (facoltativa — alcuni provider locali non la richiedono)",
+      "apiKeyPlaceholder": "Chiave API (se richiesta)",
+      "add": "Aggiungi provider"
+    },
+    "time": {
+      "justNow": "adesso",
+      "secondsAgo": "{{count}} sec fa",
+      "minutesAgo": "{{count}} min fa",
+      "hoursAgo": "{{count}} h fa",
+      "daysAgo": "{{count}} g fa"
+    },
+    "toasts": {
+      "keySaved": "Chiave API {{name}} salvata",
+      "keySaveFailed": "Salvataggio della chiave API {{name}} non riuscito",
+      "referralCopied": "Link di invito copiato negli appunti",
+      "referralCopyFailed": "Copia del link di invito non riuscita",
+      "providerAdded": "Provider \"{{id}}\" aggiunto",
+      "providerAddFailed": "Aggiunta del provider non riuscita",
+      "providersLoadedNew": "{{count}} provider caricati ({{diff}} nuovo)",
+      "providersLoadedRemoved": "{{count}} provider caricati ({{diff}} rimosso)",
+      "providersLoadedNoChanges": "{{count}} provider caricati (nessuna modifica)",
+      "providersRefreshFailed": "Aggiornamento dei provider non riuscito"
+    }
   }
 }

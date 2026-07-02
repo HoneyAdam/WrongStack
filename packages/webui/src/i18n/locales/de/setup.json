@@ -47,5 +47,103 @@
     "keyPlaceholder": "API-Schlüssel einfügen",
     "connect": "Verbinden",
     "connected": "Verbunden"
+  },
+  "screen": {
+    "header": {
+      "title": "Willkommen bei WrongStack",
+      "subtitle": "Füge mindestens einen API-Schlüssel hinzu, um loszulegen",
+      "continue": "Weiter"
+    },
+    "steps": {
+      "addKeys": "API-Schlüssel hinzufügen",
+      "pickModel": "Modell wählen",
+      "start": "Start",
+      "keys": "Schlüssel"
+    },
+    "security": {
+      "title": "Deine Schlüssel bleiben auf deinem Gerät",
+      "body": "API-Schlüssel werden verschlüsselt und lokal gespeichert. Sie werden nur an den API-Endpunkt des Anbieters gesendet — nie an uns oder Dritte."
+    },
+    "errors": {
+      "backendUnreachable": "Backend nicht erreichbar",
+      "backendNotResponding": "Das Backend reagiert nicht. Es könnte abgestürzt sein oder die Verbindung wurde getrennt.",
+      "retry": "Erneut versuchen",
+      "modelSwitchTimeout": "Zeitüberschreitung beim Modellwechsel. Bitte erneut versuchen.",
+      "noModels": "Keine Modelle verfügbar. Überprüfe deinen API-Schlüssel und versuche es erneut."
+    },
+    "providers": {
+      "popular": "Beliebte Anbieter",
+      "more": "Weitere Anbieter",
+      "selfHosted": "Selbst gehostet",
+      "updating": "Wird aktualisiert...",
+      "refresh": "Aktualisieren",
+      "refreshTitle": "Anbieterliste aktualisieren",
+      "modelsAvailable_one": "{{count}} Modell verfügbar",
+      "modelsAvailable_other": "{{count}} Modelle verfügbar",
+      "catalogDescription": "{{family}} · {{count}} Modelle"
+    },
+    "start": {
+      "pickAndStart": "Modell wählen und starten",
+      "addMoreKeys": "← Weitere Schlüssel hinzufügen",
+      "chooseProvider": "Anbieter wählen",
+      "chooseModel": "Modell wählen",
+      "modelsFor": "Verfügbare Modelle für {{provider}}",
+      "activeKeys_one": "{{count}} aktiver Schlüssel",
+      "activeKeys_other": "{{count}} aktive Schlüssel",
+      "startSession": "Sitzung starten"
+    },
+    "card": {
+      "keySaved": "Schlüssel gespeichert",
+      "referral": "Empfehlung",
+      "save": "Speichern",
+      "getKey": "API-Schlüssel abrufen",
+      "copied": "Kopiert",
+      "copyReferral": "Empfehlungslink kopieren",
+      "share": "Teilen",
+      "qrAlt": "{{name}} Empfehlungs-QR-Code"
+    },
+    "share": {
+      "title": "{{name}}-Empfehlung teilen",
+      "description": "Teile diesen Empfehlungslink mit Freunden und verdiene Belohnungen!",
+      "hint": "Scanne den QR-Code oder kopiere den Link zum Teilen",
+      "twitter": "Auf X/Twitter teilen",
+      "linkedin": "Auf LinkedIn teilen",
+      "telegram": "Auf Telegram teilen",
+      "whatsapp": "Auf WhatsApp teilen",
+      "reddit": "Auf Reddit teilen",
+      "facebook": "Auf Facebook teilen",
+      "email": "Per E-Mail teilen"
+    },
+    "custom": {
+      "title": "Benutzerdefinierter / selbst gehosteter Anbieter",
+      "description": "Beliebigen OpenAI-kompatiblen Endpunkt hinzufügen (Ollama, vLLM, Together usw.)",
+      "localServers": "Lokale Server — zum Ausfüllen klicken",
+      "providerId": "Anbieter-ID *",
+      "family": "Familie",
+      "familyOpenAiCompatible": "OpenAI-kompatibel",
+      "baseUrl": "Basis-URL (optional)",
+      "apiKey": "API-Schlüssel (optional — einige lokale Anbieter benötigen keinen)",
+      "apiKeyPlaceholder": "API-Schlüssel (falls erforderlich)",
+      "add": "Anbieter hinzufügen"
+    },
+    "time": {
+      "justNow": "gerade eben",
+      "secondsAgo": "vor {{count}} Sek.",
+      "minutesAgo": "vor {{count}} Min.",
+      "hoursAgo": "vor {{count}} Std.",
+      "daysAgo": "vor {{count}} T."
+    },
+    "toasts": {
+      "keySaved": "{{name}} API-Schlüssel gespeichert",
+      "keySaveFailed": "{{name}} API-Schlüssel konnte nicht gespeichert werden",
+      "referralCopied": "Empfehlungslink in die Zwischenablage kopiert",
+      "referralCopyFailed": "Empfehlungslink konnte nicht kopiert werden",
+      "providerAdded": "Anbieter \"{{id}}\" hinzugefügt",
+      "providerAddFailed": "Anbieter konnte nicht hinzugefügt werden",
+      "providersLoadedNew": "{{count}} Anbieter geladen ({{diff}} neu)",
+      "providersLoadedRemoved": "{{count}} Anbieter geladen ({{diff}} entfernt)",
+      "providersLoadedNoChanges": "{{count}} Anbieter geladen (keine Änderungen)",
+      "providersRefreshFailed": "Anbieter konnten nicht aktualisiert werden"
+    }
   }
 }

@@ -47,5 +47,103 @@
     "keyPlaceholder": "API anahtarınızı yapıştırın",
     "connect": "Bağlan",
     "connected": "Bağlandı"
+  },
+  "screen": {
+    "header": {
+      "title": "WrongStack'a hoş geldiniz",
+      "subtitle": "Başlamak için en az bir API anahtarı ekleyin",
+      "continue": "Devam et"
+    },
+    "steps": {
+      "addKeys": "API Anahtarları Ekle",
+      "pickModel": "Model Seç",
+      "start": "Başla",
+      "keys": "Anahtarlar"
+    },
+    "security": {
+      "title": "Anahtarlarınız makinenizde kalır",
+      "body": "API anahtarları şifrelenir ve yerel olarak saklanır. Yalnızca sağlayıcının API uç noktasına gönderilir — bize veya üçüncü taraflara asla."
+    },
+    "errors": {
+      "backendUnreachable": "Arka uca ulaşılamıyor",
+      "backendNotResponding": "Arka uç yanıt vermiyor. Çökmüş veya bağlantı kopmuş olabilir.",
+      "retry": "Yeniden dene",
+      "modelSwitchTimeout": "Model geçişi zaman aşamına uğradı. Lütfen tekrar deneyin.",
+      "noModels": "Kullanılabilir model yok. API anahtarınızı kontrol edip tekrar deneyin."
+    },
+    "providers": {
+      "popular": "Popüler Sağlayıcılar",
+      "more": "Diğer Sağlayıcılar",
+      "selfHosted": "Kendi sunucunuzda",
+      "updating": "Güncelleniyor...",
+      "refresh": "Yenile",
+      "refreshTitle": "Sağlayıcı listesini yenile",
+      "modelsAvailable_one": "{{count}} model kullanılabilir",
+      "modelsAvailable_other": "{{count}} model kullanılabilir",
+      "catalogDescription": "{{family}} · {{count}} model"
+    },
+    "start": {
+      "pickAndStart": "Bir model seç ve başla",
+      "addMoreKeys": "← Daha fazla anahtar ekle",
+      "chooseProvider": "Bir Sağlayıcı Seç",
+      "chooseModel": "Bir Model Seç",
+      "modelsFor": "{{provider}} için kullanılabilir modeller",
+      "activeKeys_one": "{{count}} etkin anahtar",
+      "activeKeys_other": "{{count}} etkin anahtar",
+      "startSession": "Oturumu Başlat"
+    },
+    "card": {
+      "keySaved": "Anahtar kaydedildi",
+      "referral": "Davet",
+      "save": "Kaydet",
+      "getKey": "API anahtarınızı alın",
+      "copied": "Kopyalandı",
+      "copyReferral": "Davet bağlantısını kopyala",
+      "share": "Paylaş",
+      "qrAlt": "{{name}} davet QR kodu"
+    },
+    "share": {
+      "title": "{{name}} davetini paylaş",
+      "description": "Bu davet bağlantısını arkadaşlarınızla paylaşın ve ödüller kazanın!",
+      "hint": "Paylaşmak için QR kodunu tarayın veya bağlantıyı kopyalayın",
+      "twitter": "X/Twitter'da paylaş",
+      "linkedin": "LinkedIn'de paylaş",
+      "telegram": "Telegram'da paylaş",
+      "whatsapp": "WhatsApp'ta paylaş",
+      "reddit": "Reddit'te paylaş",
+      "facebook": "Facebook'ta paylaş",
+      "email": "E-posta ile paylaş"
+    },
+    "custom": {
+      "title": "Özel / Kendi Sunucunuzda Sağlayıcı",
+      "description": "Herhangi bir OpenAI uyumlu uç nokta ekleyin (Ollama, vLLM, Together vb.)",
+      "localServers": "Yerel sunucular — doldurmak için tıklayın",
+      "providerId": "Sağlayıcı kimliği *",
+      "family": "Aile",
+      "familyOpenAiCompatible": "OpenAI Uyumlu",
+      "baseUrl": "Temel URL (isteğe bağlı)",
+      "apiKey": "API Anahtarı (isteğe bağlı — bazı yerel sağlayıcılar bunu gerektirmez)",
+      "apiKeyPlaceholder": "API anahtarı (gerekliyse)",
+      "add": "Sağlayıcı Ekle"
+    },
+    "time": {
+      "justNow": "az önce",
+      "secondsAgo": "{{count}} sn önce",
+      "minutesAgo": "{{count}} dk önce",
+      "hoursAgo": "{{count}} sa önce",
+      "daysAgo": "{{count}} gün önce"
+    },
+    "toasts": {
+      "keySaved": "{{name}} API anahtarı kaydedildi",
+      "keySaveFailed": "{{name}} API anahtarı kaydedilemedi",
+      "referralCopied": "Davet bağlantısı panoya kopyalandı",
+      "referralCopyFailed": "Davet bağlantısı kopyalanamadı",
+      "providerAdded": "\"{{id}}\" sağlayıcısı eklendi",
+      "providerAddFailed": "Sağlayıcı eklenemedi",
+      "providersLoadedNew": "{{count}} sağlayıcı yüklendi ({{diff}} yeni)",
+      "providersLoadedRemoved": "{{count}} sağlayıcı yüklendi ({{diff}} kaldırıldı)",
+      "providersLoadedNoChanges": "{{count}} sağlayıcı yüklendi (değişiklik yok)",
+      "providersRefreshFailed": "Sağlayıcılar yenilenemedi"
+    }
   }
 }
