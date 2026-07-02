@@ -479,5 +479,41 @@
     "colRisk": "Risk",
     "colDetail": "Detail",
     "colOutcome": "Outcome"
+  },
+  "monitor": {
+    "elapsedHm": "{{h}}h {{m}}m ago",
+    "elapsedMs": "{{m}}m {{s}}s ago",
+    "elapsedS": "{{s}}s ago",
+    "heading": "Fleet Monitor",
+    "clientsHeading": "Connected Clients",
+    "terminal": "Terminal",
+    "webui": "Web UI",
+    "repl": "REPL",
+    "totalConnected": "total connected",
+    "mailQueue": "Mail Queue",
+    "total": "Total",
+    "open": "Open",
+    "unread": "Unread",
+    "agents": "Agents",
+    "messagesSub": "messages",
+    "uncompletedSub": "uncompleted",
+    "waitingSub": "waiting",
+    "ofTotal": "of {{count}} total",
+    "agentRoster": "Agent Roster",
+    "liveMailActivity": "Live Mail Activity",
+    "noActivity": "No recent activity",
+    "mailboxAgents": "Mailbox Agents",
+    "noMailboxAgents": "No agents registered",
+    "moreCount": "+{{count}} more",
+    "agentFallback": "agent",
+    "fleetAgents": "Fleet Agents",
+    "noFleetAgents": "No fleet agents running",
+    "iter": "iter",
+    "mailType": {
+      "sent": "Sent",
+      "delivered": "Delivered",
+      "read": "Read",
+      "completed": "Completed"
+    }
   }
 }

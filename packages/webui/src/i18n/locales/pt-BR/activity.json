@@ -479,5 +479,41 @@
     "colRisk": "Risco",
     "colDetail": "Detalhe",
     "colOutcome": "Resultado"
+  },
+  "monitor": {
+    "elapsedHm": "há {{h}}h {{m}}m",
+    "elapsedMs": "há {{m}}m {{s}}s",
+    "elapsedS": "há {{s}}s",
+    "heading": "Monitor da frota",
+    "clientsHeading": "Clientes conectados",
+    "terminal": "Terminal",
+    "webui": "IU Web",
+    "repl": "REPL",
+    "totalConnected": "conectados no total",
+    "mailQueue": "Fila de correio",
+    "total": "Total",
+    "open": "Abertos",
+    "unread": "Não lidos",
+    "agents": "Agentes",
+    "messagesSub": "mensagens",
+    "uncompletedSub": "não concluídos",
+    "waitingSub": "aguardando",
+    "ofTotal": "de {{count}} no total",
+    "agentRoster": "Lista de agentes",
+    "liveMailActivity": "Atividade de e-mail ao vivo",
+    "noActivity": "Sem atividade recente",
+    "mailboxAgents": "Agentes da caixa",
+    "noMailboxAgents": "Nenhum agente registrado",
+    "moreCount": "+{{count}} mais",
+    "agentFallback": "agente",
+    "fleetAgents": "Agentes da frota",
+    "noFleetAgents": "Nenhum agente da frota em execução",
+    "iter": "iter.",
+    "mailType": {
+      "sent": "Enviado",
+      "delivered": "Entregue",
+      "read": "Lido",
+      "completed": "Concluído"
+    }
   }
 }

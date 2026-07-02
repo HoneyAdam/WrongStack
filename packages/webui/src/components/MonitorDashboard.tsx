@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useAppTranslation, i18n } from '@/i18n';
 import {
   Activity,
   Bot,
@@ -34,9 +35,9 @@ function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
-  if (h > 0) return `${h}h ${m % 60}m ago`;
-  if (m > 0) return `${m}m ${s % 60}s ago`;
-  return `${s}s ago`;
+  if (h > 0) return i18n.t('activity:monitor.elapsedHm', { h, m: m % 60 });
+  if (m > 0) return i18n.t('activity:monitor.elapsedMs', { m, s: s % 60 });
+  return i18n.t('activity:monitor.elapsedS', { s });
 }
 
 function fmtTime(ts: number): string {
@@ -108,11 +109,12 @@ interface MailActivityItemProps {
 }
 
 function MailActivityItem({ activity }: MailActivityItemProps): React.ReactElement {
+  const { t } = useAppTranslation();
   const typeConfig = {
-    sent: { label: 'Sent', color: 'text-blue-500', bg: 'bg-blue-500/10' },
-    delivered: { label: 'Delivered', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-    read: { label: 'Read', color: 'text-amber-500', bg: 'bg-amber-500/10' },
-    completed: { label: 'Completed', color: 'text-purple-500', bg: 'bg-purple-500/10' },
+    sent: { color: 'text-blue-500', bg: 'bg-blue-500/10' },
+    delivered: { color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+    read: { color: 'text-amber-500', bg: 'bg-amber-500/10' },
+    completed: { color: 'text-purple-500', bg: 'bg-purple-500/10' },
   };
 
   const config = typeConfig[activity.type];
@@ -120,7 +122,7 @@ function MailActivityItem({ activity }: MailActivityItemProps): React.ReactEleme
   return (
     <div className="flex items-center gap-2 py-1.5">
       <span className={cn('px-2 py-0.5 rounded text-[10px] font-medium uppercase', config.color, config.bg)}>
-        {config.label}
+        {t(`activity:monitor.mailType.${activity.type}`)}
       </span>
       {activity.subject && (
         <span className="text-xs truncate flex-1">{activity.subject}</span>
@@ -136,6 +138,7 @@ function MailActivityItem({ activity }: MailActivityItemProps): React.ReactEleme
 
 function AgentStatusRow(): React.ReactElement {
   const agents = useMailboxStore((s) => s.agents);
+  const { t } = useAppTranslation();
   const onlineCount = useMemo(() => agents.filter((a) => a.online).length, [agents]);
 
   return (
@@ -143,7 +146,7 @@ function AgentStatusRow(): React.ReactElement {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Mailbox Agents</span>
+          <span className="text-xs text-muted-foreground">{t('activity:monitor.mailboxAgents')}</span>
         </div>
         <span className="text-xs tabular-nums">
           <span className="font-bold text-emerald-500">{onlineCount}</span>
@@ -151,7 +154,7 @@ function AgentStatusRow(): React.ReactElement {
         </span>
       </div>
       {agents.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No agents registered</p>
+        <p className="text-xs text-muted-foreground italic">{t('activity:monitor.noMailboxAgents')}</p>
       ) : (
         <div className="space-y-1">
           {agents.slice(0, 5).map((agent) => (
@@ -161,11 +164,11 @@ function AgentStatusRow(): React.ReactElement {
                 agent.online ? 'bg-emerald-500' : 'bg-muted-foreground'
               )} />
               <span className="truncate flex-1">{agent.name}</span>
-              <span className="text-muted-foreground">{agent.role || 'agent'}</span>
+              <span className="text-muted-foreground">{agent.role || t('activity:monitor.agentFallback')}</span>
             </div>
           ))}
           {agents.length > 5 && (
-            <p className="text-[10px] text-muted-foreground">+{agents.length - 5} more</p>
+            <p className="text-[10px] text-muted-foreground">{t('activity:monitor.moreCount', { count: agents.length - 5 })}</p>
           )}
         </div>
       )}
@@ -177,6 +180,7 @@ function AgentStatusRow(): React.ReactElement {
 
 function FleetAgentsStatus(): React.ReactElement {
   const agents = useFleetStore((s) => s.agents);
+  const { t } = useAppTranslation();
   const agentCount = agents.size;
   const activeCount = useMemo(() => {
     let count = 0;
@@ -191,15 +195,15 @@ function FleetAgentsStatus(): React.ReactElement {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Fleet Agents</span>
+          <span className="text-xs text-muted-foreground">{t('activity:monitor.fleetAgents')}</span>
         </div>
         <span className="text-xs tabular-nums">
           <span className="font-bold text-emerald-500">{activeCount}</span>
-          <span className="text-muted-foreground">/{agentCount} active</span>
+          <span className="text-muted-foreground">/{agentCount}</span>
         </span>
       </div>
       {agentCount === 0 ? (
-        <p className="text-xs text-muted-foreground italic">No fleet agents running</p>
+        <p className="text-xs text-muted-foreground italic">{t('activity:monitor.noFleetAgents')}</p>
       ) : (
         <div className="space-y-1">
           {Array.from(agents.values()).slice(0, 5).map((agent) => (
@@ -209,11 +213,11 @@ function FleetAgentsStatus(): React.ReactElement {
                 agent.status === 'running' ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'
               )} />
               <span className="truncate flex-1">{agent.name}</span>
-              <span className="text-muted-foreground tabular-nums">{agent.iteration} iter</span>
+              <span className="text-muted-foreground tabular-nums">{agent.iteration} {t('activity:monitor.iter')}</span>
             </div>
           ))}
           {agentCount > 5 && (
-            <p className="text-[10px] text-muted-foreground">+{agentCount - 5} more</p>
+            <p className="text-[10px] text-muted-foreground">{t('activity:monitor.moreCount', { count: agentCount - 5 })}</p>
           )}
         </div>
       )}
@@ -225,6 +229,7 @@ function FleetAgentsStatus(): React.ReactElement {
 
 export function MonitorDashboard(): React.ReactElement {
   const [now, setNow] = useState(Date.now());
+  const { t } = useAppTranslation();
   const { clientCounts, mailActivity, totalMessages, openMessages, unreadMessages, totalAgents, activeAgents, lastUpdated } = useMonitorStore();
   const totalClients = clientCounts.tui + clientCounts.webui + clientCounts.repl;
 
@@ -243,7 +248,7 @@ export function MonitorDashboard(): React.ReactElement {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Monitor className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">Fleet Monitor</span>
+            <span className="text-sm font-semibold">{t('activity:monitor.heading')}</span>
           </div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
             <RefreshCw className="h-3 w-3" />
@@ -256,66 +261,66 @@ export function MonitorDashboard(): React.ReactElement {
         {/* Client Counts */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Connected Clients
+            {t('activity:monitor.clientsHeading')}
           </h3>
           <div className="grid grid-cols-3 gap-2">
             <ClientBadge
               icon={<Terminal className="h-4 w-4" />}
-              label="Terminal"
+              label={t('activity:monitor.terminal')}
               count={clientCounts.tui}
               color="bg-blue-500/20"
             />
             <ClientBadge
               icon={<Globe className="h-4 w-4" />}
-              label="Web UI"
+              label={t('activity:monitor.webui')}
               count={clientCounts.webui}
               color="bg-emerald-500/20"
             />
             <ClientBadge
               icon={<Activity className="h-4 w-4" />}
-              label="REPL"
+              label={t('activity:monitor.repl')}
               count={clientCounts.repl}
               color="bg-purple-500/20"
             />
           </div>
           <div className="text-center">
             <span className="text-lg font-bold tabular-nums">{totalClients}</span>
-            <span className="text-xs text-muted-foreground ml-1">total connected</span>
+            <span className="text-xs text-muted-foreground ml-1">{t('activity:monitor.totalConnected')}</span>
           </div>
         </section>
 
         {/* Stats Grid */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Mail Queue
+            {t('activity:monitor.mailQueue')}
           </h3>
           <div className="grid grid-cols-2 gap-2">
             <StatCard
               icon={<Mail className="h-4 w-4" />}
-              label="Total"
+              label={t('activity:monitor.total')}
               value={totalMessages}
-              sublabel="messages"
+              sublabel={t('activity:monitor.messagesSub')}
               accent="default"
             />
             <StatCard
               icon={<Mail className="h-4 w-4" />}
-              label="Open"
+              label={t('activity:monitor.open')}
               value={openMessages}
-              sublabel="uncompleted"
+              sublabel={t('activity:monitor.uncompletedSub')}
               accent={openMessages > 0 ? 'warning' : 'default'}
             />
             <StatCard
               icon={<Mail className="h-4 w-4" />}
-              label="Unread"
+              label={t('activity:monitor.unread')}
               value={unreadMessages}
-              sublabel="waiting"
+              sublabel={t('activity:monitor.waitingSub')}
               accent={unreadMessages > 0 ? 'danger' : 'default'}
             />
             <StatCard
               icon={<Clock className="h-4 w-4" />}
-              label="Agents"
+              label={t('activity:monitor.agents')}
               value={activeAgents}
-              sublabel={`of ${totalAgents} total`}
+              sublabel={t('activity:monitor.ofTotal', { count: totalAgents })}
               accent="default"
             />
           </div>
@@ -324,7 +329,7 @@ export function MonitorDashboard(): React.ReactElement {
         {/* Agent Status */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Agent Roster
+            {t('activity:monitor.agentRoster')}
           </h3>
           <div className="space-y-3 rounded-lg border bg-card p-3">
             <AgentStatusRow />
@@ -337,11 +342,11 @@ export function MonitorDashboard(): React.ReactElement {
         {/* Mail Activity Feed */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Live Mail Activity
+            {t('activity:monitor.liveMailActivity')}
           </h3>
           <div className="rounded-lg border bg-card p-3">
             {mailActivity.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">No recent activity</p>
+              <p className="text-xs text-muted-foreground italic">{t('activity:monitor.noActivity')}</p>
             ) : (
               <div className="space-y-0">
                 {mailActivity.slice(0, 15).map((activity) => (

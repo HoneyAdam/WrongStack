@@ -479,5 +479,41 @@
     "colRisk": "Risk",
     "colDetail": "Detay",
     "colOutcome": "Sonuç"
+  },
+  "monitor": {
+    "elapsedHm": "{{h}} sa {{m}} dk önce",
+    "elapsedMs": "{{m}} dk {{s}} sn önce",
+    "elapsedS": "{{s}} sn önce",
+    "heading": "Filo İzleyici",
+    "clientsHeading": "Bağlı İstemciler",
+    "terminal": "Terminal",
+    "webui": "Web Arayüzü",
+    "repl": "REPL",
+    "totalConnected": "toplam bağlı",
+    "mailQueue": "Posta Kuyruğu",
+    "total": "Toplam",
+    "open": "Açık",
+    "unread": "Okunmamış",
+    "agents": "Vekiller",
+    "messagesSub": "mesaj",
+    "uncompletedSub": "tamamlanmamış",
+    "waitingSub": "bekliyor",
+    "ofTotal": "/ {{count}} toplam",
+    "agentRoster": "Vekil Çizelgesi",
+    "liveMailActivity": "Canlı Posta Etkinliği",
+    "noActivity": "Son etkinlik yok",
+    "mailboxAgents": "Posta Kutusu Vekilleri",
+    "noMailboxAgents": "Kayıtlı vekil yok",
+    "moreCount": "+{{count}} daha",
+    "agentFallback": "vekil",
+    "fleetAgents": "Filo Vekilleri",
+    "noFleetAgents": "Çalışan filo vekili yok",
+    "iter": "yineleme",
+    "mailType": {
+      "sent": "Gönderildi",
+      "delivered": "Teslim edildi",
+      "read": "Okundu",
+      "completed": "Tamamlandı"
+    }
   }
 }
