@@ -10,6 +10,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { toast } from '@/components/Toaster';
 import { cn } from '@/lib/utils';
 import type { WrongStackWebSocketClient } from '@/lib/ws-client';
@@ -115,6 +116,7 @@ export function ProviderSection({
   catalogQuery,
   setCatalogQuery,
 }: ProviderSectionProps) {
+  const { t } = useAppTranslation();
   // Key management form state
   const [showAddKeyForm, setShowAddKeyForm] = useState<string | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState('');
@@ -207,7 +209,7 @@ export function ProviderSection({
       setInlineKeyValue('');
       setInlineKeyFor(null);
       setInlineKeyReveal(false);
-      toast.success(`Saved key for ${p.name}`);
+      toast.success(t('settings:provider.savedToast', { name: p.name }));
       // Probe shortly after so the config write lands first. Only meaningful
       // when the provider exposes a base URL to hit.
       if (p.apiBase) setTimeout(() => ws.probeProvider(p.id, 6000), 700);
@@ -245,7 +247,7 @@ export function ProviderSection({
       <div className="space-y-2">
         <h3 className="text-sm font-semibold flex items-center gap-2">
           <Key className="h-4 w-4 text-muted-foreground" />
-          Subscription login
+          {t('settings:provider.subscriptionHeading')}
         </h3>
         <OAuthLoginSection ws={ws} />
       </div>
@@ -253,10 +255,10 @@ export function ProviderSection({
       <div className="pt-2 border-t">
         <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
           <Globe className="h-4 w-4 text-muted-foreground" />
-          API key providers
+          {t('settings:provider.apiKeysHeading')}
         </h3>
         <p className="text-xs text-muted-foreground mb-3">
-          Pick a provider from the catalog and add an API key, or manage saved providers.
+          {t('settings:provider.apiKeysBody')}
         </p>
       </div>
 
@@ -268,7 +270,7 @@ export function ProviderSection({
           onClick={() => setProviderTab('catalog')}
         >
           <Globe className="h-4 w-4 mr-1" />
-          Catalog
+          {t('settings:provider.tabCatalog')}
         </Button>
         <Button
           variant={providerTab === 'saved' ? 'default' : 'outline'}
@@ -276,7 +278,7 @@ export function ProviderSection({
           onClick={() => setProviderTab('saved')}
         >
           <Key className="h-4 w-4 mr-1" />
-          Saved ({savedProviders.length})
+          {t('settings:provider.tabSaved', { count: savedProviders.length })}
         </Button>
       </div>
 
@@ -284,7 +286,7 @@ export function ProviderSection({
       {providerTab === 'catalog' && (
         <div className="space-y-4">
           <Input
-            placeholder={`Search ${catalogProviders.length} providers (name / id / family)…`}
+            placeholder={t('settings:provider.searchPlaceholder', { count: catalogProviders.length })}
             value={catalogQuery}
             onChange={(e) => setCatalogQuery(e.target.value)}
             className="text-sm"
@@ -292,11 +294,11 @@ export function ProviderSection({
           {isLoadingCatalog && catalogProviders.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-muted-foreground">Loading catalog...</span>
+              <span className="ml-2 text-muted-foreground">{t('settings:provider.loadingCatalog')}</span>
             </div>
           ) : filteredCatalog.length === 0 && catalogQuery ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              No providers match "<span className="font-mono">{catalogQuery}</span>".
+              {t('settings:provider.noMatch', { query: catalogQuery })}
             </div>
           ) : (
             PROVIDER_FAMILIES.map((family) => {
@@ -338,7 +340,7 @@ export function ProviderSection({
                                 {p.hasApiKey && (
                                   <span className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded">
                                     <Key className="h-3 w-3 inline mr-1" />
-                                    Configured
+                                    {t('settings:provider.configured')}
                                   </span>
                                 )}
                                 {probe && (
@@ -356,19 +358,19 @@ export function ProviderSection({
                                     ) : (
                                       <XCircle className="h-3 w-3" />
                                     )}
-                                    {probe.ok ? 'Reachable' : probe.status}
+                                    {probe.ok ? t('settings:provider.reachable') : probe.status}
                                   </span>
                                 )}
                                 {p.envVars[0] && (
                                   <span className="text-xs text-muted-foreground">
-                                    ENV: {p.envVars[0]}
+                                    {t('settings:provider.envVar', { var: p.envVars[0] })}
                                   </span>
                                 )}
                                 {selected && <CheckCircle2 className="h-4 w-4 text-primary" />}
                               </div>
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                              {p.modelCount} models
+                              {t('settings:provider.modelCount', { count: p.modelCount })}
                               {p.apiBase && ` · ${p.apiBase}`}
                             </div>
                           </button>
@@ -382,7 +384,7 @@ export function ProviderSection({
                                     <Input
                                       autoFocus
                                       type={inlineKeyReveal ? 'text' : 'password'}
-                                      placeholder={`${p.name} API key`}
+                                      placeholder={t('settings:provider.keyPlaceholder', { name: p.name })}
                                       value={inlineKeyValue}
                                       onChange={(e) => setInlineKeyValue(e.target.value)}
                                       className="text-sm"
@@ -406,14 +408,12 @@ export function ProviderSection({
                                       onClick={() => handleInlineKeySave(p)}
                                       disabled={!inlineKeyValue.trim()}
                                     >
-                                      Save
+                                      {t('common:action.save')}
                                     </Button>
                                   </div>
                                   {p.envVars[0] && (
                                     <p className="text-xs text-muted-foreground">
-                                      Or set{' '}
-                                      <code className="bg-muted px-1 rounded">{p.envVars[0]}</code>{' '}
-                                      in the environment instead.
+                                      {t('settings:provider.orEnv', { env: p.envVars[0] })}
                                     </p>
                                   )}
                                 </>
@@ -427,7 +427,7 @@ export function ProviderSection({
                                   }}
                                 >
                                   <Key className="h-3.5 w-3.5 mr-1" />
-                                  Add API key
+                                  {t('settings:provider.addApiKey')}
                                 </Button>
                               )}
                             </div>
@@ -448,7 +448,7 @@ export function ProviderSection({
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-sm text-muted-foreground">
-              Manage your API keys and provider configurations
+              {t('settings:provider.manageKeys')}
             </p>
             <Button
               size="sm"
@@ -456,20 +456,20 @@ export function ProviderSection({
               onClick={() => setShowAddProviderForm(!showAddProviderForm)}
             >
               <Plus className="h-4 w-4 mr-1" />
-              Add Provider
+              {t('settings:provider.addProvider')}
             </Button>
           </div>
 
           {/* Add Provider Form */}
           {showAddProviderForm && (
             <div className="p-4 border rounded-lg space-y-3 bg-muted/50">
-              <h4 className="font-medium">Add Custom Provider</h4>
+              <h4 className="font-medium">{t('settings:provider.addCustomHeading')}</h4>
 
               {/* Local-server quick-pick — mirrors the CLI's `wstack auth
                   local`. Click a preset to pre-fill id / family / baseUrl. */}
               <div className="space-y-1.5">
                 <span className="text-xs text-muted-foreground">
-                  Local servers — click to pre-fill:
+                  {t('settings:provider.localServers')}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {LOCAL_SERVER_PRESETS.map((preset) => (
@@ -488,7 +488,7 @@ export function ProviderSection({
               </div>
 
               <Input
-                placeholder="Provider ID (e.g. my-llm-server)"
+                placeholder={t('settings:provider.providerIdPlaceholder')}
                 value={newProviderId}
                 onChange={(e) => setNewProviderId(e.target.value)}
               />
@@ -509,16 +509,16 @@ export function ProviderSection({
               />
               <Input
                 type="password"
-                placeholder="API Key (optional)"
+                placeholder={t('settings:provider.apiKeyOptionalPlaceholder')}
                 value={newProviderApiKey}
                 onChange={(e) => setNewProviderApiKey(e.target.value)}
               />
               <div className="flex gap-2">
                 <Button size="sm" onClick={handleAddProvider} disabled={!newProviderId.trim()}>
-                  Add
+                  {t('common:action.add')}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setShowAddProviderForm(false)}>
-                  Cancel
+                  {t('common:action.cancel')}
                 </Button>
               </div>
             </div>
@@ -531,8 +531,8 @@ export function ProviderSection({
           ) : savedProviders.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Key className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No saved providers yet</p>
-              <p className="text-sm">Add a provider to get started</p>
+              <p>{t('settings:provider.noSaved')}</p>
+              <p className="text-sm">{t('settings:provider.noSavedHint')}</p>
             </div>
           ) : (
             savedProviders.map((sp) => (
@@ -569,19 +569,19 @@ export function ProviderSection({
                 {/* API Keys */}
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">API Keys</span>
+                    <span className="text-sm font-medium">{t('settings:provider.apiKeysLabel')}</span>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => setShowAddKeyForm(showAddKeyForm === sp.id ? null : sp.id)}
                     >
                       <Plus className="h-3 w-3 mr-1" />
-                      Add Key
+                      {t('settings:provider.addKey')}
                     </Button>
                   </div>
 
                   {sp.apiKeys.length === 0 && !showAddKeyForm && (
-                    <p className="text-xs text-muted-foreground">No keys configured</p>
+                    <p className="text-xs text-muted-foreground">{t('settings:provider.noKeys')}</p>
                   )}
 
                   {sp.apiKeys.map((key) => (
@@ -593,7 +593,7 @@ export function ProviderSection({
                         <span className="text-sm font-medium">{key.label}</span>
                         {key.isActive && (
                           <span className="ml-2 text-xs bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded">
-                            Active
+                            {t('settings:provider.active')}
                           </span>
                         )}
                         <div className="text-xs text-muted-foreground font-mono">
@@ -607,7 +607,7 @@ export function ProviderSection({
                             variant="ghost"
                             onClick={() => onSetActiveKey(sp.id, key.label)}
                           >
-                            Set Active
+                            {t('settings:provider.setActive')}
                           </Button>
                         )}
                         <Button
@@ -625,14 +625,14 @@ export function ProviderSection({
                   {showAddKeyForm === sp.id && (
                     <div className="p-3 border rounded space-y-2 bg-background">
                       <Input
-                        placeholder="Key label (e.g. default, production)"
+                        placeholder={t('settings:provider.keyLabelPlaceholder')}
                         value={newKeyLabel}
                         onChange={(e) => setNewKeyLabel(e.target.value)}
                       />
                       <div className="flex gap-2">
                         <Input
                           type={showNewKeyValue ? 'text' : 'password'}
-                          placeholder="API key"
+                          placeholder={t('settings:provider.apiKeyPlaceholder')}
                           value={newKeyValue}
                           onChange={(e) => setNewKeyValue(e.target.value)}
                         />
@@ -654,7 +654,7 @@ export function ProviderSection({
                           onClick={() => handleAddKey(sp.id)}
                           disabled={!newKeyLabel.trim() || !newKeyValue.trim()}
                         >
-                          Save Key
+                          {t('settings:provider.saveKey')}
                         </Button>
                         <Button
                           size="sm"
@@ -665,7 +665,7 @@ export function ProviderSection({
                             setNewKeyValue('');
                           }}
                         >
-                          Cancel
+                          {t('common:action.cancel')}
                         </Button>
                       </div>
                     </div>
