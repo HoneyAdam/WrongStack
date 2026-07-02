@@ -16,6 +16,7 @@ import {
 } from '@/lib/completion';
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { X, Circle, Send, FileText } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -128,6 +129,7 @@ function EditorTabs() {
 // ── Main editor ────────────────────────────────────────────────────────
 
 export function CodeEditor() {
+  const { t } = useAppTranslation();
   const openFiles = useFileStore((s) => s.openFiles);
   const activeFilePath = useFileStore((s) => s.activeFilePath);
   const updateContent = useFileStore((s) => s.updateContent);
@@ -349,7 +351,7 @@ export function CodeEditor() {
       // nothing is selected it offers "Mention whole file" instead.
       editor.addAction({
         id: 'wrongstack-send-to-chat',
-        label: 'Send selection to chat',
+        label: t('activity:codeEditor.sendSelectionAction'),
         contextMenuGroupId: 'wrongstack',
         contextMenuOrder: 0,
         precondition: undefined,
@@ -413,10 +415,10 @@ export function CodeEditor() {
       <div className="flex h-full min-w-0 items-center justify-center">
         <div className="text-center space-y-2">
           <p className="text-sm text-muted-foreground">
-            No files open
+            {t('activity:codeEditor.noFilesOpen')}
           </p>
           <p className="text-[11px] text-muted-foreground/60">
-            Select a file from the explorer to start editing
+            {t('activity:codeEditor.selectToEdit')}
           </p>
         </div>
       </div>
@@ -435,10 +437,10 @@ export function CodeEditor() {
               type="button"
               onClick={hasSelection ? sendSelectionToChat : mentionWholeFile}
               className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground hover:bg-accent transition-colors"
-              title={hasSelection ? 'Send selected lines to chat' : 'Mention this file in chat'}
+              title={hasSelection ? t('activity:codeEditor.sendSelectedTitle') : t('activity:codeEditor.mentionFileTitle')}
             >
               {hasSelection ? <Send className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
-              <span>{hasSelection ? 'Send to chat' : 'Mention file'}</span>
+              <span>{hasSelection ? t('activity:codeEditor.sendToChat') : t('activity:codeEditor.mentionFile')}</span>
             </button>
           </div>
         )}
@@ -453,7 +455,7 @@ export function CodeEditor() {
             loading={
               <div className="flex items-center justify-center h-full">
                 <span className="text-[11px] text-muted-foreground animate-pulse">
-                  Loading editor…
+                  {t('activity:codeEditor.loadingEditor')}
                 </span>
               </div>
             }
@@ -479,7 +481,7 @@ export function CodeEditor() {
         ) : (
           <div className="flex items-center justify-center h-full">
             <p className="text-[11px] text-muted-foreground">
-              Select a tab to view its content
+              {t('activity:codeEditor.selectTab')}
             </p>
           </div>
         )}
