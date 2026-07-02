@@ -22,6 +22,8 @@ export type PanelAction =
   | 'pluginPickerOpen'
   | 'projectPickerOpen'
   | 'statuslineOpen'
+  | 'authOpen'
+  | 'authOauthOpen'
   | 'toggleMonitor'
   | 'toggleAuditPanel'
   | 'toggleAgentsMonitor'
@@ -46,6 +48,12 @@ export interface PanelOpenDeps {
   openProjectPicker: () => void | Promise<unknown>;
   /** Opener for the statusline picker; computes the hiddenItems snapshot. */
   openStatuslinePicker: () => void;
+  /**
+   * Opener for the interactive auth panel (`/auth`). Returns false when the
+   * CLI didn't provide an auth host — the slash command then falls back to
+   * its plain-text output. Optional so older hosts keep working.
+   */
+  openAuthPanel?: ((view?: 'list' | 'oauth') => boolean) | undefined;
 }
 
 /**
@@ -57,9 +65,15 @@ export interface PanelOpenDeps {
  * REPL fallback path).
  */
 export function createPanelOpenDispatcher(deps: PanelOpenDeps): (action: string) => boolean {
-  const { dispatch, openProjectPicker, openStatuslinePicker } = deps;
+  const { dispatch, openProjectPicker, openStatuslinePicker, openAuthPanel } = deps;
   return (action: string): boolean => {
     switch (action) {
+      case 'authOpen':
+        // Requires the CLI-provided auth host; without it, fall back to the
+        // slash command's read-only text output.
+        return openAuthPanel ? openAuthPanel('list') : false;
+      case 'authOauthOpen':
+        return openAuthPanel ? openAuthPanel('oauth') : false;
       case 'pluginPickerOpen':
         // The picker self-loads via getPluginItems in its own refresh effect,
         // so we just dispatch the open action.

@@ -74,6 +74,43 @@ describe('createPanelOpenDispatcher — picker openers', () => {
   });
 });
 
+describe('createPanelOpenDispatcher — auth panel', () => {
+  it('authOpen delegates to openAuthPanel("list") and returns its result', () => {
+    const openAuthPanel = vi.fn().mockReturnValue(true);
+    const deps = makeDeps({ openAuthPanel });
+    const dispatcher = createPanelOpenDispatcher(deps);
+
+    expect(dispatcher('authOpen')).toBe(true);
+    expect(openAuthPanel).toHaveBeenCalledWith('list');
+    expect(deps.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('authOauthOpen delegates to openAuthPanel("oauth")', () => {
+    const openAuthPanel = vi.fn().mockReturnValue(true);
+    const deps = makeDeps({ openAuthPanel });
+    const dispatcher = createPanelOpenDispatcher(deps);
+
+    expect(dispatcher('authOauthOpen')).toBe(true);
+    expect(openAuthPanel).toHaveBeenCalledWith('oauth');
+  });
+
+  it('returns false (text fallback) when the opener reports no auth host', () => {
+    const openAuthPanel = vi.fn().mockReturnValue(false);
+    const deps = makeDeps({ openAuthPanel });
+    const dispatcher = createPanelOpenDispatcher(deps);
+
+    expect(dispatcher('authOpen')).toBe(false);
+  });
+
+  it('returns false when no openAuthPanel is wired (older host)', () => {
+    const deps = makeDeps();
+    const dispatcher = createPanelOpenDispatcher(deps);
+
+    expect(dispatcher('authOpen')).toBe(false);
+    expect(dispatcher('authOauthOpen')).toBe(false);
+  });
+});
+
 describe('createPanelOpenDispatcher — toggle panels', () => {
   it('toggleMonitor dispatches and returns true', () => {
     const deps = makeDeps();
@@ -143,15 +180,17 @@ describe('createPanelOpenDispatcher — text fallback', () => {
 
 describe('createPanelOpenDispatcher — full action catalogue', () => {
   it('covers every action dispatched by the slash commands and F-key registry', () => {
-    const deps = makeDeps();
+    const deps = makeDeps({ openAuthPanel: vi.fn().mockReturnValue(true) });
     const dispatcher = createPanelOpenDispatcher(deps);
 
-    // Actions referenced by packages/cli/src/slash-commands/{plugin,f-keys,audit,settings}.ts
+    // Actions referenced by packages/cli/src/slash-commands/{plugin,f-keys,audit,settings,auth}.ts
     // and packages/tui/src/f-key-panels.ts.
     const catalogue = [
       'pluginPickerOpen',
       'projectPickerOpen',
       'statuslineOpen',
+      'authOpen',
+      'authOauthOpen',
       'toggleMonitor',
       'toggleAuditPanel',
       'toggleAgentsMonitor',

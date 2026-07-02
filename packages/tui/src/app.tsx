@@ -132,10 +132,13 @@ import {
 import { TodosMonitor } from './components/todos-monitor.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
+import { AuthPanel } from './components/auth-panel.js';
+import { AUTH_PANEL_INITIAL, type AuthPanelHost } from './components/auth-panel-model.js';
 import { actionForFKeyPanel } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { startHeapWatchdog } from './heap-watchdog.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
+import { useAuthPanel } from './hooks/use-auth-panel.js';
 import { useAutonomousCoordinator } from './hooks/use-autonomous-coordinator.js';
 import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
 import { useFileSearch } from './hooks/use-file-search.js';
@@ -505,6 +508,12 @@ export interface AppProps {
         error?: string | undefined;
       }>)
     | undefined;
+  /**
+   * Host for the interactive `/auth` panel (provider/key management, OAuth
+   * sign-in, local-server add). Provided by the CLI; when absent, `/auth`
+   * falls back to its plain-text output.
+   */
+  authHost?: AuthPanelHost | undefined;
   /**
    * Predict likely next steps after a completed turn (/next). The CLI owns the
    * gating (toggle + autonomy off) and returns [] when disabled, so the App can
@@ -975,6 +984,7 @@ export function App({
   saveSettings,
   getPluginItems,
   onPluginToggle,
+  authHost,
   predictNext,
   onSuggestionsParsed,
   getSuggestions,
@@ -1305,6 +1315,7 @@ export function App({
     },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
+    authPanel: AUTH_PANEL_INITIAL,
     projectPicker: {
       open: false,
       allItems: [],
@@ -1607,6 +1618,16 @@ export function App({
   const draftRef = useRef({ buffer: state.buffer, cursor: state.cursor });
   draftRef.current = { buffer: state.buffer, cursor: state.cursor };
 
+  // Interactive /auth panel controller — owns provider/key mutations, the
+  // flow runner (catalog/custom/local adds, OAuth sign-in) and its modal
+  // prompt plumbing. All side effects go through the CLI-provided authHost.
+  const authPanelController = useAuthPanel({
+    authHost,
+    stateRef,
+    dispatch,
+    open: state.authPanel.open,
+  });
+
   const statuslineHiddenForPicker = useCallback((): StatuslineItem[] => {
     const hookHidden = hiddenItemsRef.current;
     const hookHiddenSet = new Set<StatuslineItem>(hookHidden);
@@ -1647,6 +1668,7 @@ export function App({
     state.slashPicker.open ||
     state.statuslinePicker.open ||
     state.fKeyPicker.open ||
+    state.authPanel.open ||
     state.picker.open;
   const mouseTrackingOn = mouseMode || pickerOverlayOpen;
   const mouseWrittenRef = useRef(false);
@@ -2849,12 +2871,13 @@ export function App({
       dispatch,
       openProjectPicker,
       openStatuslinePicker,
+      openAuthPanel: authPanelController.openAuthPanel,
     });
     onPanelOpen.current = dispatcher;
     return () => {
       if (onPanelOpen) onPanelOpen.current = null;
     };
-  }, [onPanelOpen, dispatch, openProjectPicker, openStatuslinePicker]);
+  }, [onPanelOpen, dispatch, openProjectPicker, openStatuslinePicker, authPanelController.openAuthPanel]);
   // Keep the F10 sessions panel live: refresh every 5s while open
   useEffect(() => {
     if (!state.sessionsPanelOpen || !getLiveSessions) return undefined;
@@ -4285,6 +4308,14 @@ export function App({
       }
     },
     onPluginPickerToggle: toggleSelectedPlugin,
+    onAuthEnter: authPanelController.onAuthEnter,
+    onAuthBack: authPanelController.onAuthBack,
+    onAuthShortcut: authPanelController.onAuthShortcut,
+    onAuthPromptSubmit: authPanelController.onAuthPromptSubmit,
+    onAuthPromptCancel: authPanelController.onAuthPromptCancel,
+    onAuthConfirm: authPanelController.onAuthConfirm,
+    onAuthFlowCancel: authPanelController.onAuthFlowCancel,
+    onAuthCtrlC: authPanelController.onAuthCtrlC,
     onFKeyPickerEnter: () => {
       const selected = state.fKeyPicker.selected;
       const entry = F_KEY_ENTRIES[selected];
@@ -4345,6 +4376,17 @@ export function App({
       // restores the previous state cleanly with no side-effects.
       // Do this first so a single Ctrl+C from the model picker or
       // slash picker exits gracefully instead of doing nothing.
+      if (current.authPanel.open) {
+        // Closing the panel flips state.authPanel.open, which the
+        // useAuthPanel close-effect observes to abort any in-flight flow
+        // (OAuth loopback server, pending prompt) — no orphaned work.
+        dispatch({ type: 'authClose' });
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'warn', text: 'Auth panel cancelled.' },
+        });
+        return;
+      }
       if (current.modelPicker.open) {
         dispatch({ type: 'modelPickerClose' });
         dispatch({
@@ -6559,7 +6601,10 @@ export function App({
   // (Each live panel that needs navigation reads ↑↓ through its own useInput;
   // letter shortcuts that would clash with typing have been removed — see
   // AgentsMonitor.)
-  const hideInput = enhanceActive || state.helpOpen || state.processListOpen;
+  // The auth panel is also modal: it owns every keystroke (type-to-filter,
+  // masked key entry, y/N confirms), so the chat input hides while it's open.
+  const hideInput =
+    enhanceActive || state.helpOpen || state.processListOpen || state.authPanel.open;
 
   // F2–F9 panels should all occupy the same first row below the statusline.
   // Keep persistent background panels (fleet summary, phase/worktree strips)
@@ -6761,6 +6806,7 @@ export function App({
               hint={state.pluginPicker.hint}
             />
           ) : null}
+          {state.authPanel.open ? <AuthPanel panel={state.authPanel} /> : null}
           {state.projectPicker.open ? (
             <ProjectPicker
               items={state.projectPicker.items}
