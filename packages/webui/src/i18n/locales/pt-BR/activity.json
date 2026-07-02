@@ -402,5 +402,21 @@
     "dockChips": "Chips do dock",
     "noActiveGoal": "Nenhum objetivo ativo",
     "noActiveGoalDetail": "Inicie um objetivo pelo chat ou pelo comando goal."
+  },
+  "agentsMonitor": {
+    "leaderBadge": "LÍDER",
+    "iters": "Iter.",
+    "tools": "Ferramentas",
+    "activityBins": "Atividade (12 intervalos)",
+    "streamingOutput": "Saída em streaming",
+    "recentTools": "Ferramentas recentes",
+    "finalOutput": "Saída final",
+    "heading": "Monitor de agentes",
+    "prevAgent": "Agente anterior",
+    "nextAgent": "Próximo agente",
+    "closeAria": "Fechar monitor de agentes",
+    "hintPage": "←→ página",
+    "hintNavigate": "↑↓ navegar lista",
+    "hintEsc": "Esc fechar"
   }
 }

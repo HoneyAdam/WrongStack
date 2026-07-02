@@ -402,5 +402,21 @@
     "dockChips": "Puces du dock",
     "noActiveGoal": "Aucun objectif actif",
     "noActiveGoalDetail": "Lancez un objectif depuis le chat ou la commande goal."
+  },
+  "agentsMonitor": {
+    "leaderBadge": "LEADER",
+    "iters": "Itér.",
+    "tools": "Outils",
+    "activityBins": "Activité (12 bins)",
+    "streamingOutput": "Sortie en flux",
+    "recentTools": "Outils récents",
+    "finalOutput": "Sortie finale",
+    "heading": "Moniteur d'agents",
+    "prevAgent": "Agent précédent",
+    "nextAgent": "Agent suivant",
+    "closeAria": "Fermer le moniteur d'agents",
+    "hintPage": "←→ page",
+    "hintNavigate": "↑↓ naviguer dans la liste",
+    "hintEsc": "Esc fermer"
   }
 }

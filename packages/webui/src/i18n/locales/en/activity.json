@@ -402,5 +402,21 @@
     "dockChips": "Dock chips",
     "noActiveGoal": "No active goal",
     "noActiveGoalDetail": "Start a goal from chat or the goal command."
+  },
+  "agentsMonitor": {
+    "leaderBadge": "LEADER",
+    "iters": "Iters",
+    "tools": "Tools",
+    "activityBins": "Activity (12 bins)",
+    "streamingOutput": "Streaming output",
+    "recentTools": "Recent tools",
+    "finalOutput": "Final output",
+    "heading": "Agents Monitor",
+    "prevAgent": "Previous agent",
+    "nextAgent": "Next agent",
+    "closeAria": "Close agents monitor",
+    "hintPage": "←→ page",
+    "hintNavigate": "↑↓ navigate list",
+    "hintEsc": "Esc close"
   }
 }

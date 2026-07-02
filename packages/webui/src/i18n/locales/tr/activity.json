@@ -402,5 +402,21 @@
     "dockChips": "Dock çipleri",
     "noActiveGoal": "Etkin hedef yok",
     "noActiveGoalDetail": "Sohbetten veya hedef komutundan bir hedef başlatın."
+  },
+  "agentsMonitor": {
+    "leaderBadge": "LİDER",
+    "iters": "Yineleme",
+    "tools": "Araçlar",
+    "activityBins": "Etkinlik (12 kutu)",
+    "streamingOutput": "Akış çıktısı",
+    "recentTools": "Son araçlar",
+    "finalOutput": "Son çıktı",
+    "heading": "Vekil İzleyici",
+    "prevAgent": "Önceki vekil",
+    "nextAgent": "Sonraki vekil",
+    "closeAria": "Vekil izleyiciyi kapat",
+    "hintPage": "←→ sayfa",
+    "hintNavigate": "↑↓ listede gezin",
+    "hintEsc": "Esc kapat"
   }
 }

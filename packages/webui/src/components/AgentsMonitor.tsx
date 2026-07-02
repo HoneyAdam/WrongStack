@@ -17,6 +17,7 @@
 
 import { Bot, ChevronLeft, ChevronRight, Cpu, Crown, Loader2, Wrench, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { ContextBar } from '@/components/ContextBar';
 import { AgentTranscript } from '@/components/AgentTranscript';
 import { SparklineChart } from '@/components/ui/sparkline';
@@ -47,16 +48,17 @@ function fmtDuration(ms: number): string {
   return `${min}m ${sec % 60}s`;
 }
 
-const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean; badge: string }> = {
-  running: { led: 'bg-[hsl(var(--success))]', label: 'running', pulse: true, badge: 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]' },
-  completed: { led: 'bg-[hsl(var(--success))]', label: 'done', pulse: false, badge: 'bg-muted text-muted-foreground' },
-  failed: { led: 'bg-destructive', label: 'failed', pulse: false, badge: 'bg-destructive/15 text-destructive' },
-  timeout: { led: 'bg-[hsl(var(--warning))]', label: 'timeout', pulse: false, badge: 'bg-amber-500/15 text-amber-500' },
-  stopped: { led: 'bg-muted-foreground', label: 'stopped', pulse: false, badge: 'bg-muted text-muted-foreground' },
+const STATUS_META: Record<SubagentView['status'], { led: string; pulse: boolean; badge: string }> = {
+  running: { led: 'bg-[hsl(var(--success))]', pulse: true, badge: 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]' },
+  completed: { led: 'bg-[hsl(var(--success))]', pulse: false, badge: 'bg-muted text-muted-foreground' },
+  failed: { led: 'bg-destructive', pulse: false, badge: 'bg-destructive/15 text-destructive' },
+  timeout: { led: 'bg-[hsl(var(--warning))]', pulse: false, badge: 'bg-amber-500/15 text-amber-500' },
+  stopped: { led: 'bg-muted-foreground', pulse: false, badge: 'bg-muted text-muted-foreground' },
 };
 
 export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: boolean }) {
   const meta = STATUS_META[agent.status];
+  const { t } = useAppTranslation();
   const active = agent.status === 'running';
   const elapsed = Date.now() - agent.startedAt;
   const transcript = useFleetStore((s) => s.agentTranscripts.get(agent.id) ?? EMPTY_AGENT_TRANSCRIPT);
@@ -77,7 +79,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold">{agent.name}</span>
-              {isLeader && <Crown className="h-3.5 w-3.5 text-amber-500" aria-label="leader" />}
+              {isLeader && <Crown className="h-3.5 w-3.5 text-amber-500" aria-label={t('activity:fleet.leader')} />}
               {agent.extensions > 0 && (
                 <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
                   <Zap className="h-2.5 w-2.5" />×{agent.extensions}
@@ -85,12 +87,12 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
               )}
             </div>
             <span className={cn('inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium', meta.badge)}>
-              {meta.label}
+              {t(`activity:fleet.status.${agent.status}`)}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          {isLeader && <span className="text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">LEADER</span>}
+          {isLeader && <span className="text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">{t('activity:agentsMonitor.leaderBadge')}</span>}
         </div>
       </div>
 
@@ -106,8 +108,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
           <Zap className="h-3.5 w-3.5 text-amber-500 shrink-0" />
           <span className="text-amber-600 dark:text-amber-400">
-            ⚡ hitting <strong>{agent.budgetWarning.kind}</strong> limit
-            ({agent.budgetWarning.used}/{agent.budgetWarning.limit}) — extending
+            {t('activity:fleet.budgetWarning', { kind: agent.budgetWarning.kind, used: agent.budgetWarning.used, limit: agent.budgetWarning.limit })}
           </span>
         </div>
       )}
@@ -122,19 +123,19 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
       {/* Stats grid */}
       <div className="grid grid-cols-4 gap-2">
         <div className="rounded-lg border bg-muted/30 px-2 py-1.5 text-center">
-          <div className="text-[10px] text-muted-foreground">Iters</div>
+          <div className="text-[10px] text-muted-foreground">{t('activity:agentsMonitor.iters')}</div>
           <div className="text-xs font-mono font-semibold tabular-nums">{agent.iteration}</div>
         </div>
         <div className="rounded-lg border bg-muted/30 px-2 py-1.5 text-center">
-          <div className="text-[10px] text-muted-foreground">Tools</div>
+          <div className="text-[10px] text-muted-foreground">{t('activity:agentsMonitor.tools')}</div>
           <div className="text-xs font-mono font-semibold tabular-nums">{agent.toolCalls}</div>
         </div>
         <div className="rounded-lg border bg-muted/30 px-2 py-1.5 text-center">
-          <div className="text-[10px] text-muted-foreground">Cost</div>
+          <div className="text-[10px] text-muted-foreground">{t('activity:fleet.cost')}</div>
           <div className="text-xs font-mono font-semibold tabular-nums">{fmtCost(agent.costUsd)}</div>
         </div>
         <div className="rounded-lg border bg-muted/30 px-2 py-1.5 text-center">
-          <div className="text-[10px] text-muted-foreground">Elapsed</div>
+          <div className="text-[10px] text-muted-foreground">{t('activity:fleet.elapsed')}</div>
           <div className="text-xs font-mono font-semibold tabular-nums">{fmtDuration(elapsed)}</div>
         </div>
       </div>
@@ -142,7 +143,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
       {/* Sparkline + context */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] text-muted-foreground">Activity (12 bins)</span>
+          <span className="text-[10px] text-muted-foreground">{t('activity:agentsMonitor.activityBins')}</span>
           <SparklineChart bins={agent.sparklineBins} className="font-mono text-[9px]" />
         </div>
         <ContextBar pct={agent.ctxPct} tokens={agent.ctxTokens} maxTokens={agent.maxContext} />
@@ -177,7 +178,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
       {/* Streaming tail */}
       {agent.partialText && active && (
         <div className="rounded-lg border bg-muted/30 p-2">
-          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Streaming output</div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">{t('activity:agentsMonitor.streamingOutput')}</div>
           <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap line-clamp-3 leading-relaxed">
             {agent.partialText}
           </pre>
@@ -187,7 +188,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
       {/* Tool log */}
       {last8Tools.length > 0 && (
         <div className="space-y-1">
-          <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Recent tools</div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider">{t('activity:agentsMonitor.recentTools')}</div>
           <div className="space-y-0.5">
             {last8Tools.map((tool, i) => (
               <div key={i} className="flex items-center gap-2 text-[10px] font-mono">
@@ -207,7 +208,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
       {/* Final text (when completed) */}
       {agent.finalText && !active && (
         <div className="rounded-lg border bg-muted/30 p-2">
-          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Final output</div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">{t('activity:agentsMonitor.finalOutput')}</div>
           <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap line-clamp-4 leading-relaxed">
             {agent.finalText}
           </pre>
@@ -219,6 +220,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
 
 export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
   const fleetAgents = useFleetStore((s) => s.agents);
+  const { t } = useAppTranslation();
   const leaderId = useFleetStore((s) => s.leaderId);
 
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -283,9 +285,9 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
         <div className="flex items-center justify-between px-4 py-3 border-b bg-card/80 backdrop-blur shrink-0">
           <div className="flex items-center gap-3">
             <Bot className="h-5 w-5 text-primary" />
-            <h2 className="text-sm font-semibold">Agents Monitor</h2>
+            <h2 className="text-sm font-semibold">{t('activity:agentsMonitor.heading')}</h2>
             <span className="text-xs text-muted-foreground">
-              {fleetList.length} total
+              {t('activity:agents.totalCount', { count: fleetList.length })}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -294,7 +296,7 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
               onClick={() => setSelectedIdx((i) => Math.max(i - 1, 0))}
               className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-30"
               disabled={selectedIdx === 0}
-              aria-label="Previous agent"
+              aria-label={t('activity:agentsMonitor.prevAgent')}
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -306,7 +308,7 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
               onClick={() => setSelectedIdx((i) => Math.min(i + 1, fleetList.length - 1))}
               className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-30"
               disabled={selectedIdx >= fleetList.length - 1}
-              aria-label="Next agent"
+              aria-label={t('activity:agentsMonitor.nextAgent')}
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -314,7 +316,7 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
               type="button"
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-muted transition-colors ml-2"
-              aria-label="Close agents monitor"
+              aria-label={t('activity:agentsMonitor.closeAria')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -326,7 +328,7 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
           {fleetList.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <Bot className="h-12 w-12 mb-3 opacity-20" />
-              <p className="text-sm font-medium">No agents active</p>
+              <p className="text-sm font-medium">{t('activity:inspector.noAgentsActive')}</p>
             </div>
           ) : selectedAgent ? (
             <div className="max-w-2xl mx-auto">
@@ -358,9 +360,9 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
               ))}
             </div>
             <div className="px-4 py-1.5 border-t text-[10px] text-muted-foreground flex items-center gap-4">
-              <span>←→ page</span>
-              <span>↑↓ navigate list</span>
-              <span>Esc close</span>
+              <span>{t('activity:agentsMonitor.hintPage')}</span>
+              <span>{t('activity:agentsMonitor.hintNavigate')}</span>
+              <span>{t('activity:agentsMonitor.hintEsc')}</span>
             </div>
           </div>
         )}
