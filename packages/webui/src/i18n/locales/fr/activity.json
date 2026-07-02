@@ -664,5 +664,22 @@
     "noTurns": "Aucun tour terminé pour le moment. Lancez un prompt pour voir le coût par tour ici.",
     "topExpensive_one": "Tour le plus cher",
     "topExpensive_other": "Les {{count}} tours les plus chers"
+  },
+  "model": {
+    "runDefault": "Par défaut du run",
+    "useRunDefault": "Utiliser le défaut du run",
+    "filterPlaceholder": "Filtrer les modèles…",
+    "loading": "Chargement des modèles…",
+    "noMatch": "Aucune correspondance"
+  },
+  "modelSwitcher": {
+    "filterPlaceholder": "Filtrer les fournisseurs et modèles…",
+    "noSavedProviders": "Aucun fournisseur enregistré — enregistrez d'abord une clé dans les Paramètres.",
+    "active": "actif"
+  },
+  "work": {
+    "todos": "À faire",
+    "tasks": "Tâches",
+    "plan": "Plan"
   }
 }

@@ -664,5 +664,22 @@
     "noTurns": "Noch keine abgeschlossenen Züge. Führe einen Prompt aus, um hier die Kosten pro Zug zu sehen.",
     "topExpensive_one": "Teuerster Zug",
     "topExpensive_other": "Die {{count}} teuersten Züge"
+  },
+  "model": {
+    "runDefault": "Run-Standard",
+    "useRunDefault": "Run-Standard verwenden",
+    "filterPlaceholder": "Modelle filtern…",
+    "loading": "Modelle werden geladen…",
+    "noMatch": "Kein Treffer"
+  },
+  "modelSwitcher": {
+    "filterPlaceholder": "Anbieter und Modelle filtern…",
+    "noSavedProviders": "Keine gespeicherten Anbieter — zuerst einen Schlüssel in den Einstellungen registrieren.",
+    "active": "aktiv"
+  },
+  "work": {
+    "todos": "Todos",
+    "tasks": "Aufgaben",
+    "plan": "Plan"
   }
 }

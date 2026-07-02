@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useUIStore } from '@/stores';
 import { TodosPanel } from './TodosPanel';
 import { TasksPanel } from './TasksPanel';
@@ -8,14 +9,14 @@ type TabId = 'todos' | 'tasks' | 'plan';
 
 interface TabInfo {
   id: TabId;
-  label: string;
+  labelKey: 'work.todos' | 'work.tasks' | 'work.plan';
   icon: string;
 }
 
 const TABS: TabInfo[] = [
-  { id: 'todos', label: 'Todos', icon: '✅' },
-  { id: 'tasks', label: 'Tasks', icon: '📋' },
-  { id: 'plan', label: 'Plan', icon: '🗺️' },
+  { id: 'todos', labelKey: 'work.todos', icon: '✅' },
+  { id: 'tasks', labelKey: 'work.tasks', icon: '📋' },
+  { id: 'plan', labelKey: 'work.plan', icon: '🗺️' },
 ];
 
 /**
@@ -28,6 +29,7 @@ const TABS: TabInfo[] = [
  * Auto-hides when all three panels are empty.
  */
 export function WorkDashboard(): React.ReactElement | null {
+  const { t } = useAppTranslation();
   const activeTab = useUIStore((s) => s.workDashboardTab);
   const setActiveTab = useUIStore((s) => s.setWorkDashboardTab);
 
@@ -49,7 +51,7 @@ export function WorkDashboard(): React.ReactElement | null {
             )}
           >
             <span className="text-xs">{tab.icon}</span>
-            {tab.label}
+            {t(`activity:${tab.labelKey}`)}
           </button>
         ))}
       </div>

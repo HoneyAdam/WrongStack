@@ -664,5 +664,22 @@
     "noTurns": "No completed turns yet. Run a prompt to see per-turn cost here.",
     "topExpensive_one": "Top {{count}} expensive turn",
     "topExpensive_other": "Top {{count}} expensive turns"
+  },
+  "model": {
+    "runDefault": "Run default",
+    "useRunDefault": "Use run default",
+    "filterPlaceholder": "Filter models…",
+    "loading": "Loading models…",
+    "noMatch": "No match"
+  },
+  "modelSwitcher": {
+    "filterPlaceholder": "Filter providers and models…",
+    "noSavedProviders": "No saved providers — register a key in Settings first.",
+    "active": "active"
+  },
+  "work": {
+    "todos": "Todos",
+    "tasks": "Tasks",
+    "plan": "Plan"
   }
 }

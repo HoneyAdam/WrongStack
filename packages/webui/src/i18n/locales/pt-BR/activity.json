@@ -664,5 +664,22 @@
     "noTurns": "Nenhum turno concluído ainda. Execute um prompt para ver o custo por turno aqui.",
     "topExpensive_one": "Turno mais caro",
     "topExpensive_other": "Os {{count}} turnos mais caros"
+  },
+  "model": {
+    "runDefault": "Padrão do run",
+    "useRunDefault": "Usar padrão do run",
+    "filterPlaceholder": "Filtrar modelos…",
+    "loading": "Carregando modelos…",
+    "noMatch": "Sem correspondência"
+  },
+  "modelSwitcher": {
+    "filterPlaceholder": "Filtrar provedores e modelos…",
+    "noSavedProviders": "Sem provedores salvos — registre uma chave nas Configurações primeiro.",
+    "active": "ativo"
+  },
+  "work": {
+    "todos": "A fazer",
+    "tasks": "Tarefas",
+    "plan": "Plano"
   }
 }

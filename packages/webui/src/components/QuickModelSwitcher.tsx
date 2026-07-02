@@ -1,6 +1,7 @@
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
+import { useAppTranslation } from '@/i18n';
 import { useConfigStore, useUIStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
 import { ArrowRight, Cpu, Search } from 'lucide-react';
@@ -26,6 +27,7 @@ interface CatalogModel {
  * (which atomically swaps provider+model on the backend).
  */
 export function QuickModelSwitcher() {
+  const { t } = useAppTranslation();
   const open = useUIStore((s) => s.modelSwitcherOpen);
   const setOpen = useUIStore((s) => s.setModelSwitcherOpen);
   const [query, setQuery] = useState('');
@@ -168,7 +170,7 @@ export function QuickModelSwitcher() {
                 setOpen(false);
               }
             }}
-            placeholder="Filter providers and models…"
+            placeholder={t('activity:modelSwitcher.filterPlaceholder')}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
           />
           <span className="text-[10px] text-muted-foreground font-mono">↑↓ · Enter · Esc</span>
@@ -177,8 +179,8 @@ export function QuickModelSwitcher() {
           {candidates.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               {saved.length === 0
-                ? 'No saved providers — register a key in Settings first.'
-                : 'Loading models…'}
+                ? t('activity:modelSwitcher.noSavedProviders')
+                : t('activity:model.loading')}
             </div>
           ) : (
             candidates.map((c, idx) => (
@@ -213,7 +215,7 @@ export function QuickModelSwitcher() {
                 </div>
                 {c.isCurrent ? (
                   <span className="text-[10px] uppercase tracking-wide text-primary font-semibold">
-                    active
+                    {t('activity:modelSwitcher.active')}
                   </span>
                 ) : (
                   <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />

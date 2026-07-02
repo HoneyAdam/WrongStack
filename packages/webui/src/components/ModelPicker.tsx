@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Cpu, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';
+import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 /**
@@ -13,8 +14,8 @@ export function ModelPicker({
   value,
   provider,
   candidates,
-  placeholder = 'Run default',
-  resetLabel = 'Use run default',
+  placeholder,
+  resetLabel,
   onPick,
   onReset,
   className,
@@ -28,6 +29,7 @@ export function ModelPicker({
   onReset?: (() => void) | undefined;
   className?: string;
 }): React.ReactElement {
+  const { t } = useAppTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -63,7 +65,7 @@ export function ModelPicker({
             value ? 'text-foreground' : 'text-muted-foreground',
           )}
         >
-          {value ? (provider ? `${provider}/${value}` : value) : placeholder}
+          {value ? (provider ? `${provider}/${value}` : value) : (placeholder ?? t('activity:model.runDefault'))}
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
@@ -75,7 +77,7 @@ export function ModelPicker({
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter models…"
+              placeholder={t('activity:model.filterPlaceholder')}
               className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             />
             {query && (
@@ -98,7 +100,7 @@ export function ModelPicker({
                 }}
                 className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
               >
-                <RotateCcw className="h-3 w-3" /> {resetLabel}
+                <RotateCcw className="h-3 w-3" /> {resetLabel ?? t('activity:model.useRunDefault')}
               </button>
             )}
             {filtered.map((c) => {
@@ -137,7 +139,7 @@ export function ModelPicker({
             })}
             {filtered.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                {candidates.length === 0 ? 'Loading models…' : 'No match'}
+                {candidates.length === 0 ? t('activity:model.loading') : t('activity:model.noMatch')}
               </div>
             )}
           </div>

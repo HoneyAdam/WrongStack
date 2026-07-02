@@ -664,5 +664,22 @@
     "noTurns": "Henüz tamamlanmış tur yok. Tur başına maliyeti burada görmek için bir komut çalıştırın.",
     "topExpensive_one": "En pahalı {{count}} tur",
     "topExpensive_other": "En pahalı {{count}} tur"
+  },
+  "model": {
+    "runDefault": "Çalıştırma varsayılanı",
+    "useRunDefault": "Çalıştırma varsayılanını kullan",
+    "filterPlaceholder": "Modelleri filtrele…",
+    "loading": "Modeller yükleniyor…",
+    "noMatch": "Eşleşme yok"
+  },
+  "modelSwitcher": {
+    "filterPlaceholder": "Sağlayıcıları ve modelleri filtrele…",
+    "noSavedProviders": "Kayıtlı sağlayıcı yok — önce Ayarlar'da bir anahtar kaydedin.",
+    "active": "etkin"
+  },
+  "work": {
+    "todos": "Yapılacaklar",
+    "tasks": "Görevler",
+    "plan": "Plan"
   }
 }
