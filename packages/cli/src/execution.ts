@@ -160,6 +160,13 @@ export interface LiveSettingsInput {
   cacheTtl?: 'default' | '5m' | '1h' | undefined;
 }
 
+type PluginPickerItem = {
+  name: string;
+  enabled: boolean;
+  risk: 'low' | 'medium' | 'high';
+  summary: string;
+};
+
 export interface ExecutionDeps {
   agent: Agent;
   events: EventBus;
@@ -196,8 +203,13 @@ export interface ExecutionDeps {
   savedProviderCfg: ProviderConfig | undefined;
   resolvedProvider: ResolvedProvider | undefined;
   getPickableProviders: () => Promise<Array<{ id: string; family: string; models: string[] }>>;
-  switchProviderAndModel: (providerId: string, modelId: string) => string | null | Promise<string | null>;
-  onModelContextResolved?: ((providerId: string, modelId: string, maxContext: number) => void) | undefined;
+  switchProviderAndModel: (
+    providerId: string,
+    modelId: string,
+  ) => string | null | Promise<string | null>;
+  onModelContextResolved?:
+    | ((providerId: string, modelId: string, maxContext: number) => void)
+    | undefined;
   /** Initial director snapshot for the TUI fleet panel. Null when director mode is off. */
   director: Director | null;
   /** Read the current director; unlike `director`, this sees lazy promotion after startup. */
@@ -238,6 +250,16 @@ export interface ExecutionDeps {
   setStatuslineHiddenItems: (items: StatuslineConfigKey[]) => void;
   /** Atomically updates in-memory state AND persists statusline hidden items. */
   saveStatuslineHiddenItems: (items: StatuslineConfigKey[]) => Promise<void>;
+  /** Load toggleable plugin rows for the interactive TUI plugin picker. */
+  getPluginItems?: (() => PluginPickerItem[]) | undefined;
+  /** Toggle a plugin from the interactive TUI plugin picker. */
+  onPluginToggle?:
+    | ((name: string) => Promise<{
+        items: PluginPickerItem[];
+        message?: string | undefined;
+        error?: string | undefined;
+      }>)
+    | undefined;
   /** Agents monitor overlay controller (passed to TUI). */
   agentsMonitorController?: {
     visible: boolean;
@@ -429,6 +451,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     saveStatuslineHiddenItems,
+    getPluginItems,
+    onPluginToggle,
     agentsMonitorController,
     onPanelOpen,
     getYolo,
@@ -734,8 +758,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       // surface at runtime.
       const coordinatorEvents = new Set<(event: CoordinatorEvent) => void>();
       state.coordinatorEvents = coordinatorEvents;
-      const autonomousCoordinationEnabled =
-        config.features.autonomousCoordination !== false;
+      const autonomousCoordinationEnabled = config.features.autonomousCoordination !== false;
       const coordinatorSetup = autonomousCoordinationEnabled
         ? setupAutonomousCoordinator({
             state,
@@ -1025,6 +1048,8 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           statuslineHiddenItems,
           setStatuslineHiddenItems,
           saveStatuslineHiddenItems,
+          getPluginItems,
+          onPluginToggle,
           agentsMonitorController,
           getLiveSessions: () => getLiveSessions({ state }),
           onSwitchToSession: (_sessionId: string, targetRoot: string, projectName: string) =>
@@ -1208,7 +1233,11 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
       usage: tokenCounter.total(),
       pendingToolUses: pending.length > 0 ? pending : undefined,
     });
-    events.emit('session.ended', { id: activeSession.id, sessionId: activeSession.id, usage: tokenCounter.total() });
+    events.emit('session.ended', {
+      id: activeSession.id,
+      sessionId: activeSession.id,
+      usage: tokenCounter.total(),
+    });
     // Await chimera's in-flight work so the review result is written to the JSONL
     // before we close — without this, session.close() races against the subagent
     // and the review text is silently dropped because append returns early on closed.

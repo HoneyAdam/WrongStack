@@ -44,6 +44,7 @@ export interface PickerKeysHost {
   onProjectPickerEnter: (() => Promise<void>) | undefined;
   onSlashPickerEnter: (() => void) | undefined;
   onSettingsPickerEnter: (() => void) | undefined;
+  onPluginPickerToggle: (() => Promise<void> | void) | undefined;
   onFKeyPickerEnter: (() => void) | undefined;
   onPickerEnter: (() => Promise<void>) | undefined;
 
@@ -299,10 +300,18 @@ export function usePickerKeys(
             return true;
           }
           if (key.backspace) {
-            dispatch({ type: 'settingsThinkingEditChange', draft: sp.thinkingWordDraft.slice(0, -1) });
+            dispatch({
+              type: 'settingsThinkingEditChange',
+              draft: sp.thinkingWordDraft.slice(0, -1),
+            });
             return true;
           }
-          if (input && input.length === 1 && input.charCodeAt(0) >= 0x20 && input.charCodeAt(0) < 0x7f) {
+          if (
+            input &&
+            input.length === 1 &&
+            input.charCodeAt(0) >= 0x20 &&
+            input.charCodeAt(0) < 0x7f
+          ) {
             dispatch({ type: 'settingsThinkingEditChange', draft: sp.thinkingWordDraft + input });
             return true;
           }
@@ -342,7 +351,12 @@ export function usePickerKeys(
             dispatch({ type: 'settingsFilterSet', filter: next });
             return true;
           }
-          if (input && input.length === 1 && input.charCodeAt(0) >= 0x20 && input.charCodeAt(0) < 0x7f) {
+          if (
+            input &&
+            input.length === 1 &&
+            input.charCodeAt(0) >= 0x20 &&
+            input.charCodeAt(0) < 0x7f
+          ) {
             dispatch({ type: 'settingsFilterSet', filter: sp.filter + input });
             return true;
           }
@@ -366,6 +380,32 @@ export function usePickerKeys(
         if (isEnter) {
           if (debouncedEnter(host)) return true;
           host.onSettingsPickerEnter?.();
+          return true;
+        }
+        return true;
+      }
+
+      // ── Plugin picker ─────────────────────────────────────────
+      if (state.pluginPicker.open) {
+        if (key.escape) {
+          dispatch({ type: 'pluginPickerClose' });
+          return true;
+        }
+        if (key.mouse?.kind === 'wheel') {
+          dispatch({ type: 'pluginPickerMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
+          return true;
+        }
+        if (key.upArrow) {
+          dispatch({ type: 'pluginPickerMove', delta: -1 });
+          return true;
+        }
+        if (key.downArrow) {
+          dispatch({ type: 'pluginPickerMove', delta: 1 });
+          return true;
+        }
+        if (key.leftArrow || key.rightArrow || isEnter) {
+          if (debouncedEnter(host)) return true;
+          void host.onPluginPickerToggle?.();
           return true;
         }
         return true;
@@ -431,7 +471,12 @@ export function usePickerKeys(
           }
           return true;
         }
-        if (input && input.length === 1 && input.charCodeAt(0) >= 0x20 && input.charCodeAt(0) < 0x7f) {
+        if (
+          input &&
+          input.length === 1 &&
+          input.charCodeAt(0) >= 0x20 &&
+          input.charCodeAt(0) < 0x7f
+        ) {
           dispatch({ type: 'projectPickerFilter', filter: state.projectPicker.filter + input });
           return true;
         }

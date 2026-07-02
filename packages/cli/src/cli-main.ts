@@ -82,11 +82,7 @@ import { MCPRegistry } from '@wrongstack/mcp';
 import { setOAuthTokenPersister } from '@wrongstack/providers';
 import { sessionScopedPath } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
-import {
-  mutateConfigProviders,
-  normalizeKeys,
-  writeKeysBack,
-} from './provider-config-utils.js';
+import { mutateConfigProviders, normalizeKeys, writeKeysBack } from './provider-config-utils.js';
 import { createAutoPhaseHost } from './autophase-host.js';
 import { boot } from './boot.js';
 import { registerBuiltinTools } from './boot/tool-registry.js';
@@ -108,7 +104,7 @@ import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from 
 import { MultiAgentHost } from './multi-agent.js';
 import { createAgentMonitorService } from '@wrongstack/core/coordination';
 import { makeConfirmAwaiter } from './permission-prompt.js';
-import { runPluginManagementCommand } from './plugin-management.js';
+import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from './plugin-management.js';
 import { buildPickableProviders } from './provider-helpers.js';
 import { SessionStats } from './session-stats.js';
 import { deriveFsAccessPair } from './settings-menu.js';
@@ -118,7 +114,14 @@ import { generateCommitMessageWithLLM } from './slash-commands/commit-llm.js';
 import { makeProviderClassifier } from './slash-commands/dispatch-llm.js';
 import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { parseMcpArgs, runMcpManagementCommand } from './slash-commands/mcp-utils.js';
-import { DEFAULTS, STATUSLINE_CONFIG_KEYS, ensureStatuslineConfig, loadStatuslineConfig, saveStatuslineConfig, type StatuslineConfigKey } from './slash-commands/statusline.js';
+import {
+  DEFAULTS,
+  STATUSLINE_CONFIG_KEYS,
+  ensureStatuslineConfig,
+  loadStatuslineConfig,
+  saveStatuslineConfig,
+  type StatuslineConfigKey,
+} from './slash-commands/statusline.js';
 import { getSuggestions, setSuggestions } from './slash-commands/suggestion-store.js';
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { CLI_VERSION } from './version.js';
@@ -126,7 +129,10 @@ import { setupCodebaseIndexing } from './wiring/codebase-index.js';
 import { setupMetrics } from './wiring/metrics.js';
 import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
 import { installDesignStudio } from './wiring/design-studio.js';
-import { buildProviderForId as buildProviderForIdRuntime, resolveProviderCfg as resolveProviderCfgRuntime } from './wiring/provider-runtime.js';
+import {
+  buildProviderForId as buildProviderForIdRuntime,
+  resolveProviderCfg as resolveProviderCfgRuntime,
+} from './wiring/provider-runtime.js';
 import { setupPlugins } from './wiring/plugins.js';
 import { bindReplayToContainer } from './wiring/replay.js';
 import { setupSession } from './wiring/session.js';
@@ -137,6 +143,13 @@ export { CLI_VERSION };
 
 type SddParallelRunGlobal = typeof globalThis & {
   __sddParallelRun?: import('@wrongstack/core').SddParallelRun | undefined;
+};
+
+type PluginPickerItem = {
+  name: string;
+  enabled: boolean;
+  risk: 'low' | 'medium' | 'high';
+  summary: string;
 };
 
 export async function main(argv: string[]): Promise<number> {
@@ -261,8 +274,7 @@ export async function main(argv: string[]): Promise<number> {
     reader,
     renderer,
     modelsRegistry,
-    yoloDestructive:
-      flags['yolo-destructive'] === true || flags['force-all-yolo'] === true,
+    yoloDestructive: flags['yolo-destructive'] === true || flags['force-all-yolo'] === true,
     confirmDestructive: true,
   });
 
@@ -307,14 +319,8 @@ export async function main(argv: string[]): Promise<number> {
     await reader.close();
     return modeResult.code;
   }
-  const {
-    resolvedProvider,
-    providerRegistry,
-    provider,
-    modeId,
-    modePrompt,
-    modelCapabilities,
-  } = modeResult;
+  const { resolvedProvider, providerRegistry, provider, modeId, modePrompt, modelCapabilities } =
+    modeResult;
   const modelCapabilitiesRef: { current: typeof modelCapabilities } = {
     current: modelCapabilities,
   };
@@ -322,7 +328,9 @@ export async function main(argv: string[]): Promise<number> {
   const memoryStore = container.resolve(TOKENS.MemoryStore);
   const skillLoader = container.resolve(TOKENS.SkillLoader);
   const promptLoader = container.resolve(TOKENS.PromptLoader);
-  const sessionRef: { current: import('@wrongstack/core').SessionWriter | undefined } = { current: undefined };
+  const sessionRef: { current: import('@wrongstack/core').SessionWriter | undefined } = {
+    current: undefined,
+  };
   // Forward declaration: the autonomy mode state lives later in this
   // function but the SystemPromptBuilder needs a reference to it NOW so
   // the autonomy contributor can read the current mode at build time.
@@ -435,7 +443,12 @@ export async function main(argv: string[]): Promise<number> {
   // Fetch online agents from the shared mailbox to include in system prompt
   let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
   try {
-    const hqPublisher = createCliHqPublisher({ clientKind: tuiOwnsScreen ? 'tui' : 'cli', projectRoot, projectName: path.basename(projectRoot), appConfig: config });
+    const hqPublisher = createCliHqPublisher({
+      clientKind: tuiOwnsScreen ? 'tui' : 'cli',
+      projectRoot,
+      projectName: path.basename(projectRoot),
+      appConfig: config,
+    });
     hqPublisher?.connect();
     if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
     const systemMailbox = new GlobalMailbox(wpaths.projectDir, undefined, hqPublisher);
@@ -496,7 +509,9 @@ export async function main(argv: string[]): Promise<number> {
   // listens to EventBus events and pushes live status to the registry.
   let tracker: import('@wrongstack/core').AgentStatusTracker | undefined;
   try {
-    const { getSessionRegistry, AgentStatusTracker, FleetNotifier } = await import('@wrongstack/core');
+    const { getSessionRegistry, AgentStatusTracker, FleetNotifier } = await import(
+      '@wrongstack/core'
+    );
     const registry = getSessionRegistry(wpaths.globalRoot);
     const projectSlug = path.basename(wpaths.projectDir);
     const projectName = path.basename(projectRoot);
@@ -586,7 +601,8 @@ export async function main(argv: string[]): Promise<number> {
       sampling: sessionConfig.sampling,
     },
   );
-  const currentSessionId = (): string => context.session?.id ?? sessionRef.current?.id ?? session.id;
+  const currentSessionId = (): string =>
+    context.session?.id ?? sessionRef.current?.id ?? session.id;
   const isCurrentSession = (sessionId?: string | undefined): boolean =>
     !sessionId || sessionId === currentSessionId();
   const appendSessionEvent = (
@@ -594,11 +610,9 @@ export async function main(argv: string[]): Promise<number> {
     event: Parameters<SessionEventBridge['append']>[0],
   ): void => {
     if (!isCurrentSession(sessionId)) return;
-    sessionBridge
-      .append(event)
-      .catch(() => {
-        // best-effort, never block on session logging
-      });
+    sessionBridge.append(event).catch(() => {
+      // best-effort, never block on session logging
+    });
   };
 
   const stats = new SessionStats(events, tokenCounter);
@@ -1033,8 +1047,7 @@ export async function main(argv: string[]): Promise<number> {
   // with `id === 'anthropic'` instead of the user's chosen id. The startup
   // path in `wiring/provider.ts` already does the right thing; this
   // runtime path now mirrors it.
-  const resolveProviderCfg = (providerId: string) =>
-    resolveProviderCfgRuntime(config, providerId);
+  const resolveProviderCfg = (providerId: string) => resolveProviderCfgRuntime(config, providerId);
 
   // Construct a credential-resolved Provider for a provider id, WITHOUT
   // persisting anything. Shared by the `/model` switch and the fallback
@@ -1050,7 +1063,10 @@ export async function main(argv: string[]): Promise<number> {
     const { cfg } = resolveProviderCfg(providerId);
     await refreshMaxContext(providerId, modelId, cfg);
   };
-  const refreshRuntimeModelStateFor = async (providerId: string, modelId: string): Promise<void> => {
+  const refreshRuntimeModelStateFor = async (
+    providerId: string,
+    modelId: string,
+  ): Promise<void> => {
     await refreshMaxContextFor(providerId, modelId);
     await refreshActiveReasoningConfig(providerId, modelId);
   };
@@ -1201,7 +1217,8 @@ export async function main(argv: string[]): Promise<number> {
     // genuinely unset do we fall back to the configured default mode (now
     // 'auto'), so launches that don't pin a mode self-drive by default.
     if (v === 'off') return 'off';
-    return (config.autonomy?.defaultMode ?? 'off') as import('./slash-commands/autonomy.js').AutonomyMode;
+    return (config.autonomy?.defaultMode ??
+      'off') as import('./slash-commands/autonomy.js').AutonomyMode;
   })();
   autonomyModeRef.current = autonomyMode;
   // Next-task prediction toggle — persisted in config so it survives restarts.
@@ -1246,7 +1263,9 @@ export async function main(argv: string[]): Promise<number> {
   //     └─ subagents/              (per-subagent JSONL transcripts)
   // The user can override the manifest path with WRONGSTACK_FLEET_MANIFEST
   // but the scratchpad + transcripts always sit relative to the session.
-  const fleetRoot = directorMode ? sessionScopedPath(wpaths.projectSessions, session.id, '') : undefined;
+  const fleetRoot = directorMode
+    ? sessionScopedPath(wpaths.projectSessions, session.id, '')
+    : undefined;
   const manifestPath = directorMode
     ? typeof process.env['WRONGSTACK_FLEET_MANIFEST'] === 'string'
       ? process.env['WRONGSTACK_FLEET_MANIFEST']
@@ -1364,15 +1383,30 @@ export async function main(argv: string[]): Promise<number> {
   if (agentMonitor) {
     const offMsg = events.on('agent.timeline.message', (payload) => {
       try {
-        hqPublisher?.publishEvent({ type: 'agent.message' as never, payload, timestamp: payload.ts });
-      } catch { /* best-effort */ }
+        hqPublisher?.publishEvent({
+          type: 'agent.message' as never,
+          payload,
+          timestamp: payload.ts,
+        });
+      } catch {
+        /* best-effort */
+      }
     });
     const offStatus = events.on('agent.status_changed', (payload) => {
       try {
-        hqPublisher?.publishEvent({ type: 'agent.status' as never, payload, timestamp: payload.ts });
-      } catch { /* best-effort */ }
+        hqPublisher?.publishEvent({
+          type: 'agent.status' as never,
+          payload,
+          timestamp: payload.ts,
+        });
+      } catch {
+        /* best-effort */
+      }
     });
-    teardownHandlers.push(() => { offMsg(); offStatus(); });
+    teardownHandlers.push(() => {
+      offMsg();
+      offStatus();
+    });
   }
 
   // brainMailbox is created earlier (before setupPlugins) so the
@@ -1403,7 +1437,9 @@ export async function main(argv: string[]): Promise<number> {
   // Shadow controller — tracks the active shadow agent so /shadow commands can
   // reject duplicate starts and stop the real background monitor.
   let shadowDefaults: { intervalMs?: number; provider?: string; model?: string } = {};
-  const shadowController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']> = {
+  const shadowController: NonNullable<
+    Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']
+  > = {
     activeId: null,
     register(id) {
       this.activeId = id;
@@ -1709,7 +1745,9 @@ export async function main(argv: string[]): Promise<number> {
 
   // Mutable coordinator controller — execution.ts fills its callbacks when
   // the AutonomousCoordinator is created lazily. Slash commands read from it.
-  const coordinatorController: NonNullable<Parameters<typeof buildBuiltinSlashCommands>[0]['coordinatorController']> = {};
+  const coordinatorController: NonNullable<
+    Parameters<typeof buildBuiltinSlashCommands>[0]['coordinatorController']
+  > = {};
 
   const setYoloMode = (setTo?: boolean): boolean => {
     const policy = container.resolve(TOKENS.PermissionPolicy);
@@ -1980,7 +2018,10 @@ export async function main(argv: string[]): Promise<number> {
         }
         try {
           multiAgentHost.setMaxConcurrent(n);
-          events.emit('concurrency.changed', { sessionId: sessionRef.current?.id ?? session.id, n });
+          events.emit('concurrency.changed', {
+            sessionId: sessionRef.current?.id ?? session.id,
+            n,
+          });
         } catch (err) {
           return err instanceof Error ? err.message : String(err);
         }
@@ -2060,34 +2101,38 @@ export async function main(argv: string[]): Promise<number> {
       // after the per-run promise resolves.
       const found: Array<{ runId: string; subagentId: string; file: string; size: number }> = [];
       const runResults = await Promise.all(
-        runDirs.map(async (runId): Promise<Array<{ runId: string; subagentId: string; file: string; size: number }>> => {
-          const runDir = path.join(subagentsRoot, runId);
-          let files: string[];
-          try {
-            files = await fs.readdir(runDir);
-          } catch {
-            return [];
-          }
-          // Per-file stat in parallel — bounded by files-in-this-run.
-          const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
-          const fileResults = await Promise.all(
-            jsonlFiles.map(async (f) => {
-              const full = path.join(runDir, f);
-              try {
-                const stat = await fs.stat(full);
-                return {
-                  runId,
-                  subagentId: f.replace(/\.jsonl$/, ''),
-                  file: full,
-                  size: stat.size,
-                };
-              } catch {
-                return null;
-              }
-            }),
-          );
-          return fileResults.filter((r): r is NonNullable<typeof r> => r !== null);
-        }),
+        runDirs.map(
+          async (
+            runId,
+          ): Promise<Array<{ runId: string; subagentId: string; file: string; size: number }>> => {
+            const runDir = path.join(subagentsRoot, runId);
+            let files: string[];
+            try {
+              files = await fs.readdir(runDir);
+            } catch {
+              return [];
+            }
+            // Per-file stat in parallel — bounded by files-in-this-run.
+            const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+            const fileResults = await Promise.all(
+              jsonlFiles.map(async (f) => {
+                const full = path.join(runDir, f);
+                try {
+                  const stat = await fs.stat(full);
+                  return {
+                    runId,
+                    subagentId: f.replace(/\.jsonl$/, ''),
+                    file: full,
+                    size: stat.size,
+                  };
+                } catch {
+                  return null;
+                }
+              }),
+            );
+            return fileResults.filter((r): r is NonNullable<typeof r> => r !== null);
+          },
+        ),
       );
       for (const runResult of runResults) found.push(...runResult);
       if (found.length === 0) {
@@ -2437,9 +2482,13 @@ export async function main(argv: string[]): Promise<number> {
       brainMonitor.stop();
       brainQueue.dispose();
       void mcpRegistry.stopAll();
-      multiAgentHost.dispose().catch((err: unknown) =>
-        logger.warn(`multiAgentHost.dispose() failed: ${err instanceof Error ? err.message : String(err)}`),
-      );
+      multiAgentHost
+        .dispose()
+        .catch((err: unknown) =>
+          logger.warn(
+            `multiAgentHost.dispose() failed: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
     },
     onBeforeExit: async () => {
       // Check for uncommitted changes directly
@@ -2724,7 +2773,8 @@ export async function main(argv: string[]): Promise<number> {
           `  ${result.totalWaves} waves · ${result.totalCompleted} done · ${result.totalFailed} failed`,
           `  ${(result.totalDurationMs / 1000).toFixed(1)}s total`,
         ];
-        if (result.deadlocked) lines.push(color.red('  ⚠ deadlock — tasks blocked by failed tasks.'));
+        if (result.deadlocked)
+          lines.push(color.red('  ⚠ deadlock — tasks blocked by failed tasks.'));
         if (result.stopRequested) lines.push(color.yellow('  ⚡ stopped by user.'));
         return lines.join('\n');
       } finally {
@@ -2825,6 +2875,50 @@ export async function main(argv: string[]): Promise<number> {
   });
   process.once('exit', disposeIndexing);
 
+  // Every audit entry is exposed in the picker — both the curated toggleable
+  // subset AND the always-on/critical plugins. Lockable rows (canDisable=false)
+  // are rendered with a 🔒 marker and the picker ignores Enter/←/→ on them, so
+  // the user sees WHY a plugin cannot be disabled from the menu (risk=high core
+  // surface, secret-scanner guard, branch-guard, etc.) without losing the
+  // ability to inspect every plugin in one place.
+  const getPluginPickerItems = (): PluginPickerItem[] =>
+    PLUGIN_AUDIT_ENTRIES.map((entry) => {
+      const configured = (config.plugins ?? []).find((plugin) =>
+        typeof plugin === 'string' ? plugin === entry.name : plugin.name === entry.name,
+      );
+      const enabled = configured
+        ? !(typeof configured === 'object' && configured.enabled === false)
+        : entry.defaultState === 'active';
+      return {
+        name: entry.name,
+        enabled,
+        risk: entry.risk,
+        summary: entry.summary,
+        lockable: entry.canDisable,
+      };
+    });
+
+  const togglePluginFromPicker = async (name: string) => {
+    const result = await runPluginManagementCommand(['toggle', name], {
+      config,
+      configPath: wpaths.globalConfig,
+    });
+    if (result.patch) {
+      const patch = result.patch as never as Partial<Config>;
+      config = patchConfig(config, patch);
+      configStore.update(patch);
+    }
+    const restartHint =
+      result.restartRequired && result.code === 0
+        ? ' Restart WrongStack to load or unload plugin code in this session.'
+        : '';
+    return {
+      items: getPluginPickerItems(),
+      message: result.code === 0 ? `${result.message}${restartHint}` : undefined,
+      error: result.code === 0 ? undefined : result.message,
+    };
+  };
+
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];
   return execute({
@@ -2887,6 +2981,8 @@ export async function main(argv: string[]): Promise<number> {
     statuslineHiddenItems,
     setStatuslineHiddenItems,
     saveStatuslineHiddenItems,
+    getPluginItems: getPluginPickerItems,
+    onPluginToggle: togglePluginFromPicker,
     getYolo: setYoloMode,
     onYolo: setYoloMode,
     getAutonomy: () => autonomyMode,
@@ -2938,7 +3034,10 @@ export async function main(argv: string[]): Promise<number> {
         }
         if (s.maxConcurrent !== undefined && s.maxConcurrent > 0) {
           multiAgentHost.setMaxConcurrent(s.maxConcurrent);
-          events.emit('concurrency.changed', { sessionId: sessionRef.current?.id ?? session.id, n: s.maxConcurrent });
+          events.emit('concurrency.changed', {
+            sessionId: sessionRef.current?.id ?? session.id,
+            n: s.maxConcurrent,
+          });
           config = patchConfig(config, { maxConcurrent: s.maxConcurrent });
         }
         if (s.restrictFsToRoot !== undefined || s.allowOutsideProjectRoot !== undefined) {

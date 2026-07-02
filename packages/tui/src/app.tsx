@@ -1,4 +1,10 @@
-import { DefaultPromptLoader, PromptUsageStore, expectDefined, projectSlug, setBtwNote } from '@wrongstack/core';
+import {
+  DefaultPromptLoader,
+  PromptUsageStore,
+  expectDefined,
+  projectSlug,
+  setBtwNote,
+} from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -18,9 +24,25 @@ import type {
 } from '@wrongstack/core';
 import { type AutonomyStage, DefaultSessionRewinder } from '@wrongstack/core';
 import { loadGoal, resolveWstackPaths } from '@wrongstack/core';
-import { applyTokenOverrides, clearActiveKit, clearPersistedActiveKit, getDesignKitLoader, isDesignStack, loadActiveKit, materializeTokens, recordOverrides, setActiveKit, setDesignOverrides } from '@wrongstack/core';
+import {
+  applyTokenOverrides,
+  clearActiveKit,
+  clearPersistedActiveKit,
+  getDesignKitLoader,
+  isDesignStack,
+  loadActiveKit,
+  materializeTokens,
+  recordOverrides,
+  setActiveKit,
+  setDesignOverrides,
+} from '@wrongstack/core';
 import { InputBuilder, buildGoalPreamble, formatTodosList, writeOut } from '@wrongstack/core';
-import { enhanceUserPrompt, normalizedEqual, recentTextTurns, shouldEnhance } from '@wrongstack/core';
+import {
+  enhanceUserPrompt,
+  normalizedEqual,
+  recentTextTurns,
+  shouldEnhance,
+} from '@wrongstack/core';
 import { type VisionAdapters, routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getProcessRegistry, getIndexState, onIndexStateChange } from '@wrongstack/tools';
 import { Box, type DOMElement, Text, measureElement, useApp, useStdout } from './ink.js';
@@ -36,7 +58,11 @@ import React, {
 import { AgentsMonitor } from './components/agents-monitor.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { DesignPicker } from './components/design-picker.js';
-import { PromptPicker, filterPromptPicker, type PromptPickEntry } from './components/prompt-picker.js';
+import {
+  PromptPicker,
+  filterPromptPicker,
+  type PromptPickEntry,
+} from './components/prompt-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
@@ -59,6 +85,7 @@ import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
 import { SddBoardOverlay } from './components/sdd-board-overlay.js';
 import { PhasePanel } from './components/phase-panel.js';
+import { PluginPicker, type PluginPickerItem } from './components/plugin-picker.js';
 import { ProjectPicker } from './components/project-picker.js';
 import { QueuePanel } from './components/queue-panel.js';
 import { ProcessListMonitor } from './components/process-list.js';
@@ -80,7 +107,12 @@ import {
   type ContextMode,
   type StatuslineMode,
 } from './components/settings-picker.js';
-import { StatuslinePicker, STATUSLINE_ITEMS, isChipExpired, type StatuslineItem } from './components/statusline-picker.js';
+import {
+  StatuslinePicker,
+  STATUSLINE_ITEMS,
+  isChipExpired,
+  type StatuslineItem,
+} from './components/statusline-picker.js';
 import { SlashMenu } from './components/slash-menu.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import {
@@ -180,14 +212,15 @@ export function nextInputWordStart(buffer: string, cursor: number): number {
   let i = Math.max(0, Math.min(cursor, buffer.length));
   const chipAtCursor = tokenSpanAt(buffer, i);
   if (chipAtCursor && i < chipAtCursor.end) i = chipAtCursor.end;
-  else while (i < buffer.length && !isInputWordSeparator(buffer[i])) {
-    const chip = tokenSpanAt(buffer, i);
-    if (chip) {
-      i = chip.end;
-      continue;
+  else
+    while (i < buffer.length && !isInputWordSeparator(buffer[i])) {
+      const chip = tokenSpanAt(buffer, i);
+      if (chip) {
+        i = chip.end;
+        continue;
+      }
+      i++;
     }
-    i++;
-  }
   while (i < buffer.length && isInputWordSeparator(buffer[i])) i++;
   return i;
 }
@@ -222,15 +255,17 @@ export function nextInputWordStart(buffer: string, cursor: number): number {
 export function rehydrateHistory(
   messages: Message[],
   startId: number,
-  toolCalls?: Array<{
-    name: string;
-    id: string;
-    durationMs: number;
-    ok: boolean;
-    outputBytes?: number | undefined;
-    outputTokens?: number | undefined;
-    outputLines?: number | undefined;
-  }> | undefined,
+  toolCalls?:
+    | Array<{
+        name: string;
+        id: string;
+        durationMs: number;
+        ok: boolean;
+        outputBytes?: number | undefined;
+        outputTokens?: number | undefined;
+        outputLines?: number | undefined;
+      }>
+    | undefined,
 ): import('./components/history/types.js').HistoryEntry[] {
   type ToolEntry = import('./components/history/types.js').HistoryEntry;
   const entries: ToolEntry[] = [];
@@ -357,10 +392,12 @@ export interface AppProps {
    * `setEnabled` on mount to a dispatch-backed setter so the slash command
    * (handled in the CLI) flips the reducer flag. Mirrors `fleetStreamController`.
    */
-  enhanceController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  } | undefined;
+  enhanceController?:
+    | {
+        enabled: boolean;
+        setEnabled: (enabled: boolean) => void;
+      }
+    | undefined;
   /**
    * When true (default), submitting a plain message while the agent is busy
    * pops the send-mode picker (queue / by-the-way / steer) instead of silently
@@ -377,7 +414,9 @@ export interface AppProps {
    * tokens on this shallow rewrite. Absent → the refiner sends no reasoning
    * field, exactly as before.
    */
-  getEnhancerReasoning?: (() => import('@wrongstack/core').ReasoningRequest | undefined) | undefined;
+  getEnhancerReasoning?:
+    | (() => import('@wrongstack/core').ReasoningRequest | undefined)
+    | undefined;
   /**
    * Query the live YOLO state from the permission policy. Called after
    * every slash-command dispatch so `/yolo off` (which mutates the
@@ -426,9 +465,9 @@ export interface AppProps {
    * entry the moment it lands — strictly more responsive than reading
    * goal.json after the fact.
    */
-  subscribeEternalIteration?: ((
-    fn: (entry: import('@wrongstack/core').JournalEntry) => void,
-  ) => () => void) | undefined;
+  subscribeEternalIteration?:
+    | ((fn: (entry: import('@wrongstack/core').JournalEntry) => void) => () => void)
+    | undefined;
   /**
    * Subscribe to per-iteration stage transitions from the autonomy engines.
    * Drives `state.eternalStage` used by the status bar to show the
@@ -440,7 +479,9 @@ export interface AppProps {
    * Drives `state.autoPhase` used by the PhaseMonitor component.
    * Handlers receive the event name and payload from PhaseEventMap.
    */
-  subscribeAutoPhase?: ((handler: (event: string, payload: unknown) => void) => () => void) | undefined;
+  subscribeAutoPhase?:
+    | ((handler: (event: string, payload: unknown) => void) => () => void)
+    | undefined;
   /**
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
@@ -452,15 +493,24 @@ export interface AppProps {
    * error string on failure (so the TUI can display it as a hint).
    */
   saveSettings?: ((s: Settings) => string | null | Promise<string | null>) | undefined;
+  /** Load toggleable plugin rows for the interactive plugin picker. */
+  getPluginItems?: (() => PluginPickerItem[]) | undefined;
+  /** Toggle one plugin from the interactive picker and return the refreshed rows. */
+  onPluginToggle?:
+    | ((name: string) => Promise<{
+        items: PluginPickerItem[];
+        message?: string | undefined;
+        error?: string | undefined;
+      }>)
+    | undefined;
   /**
    * Predict likely next steps after a completed turn (/next). The CLI owns the
    * gating (toggle + autonomy off) and returns [] when disabled, so the App can
    * call it unconditionally on a done turn. Display-only — never executed.
    */
-  predictNext?: ((input: {
-    userRequest: string;
-    assistantSummary: string;
-  }) => Promise<string[]>) | undefined;
+  predictNext?:
+    | ((input: { userRequest: string; assistantSummary: string }) => Promise<string[]>)
+    | undefined;
   /**
    * Called after each agent turn with the assistant's final output text.
    * The host parses "<next_steps>" or "💡 Next steps" suggestions from the text and stores
@@ -526,9 +576,9 @@ export interface AppProps {
    * Apply an autonomy mode after the picker confirms. Returns
    * an error string on failure; null on success.
    */
-  switchAutonomy?: ((
-    mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel',
-  ) => string | null) | undefined;
+  switchAutonomy?:
+    | ((mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => string | null)
+    | undefined;
   /**
    * Real max-context token budget for the *active model*, resolved by the
    * CLI via the ModelsRegistry. The provider object only knows its family
@@ -541,14 +591,16 @@ export interface AppProps {
   projectRoot?: string | undefined;
   onExit: (code: number) => void;
   /** Called when /clear is dispatched — the TUI should wipe its history entries (but keep the banner). */
-  onClearHistory?: ((
-    dispatch: React.Dispatch<
-      | { type: 'clearHistory' }
-      | { type: 'resetContextChip' }
-      | { type: 'streamReset' }
-      | { type: 'toolStreamClear' }
-    >,
-  ) => void) | undefined;
+  onClearHistory?:
+    | ((
+        dispatch: React.Dispatch<
+          | { type: 'clearHistory' }
+          | { type: 'resetContextChip' }
+          | { type: 'streamReset' }
+          | { type: 'toolStreamClear' }
+        >,
+      ) => void)
+    | undefined;
   /**
    * Called on `/clear` to physically wipe the terminal (visible screen +
    * native scrollback) before the chat history is reset. Without this, the
@@ -569,11 +621,13 @@ export interface AppProps {
    * `replaceHistory` dispatch, so the user sees the prior conversation
    * exactly as it appeared during live interaction.
    */
-  onResumeSession?: ((sessionId: string) => Promise<{
-    entries: HistoryEntry[];
-    nextId: number;
-    sessionId: string;
-  } | null>) | undefined;
+  onResumeSession?:
+    | ((sessionId: string) => Promise<{
+        entries: HistoryEntry[];
+        nextId: number;
+        sessionId: string;
+      } | null>)
+    | undefined;
 
   /**
    * List recent session summaries for the /resume picker. The host reads
@@ -604,7 +658,9 @@ export interface AppProps {
    * Load project picker items from the global manifest.
    * Called each time the project picker panel opens (F1).
    */
-  getProjectPickerItems?: (() => Promise<import('./components/project-picker.js').ProjectPickerItem[]>) | undefined;
+  getProjectPickerItems?:
+    | (() => Promise<import('./components/project-picker.js').ProjectPickerItem[]>)
+    | undefined;
 
   /**
    * Called when the user selects a project or action in the project picker.
@@ -623,14 +679,18 @@ export interface AppProps {
    * Load live session data from the cross-process SessionRegistry.
    * Called when the sessions panel opens (F10).
    */
-  getLiveSessions?: (() => Promise<import('./components/sessions-panel.js').LiveSessionEntry[]>) | undefined;
+  getLiveSessions?:
+    | (() => Promise<import('./components/sessions-panel.js').LiveSessionEntry[]>)
+    | undefined;
 
   /**
    * Called when the user selects a session from a DIFFERENT project
    * in the F10 sessions panel. Spawns a new wstack terminal in the
    * target project directory. Same-project sessions use onResumeSession.
    */
-  onSwitchToSession?: ((sessionId: string, projectRoot: string, projectName: string) => void) | undefined;
+  onSwitchToSession?:
+    | ((sessionId: string, projectRoot: string, projectName: string) => void)
+    | undefined;
 
   // --- Fleet ---
   /** Live director for fleet panel rendering. Null when director mode is off. */
@@ -642,10 +702,12 @@ export interface AppProps {
    * App installs a dispatch-backed setter on mount so the slash command
    * can flip the reducer's `streamFleet` flag from the CLI surface.
    */
-  fleetStreamController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  } | undefined;
+  fleetStreamController?:
+    | {
+        enabled: boolean;
+        setEnabled: (enabled: boolean) => void;
+      }
+    | undefined;
   /**
    * Shared controller for the `/interrupt` slash command. The App installs the
    * real `abortLeader` on mount so the command can abort the in-flight leader
@@ -696,13 +758,17 @@ export interface AppProps {
    * reducer; the StatusBar renders the stats on line 3. When omitted (headless
    * CLI/no TTY), debug stats go to stderr via the default callback.
    */
-  registerDebugStreamCallback?: ((cb: (stats: {
-    chunkCount: number;
-    lastChunkSize: number;
-    lastDeltaMs: number;
-    totalBytes: number;
-    lastChunkAt: string;
-  }) => void) => void) | undefined;
+  registerDebugStreamCallback?:
+    | ((
+        cb: (stats: {
+          chunkCount: number;
+          lastChunkSize: number;
+          lastDeltaMs: number;
+          totalBytes: number;
+          lastChunkAt: string;
+        }) => void,
+      ) => void)
+    | undefined;
   /**
    * Called on App unmount (via useEffect cleanup). Restores the debug-stream
    * callback to the default stderr writer so non-TUI invocations continue to
@@ -720,15 +786,17 @@ export interface AppProps {
    * Used to render tool entries (name, duration, ok/error) in the TUI on
    * resume. Events are `tool_call_end` records from the session JSONL.
    */
-  restoredToolCalls?: Array<{
-    name: string;
-    id: string;
-    durationMs: number;
-    ok: boolean;
-    outputBytes?: number | undefined;
-    outputTokens?: number | undefined;
-    outputLines?: number | undefined;
-  }> | undefined;
+  restoredToolCalls?:
+    | Array<{
+        name: string;
+        id: string;
+        durationMs: number;
+        ok: boolean;
+        outputBytes?: number | undefined;
+        outputTokens?: number | undefined;
+        outputLines?: number | undefined;
+      }>
+    | undefined;
   /**
    * When true, the agents monitor (F3) is open by default at TUI startup.
    * Used by the `wrongstack quick` command to show agents panel immediately.
@@ -741,7 +809,7 @@ export interface AppProps {
    * Subscribe to live events from the AutonomousCoordinator. Returns an unsubscribe
    * function. TUI uses this to drive the coordinator panel live view.
    */
-  subscribeCoordinatorEvents?: ((fn: (event: CoordinatorEvent) => void) => (() => void)) | undefined;
+  subscribeCoordinatorEvents?: ((fn: (event: CoordinatorEvent) => void) => () => void) | undefined;
 
   /** Start the AutonomousCoordinator with the given goal text. */
   onCoordinatorStart?: ((goal: string) => void) | undefined;
@@ -750,19 +818,25 @@ export interface AppProps {
   /** Whether the AutonomousCoordinator is currently running. */
   coordinatorRunning?: boolean | undefined;
   /** List available coordinator tasks the current terminal can claim. */
-  onCoordinatorTasks?: (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>) | undefined;
+  onCoordinatorTasks?:
+    | (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>)
+    | undefined;
   /** Claim a coordinator task. Returns description on success. */
-  onCoordinatorClaim?: ((taskId: string) => Promise<string | null | { description: string }>) | undefined;
+  onCoordinatorClaim?:
+    | ((taskId: string) => Promise<string | null | { description: string }>)
+    | undefined;
   /** Mark a claimed task as completed. */
   onCoordinatorComplete?: ((taskId: string, result?: string) => Promise<string | null>) | undefined;
   /** Mark a claimed task as failed. */
   onCoordinatorFail?: ((taskId: string, error: string) => Promise<string | null>) | undefined;
   /** Get coordinator stats for status display. */
-  onCoordinatorStatus?: (() => Promise<{
-    goals: { total: number; done: number; pending: number; failed: number };
-    dag: { running: number; ready: number; done: number; failed: number };
-    auction: { pending: number; inProgress: number };
-  } | null>) | undefined;
+  onCoordinatorStatus?:
+    | (() => Promise<{
+        goals: { total: number; done: number; pending: number; failed: number };
+        dag: { running: number; ready: number; done: number; failed: number };
+        auction: { pending: number; inProgress: number };
+      } | null>)
+    | undefined;
   /**
    * Unique client identifier (e.g. `tui@<uuid>`) used to tag `client.status`
    * events emitted to the EventBus for the WebUI FleetHQ map HUD. When omitted,
@@ -796,13 +870,19 @@ export { buildGoalPreamble } from '@wrongstack/core';
  */
 function sddLifecycleEntry(
   op: 'cleanup_worktrees' | 'rollback' | 'destroy',
-  r: number | { ok: boolean; reverted: number; reason?: string | undefined } | import('@wrongstack/core').SddLifecycleResult,
+  r:
+    | number
+    | { ok: boolean; reverted: number; reason?: string | undefined }
+    | import('@wrongstack/core').SddLifecycleResult,
 ): { kind: 'info' | 'warn'; text: string } {
   // Live cleanupWorktrees() → bare count.
   if (typeof r === 'number') {
     return {
       kind: r > 0 ? 'info' : 'warn',
-      text: r > 0 ? `Cleaned ${r} SDD worktree${r === 1 ? '' : 's'}.` : 'No SDD worktrees to clean (stop the run first if it is live).',
+      text:
+        r > 0
+          ? `Cleaned ${r} SDD worktree${r === 1 ? '' : 's'}.`
+          : 'No SDD worktrees to clean (stop the run first if it is live).',
     };
   }
   // Live rollback() → { ok, reverted, reason } (no `op` field).
@@ -823,11 +903,18 @@ function sddLifecycleEntry(
   }
   if (op === 'cleanup_worktrees') {
     const n = r.removed ?? 0;
-    return { kind: n > 0 ? 'info' : 'warn', text: n > 0 ? `Cleaned ${n} SDD worktree${n === 1 ? '' : 's'}.` : 'No SDD worktrees to clean.' };
+    return {
+      kind: n > 0 ? 'info' : 'warn',
+      text:
+        n > 0 ? `Cleaned ${n} SDD worktree${n === 1 ? '' : 's'}.` : 'No SDD worktrees to clean.',
+    };
   }
   if (op === 'rollback') {
     const n = r.reverted ?? 0;
-    return { kind: 'info', text: n > 0 ? `Rolled back ${n} run commit${n === 1 ? '' : 's'}.` : 'Nothing to roll back.' };
+    return {
+      kind: 'info',
+      text: n > 0 ? `Rolled back ${n} run commit${n === 1 ? '' : 's'}.` : 'Nothing to roll back.',
+    };
   }
   // destroy
   const parts = [
@@ -835,7 +922,10 @@ function sddLifecycleEntry(
     r.deleted?.length ? `deleted ${r.deleted.join(', ')}` : '',
     (r.reverted ?? 0) > 0 ? `${r.reverted} commit${r.reverted === 1 ? '' : 's'} reverted` : '',
   ].filter(Boolean);
-  return { kind: 'info', text: `SDD project destroyed — ${parts.join(' · ')}.${r.reason ? ` (${r.reason})` : ''}` };
+  return {
+    kind: 'info',
+    text: `SDD project destroyed — ${parts.join(' · ')}.${r.reason ? ` (${r.reason})` : ''}`,
+  };
 }
 
 export function App({
@@ -882,6 +972,8 @@ export function App({
   switchProviderAndModel,
   getSettings,
   saveSettings,
+  getPluginItems,
+  onPluginToggle,
   predictNext,
   onSuggestionsParsed,
   getSuggestions,
@@ -940,14 +1032,22 @@ export function App({
   // local names (`liveModel`, `setLiveProvider`, etc.) are preserved so
   // every existing call site in this file continues to work unchanged.
   const {
-    liveModel, setLiveModel,
-    liveProvider, setLiveProvider,
-    activeMaxContext, setActiveMaxContext,
-    yoloLive, setYoloLive,
-    autonomyLive, setAutonomyLive,
-    liveModeLabel, setLiveModeLabel,
-    hiddenItems, setHiddenItems,
-    sessionCount, setSessionCount,
+    liveModel,
+    setLiveModel,
+    liveProvider,
+    setLiveProvider,
+    activeMaxContext,
+    setActiveMaxContext,
+    yoloLive,
+    setYoloLive,
+    autonomyLive,
+    setAutonomyLive,
+    liveModeLabel,
+    setLiveModeLabel,
+    hiddenItems,
+    setHiddenItems,
+    sessionCount,
+    setSessionCount,
   } = useStatuslineState({
     model,
     provider,
@@ -1142,11 +1242,76 @@ export function App({
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
     designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
-    promptPicker: { open: false, all: [], categories: [], recentSlugs: [], catIndex: 0, selected: 0 },
-    resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, lastSettingsField: 0, filter: '', mode: 'off', delayMs: 0, titleAnimation: true, yolo: false, streamFleet: true, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as TokenSavingTier, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid', contextMode: 'balanced' as ContextMode, maxConcurrent: 10, logLevel: 'info', auditLevel: 'standard', indexOnStart: true, multiDiffSummaryThreshold: 5, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60_000, enhanceEnabled: true, enhanceLanguage: 'original', debugStream: false, statuslineMode: 'detailed' as StatuslineMode, reasoningMode: 'auto' as 'auto', reasoningEffort: 'high', reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default', configScope: 'global' },
+    promptPicker: {
+      open: false,
+      all: [],
+      categories: [],
+      recentSlugs: [],
+      catIndex: 0,
+      selected: 0,
+    },
+    resumePicker: {
+      open: false,
+      sessions: [],
+      selected: 0,
+      busy: false,
+      hint: undefined,
+      error: undefined,
+    },
+    settingsPicker: {
+      open: false,
+      field: 0,
+      lastSettingsField: 0,
+      filter: '',
+      mode: 'off',
+      delayMs: 0,
+      titleAnimation: true,
+      yolo: false,
+      streamFleet: true,
+      chime: false,
+      confirmExit: true,
+      nextPrediction: false,
+      featureMcp: true,
+      featurePlugins: true,
+      featureMemory: true,
+      featureSkills: true,
+      featureModelsRegistry: true,
+      tokenSavingTier: 'off' as TokenSavingTier,
+      allowOutsideProjectRoot: true,
+      contextAutoCompact: true,
+      contextStrategy: 'hybrid',
+      contextMode: 'balanced' as ContextMode,
+      maxConcurrent: 10,
+      logLevel: 'info',
+      auditLevel: 'standard',
+      indexOnStart: true,
+      multiDiffSummaryThreshold: 5,
+      maxIterations: 500,
+      autoProceedMaxIterations: 50,
+      enhanceDelayMs: 60_000,
+      enhanceEnabled: true,
+      enhanceLanguage: 'original',
+      debugStream: false,
+      statuslineMode: 'detailed' as StatuslineMode,
+      reasoningMode: 'auto' as 'auto',
+      reasoningEffort: 'high',
+      reasoningPreserve: false,
+      thinkingWord: 'thinking',
+      thinkingWordEditing: false,
+      thinkingWordDraft: '',
+      cacheTtl: 'default',
+      configScope: 'global',
+    },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
-    projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
+    pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
+    projectPicker: {
+      open: false,
+      allItems: [],
+      items: [],
+      selected: 0,
+      filter: '',
+      hint: undefined,
+    },
     fKeyPicker: { open: false, selected: 0 },
     confirmQueue: [],
     enhance: null,
@@ -1239,7 +1404,8 @@ export function App({
       content: e.content,
       favorite: e.favorite,
     }));
-    const recentSlugs = (await promptUsageRef.current?.recent(50).catch(() => []))?.map((r) => r.slug) ?? [];
+    const recentSlugs =
+      (await promptUsageRef.current?.recent(50).catch(() => []))?.map((r) => r.slug) ?? [];
     const hasFavorites = entries.some((e) => e.favorite);
     const cats = [
       'all',
@@ -1270,7 +1436,12 @@ export function App({
         setHiddenItems([...pickerHidden] as typeof hiddenItems);
       }
     }
-  }, [state.statuslinePicker.hiddenItems, state.statuslinePicker.open, setHiddenItems, hiddenItems]);
+  }, [
+    state.statuslinePicker.hiddenItems,
+    state.statuslinePicker.open,
+    setHiddenItems,
+    hiddenItems,
+  ]);
 
   // ── Stream chip auto-expiration ────────────────────────────────────────
   // Show/hide stream chips (brain, mailbox, enhance, debug_stream) based on
@@ -1298,12 +1469,7 @@ export function App({
       }
     }
     prevEnhanceRef.current = state.enhance;
-  }, [
-    state.brainPrompt,
-    state.enhance,
-    state.statuslinePicker.visibleChips,
-    dispatch,
-  ]);
+  }, [state.brainPrompt, state.enhance, state.statuslinePicker.visibleChips, dispatch]);
 
   // Periodic expiration checker — runs every 30 s to remove chips whose
   // time window has elapsed. Chips with no expiresIn are permanent.
@@ -1391,9 +1557,7 @@ export function App({
   // 'random'), surface a fresh fun word from the pool for each working spell;
   // an explicit custom word is shown verbatim. We re-roll only on the
   // idle→working transition so the chip stays stable while a single turn runs.
-  const [rolledThinkingWord, setRolledThinkingWord] = useState(() =>
-    pickRandomTuiThinkingWord(),
-  );
+  const [rolledThinkingWord, setRolledThinkingWord] = useState(() => pickRandomTuiThinkingWord());
   const thinkingWorking = state.status === 'running' || state.status === 'streaming';
   const prevThinkingWorkingRef = useRef(false);
   useEffect(() => {
@@ -1451,12 +1615,15 @@ export function App({
     return [...hookHidden, ...reducerOnlyHidden];
   }, []);
 
-  const openStatuslinePicker = useCallback((field?: number) => {
-    if (field !== undefined) {
-      dispatch({ type: 'statuslineFieldSet', field });
-    }
-    dispatch({ type: 'statuslineOpen', hiddenItems: statuslineHiddenForPicker() });
-  }, [statuslineHiddenForPicker]);
+  const openStatuslinePicker = useCallback(
+    (field?: number) => {
+      if (field !== undefined) {
+        dispatch({ type: 'statuslineFieldSet', field });
+      }
+      dispatch({ type: 'statuslineOpen', hiddenItems: statuslineHiddenForPicker() });
+    },
+    [statuslineHiddenForPicker],
+  );
 
   // Live mirror of the `mouse` opt-in so `/mouse` can toggle full mouse mode
   // mid-session (swap History ↔ ScrollableHistory, flip SGR tracking) without a
@@ -1546,7 +1713,10 @@ export function App({
     async (checkpointIndex: number) => {
       const sessionId = agent.ctx.session.id;
       if (!sessionId) return;
-      const rewinder = new DefaultSessionRewinder(sessionsDir ?? '', agent.ctx.projectRoot ?? agent.ctx.cwd);
+      const rewinder = new DefaultSessionRewinder(
+        sessionsDir ?? '',
+        agent.ctx.projectRoot ?? agent.ctx.cwd,
+      );
       // Revert file system changes first (read-only, safe to do eagerly).
       await rewinder.rewindToCheckpoint(sessionId, checkpointIndex);
       // Then truncate the conversation history — this fires session.rewound
@@ -1666,10 +1836,19 @@ export function App({
     const t = setInterval(poll, 2000);
     return () => clearInterval(t);
   }, [
-    getAutonomy, getYolo, getModeLabel,
-    getEternalEngine, getParallelEngine,
-    autonomyLive, yoloLive, liveModeLabel, liveModel, liveProvider,
-    agent.ctx.model, agent.ctx.provider, agent.ctx.todos,
+    getAutonomy,
+    getYolo,
+    getModeLabel,
+    getEternalEngine,
+    getParallelEngine,
+    autonomyLive,
+    yoloLive,
+    liveModeLabel,
+    liveModel,
+    liveProvider,
+    agent.ctx.model,
+    agent.ctx.provider,
+    agent.ctx.todos,
   ]);
 
   // Git branch + change counts. Polled every 5s (cheap, two short-lived
@@ -1691,18 +1870,27 @@ export function App({
               // Branch changed — inject system message so the agent knows
               const msg: Message = {
                 role: 'user',
-                content: [{ type: 'text', text: `[system] Git branch switched: ⎇ ${prev} → ⎇ ${info.branch}. The working tree is now on branch "${info.branch}". Any file changes from the previous branch are no longer visible.` }],
+                content: [
+                  {
+                    type: 'text',
+                    text: `[system] Git branch switched: ⎇ ${prev} → ⎇ ${info.branch}. The working tree is now on branch "${info.branch}". Any file changes from the previous branch are no longer visible.`,
+                  },
+                ],
               };
               agent.ctx.messages.push(msg);
               // Update SessionRegistry with the new branch (best-effort)
               try {
-                import('@wrongstack/core').then(({ getSessionRegistry }) => {
-                  const reg = getSessionRegistry();
-                  if (reg) {
-                    reg.updateAgents([]).catch(() => {});
-                  }
-                }).catch(() => {});
-              } catch { /* silent */ }
+                import('@wrongstack/core')
+                  .then(({ getSessionRegistry }) => {
+                    const reg = getSessionRegistry();
+                    if (reg) {
+                      reg.updateAgents([]).catch(() => {});
+                    }
+                  })
+                  .catch(() => {});
+              } catch {
+                /* silent */
+              }
             }
             prevBranchRef.current = info.branch;
           }
@@ -1731,12 +1919,17 @@ export function App({
       try {
         const sessions = await getLiveSessions();
         if (!cancelled) setSessionCount(sessions.length);
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     };
     void poll();
     const t = setInterval(poll, 30_000);
     if (t.unref) t.unref();
-    return () => { cancelled = true; clearInterval(t); };
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [getLiveSessions]);
 
   // ── Mailbox status for the status bar (4th line) ────────────────────
@@ -1788,21 +1981,48 @@ export function App({
         }));
       }
     });
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
+    return () => {
+      unsub1();
+      unsub2();
+      unsub3();
+      unsub4();
+      unsub5();
+    };
   }, [events]);
 
   // ── Mailbox panel state ──────────────────────────────────────────────
   const [mailboxPanelOpen, setMailboxPanelOpen] = useState(false);
-  const [mailboxMessages, setMailboxMessages] = useState<Array<{
-    id: string; from: string; to: string; type: string; subject: string;
-    body: string; priority: string; timestamp: string; readByCount: number;
-    readByMe: boolean; completed: boolean; completedBy?: string; outcome?: string;
-  }>>([]);
-  const [mailboxAgents, setMailboxAgents] = useState<Array<{
-    agentId: string; name: string; role?: string | undefined; sessionId: string;
-    status: string; currentTool?: string | undefined; currentTask?: string | undefined;
-    lastSeenAt: string; online: boolean; source?: string | undefined;
-  }>>([]);
+  const [mailboxMessages, setMailboxMessages] = useState<
+    Array<{
+      id: string;
+      from: string;
+      to: string;
+      type: string;
+      subject: string;
+      body: string;
+      priority: string;
+      timestamp: string;
+      readByCount: number;
+      readByMe: boolean;
+      completed: boolean;
+      completedBy?: string;
+      outcome?: string;
+    }>
+  >([]);
+  const [mailboxAgents, setMailboxAgents] = useState<
+    Array<{
+      agentId: string;
+      name: string;
+      role?: string | undefined;
+      sessionId: string;
+      status: string;
+      currentTool?: string | undefined;
+      currentTask?: string | undefined;
+      lastSeenAt: string;
+      online: boolean;
+      source?: string | undefined;
+    }>
+  >([]);
 
   // Poll mailbox when panel is open
   useEffect(() => {
@@ -1812,7 +2032,9 @@ export function App({
         // We call the mailbox tool indirectly — the agent exposes a method
         // or we rely on events. For now, rely on events already subscribed.
         // The mailboxStatus already has unread count and last subject.
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     };
     void poll();
     const t = setInterval(poll, 10_000);
@@ -1822,9 +2044,14 @@ export function App({
   // Populate mailbox panel data from events
   useEffect(() => {
     const unsub = events.onPattern('mailbox.received', (_e, payload) => {
-      const p = payload as {
-        messageId?: string; from?: string; subject?: string; type?: string;
-      } | undefined;
+      const p = payload as
+        | {
+            messageId?: string;
+            from?: string;
+            subject?: string;
+            type?: string;
+          }
+        | undefined;
       if (!p?.messageId) return;
       setMailboxMessages((prev) => {
         if (prev.some((m) => m.id === p.messageId)) return prev;
@@ -1847,21 +2074,37 @@ export function App({
       });
     });
     const unsub2 = events.onPattern('mailbox.agent_registered', (_e, payload) => {
-      const p = payload as {
-        agentId?: string; name?: string; role?: string; sessionId?: string; source?: string;
-      } | undefined;
+      const p = payload as
+        | {
+            agentId?: string;
+            name?: string;
+            role?: string;
+            sessionId?: string;
+            source?: string;
+          }
+        | undefined;
       if (!p?.agentId) return;
       setMailboxAgents((prev) => {
         if (prev.some((a) => a.agentId === p.agentId)) return prev;
-        return [...prev, {
-          agentId: p.agentId!, name: p.name ?? p.agentId!,
-          role: p.role, sessionId: p.sessionId ?? '?',
-          status: 'idle', lastSeenAt: new Date().toISOString(),
-          online: true, source: p.source as 'cli' | 'webui' | undefined,
-        }].slice(0, 30);
+        return [
+          ...prev,
+          {
+            agentId: p.agentId!,
+            name: p.name ?? p.agentId!,
+            role: p.role,
+            sessionId: p.sessionId ?? '?',
+            status: 'idle',
+            lastSeenAt: new Date().toISOString(),
+            online: true,
+            source: p.source as 'cli' | 'webui' | undefined,
+          },
+        ].slice(0, 30);
       });
     });
-    return () => { unsub(); unsub2(); };
+    return () => {
+      unsub();
+      unsub2();
+    };
   }, [events]);
 
   // Latest provider request's input-token count. Tracked separately
@@ -1970,7 +2213,15 @@ export function App({
       ctxMaxTokens: state.leader.ctxMaxTokens ?? effectiveMaxContext,
     };
     return { leader: leaderEntry, ...state.fleet };
-  }, [state.fleet, state.leader, state.status, liveProvider, liveModel, effectiveMaxContext, tokenCounter]);
+  }, [
+    state.fleet,
+    state.leader,
+    state.status,
+    liveProvider,
+    liveModel,
+    effectiveMaxContext,
+    tokenCounter,
+  ]);
 
   // Plan counts come from the session-scoped plan sidecar on disk, not
   // React state. We poll lazily every few ticks so the chip stays current
@@ -2037,24 +2288,46 @@ export function App({
           tasks?: Array<{ status?: string | undefined }>;
         };
         if (cancelled) return;
-        if (!Array.isArray(parsed.tasks)) { setTaskCounts(null); return; }
-        let pending = 0, inProgress = 0, completed = 0, blocked = 0, failed = 0;
+        if (!Array.isArray(parsed.tasks)) {
+          setTaskCounts(null);
+          return;
+        }
+        let pending = 0,
+          inProgress = 0,
+          completed = 0,
+          blocked = 0,
+          failed = 0;
         for (const t of parsed.tasks) {
           switch (t?.status) {
-            case 'completed': completed++; break;
-            case 'in_progress': inProgress++; break;
-            case 'blocked': blocked++; break;
-            case 'failed': failed++; break;
-            default: pending++; break;
+            case 'completed':
+              completed++;
+              break;
+            case 'in_progress':
+              inProgress++;
+              break;
+            case 'blocked':
+              blocked++;
+              break;
+            case 'failed':
+              failed++;
+              break;
+            default:
+              pending++;
+              break;
           }
         }
         const total = pending + inProgress + completed + blocked + failed;
         setTaskCounts(total > 0 ? { pending, inProgress, completed, blocked, failed } : null);
-      } catch { if (!cancelled) setTaskCounts(null); }
+      } catch {
+        if (!cancelled) setTaskCounts(null);
+      }
     };
     void poll();
     const id = setInterval(poll, 3000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [agent.ctx.meta]);
 
   // Live-region shrink mitigation. Ink's log-update tracks the previous
@@ -2562,7 +2835,9 @@ export function App({
   // Keep the F10 sessions panel live: refresh every 5s while open
   useEffect(() => {
     if (!state.sessionsPanelOpen || !getLiveSessions) return undefined;
-    const t = setInterval(() => { void loadLiveSessions(); }, 5_000);
+    const t = setInterval(() => {
+      void loadLiveSessions();
+    }, 5_000);
     return () => clearInterval(t);
   }, [state.sessionsPanelOpen, getLiveSessions, loadLiveSessions]);
   const openSettings = React.useCallback(() => {
@@ -2609,6 +2884,43 @@ export function App({
       configScope: s.configScope ?? 'global',
     });
   }, [getSettings]);
+
+  const refreshPluginPicker = React.useCallback(() => {
+    if (!getPluginItems) return;
+    dispatch({ type: 'pluginPickerSetItems', items: getPluginItems() });
+  }, [getPluginItems]);
+
+  useEffect(() => {
+    if (!state.pluginPicker.open) return;
+    refreshPluginPicker();
+  }, [state.pluginPicker.open, refreshPluginPicker]);
+
+  const toggleSelectedPlugin = React.useCallback(async () => {
+    if (!onPluginToggle) return;
+    const selected = stateRef.current.pluginPicker.items[stateRef.current.pluginPicker.selected];
+    if (!selected) return;
+    // Lockable rows (core plugins + critical guards) cannot be toggled from
+    // the menu. Show a hint and bail instead of dispatching the toggle.
+    if (selected.lockable === false) {
+      dispatch({
+        type: 'pluginPickerHint',
+        text: `${selected.name} is locked — see /plugin report for the reason.`,
+      });
+      return;
+    }
+    dispatch({ type: 'pluginPickerBusy', busy: true });
+    try {
+      const result = await onPluginToggle(selected.name);
+      dispatch({ type: 'pluginPickerSetItems', items: result.items });
+      dispatch({ type: 'pluginPickerHint', text: result.error ?? result.message });
+    } catch (err) {
+      dispatch({ type: 'pluginPickerBusy', busy: false });
+      dispatch({
+        type: 'pluginPickerHint',
+        text: `Failed to toggle ${selected.name}: ${toErrorMessage(err)}`,
+      });
+    }
+  }, [onPluginToggle]);
 
   // NOTE: there is deliberately NO local "auto-proceed countdown" timer here.
   // The StatusBar's "⏳ auto in Ns" chip is driven exclusively by real
@@ -2760,7 +3072,16 @@ export function App({
       setNextStepsAutoSubmitCountdown(null);
       setNextStepsAutoSubmitLabel(null);
     };
-  }, [state.status, autonomyLive, state.enhance, state.enhanceBusy, nextStepsRecheck, getSettings, getSuggestions, dispatch]);
+  }, [
+    state.status,
+    autonomyLive,
+    state.enhance,
+    state.enhanceBusy,
+    nextStepsRecheck,
+    getSettings,
+    getSuggestions,
+    dispatch,
+  ]);
 
   // ── Auto-save settings on value change (←/→ arrow keys) ──
   // Gate ref: skip the first effect fire when settings just opened (all fields
@@ -2786,45 +3107,47 @@ export function App({
       return;
     }
 
-    Promise.resolve(save({
-      mode: sp.mode,
-      delayMs: sp.delayMs,
-      titleAnimation: sp.titleAnimation,
-      yolo: sp.yolo,
-      streamFleet: sp.streamFleet,
-      chime: sp.chime,
-      confirmExit: sp.confirmExit,
-      nextPrediction: sp.nextPrediction,
-      featureMcp: sp.featureMcp,
-      featurePlugins: sp.featurePlugins,
-      featureMemory: sp.featureMemory,
-      featureSkills: sp.featureSkills,
-      featureModelsRegistry: sp.featureModelsRegistry,
-      featureTokenSaving: sp.tokenSavingTier,
-      allowOutsideProjectRoot: sp.allowOutsideProjectRoot,
-      contextAutoCompact: sp.contextAutoCompact,
-      contextStrategy: sp.contextStrategy,
-      contextMode: sp.contextMode,
-      maxConcurrent: sp.maxConcurrent,
-      logLevel: sp.logLevel,
-      auditLevel: sp.auditLevel,
-      indexOnStart: sp.indexOnStart,
-      multiDiffSummaryThreshold: sp.multiDiffSummaryThreshold,
-      lastSettingsField: sp.lastSettingsField,
-      maxIterations: sp.maxIterations,
-      autoProceedMaxIterations: sp.autoProceedMaxIterations,
-      enhanceDelayMs: sp.enhanceDelayMs,
-      enhanceEnabled: sp.enhanceEnabled,
-      enhanceLanguage: sp.enhanceLanguage,
-      debugStream: sp.debugStream,
-      statuslineMode: sp.statuslineMode,
-      reasoningMode: sp.reasoningMode,
-      reasoningEffort: sp.reasoningEffort,
-      reasoningPreserve: sp.reasoningPreserve,
-      thinkingWord: sp.thinkingWord,
-      cacheTtl: sp.cacheTtl,
-      configScope: sp.configScope,
-    })).then((err: string | null) => {
+    Promise.resolve(
+      save({
+        mode: sp.mode,
+        delayMs: sp.delayMs,
+        titleAnimation: sp.titleAnimation,
+        yolo: sp.yolo,
+        streamFleet: sp.streamFleet,
+        chime: sp.chime,
+        confirmExit: sp.confirmExit,
+        nextPrediction: sp.nextPrediction,
+        featureMcp: sp.featureMcp,
+        featurePlugins: sp.featurePlugins,
+        featureMemory: sp.featureMemory,
+        featureSkills: sp.featureSkills,
+        featureModelsRegistry: sp.featureModelsRegistry,
+        featureTokenSaving: sp.tokenSavingTier,
+        allowOutsideProjectRoot: sp.allowOutsideProjectRoot,
+        contextAutoCompact: sp.contextAutoCompact,
+        contextStrategy: sp.contextStrategy,
+        contextMode: sp.contextMode,
+        maxConcurrent: sp.maxConcurrent,
+        logLevel: sp.logLevel,
+        auditLevel: sp.auditLevel,
+        indexOnStart: sp.indexOnStart,
+        multiDiffSummaryThreshold: sp.multiDiffSummaryThreshold,
+        lastSettingsField: sp.lastSettingsField,
+        maxIterations: sp.maxIterations,
+        autoProceedMaxIterations: sp.autoProceedMaxIterations,
+        enhanceDelayMs: sp.enhanceDelayMs,
+        enhanceEnabled: sp.enhanceEnabled,
+        enhanceLanguage: sp.enhanceLanguage,
+        debugStream: sp.debugStream,
+        statuslineMode: sp.statuslineMode,
+        reasoningMode: sp.reasoningMode,
+        reasoningEffort: sp.reasoningEffort,
+        reasoningPreserve: sp.reasoningPreserve,
+        thinkingWord: sp.thinkingWord,
+        cacheTtl: sp.cacheTtl,
+        configScope: sp.configScope,
+      }),
+    ).then((err: string | null) => {
       if (err) dispatch({ type: 'settingsHint', text: err });
     });
   }, [
@@ -2958,11 +3281,12 @@ export function App({
           const active = await loadActiveKit(projectRoot);
           if (!active) return { message: 'No active kit. Pin one first: /design <kit-id>.' };
           const stackArg2 = tokens[1]?.toLowerCase();
-          const matStack = stackArg2 && isDesignStack(stackArg2)
-            ? stackArg2
-            : active.stack && isDesignStack(active.stack)
-              ? active.stack
-              : 'web';
+          const matStack =
+            stackArg2 && isDesignStack(stackArg2)
+              ? stackArg2
+              : active.stack && isDesignStack(active.stack)
+                ? active.stack
+                : 'web';
           const outPath = stackArg2 && !isDesignStack(stackArg2) ? tokens[1] : tokens[2];
           const raw = await loader.readTokens(active.kit);
           if (!raw) return { message: `Kit "${active.kit}" has no tokens.json.` };
@@ -3038,7 +3362,9 @@ export function App({
           const subArg = query.slice('reset'.length).trim();
           if (subArg === '') {
             return {
-              message: 'Usage: /settings reset <chord>\nAvailable: ' + settingsPickerJumpNames().join(', '),
+              message:
+                'Usage: /settings reset <chord>\nAvailable: ' +
+                settingsPickerJumpNames().join(', '),
             };
           }
           const field = settingsPickerJumpByName(subArg);
@@ -3061,9 +3387,7 @@ export function App({
               saveSettings({
                 ...cur,
                 ...rest,
-                ...(tokenSavingTier !== undefined
-                  ? { featureTokenSaving: tokenSavingTier }
-                  : {}),
+                ...(tokenSavingTier !== undefined ? { featureTokenSaving: tokenSavingTier } : {}),
               }),
             ).then((err: string | null) => {
               if (err) dispatch({ type: 'settingsHint', text: err });
@@ -3113,9 +3437,7 @@ export function App({
             const updated: Settings = {
               ...cur,
               ...rest,
-              ...(tokenSavingTier !== undefined
-                ? { featureTokenSaving: tokenSavingTier }
-                : {}),
+              ...(tokenSavingTier !== undefined ? { featureTokenSaving: tokenSavingTier } : {}),
             };
             Promise.resolve(saveSettings(updated)).then((err: string | null) => {
               if (err) dispatch({ type: 'settingsHint', text: err });
@@ -3198,7 +3520,8 @@ export function App({
     const cmd = {
       name: 'statusline',
       aliases: ['sl'],
-      description: 'Customize status bar chips: /statusline (interactive) or /statusline <item> [on|off]',
+      description:
+        'Customize status bar chips: /statusline (interactive) or /statusline <item> [on|off]',
       async run(args: string) {
         const trimmed = args.trim();
         if (trimmed) {
@@ -3221,11 +3544,15 @@ export function App({
               return { message: 'Usage: /statusline all on|off' };
             }
             applyHidden(action === 'off' ? [...STATUSLINE_ITEMS] : []);
-            return { message: `statusline all: ${action === 'on' ? 'showing all chips' : 'hiding all chips'}` };
+            return {
+              message: `statusline all: ${action === 'on' ? 'showing all chips' : 'hiding all chips'}`,
+            };
           }
 
           if (!item || !STATUSLINE_ITEMS.includes(item as StatuslineItem)) {
-            return { message: `Unknown item "${rawItem ?? ''}". Run /statusline to see available items.` };
+            return {
+              message: `Unknown item "${rawItem ?? ''}". Run /statusline to see available items.`,
+            };
           }
 
           if (action !== undefined && action !== 'on' && action !== 'off') {
@@ -3686,7 +4013,9 @@ export function App({
 
   // Next-steps auto-submit countdown state: seconds remaining and the suggestion text.
   // When autonomy is 'auto' and suggestions exist, this countdown auto-submits the first suggestion.
-  const [nextStepsAutoSubmitCountdown, setNextStepsAutoSubmitCountdown] = useState<number | null>(null);
+  const [nextStepsAutoSubmitCountdown, setNextStepsAutoSubmitCountdown] = useState<number | null>(
+    null,
+  );
   const [nextStepsAutoSubmitLabel, setNextStepsAutoSubmitLabel] = useState<string | null>(null);
   const nextStepsAutoSubmitSuggestionRef = useRef<string | null>(null);
   const nextStepsAutoSubmitTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -3754,6 +4083,7 @@ export function App({
   // submit is defined later in the component body (after handleKey);
   // this ref lets usePickerKeys call it without reordering code.
   const submitRef = useRef<(text: string) => void>(() => {});
+
   const tryPickerKey = usePickerKeys({
     state,
     dispatch,
@@ -3785,39 +4115,17 @@ export function App({
       if (!session || session.isCurrent) return;
       if (state.resumePicker.busy) return;
       dispatch({ type: 'resumePickerBusy', on: true });
-      onResumeSession?.(session.id).then((result) => {
-        if (!result) {
-          dispatch({ type: 'resumePickerError', text: `Failed to resume session ${session.id}.` });
-          return;
-        }
-        dispatch({ type: 'replaceHistory', entries: result.entries, nextId: result.nextId });
-        dispatch({ type: 'resumePickerClose' });
-        dispatch({
-          type: 'addEntry',
-          entry: {
-            kind: 'info',
-            text: `Resumed session ${result.sessionId} — ${result.entries.length} entries replayed.`,
-          },
-        });
-      }).catch((err) => {
-        dispatch({
-          type: 'resumePickerError',
-          text: toErrorMessage(err),
-        });
-      });
-    },
-    onSessionsPanelEnter: async () => {
-      if (state.sessionResumeConfirm) {
-        const pending = state.sessionResumeConfirm;
-        dispatch({ type: 'sessionResumeConfirmClear' });
-        dispatch({ type: 'sessionsPanelBusy', on: true });
-        onResumeSession?.(pending.sessionId).then((result) => {
+      onResumeSession?.(session.id)
+        .then((result) => {
           if (!result) {
-            dispatch({ type: 'sessionsPanelBusy', on: false });
+            dispatch({
+              type: 'resumePickerError',
+              text: `Failed to resume session ${session.id}.`,
+            });
             return;
           }
           dispatch({ type: 'replaceHistory', entries: result.entries, nextId: result.nextId });
-          dispatch({ type: 'toggleSessionsPanel' });
+          dispatch({ type: 'resumePickerClose' });
           dispatch({
             type: 'addEntry',
             entry: {
@@ -3825,9 +4133,38 @@ export function App({
               text: `Resumed session ${result.sessionId} — ${result.entries.length} entries replayed.`,
             },
           });
-        }).catch(() => {
-          dispatch({ type: 'sessionsPanelBusy', on: false });
+        })
+        .catch((err) => {
+          dispatch({
+            type: 'resumePickerError',
+            text: toErrorMessage(err),
+          });
         });
+    },
+    onSessionsPanelEnter: async () => {
+      if (state.sessionResumeConfirm) {
+        const pending = state.sessionResumeConfirm;
+        dispatch({ type: 'sessionResumeConfirmClear' });
+        dispatch({ type: 'sessionsPanelBusy', on: true });
+        onResumeSession?.(pending.sessionId)
+          .then((result) => {
+            if (!result) {
+              dispatch({ type: 'sessionsPanelBusy', on: false });
+              return;
+            }
+            dispatch({ type: 'replaceHistory', entries: result.entries, nextId: result.nextId });
+            dispatch({ type: 'toggleSessionsPanel' });
+            dispatch({
+              type: 'addEntry',
+              entry: {
+                kind: 'info',
+                text: `Resumed session ${result.sessionId} — ${result.entries.length} entries replayed.`,
+              },
+            });
+          })
+          .catch(() => {
+            dispatch({ type: 'sessionsPanelBusy', on: false });
+          });
         return;
       }
       const sessions = state.sessionsPanel.sessions;
@@ -3879,13 +4216,19 @@ export function App({
       if (item.kind === 'project') {
         await onProjectSelect?.(item.key, item.kind);
         dispatch({ type: 'projectPickerClose' });
-        dispatch({ type: 'addEntry', entry: { kind: 'info', text: `Switched project: ${item.label.trim()}.` } });
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'info', text: `Switched project: ${item.label.trim()}.` },
+        });
         return;
       }
       dispatch({ type: 'projectPickerClose' });
       if (item.key === 'new-session') {
         await onProjectSelect?.(item.key, item.kind);
-        dispatch({ type: 'addEntry', entry: { kind: 'info', text: 'Started a fresh session in this project.' } });
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'info', text: 'Started a fresh session in this project.' },
+        });
       } else if (item.key === 'prev-sessions') {
         submitRef.current('/resume');
       }
@@ -3919,6 +4262,7 @@ export function App({
         dispatch({ type: 'settingsValueChange', delta: 1 });
       }
     },
+    onPluginPickerToggle: toggleSelectedPlugin,
     onFKeyPickerEnter: () => {
       const selected = state.fKeyPicker.selected;
       const entry = F_KEY_ENTRIES[selected];
@@ -4808,13 +5152,7 @@ export function App({
     // message is never swallowed. Guarded via overlayOpen — when any panel
     // or picker is active the key is ignored so overlay-internal `?` usage
     // (none currently) is never stolen.
-    if (
-      input === '?' &&
-      !key.ctrl &&
-      !key.meta &&
-      draftRef.current.buffer === '' &&
-      !overlayOpen
-    ) {
+    if (input === '?' && !key.ctrl && !key.meta && draftRef.current.buffer === '' && !overlayOpen) {
       dispatch({ type: 'toggleHelp' });
       return;
     }
@@ -4862,8 +5200,7 @@ export function App({
     // submit with Enter. Slash/other pickers are handled above and have
     // already returned, so this only triggers on the bare idle prompt.
     if (key.tab && nextStepsAutoSubmitTimerRef.current != null) {
-      const pending =
-        nextStepsAutoSubmitSuggestionRef.current ?? nextStepsAutoSubmitLabel ?? '';
+      const pending = nextStepsAutoSubmitSuggestionRef.current ?? nextStepsAutoSubmitLabel ?? '';
       clearInterval(nextStepsAutoSubmitTimerRef.current);
       nextStepsAutoSubmitTimerRef.current = undefined;
       setNextStepsAutoSubmitCountdown(null);
@@ -4878,9 +5215,10 @@ export function App({
       if (key.ctrl) {
         if (cursor === 0) return;
         const chip = tokenSpanAt(buffer, cursor);
-        const deleteStart = chip && cursor > chip.start && cursor < chip.end
-          ? chip.start
-          : previousInputWordStart(buffer, cursor);
+        const deleteStart =
+          chip && cursor > chip.start && cursor < chip.end
+            ? chip.start
+            : previousInputWordStart(buffer, cursor);
         const deleteEnd = chip && cursor > chip.start && cursor < chip.end ? chip.end : cursor;
         const next = buffer.slice(0, deleteStart) + buffer.slice(deleteEnd);
         // Cancel next-steps auto-submit countdown when buffer changes.
@@ -4924,9 +5262,10 @@ export function App({
         if (cursor >= buffer.length) return;
         const chip = tokenSpanAt(buffer, cursor);
         const deleteStart = chip && cursor > chip.start && cursor < chip.end ? chip.start : cursor;
-        const deleteEnd = chip && cursor > chip.start && cursor < chip.end
-          ? chip.end
-          : nextInputWordStart(buffer, cursor);
+        const deleteEnd =
+          chip && cursor > chip.start && cursor < chip.end
+            ? chip.end
+            : nextInputWordStart(buffer, cursor);
         const next = buffer.slice(0, deleteStart) + buffer.slice(deleteEnd);
         // Cancel next-steps auto-submit countdown when buffer changes.
         if (nextStepsAutoSubmitTimerRef.current != null) {
@@ -4995,11 +5334,17 @@ export function App({
         // Up/Down on a single line is a no-op (handled below via left/right).
       } else {
         // Multi-line: find current row (0-based, relative to INPUT_PROMPT).
-        let row = 0, col = 0, offset = 0;
+        let row = 0,
+          col = 0,
+          offset = 0;
         outer: for (let r = 0; r < rows.length; r++) {
           const cells = rows[r]!;
           for (let c = 0; c < cells.length; c++) {
-            if (offset === cursor) { row = r; col = c; break outer; }
+            if (offset === cursor) {
+              row = r;
+              col = c;
+              break outer;
+            }
             offset++;
           }
           if (cells.length < width) offset++; // newline
@@ -5030,7 +5375,9 @@ export function App({
           const delta = key.pageUp ? -pageSize : pageSize;
           const targetRow = Math.max(0, Math.min(rows.length - 1, row + delta));
           if (targetRow !== row) {
-            const targetRowLen = rows[targetRow]!.filter((cell) => !cell.prompt && !cell.chip).length;
+            const targetRowLen = rows[targetRow]!.filter(
+              (cell) => !cell.prompt && !cell.chip,
+            ).length;
             const targetCol = Math.min(col, targetRowLen);
             const target = inputIndexAtRowCol(INPUT_PROMPT, buffer, width, targetRow, targetCol);
             setDraft(buffer, target);
@@ -5056,7 +5403,8 @@ export function App({
     // outside mouse mode (where <Static> rides native scrollback instead).
     if (mouseMode && !overlayOpen) {
       if (key.mouse?.kind === 'wheel') {
-        if (key.mouse.shift) dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
+        if (key.mouse.shift)
+          dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
         else dispatch({ type: 'scrollBy', delta: key.mouse.wheel > 0 ? 3 : -3 });
         return;
       }
@@ -5095,7 +5443,13 @@ export function App({
         const mx = key.mouse.x;
         const my = key.mouse.y;
         const rowFor = (line: number) =>
-          statusBarLineRow({ termRows, statusBarHeight: sbHeight, belowHeight, headerRows: 1, line });
+          statusBarLineRow({
+            termRows,
+            statusBarHeight: sbHeight,
+            belowHeight,
+            headerRows: 1,
+            line,
+          });
         const inSpan = (span: { start: number; len: number }) =>
           mx >= span.start + 1 && mx <= span.start + span.len;
         // Line 1 — model chip → model picker. Full-width layout only: compact
@@ -5370,9 +5724,7 @@ export function App({
       dispatch({ type: 'streamReset' });
 
       if (result.status === 'aborted') {
-        const reason = result.abortReason
-          ? `Aborted (${result.abortReason}).`
-          : 'Aborted.';
+        const reason = result.abortReason ? `Aborted (${result.abortReason}).` : 'Aborted.';
         dispatch({ type: 'addEntry', entry: { kind: 'warn', text: reason } });
       } else if (result.status === 'failed') {
         const err = result.error;
@@ -5462,7 +5814,11 @@ export function App({
       dispatch({ type: 'status', status: 'idle' });
       // Completion chime: terminal bell when agent finishes.
       if (chimeRef.current) {
-        try { process.stdout.write('\x07'); } catch { /* stdout closed */ }
+        try {
+          process.stdout.write('\x07');
+        } catch {
+          /* stdout closed */
+        }
       }
     }
 
@@ -5864,12 +6220,15 @@ export function App({
     if (chips.length > 0) {
       // Strip chips from the text for the enhancer — keeps file paths out of
       // the text the model might mangle, but preserves them for re-attachment.
-      cleanText = trimmed.replace(chipRe, '').replace(/\s{2,}/g, ' ').trim();
+      cleanText = trimmed
+        .replace(chipRe, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
       // If the message is nothing but chips (e.g. pasting a file with no
       // comment), don't bother refining — there's no prose to improve.
       if (!cleanText) {
         cleanText = trimmed; // fall through to send-as-is
-        chips.length = 0;    // already in the text, nothing to re-attach
+        chips.length = 0; // already in the text, nothing to re-attach
       }
     }
     if (
@@ -5891,7 +6250,7 @@ export function App({
       // field is sent, exactly as before.
       const enhanceReasoning = getEnhancerReasoning?.();
       try {
-        result = await enhanceUserPrompt({
+        result = (await enhanceUserPrompt({
           provider: agent.ctx.provider,
           model: agent.ctx.model,
           text: cleanText,
@@ -5903,7 +6262,7 @@ export function App({
           // resolve against context instead of being refined blind.
           history: recentTextTurns(agent.ctx.messages),
           ...(enhanceReasoning ? { reasoning: enhanceReasoning } : {}),
-        }) as { refined: string; english: string } | null;
+        })) as { refined: string; english: string } | null;
       } finally {
         enhanceAbortRef.current = null;
         dispatch({ type: 'enhanceBusy', on: false });
@@ -5928,17 +6287,19 @@ export function App({
         const chipSuffix = chips.length > 0 ? ` ${chips.join(' ')}` : '';
         const refinedWithChips = result.refined + chipSuffix;
         const englishWithChips = result.english + chipSuffix;
-        const decision = await new Promise<'refined' | 'english' | 'original' | 'edit'>((resolve) => {
-          dispatch({
-            type: 'enhanceOpen',
-            info: {
-              original: trimmed,
-              refined: refinedWithChips,
-              english: englishWithChips,
-              resolve,
-            },
-          });
-        });
+        const decision = await new Promise<'refined' | 'english' | 'original' | 'edit'>(
+          (resolve) => {
+            dispatch({
+              type: 'enhanceOpen',
+              info: {
+                original: trimmed,
+                refined: refinedWithChips,
+                english: englishWithChips,
+                resolve,
+              },
+            });
+          },
+        );
         dispatch({ type: 'enhanceClose' });
         if (decision === 'edit') {
           // Load the refined text back into the input so the user can tweak
@@ -6370,6 +6731,14 @@ export function App({
               hint={state.statuslinePicker.hint}
             />
           ) : null}
+          {state.pluginPicker.open ? (
+            <PluginPicker
+              items={state.pluginPicker.items}
+              selected={state.pluginPicker.selected}
+              busy={state.pluginPicker.busy}
+              hint={state.pluginPicker.hint}
+            />
+          ) : null}
           {state.projectPicker.open ? (
             <ProjectPicker
               items={state.projectPicker.items}
@@ -6378,15 +6747,17 @@ export function App({
               hint={state.projectPicker.hint}
             />
           ) : null}
-          {state.fKeyPicker.open ? (
-            <FKeyPicker selected={state.fKeyPicker.selected} />
-          ) : null}
+          {state.fKeyPicker.open ? <FKeyPicker selected={state.fKeyPicker.selected} /> : null}
           {state.sessionsPanelOpen ? (
             <SessionsPanel
               sessions={state.sessionsPanel.sessions}
               busy={state.sessionsPanel.busy}
               selected={state.sessionsPanel.selected}
-              resumeConfirm={state.sessionResumeConfirm ? { sessionName: state.sessionResumeConfirm.sessionName } : undefined}
+              resumeConfirm={
+                state.sessionResumeConfirm
+                  ? { sessionName: state.sessionResumeConfirm.sessionName }
+                  : undefined
+              }
               currentSessionId={agent.ctx.session?.id}
             />
           ) : null}
@@ -6538,9 +6909,7 @@ export function App({
               <Text dimColor>
                 ✨ refining{' '}
                 <Text color="cyan">
-                  {state.buffer.length > 100
-                    ? `${state.buffer.slice(0, 97)}…`
-                    : state.buffer}
+                  {state.buffer.length > 100 ? `${state.buffer.slice(0, 97)}…` : state.buffer}
                 </Text>
                 <Text color="cyan"> {'.'.repeat(enhanceDots) || '\u00A0'}</Text>
               </Text>
@@ -6569,50 +6938,52 @@ export function App({
               })()
             : null}
           <Box ref={statusBarWrapRef} flexDirection="column" flexShrink={0}>
-          <StatusBar
-            model={`${liveProvider}/${liveModel}`}
-            version={appVersion}
-            state={state.status}
-            thinkingWord={displayThinkingWord}
-            tokenCounter={tokenCounter}
-            hint={renderRunningTools(state.runningTools) || state.hint}
-            queueCount={state.queue.length}
-            yolo={yoloLive}
-            autonomy={autonomyLive}
-            startedAt={startedAtRef.current}
-            todos={todos}
-            plan={planCounts ?? undefined}
-            tasks={taskCounts ?? undefined}
-            fleet={fleetCounts}
-            git={gitInfo}
-            context={contextWindow}
-            contextStrategy={getSettings ? getSettings().contextStrategy : undefined}
-            brain={state.brain}
-            projectName={projectName}
-            workingDir={workingDirChip}
-            subagentCount={Object.keys(state.fleet).length}
-            processCount={getProcessRegistry().activeCount}
-            hiddenItems={hiddenItems}
-            mode={liveStatuslineMode}
-            visibleChips={state.statuslinePicker.visibleChips}
-            events={events}
-            sessionId={agent.ctx.session.id}
-            eternalStage={state.eternalStage}
-            goalSummary={state.goalSummary}
-            indexState={indexState}
-            breakerCountdown={breakerCountdown}
-            modeLabel={liveModeLabel || undefined}
-            debugStreamStats={state.debugStreamStats}
-            enhanceCountdown={enhanceCountdown}
-            nextStepsAutoSubmitCountdown={nextStepsAutoSubmitCountdown}
-            nextStepsAutoSubmitLabel={nextStepsAutoSubmitLabel}
-            autoProceedCountdown={state.countdown?.remainingSeconds ?? null}
-            sessionCount={sessionCount}
-            mailbox={mailboxStatus}
-            tokenSavingMode={getSettings ? getSettings().featureTokenSaving !== 'off' : tokenSavingMode}
-            toolCount={toolCount}
-            sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
-          />
+            <StatusBar
+              model={`${liveProvider}/${liveModel}`}
+              version={appVersion}
+              state={state.status}
+              thinkingWord={displayThinkingWord}
+              tokenCounter={tokenCounter}
+              hint={renderRunningTools(state.runningTools) || state.hint}
+              queueCount={state.queue.length}
+              yolo={yoloLive}
+              autonomy={autonomyLive}
+              startedAt={startedAtRef.current}
+              todos={todos}
+              plan={planCounts ?? undefined}
+              tasks={taskCounts ?? undefined}
+              fleet={fleetCounts}
+              git={gitInfo}
+              context={contextWindow}
+              contextStrategy={getSettings ? getSettings().contextStrategy : undefined}
+              brain={state.brain}
+              projectName={projectName}
+              workingDir={workingDirChip}
+              subagentCount={Object.keys(state.fleet).length}
+              processCount={getProcessRegistry().activeCount}
+              hiddenItems={hiddenItems}
+              mode={liveStatuslineMode}
+              visibleChips={state.statuslinePicker.visibleChips}
+              events={events}
+              sessionId={agent.ctx.session.id}
+              eternalStage={state.eternalStage}
+              goalSummary={state.goalSummary}
+              indexState={indexState}
+              breakerCountdown={breakerCountdown}
+              modeLabel={liveModeLabel || undefined}
+              debugStreamStats={state.debugStreamStats}
+              enhanceCountdown={enhanceCountdown}
+              nextStepsAutoSubmitCountdown={nextStepsAutoSubmitCountdown}
+              nextStepsAutoSubmitLabel={nextStepsAutoSubmitLabel}
+              autoProceedCountdown={state.countdown?.remainingSeconds ?? null}
+              sessionCount={sessionCount}
+              mailbox={mailboxStatus}
+              tokenSavingMode={
+                getSettings ? getSettings().featureTokenSaving !== 'off' : tokenSavingMode
+              }
+              toolCount={toolCount}
+              sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
+            />
           </Box>
           {/* Mailbox panel — toggled via /mailbox slash command */}
           <MailboxPanel
@@ -6625,122 +6996,125 @@ export function App({
               measured (via belowStatusBarRef) — the status-bar mouse hit-test
               subtracts it from termRows to find the bar's absolute rows. */}
           <Box ref={belowStatusBarRef} flexDirection="column" flexShrink={0}>
-          {/* Keys-&-commands help overlay (`?` on an empty prompt). Modal: while
+            {/* Keys-&-commands help overlay (`?` on an empty prompt). Modal: while
           open, handleKey swallows everything but Esc/?/q, so it never coexists
           with a monitor. */}
-          {state.helpOpen ? <HelpOverlay /> : null}
-          {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
+            {state.helpOpen ? <HelpOverlay /> : null}
+            {/* Agents monitor overlay (Ctrl+G) and fleet monitor overlay (Ctrl+F)
           take up the lower region — hide FleetPanel while any overlay is open. */}
-          {state.agentsMonitorOpen ? (
-            <AgentsMonitor
-              entries={entriesWithLeader}
-              totalCost={state.fleetCost}
-              leaderCost={tokenCounter?.estimateCost().total ?? 0}
-              totalTokens={state.fleetTokens}
-              nowTick={nowTick}
-              onClose={() => dispatch({ type: 'toggleAgentsMonitor' })}
-            />
-          ) : state.autoPhase?.monitorOpen ? (
-            <PhaseMonitor
-              phases={state.autoPhase.phases}
-              runningPhaseIds={state.autoPhase.runningPhaseIds}
-              elapsedMs={state.autoPhase.elapsedMs}
-              nowTick={nowTick}
-            />
-          ) : state.sddBoard?.monitorOpen ? (
-            <SddBoardOverlay
-              snapshot={state.sddBoard.snapshot}
-              focusColumn={state.sddBoard.focusColumn ?? null}
-            />
-          ) : state.worktreeMonitorOpen ? (
-            <WorktreeMonitor
-              worktrees={state.worktrees}
-              baseBranch={state.worktreeBase}
-              nowTick={nowTick}
-              onClose={() => dispatch({ type: 'worktreeMonitorToggle' })}
-            />
-          ) : state.todosMonitorOpen ? (
-            <TodosMonitor todos={agent.ctx.todos} />
-          ) : state.monitorOpen ? (
-            <FleetMonitor
-              entries={state.fleet}
-              totalCost={state.fleetCost}
-              totalTokens={state.fleetTokens}
-              maxConcurrent={state.fleetConcurrency}
-              nowTick={nowTick}
-              collabSession={state.collabSession}
-            />
-          ) : state.planPanelOpen ? (
-            <PlanPanel
-              projectRoot={agent.ctx.projectRoot}
-              sessionId={agent.ctx.session?.id ?? null}
-              onClose={() => dispatch({ type: 'togglePlanPanel' })}
-            />
-          ) : state.queuePanelOpen ? (
-            <QueuePanel items={state.queue} />
-          ) : state.processListOpen ? (
-            <ProcessListMonitor />
-          ) : state.goalPanelOpen ? (
-            <GoalPanel
-              goal={state.goalSummary}
-              onCoordinatorStart={onCoordinatorStart ?? undefined}
-              onCoordinatorStop={onCoordinatorStop ?? undefined}
-              coordinatorRunning={coordinatorRunning}
-            />
-          ) : director ? (
-            <FleetPanel
-              entries={entriesWithLeader}
-              totalCost={state.fleetCost}
-              roster={fleetRoster}
-              collabSession={state.collabSession}
-            />
-          ) : null}
-          {state.autoPhase && !lowerFunctionPanelOpen ? (
-            <PhasePanel
-              phases={state.autoPhase.phases}
-              runningPhaseIds={state.autoPhase.runningPhaseIds}
-              nowTick={nowTick}
-            />
-          ) : null}
-          {Object.keys(state.worktrees).length > 0 &&
-          !lowerFunctionPanelOpen ? (
-            <WorktreePanel worktrees={state.worktrees} nowTick={nowTick} />
-          ) : null}
-          {/* Key hint bar — shows keyboard shortcuts and a discovery hint for the next panel. */}
-          {(() => {
-            const anyMonitorOpen =
-              state.agentsMonitorOpen ||
-              (state.autoPhase?.monitorOpen ?? false) ||
-              state.worktreeMonitorOpen ||
-              state.todosMonitorOpen ||
-              state.monitorOpen ||
-              state.processListOpen ||
-              state.queuePanelOpen ||
-              state.goalPanelOpen;
-            // Compute the next panel hint based on the currently open monitor.
-            // Panels cycle in this order: agents(F3) → todos(F6) → goal(F9) → agents
-            let nextPanelHint: KeyHintContext['nextPanelHint'];
-            if (state.agentsMonitorOpen) {
-              nextPanelHint = { key: 'F6', label: 'todos' };
-            } else if (
-              state.autoPhase?.monitorOpen ||
-              state.worktreeMonitorOpen ||
-              state.todosMonitorOpen
-            ) {
-              nextPanelHint = { key: 'F9', label: 'goal' };
-            } else if (state.queuePanelOpen || state.processListOpen || state.goalPanelOpen) {
-              nextPanelHint = { key: 'F3', label: 'agents' };
-            } else if (anyMonitorOpen) {
-              nextPanelHint = { key: 'F3', label: 'agents' };
-            }
-            const ctx: KeyHintContext = {
-              monitor: anyMonitorOpen,
-              managed: state.scrollOffset > 0,
-              picker: state.settingsPicker.open || state.modelPicker.open || state.autonomyPicker.open || state.designPicker.open,
-              nextPanelHint,
-            };
-            return <KeyHintBar context={ctx} />;
-          })()}
+            {state.agentsMonitorOpen ? (
+              <AgentsMonitor
+                entries={entriesWithLeader}
+                totalCost={state.fleetCost}
+                leaderCost={tokenCounter?.estimateCost().total ?? 0}
+                totalTokens={state.fleetTokens}
+                nowTick={nowTick}
+                onClose={() => dispatch({ type: 'toggleAgentsMonitor' })}
+              />
+            ) : state.autoPhase?.monitorOpen ? (
+              <PhaseMonitor
+                phases={state.autoPhase.phases}
+                runningPhaseIds={state.autoPhase.runningPhaseIds}
+                elapsedMs={state.autoPhase.elapsedMs}
+                nowTick={nowTick}
+              />
+            ) : state.sddBoard?.monitorOpen ? (
+              <SddBoardOverlay
+                snapshot={state.sddBoard.snapshot}
+                focusColumn={state.sddBoard.focusColumn ?? null}
+              />
+            ) : state.worktreeMonitorOpen ? (
+              <WorktreeMonitor
+                worktrees={state.worktrees}
+                baseBranch={state.worktreeBase}
+                nowTick={nowTick}
+                onClose={() => dispatch({ type: 'worktreeMonitorToggle' })}
+              />
+            ) : state.todosMonitorOpen ? (
+              <TodosMonitor todos={agent.ctx.todos} />
+            ) : state.monitorOpen ? (
+              <FleetMonitor
+                entries={state.fleet}
+                totalCost={state.fleetCost}
+                totalTokens={state.fleetTokens}
+                maxConcurrent={state.fleetConcurrency}
+                nowTick={nowTick}
+                collabSession={state.collabSession}
+              />
+            ) : state.planPanelOpen ? (
+              <PlanPanel
+                projectRoot={agent.ctx.projectRoot}
+                sessionId={agent.ctx.session?.id ?? null}
+                onClose={() => dispatch({ type: 'togglePlanPanel' })}
+              />
+            ) : state.queuePanelOpen ? (
+              <QueuePanel items={state.queue} />
+            ) : state.processListOpen ? (
+              <ProcessListMonitor />
+            ) : state.goalPanelOpen ? (
+              <GoalPanel
+                goal={state.goalSummary}
+                onCoordinatorStart={onCoordinatorStart ?? undefined}
+                onCoordinatorStop={onCoordinatorStop ?? undefined}
+                coordinatorRunning={coordinatorRunning}
+              />
+            ) : director ? (
+              <FleetPanel
+                entries={entriesWithLeader}
+                totalCost={state.fleetCost}
+                roster={fleetRoster}
+                collabSession={state.collabSession}
+              />
+            ) : null}
+            {state.autoPhase && !lowerFunctionPanelOpen ? (
+              <PhasePanel
+                phases={state.autoPhase.phases}
+                runningPhaseIds={state.autoPhase.runningPhaseIds}
+                nowTick={nowTick}
+              />
+            ) : null}
+            {Object.keys(state.worktrees).length > 0 && !lowerFunctionPanelOpen ? (
+              <WorktreePanel worktrees={state.worktrees} nowTick={nowTick} />
+            ) : null}
+            {/* Key hint bar — shows keyboard shortcuts and a discovery hint for the next panel. */}
+            {(() => {
+              const anyMonitorOpen =
+                state.agentsMonitorOpen ||
+                (state.autoPhase?.monitorOpen ?? false) ||
+                state.worktreeMonitorOpen ||
+                state.todosMonitorOpen ||
+                state.monitorOpen ||
+                state.processListOpen ||
+                state.queuePanelOpen ||
+                state.goalPanelOpen;
+              // Compute the next panel hint based on the currently open monitor.
+              // Panels cycle in this order: agents(F3) → todos(F6) → goal(F9) → agents
+              let nextPanelHint: KeyHintContext['nextPanelHint'];
+              if (state.agentsMonitorOpen) {
+                nextPanelHint = { key: 'F6', label: 'todos' };
+              } else if (
+                state.autoPhase?.monitorOpen ||
+                state.worktreeMonitorOpen ||
+                state.todosMonitorOpen
+              ) {
+                nextPanelHint = { key: 'F9', label: 'goal' };
+              } else if (state.queuePanelOpen || state.processListOpen || state.goalPanelOpen) {
+                nextPanelHint = { key: 'F3', label: 'agents' };
+              } else if (anyMonitorOpen) {
+                nextPanelHint = { key: 'F3', label: 'agents' };
+              }
+              const ctx: KeyHintContext = {
+                monitor: anyMonitorOpen,
+                managed: state.scrollOffset > 0,
+                picker:
+                  state.settingsPicker.open ||
+                  state.modelPicker.open ||
+                  state.autonomyPicker.open ||
+                  state.designPicker.open,
+                nextPanelHint,
+              };
+              return <KeyHintBar context={ctx} />;
+            })()}
           </Box>
         </Box>
       </Box>
@@ -6765,7 +7139,6 @@ export function renderRunningTools(
   const more = running.size > 1 ? ` (+${running.size - 1})` : '';
   return `running: ${oldest.name} ${elapsedSec}s${more}`;
 }
-
 
 function fmtTok(n: number): string {
   if (n < 1000) return String(n);

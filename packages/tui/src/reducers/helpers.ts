@@ -17,6 +17,7 @@ type PanelResetState = Pick<
   | 'sessionsPanelOpen'
   | 'settingsPicker'
   | 'statuslinePicker'
+  | 'pluginPicker'
   | 'projectPicker'
   | 'fKeyPicker'
   | 'autoPhase'
@@ -39,6 +40,7 @@ export function closePanels(state: State): PanelResetState {
     sessionsPanelOpen: false,
     settingsPicker: { ...state.settingsPicker, open: false },
     statuslinePicker: { ...state.statuslinePicker, open: false },
+    pluginPicker: { ...state.pluginPicker, open: false },
     projectPicker: { ...state.projectPicker, open: false },
     fKeyPicker: { ...state.fKeyPicker, open: false },
     autoPhase: state.autoPhase ? { ...state.autoPhase, monitorOpen: false } : state.autoPhase,
