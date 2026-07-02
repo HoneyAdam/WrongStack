@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { useAppTranslation } from '@/i18n';
 import { useFileStore } from '@/stores/file-store';
 import type { TreeNode } from '@/stores/file-store';
 import { useFileReferenceStore, useSessionStore } from '@/stores';
@@ -38,6 +39,7 @@ function TreeNodeItem({
   onOpen: (filePath: string) => void;
   onContextMenu: (e: React.MouseEvent, node: TreeNode) => void;
 }) {
+  const { t } = useAppTranslation();
   const [expanded, setExpanded] = useState(depth < 1); // auto-expand root level
   const activeFilePath = useFileStore((s) => s.activeFilePath);
   const isActive = node.type === 'file' && node.path === activeFilePath;
@@ -98,7 +100,7 @@ function TreeNodeItem({
             className="text-[10px] text-muted-foreground italic py-0.5"
             style={{ paddingLeft: `${(depth + 1) * 14 + 4}px` }}
           >
-            empty
+            {t('activity:fileExplorer.emptyDir')}
           </div>
         )}
       </div>
@@ -136,6 +138,7 @@ function TreeNodeItem({
 // ── File explorer panel ────────────────────────────────────────────────
 
 export function FileExplorer() {
+  const { t } = useAppTranslation();
   const tree = useFileStore((s) => s.tree);
   const treeLoading = useFileStore((s) => s.treeLoading);
   const error = useFileStore((s) => s.error);
@@ -401,7 +404,7 @@ export function FileExplorer() {
   if (error) {
     return (
       <div className="p-3 text-[11px] text-destructive">
-        Failed to load files: {error}
+        {t('activity:fileExplorer.loadFailed', { error })}
       </div>
     );
   }
@@ -418,10 +421,10 @@ export function FileExplorer() {
               'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors',
               'hover:bg-muted/60 text-muted-foreground hover:text-foreground',
             )}
-            title="Expand all directories"
+            title={t('activity:fileExplorer.expandAllTitle')}
           >
             <Folders className="h-3 w-3" />
-            <span>Expand all</span>
+            <span>{t('activity:fileExplorer.expandAll')}</span>
           </button>
           <button
             type="button"
@@ -430,13 +433,13 @@ export function FileExplorer() {
               'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors',
               'hover:bg-muted/60 text-muted-foreground hover:text-foreground',
             )}
-            title="Collapse all directories"
+            title={t('activity:fileExplorer.collapseAllTitle')}
           >
             <Minimize2 className="h-3 w-3" />
-            <span>Collapse</span>
+            <span>{t('activity:fileExplorer.collapse')}</span>
           </button>
           <span className="ml-auto text-[9px] text-muted-foreground/50 tabular-nums">
-            {dirCount} folder{dirCount === 1 ? '' : 's'}
+            {t('activity:fileExplorer.folders', { count: dirCount })}
           </span>
         </div>
       )}
@@ -491,7 +494,7 @@ export function FileExplorer() {
                       ? 'text-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                   )}
-                  title={crumb.isLast ? `Current directory: ${tooltipPath}` : `Navigate to ${tooltipPath}`}
+                  title={crumb.isLast ? t('activity:fileExplorer.currentDirTitle', { path: tooltipPath }) : t('activity:fileExplorer.navigateToTitle', { path: tooltipPath })}
                 >
                   {displayLabel}
                 </button>
@@ -501,9 +504,9 @@ export function FileExplorer() {
             {/* ── File/folder counter badge ── */}
             {tree.length > 0 && (
               <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/50 tabular-nums pl-2">
-                {cwdStats.files > 0 && `${cwdStats.files} file${cwdStats.files === 1 ? '' : 's'}`}
+                {cwdStats.files > 0 && t('activity:fileExplorer.filesSuffix', { count: cwdStats.files })}
                 {cwdStats.files > 0 && cwdStats.dirs > 0 && ', '}
-                {cwdStats.dirs > 0 && `${cwdStats.dirs} folder${cwdStats.dirs === 1 ? '' : 's'}`}
+                {cwdStats.dirs > 0 && t('activity:fileExplorer.folders', { count: cwdStats.dirs })}
               </span>
             )}
           </div>
@@ -514,7 +517,7 @@ export function FileExplorer() {
             type="button"
             onClick={handleFileIndicatorClick}
             className="flex items-center gap-1 w-full text-left px-2 py-0.5 border-b border-border/30 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-            title={`Navigate to parent directory of ${activeFilePath.replace(/\//g, pathSep)}`}
+            title={t('activity:fileExplorer.navigateParentTitle', { path: activeFilePath.replace(/\//g, pathSep) })}
           >
             <FileCode className="h-3 w-3 shrink-0" />
             <span className="truncate">
@@ -524,7 +527,7 @@ export function FileExplorer() {
               })()}
             </span>
             <span className="ml-auto text-[8px] text-muted-foreground/40 shrink-0">
-              go to dir
+              {t('activity:fileExplorer.goToDir')}
             </span>
           </button>
         )}
@@ -542,7 +545,7 @@ export function FileExplorer() {
             <CornerLeftUp className="h-3.5 w-3.5 shrink-0" />
             <span>..</span>
             <span className="text-[9px] text-muted-foreground/50 ml-auto">
-              parent directory
+              {t('activity:fileExplorer.parentDirectory')}
             </span>
           </button>
         )}
@@ -560,7 +563,7 @@ export function FileExplorer() {
         ))}
         {tree.length === 0 && (
           <p className="text-[11px] text-muted-foreground italic p-2">
-            No files found
+            {t('activity:fileExplorer.noFiles')}
           </p>
         )}
       </div>
@@ -576,14 +579,14 @@ export function FileExplorer() {
             onClick={() => copyToClipboard(contextMenu.crumb.absPath)}
             className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"
           >
-            Copy absolute path
+            {t('activity:fileExplorer.copyAbsPath')}
           </button>
           <button
             type="button"
             onClick={() => copyToClipboard(contextMenu.crumb.relPath)}
             className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"
           >
-            Copy relative path
+            {t('activity:fileExplorer.copyRelPath')}
           </button>
           <div className="border-t border-border/50 my-0.5" />
           <button
@@ -591,14 +594,14 @@ export function FileExplorer() {
             onClick={() => handleShellOpen(contextMenu.crumb.absPath, 'terminal')}
             className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"
           >
-            Open in terminal
+            {t('activity:fileExplorer.openInTerminal')}
           </button>
           <button
             type="button"
             onClick={() => handleShellOpen(contextMenu.crumb.absPath, 'file-manager')}
             className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"
           >
-            Open in file manager
+            {t('activity:fileExplorer.openInFileManager')}
           </button>
           <div className="border-t border-border/50 mt-0.5 pt-0.5">
             <div className="px-3 py-1 text-[9px] text-muted-foreground/50 truncate max-w-[200px]">
@@ -620,7 +623,7 @@ export function FileExplorer() {
               onClick={() => handleMentionInChat(nodeMenu.node)}
               className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"
             >
-              Mention in chat
+              {t('activity:fileExplorer.mentionInChat')}
             </button>
           )}
           <button
@@ -631,7 +634,7 @@ export function FileExplorer() {
             }}
             className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"
           >
-            Copy path
+            {t('activity:fileExplorer.copyPath')}
           </button>
           <div className="border-t border-border/50 mt-0.5 pt-0.5">
             <div className="px-3 py-1 text-[9px] text-muted-foreground/50 truncate max-w-[200px]">
