@@ -1243,5 +1243,29 @@
     "approvePlan": "Aprovar plano",
     "answerPlaceholder": "Responda à pergunta…",
     "changePlaceholder": "Pedir uma mudança…"
+  },
+  "fileExplorer": {
+    "emptyDir": "vazio",
+    "loadFailed": "Falha ao carregar arquivos: {{error}}",
+    "expandAllTitle": "Expandir todas as pastas",
+    "expandAll": "Expandir tudo",
+    "collapseAllTitle": "Recolher todas as pastas",
+    "collapse": "Recolher",
+    "folders_one": "{{count}} pasta",
+    "folders_other": "{{count}} pastas",
+    "currentDirTitle": "Diretório atual: {{path}}",
+    "navigateToTitle": "Navegar para {{path}}",
+    "filesSuffix_one": "{{count}} arquivo",
+    "filesSuffix_other": "{{count}} arquivos",
+    "goToDir": "ir ao diretório",
+    "navigateParentTitle": "Navegar ao diretório pai de {{path}}",
+    "parentDirectory": "diretório pai",
+    "noFiles": "Nenhum arquivo encontrado",
+    "copyAbsPath": "Copiar caminho absoluto",
+    "copyRelPath": "Copiar caminho relativo",
+    "openInTerminal": "Abrir no terminal",
+    "openInFileManager": "Abrir no gerenciador de arquivos",
+    "mentionInChat": "Mencionar no chat",
+    "copyPath": "Copiar caminho"
   }
 }

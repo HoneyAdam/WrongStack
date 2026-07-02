@@ -1243,5 +1243,29 @@
     "approvePlan": "Approve plan",
     "answerPlaceholder": "Answer the question…",
     "changePlaceholder": "Request a change…"
+  },
+  "fileExplorer": {
+    "emptyDir": "empty",
+    "loadFailed": "Failed to load files: {{error}}",
+    "expandAllTitle": "Expand all directories",
+    "expandAll": "Expand all",
+    "collapseAllTitle": "Collapse all directories",
+    "collapse": "Collapse",
+    "folders_one": "{{count}} folder",
+    "folders_other": "{{count}} folders",
+    "currentDirTitle": "Current directory: {{path}}",
+    "navigateToTitle": "Navigate to {{path}}",
+    "filesSuffix_one": "{{count}} file",
+    "filesSuffix_other": "{{count}} files",
+    "goToDir": "go to dir",
+    "navigateParentTitle": "Navigate to parent directory of {{path}}",
+    "parentDirectory": "parent directory",
+    "noFiles": "No files found",
+    "copyAbsPath": "Copy absolute path",
+    "copyRelPath": "Copy relative path",
+    "openInTerminal": "Open in terminal",
+    "openInFileManager": "Open in file manager",
+    "mentionInChat": "Mention in chat",
+    "copyPath": "Copy path"
   }
 }

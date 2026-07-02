@@ -1243,5 +1243,29 @@
     "approvePlan": "Planı onayla",
     "answerPlaceholder": "Soruyu cevapla…",
     "changePlaceholder": "Değişiklik iste…"
+  },
+  "fileExplorer": {
+    "emptyDir": "boş",
+    "loadFailed": "Dosyalar yüklenemedi: {{error}}",
+    "expandAllTitle": "Tüm dizinleri genişlet",
+    "expandAll": "Tümünü genişlet",
+    "collapseAllTitle": "Tüm dizinleri daralt",
+    "collapse": "Daralt",
+    "folders_one": "{{count}} klasör",
+    "folders_other": "{{count}} klasör",
+    "currentDirTitle": "Mevcut dizin: {{path}}",
+    "navigateToTitle": "{{path}} konumuna git",
+    "filesSuffix_one": "{{count}} dosya",
+    "filesSuffix_other": "{{count}} dosya",
+    "goToDir": "dizine git",
+    "navigateParentTitle": "{{path}} dosyasının üst dizinine git",
+    "parentDirectory": "üst dizin",
+    "noFiles": "Dosya bulunamadı",
+    "copyAbsPath": "Mutlak yolu kopyala",
+    "copyRelPath": "Göreli yolu kopyala",
+    "openInTerminal": "Terminalde aç",
+    "openInFileManager": "Dosya yöneticisinde aç",
+    "mentionInChat": "Sohbette bahset",
+    "copyPath": "Yolu kopyala"
   }
 }

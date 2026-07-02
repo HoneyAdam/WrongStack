@@ -1243,5 +1243,29 @@
     "approvePlan": "Plan genehmigen",
     "answerPlaceholder": "Frage beantworten…",
     "changePlaceholder": "Änderung anfordern…"
+  },
+  "fileExplorer": {
+    "emptyDir": "leer",
+    "loadFailed": "Dateien konnten nicht geladen werden: {{error}}",
+    "expandAllTitle": "Alle Verzeichnisse aufklappen",
+    "expandAll": "Alle aufklappen",
+    "collapseAllTitle": "Alle Verzeichnisse zuklappen",
+    "collapse": "Zuklappen",
+    "folders_one": "{{count}} Ordner",
+    "folders_other": "{{count}} Ordner",
+    "currentDirTitle": "Aktuelles Verzeichnis: {{path}}",
+    "navigateToTitle": "Nach {{path}} navigieren",
+    "filesSuffix_one": "{{count}} Datei",
+    "filesSuffix_other": "{{count}} Dateien",
+    "goToDir": "zum Ordner",
+    "navigateParentTitle": "Zum übergeordneten Ordner von {{path}} navigieren",
+    "parentDirectory": "übergeordneter Ordner",
+    "noFiles": "Keine Dateien gefunden",
+    "copyAbsPath": "Absoluten Pfad kopieren",
+    "copyRelPath": "Relativen Pfad kopieren",
+    "openInTerminal": "Im Terminal öffnen",
+    "openInFileManager": "Im Dateimanager öffnen",
+    "mentionInChat": "Im Chat erwähnen",
+    "copyPath": "Pfad kopieren"
   }
 }
