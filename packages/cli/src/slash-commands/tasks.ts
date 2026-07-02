@@ -9,6 +9,8 @@ import {
   loadPlan,
   loadTasks,
   mutateTasks,
+  recordCompletedWorkEvidence,
+  saveCompletedWorkCheckpoint,
   savePlan,
   type TaskItem,
   type TaskPriority,
@@ -150,6 +152,10 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
 
       // Mutating ops — locked via mutateTasks
       let outputMessage = '';
+      // Task completed inside the mutate callback — recorded into the
+      // completed-work ledger (evidence + system-prompt block + checkpoint)
+      // after the lock is released.
+      let completedTask: { id: string; title: string } | null = null;
       await mutateTasks(taskPath, sessionId, async (file) => {
         switch (cmd) {
           case 'add': {
@@ -218,6 +224,9 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
             };
             found.item.status = statusMap[cmd] ?? 'pending';
             found.item.updatedAt = new Date().toISOString();
+            if (cmd === 'done') {
+              completedTask = { id: found.item.id, title: found.item.title };
+            }
             outputMessage = `Marked ${verbMap[cmd] ?? cmd}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}`;
             break;
           }
@@ -239,6 +248,9 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
             }
             found.item.status = newStatus;
             found.item.updatedAt = new Date().toISOString();
+            if (newStatus === 'completed') {
+              completedTask = { id: found.item.id, title: found.item.title };
+            }
             outputMessage = `Status → ${newStatus}: ${found.item.title}\n\n${formatTaskProgress(file.tasks)}`;
             break;
           }
@@ -355,6 +367,31 @@ export function buildTasksCommand(_opts: SlashCommandContext): SlashCommand {
         }
         return file;
       });
+
+      if (completedTask) {
+        // Ledger update: in-memory evidence + [completed_work_ledger] system
+        // prompt block (both via the recorder), then the durable checkpoint
+        // when the session has one configured. Failures must not undo the
+        // task-status change the user asked for — surface, don't throw.
+        const done = completedTask as { id: string; title: string };
+        try {
+          recordCompletedWorkEvidence(ctx, {
+            key: `task:${done.id}`,
+            source: 'task',
+            summary: done.title,
+          });
+          const completedWorkPath = (ctx.meta as Record<string, unknown>)?.['completedWork.path'];
+          if (typeof completedWorkPath === 'string' && completedWorkPath) {
+            await saveCompletedWorkCheckpoint(
+              completedWorkPath,
+              sessionId,
+              ctx.contextEvidence?.completedWork ?? [],
+            );
+          }
+        } catch (err) {
+          outputMessage += `\n⚠ Completed-work ledger update failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
 
       return { message: outputMessage };
     },

@@ -107,6 +107,11 @@ export {
   type TodosCheckpointFile,
 } from './todos-checkpoint.js';
 export {
+  loadCompletedWorkCheckpoint,
+  saveCompletedWorkCheckpoint,
+  type CompletedWorkCheckpointFile,
+} from './completed-work-checkpoint.js';
+export {
   attachPlanCheckpoint,
   loadPlan,
   savePlan,

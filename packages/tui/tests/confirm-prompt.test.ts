@@ -17,7 +17,7 @@ function stringifyInput(input: unknown): string {
   if (!input || typeof input !== 'object') return '';
   const obj = input as Record<string, unknown>;
   return Object.entries(obj)
-    .filter(([k]) => k !== 'content' && k !== 'new_string')
+    .filter(([k]) => k !== 'content' && k !== 'new_string' && k !== 'diff')
     .map(([k, v]) => `${k}: ${truncate(JSON.stringify(v), 80)}`)
     .join('  ');
 }
@@ -66,10 +66,11 @@ describe('ConfirmPrompt helpers', () => {
       expect(result).toContain('/tmp/a.ts');
     });
 
-    it('filters out content and new_string keys', () => {
-      const result = stringifyInput({ content: 'big', new_string: 'stuff', path: 'a.ts' });
+    it('filters out content, new_string, and diff keys', () => {
+      const result = stringifyInput({ content: 'big', new_string: 'stuff', diff: '--- a', path: 'a.ts' });
       expect(result).not.toContain('content');
       expect(result).not.toContain('new_string');
+      expect(result).not.toContain('diff');
       expect(result).toContain('path');
     });
 

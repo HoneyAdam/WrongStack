@@ -24,6 +24,7 @@ export {
   extractDiffPreview,
   extractMultiFileDiffs,
   extractReplaceDiffs,
+  formatDiffStats,
   formatMultiDiffSummary,
   parseUnifiedDiff,
   summarizeMultiFileDiffs,

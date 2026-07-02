@@ -551,6 +551,13 @@ export function parseAuthorizationInput(input: string): {
 export interface CodexLoginOptions {
   /** Storage provider id. Defaults to the canonical `openai-codex`. */
   providerId?: string;
+  /**
+   * External cancellation signal (e.g. the TUI auth panel's Esc). When
+   * provided, the flow does NOT install its own SIGINT handler — the
+   * caller owns cancellation, and a raw `process.exit` from inside a
+   * mounted Ink tree would corrupt the terminal.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 /**
@@ -569,7 +576,8 @@ export async function runCodexOAuthLogin(
   const ac = new AbortController();
   // First Ctrl+C cancels cleanly (aborts the controller, which unblocks the
   // loopback wait below); a second Ctrl+C is a hard escape hatch in case
-  // anything downstream is still wedged.
+  // anything downstream is still wedged. Skipped entirely when the caller
+  // supplied an external signal (TUI) — the caller owns cancellation then.
   let sigintCount = 0;
   const onSig = () => {
     sigintCount += 1;
@@ -580,7 +588,13 @@ export async function runCodexOAuthLogin(
       process.exit(130);
     }
   };
-  process.on('SIGINT', onSig);
+  const external = opts.signal;
+  if (external) {
+    if (external.aborted) ac.abort();
+    else external.addEventListener('abort', () => ac.abort(), { once: true });
+  } else {
+    process.on('SIGINT', onSig);
+  }
 
   const server = await startLoopbackServer(state, ac.signal);
 
@@ -689,7 +703,7 @@ export async function runCodexOAuthLogin(
     return 1;
   } finally {
     server.close();
-    process.off('SIGINT', onSig);
+    if (!external) process.off('SIGINT', onSig);
   }
 }
 

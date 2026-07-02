@@ -38,6 +38,15 @@ export interface PickerKeysHost {
   switchAutonomy: ((mode: AutonomyStage) => string | null) | undefined;
   submit: ((text: string) => void) | undefined;
 
+  onAuthEnter: (() => void) | undefined;
+  onAuthBack: (() => void) | undefined;
+  onAuthShortcut: ((input: string) => void) | undefined;
+  onAuthPromptSubmit: (() => void) | undefined;
+  onAuthPromptCancel: (() => void) | undefined;
+  onAuthConfirm: ((yes: boolean) => void) | undefined;
+  onAuthFlowCancel: (() => void) | undefined;
+  onAuthCtrlC: (() => void) | undefined;
+
   onPromptPickerEnter: (() => void) | undefined;
   onResumePickerEnter: (() => Promise<void>) | undefined;
   onSessionsPanelEnter: (() => Promise<void>) | undefined;
@@ -66,6 +75,117 @@ export function usePickerKeys(
   return useCallback(
     (input: string, key: KeyEvent, isEnter: boolean): boolean => {
       const { state, dispatch } = host;
+
+      // ── Auth panel (/auth — providers, keys, OAuth) ────────────
+      if (state.authPanel.open) {
+        const ap = state.authPanel;
+
+        // Ctrl+C cancels everything — flow, prompt, panel. In raw-mode
+        // terminals (ConPTY/Windows) Ctrl+C arrives here as key data rather
+        // than a SIGINT, so the panel must handle it itself or the exit
+        // ladder appears dead while the panel is open.
+        if (key.ctrl && (input === 'c' || input === 'C')) {
+          host.onAuthCtrlC?.();
+          return true;
+        }
+
+        // Modal prompt raised by a running flow (label / key / paste-URL).
+        if (ap.input) {
+          if (key.escape) {
+            host.onAuthPromptCancel?.();
+            return true;
+          }
+          if (isEnter) {
+            if (debouncedEnter(host)) return true;
+            host.onAuthPromptSubmit?.();
+            return true;
+          }
+          if (key.backspace) {
+            dispatch({ type: 'authPromptChange', draft: ap.input.draft.slice(0, -1) });
+            return true;
+          }
+          // Accept full printable strings — bracketed paste delivers the
+          // whole clipboard (an API key or redirect URL) in one event.
+          if (input && !key.ctrl && !key.meta) {
+            // Drop control characters (CR/LF from pastes, stray escapes).
+            const printable = Array.from(input)
+              .filter((ch) => ch.charCodeAt(0) >= 0x20 && ch.charCodeAt(0) !== 0x7f)
+              .join('');
+            if (printable.length > 0) {
+              dispatch({ type: 'authPromptChange', draft: ap.input.draft + printable });
+            }
+            return true;
+          }
+          return true;
+        }
+
+        // Modal y/N confirmation (delete key / remove provider).
+        if (ap.confirm) {
+          if (key.escape || input === 'n' || input === 'N') {
+            host.onAuthConfirm?.(false);
+            return true;
+          }
+          if (input === 'y' || input === 'Y' || isEnter) {
+            if (isEnter && debouncedEnter(host)) return true;
+            host.onAuthConfirm?.(true);
+            return true;
+          }
+          return true;
+        }
+
+        // Flow view — streaming log; Esc cancels (or closes when done).
+        if (ap.view === 'flow') {
+          if (key.escape) {
+            host.onAuthFlowCancel?.();
+            return true;
+          }
+          if (isEnter) {
+            if (debouncedEnter(host)) return true;
+            host.onAuthEnter?.();
+            return true;
+          }
+          return true;
+        }
+
+        if (key.escape) {
+          host.onAuthBack?.();
+          return true;
+        }
+        if (key.mouse?.kind === 'wheel') {
+          dispatch({ type: 'authMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
+          return true;
+        }
+        if (key.upArrow) {
+          dispatch({ type: 'authMove', delta: -1 });
+          return true;
+        }
+        if (key.downArrow) {
+          dispatch({ type: 'authMove', delta: 1 });
+          return true;
+        }
+        if (isEnter) {
+          if (debouncedEnter(host)) return true;
+          host.onAuthEnter?.();
+          return true;
+        }
+        if (ap.view === 'catalog') {
+          if (key.backspace) {
+            if (ap.filter.length > 0) {
+              dispatch({ type: 'authFilter', filter: ap.filter.slice(0, -1) });
+            }
+            return true;
+          }
+          if (input && input.length === 1 && input.charCodeAt(0) >= 0x20 && input.charCodeAt(0) < 0x7f) {
+            dispatch({ type: 'authFilter', filter: ap.filter + input });
+            return true;
+          }
+        }
+        if (ap.view === 'provider' && (input === 'u' || input === 'd')) {
+          host.onAuthShortcut?.(input);
+          return true;
+        }
+        return true;
+      }
 
       // ── Model picker (two-step: provider → model) ──────────────
       if (state.modelPicker.open) {

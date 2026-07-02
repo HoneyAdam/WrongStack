@@ -1,6 +1,12 @@
 import { Box, Text } from '../../ink.js';
 import type React from 'react';
-import { type HLState, type Lang, highlightLine } from '../../highlight.js';
+import {
+  type HLState,
+  type Lang,
+  type Token,
+  highlightLine,
+  langFromPath,
+} from '../../highlight.js';
 import { theme } from '../../theme.js';
 import { stringOf, truncMid, tryParseJson } from './utils.js';
 
@@ -214,11 +220,14 @@ export function DiffFileBlock({
   path,
   preview,
   useColor = true,
+  contentWidth,
 }: {
   path: string;
   preview: DiffPreview;
   /** Pass-through to {@link DiffBlock}. See that component for details. */
   useColor?: boolean | undefined;
+  /** Pass-through to {@link DiffBlock}. See that component for details. */
+  contentWidth?: number | undefined;
 }): React.ReactElement {
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -233,9 +242,45 @@ export function DiffFileBlock({
         hiddenAdded={preview.hiddenAdded}
         hiddenRemoved={preview.hiddenRemoved}
         useColor={useColor}
+        lang={langFromPath(path)}
+        contentWidth={contentWidth}
       />
     </Box>
   );
+}
+
+/**
+ * Human-readable change-size line for a diff — `Added N lines, removed M
+ * lines` (Claude Code phrasing). Omits the zero side; returns `null` when
+ * nothing changed so callers can skip the line entirely.
+ */
+export function formatDiffStats(added: number, removed: number): string | null {
+  const parts: string[] = [];
+  if (added > 0) parts.push(`added ${added} line${added === 1 ? '' : 's'}`);
+  if (removed > 0) parts.push(`removed ${removed} line${removed === 1 ? '' : 's'}`);
+  if (parts.length === 0) return null;
+  const joined = parts.join(', ');
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
+/**
+ * Render highlight tokens as nested `<Text>` segments. Tokens without a
+ * color inherit the enclosing default foreground, so the same token list
+ * reads correctly both on the plain background (context lines) and on the
+ * dark add/del washes.
+ */
+function renderTokens(tokens: Token[]): React.ReactNode {
+  if (tokens.length === 0) return ' ';
+  return tokens.map((t, j) => (
+    <Text
+      key={j}
+      dimColor={Boolean(t.dim)}
+      bold={Boolean(t.bold)}
+      {...(t.color ? { color: t.color } : {})}
+    >
+      {t.text}
+    </Text>
+  ));
 }
 
 export function DiffBlock({
@@ -246,45 +291,62 @@ export function DiffBlock({
   hiddenAdded = 0,
   hiddenRemoved = 0,
   useColor = true,
+  lang = 'plain',
+  showStats = true,
+  contentWidth,
 }: {
   rows: DiffLineRow[];
   hidden: number;
   /**
    * Total lines added across the whole diff (not just the visible slice).
-   * Surfaced as a green `+N` in the always-visible summary footer so the
+   * Surfaced in the `⎿  Added N lines, removed M lines` stats line so the
    * reader knows the change size even when the body is truncated.
    */
   added?: number | undefined;
-  /**
-   * Total lines removed across the whole diff (not just the visible slice).
-   * Surfaced as a red `-N` in the always-visible summary footer.
-   */
+  /** Total lines removed across the whole diff (not just the visible slice). */
   removed?: number | undefined;
   hiddenAdded?: number | undefined;
   hiddenRemoved?: number | undefined;
   /**
-   * When true (default), added/removed lines get a pastel green/red
-   * background wash with black foreground text — the visual scannable
-   * "added/removed" cue. When false, only the `+`/`-` markers get
-   * colored (bright green/red, bold) so the diff stays readable on
-   * terminals that don't support truecolor backgrounds (TERM=xterm,
-   * `NO_COLOR=1`, etc.). Pass `false` from the entry-point when
-   * `theme.supportsBackground === false` (future hook — for now the
-   * default is fine for any modern terminal).
+   * When true (default), added/removed rows get a dark green/maroon
+   * background wash (Claude Code style) with normal-brightness,
+   * syntax-highlighted foreground text. When false, only the `+`/`-`
+   * markers get colored (bright green/red, bold) so the diff stays
+   * readable on terminals that don't support truecolor backgrounds
+   * (TERM=xterm, `NO_COLOR=1`, etc.). Pass `theme.supportsBackground`
+   * from the entry-point.
    */
   useColor?: boolean | undefined;
+  /**
+   * Syntax-highlight language for line bodies (derive from the touched
+   * file's extension via `langFromPath`). `plain` disables highlighting.
+   */
+  lang?: Lang | undefined;
+  /**
+   * Render the leading `⎿  Added N lines, removed M lines` stats line.
+   * Callers that print their own header/stats (e.g. the Update(path)
+   * entry header) pass `false` to avoid the duplicate.
+   */
+  showStats?: boolean | undefined;
+  /**
+   * Terminal width available to this block. When set, line bodies are
+   * truncated (with a trailing `…`) so a row never wraps — a wrapped row
+   * would continue under the gutter and break the diff's column alignment.
+   * When omitted, rows keep the parser's own 100-char cap.
+   */
+  contentWidth?: number | undefined;
 }): React.ReactElement {
+  // Single-column gutter (Claude Code style): each row shows ONE line
+  // number — the old line for deletions, the new line for additions and
+  // context.
+  const lineNoOf = (row: DiffLineRow): number | undefined =>
+    row.kind === 'del' ? row.oldLine : (row.newLine ?? row.oldLine);
   let gutterWidth = 1;
   for (const r of rows) {
-    for (const n of [r.oldLine, r.newLine]) {
-      if (typeof n === 'number') {
-        const w = String(n).length;
-        if (w > gutterWidth) gutterWidth = w;
-      }
-    }
+    const n = lineNoOf(r);
+    if (typeof n === 'number' && String(n).length > gutterWidth) gutterWidth = String(n).length;
   }
   const blank = ' '.repeat(gutterWidth);
-  const gutterPad = `${blank} ${blank}`;
 
   const markerFor = (kind: DiffLineKind) => {
     if (kind === 'add') return '+';
@@ -299,137 +361,106 @@ export function DiffBlock({
     return row.text || ' ';
   };
 
+  const stats = showStats ? formatDiffStats(added, removed) : null;
+
+  // Row anatomy: box margin (2) + `   ` prefix (3) + line number + ` X `
+  // marker cell (3). Whatever remains is the body budget.
+  const bodyBudget =
+    typeof contentWidth === 'number'
+      ? Math.max(16, contentWidth - (2 + 3 + gutterWidth + 3))
+      : undefined;
+  const clampBody = (body: string): string =>
+    bodyBudget !== undefined && body.length > bodyBudget
+      ? `${body.slice(0, bodyBudget - 1)}…`
+      : body;
+
+  const hiddenStats: string[] = [];
+  if (hiddenAdded > 0) hiddenStats.push(`+${hiddenAdded}`);
+  if (hiddenRemoved > 0) hiddenStats.push(`-${hiddenRemoved}`);
+
   return (
-    <Box flexDirection="column" marginLeft={4} marginTop={0}>
+    <Box flexDirection="column" marginLeft={2} marginTop={0}>
+      {stats ? (
+        <Text>
+          <Text dimColor>{'⎿  '}</Text>
+          <Text>{stats}</Text>
+        </Text>
+      ) : null}
       {rows.map((row, i) => {
         const key = i;
         if (row.kind === 'hunk') {
+          // Claude Code hides hunk headers — the line numbers already carry
+          // position. A leading hunk renders nothing; between hunks a dim
+          // `⋯` marks the gap.
+          if (i === 0) return null;
           return (
-            <Text key={key} color="cyan" dimColor>
-              {`${gutterPad}  ${row.text}`}
+            <Text key={key} dimColor>
+              {`   ${blank} ⋯`}
             </Text>
           );
         }
         if (row.kind === 'meta') {
           return (
             <Text key={key} dimColor>
-              {`${gutterPad}  ${row.text}`}
+              {`   ${blank}   ${row.text}`}
             </Text>
           );
         }
-        const oldLn =
-          typeof row.oldLine === 'number' ? String(row.oldLine).padStart(gutterWidth, ' ') : blank;
-        const newLn =
-          typeof row.newLine === 'number' ? String(row.newLine).padStart(gutterWidth, ' ') : blank;
+        const n = lineNoOf(row);
+        const ln = typeof n === 'number' ? String(n).padStart(gutterWidth, ' ') : blank;
+        const body = clampBody(textForDisplay(row));
+        // Fresh highlight state per row: diff rows are disjoint slices of
+        // the file, so carrying block-comment state across add/del pairs
+        // would color the wrong lines.
+        const tokens = highlightLine(body, lang).tokens;
         if (row.kind === 'ctx') {
           return (
-            <Text key={key} dimColor>
-              {`${oldLn} ${newLn}   ${textForDisplay(row)}`}
+            <Text key={key}>
+              <Text dimColor>{`   ${ln}   `}</Text>
+              {renderTokens(tokens)}
             </Text>
           );
         }
         const marker = markerFor(row.kind);
-        const text = textForDisplay(row);
-        const gutter = `${oldLn} ${newLn}`;
-        // When the host terminal supports truecolor (the default path):
-        // wrap the line in a <Box> with the pastel wash background and
-        // use black foreground so the text reads cleanly on the soft
-        // tint. When truecolor backgrounds aren't available (e.g. some
-        // TTYs strip background escapes), fall back to bright foreground
-        // markers only — the line still reads as added/removed, just
-        // without the wash. The bold marker is always rendered for
-        // accessibility regardless of `useColor`.
+        const markerColor = row.kind === 'add' ? theme.success : theme.error;
+        // Truecolor path: the whole row (number + marker + body) sits on a
+        // dark green/maroon wash; the body keeps its syntax colors, which
+        // stay readable on the dark tint. Fallback path: no wash, the bold
+        // colored marker alone distinguishes add vs del.
         if (useColor) {
           const bg = row.kind === 'add' ? theme.diffAddBg : theme.diffDelBg;
-          const lineColor = row.kind === 'add' ? theme.success : theme.error;
           return (
             <Box key={key} backgroundColor={bg} minWidth={1} flexShrink={0}>
               <Text>
-                <Text dimColor>{gutter}</Text>
-                <Text> </Text>
-                <Text color={lineColor} bold>
+                <Text dimColor>{`   ${ln} `}</Text>
+                <Text color={markerColor} bold>
                   {marker}
                 </Text>
-                <Text color="black">{text}</Text>
+                <Text> </Text>
+                {renderTokens(tokens)}
               </Text>
             </Box>
           );
         }
-        // No-bg fallback: rely on the marker color (bright ANSI green/red
-        // after the Ink shim routes them through `softColor`) plus bold
-        // to distinguish add vs del. The line text stays in the default
-        // terminal foreground so it never vanishes against an unknown
-        // background.
-        const fgColor = row.kind === 'add' ? 'green' : 'red';
         return (
           <Text key={key}>
-            <Text dimColor>{gutter}</Text>
-            <Text> </Text>
-            <Text color={fgColor} bold>
+            <Text dimColor>{`   ${ln} `}</Text>
+            <Text color={markerColor} bold>
               {marker}
             </Text>
-            <Text>{text}</Text>
+            <Text> </Text>
+            {renderTokens(tokens)}
           </Text>
         );
       })}
-      {summaryFooter({
-        added,
-        removed,
-        hidden,
-        hiddenAdded,
-        hiddenRemoved,
-        gutterPad,
-      })}
-    </Box>
-  );
-}
-
-/**
- * Always-visible summary footer for a `DiffBlock`. Shows the *total*
- * additions/deletions (`+N added · -M deleted`) as a green/red colored
- * chip so the change size is readable at a glance even when the body
- * fits on screen. When the body was truncated, appends a dim italic
- * `… N more lines (+A -B hidden)` note carrying the hidden breakdown.
- *
- * Returns `null` only when there is genuinely nothing to summarize —
- * no totals, no hidden lines — so an unchanged/empty diff renders no
- * footer (preserving the "no footer when nothing changed" contract).
- */
-function summaryFooter(opts: {
-  added: number;
-  removed: number;
-  hidden: number;
-  hiddenAdded: number;
-  hiddenRemoved: number;
-  gutterPad: string;
-}): React.ReactElement | null {
-  const { added, removed, hidden, hiddenAdded, hiddenRemoved, gutterPad } = opts;
-  // Nothing to report at all → render nothing.
-  if (added <= 0 && removed <= 0 && hidden <= 0) return null;
-
-  const hiddenStats: string[] = [];
-  if (hiddenAdded > 0) hiddenStats.push(`+${hiddenAdded}`);
-  if (hiddenRemoved > 0) hiddenStats.push(`-${hiddenRemoved}`);
-  const truncNote =
-    hidden > 0
-      ? `  ·  … ${hidden} more line${hidden === 1 ? '' : 's'}${
-          hiddenStats.length > 0 ? ` (${hiddenStats.join(' ')} hidden)` : ''
-        }`
-      : '';
-
-  return (
-    <Text>
-      <Text dimColor>{`${gutterPad}  `}</Text>
-      <Text color={theme.success} bold>{`+${added}`}</Text>
-      <Text dimColor>{` added  `}</Text>
-      <Text color={theme.error} bold>{`-${removed}`}</Text>
-      <Text dimColor>{` deleted`}</Text>
-      {truncNote ? (
+      {hidden > 0 ? (
         <Text dimColor italic>
-          {truncNote}
+          {`   ${blank}  … ${hidden} more line${hidden === 1 ? '' : 's'}${
+            hiddenStats.length > 0 ? ` (${hiddenStats.join(' ')} hidden)` : ''
+          }`}
         </Text>
       ) : null}
-    </Text>
+    </Box>
   );
 }
 

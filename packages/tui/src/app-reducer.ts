@@ -30,6 +30,12 @@ import {
   TOKEN_SAVING_TIERS,
 } from './components/settings-picker.js';
 import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinking-word.js';
+import {
+  AUTH_PANEL_INITIAL,
+  authMoveSelected,
+  authPanelRows,
+  type AuthPanelState,
+} from './components/auth-panel-model.js';
 import type { Action, QueueItem, State } from './app-state.js';
 import { SEND_MODE_OPTIONS, nextSendModeIndex } from './components/send-mode-picker.js';
 
@@ -58,6 +64,13 @@ export type {
   SlashCommandMatch,
   State,
 } from './app-state.js';
+
+/** Keep the auth-panel cursor inside the current view's row list. */
+function clampAuthSelected(panel: AuthPanelState): number {
+  const count = authPanelRows(panel).length;
+  if (count === 0) return 0;
+  return Math.min(panel.selected, count - 1);
+}
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -1243,6 +1256,124 @@ export function reducer(state: State, action: Action): State {
       return { ...state, pluginPicker: { ...state.pluginPicker, busy: action.busy } };
     case 'pluginPickerHint':
       return { ...state, pluginPicker: { ...state.pluginPicker, hint: action.text } };
+    case 'authOpen':
+      return {
+        ...state,
+        ...closePanels(state),
+        authPanel: {
+          ...AUTH_PANEL_INITIAL,
+          open: true,
+          view: action.view ?? 'list',
+          providers: action.providers ?? state.authPanel.providers,
+          presets: action.presets ?? state.authPanel.presets,
+          catalog: state.authPanel.catalog,
+          busy: action.providers === undefined,
+        },
+      };
+    case 'authClose':
+      return { ...state, authPanel: { ...state.authPanel, open: false, busy: false } };
+    case 'authProviders': {
+      const next = { ...state.authPanel, providers: action.providers, busy: false };
+      return { ...state, authPanel: { ...next, selected: clampAuthSelected(next) } };
+    }
+    case 'authCatalog': {
+      const next = { ...state.authPanel, catalog: action.catalog, busy: false };
+      return { ...state, authPanel: { ...next, selected: clampAuthSelected(next) } };
+    }
+    case 'authView':
+      return {
+        ...state,
+        authPanel: {
+          ...state.authPanel,
+          view: action.view,
+          providerId: action.providerId ?? state.authPanel.providerId,
+          selected: 0,
+          filter: '',
+          hint: undefined,
+        },
+      };
+    case 'authMove':
+      return {
+        ...state,
+        authPanel: {
+          ...state.authPanel,
+          selected: authMoveSelected(state.authPanel, action.delta),
+          hint: undefined,
+        },
+      };
+    case 'authBusy':
+      return { ...state, authPanel: { ...state.authPanel, busy: action.busy } };
+    case 'authHint':
+      return { ...state, authPanel: { ...state.authPanel, hint: action.text } };
+    case 'authFilter': {
+      const next = { ...state.authPanel, filter: action.filter, selected: 0 };
+      return { ...state, authPanel: next };
+    }
+    case 'authFlowStart':
+      return {
+        ...state,
+        authPanel: {
+          ...state.authPanel,
+          view: 'flow',
+          flowTitle: action.title,
+          log: [],
+          flowDone: false,
+          flowOk: undefined,
+          busy: true,
+          hint: undefined,
+        },
+      };
+    case 'authFlowLog': {
+      // Cap the retained log so a chatty flow can't grow state unboundedly.
+      const log = [...state.authPanel.log, action.line].slice(-200);
+      return { ...state, authPanel: { ...state.authPanel, log } };
+    }
+    case 'authFlowDone': {
+      const log = action.message
+        ? [...state.authPanel.log, action.message].slice(-200)
+        : state.authPanel.log;
+      return {
+        ...state,
+        authPanel: {
+          ...state.authPanel,
+          flowDone: true,
+          flowOk: action.ok,
+          busy: false,
+          log,
+          input: undefined,
+        },
+      };
+    }
+    case 'authPromptStart':
+      return {
+        ...state,
+        authPanel: {
+          ...state.authPanel,
+          input: { label: action.label, masked: action.masked, draft: '' },
+        },
+      };
+    case 'authPromptChange':
+      return state.authPanel.input
+        ? {
+            ...state,
+            authPanel: {
+              ...state.authPanel,
+              input: { ...state.authPanel.input, draft: action.draft },
+            },
+          }
+        : state;
+    case 'authPromptEnd':
+      return { ...state, authPanel: { ...state.authPanel, input: undefined } };
+    case 'authConfirmStart':
+      return {
+        ...state,
+        authPanel: {
+          ...state.authPanel,
+          confirm: { question: action.question, action: action.action },
+        },
+      };
+    case 'authConfirmEnd':
+      return { ...state, authPanel: { ...state.authPanel, confirm: undefined } };
     case 'projectPickerOpen':
       return {
         ...state,

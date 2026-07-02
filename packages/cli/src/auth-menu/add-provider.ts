@@ -64,8 +64,12 @@ export async function addFromCatalog(deps: AuthMenuDeps): Promise<boolean> {
 /**
  * Prompt for family/baseUrl/alias overrides, then add a key.
  * Returns true if a key was added.
+ *
+ * Exported for the TUI auth panel: the panel does its own catalog
+ * selection (searchable list) and then drives this flow through the
+ * prompt bridge for the override/label/key questions.
  */
-async function addKeyForCatalogProvider(
+export async function addKeyForCatalogProvider(
   deps: AuthMenuDeps,
   chosen: ResolvedProvider,
 ): Promise<boolean> {

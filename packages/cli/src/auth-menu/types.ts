@@ -1,14 +1,37 @@
 import type { ModelsRegistry, SecretScrubber, SecretVault } from '@wrongstack/core';
-import type { ReadlineInputReader } from '../input-reader.js';
-import type { TerminalRenderer } from '../renderer.js';
+
+/**
+ * Minimal output surface the auth-menu flows need. `TerminalRenderer`
+ * satisfies this structurally, and so does the TUI auth-panel adapter
+ * (which forwards each line into the panel's flow log) — keeping the
+ * flows reusable from both the readline CLI and the Ink TUI.
+ */
+export interface AuthMenuRenderer {
+  write(input: string): void;
+  writeInfo(text: string): void;
+  writeWarning(text: string): void;
+  writeError(text: string): void;
+}
+
+/**
+ * Minimal input surface the auth-menu flows need. `ReadlineInputReader`
+ * satisfies this structurally; the TUI adapter resolves both from the
+ * panel's modal prompt (masked for `readSecret`). Implementations may
+ * REJECT to cancel the surrounding flow (the TUI does this on Esc) —
+ * every flow treats a thrown prompt as user-cancel.
+ */
+export interface AuthMenuReader {
+  readLine(prompt?: string): Promise<string>;
+  readSecret(prompt: string): Promise<string>;
+}
 
 /**
  * Dependencies shared across all auth-menu modules.
  * Kept deliberately light — each sub-module takes only the subset it needs.
  */
 export interface AuthMenuDeps {
-  renderer: TerminalRenderer;
-  reader: ReadlineInputReader;
+  renderer: AuthMenuRenderer;
+  reader: AuthMenuReader;
   modelsRegistry: ModelsRegistry;
   vault: SecretVault;
   globalConfigPath: string;

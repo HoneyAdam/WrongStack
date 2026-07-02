@@ -155,8 +155,6 @@ describe('theme.supportsBackground integration', () => {
       // The marker-only branch still emits the +/- glyphs.
       expect(frame).toContain('+');
       expect(frame).toContain('-');
-      // The hunk header is unaffected by the gate.
-      expect(frame).toContain('@@ -1 +1 @@');
       // The diff body text is still present (no regression in fallback).
       expect(frame).toContain('new line');
       expect(frame).toContain('old line');

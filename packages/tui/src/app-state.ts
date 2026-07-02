@@ -24,6 +24,14 @@ import type {
 import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
 import type { ProjectPickerItem } from './components/project-picker.js';
 import type { PluginPickerItem } from './components/plugin-picker.js';
+import type {
+  AuthCatalogRow,
+  AuthConfirmAction,
+  AuthLocalPresetRow,
+  AuthPanelState,
+  AuthPanelView,
+  AuthProviderRow,
+} from './components/auth-panel-model.js';
 import type { PromptPickEntry } from './components/prompt-picker.js';
 import type { SendMode } from './components/send-mode-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
@@ -392,6 +400,8 @@ export type State = {
     busy: boolean;
     hint?: string | undefined;
   };
+  /** Interactive API-key / OAuth manager — opened by `/auth`. */
+  authPanel: AuthPanelState;
   /** Project switcher panel — opened by F1 or `/project`. */
   projectPicker: {
     open: boolean;
@@ -941,6 +951,28 @@ export type Action =
   | { type: 'pluginPickerSetItems'; items: PluginPickerItem[] }
   | { type: 'pluginPickerBusy'; busy: boolean }
   | { type: 'pluginPickerHint'; text?: string | undefined }
+  | {
+      type: 'authOpen';
+      view?: Extract<AuthPanelView, 'list' | 'oauth'> | undefined;
+      providers?: AuthProviderRow[] | undefined;
+      presets?: AuthLocalPresetRow[] | undefined;
+    }
+  | { type: 'authClose' }
+  | { type: 'authProviders'; providers: AuthProviderRow[] }
+  | { type: 'authCatalog'; catalog: AuthCatalogRow[] }
+  | { type: 'authView'; view: AuthPanelView; providerId?: string | undefined }
+  | { type: 'authMove'; delta: number }
+  | { type: 'authBusy'; busy: boolean }
+  | { type: 'authHint'; text?: string | undefined }
+  | { type: 'authFilter'; filter: string }
+  | { type: 'authFlowStart'; title: string }
+  | { type: 'authFlowLog'; line: string }
+  | { type: 'authFlowDone'; ok: boolean; message?: string | undefined }
+  | { type: 'authPromptStart'; label: string; masked: boolean }
+  | { type: 'authPromptChange'; draft: string }
+  | { type: 'authPromptEnd' }
+  | { type: 'authConfirmStart'; question: string; action: AuthConfirmAction }
+  | { type: 'authConfirmEnd' }
   | { type: 'projectPickerOpen'; items: ProjectPickerItem[] }
   | { type: 'projectPickerClose' }
   | { type: 'projectPickerMove'; delta: number }

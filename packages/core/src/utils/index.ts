@@ -5,12 +5,17 @@ export * from './color.js';
 export * from './config-json.js';
 export {
   buildContextEvidenceDigest,
+  COMPLETED_WORK_LEDGER_MARKER,
   createContextEvidenceState,
+  formatCompletedWorkLedger,
   markAssistantReferencedEvidence,
+  type RecordCompletedWorkInput,
   type RecordToolOutputEvidenceInput,
+  recordCompletedWorkEvidence,
   recordToolOutputEvidence,
   recordUserIntentEvidence,
   repeatedReadPressure,
+  syncCompletedWorkLedgerBlock,
 } from './context-evidence.js';
 export {
   type DeepMergeOptions,

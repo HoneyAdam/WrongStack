@@ -42,33 +42,36 @@ function closeMatches(query: string, ids: string[]): string[] {
 }
 
 /**
- * `/auth` — view API key status and manage provider credentials.
+ * `/auth` — manage provider credentials.
  *
- * Subcommands:
+ * In the TUI, a bare `/auth` opens the interactive auth panel (providers,
+ * key CRUD, catalog/local/custom adds, OAuth sign-in) via the panel-open
+ * bridge — the same UX as `wstack auth`, embedded in the session. `/auth
+ * login` jumps straight to the OAuth sign-in view.
+ *
+ * In the plain REPL (no TUI mounted) the command falls back to a
+ * read-only dashboard and points at `wstack auth`:
  *   /auth                  Show saved providers and key status
+ *   /auth login            Open OAuth sign-in (TUI) / show hint (REPL)
  *   /auth status <id>      Show detail for one provider
- *   /auth open             Show hint to run `wstack auth` for the interactive menu
+ *   /auth open             Open the panel (TUI) / show launch hint (REPL)
  *   /auth help             Show this help
- *
- * The interactive menu (add/edit/delete keys) lives under `wstack auth`
- * because it requires readline stdin which isn't available under the
- * Ink TUI. This slash command provides a read-only dashboard and points
- * users to the full interactive experience.
  */
 export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
   const help = [
     'Usage:',
-    '  /auth                      Show saved providers and key status',
+    '  /auth                      Open the interactive key manager (TUI) or show key status',
+    '  /auth login                Sign in with OAuth (ChatGPT / Claude / Copilot)',
     '  /auth status <provider>    Show detail for one provider',
-    '  /auth open                 Show how to launch the interactive menu',
+    '  /auth open                 Open the interactive key manager',
     '',
-    'Run `wstack auth` for the full interactive key manager (add, edit, delete).',
+    'In the plain REPL, run `wstack auth` for the full interactive key manager.',
   ].join('\n');
 
   return {
     name: 'auth',
     category: 'Config',
-    description: 'View API key status. Run wstack auth for the full interactive key manager.',
+    description: 'Manage API keys & OAuth sign-in: /auth [login|status <id>]',
     help,
     async run(args) {
       const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -82,7 +85,31 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
         return { message: `${color.red('Error')} auth not available — config path missing.` };
       }
 
-      if (sub === 'open') {
+      // Bare /auth (or /auth open) → open the interactive TUI panel when the
+      // bridge is live; fall through to the text views in the plain REPL.
+      if ((sub === '' || sub === 'open' || sub === 'menu') && opts.onPanelOpen?.current) {
+        if (opts.onPanelOpen.current('authOpen')) {
+          return { message: 'Opened the auth panel.' };
+        }
+      }
+
+      // /auth login|oauth|signin → jump straight to the OAuth view.
+      if (sub === 'login' || sub === 'oauth' || sub === 'signin') {
+        if (opts.onPanelOpen?.current?.('authOauthOpen')) {
+          return { message: 'Opened OAuth sign-in.' };
+        }
+        return {
+          message: [
+            `${color.bold('OAuth sign-in')}`,
+            '',
+            `  Run ${color.cyan('wstack auth login chatgpt')} — ChatGPT Plus/Pro (→ openai-codex)`,
+            `  Run ${color.cyan('wstack auth login claude')}  — Claude Pro/Max (→ anthropic-oauth)`,
+            `  Run ${color.cyan('wstack auth login copilot')} — GitHub Copilot (→ github-copilot)`,
+          ].join('\n'),
+        };
+      }
+
+      if (sub === 'open' || sub === 'menu') {
         return {
           message: [
             `${color.bold('API Key Manager')}`,
@@ -93,8 +120,7 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
             `    ${color.cyan('wstack auth <provider>')}      Add a key for <provider>`,
             `    ${color.cyan('wstack auth <p> --label <l>')}  Add with custom label`,
             '',
-            color.dim('  The interactive menu requires standard input (readline) which is not'),
-            color.dim('  available inside the WrongStack session REPL.'),
+            color.dim('  (In the TUI, /auth opens the same manager as an interactive panel.)'),
           ].join('\n'),
         };
       }

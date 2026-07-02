@@ -37,7 +37,7 @@ describe('<Entry /> tool rendering', () => {
     expect(frame).toContain('const Widget = makeWidget();');
   });
 
-  it('renders new-file write diffs in committed tool entries', () => {
+  it('renders new-file write diffs with a Write(path) header', () => {
     const frame = renderEntry({
       id: 2,
       kind: 'tool',
@@ -52,11 +52,10 @@ describe('<Entry /> tool rendering', () => {
       }),
     });
 
-    expect(frame).toContain('write');
-    expect(frame).toContain('src/new.ts');
-    // `created: true` is now rendered as "new file" in the meta line —
-    // the visual summary sits above the diff body.
-    expect(frame).toContain('new file');
+    // `created: true` → Claude-Code-style header: ● Write(path)
+    expect(frame).toContain('Write(src/new.ts)');
+    expect(frame).toContain('⎿');
+    expect(frame).toContain('Added 2 lines');
     expect(frame).toContain('alpha');
     expect(frame).toContain('beta');
   });
@@ -86,7 +85,7 @@ describe('<Entry /> tool rendering', () => {
     expect(frame).toContain('denied');
   });
 
-  it('renders edit meta line (path + replacement count) above the diff body', () => {
+  it('renders edit entries with an Update(path) header + stats line above the diff body', () => {
     const frame = renderEntry({
       id: 4,
       kind: 'tool',
@@ -108,14 +107,13 @@ describe('<Entry /> tool rendering', () => {
       }),
     });
 
-    // Meta line: tool name + path
-    expect(frame).toContain('edit');
-    expect(frame).toContain('src/foo.ts');
-    // Replacement count meta
-    expect(frame).toContain('1 replacement');
-    // Diff body still rendered below
-    expect(frame).toContain('+b');
-    expect(frame).toContain('-a');
+    // Header: ● Update(path)
+    expect(frame).toContain('Update(src/foo.ts)');
+    // Stats line: ⎿  Added 1 line, removed 1 line
+    expect(frame).toContain('Added 1 line, removed 1 line');
+    // Diff body below (single line-number gutter + marker + text).
+    expect(frame).toMatch(/1 \+ b/);
+    expect(frame).toMatch(/1 - a/);
   });
 
   it('renders write meta line (path + bytes)', () => {
@@ -157,13 +155,12 @@ describe('<Entry /> tool rendering', () => {
       }),
     });
 
-    // Meta line: still present (path + replacement count).
-    expect(frame).toContain('edit');
-    expect(frame).toContain('src/foo.ts');
-    expect(frame).toContain('1 replacement');
-    // Diff BODY is hidden — the raw `-a`/`+b` markers from the diff
-    // must not appear in the simple render.
-    expect(frame).not.toContain('-a');
-    expect(frame).not.toContain('+b');
+    // Header + stats line: still present.
+    expect(frame).toContain('Update(src/foo.ts)');
+    expect(frame).toContain('Added 1 line, removed 1 line');
+    // Diff BODY is hidden — the changed-line rows must not appear in the
+    // simple render.
+    expect(frame).not.toMatch(/1 - a/);
+    expect(frame).not.toMatch(/1 \+ b/);
   });
 });

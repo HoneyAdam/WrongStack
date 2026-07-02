@@ -115,7 +115,9 @@ describe('QueuedMessages', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('Clear all'));
+    // The clear-all control is icon-only (its label lives in the i18n
+    // title attribute) — target the stable testid rather than display text.
+    fireEvent.click(screen.getByTestId('inline-queue-clear-all'));
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 

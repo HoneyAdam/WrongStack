@@ -341,6 +341,12 @@ export interface RunTuiOptions {
       }>)
     | undefined;
   /**
+   * Host for the interactive `/auth` panel (provider/key management, OAuth
+   * sign-in, local-server add). The CLI builds this from its vault +
+   * models registry; when absent, `/auth` falls back to plain text.
+   */
+  authHost?: import('./components/auth-panel-model.js').AuthPanelHost | undefined;
+  /**
    * Predict likely next steps after a completed turn. The CLI wires this from
    * the session provider and the `/next` toggle; it returns [] when prediction
    * is disabled or autonomy isn't 'off'. Display-only — never executed.
@@ -966,6 +972,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           saveSettings: opts.saveSettings,
           getPluginItems: opts.getPluginItems,
           onPluginToggle: opts.onPluginToggle,
+          authHost: opts.authHost,
           predictNext: opts.predictNext,
           onSuggestionsParsed: opts.onSuggestionsParsed,
           getSuggestions: opts.getSuggestions,

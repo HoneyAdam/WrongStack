@@ -3,11 +3,13 @@ import React, { useEffect, useMemo } from 'react';
 import { theme } from '../../theme.js';
 import { getToolVisual } from '../../tool-glyph.js';
 import { Banner } from './banner.js';
+import { langFromPath } from '../../highlight.js';
 import {
   DiffBlock,
   DiffFileBlock,
   extractDiffPreview,
   extractMultiFileDiffs,
+  formatDiffStats,
   formatMultiDiffSummary,
   summarizeMultiFileDiffs,
 } from './code-block.js';
@@ -22,7 +24,10 @@ import {
   formatToolArgs,
   formatToolOutput,
   formatToolVisualOutput,
+  shortenPath,
+  stringOf,
   ToolOutputLines,
+  tryParseJson,
 } from './utils.js';
 
 // ── Internal helpers ──
@@ -204,6 +209,7 @@ export const Entry = React.memo(function Entry({
         diff,
         multiDiffs,
         sizeChip,
+        mutation,
       } = useMemo(() => {
         const argSummary = formatToolArgs(entry.name, entry.input);
         const outLines = formatToolOutput(
@@ -233,7 +239,47 @@ export const Entry = React.memo(function Entry({
           }
           return parts.join(' · ');
         })();
-        return { argSummary, outLines, visualLines, diff, multiDiffs, sizeChip };
+        // Claude-Code-style header info for file-mutating tools whose diff
+        // is renderable: `● Update(path)` / `● Write(path)` + a
+        // `⎿  Added N lines, removed M lines` stats line. Only successful
+        // calls with a recovered diff take this shape — failures and
+        // diff-less results keep the generic glyph header below.
+        const mutation = (() => {
+          const name = entry.name;
+          if (name !== 'edit' && name !== 'write' && name !== 'patch' && name !== 'replace') {
+            return undefined;
+          }
+          if (!entry.ok || (!diff && !multiDiffs)) return undefined;
+          const inputObj =
+            entry.input && typeof entry.input === 'object'
+              ? (entry.input as Record<string, unknown>)
+              : undefined;
+          const outJson = tryParseJson((entry.output ?? '').trim());
+          const outObj =
+            outJson && typeof outJson === 'object' ? (outJson as Record<string, unknown>) : undefined;
+          // `created` lives in the JSON output shape; the serialized-text
+          // shape carries it as a `created=true` field on the header line.
+          const created =
+            name === 'write' &&
+            (outObj?.['created'] === true ||
+              /^[^\n]*\bcreated=true\b/.test(entry.output ?? ''));
+          const verb = created ? 'Write' : 'Update';
+          const path = stringOf(inputObj?.['path']) ?? stringOf(outObj?.['path']);
+          const target = multiDiffs
+            ? multiDiffs.length === 1
+              ? multiDiffs[0]!.path
+              : `${multiDiffs.length} files`
+            : (path ?? 'file');
+          const agg = multiDiffs ? summarizeMultiFileDiffs(multiDiffs) : undefined;
+          return {
+            verb,
+            target,
+            added: agg ? agg.added : (diff?.added ?? 0),
+            removed: agg ? agg.removed : (diff?.removed ?? 0),
+            lang: langFromPath(multiDiffs ? '' : (path ?? '')),
+          };
+        })();
+        return { argSummary, outLines, visualLines, diff, multiDiffs, sizeChip, mutation };
       }, [
         entry.name,
         entry.output,
@@ -243,6 +289,74 @@ export const Entry = React.memo(function Entry({
         entry.outputLines,
         entry.outputTokens,
       ]);
+      if (mutation) {
+        // Claude-Code-style file-mutation entry:
+        //   ● Update(D:\path\to\file.tsx)  ·  12ms
+        //     ⎿  Added 2 lines, removed 2 lines
+        //     122        <div className="…">
+        //     125 -      <Loader2 … /> Loading kits…      (dark red wash)
+        //     125 +      <Loader2 … /> {t('…')}           (dark green wash)
+        // In `simple` result-render mode only the header + stats line show;
+        // the diff body stays hidden.
+        const statsText = formatDiffStats(mutation.added, mutation.removed) ?? 'No line changes';
+        // Keep the header on one line: budget the path to the terminal
+        // width minus the bullet, verb, parens and the trailing duration
+        // chip — a too-long absolute path elides from the left
+        // (`…\SidePanel\DesignStudioPanel.tsx`) instead of wrapping the
+        // bullet onto its own row.
+        const targetBudget = Math.max(24, termWidth - mutation.verb.length - 16);
+        return (
+          <Box flexDirection="column">
+            <Text>
+              <Text color={theme.success}>{'●'}</Text>
+              <Text> </Text>
+              <Text bold color="white">
+                {`${mutation.verb}(${shortenPath(mutation.target, targetBudget)})`}
+              </Text>
+              <Text dimColor>{`  ·  ${fmtDuration(entry.durationMs)}`}</Text>
+            </Text>
+            <Text>
+              <Text dimColor>{'  ⎿  '}</Text>
+              <Text>{statsText}</Text>
+            </Text>
+            {entry.resultRenderMode !== 'simple' && multiDiffs ? (
+              <Box flexDirection="column">
+                {(() => {
+                  const summaryLine = formatMultiDiffSummary(
+                    summarizeMultiFileDiffs(multiDiffs),
+                    multiDiffSummaryThreshold ?? -1,
+                  );
+                  return summaryLine ? (
+                    <Text dimColor italic>{`  ${summaryLine}`}</Text>
+                  ) : null;
+                })()}
+                {multiDiffs.map((item) => (
+                  <DiffFileBlock
+                    key={item.path}
+                    path={item.path}
+                    preview={item.preview}
+                    useColor={theme.supportsBackground}
+                    contentWidth={termWidth}
+                  />
+                ))}
+              </Box>
+            ) : entry.resultRenderMode !== 'simple' && diff ? (
+              <DiffBlock
+                rows={diff.rows}
+                hidden={diff.hidden}
+                added={diff.added}
+                removed={diff.removed}
+                hiddenAdded={diff.hiddenAdded}
+                hiddenRemoved={diff.hiddenRemoved}
+                useColor={theme.supportsBackground}
+                lang={mutation.lang}
+                showStats={false}
+                contentWidth={termWidth}
+              />
+            ) : null}
+          </Box>
+        );
+      }
       return (
         <Box flexDirection="column">
           <Text>
@@ -296,7 +410,7 @@ export const Entry = React.memo(function Entry({
                 ) : null;
               })()}
               {multiDiffs.map((item) => (
-                <DiffFileBlock key={item.path} path={item.path} preview={item.preview} useColor={theme.supportsBackground} />
+                <DiffFileBlock key={item.path} path={item.path} preview={item.preview} useColor={theme.supportsBackground} contentWidth={termWidth} />
               ))}
             </Box>
           ) : entry.resultRenderMode !== 'simple' && diff ? (
@@ -308,6 +422,7 @@ export const Entry = React.memo(function Entry({
               hiddenAdded={diff.hiddenAdded}
               hiddenRemoved={diff.hiddenRemoved}
               useColor={theme.supportsBackground}
+              contentWidth={termWidth}
             />
           ) : null}
         </Box>

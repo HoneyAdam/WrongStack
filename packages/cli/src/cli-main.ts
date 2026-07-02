@@ -83,6 +83,7 @@ import { setOAuthTokenPersister } from '@wrongstack/providers';
 import { sessionScopedPath } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { mutateConfigProviders, normalizeKeys, writeKeysBack } from './provider-config-utils.js';
+import { createAuthPanelHost } from './auth-menu/panel-service.js';
 import { createAutoPhaseHost } from './autophase-host.js';
 import { boot } from './boot.js';
 import { registerBuiltinTools } from './boot/tool-registry.js';
@@ -2983,6 +2984,14 @@ export async function main(argv: string[]): Promise<number> {
     saveStatuslineHiddenItems,
     getPluginItems: getPluginPickerItems,
     onPluginToggle: togglePluginFromPicker,
+    // Interactive /auth panel host — provider/key CRUD, catalog/local adds
+    // and OAuth sign-in, all executed CLI-side against the encrypted config
+    // (secrets never enter the TUI; key values arrive pre-masked).
+    authHost: createAuthPanelHost({
+      vault,
+      modelsRegistry,
+      globalConfigPath: wpaths.globalConfig,
+    }),
     // Panel-open bridge: the SAME mutable ref handed to the slash commands
     // above. execution.ts forwards it into runTui, where app.tsx binds
     // `current` to the real dispatcher on mount. Without this line the ref
