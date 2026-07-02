@@ -885,5 +885,16 @@
     "protected": "protégé",
     "protectedTitle": "Protégé — survit à kill/killAll",
     "killTitle": "Tuer PID {{pid}}"
+  },
+  "diff": {
+    "tooLarge": "Diff omis (fichier trop volumineux pour un rendu en ligne)."
+  },
+  "fallback": {
+    "placeholder": "Ajouter un modèle de repli…",
+    "emptyHint": "Essayés dans l'ordre quand le modèle principal est limité ou bloqué.",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "manualPlaceholder": "fournisseur/modèle",
+    "addTitle": "Ajouter une référence de modèle"
   }
 }

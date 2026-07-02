@@ -885,5 +885,16 @@
     "protected": "protected",
     "protectedTitle": "Protected — survives kill/killAll",
     "killTitle": "Kill PID {{pid}}"
+  },
+  "diff": {
+    "tooLarge": "Diff omitted (file too large to render inline)."
+  },
+  "fallback": {
+    "placeholder": "Add a fallback model…",
+    "emptyHint": "Tried in order when the primary model rate-limits or stalls.",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "manualPlaceholder": "provider/model",
+    "addTitle": "Add model reference"
   }
 }

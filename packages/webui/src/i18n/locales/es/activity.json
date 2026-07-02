@@ -885,5 +885,16 @@
     "protected": "protegido",
     "protectedTitle": "Protegido — sobrevive a kill/killAll",
     "killTitle": "Matar PID {{pid}}"
+  },
+  "diff": {
+    "tooLarge": "Diff omitido (archivo demasiado grande para mostrar en línea)."
+  },
+  "fallback": {
+    "placeholder": "Añadir modelo de respaldo…",
+    "emptyHint": "Se prueban en orden cuando el modelo principal limita o se atasca.",
+    "moveUp": "Subir",
+    "moveDown": "Bajar",
+    "manualPlaceholder": "proveedor/modelo",
+    "addTitle": "Añadir referencia de modelo"
   }
 }

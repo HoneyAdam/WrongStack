@@ -885,5 +885,16 @@
     "protected": "protetto",
     "protectedTitle": "Protetto — sopravvive a kill/killAll",
     "killTitle": "Termina PID {{pid}}"
+  },
+  "diff": {
+    "tooLarge": "Diff omesso (file troppo grande per il rendering in linea)."
+  },
+  "fallback": {
+    "placeholder": "Aggiungi un modello di fallback…",
+    "emptyHint": "Provati in ordine quando il modello primario è limitato o si blocca.",
+    "moveUp": "Sposta su",
+    "moveDown": "Sposta giù",
+    "manualPlaceholder": "provider/modello",
+    "addTitle": "Aggiungi riferimento modello"
   }
 }

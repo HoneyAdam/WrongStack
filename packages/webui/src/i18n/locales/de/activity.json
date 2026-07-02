@@ -885,5 +885,16 @@
     "protected": "geschützt",
     "protectedTitle": "Geschützt — überlebt kill/killAll",
     "killTitle": "PID {{pid}} beenden"
+  },
+  "diff": {
+    "tooLarge": "Diff ausgelassen (Datei zu groß für die Inline-Darstellung)."
+  },
+  "fallback": {
+    "placeholder": "Ausweichmodell hinzufügen…",
+    "emptyHint": "Wird in Reihenfolge versucht, wenn das primäre Modell ratelimitiert oder hängt.",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "manualPlaceholder": "anbieter/modell",
+    "addTitle": "Modellreferenz hinzufügen"
   }
 }

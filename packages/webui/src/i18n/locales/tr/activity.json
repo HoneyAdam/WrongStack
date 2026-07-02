@@ -885,5 +885,16 @@
     "protected": "korumalı",
     "protectedTitle": "Korumalı — kill/killAll'dan sağ kalır",
     "killTitle": "PID {{pid}} sonlandır"
+  },
+  "diff": {
+    "tooLarge": "Diff atlandı (dosya satır içi göstermek için çok büyük)."
+  },
+  "fallback": {
+    "placeholder": "Yedek model ekle…",
+    "emptyHint": "Birincil model hız sınırladığında veya takıldığında sırayla denenir.",
+    "moveUp": "Yukarı taşı",
+    "moveDown": "Aşağı taşı",
+    "manualPlaceholder": "sağlayıcı/model",
+    "addTitle": "Model referansı ekle"
   }
 }
