@@ -298,5 +298,48 @@
     "list": "List",
     "graph": "Graph",
     "loadingTasks": "Loading tasks…"
+  },
+  "refresh": {
+    "heading": "F5 Resilience Verifier",
+    "subtitle": "Confirms the latest active session, transcript, and UI state survive a page refresh. Open this view, then press F5 — every green row should remain green.",
+    "recordProbe": "Record probe",
+    "latestSession": "Latest active session",
+    "restoredLocal": "Restored from localStorage",
+    "sessionIdExtra": "session id: {{id}}",
+    "noSessionYet": "no session has been started yet",
+    "activePointer": "Active session pointer",
+    "lastVisited": "lastVisitedAt timestamp",
+    "never": "never",
+    "persistedEnv": "Persisted environment",
+    "transcriptRehydrate": "Chat transcript rehydration",
+    "localTranscript": "Local transcript recovered",
+    "messagesExtra": "{{count}} messages, {{queued}} queued",
+    "noMessages": "0 messages",
+    "noBleed": "No cross-session bleed",
+    "bleedExtra": "bound={{bound}} vs active={{active}}",
+    "transcriptBinds": "transcript binds to the active session",
+    "uiWorkspace": "UI workspace",
+    "noneValue": "(none)",
+    "payloadSize": "localStorage payload (4 keys): {{count}} chars",
+    "probeLog": "Probe log",
+    "noProbes": "No probes yet — press the \"Record probe\" button at the top, or press F5 in this view, to record a rehydration check.",
+    "simulatedF5": "simulated F5: re-running persist rehydrate"
+  },
+  "board": {
+    "status": {
+      "pending": "Pending",
+      "in_progress": "In Progress",
+      "review": "Review",
+      "failed": "Failed",
+      "completed": "Done"
+    },
+    "newTaskTitle": "New task",
+    "newTaskPlaceholder": "Task title…",
+    "addTask": "Add task",
+    "empty": "No phases yet — start an AutoPhase run to populate the board.",
+    "summary": "{{phases}} phases · {{tasks}} tasks",
+    "phases": "Phases",
+    "statusTab": "Status",
+    "dropHere": "Drop tasks here"
   }
 }

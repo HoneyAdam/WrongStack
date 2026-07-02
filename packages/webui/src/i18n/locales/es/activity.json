@@ -298,5 +298,48 @@
     "list": "Lista",
     "graph": "Grafo",
     "loadingTasks": "Cargando tareas…"
+  },
+  "refresh": {
+    "heading": "Verificador de resiliencia F5",
+    "subtitle": "Confirma que la última sesión activa, la transcripción y el estado de la UI sobreviven a una recarga de página. Abre esta vista y pulsa F5 — cada fila verde debe seguir verde.",
+    "recordProbe": "Registrar sonda",
+    "latestSession": "Última sesión activa",
+    "restoredLocal": "Restaurado desde localStorage",
+    "sessionIdExtra": "id de sesión: {{id}}",
+    "noSessionYet": "todavía no se ha iniciado ninguna sesión",
+    "activePointer": "Puntero de sesión activa",
+    "lastVisited": "marca de tiempo lastVisitedAt",
+    "never": "nunca",
+    "persistedEnv": "Entorno persistido",
+    "transcriptRehydrate": "Rehidratación de transcripción",
+    "localTranscript": "Transcripción local recuperada",
+    "messagesExtra": "{{count}} mensajes, {{queued}} en cola",
+    "noMessages": "0 mensajes",
+    "noBleed": "Sin fuga entre sesiones",
+    "bleedExtra": "ligado={{bound}} vs activo={{active}}",
+    "transcriptBinds": "la transcripción se liga a la sesión activa",
+    "uiWorkspace": "Espacio de trabajo UI",
+    "noneValue": "(ninguno)",
+    "payloadSize": "Carga de localStorage (4 claves): {{count}} caracteres",
+    "probeLog": "Registro de sondas",
+    "noProbes": "Aún no hay sondas — pulsa el botón \"Registrar sonda\" arriba, o F5 en esta vista, para registrar una comprobación de rehidratación.",
+    "simulatedF5": "F5 simulado: reejecutar persist rehydrate"
+  },
+  "board": {
+    "status": {
+      "pending": "Pendiente",
+      "in_progress": "En progreso",
+      "review": "Revisión",
+      "failed": "Fallido",
+      "completed": "Hecho"
+    },
+    "newTaskTitle": "Nueva tarea",
+    "newTaskPlaceholder": "Título de tarea…",
+    "addTask": "Añadir tarea",
+    "empty": "Aún no hay fases — inicia una ejecución AutoPhase para rellenar el tablero.",
+    "summary": "{{phases}} fases · {{tasks}} tareas",
+    "phases": "Fases",
+    "statusTab": "Estado",
+    "dropHere": "Suelta las tareas aquí"
   }
 }

@@ -8,6 +8,7 @@ import {
   Server,
 } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -44,6 +45,7 @@ import { useUIStore } from '@/stores/ui-store';
  */
 export function RefreshDebugView() {
   const session = useSessionStore((s) => s.session);
+  const { t } = useAppTranslation();
   const persistedSessionId = useSessionStore.getState().session?.id;
   const projectName = useSessionStore((s) => s.projectName);
   const cwd = useSessionStore((s) => s.cwd);
@@ -100,7 +102,7 @@ export function RefreshDebugView() {
     // We can't actually trigger browser F5 from inside a hook without a
     // user gesture, so we go through the same path that rehydrate runs
     // against: re-init the persist middleware via rehydrate().
-    record('simulated F5: re-running persist rehydrate', true);
+    record(t('activity:refresh.simulatedF5'), true);
   }
 
   const bleed =
@@ -115,11 +117,10 @@ export function RefreshDebugView() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <RotateCw className="w-7 h-7 text-primary" />
-              F5 Resilience Verifier
+              {t('activity:refresh.heading')}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Confirms the latest active session, transcript, and UI state survive a page refresh.
-              Open this view, then press F5 — every green row should remain green.
+              {t('activity:refresh.subtitle')}
             </p>
           </div>
           <button
@@ -127,7 +128,7 @@ export function RefreshDebugView() {
             onClick={simulateRefresh}
             className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
           >
-            Record probe
+            {t('activity:refresh.recordProbe')}
           </button>
         </header>
 
@@ -135,26 +136,26 @@ export function RefreshDebugView() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            Latest active session
+            {t('activity:refresh.latestSession')}
           </h2>
           <CardRow
-            label="Restored from localStorage"
+            label={t('activity:refresh.restoredLocal')}
             ok={sessionRehydrated}
             extra={
               persistedSessionId
-                ? `session id: ${persistedSessionId}`
-                : 'no session has been started yet'
+                ? t('activity:refresh.sessionIdExtra', { id: persistedSessionId })
+                : t('activity:refresh.noSessionYet')
             }
           />
           <CardRow
-            label="Active session pointer"
+            label={t('activity:refresh.activePointer')}
             ok={Boolean(session?.id)}
             extra={session ? formatSession(session) : 'null'}
           />
           <CardRow
-            label="lastVisitedAt timestamp"
+            label={t('activity:refresh.lastVisited')}
             ok={lastVisitedAt > 0}
-            extra={lastVisitedAt > 0 ? new Date(lastVisitedAt).toISOString() : 'never'}
+            extra={lastVisitedAt > 0 ? new Date(lastVisitedAt).toISOString() : t('activity:refresh.never')}
           />
         </section>
 
@@ -162,7 +163,7 @@ export function RefreshDebugView() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Database className="w-5 h-5" />
-            Persisted environment
+            {t('activity:refresh.persistedEnv')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <DataTile label="projectName" value={projectName || '∅'} />
@@ -176,24 +177,24 @@ export function RefreshDebugView() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <History className="w-5 h-5" />
-            Chat transcript rehydration
+            {t('activity:refresh.transcriptRehydrate')}
           </h2>
           <CardRow
-            label="Local transcript recovered"
+            label={t('activity:refresh.localTranscript')}
             ok={chatRehydrated && (messages.length > 0 || boundSessionId === null)}
             extra={
               messages.length === 0
-                ? '0 messages'
-                : `${messages.length} messages, ${queueLen} queued`
+                ? t('activity:refresh.noMessages')
+                : t('activity:refresh.messagesExtra', { count: messages.length, queued: queueLen })
             }
           />
           <CardRow
-            label="No cross-session bleed"
+            label={t('activity:refresh.noBleed')}
             ok={!bleed}
             extra={
               bleed
-                ? `bound=${boundSessionId ?? '∅'} vs active=${persistedSessionId ?? '∅'}`
-                : 'transcript binds to the active session'
+                ? t('activity:refresh.bleedExtra', { bound: boundSessionId ?? '∅', active: persistedSessionId ?? '∅' })
+                : t('activity:refresh.transcriptBinds')
             }
             warn={bleed}
           />
@@ -214,24 +215,23 @@ export function RefreshDebugView() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Server className="w-5 h-5" />
-            UI workspace
+            {t('activity:refresh.uiWorkspace')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <DataTile label="currentView" value={currentView} mono />
-            <DataTile label="dockSection" value={dockSection ?? '(none)'} mono />
+            <DataTile label="dockSection" value={dockSection ?? t('activity:refresh.noneValue')} mono />
           </div>
           <p className="text-xs text-muted-foreground">
-            localStorage payload (4 keys): {localStorageSize} chars
+            {t('activity:refresh.payloadSize', { count: localStorageSize })}
           </p>
         </section>
 
         {/* ── Probe log ───────────────────────────────────────────── */}
         <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Probe log</h2>
+          <h2 className="text-lg font-semibold">{t('activity:refresh.probeLog')}</h2>
           {probeLog.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No probes yet — press the "Record probe" button at the top, or press F5 in this view,
-              to record a rehydration check.
+              {t('activity:refresh.noProbes')}
             </p>
           ) : (
             <ul className="space-y-1 text-xs font-mono">

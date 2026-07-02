@@ -298,5 +298,48 @@
     "list": "Lista",
     "graph": "Grafo",
     "loadingTasks": "Caricamento attività…"
+  },
+  "refresh": {
+    "heading": "Verificatore di resilienza F5",
+    "subtitle": "Conferma che l'ultima sessione attiva, la trascrizione e lo stato UI sopravvivono a un aggiornamento della pagina. Apri questa vista, poi premi F5 — ogni riga verde dovrebbe restare verde.",
+    "recordProbe": "Registra sondaggio",
+    "latestSession": "Ultima sessione attiva",
+    "restoredLocal": "Ripristinato da localStorage",
+    "sessionIdExtra": "id sessione: {{id}}",
+    "noSessionYet": "nessuna sessione è ancora stata avviata",
+    "activePointer": "Puntatore sessione attiva",
+    "lastVisited": "timestamp lastVisitedAt",
+    "never": "mai",
+    "persistedEnv": "Ambiente persistente",
+    "transcriptRehydrate": "Reidratazione trascrizione chat",
+    "localTranscript": "Trascrizione locale recuperata",
+    "messagesExtra": "{{count}} messaggi, {{queued}} in coda",
+    "noMessages": "0 messaggi",
+    "noBleed": "Nessuna perdita tra sessioni",
+    "bleedExtra": "collegato={{bound}} vs attivo={{active}}",
+    "transcriptBinds": "la trascrizione si lega alla sessione attiva",
+    "uiWorkspace": "Area di lavoro UI",
+    "noneValue": "(nessuno)",
+    "payloadSize": "Carico utile localStorage (4 chiavi): {{count}} caratteri",
+    "probeLog": "Registro sondaggi",
+    "noProbes": "Nessun sondaggio ancora — premi il pulsante \"Registra sondaggio\" in alto, oppure F5 in questa vista, per registrare un controllo di reidratazione.",
+    "simulatedF5": "F5 simulato: riesecuzione di persist rehydrate"
+  },
+  "board": {
+    "status": {
+      "pending": "In attesa",
+      "in_progress": "In corso",
+      "review": "Revisione",
+      "failed": "Fallito",
+      "completed": "Completato"
+    },
+    "newTaskTitle": "Nuova attività",
+    "newTaskPlaceholder": "Titolo attività…",
+    "addTask": "Aggiungi attività",
+    "empty": "Nessuna fase ancora — avvia un'esecuzione AutoPhase per popolare la bacheca.",
+    "summary": "{{phases}} fasi · {{tasks}} attività",
+    "phases": "Fasi",
+    "statusTab": "Stato",
+    "dropHere": "Trascina le attività qui"
   }
 }

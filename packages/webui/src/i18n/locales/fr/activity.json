@@ -298,5 +298,48 @@
     "list": "Liste",
     "graph": "Graphe",
     "loadingTasks": "Chargement des tâches…"
+  },
+  "refresh": {
+    "heading": "Vérificateur de résilience F5",
+    "subtitle": "Confirme que la dernière session active, la transcription et l'état de l'UI survivent à un rafraîchissement de page. Ouvrez cette vue, puis appuyez sur F5 — chaque ligne verte doit rester verte.",
+    "recordProbe": "Enregistrer une sonde",
+    "latestSession": "Dernière session active",
+    "restoredLocal": "Restauré depuis localStorage",
+    "sessionIdExtra": "id de session : {{id}}",
+    "noSessionYet": "aucune session n'a encore été démarrée",
+    "activePointer": "Pointeur de session active",
+    "lastVisited": "horodatage lastVisitedAt",
+    "never": "jamais",
+    "persistedEnv": "Environnement persisté",
+    "transcriptRehydrate": "Réhydratation de la transcription",
+    "localTranscript": "Transcription locale récupérée",
+    "messagesExtra": "{{count}} messages, {{queued}} en file",
+    "noMessages": "0 message",
+    "noBleed": "Pas de fuite entre sessions",
+    "bleedExtra": "lié={{bound}} vs actif={{active}}",
+    "transcriptBinds": "la transcription se lie à la session active",
+    "uiWorkspace": "Espace de travail UI",
+    "noneValue": "(aucun)",
+    "payloadSize": "Charge utile localStorage (4 clés) : {{count}} caractères",
+    "probeLog": "Journal des sondes",
+    "noProbes": "Aucune sonde pour le moment — appuyez sur le bouton « Enregistrer une sonde » en haut, ou sur F5 dans cette vue, pour enregistrer un contrôle de réhydratation.",
+    "simulatedF5": "F5 simulé : relance de persist rehydrate"
+  },
+  "board": {
+    "status": {
+      "pending": "En attente",
+      "in_progress": "En cours",
+      "review": "Revue",
+      "failed": "Échoué",
+      "completed": "Terminé"
+    },
+    "newTaskTitle": "Nouvelle tâche",
+    "newTaskPlaceholder": "Titre de la tâche…",
+    "addTask": "Ajouter la tâche",
+    "empty": "Aucune phase pour l'instant — lancez une exécution AutoPhase pour remplir le tableau.",
+    "summary": "{{phases}} phases · {{tasks}} tâches",
+    "phases": "Phases",
+    "statusTab": "Statut",
+    "dropHere": "Déposer les tâches ici"
   }
 }

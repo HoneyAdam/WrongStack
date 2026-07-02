@@ -298,5 +298,48 @@
     "list": "Liste",
     "graph": "Graph",
     "loadingTasks": "Aufgaben werden geladen…"
+  },
+  "refresh": {
+    "heading": "F5-Resilienz-Prüfer",
+    "subtitle": "Bestätigt, dass die letzte aktive Sitzung, das Transkript und der UI-Zustand einen Page-Refresh überstehen. Öffne diese Ansicht und drücke F5 — jede grüne Zeile sollte grün bleiben.",
+    "recordProbe": "Probe aufzeichnen",
+    "latestSession": "Letzte aktive Sitzung",
+    "restoredLocal": "Aus localStorage wiederhergestellt",
+    "sessionIdExtra": "Session-ID: {{id}}",
+    "noSessionYet": "es wurde noch keine Sitzung gestartet",
+    "activePointer": "Aktiver Session-Zeiger",
+    "lastVisited": "lastVisitedAt-Zeitstempel",
+    "never": "nie",
+    "persistedEnv": "Persistierte Umgebung",
+    "transcriptRehydrate": "Chat-Transkript-Rehydratation",
+    "localTranscript": "Lokales Transkript wiederhergestellt",
+    "messagesExtra": "{{count}} Nachrichten, {{queued}} in Warteschlange",
+    "noMessages": "0 Nachrichten",
+    "noBleed": "Kein Session-Übergriff",
+    "bleedExtra": "gebunden={{bound}} vs aktiv={{active}}",
+    "transcriptBinds": "Transkript bindet an die aktive Sitzung",
+    "uiWorkspace": "UI-Workspace",
+    "noneValue": "(keine)",
+    "payloadSize": "localStorage-Payload (4 Schlüssel): {{count}} Zeichen",
+    "probeLog": "Probe-Protokoll",
+    "noProbes": "Noch keine Probes — drücke oben \"Probe aufzeichnen\" oder F5 in dieser Ansicht, um einen Rehydratations-Check aufzuzeichnen.",
+    "simulatedF5": "simuliertes F5: persist rehydrate erneut ausführen"
+  },
+  "board": {
+    "status": {
+      "pending": "Ausstehend",
+      "in_progress": "In Arbeit",
+      "review": "Review",
+      "failed": "Fehlgeschlagen",
+      "completed": "Erledigt"
+    },
+    "newTaskTitle": "Neue Aufgabe",
+    "newTaskPlaceholder": "Aufgabentitel…",
+    "addTask": "Aufgabe hinzufügen",
+    "empty": "Noch keine Phasen — starte einen AutoPhase-Lauf, um das Board zu füllen.",
+    "summary": "{{phases}} Phasen · {{tasks}} Aufgaben",
+    "phases": "Phasen",
+    "statusTab": "Status",
+    "dropHere": "Aufgaben hier ablegen"
   }
 }

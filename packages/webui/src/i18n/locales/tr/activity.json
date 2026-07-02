@@ -298,5 +298,48 @@
     "list": "Liste",
     "graph": "Graf",
     "loadingTasks": "Görevler yükleniyor…"
+  },
+  "refresh": {
+    "heading": "F5 Dayanıklılık Doğrulayıcı",
+    "subtitle": "En son etkin oturumun, transkriptin ve UI durumunun bir sayfa yenilemesinde kaldığını doğrular. Bu görünümü açın, sonra F5'e basın — her yeşil satır yeşil kalmalıdır.",
+    "recordProbe": "Sonda kaydet",
+    "latestSession": "En son etkin oturum",
+    "restoredLocal": "localStorage'tan geri yüklendi",
+    "sessionIdExtra": "oturum kimliği: {{id}}",
+    "noSessionYet": "henüz oturum başlatılmadı",
+    "activePointer": "Etkin oturum işaretçisi",
+    "lastVisited": "lastVisitedAt zaman damgası",
+    "never": "hiçbir zaman",
+    "persistedEnv": "Kalıcı ortam",
+    "transcriptRehydrate": "Sohbet transkripti yeniden doldurma",
+    "localTranscript": "Yerel transkript kurtarıldı",
+    "messagesExtra": "{{count}} mesaj, {{queued}} sıralı",
+    "noMessages": "0 mesaj",
+    "noBleed": "Oturumlar arası sızıntı yok",
+    "bleedExtra": "bağlı={{bound}} vs etkin={{active}}",
+    "transcriptBinds": "transkript etkin oturuma bağlanır",
+    "uiWorkspace": "UI çalışma alanı",
+    "noneValue": "(yok)",
+    "payloadSize": "localStorage yükü (4 anahtar): {{count}} karakter",
+    "probeLog": "Sonda günlüğü",
+    "noProbes": "Henüz sonda yok — yeniden doldurma kontrolü kaydetmek için üstteki \"Sonda kaydet\" düğmesine basın veya bu görünümde F5'e basın.",
+    "simulatedF5": "simüle F5: persist rehydrate yeniden çalıştırılıyor"
+  },
+  "board": {
+    "status": {
+      "pending": "Bekliyor",
+      "in_progress": "Devam Ediyor",
+      "review": "İnceleme",
+      "failed": "Başarısız",
+      "completed": "Bitti"
+    },
+    "newTaskTitle": "Yeni görev",
+    "newTaskPlaceholder": "Görev başlığı…",
+    "addTask": "Görev ekle",
+    "empty": "Henüz aşama yok — panoyu doldurmak için bir AutoPhase çalıştırması başlatın.",
+    "summary": "{{phases}} aşama · {{tasks}} görev",
+    "phases": "Aşamalar",
+    "statusTab": "Durum",
+    "dropHere": "Görevleri buraya bırakın"
   }
 }

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAutoPhaseStore } from '@/stores';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,7 @@ const PHASE_STATUS_BADGE: Record<PhaseItem['status'], string> = {
  */
 export function BoardView(): React.ReactElement {
   const { client } = useWebSocket();
+  const { t } = useAppTranslation();
   const phases = useAutoPhaseStore((s) => s.phases);
   const [layout, setLayout] = useState<BoardLayout>('phase');
   const [dragId, setDragId] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export function BoardView(): React.ReactElement {
   );
   const onAddTask = useCallback(
     (phaseId: string) => {
-      void promptModal({ title: 'New task', placeholder: 'Task title…', confirmLabel: 'Add task' }).then(
+      void promptModal({ title: t('activity:board.newTaskTitle'), placeholder: t('activity:board.newTaskPlaceholder'), confirmLabel: t('activity:board.addTask') }).then(
         (title) => {
           if (title) send({ type: 'autophase.addTask', payload: { phaseId, title } });
         },
@@ -141,7 +143,7 @@ export function BoardView(): React.ReactElement {
   if (phases.length === 0) {
     return (
       <div className="flex h-full min-h-0 min-w-0 items-center justify-center text-muted-foreground">
-        <p className="text-sm">No phases yet — start an AutoPhase run to populate the board.</p>
+        <p className="text-sm">{t('activity:board.empty')}</p>
       </div>
     );
   }
@@ -151,7 +153,7 @@ export function BoardView(): React.ReactElement {
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <span className="text-xs text-muted-foreground">
-          {phases.length} phases · {tasks.length} tasks
+          {t('activity:board.summary', { phases: phases.length, tasks: tasks.length })}
         </span>
         <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
           <button
@@ -162,7 +164,7 @@ export function BoardView(): React.ReactElement {
               layout === 'phase' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Columns3 className="h-3.5 w-3.5" /> Phases
+            <Columns3 className="h-3.5 w-3.5" /> {t('activity:board.phases')}
           </button>
           <button
             type="button"
@@ -172,7 +174,7 @@ export function BoardView(): React.ReactElement {
               layout === 'status' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Rows3 className="h-3.5 w-3.5" /> Status
+            <Rows3 className="h-3.5 w-3.5" /> {t('activity:board.statusTab')}
           </button>
         </div>
       </div>
@@ -206,7 +208,7 @@ export function BoardView(): React.ReactElement {
                   <button
                     type="button"
                     onClick={() => onAddTask(phase.id)}
-                    title="Add task"
+                    title={t('activity:board.addTask')}
                     className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <Plus className="h-4 w-4" />
@@ -214,7 +216,7 @@ export function BoardView(): React.ReactElement {
                 </div>
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                   {phaseTasks.length === 0 ? (
-                    <p className="px-1 py-4 text-center text-[11px] text-muted-foreground">Drop tasks here</p>
+                    <p className="px-1 py-4 text-center text-[11px] text-muted-foreground">{t('activity:board.dropHere')}</p>
                   ) : (
                     phaseTasks.map((task) => (
                       <div key={task.id} {...draggable(task.id)} className={cn(dragId === task.id && 'opacity-50')}>
@@ -234,7 +236,7 @@ export function BoardView(): React.ReactElement {
             <div />
             {STATUS_COLUMNS.map((col) => (
               <div key={col.key} className="px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {col.label}
+                {t(`activity:board.status.${col.key}`)}
               </div>
             ))}
             {/* One swimlane row per phase */}
