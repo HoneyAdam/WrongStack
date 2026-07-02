@@ -10,6 +10,7 @@ import * as monaco from 'monaco-editor';
 import { Check, Loader2, Save } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getWSClient } from '@/lib/ws-client';
+import { useAppTranslation } from '@/i18n';
 import { useConfigStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
 import './monaco-theme';
@@ -38,6 +39,7 @@ export function MonacoDiffView({
   oldText: string;
   newText: string;
 }) {
+  const { t } = useAppTranslation();
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -97,7 +99,7 @@ export function MonacoDiffView({
           onClick={apply}
           disabled={!dirty || saving}
           className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border text-xs font-medium disabled:opacity-40 enabled:hover:bg-muted transition-colors"
-          title="Write the edited version back to disk"
+          title={t('activity:monacoDiff.applyTitle')}
         >
           {saving ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -106,7 +108,7 @@ export function MonacoDiffView({
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          {saving ? 'Applying…' : savedAt && !dirty ? 'Applied' : 'Apply'}
+          {saving ? t('activity:monacoDiff.applying') : savedAt && !dirty ? t('activity:monacoDiff.applied') : t('activity:monacoDiff.apply')}
         </button>
       </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden">

@@ -1,5 +1,6 @@
 import { expectDefined } from '@wrongstack/core';
 import { useState } from 'react';
+import { useAppTranslation } from '@/i18n';
 function detectStackBoundary(text: string): number {
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -12,6 +13,7 @@ function detectStackBoundary(text: string): number {
 }
 
 export function ErrorBodyWithStack({ text }: { text: string }) {
+  const { t } = useAppTranslation();
   const idx = detectStackBoundary(text);
   const [open, setOpen] = useState(false);
   if (idx === -1) {
@@ -37,8 +39,9 @@ export function ErrorBodyWithStack({ text }: { text: string }) {
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 font-medium"
       >
-        {open ? '▾' : '▸'} {open ? 'Hide' : 'Show'} stack trace ({frameCount} frame
-        {frameCount === 1 ? '' : 's'})
+        {open ? '▾' : '▸'} {open
+          ? t('activity:errorBody.hideStack', { count: frameCount })
+          : t('activity:errorBody.showStack', { count: frameCount })}
       </button>
       {open && (
         <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-snug bg-destructive/5 border border-destructive/20 rounded p-2 max-h-80 overflow-auto">
