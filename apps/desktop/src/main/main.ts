@@ -22,8 +22,10 @@ import type {
 } from '../shared/types.js';
 import { DesktopAgentBridge } from './agent-bridge.js';
 import { IPC } from './ipc.js';
-import { setMainLocale, tMain } from './i18n-main.js';
+import { getMainLocale, setMainLocale, tMain } from './i18n-main.js';
+import { desktopConfigPaths, readUiLocale, writeUiLocale } from './desktop-config-io.js';
 import { DesktopRuntimeManager, preloadPath, rendererIndexPath, webuiPreloadPath } from './runtime-manager.js';
+import { watchProviderConfig } from '@wrongstack/core/storage';
 import {
   buildWebuiCommandFallbackScript,
   normalizeDesktopWebuiCommand,
@@ -90,6 +92,9 @@ let quittingAfterCleanup = false;
 
 async function createWindow(): Promise<void> {
   await manager.init();
+  // Apply the shared display language from config before the first menu build.
+  const bootLocale = await readUiLocale();
+  if (bootLocale) setMainLocale(bootLocale);
   configureApplicationMenu();
   const windowState = validatedWindowState(manager.getWindowState());
   const windowOptions: BaseWindowConstructorOptions = {
@@ -116,6 +121,11 @@ async function createWindow(): Promise<void> {
     },
   });
   mainWindow.contentView.addChildView(shellView);
+  // Once the shell renderer has loaded, push the config-backed display language
+  // so its chrome (and localStorage cache) follows the shared setting from boot.
+  shellView.webContents.once('did-finish-load', () => {
+    shellView?.webContents.send(IPC.localeChanged, getMainLocale());
+  });
   shellView.webContents.setWindowOpenHandler(({ url }) => {
     safeOpenExternal(url);
     return { action: 'deny' };
@@ -1088,10 +1098,27 @@ manager.on('changed', () => {
 
 // Renderer pushes its display locale here so the app menu + native dialogs
 // follow the user's language choice (see preload setLocale + renderer i18n).
+// Persist to the shared config so the change propagates to other surfaces.
 ipcMain.on(IPC.setLocale, (_event, locale: string) => {
   setMainLocale(locale);
   configureApplicationMenu();
+  void writeUiLocale(locale);
 });
+
+// Live-follow the shared display language: when another process (embedded or
+// standalone webui) writes config.uiLocale, rebuild the app menu and tell the
+// shell renderer so its chrome follows without a restart.
+watchProviderConfig(
+  desktopConfigPaths.globalConfigPath,
+  desktopConfigPaths.vault,
+  (snapshot) => {
+    if (snapshot.uiLocale === undefined) return;
+    setMainLocale(snapshot.uiLocale);
+    configureApplicationMenu();
+    shellView?.webContents.send(IPC.localeChanged, snapshot.uiLocale);
+  },
+  { warn: (m) => console.warn(`Config watcher: ${m}`) },
+);
 
 bridge.on('changed', (conversation) => {
   shellView?.webContents.send(IPC.conversationChanged, conversation);

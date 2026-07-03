@@ -2,8 +2,12 @@
  * Desktop renderer i18n — lightweight vanilla-TS translation layer.
  * No react-i18next (the desktop shell is pure DOM manipulation).
  *
- * Language preference is stored in localStorage under 'wrongstack.desktop.locale'.
- * Falls back to 'en' (inline catalog — no async loading needed).
+ * The display language is sourced from the SHARED machine config
+ * (`~/.wrongstack/config.json` → `Config.uiLocale`): the main process reads it
+ * at boot and pushes it here over the `desktop:locale-changed` IPC channel
+ * (and re-pushes on any cross-process config change). localStorage is kept
+ * only as a fast-boot cache so the first paint isn't blank; it is reconciled
+ * to the config value the moment main sends it. Falls back to 'en'.
  *
  * Usage: import { t } from './i18n'; t('openProject')
  */
@@ -12,8 +16,8 @@ export type DesktopLocale = 'en' | 'tr' | 'de' | 'fr' | 'it' | 'es' | 'pt-BR';
 
 const STORAGE_KEY = 'wrongstack.desktop.locale';
 
-/** Push the display locale to the Electron main process so the app menu and
- *  native dialogs follow the user's language. No-op outside the desktop shell. */
+/** Push a renderer-initiated locale change to main (which persists it to the
+ *  shared config). No-op outside the desktop shell. */
 function pushLocaleToMain(locale: DesktopLocale): void {
   try {
     (window as unknown as { wrongstackDesktop?: { setLocale?: (l: string) => void } })
@@ -30,13 +34,16 @@ function readLocale(): DesktopLocale {
 }
 
 let currentLocale: DesktopLocale = readLocale();
-// Sync the main process with the persisted locale on shell boot.
-pushLocaleToMain(currentLocale);
 
-export function setLocale(locale: DesktopLocale): void {
+/**
+ * Apply a locale. `propagate: true` (default) also pushes the change to main so
+ * it lands in the shared config; `propagate: false` is for main-originated
+ * changes (the `onLocaleChanged` listener) so we don't echo back (loop).
+ */
+export function setLocale(locale: DesktopLocale, opts: { propagate?: boolean } = {}): void {
   currentLocale = locale;
   try { localStorage.setItem(STORAGE_KEY, locale); } catch { /* ignore */ }
-  pushLocaleToMain(locale);
+  if (opts.propagate !== false) pushLocaleToMain(locale);
 }
 
 export function getLocale(): DesktopLocale {
@@ -545,4 +552,20 @@ const CATALOGS: Record<DesktopLocale, Catalog> = { en, tr, de, fr, it, es, 'pt-B
 /** Translate a key, falling back to the key itself if not found. */
 export function t(key: string): string {
   return CATALOGS[currentLocale]?.[key] ?? CATALOGS.en[key] ?? key;
+}
+
+// Follow the shared config language: the main process pushes the config-backed
+// locale here on boot and whenever another surface changes it. propagate:false
+// so adopting the config value never echoes back to main (loop). No-op outside
+// the desktop shell (e.g. unit tests with no bridge).
+try {
+  (
+    window as unknown as {
+      wrongstackDesktop?: { onLocaleChanged?: (cb: (locale: string) => void) => () => void };
+    }
+  ).wrongstackDesktop?.onLocaleChanged?.((locale: string) => {
+    if (locale && locale in CATALOGS) setLocale(locale as DesktopLocale, { propagate: false });
+  });
+} catch {
+  /* bridge not available */
 }

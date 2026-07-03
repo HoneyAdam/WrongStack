@@ -47,6 +47,9 @@ export function seedContextMeta(
   meta['favoriteModelsOnly'] = config.favoriteModelsOnly === true;
   meta['modelMatrix'] = config.modelMatrix ?? {};
   meta['fallbackAuto'] = config.fallbackAuto !== false;
+  // Display language — only seeded when the shared config pins one, so an
+  // unset config leaves the client's browser-detected/local default intact.
+  if (typeof config.uiLocale === 'string' && config.uiLocale) meta['uiLocale'] = config.uiLocale;
   meta['featureMcp'] = config.features.mcp !== false;
   meta['featurePlugins'] = config.features.plugins !== false;
   meta['featureMemory'] = config.features.memory !== false;

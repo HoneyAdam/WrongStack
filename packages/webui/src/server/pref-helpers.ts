@@ -46,6 +46,7 @@ export const PREF_KEYS = [
   'tokenSavingTier',
   'maxConcurrent',
   'titleAnimation',
+  'uiLocale',
   'logLevel',
   'auditLevel',
   'hqEnabled',
@@ -191,6 +192,9 @@ export async function persistPrefsToConfig(
 
     if (typeof payload['nextPrediction'] === 'boolean')
       decrypted.nextPrediction = payload['nextPrediction'];
+
+    // Display language — top-level Config.uiLocale (shared across surfaces).
+    if (typeof payload['uiLocale'] === 'string') decrypted.uiLocale = payload['uiLocale'];
 
     // Global fallback model chain (top-level config). Read live by the leader's
     // fallback extension each turn (effectiveFallbackChain), so it takes effect

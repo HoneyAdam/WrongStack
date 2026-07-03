@@ -46,6 +46,9 @@ export interface ProviderConfigSnapshot {
   providers: Record<string, ProviderConfig>;
   apiKey?: string;
   baseUrl?: string;
+  /** Display language (Config.uiLocale), surfaced so a cross-process change
+   *  (e.g. the desktop shell) propagates to running webui instances. */
+  uiLocale?: string;
 }
 
 export interface WatchProviderConfigOptions {
@@ -86,12 +89,15 @@ async function readProviderSnapshot(
     providers?: Record<string, ProviderConfig>;
     apiKey?: string;
     baseUrl?: string;
+    uiLocale?: string;
   };
   const snapshot: ProviderConfigSnapshot = {
     providers: decrypted.providers ?? {},
   };
   if (typeof decrypted.apiKey === 'string') snapshot.apiKey = decrypted.apiKey;
   if (typeof decrypted.baseUrl === 'string') snapshot.baseUrl = decrypted.baseUrl;
+  if (typeof decrypted.uiLocale === 'string' && decrypted.uiLocale)
+    snapshot.uiLocale = decrypted.uiLocale;
   return snapshot;
 }
 
@@ -101,6 +107,7 @@ function serializeSnapshot(s: ProviderConfigSnapshot): string {
     providers: s.providers,
     apiKey: s.apiKey ?? null,
     baseUrl: s.baseUrl ?? null,
+    uiLocale: s.uiLocale ?? null,
   });
 }
 

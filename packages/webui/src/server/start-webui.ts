@@ -457,6 +457,10 @@ export async function startWebUI(
     let lastActiveCfg = JSON.stringify(
       state.getConfig().providers?.[deps.context.provider.id] ?? null,
     );
+    // Track the shared display language so a cross-process change (e.g. the
+    // desktop shell writing config.uiLocale) propagates to every connected
+    // webui client live, without a restart.
+    let lastUiLocale: string | undefined = state.getConfig().uiLocale;
     const credentialWatcher = watchProviderConfig(
       globalConfigPath,
       vault,
@@ -478,6 +482,19 @@ export async function startWebUI(
           type: 'providers.saved',
           payload: { providers: projectSavedProviders(snapshot.providers) },
         });
+
+        // Display language live-propagation: when config.uiLocale changes in
+        // another process, seed context.meta + broadcast prefs.updated so every
+        // connected client re-renders in the new language (handlePrefsUpdated →
+        // useLocalPrefs → i18n.changeLanguage).
+        const newUi = snapshot.uiLocale;
+        if (newUi !== lastUiLocale) {
+          lastUiLocale = newUi;
+          if (newUi) {
+            deps.context.meta['uiLocale'] = newUi;
+            broadcast(clients, { type: 'prefs.updated', payload: { uiLocale: newUi } });
+          }
+        }
 
         const activeId = deps.context.provider.id;
         const newCfgStr = JSON.stringify(snapshot.providers[activeId] ?? null);

@@ -146,6 +146,20 @@ describe('locale switching applies instantly', () => {
     await waitFor(() => expect(screen.getByTestId('cancel-probe').textContent).toBe('Abbrechen'));
   });
 
+  it('a prefs.updated broadcast carrying uiLocale swaps the locale (live cross-instance path)', async () => {
+    // When another webui instance (or the desktop) changes the language, the
+    // server broadcasts prefs.updated; the client reconciles via
+    // handlePrefsUpdated → useLocalPrefs → the i18n subscribe. This exercises
+    // that exact path (the same-server live propagation, no restart).
+    const { handlePrefsUpdated } = await import('../../src/hooks/ws-handlers/misc-handlers');
+    render(<SettingsProbe />);
+    expect(screen.getByTestId('settings-probe').textContent).toBe('Settings');
+
+    handlePrefsUpdated({ type: 'prefs.updated', payload: { uiLocale: 'es' } });
+    await waitFor(() => expect(screen.getByTestId('settings-probe').textContent).toBe('Ajustes'));
+    expect(useLocalPrefs.getState().uiLocale).toBe('es');
+  });
+
   it('the resourcesToBackend lazy loader CAN fetch a locale bundle (reloadResources)', async () => {
     // The Vite backend is wired; explicit reload loads + registers the bundle.
     // (changeLanguage's auto-load is non-deterministic under vitest timing, so

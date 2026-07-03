@@ -273,7 +273,7 @@ const NUMBER_PREF_KEYS = new Set([
   'tgLongToolMs',
 ]);
 
-const STRING_PREF_KEYS = new Set(['hqUrl', 'hqToken']);
+const STRING_PREF_KEYS = new Set(['hqUrl', 'hqToken', 'uiLocale']);
 
 const ENUM_PREF_KEYS: Record<string, Set<string>> = {
   autonomy: AUTONOMY_VALUES,

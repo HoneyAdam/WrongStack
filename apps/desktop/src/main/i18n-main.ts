@@ -316,6 +316,11 @@ export function setMainLocale(locale: string): void {
   if (locale in CATALOGS) mainLocale = locale as DesktopLocale;
 }
 
+/** Current main-process locale (for the boot push to the shell renderer). */
+export function getMainLocale(): DesktopLocale {
+  return mainLocale;
+}
+
 /** Translate a main-process key, falling back to en then the key itself. */
 export function tMain(key: string): string {
   return CATALOGS[mainLocale]?.[key] ?? CATALOGS.en[key] ?? key;

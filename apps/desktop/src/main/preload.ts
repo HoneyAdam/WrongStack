@@ -57,6 +57,11 @@ const api: WrongStackDesktopApi = {
   setLocale: (locale: string) => {
     ipcRenderer.send(IPC.setLocale, locale);
   },
+  onLocaleChanged: (cb: (locale: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, locale: string) => cb(locale);
+    ipcRenderer.on(IPC.localeChanged, handler);
+    return () => ipcRenderer.off(IPC.localeChanged, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('wrongstackDesktop', api);

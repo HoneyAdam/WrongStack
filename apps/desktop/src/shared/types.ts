@@ -104,6 +104,8 @@ export interface WrongStackDesktopApi {
   onShellSidebarCollapsedChanged(cb: (collapsed: boolean) => void): () => void;
   /** Push the renderer's display locale to the main process (app menu + dialogs). */
   setLocale(locale: string): void;
+  /** Main → renderer: the shared config locale changed in another process. */
+  onLocaleChanged(cb: (locale: string) => void): () => void;
 }
 
 export interface WrongStackDesktopHostApi {

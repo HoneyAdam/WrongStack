@@ -88,22 +88,28 @@ describe('main-process i18n (i18n-main)', () => {
   });
 });
 
-describe('renderer locale → main IPC push', () => {
+describe('renderer locale IPC', () => {
   // The renderer runs in a browser context; in this node test env there's no
   // `window`/`localStorage`, so mock the desktop bridge the preload exposes.
+  // resetModules: the i18n module registers its onLocaleChanged listener at
+  // load time against the current `window`, so each test needs a fresh load.
+  beforeEach(() => {
+    vi.resetModules();
+  });
   afterEach(() => {
     delete (globalThis as { window?: unknown }).window;
   });
 
-  it('setLocale pushes the locale over the desktop IPC bridge (instant menu sync)', async () => {
+  it('setLocale (user change) pushes to main so it lands in the shared config', async () => {
     const setLocaleMock = vi.fn();
     (globalThis as { window?: unknown }).window = {
       wrongstackDesktop: { setLocale: setLocaleMock },
     };
 
     const { setLocale } = await import('../src/renderer/src/i18n.js');
-    // The module pushes the persisted locale to main on boot.
-    expect(setLocaleMock).toHaveBeenCalledWith('en');
+    // NOTE: no boot push — the renderer ADOPTS the config locale from main via
+    // onLocaleChanged, it no longer asserts its localStorage value on boot.
+    expect(setLocaleMock).not.toHaveBeenCalled();
 
     setLocale('tr');
     expect(setLocaleMock).toHaveBeenCalledWith('tr');
@@ -112,8 +118,30 @@ describe('renderer locale → main IPC push', () => {
     expect(setLocaleMock).toHaveBeenCalledWith('pt-BR');
   });
 
+  it('adopts a main-originated locale via onLocaleChanged without echoing back (no loop)', async () => {
+    let listener: ((locale: string) => void) | undefined;
+    const setLocaleMock = vi.fn();
+    (globalThis as { window?: unknown }).window = {
+      wrongstackDesktop: {
+        setLocale: setLocaleMock,
+        onLocaleChanged: (cb: (locale: string) => void) => {
+          listener = cb;
+          return () => undefined;
+        },
+      },
+    };
+
+    await import('../src/renderer/src/i18n.js'); // registers onLocaleChanged
+    expect(listener).toBeDefined();
+
+    // Simulate main pushing a config-backed locale change.
+    listener!('de');
+    // setLocale was NOT called with propagate — main-originated, so no echo.
+    expect(setLocaleMock).not.toHaveBeenCalled();
+  });
+
   it('is a no-op when the desktop bridge is absent (e.g. unit tests)', async () => {
-    // No window mock → pushLocaleToMain swallows the missing bridge.
+    // No window mock → pushLocaleToMain / onLocaleChanged swallow the absence.
     const { setLocale } = await import('../src/renderer/src/i18n.js');
     expect(() => setLocale('de')).not.toThrow();
   });

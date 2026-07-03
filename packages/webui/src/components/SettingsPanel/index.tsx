@@ -143,15 +143,21 @@ export function SettingsPanel() {
     [localPrefs, updatePrefs],
   );
 
-  // Display-only locale switch: write to localStorage ONLY (never syncPref /
-  // updatePrefs — uiLocale must never reach the WS server or config.json).
-  // The i18n module's useLocalPrefs.subscribe then drives i18n.changeLanguage
-  // + <html lang>, so a plain store write is all that's needed here.
-  const setUiLocale = useCallback((code: string) => {
-    localPrefs.set({ uiLocale: code });
-    // Defensive: also swap directly in case the subscriber hasn't mounted.
-    if (i18n.language !== code) void i18n.changeLanguage(code);
-  }, [localPrefs]);
+  // Locale switch: optimistically update the local store for an instant i18n
+  // swap, AND persist to the shared machine config via syncPref so the choice
+  // propagates to the desktop shell and other webui instances (the prefs.updated
+  // broadcast covers same-server clients; the config file watcher covers
+  // cross-process). The i18n module's useLocalPrefs.subscribe drives
+  // i18n.changeLanguage + <html lang> on the local write.
+  const setUiLocale = useCallback(
+    (code: string) => {
+      localPrefs.set({ uiLocale: code });
+      // Defensive: also swap directly in case the subscriber hasn't mounted.
+      if (i18n.language !== code) void i18n.changeLanguage(code);
+      syncPref('uiLocale', code);
+    },
+    [localPrefs, syncPref],
+  );
 
   // Catalog data (unchanged)
   const [catalogProviders, setCatalogProviders] = useState<CatalogProvider[]>([]);
