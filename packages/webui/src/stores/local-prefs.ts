@@ -103,9 +103,9 @@ export interface LocalPrefs {
 
   /**
    * Display-only UI language (BCP-47 code, e.g. `en`, `pt-BR`).
-   * NOT synced to the server / config.json — only affects which translation
-   * catalog the WebUI chrome renders. Follows the same local-only precedent
-   * as `theme`. Distinct from `enhanceLanguage` (a prompt-refinement pref).
+   * Synced through prefs.update into shared Config.uiLocale so browser WebUI,
+   * desktop-hosted WebUI, and the desktop shell follow the same choice.
+   * Distinct from `enhanceLanguage` (a prompt-refinement pref).
    */
   uiLocale: string;
 
@@ -188,7 +188,7 @@ export const useLocalPrefs = create<LocalPrefs>()(
       //
       // v4 added fallbackProfiles/favoriteModels/favoriteModelsOnly/modelMatrix.
       //
-      // v5 added uiLocale (display-only UI language; not synced to server).
+      // v5 added uiLocale (display-only UI language).
       migrate: (persisted) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const validStrategies = ['hybrid', 'intelligent', 'selective'];

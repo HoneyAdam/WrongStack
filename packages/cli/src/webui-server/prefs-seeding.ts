@@ -33,6 +33,7 @@ interface CliWebUIOptions {
     favoriteModelsOnly?: boolean | undefined;
     fallbackAuto?: boolean | undefined;
     modelMatrix?: Config['modelMatrix'] | undefined;
+    uiLocale?: string | undefined;
   } | undefined;
 }
 
@@ -62,6 +63,7 @@ export const PREF_KEYS = [
   'favoriteModelsOnly',
   'modelMatrix',
   'fallbackAuto',
+  'uiLocale',
   'enhanceEnabled',
   'enhanceDelayMs',
   'enhanceLanguage',
@@ -140,6 +142,7 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     meta['favoriteModelsOnly'] = cfg.favoriteModelsOnly === true;
     meta['modelMatrix'] = (cfg.modelMatrix as Config['modelMatrix'] | undefined) ?? {};
     meta['fallbackAuto'] = cfg.fallbackAuto !== false;
+    if (typeof cfg.uiLocale === 'string' && cfg.uiLocale) meta['uiLocale'] = cfg.uiLocale;
     meta['featureMcp'] = features['mcp'] !== false;
     meta['featurePlugins'] = features['plugins'] !== false;
     meta['featureMemory'] = features['memory'] !== false;
@@ -237,6 +240,8 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       patchLiveAppConfig({ favoriteModelsOnly: payload['favoriteModelsOnly'] });
     if (typeof payload['fallbackAuto'] === 'boolean')
       patchLiveAppConfig({ fallbackAuto: payload['fallbackAuto'] });
+    if (typeof payload['uiLocale'] === 'string')
+      patchLiveAppConfig({ uiLocale: payload['uiLocale'] });
     if (
       payload['modelMatrix'] &&
       typeof payload['modelMatrix'] === 'object' &&
@@ -284,6 +289,7 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
         decrypted['favoriteModelsOnly'] = payload['favoriteModelsOnly'];
       if ('modelMatrix' in payload) decrypted['modelMatrix'] = payload['modelMatrix'];
       if ('fallbackAuto' in payload) decrypted['fallbackAuto'] = payload['fallbackAuto'];
+      if (typeof payload['uiLocale'] === 'string') decrypted['uiLocale'] = payload['uiLocale'];
       decrypted['autonomy'] = autonomy;
 
       if (
