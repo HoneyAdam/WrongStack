@@ -1,5 +1,5 @@
 export { App } from '../App';
-export { ActivityBar } from './ActivityBar';
+export { ActivityBar } from './activity-bar';
 export { ThemeProvider, useTheme } from './ThemeProvider';
 export { ChatView } from './ChatView';
 export { ChatInput } from './ChatInput';

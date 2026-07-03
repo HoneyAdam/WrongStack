@@ -42,7 +42,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
-import { useTheme } from './ThemeProvider';
+import { useTheme } from '../ThemeProvider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,19 +53,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from './ui/dropdown-menu';
-
-export {
-  ACTIVITY_SHORTCUT_BY_KEY,
-  ACTIVITY_SHORTCUT_LABEL_BY_ACTIVITY,
-  navigateToView,
-  openMainView,
-  openPanel,
-  pairedViewForActivity,
-  shortcutLabelForActivity,
-  showPanel,
-} from '@/lib/view-navigation';
-export type { MainView, PanelMainView } from '@/lib/view-navigation';
+} from '../ui/dropdown-menu';
 
 // ── Activity definitions ───────────────────────────────────────────────
 //
@@ -142,10 +130,7 @@ export function splitDesktopActivityBarItems(capacity: number): {
   overflowViewIds: MainView[];
 } {
   const max = PANELS.length + VIEWS.length;
-  const slots = Math.max(
-    DESKTOP_CORE_PANEL_IDS.length,
-    Math.min(max, Math.floor(capacity)),
-  );
+  const slots = Math.max(DESKTOP_CORE_PANEL_IDS.length, Math.min(max, Math.floor(capacity)));
   const visiblePanelCount = Math.min(PANELS.length, slots);
   const visiblePanelSet = new Set(DESKTOP_PANEL_PRIORITY.slice(0, visiblePanelCount));
   const visiblePanelIds = PANELS.map((def) => def.id).filter((id) => visiblePanelSet.has(id));
@@ -222,7 +207,9 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
     () => new Set(desktopSplit.overflowViewIds),
     [desktopSplit.overflowViewIds],
   );
-  const visiblePanels = desktopShell ? PANELS.filter((def) => visiblePanelIdSet.has(def.id)) : PANELS;
+  const visiblePanels = desktopShell
+    ? PANELS.filter((def) => visiblePanelIdSet.has(def.id))
+    : PANELS;
   const overflowPanels = desktopShell ? PANELS.filter((def) => overflowPanelIdSet.has(def.id)) : [];
   const visibleViews = desktopShell ? VIEWS.filter((def) => visibleViewIdSet.has(def.id)) : VIEWS;
   const overflowViews = desktopShell ? VIEWS.filter((def) => overflowViewIdSet.has(def.id)) : [];
@@ -282,7 +269,9 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
           className={cn(
             'inline-block w-1.5 h-1.5 rounded-full',
             desktopShell ? 'mt-1.5' : 'mt-1',
-            wsConnected ? 'bg-[hsl(var(--success))] shadow-[0_0_4px_hsl(var(--success)/0.6)]' : 'bg-[hsl(var(--warning))]',
+            wsConnected
+              ? 'bg-[hsl(var(--success))] shadow-[0_0_4px_hsl(var(--success)/0.6)]'
+              : 'bg-[hsl(var(--warning))]',
           )}
           title={wsConnected ? t('activity:status.connected') : t('activity:status.disconnected')}
         />
@@ -364,9 +353,7 @@ function UtilitiesMenu({
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
   const inspectorTab = useUIStore((s) => s.inspectorTab);
   const hiddenItemCount = overflowPanels.length + overflowViews.length;
-  const hiddenPanelActive = overflowPanels.some(
-    (def) => sidebarOpen && activeActivity === def.id,
-  );
+  const hiddenPanelActive = overflowPanels.some((def) => sidebarOpen && activeActivity === def.id);
   const hiddenViewActive = overflowViews.some((def) => currentView === def.id);
   const hiddenActive = hiddenPanelActive || hiddenViewActive;
 
@@ -395,7 +382,7 @@ function UtilitiesMenu({
               ? t('activity:menu.moreCompactHidden', { count: hiddenItemCount })
               : compact
                 ? t('activity:menu.moreCompact')
-              : t('activity:menu.moreFull')
+                : t('activity:menu.moreFull')
           }
           className={cn(
             'relative flex items-center justify-center rounded-lg transition-colors',
@@ -465,10 +452,7 @@ function UtilitiesMenu({
               {t('activity:menu.views')}
             </DropdownMenuLabel>
             {overflowViews.map((def) => (
-              <DropdownMenuItem
-                key={def.id}
-                onSelect={() => openMainView(def.id)}
-              >
+              <DropdownMenuItem key={def.id} onSelect={() => openMainView(def.id)}>
                 {def.icon}
                 <span>{t(`activity:nav.${def.id}`, def.label)}</span>
                 {currentView === def.id && (

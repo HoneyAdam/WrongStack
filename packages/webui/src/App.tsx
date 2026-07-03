@@ -17,14 +17,13 @@ import {
 } from '@/stores';
 import {
   ACTIVITY_SHORTCUT_BY_KEY,
-  ActivityBar,
   navigateToView,
   openMainView,
   openPanel,
   pairedViewForActivity,
-  PANEL_ORDER,
   showPanel,
-} from './components/ActivityBar';
+} from './components/activity-bar/nav';
+import { ActivityBar, PANEL_ORDER } from './components/activity-bar';
 import { AgentsMonitor } from './components/AgentsMonitor';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { AutoPhaseView } from './components/AutoPhaseView';
@@ -93,17 +92,19 @@ const DESKTOP_COMMAND_WORK_TABS = new Set(['todos', 'tasks', 'plan']);
 
 function publishDesktopPrefsSnapshot(): void {
   if (typeof window === 'undefined') return;
-  const host = (window as unknown as {
-    wrongstackDesktopHost?: {
-      setReady?: (ready: boolean) => void;
-      setPrefs?: (prefs: {
-        yolo: boolean;
-        nextPrediction: boolean;
-        contextAutoCompact: boolean;
-      }) => void;
-      ackCommand?: (requestId: string, handled: boolean, message?: string | undefined) => void;
-    };
-  }).wrongstackDesktopHost;
+  const host = (
+    window as unknown as {
+      wrongstackDesktopHost?: {
+        setReady?: (ready: boolean) => void;
+        setPrefs?: (prefs: {
+          yolo: boolean;
+          nextPrediction: boolean;
+          contextAutoCompact: boolean;
+        }) => void;
+        ackCommand?: (requestId: string, handled: boolean, message?: string | undefined) => void;
+      };
+    }
+  ).wrongstackDesktopHost;
   if (!host?.setPrefs) return;
   const prefs = useLocalPrefs.getState();
   host.setPrefs({
@@ -115,11 +116,13 @@ function publishDesktopPrefsSnapshot(): void {
 
 function publishDesktopReady(ready: boolean): void {
   if (typeof window === 'undefined') return;
-  const host = (window as unknown as {
-    wrongstackDesktopHost?: {
-      setReady?: (ready: boolean) => void;
-    };
-  }).wrongstackDesktopHost;
+  const host = (
+    window as unknown as {
+      wrongstackDesktopHost?: {
+        setReady?: (ready: boolean) => void;
+      };
+    }
+  ).wrongstackDesktopHost;
   host?.setReady?.(ready);
 }
 
@@ -129,11 +132,13 @@ function publishDesktopCommandAck(
   message?: string | undefined,
 ): void {
   if (typeof window === 'undefined' || typeof requestId !== 'string') return;
-  const host = (window as unknown as {
-    wrongstackDesktopHost?: {
-      ackCommand?: (id: string, handled: boolean, message?: string | undefined) => void;
-    };
-  }).wrongstackDesktopHost;
+  const host = (
+    window as unknown as {
+      wrongstackDesktopHost?: {
+        ackCommand?: (id: string, handled: boolean, message?: string | undefined) => void;
+      };
+    }
+  ).wrongstackDesktopHost;
   host?.ackCommand?.(requestId, handled, message);
 }
 
@@ -405,14 +410,9 @@ function AppInner() {
       if (pref && typeof pref === 'object' && !Array.isArray(pref)) {
         const command = pref as Record<string, unknown>;
         const key = command['key'];
-        if (
-          key === 'yolo' ||
-          key === 'nextPrediction' ||
-          key === 'contextAutoCompact'
-        ) {
+        if (key === 'yolo' || key === 'nextPrediction' || key === 'contextAutoCompact') {
           const prefs = useLocalPrefs.getState();
-          const value =
-            command['toggle'] === true ? !prefs[key] : command['value'];
+          const value = command['toggle'] === true ? !prefs[key] : command['value'];
           if (typeof value === 'boolean') {
             const patch = { [key]: value };
             prefs.set(patch);
@@ -462,11 +462,13 @@ function AppInner() {
       }
     };
 
-    const bridge = (window as unknown as {
-      wrongstackDesktopCommands?: {
-        subscribe?: (cb: (command: Record<string, unknown>) => void) => () => void;
-      };
-    }).wrongstackDesktopCommands;
+    const bridge = (
+      window as unknown as {
+        wrongstackDesktopCommands?: {
+          subscribe?: (cb: (command: Record<string, unknown>) => void) => () => void;
+        };
+      }
+    ).wrongstackDesktopCommands;
     const unsubscribe =
       bridge?.subscribe?.((command) => {
         handleDesktopCommand(command);
@@ -478,7 +480,8 @@ function AppInner() {
     (window as unknown as { __wrongstackDesktopReady?: boolean }).__wrongstackDesktopReady = true;
     publishDesktopReady(true);
     return () => {
-      (window as unknown as { __wrongstackDesktopReady?: boolean }).__wrongstackDesktopReady = false;
+      (window as unknown as { __wrongstackDesktopReady?: boolean }).__wrongstackDesktopReady =
+        false;
       publishDesktopReady(false);
       if (unsubscribe) unsubscribe();
       window.removeEventListener('wrongstack:desktop-command', onDesktopCommand);

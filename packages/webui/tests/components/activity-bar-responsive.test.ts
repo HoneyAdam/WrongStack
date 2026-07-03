@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   ACTIVITY_SHORTCUT_BY_KEY,
   ACTIVITY_SHORTCUT_LABEL_BY_ACTIVITY,
-  calculateDesktopActivityCapacity,
   navigateToView,
   openMainView,
   openPanel,
-  PANEL_ORDER,
   pairedViewForActivity,
   showPanel,
+} from '@/components/activity-bar/nav';
+import {
+  calculateDesktopActivityCapacity,
+  PANEL_ORDER,
   splitDesktopActivityBarItems,
-} from '@/components/ActivityBar';
+} from '@/components/activity-bar';
 import { PANEL_VIEW_BY_ACTIVITY } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores';
 
