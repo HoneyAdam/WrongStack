@@ -24,7 +24,12 @@ import { DesktopAgentBridge } from './agent-bridge.js';
 import { IPC } from './ipc.js';
 import { getMainLocale, setMainLocale, tMain } from './i18n-main.js';
 import { desktopConfigPaths, readUiLocale, writeUiLocale } from './desktop-config-io.js';
-import { DesktopRuntimeManager, preloadPath, rendererIndexPath, webuiPreloadPath } from './runtime-manager.js';
+import {
+  DesktopRuntimeManager,
+  preloadPath,
+  rendererIndexPath,
+  webuiPreloadPath,
+} from './runtime-manager.js';
 import { watchProviderConfig } from '@wrongstack/core/storage';
 import {
   buildWebuiCommandFallbackScript,
@@ -264,6 +269,14 @@ function ensureWebuiEntry(runtimeId: string): DesktopWebuiRuntimeView | null {
   view.webContents.on('did-finish-load', () => {
     if (webuiViews.get(runtimeId) !== entry) return;
     schedulePendingWebuiFlush(entry);
+    // Seed the locale so a webui mounted AFTER the shell locale was set
+    // (e.g. user picks a language, then opens a project) renders in the
+    // current language on first paint instead of falling back to en.
+    try {
+      entry.view.webContents.send(IPC.webuiLocaleChanged, getMainLocale());
+    } catch {
+      /* webui was destroyed mid-send */
+    }
   });
   view.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     if (webuiViews.get(runtimeId) !== entry || errorCode === -3) return;
@@ -289,7 +302,9 @@ function syncActiveWebuiView(): void {
   if (!mainWindow) return;
   const snapshot = manager.snapshot();
   pruneWebuiEntries(
-    snapshot.runtimes.filter((runtime) => runtime.status === 'running').map((runtime) => runtime.id),
+    snapshot.runtimes
+      .filter((runtime) => runtime.status === 'running')
+      .map((runtime) => runtime.id),
   );
   const active = snapshot.runtimes.find((runtime) => runtime.id === snapshot.activeRuntimeId);
   if (active?.status !== 'running') {
@@ -371,6 +386,20 @@ function runtimeWsUrlOrThrow(runtimeId: string): string {
   const wsUrl = manager.getRuntimeWsUrlWithToken(runtimeId);
   if (!wsUrl) throw new Error(`Runtime not found: ${runtimeId}`);
   return wsUrl;
+}
+
+function broadcastLocaleToEmbeddedWebuis(locale: string): void {
+  // Push the locale into every running WebUI view so the React WebUI can
+  // re-render in the new language instantly (the config-file watcher → WS
+  // prefs.updated round-trip would also work but adds a noticeable delay).
+  for (const entry of webuiViews.values()) {
+    if (entry.view.webContents.isDestroyed()) continue;
+    try {
+      entry.view.webContents.send(IPC.webuiLocaleChanged, locale);
+    } catch {
+      /* destroyed mid-send — ignore */
+    }
+  }
 }
 
 function registerIpc(): void {
@@ -684,7 +713,9 @@ function disposeAllWebuiEntries(): void {
   webuiViews.clear();
 }
 
-async function openProject(requestedRoot?: string | undefined): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
+async function openProject(
+  requestedRoot?: string | undefined,
+): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
   let projectRoot = requestedRoot;
   if (!projectRoot) {
     const result = await dialog.showOpenDialog({
@@ -717,7 +748,9 @@ async function registerProject(
   return manager.snapshot();
 }
 
-async function unregisterProject(root: string): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
+async function unregisterProject(
+  root: string,
+): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
   if (!root || typeof root !== 'string') return manager.snapshot();
   await manager.unregisterProject(root);
   broadcastState();
@@ -808,7 +841,11 @@ function buildProjectsMenu(
 ): MenuItemConstructorOptions[] {
   const projectGroups = groupProjectRuntimesForMenu(runtimes);
   const menu: MenuItemConstructorOptions[] = [
-    { label: tMain('openProjectEllipsis'), accelerator: 'CmdOrCtrl+O', click: () => void openProject() },
+    {
+      label: tMain('openProjectEllipsis'),
+      accelerator: 'CmdOrCtrl+O',
+      click: () => void openProject(),
+    },
     { label: tMain('registerProjectEllipsis'), click: () => void registerProject() },
     { type: 'separator' },
   ];
@@ -860,7 +897,8 @@ function buildSessionMenu(
         submenu: [
           {
             label: tMain('chat'),
-            click: () => actions.activateAndNavigate(runtime.id, { activity: 'chat', view: 'chat' }),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'chat', view: 'chat' }),
           },
           {
             label: tMain('focusPrompt'),
@@ -877,11 +915,13 @@ function buildSessionMenu(
           { type: 'separator' },
           {
             label: tMain('files'),
-            click: () => actions.activateAndNavigate(runtime.id, { activity: 'files', view: 'files' }),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'files', view: 'files' }),
           },
           {
             label: tMain('changes'),
-            click: () => actions.activateAndNavigate(runtime.id, { activity: 'changes', view: 'changes' }),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'changes', view: 'changes' }),
           },
           {
             label: tMain('sessions'),
@@ -889,7 +929,8 @@ function buildSessionMenu(
           },
           {
             label: tMain('fleetHQ'),
-            click: () => actions.activateAndNavigate(runtime.id, { activity: 'officemap', view: 'officemap' }),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'officemap', view: 'officemap' }),
           },
           {
             label: tMain('settings'),
@@ -898,7 +939,8 @@ function buildSessionMenu(
           { type: 'separator' },
           {
             label: tMain('commandPalette'),
-            click: () => actions.activateAndNavigate(runtime.id, { action: 'open-command-palette' }),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { action: 'open-command-palette' }),
           },
           {
             label: tMain('modelSwitcher'),
@@ -976,7 +1018,11 @@ function configureApplicationMenu(): void {
     {
       label: tMain('file'),
       submenu: [
-        { label: tMain('openProjectEllipsis'), accelerator: 'CmdOrCtrl+O', click: () => void openProject() },
+        {
+          label: tMain('openProjectEllipsis'),
+          accelerator: 'CmdOrCtrl+O',
+          click: () => void openProject(),
+        },
         { label: tMain('registerProjectEllipsis'), click: () => void registerProject() },
         {
           label: tMain('removeActiveFromRegistry'),
@@ -1035,13 +1081,33 @@ function configureApplicationMenu(): void {
     {
       label: tMain('workspace'),
       submenu: [
-        webuiItem({ label: tMain('openChat'), accelerator: 'CmdOrCtrl+1', click: () => navigate({ activity: 'chat', view: 'chat' }) }),
-        webuiItem({ label: tMain('focusPrompt'), accelerator: 'CmdOrCtrl+/', click: () => navigate({ action: 'focus-chat' }) }),
-        webuiItem({ label: tMain('toggleTerminal'), accelerator: 'CmdOrCtrl+`', click: () => navigate({ terminal: 'toggle' }) }),
+        webuiItem({
+          label: tMain('openChat'),
+          accelerator: 'CmdOrCtrl+1',
+          click: () => navigate({ activity: 'chat', view: 'chat' }),
+        }),
+        webuiItem({
+          label: tMain('focusPrompt'),
+          accelerator: 'CmdOrCtrl+/',
+          click: () => navigate({ action: 'focus-chat' }),
+        }),
+        webuiItem({
+          label: tMain('toggleTerminal'),
+          accelerator: 'CmdOrCtrl+`',
+          click: () => navigate({ terminal: 'toggle' }),
+        }),
         webuiItem({ label: tMain('newTerminal'), click: () => navigate({ terminal: 'new' }) }),
         { type: 'separator' },
-        webuiItem({ label: tMain('commandPalette'), accelerator: 'CmdOrCtrl+K', click: () => navigate({ action: 'open-command-palette' }) }),
-        webuiItem({ label: tMain('quickModelSwitcher'), accelerator: 'CmdOrCtrl+M', click: () => navigate({ action: 'open-model-switcher' }) }),
+        webuiItem({
+          label: tMain('commandPalette'),
+          accelerator: 'CmdOrCtrl+K',
+          click: () => navigate({ action: 'open-command-palette' }),
+        }),
+        webuiItem({
+          label: tMain('quickModelSwitcher'),
+          accelerator: 'CmdOrCtrl+M',
+          click: () => navigate({ action: 'open-model-switcher' }),
+        }),
         webuiItem({
           type: 'checkbox',
           label: tMain('yoloMode'),
@@ -1062,7 +1128,11 @@ function configureApplicationMenu(): void {
           click: () => navigate({ pref: { key: 'contextAutoCompact', toggle: true } }),
         }),
         { type: 'separator' },
-        webuiItem({ label: tMain('reloadActiveWebui'), accelerator: 'CmdOrCtrl+Shift+R', click: () => void reloadActiveWebuiView() }),
+        webuiItem({
+          label: tMain('reloadActiveWebui'),
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => void reloadActiveWebuiView(),
+        }),
       ],
     },
     {
@@ -1098,16 +1168,20 @@ manager.on('changed', () => {
 
 // Renderer pushes its display locale here so the app menu + native dialogs
 // follow the user's language choice (see preload setLocale + renderer i18n).
-// Persist to the shared config so the change propagates to other surfaces.
+// Persist to the shared config so the change propagates to other surfaces, and
+// broadcast to every embedded WebUI view so the React UI re-renders in the new
+// language instantly (no need to wait for the config-file watcher round-trip).
 ipcMain.on(IPC.setLocale, (_event, locale: string) => {
   setMainLocale(locale);
   configureApplicationMenu();
+  broadcastLocaleToEmbeddedWebuis(locale);
   void writeUiLocale(locale);
 });
 
 // Live-follow the shared display language: when another process (embedded or
-// standalone webui) writes config.uiLocale, rebuild the app menu and tell the
-// shell renderer so its chrome follows without a restart.
+// standalone webui) writes config.uiLocale, rebuild the app menu, push to the
+// shell renderer, and broadcast to every embedded WebUI view so the React UI
+// follows without a restart.
 watchProviderConfig(
   desktopConfigPaths.globalConfigPath,
   desktopConfigPaths.vault,
@@ -1116,6 +1190,7 @@ watchProviderConfig(
     setMainLocale(snapshot.uiLocale);
     configureApplicationMenu();
     shellView?.webContents.send(IPC.localeChanged, snapshot.uiLocale);
+    broadcastLocaleToEmbeddedWebuis(snapshot.uiLocale);
   },
   { warn: (m) => console.warn(`Config watcher: ${m}`) },
 );

@@ -112,6 +112,13 @@ export interface WrongStackDesktopHostApi {
   setReady(ready: boolean): void;
   setPrefs(prefs: DesktopWebuiPrefs): void;
   ackCommand(requestId: string, handled: boolean, message?: string | undefined): void;
+  /**
+   * Subscribe to locale changes pushed by the desktop shell (so the embedded
+   * WebUI can swap i18n instantly when the user picks a language in the shell's
+   * sidebar, without waiting for the config-file watcher → WS round-trip).
+   * Returns an unsubscribe. No-op outside the desktop shell.
+   */
+  onLocaleChanged(cb: (locale: string) => void): () => void;
 }
 
 export interface WrongStackDesktopCommandApi {

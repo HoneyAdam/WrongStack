@@ -26,4 +26,8 @@ export const IPC = {
   shellSidebarCollapsedChanged: 'desktop:shell-sidebar-collapsed-changed',
   setLocale: 'desktop:set-locale',
   localeChanged: 'desktop:locale-changed',
+  // Embedded WebUI view side — the desktop shell pushes locale changes here
+  // so the React WebUI inside Electron can swap i18n instantly, without waiting
+  // for the config-file watcher → WS prefs.updated round-trip.
+  webuiLocaleChanged: 'desktop:webui-locale-changed',
 } as const;

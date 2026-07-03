@@ -118,7 +118,7 @@ describe('HqSnapshotStore', () => {
 describe('HqTimeseriesStore', () => {
   it('records signals into time buckets', async () => {
     const store = new HqTimeseriesStore({ dataDir, bucketMs: 1000 });
-    const now = Date.now();
+    const now = 10_000;
     store.record({ ts: now, costUsd: 0.01, inputTokens: 100 });
     store.record({ ts: now + 100, costUsd: 0.02, outputTokens: 50 });
     store.record({ ts: now + 2000, costUsd: 0.05, toolCalls: 3 });

@@ -186,7 +186,9 @@ packages/core/src/
   defaults/        Backward-compatible re-export barrel for all default implementations.
   utils/           Paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format.
   autophase/       Auto-phase system: planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder.
-  plugins/         Built-in core plugins: git, observability, plan, prompts, security, skills, sync.
+  plugins/         Built-in core plugins: git, observability, plan, prompts, security, skills, sync, chimera.
+  hq/              HQ command-center bridge layer (see HQ Bridge below).
+  prompts/         Bundled prompt installer + manifest store for the prompt library.
   middleware/      Koa-style middleware: collab-pause.
   worktree/        Git worktree manager for parallel agent workspaces.
   replay/          Session replay via replay-provider-runner and hash-based session lookup.
@@ -201,18 +203,20 @@ The core area changes frequently, so this table tracks responsibilities rather t
 |---|---|
 | `types` | Public contracts. Keep these stable and additive when possible. |
 | `coordination` | Multi-agent orchestration: director, bridge, fleet, fleet-manager, budgets, transport, collab-debug, collab-bus, dispatcher, auto-extend, parallel-eternal-engine, agents, agent-subagent-runner, large-answer-store, subagent-nicknames. |
-| `storage` | JSONL sessions, config, memory, checkpoints, recovery, goal store, queue store, session rewind, cloud-sync, annotations, prompt-store, replay-log, session-analyzer, session-event-bridge, tool-audit-log, plan-templates. |
+| `storage` | JSONL sessions (`session-store`, `file-session-writer`, `session-reader`, `session-id`, `session-summary`, `session-tool-call-ends`, `session-helpers`), config (`config-loader`, `config-store`, `config-migration`, `provider-config-watcher`), memory (`memory-store`, `memory-backend`, `memory-graph-backend`, `memory-consolidator`), goal store, queue store, plan store + templates, todos checkpoint, task store, prompt store + usage, replay log, session rewind/recovery, recovery lock, session analyzer, session event bridge, tool audit log, annotations store, attachment store, completed-work checkpoint, director state, cloud sync, storage concurrency. |
 | `utils` | Shared helpers: paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format, child-env, merge-models-payload. |
 | `execution` | Tool execution, retry, compaction, skill loading, autonomous runner, error handler, auto-compaction middleware, eternal-autonomy, goal-preamble, autonomy-prompt-contributor, parallel-eternal-engine. |
-| `sdd` | Parser, generator, flow, tracker, graph store, visualizer, spec store, builder, versioning, templates, auto-executor, critical path, task decomposer, parallel run. |
+| `sdd` | Parser, builder, store, versioning, templates; task generator/flow/tracker/visualizer/decomposer/critical-path; spec board subsystem (board-store, board-projector, board-types, lifecycle, parallel run, run registry, supervisor); interview driver; auto-executor; conflict resolver; verify-task. |
 | `core` | Agent loop, context, conversation state, input builder, run env, streaming response, provider runner, iteration limit, continue-to-next-iteration, system prompt builder, /btw steering, modes. |
-| `observability` | Metrics/traces/health integrations, event bridge, OTLP traces/metrics, Prometheus. |
+| `observability` | Metrics (`metrics`), traces (`tracer`, `otel-tracer`), health, Prometheus renderer, OTLP traces + metrics exporters, event bridge. |
 | `security-scanner` | Orchestrator, detector, scanner, gitignore updater, report generator, skill generator, slash-command, types. |
 | `autophase` | Auto-phase planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder, types. |
-| `plugins` | Built-in core plugins: git, observability, plan, prompts, security, skills, sync. |
+| `plugins` | Built-in core plugins: git, observability, plan, prompts, security, skills, sync, chimera. |
+| `hq` | HQ command-center bridge layer: protocol, redaction, mailbox-mapper, publisher, factory, auth-store, agent-bridge, session-bridge, fleet-bridge, brain-bridge, worktree-bridge, tool-bridge, cost-bridge, persistence, commands, alerts, transcript-mapper. |
+| `prompts` | Bundled prompt installer + manifest store for the prompt library surfaced via `DefaultSystemPromptBuilder` and the `/prompts` UI. |
 | `kernel` | Low-level primitives: container, pipeline, events, run controller, tokens, index. |
 | `infrastructure` | Logger, token counter, path resolver, context manager, MCP presets. |
-| `security` | Vault, scrubber, permission policy, config secrets, tool capabilities. |
+| `security` | Vault, scrubber, permission policy, config secrets, tool capabilities, yolo-risk tiers. |
 | `models` | Model registry, LLM selector, mode store. |
 | `skills` | Skill loading helpers and built-in skill plumbing. |
 | `registry` | Tool, provider, slash-command registries. |
@@ -394,30 +398,53 @@ Key behaviors:
 
 ## Runtime Boot Flow
 
-The CLI boot path is split into two phases:
+The CLI boot path is split into three phases:
 
-1. `packages/cli/src/boot.ts` parses arguments, loads config, handles early subcommands, provider/model picking, and launch prompts. `pre-launch.ts` handles project-kind detection and AGENTS.md initialization prompts.
-2. `packages/cli/src/index.ts` wires the runtime: container, providers, tools, events, sessions, prompt builder, MCP, plugins, multi-agent host, slash commands, and agent. Wiring is factored into focused modules under `wiring/`: `session.ts`, `provider.ts`, `pipeline.ts`, `tools.ts`, `plugins.ts`, `slash-commands.ts`, `metrics.ts`, and `replay.ts`.
+1. `packages/cli/src/index.ts` is an 8-line entry shim that exports `main` and calls `runAsMain(main)` from `cli-entry-point.ts` (which centralises `isMain` detection + a 500ms drain-before-exit so a leaking plugin/MCP server cannot hang the process).
+2. `packages/cli/src/cli-main.ts` is the top-level orchestrator. It parses argv, calls `bootConfig`, dispatches to the right sub-mode (REPL, webui, eternal, subcommand, …), and is the post-Issue-#29 home of every boot phase. Each phase lives in a focused module under `packages/cli/src/boot/`:
+
+   | Phase module | Responsibility |
+   |---|---|
+   | `preflight.ts` | Pre-boot side effects (env, lockfile checks, version probe). |
+   | `auto-discover-providers.ts` | Build the `ProviderRegistry` factory list from `models.dev` + saved config. |
+   | `container-wiring.ts` | Build the DI `Container`; bind logger, token counter, path resolver, secret vault, config store, model registry, mode store. |
+   | `system-prompt.ts` | Resolve mode + capabilities; call `resolveModeAndCapabilities`. |
+   | `system-prompt-builder.ts` | Bind `SystemPromptBuilder` into the container. |
+   | `tool-registry.ts` | Register the built-in tool pack. |
+   | `event-wiring.ts` | Create the `EventBus` and wire observability sinks. |
+   | `brain-decision-log.ts` | Persistent decision log for the Brain arbiter. |
+   | `dispatch-singleshot.ts` | Run a one-shot `Agent.run(query)` and exit. |
+   | `dispatch-webui.ts` | Boot the WebUI server and stay alive. |
+   | `short-circuit-flags.ts` | Handle early-exit CLI flags (`--version`, `--help`, …). |
+   | `short-circuit-desktop.ts` | Detect the desktop host and short-circuit boot. |
+   | `short-circuit-hq.ts` | Detect HQ command-center mode and short-circuit boot. |
+   | `tui-*` (12 modules) | TUI-specific wiring (autophase, coordinator setup, debug stream, live sessions, project picker/spawn/switch, runtime state, SDD callback, session resume, settings adapter). |
+
+3. The `wiring/` modules under `packages/cli/src/wiring/` are pure helpers consumed by `cli-main.ts` (and a few `boot/` modules) once the container is up: `session.ts`, `provider.ts`, `pipeline.ts`, `tools.ts`, `plugins.ts`, `slash-commands.ts`, `metrics.ts`, `replay.ts`, `codebase-index.ts`, `design-studio.ts`, `provider-runtime.ts`, `mailbox-bridge-bootstrap.ts`. The `design-studio` wrapper is intentionally a thin facade over the shared `installDesignStudioMiddleware` core helper, since the per-turn kit detection needs a live `Context`. The `provider-runtime.ts` module wires provider capabilities (catalog → family capabilities) plus a per-provider extension for OAuth/subscription refresh.
+
+`pre-launch.ts` (under `packages/cli/src/`) is independent of the above: it handles project-kind detection and `AGENTS.md` initialization prompts before `cli-main` runs.
 
 ```mermaid
 flowchart TD
-  A[argv] --> B[parseArgs]
-  B --> C[bootConfig]
-  C --> D{Subcommand?}
-  D -->|yes| E[run subcommand and exit]
-  D -->|no| F[Project check and launch prompts]
-  F --> G[Provider/model picker]
-  G --> H[Build Container]
-  H --> I[Bind stores, logger, permissions, compactor, prompt builder]
-  I --> J[Build ProviderRegistry from models.dev or config]
-  J --> K[Register builtin tools and feature tools]
-  K --> L[Create EventBus and observability sinks]
-  L --> M[Create provider instance]
-  M --> N[Build system prompt]
-  N --> O[Create or resume session]
-  O --> P[Create Context]
-  P --> Q[Create pipelines and Agent]
-  Q --> R[Dispatch execution mode]
+  A[argv] --> B[index.ts entry shim]
+  B --> C[cli-entry-point.runAsMain]
+  C --> D[cli-main.main]
+  D --> E[parseArgs → bootConfig]
+  E --> F{Subcommand?}
+  F -->|yes| G[run subcommand and exit]
+  F -->|no| H[preflight]
+  H --> I[Project check and launch prompts]
+  I --> J[Provider/model picker]
+  J --> K[container-wiring: bind stores, logger, permissions, compactor, prompt builder]
+  K --> L[Build ProviderRegistry from models.dev or config]
+  L --> M[Register builtin tools]
+  M --> N[Create EventBus and observability sinks]
+  N --> O[Create provider instance]
+  O --> P[Build system prompt]
+  P --> Q[Create or resume session]
+  Q --> R[Create Context]
+  R --> S[Create pipelines and Agent]
+  S --> T[Dispatch execution mode: REPL / TUI / WebUI / HQ / subcommand]
 ```
 
 ### Execution Modes
@@ -791,33 +818,73 @@ Important coordination files:
 
 ```text
 packages/core/src/coordination/
-  multi-agent-coordinator.ts     CLI multi-agent host and lazy coordinator.
+  multi-agent-coordinator.ts     DefaultMultiAgentCoordinator + lazy coordinator wiring.
+  autonomous-coordinator.ts      Autonomous-coordinator state machine (cooperative task auctioning).
+  autonomous-brain.ts            Brain arbiter wiring for autonomous runs.
   agent-subagent-runner.ts       Agent factory and subagent runner construction.
-  subagent-budget.ts            Budget negotiation and threshold signals.
-  agent-bridge.ts               In-memory bridge transport between leader and subagents.
-  agents.ts                     Fleet roster constants: AUDIT_LOG_AGENT, BUG_HUNTER_AGENT, etc.
-  agents/                       9-phase agent definitions (phase1-discovery through phase9-meta).
-  in-memory-transport.ts        In-process transport for bridged subagents.
-  transport.ts                  Abstract transport interface.
-  director.ts                   Rich director layer for manifest-backed orchestration.
-  director-session.ts           Per-subagent JSONL transcript factory.
-  director-prompts.ts           Director and subagent prompt composition.
-  director-tools.ts             LLM-callable director tools (spawn, assign, await, roll_up, etc.).
-  fleet-bus.ts                  Fan-in event bus aggregating subagent events.
-  fleet.ts                      Fleet roster: FLEET_ROSTER, ACP_AGENTS, budget constants.
-  fleet-manager.ts              Fleet lifecycle and health management.
-  ifleet-manager.ts             Fleet manager interface.
-  icoordinator.ts               Coordinator interface.
-  null-fleet-bus.ts             No-op fleet bus for single-agent sessions.
-  delegate-tool.ts              Delegate tool for cross-agent task handoff.
-  collab-debug.ts               CollabSession for parallel BugHunter + RefactorPlanner + Critic.
-  collab-bus.ts                 In-memory event bus for collab-debug sessions.
-  collab-debug-tool.ts          makeCollabDebugTool for launching collab sessions.
-  dispatcher.ts                 LLM-based agent dispatch: scoreAgents, dispatchAgent.
-  auto-extend.ts                AutoExtendPolicy for automatic session continuation.
-  parallel-eternal-engine.ts   Eternal-engine for autonomous parallel goal pursuit.
-  large-answer-store.ts         Sidecar store keeping large ask_subagent results out of the director's context window.
-  subagent-nicknames.ts         Domain-affinity nickname pool (scientists/mathematicians) for spawned subagents.
+  agent-monitor.ts               AgentMonitorService: streams subagent conversations to HQ.
+  agent-bridge.ts                In-memory bridge transport between leader and subagents.
+  in-memory-transport.ts         In-process transport for bridged subagents.
+  transport.ts                   Abstract transport interface (re-export barrel).
+  subagent-budget.ts             Budget negotiation and threshold signals.
+  subagent-nicknames.ts          Domain-affinity nickname pool (scientists/mathematicians).
+  agents.ts                      Re-export barrel for AGENT_CATALOG and friends.
+  agents/                        9-phase agent definitions (phase1-discovery through phase9-meta).
+  agents/index.ts                AGENT_CATALOG, ALL_AGENT_DEFINITIONS, AGENTS_BY_PHASE, budget tiers.
+  director.ts                    Rich director layer for manifest-backed orchestration (1824 lines).
+  director-construction.ts       Director construction from Container.
+  director-session.ts            Per-subagent JSONL transcript factory.
+  director-prompts.ts            Director and subagent prompt composition.
+  director-tools.ts              LLM-callable director tools (spawn, assign, await, roll_up, etc.).
+  fleet.ts                       Fleet roster: FLEET_ROSTER, ACP_AGENTS, budget constants.
+  fleet-bus.ts                   Fan-in event bus aggregating subagent events.
+  fleet-manager.ts               Fleet lifecycle and health management.
+  fleet-spawn.ts                 Spawn helpers (subagent factories by role).
+  ifleet-manager.ts              Fleet manager interface.
+  icoordinator.ts                Coordinator interface.
+  null-fleet-bus.ts              No-op fleet bus for single-agent sessions.
+  adaptive-concurrency.ts        Adaptive concurrency controller for parallel subagent waves.
+  task-dag.ts                    DAG of subagent tasks + dependency tracking.
+  task-auctioneer.ts             Cooperative task auction protocol.
+  consensus-protocol.ts          Cross-agent consensus (CRDT-ish merge of findings).
+  delegate-tool.ts               Delegate tool for cross-agent task handoff.
+  collab-debug.ts                CollabSession for parallel BugHunter + RefactorPlanner + Critic.
+  collab-bus.ts                  In-memory event bus for collab-debug sessions.
+  dispatcher.ts                  LLM-based agent dispatch: scoreAgents, dispatchAgent.
+  auto-extend.ts                 AutoExtendPolicy for automatic session continuation.
+  parallel-eternal-engine.ts     Eternal-engine for autonomous parallel goal pursuit.
+  large-answer-store.ts          Sidecar store keeping large ask_subagent results out of the director's context.
+  brain.ts                       Brain arbiter (DefaultBrainArbiter, ObservableBrainArbiter, HumanEscalatingBrainArbiter).
+  brain-monitor.ts               BrainMonitor: surfaces decisions to UI/HQ.
+  change-manager.ts              File change manager for subagent work.
+  checkpoint-wiring.ts           Wire AutoPhase checkpoints into director state.
+  commit-safety.ts               Commit-safety policy for subagent-side writes.
+  file-author-tracker.ts         Tracks per-file authorship across subagents.
+  package-author-tracker.ts      Same for package ownership boundaries.
+  package-outdated-watcher.ts    Watches for outdated packages in subagent work.
+  dep-watcher.ts                 Dependency-watcher bridge.
+  dep-watcher-bridge.ts          Bridge the watcher into the EventBus.
+  knowledge-graph.ts             In-memory knowledge graph shared across the director.
+  mailbox.ts                     Mailbox for inter-agent messages (in-process).
+  mailbox-types.ts               Mailbox types.
+  mailbox-tool.ts                Mailbox tool exposed to the leader.
+  mailbox-actions.ts             Mailbox actions (send, query, ack).
+  mailbox-hooks.ts               Mailbox hook registration.
+  mailbox-health.ts              Mailbox health checks.
+  mail-tools.ts                  Higher-level mail tools (compose, draft, etc.).
+  global-mailbox.ts              Cross-process mailbox backed by JSONL file-lock.
+  single-instance-mailbox.ts     Single-instance mailbox (one writer per project).
+  model-matrix.ts                ModelMatrix: per-role model selection.
+  techstack-mailbox-consumer.ts  Mailbox consumer for techstack sync events.
+  in-memory-transport.ts         In-process transport for bridged subagents.
+```
+
+The CLI side (`packages/cli/src/fleet/`) holds:
+
+```text
+  fleet/host.ts      MultiAgentHost: the actual CLI-side coordinator host (1708 lines).
+  fleet/routing.ts   buildRoutingRunner: route subagent invocations to the right host.
+  multi-agent.ts     4-line re-export shim — kept for backward compatibility.
 ```
 
 ### Coordinator Flow
@@ -909,15 +976,40 @@ Each `WorktreeHandle` transitions through states: `allocating → active → com
 
 **Conflict resolution.** `WorktreeManager.merge()` accepts an optional `resolve` callback (`MergeOpts.resolve`). On a squash-merge conflict it hands the conflicted paths and base working tree to the resolver *before* aborting; if the resolver clears every marker (validated with `git diff --cached --check`) the merge is committed and `MergeResult.resolved` is `true`. Any failure or surviving marker falls through to the original safe path — `git reset --hard` + `needs-review`, work preserved on the branch. AutoPhase wires this through `PhaseExecutionContext.resolveConflict` to a resolver subagent (CLI host); a conflict therefore no longer silently strands a phase's work. Disable with `WRONGSTACK_AUTOPHASE_RESOLVE=0`.
 
+## HQ Bridge (Command Center)
+
+`packages/core/src/hq/` is the bridge layer between the agent runtime and the HQ command center. It is consumer-agnostic: the CLI HQ server (`packages/cli/src/hq-server.ts`, `hq-dashboard-html.ts`, `hq-command-controller.ts`, `hq-publisher.ts`, `hq-static-serve.ts`) hosts one consumer; the WebUI HQ variant (`packages/webui-hq/`) hosts another.
+
+| Module | Responsibility |
+|---|---|
+| `protocol.ts` | Wire protocol: message types, frame encoding, command taxonomy. |
+| `redaction.ts` | Redact secrets and PII from HQ-bound payloads before publish. |
+| `mailbox-mapper.ts` | Map mailbox messages → HQ topics. |
+| `publisher.ts` | Fan out HQ events to subscribers (HQ HTTP, HQ WS, mailbox bridge). |
+| `factory.ts` | Build a wired `HQBridge` from a `Container`. |
+| `auth-store.ts` | HQ auth tokens (per-session + persistent). |
+| `agent-bridge.ts` | Live agent state → HQ snapshots. |
+| `session-bridge.ts` | Session JSONL → HQ transcripts. |
+| `fleet-bridge.ts` | Fleet bus → HQ fleet pane. |
+| `brain-bridge.ts` | Brain decisions → HQ Brain pane. |
+| `worktree-bridge.ts` | Worktree state → HQ worktree pane. |
+| `tool-bridge.ts` | Tool use/result events → HQ tool pane. |
+| `cost-bridge.ts` | Per-session cost rollups → HQ. |
+| `persistence.ts` | Persist HQ alerts / pinned state across restarts. |
+| `commands.ts` | HQ → agent command surface (cancel, pause, escalate, etc.). |
+| `alerts.ts` | Emit HQ alerts on anomalies (stuck agents, cost spikes, budget warnings). |
+| `transcript-mapper.ts` | Map agent transcripts → HQ display. |
+
 ## UI Architecture
 
-WrongStack has three major user surfaces:
+WrongStack has four major user surfaces:
 
 | Surface | Package/file | Runtime model |
 |---|---|---|
 | REPL | `packages/cli/src/repl.ts` | Terminal prompt loop driven by slash commands and `Agent.run`. |
 | TUI | `packages/tui` | Ink/React UI subscribing to events and operating on shared agent/session state. |
 | WebUI | `packages/webui` plus `packages/cli/src/webui-server.ts` | Browser React app communicating with a WebSocket backend. |
+| HQ Command Center | `packages/webui-hq` plus `packages/cli/src/hq-server.ts` and `packages/core/src/hq/` | Multi-agent oversight UI: live fleet, brain, worktree, tool, cost, transcript panes. Connects over the HQ bridge. |
 
 ### CLI/TUI Event Flow
 
@@ -995,12 +1087,17 @@ The package declares `@wrongstack/core` as a peer dependency, keeping it plugin-
 
 ```text
 packages/runtime/src/
-  index.ts       Re-exports from core/defaults, core/infrastructure, plus local modules.
-  pack.ts        WrongStackPack: bundled runtime configuration pack.
-  host.ts        RuntimeHost and RuntimeHostParts interfaces for host composition.
-  container.ts   Container setup helpers.
-  vision.ts      Vision/image processing utilities.
-  clipboard.ts   Clipboard integration.
+  index.ts                   Re-exports from core/defaults, core/infrastructure, plus local modules.
+  pack.ts                    WrongStackPack: bundled runtime configuration pack.
+  host.ts                    RuntimeHost and RuntimeHostParts interfaces for host composition.
+  container.ts               Container setup helpers.
+  vision.ts                  Vision/image processing utilities.
+  clipboard.ts               Clipboard integration.
+  local-llm-probe.ts         Local LLM probe (detect local model servers, capabilities).
+  fleet/
+    light-subagent-factory.ts  makeLightSubagentFactory: a dependency-light AgentFactory
+                               the WebUI packages can use without importing @wrongstack/cli
+                               (so SddParallelRun works in the WebUI server context).
 ```
 
 The long-term boundary is:
@@ -1050,27 +1147,58 @@ packages/acp/src/
   agent/           StdioTransport, WrongStackACPServer, ACPToolsRegistry, ACPProtocolHandler.
   client/          ToolTranslator for mapping external tool schemas to core tool format.
   integration/     ACP subagent runner (makeACPSubagentRunner, makeACPSubagentRunnerWithStop).
+  registry/        ACP agent registry (fetch + cache, ensemble registry).
   types/           ACP message types (acp-messages).
+  sdk.ts           Public SDK surface (WrongStackACPServer, agent descriptor helpers).
+  win32-cmd.ts     Windows command-line quoting helpers.
 ```
 
 The package declares `@wrongstack/core` as a peer dependency and is used by the CLI's multi-agent host to support ACP-capable subagents.
 
 ## Plugins Package
 
-`@wrongstack/plugins` is a bundled library of 10 installable plugins published as a single package. Each subdirectory is a self-contained plugin:
+`@wrongstack/plugins` is a bundled library of 36 installable plugins published as a single package. The single source of truth for the catalog is `packages/plugins/src/catalog.ts`; each subdirectory is a self-contained plugin and is also listed in the canonical `PLUGIN_CATALOG` map consumed by `spec-linker` for unlinked-reference detection.
 
 | Plugin | Capability |
 |---|---|
 | `auto-doc` | Auto-generate JSDoc/TSDoc comments for functions and types. |
+| `auto-escalate` | Escalate repeated LLM/tool failures to higher-cost models. |
+| `branch-guard` | Block dangerous git operations on protected branches. |
+| `changelog-writer` | Accumulate `changelog_add` calls and write a `CHANGELOG.md` [Unreleased] block. |
+| `checkpoint` | Periodic session-state snapshots for resume/replay. |
+| `commit-validator` | Validate commit messages against conventional-commit rules. |
+| `config-validator` | Watch user config files for schema violations. |
+| `context-pins` | Pin context entries so they survive compaction. |
 | `cost-tracker` | Track and report per-session and per-file LLM usage costs. |
 | `cron` | Schedule recurring agent tasks via cron expressions. |
+| `dep-guard` | Deny/allow dependency installs against a curated list. |
+| `diff-summary` | Summarize diffs into the LLM's context. |
+| `error-lens` | Surface repeated error patterns from `error_lens_history`. |
 | `file-watcher` | Trigger agent runs when watched files change on disk. |
+| `format-on-save` | Run biome on touched files after a tool writes them. |
 | `git-autocommit` | Automatically commit changes when a session ends. |
-| `json-path` | Query and transform JSON with JSONPath expressions via a tool. |
+| `import-organizer` | Run import organization on touched files. |
+| `injection-shield` | Scan tool inputs/outputs for prompt-injection patterns. |
+| `lint-gate` | Block session end on lint failures (mode-driven). |
+| `llm-cache` | Memoize LLM completions by content hash. |
+| `loop-breaker` | Detect oscillation in model outputs and break the cycle. |
+| `model-router` | Route requests to different providers/models by rule. |
+| `notify-hub` | Send `notify_send` events to a configured webhook. |
+| `path-guard` | Block tool calls whose paths fail a policy glob. |
+| `prompt-firewall` | Detect/redact/block sensitive prompt fragments. |
+| `secret-scanner` | Ghost-style secret and credential scanning. |
 | `semver-bump` | Detect and propose semantic version bumps based on conventional commits. |
+| `session-recap` | Post a session summary to the inter-agent mailbox on close. |
 | `shell-check` | Run shell script analysis via `shellcheck` after `bash`/`exec` tools. |
+| `spec-linker` | Detect unlinked plugin references in markdown files. |
 | `template-engine` | Render template files with agent-provided variables. |
-| `web-search` | Web search tool backed by a configurable search provider. |
+| `test-runner-gate` | Block session end on test failures (mode-driven). |
+| `todo-listener` | Mirror `todo_*` events to the inter-agent mailbox. |
+| `todo-tracker` | Persistent todo-tracker for `ctx.todos`. |
+| `token-budget` | Per-session token-budget guard. |
+| `token-throttle` | Token-window throttling across sessions. |
+
+**Deprecated plugins.** `web-search` and `json-path` are no longer loaded by the CLI: the loader in `packages/cli/src/wiring/plugins.ts` exposes a `DEPRECATED_PLUGIN_NAMES` warning that emits a one-shot log and skips the entry, telling the user to use the built-in `search` / `fetch` tools or the built-in `json` tool (`action: query | validate | transform | merge`) respectively. Their source files are temporarily kept so old `@wrongstack/plugins/web-search` string specs still resolve to a no-op stub at runtime; they will be removed in a follow-up commit.
 
 Plugins in this package follow the standard `Plugin.setup(api)` pattern. They can be enabled via config or the `/plugin` slash command.
 
@@ -1180,16 +1308,20 @@ The CLI writes a metrics snapshot to the project session directory on shutdown w
 
 ## Built-in Skills and Modes
 
-Bundled skills live in `packages/core/skills` (16 total):
+Bundled skills live in `packages/core/skills` (23 total):
 
 ```text
-api-design        audit-log         bug-hunter        docker-deploy
-git-flow          multi-agent       node-modern       observability
-prompt-engineering react-modern    refactor-planner  sdd
-security-scanner  skill-creator     testing           typescript-strict
+api-design        audit-log         bug-hunter        chimera
+docker-deploy     git-flow          mailbox-bridge    multi-agent
+node-modern       observability     output-standards  plugin-author
+prompt-engineering react-modern    refactor-planner  research-web
+sdd               security-scanner  skill-creator     tech-stack
+testing           typescript-strict wrongstack-mailbox
 ```
 
 `DefaultSkillLoader` can load bundled, user-global, and project-local skills. `DefaultSystemPromptBuilder` includes skill entries in the environment block when the skills feature is enabled.
+
+The skill loader in `packages/core/src/skills/` also exposes `SkillInstaller` (with `github-direct-adapter`, `registry-adapter`, `skills-sh-adapter` under `registry/`), `GitHubFetcher`, `foreign-sources` registry, `frontmatter` parser, `manifest-store`, `skill-generator`, and `limits` (token budget guard). Skills are discovered and installed into the bundled, user-global, or project-local skill trees.
 
 Modes are handled by `DefaultModeStore` (modes: `default`, `brief`, `teach`); the active mode contributes a prompt layer and can be switched by CLI/TUI/WebUI surfaces.
 
@@ -1226,9 +1358,11 @@ flowchart TD
   UI -->|REPL| CLI
   UI -->|TUI| TUI
   UI -->|WebSocket| WebUI
+  UI -->|HQ WebSocket| HQ
   CLI --> Agent
   TUI --> Agent
   WebUI --> Agent
+  HQ --> Agent
 
   Agent --> Context[Context messages/state]
   Agent --> Prompt[System prompt + messages + tools]
@@ -1244,6 +1378,8 @@ flowchart TD
   Events --> CLI
   Events --> TUI
   Events --> WebUI
+  Events --> HQBridge[core/src/hq]
+  HQBridge --> HQ
   Events --> CollabWS[collaboration-ws-handler]
   Events --> AutophaseWS[autophase-ws-handler]
   Events --> Metrics[Metrics/health/traces]
@@ -1252,7 +1388,31 @@ flowchart TD
   AutoPhase --> Worktree[WorktreeManager]
   Worktree --> WorktreeWS[worktree-ws-handler]
   WorktreeWS -.-> WebUI
+  AutoPhase --> HQ
+  Mailbox[coordination/mailbox + global-mailbox] <-.-> HQ
 ```
+
+## Bundled Instructions
+
+`packages/core/instructions/` (sibling to `packages/core/src/`, not inside `src/`) holds the bundled system-instruction fragments the agent composes into prompts:
+
+```text
+instructions/
+  agents/        Per-agent role instruction fragments (also surfaced as skills).
+  autonomy/      Autonomy-mode prompt fragments.
+  autophase/     Auto-phase prompt fragments.
+  cli/           CLI-internal instruction fragments.
+  coordination/  Multi-agent / director / fleet instruction fragments.
+  llm/           LLM-loop instruction fragments (provider/temperature guidance).
+  modes/         Per-mode instruction fragments (default, brief, teach).
+  sdd/           Spec-driven development instruction fragments.
+  sections/      Reusable prompt sections (env block, tool inventory, etc.).
+  security-scanner/  Security-scanner instruction fragments.
+  leader-after-task.md  Top-level post-task hint injected by the leader agent.
+  system.md      Base system-prompt identity.
+```
+
+`loadInstructionBundle` (`packages/core/src/core/instruction-bundle.ts`) is the loader; `mergeInstructionBundle` composes a per-agent bundle. The `system.md` + `leader-after-task.md` files are the highest-priority entries and form the backbone of every `DefaultSystemPromptBuilder` output.
 
 ## Extension Points by Use Case
 
@@ -1406,18 +1566,22 @@ If you are new to the codebase, read in this order:
 4. `packages/core/src/execution/tool-executor.ts`
 5. `packages/core/src/extension/extension-points.ts`
 6. `packages/core/src/extension/registry.ts`
-7. `packages/cli/src/boot.ts`
-8. `packages/cli/src/pre-launch.ts`
-9. `packages/cli/src/index.ts`
-10. `packages/cli/src/execution.ts`
-11. `packages/cli/src/wiring/{session,provider,pipeline}.ts`
-12. `packages/tools/src/builtin.ts`
-13. `packages/providers/src/index.ts`
-14. `packages/core/src/plugin/{api,loader}.ts`
-15. `packages/cli/src/multi-agent.ts`
-16. `packages/cli/src/plugin-management.ts`
-17. `packages/core/src/coordination/director.ts`
-18. `packages/core/src/autophase/auto-phase-runner.ts` (autonomous phase workflow)
-19. `packages/core/src/worktree/worktree-manager.ts` (parallel workspace isolation)
+7. `packages/cli/src/cli-entry-point.ts` (entry shim, `isMain` + drain-on-exit)
+8. `packages/cli/src/cli-main.ts` (top-level orchestrator after Issue #29)
+9. `packages/cli/src/boot/{container-wiring,system-prompt-builder,tool-registry,event-wiring,dispatch-singleshot,dispatch-webui}.ts`
+10. `packages/cli/src/pre-launch.ts`
+11. `packages/cli/src/execution.ts` (mode dispatch)
+12. `packages/cli/src/wiring/{session,provider,pipeline,tools,plugins,slash-commands,replay,design-studio,provider-runtime,mailbox-bridge-bootstrap}.ts`
+13. `packages/tools/src/builtin.ts`
+14. `packages/providers/src/index.ts`
+15. `packages/core/src/plugin/{api,loader}.ts`
+16. `packages/cli/src/fleet/host.ts` (the real `MultiAgentHost`; `multi-agent.ts` is just a re-export)
+17. `packages/cli/src/plugin-management.ts`
+18. `packages/core/src/coordination/director.ts`
+19. `packages/core/src/coordination/mailbox.ts` and `global-mailbox.ts` (inter-agent mailbox)
+20. `packages/core/src/autophase/auto-phase-runner.ts` (autonomous phase workflow)
+21. `packages/core/src/worktree/worktree-manager.ts` (parallel workspace isolation)
+22. `packages/core/src/hq/index.ts` (HQ command-center bridge layer)
+23. `packages/runtime/src/fleet/light-subagent-factory.ts` (WebUI-friendly subagent factory)
 
-That path gives you the runtime loop first, then the extension system, then the boot assembly (including project detection and wiring), then the plugin management and multi-agent layers.
+That path gives you the runtime loop first, then the extension system, then the boot assembly (including the issue #29 split into `cli-main` + `boot/*` + `wiring/*`), then the plugin management, multi-agent, and HQ layers.
