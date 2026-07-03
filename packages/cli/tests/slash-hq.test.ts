@@ -87,10 +87,13 @@ describe('/hq slash command', () => {
     expect(written.hq).toBeUndefined();
   });
 
-  it('bare /hq shows "Not configured" when nothing is set', async () => {
+  it('bare /hq explains auto-discovery when nothing is set and no HQ runs', async () => {
     const { ctx } = makeCtx();
     const res = await buildHqCommand(ctx).run!('');
-    expect(stripAnsi(res!.message!)).toContain('Not configured');
+    const text = stripAnsi(res!.message!);
+    expect(text).toContain('auto-discovery');
+    expect(text).toContain('attach automatically');
+    expect(text).toContain('WRONGSTACK_HQ_ENABLED=0');
   });
 
   it('status shows the configured url and source', async () => {

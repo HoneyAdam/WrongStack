@@ -15,6 +15,32 @@ export interface HqPublisherEnvConfig {
   enabled?: boolean;
   rawContent?: boolean;
   projectAlias?: string;
+  /**
+   * Same-machine auto-discovery mode: no explicit URL was configured, so the
+   * publisher should re-resolve the endpoint from `<dataDir>/runtime.json`
+   * (+ the first client token in `auth.json`) before every connect attempt.
+   * This lets every client on the machine attach to a `wstack --hq` that is
+   * already running, starts later, or restarts on a different port.
+   */
+  discover?: boolean;
+  /** Resolved HQ data dir the discovery reads from. */
+  dataDir?: string;
+}
+
+/**
+ * Discover a locally running `wstack --hq` endpoint: reads the runtime
+ * marker (pid-liveness-checked) and the first client token. Returns
+ * `undefined` when no live HQ is advertised on this machine.
+ */
+export function discoverLocalHqEndpoint(options: {
+  dataDir?: string | undefined;
+  env?: NodeJS.ProcessEnv | undefined;
+} = {}): { url: string; token?: string | undefined } | undefined {
+  const dataDir = resolveHqDataDir(options.dataDir, options.env ?? process.env);
+  const runtime = readHqRuntimeFileSync(dataDir);
+  if (runtime === undefined) return undefined;
+  const token = readFirstClientTokenFromAuthFile(dataDir);
+  return { url: runtime.url, ...(token ? { token } : {}) };
 }
 
 function readFirstClientTokenFromAuthFile(dataDir: string): string | undefined {
@@ -52,14 +78,19 @@ export function resolveHqConfig(options: {
 
   if (!url) {
     if (enabled === false) return undefined;
-    if (enabled === true || token || runtimeUrl) {
-      return {
-        url: runtimeUrl || 'http://127.0.0.1:3499',
-        enabled: true,
-        ...(token ? { token } : {}),
-      };
-    }
-    return undefined;
+    // No explicit endpoint → same-machine auto-discovery (default ON).
+    // The publisher re-resolves runtime.json + auth.json before every
+    // connect attempt, so an HQ started AFTER this client — or restarted on
+    // another port — is attached to automatically. While no HQ is running
+    // the publisher stays dormant (bounded queue, cheap file poll).
+    // Opt out with WRONGSTACK_HQ_ENABLED=0 or config `hq.enabled: false`.
+    return {
+      url: runtimeUrl || 'http://127.0.0.1:3499',
+      enabled: true,
+      discover: true,
+      dataDir,
+      ...(token ? { token } : {}),
+    };
   }
 
   const rawContentEnv = env['WRONGSTACK_HQ_RAW_CONTENT']?.trim();
@@ -98,6 +129,8 @@ export interface CreateHqPublisherOptions {
   capabilities?: readonly HqClientCapability[];
   /** Forwarded to the HqPublisher constructor (Phase 4 control plane). */
   onCommand?: HqPublisherCommandHandler;
+  /** Dormant discovery re-check interval override (tests / tight loops). */
+  discoveryPollMs?: number;
 }
 
 export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqPublisher | undefined {
@@ -133,6 +166,7 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
         }
       : undefined;
 
+  const discoveryDataDir = config.dataDir;
   return new HqPublisher({
     url: config.url,
     ...(config.token ? { token: config.token } : {}),
@@ -142,6 +176,12 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
     ...(redactionPolicy !== undefined ? { redactionPolicy } : {}),
     ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
     ...(options.onCommand !== undefined ? { onCommand: options.onCommand } : {}),
+    // Auto-discovery: re-read the local HQ runtime marker + client token on
+    // every connect attempt so late-started/restarted HQs are picked up.
+    ...(config.discover
+      ? { resolveEndpoint: () => discoverLocalHqEndpoint({ dataDir: discoveryDataDir }) }
+      : {}),
+    ...(options.discoveryPollMs !== undefined ? { discoveryPollMs: options.discoveryPollMs } : {}),
   });
 }
 

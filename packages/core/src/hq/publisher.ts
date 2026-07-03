@@ -66,6 +66,19 @@ export interface HqPublisherOptions {
   commandPollIntervalMs?: number;
   commandPollLimit?: number;
   onCommand?: HqPublisherCommandHandler;
+  /**
+   * Local auto-discovery hook: re-resolve the HQ endpoint before EVERY
+   * connect attempt (e.g. by reading `<hq dataDir>/runtime.json`). Returning
+   * `undefined` means no HQ is currently discoverable — the publisher stays
+   * dormant (events keep queueing, bounded) and re-checks every
+   * {@link HqPublisherOptions.discoveryPollMs}. Because the endpoint is
+   * re-resolved per attempt, an HQ started AFTER this client — or restarted
+   * on a different port, or one that minted its first client token on boot —
+   * is picked up automatically.
+   */
+  resolveEndpoint?: () => { url: string; token?: string | undefined } | undefined;
+  /** Dormant re-check interval while `resolveEndpoint` yields nothing. Default 5s. */
+  discoveryPollMs?: number;
 }
 
 export interface HqPublishEventOptions {
@@ -79,6 +92,7 @@ export interface HqPublishEventOptions {
 const OPEN_STATE = 1;
 const DEFAULT_RECONNECT_BASE_MS = 1_000;
 const DEFAULT_RECONNECT_MAX_MS = 30_000;
+const DEFAULT_DISCOVERY_POLL_MS = 5_000;
 const DEFAULT_MAX_QUEUED_MESSAGES = 2000;
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_COMMAND_POLL_LIMIT = 25;
@@ -146,10 +160,26 @@ export class HqPublisher {
 
   connect(): void {
     if (this.socket !== null || this.stopped) return;
+    // A retry / discovery poll is already scheduled — let it fire instead of
+    // dialing (and re-resolving the endpoint) on every publish while offline.
+    if (this.reconnectTimer !== null) return;
+
+    let url = this.options.url;
+    let token = this.options.token;
+    if (this.options.resolveEndpoint !== undefined) {
+      const endpoint = this.options.resolveEndpoint();
+      if (endpoint === undefined) {
+        this.scheduleDiscoveryPoll();
+        return;
+      }
+      url = endpoint.url;
+      token = endpoint.token ?? token;
+    }
+
     let socket: HqSocketLike;
     try {
-      socket = this.socketFactory(toClientUrl(this.options.url, this.options.token), {
-        ...(this.options.token !== undefined ? { token: this.options.token } : {}),
+      socket = this.socketFactory(toClientUrl(url, token), {
+        ...(token !== undefined ? { token } : {}),
       });
     } catch {
       this.scheduleReconnect();
@@ -448,6 +478,22 @@ export class HqPublisher {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+    this.reconnectTimer.unref?.();
+  }
+
+  /**
+   * Dormant re-check while no HQ endpoint is discoverable. Uses a FIXED
+   * interval (not the exponential reconnect backoff): the check is a cheap
+   * local file read, and backing off would delay attaching to an HQ the
+   * user just started — the whole point of auto-discovery.
+   */
+  private scheduleDiscoveryPoll(): void {
+    if (this.stopped || !this.reconnect || this.reconnectTimer !== null) return;
+    this.reconnectAttempt = 0;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, this.options.discoveryPollMs ?? DEFAULT_DISCOVERY_POLL_MS);
     this.reconnectTimer.unref?.();
   }
 }

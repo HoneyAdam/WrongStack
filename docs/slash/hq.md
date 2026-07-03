@@ -7,8 +7,12 @@ its live session + agents (and full chat transcript) there, and lets you inspect
 the connection. HQ is the read-only dashboard started with `wstack --hq`; see
 [`--hq`](../subcommands/hq.md) for the server side.
 
-A locally running `wstack --hq` is **auto-discovered** (via `~/.wrongstack/hq/runtime.json`)
-with no configuration. Use `/hq set` to point at an HQ on **another machine**.
+A local `wstack --hq` is **auto-discovered** (via `~/.wrongstack/hq/runtime.json`)
+with no configuration — even when the HQ starts *after* this client or restarts
+on a different port. While no HQ is running the client stays dormant (no socket,
+cheap file poll) and queues telemetry in a bounded buffer that flushes on attach;
+bare `/hq` reports `mode: auto-discovery` in that state. Use `/hq set` to point
+at an HQ on **another machine**; disable entirely with `/hq off`.
 
 ## Usage
 
@@ -25,8 +29,9 @@ with no configuration. Use `/hq set` to point at an HQ on **another machine**.
 ## Notes
 
 - Settings persist to `~/.wrongstack/config.json` (global scope) under `hq`.
-- Telemetry attaches on the **next session start** — an already-running session
-  keeps its current connection. Run a new TUI/REPL to connect to a freshly-set HQ.
+- `/hq set` changes attach on the **next session start** — an already-running
+  session keeps its current connection. (Auto-discovery is different: a running
+  session in discovery mode attaches live when a local HQ appears or repoints.)
 - The client token is for the `/ws/client` channel and is distinct from the HQ
   **browser** token (used to open the dashboard in a browser).
 - `set` / `status` run a quick reachability probe against the HQ URL. A `401`
@@ -36,8 +41,11 @@ with no configuration. Use `/hq set` to point at an HQ on **another machine**.
 
 1. `WRONGSTACK_HQ_URL` / `WRONGSTACK_HQ_TOKEN` env vars (override the config file)
 2. `config.json` → `hq.url` / `hq.token`
-3. A locally running HQ (`~/.wrongstack/hq/runtime.json` marker)
-4. Default fallback: `http://127.0.0.1:3499`
+3. **Auto-discovery** (no explicit URL anywhere): the publisher re-reads
+   `~/.wrongstack/hq/runtime.json` + the first client token from `auth.json`
+   before every connect attempt, and polls while dormant — a later-started or
+   restarted HQ is attached to automatically. Opt out with
+   `WRONGSTACK_HQ_ENABLED=0`, `hq.enabled: false`, or `/hq off`.
 
 ## Code Reference
 

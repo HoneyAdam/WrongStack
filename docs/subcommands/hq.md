@@ -6,6 +6,14 @@ dashboard at `/`. The dashboard aggregates telemetry from every
 WrongStack client (TUI, REPL, CLI-embedded WebUI, standalone WebUI) that
 connects to the same URL.
 
+**Same-machine clients need zero configuration.** Every WrongStack client
+starts in *auto-discovery* mode by default: it watches
+`<dataDir>/runtime.json` and attaches by itself — with the client token HQ
+minted on its first run — whether the HQ was already running, starts
+*after* the client, or restarts on a different port. Telemetry published
+while no HQ is up queues in a bounded buffer and flushes on attach. Opt out
+with `WRONGSTACK_HQ_ENABLED=0`, config `hq.enabled: false`, or `/hq off`.
+
 HQ is **project-independent**: it does not require a project root, reads no
 project state, and stores no per-project data. It simply renders what
 clients publish.
@@ -39,8 +47,8 @@ a valid project root or `.wrongstack/` directory.
 On first run, when `<dataDir>/auth.json` is missing, HQ automatically creates
 one browser token and one client token. On every startup, HQ prints the browser
 URL and client WebSocket URL; when tokens exist in `auth.json`, those URLs are
-tokenized. For same-machine clients, setting only `WRONGSTACK_HQ_ENABLED=1` or
-`WRONGSTACK_HQ_URL=<hq-url>` is enough: clients auto-load the first client token
+tokenized. Same-machine clients need **no** configuration at all: auto-discovery
+is on by default, and clients auto-load the first client token
 from `<dataDir>/auth.json` unless `WRONGSTACK_HQ_TOKEN` is explicitly set.
 Existing `auth.json` is treated as operator intent, including empty token arrays
 for open mode.
@@ -49,7 +57,9 @@ HQ also writes `<dataDir>/runtime.json` with the actual bound URL after startup.
 Same-machine clients use it when no explicit `WRONGSTACK_HQ_URL` or config URL is
 set, so custom ports and non-strict auto-advanced ports are discoverable. The
 marker is removed on clean shutdown and ignored when its recorded process is no
-longer alive.
+longer alive. Clients re-read the marker before every connect attempt (and on a
+fixed dormant poll while no HQ is up), so an HQ started later or restarted on a
+new port is picked up without restarting any client.
 
 Once running, the URLs the browser and clients should use are printed to stdout,
 e.g.:
@@ -632,23 +642,36 @@ when configured. The resolution logic lives in
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `WRONGSTACK_HQ_URL` | string | _(unset)_ | HQ endpoint. Accepts `http://host:port`, `https://host:port`, `ws://host:port[/path]`, or `wss://host:port[/path]`. The publisher normalizes the scheme (`http`→`ws`, `https`→`wss`) and appends `/ws/client` if the path is `/` or empty. When unset, no client publishes and local behavior is unchanged |
-| `WRONGSTACK_HQ_ENABLED` | `0` / `1` | derived from URL | When `URL` is unset but this is `1`, clients connect to `http://localhost:3499`. When `URL` is set, any non-zero value is treated as enabled; `0` disables publishing even when URL is set |
+| `WRONGSTACK_HQ_URL` | string | _(unset)_ | HQ endpoint. Accepts `http://host:port`, `https://host:port`, `ws://host:port[/path]`, or `wss://host:port[/path]`. The publisher normalizes the scheme (`http`→`ws`, `https`→`wss`) and appends `/ws/client` if the path is `/` or empty. When unset, the client falls back to same-machine **auto-discovery** (see below) |
+| `WRONGSTACK_HQ_ENABLED` | `0` / `1` | `1` (auto-discovery) | `0` disables publishing entirely — including auto-discovery. Any other non-empty value forces enabled even when config says otherwise |
 | `WRONGSTACK_HQ_TOKEN` | string | _(unset)_ | Optional client enrollment token. When set, the publisher appends it as a `?token=…` query parameter on the `/ws/client` upgrade. Required by Phase 2+ when the server runs in remote/auth mode |
 | `WRONGSTACK_HQ_RAW_CONTENT` | `0` / `1` | `0` | When `1`, opt-in to publishing raw prompt / output / file / log content. When `0` (default), only normalized summaries and scrubbed previews are sent. This maps to `HqRedactionPolicy.rawContent` |
 | `WRONGSTACK_HQ_PROJECT_ALIAS` | string | basename of project root | Human-readable project name shown in HQ. Overrides the default `basename(projectRoot)` fallback (`"unknown"` if both are missing) |
 
-When `WRONGSTACK_HQ_URL` is unset and `WRONGSTACK_HQ_ENABLED` is not `"1"`,
-`resolveHqConfigFromEnv()` returns `undefined` and `createHqPublisherFromEnv()`
-returns `undefined` — no client publisher is constructed and behavior is
-identical to a build without HQ support.
+### Auto-discovery mode (default)
+
+When neither `WRONGSTACK_HQ_URL` nor a config `hq.url` is set,
+`resolveHqConfig()` returns a config with `discover: true` and
+`createHqPublisherFromEnv()` builds a publisher in **auto-discovery** mode:
+
+- Before every connect attempt the publisher re-resolves the endpoint from
+  `<dataDir>/runtime.json` (pid-liveness-checked) and picks up the first
+  client token from `<dataDir>/auth.json` — so it follows an HQ that starts
+  later, restarts, or moves to another port.
+- While no HQ is advertised, the publisher stays **dormant**: no socket is
+  dialed; a cheap fixed-interval file poll (default 5 s) re-checks the marker.
+  Published telemetry queues in the publisher's bounded buffer and flushes
+  after the `client.hello` handshake once an HQ appears.
+- The only opt-out is explicit: `WRONGSTACK_HQ_ENABLED=0`, config
+  `hq.enabled: false`, or `/hq off`. Then no publisher is constructed and
+  behavior is identical to a build without HQ support.
 
 ### Config-file integration
 
-The CLI also reads `~/.wrongstack/config.json`. A future schema may expose a
-`hq` block there, but as of Phase 1 only the environment variables above
-are honored by `resolveHqConfigFromEnv()`. The `hq` block in the config
-file is **not** yet consumed by the publisher factory.
+The `hq` block in `~/.wrongstack/config.json` (`hq.url`, `hq.token`,
+`hq.enabled`, `hq.rawContent`, `hq.projectAlias`, `hq.dataDir`) is consumed
+by `resolveHqConfig()`; env vars override the config file. The `/hq` slash
+command writes this block (see [`/hq`](../slash/hq.md)).
 
 ### URL normalization examples
 
@@ -662,24 +685,27 @@ file is **not** yet consumed by the publisher factory.
 
 ## Connecting clients
 
-In separate terminals, run any WrongStack client (TUI, REPL, or standalone
-WebUI) with `WRONGSTACK_HQ_URL` exported. Each client connects on start,
-sends a `client.hello`, and then publishes events as they happen:
+**Same machine:** just run the clients — no env vars needed. Auto-discovery
+attaches them to the local HQ (running now or started later):
 
 ```bash
-# Terminal 1 — HQ
+# Terminal 1 — HQ (any time, before or after the clients)
 wstack --hq
 
-# Terminal 2 — TUI client
-export WRONGSTACK_HQ_URL=http://localhost:3499
+# Terminal 2 — TUI client (auto-discovers)
 wstack
 
-# Terminal 3 — REPL client
-export WRONGSTACK_HQ_URL=http://localhost:3499
+# Terminal 3 — REPL client (auto-discovers)
 wstack repl
+```
 
-# Terminal 4 — WebUI server (separate project)
-WRONGSTACK_HQ_URL=http://localhost:3499 wstackui --port 4000
+**Other machines:** export `WRONGSTACK_HQ_URL` (and `WRONGSTACK_HQ_TOKEN` in
+TOKEN MODE). Each client connects on start, sends a `client.hello`, and then
+publishes events as they happen:
+
+```bash
+# Terminal 4 — WebUI server on another machine
+WRONGSTACK_HQ_URL=http://hq-host:3499 wstackui --port 4000
 ```
 
 A client only needs to be in the same network as HQ; it does not need to

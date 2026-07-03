@@ -157,6 +157,16 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
           return { message };
         }
 
+        // Discovery mode with no live local HQ: don't present the dormant
+        // placeholder URL as a real connection — say what will happen.
+        if (resolved.discover && !runtime) {
+          lines.push(`  mode:    ${color.cyan('auto-discovery')} ${color.dim('(no local HQ running yet)')}`);
+          lines.push(`  ${color.dim('This session will attach automatically when `wstack --hq` starts')}`);
+          lines.push(`  ${color.dim(`on this machine (watching ${dataDir}).`)}`);
+          lines.push(`  ${color.dim('Disable with WRONGSTACK_HQ_ENABLED=0 or /hq off.')}`);
+          return { message: lines.join('\n') };
+        }
+
         const source = process.env['WRONGSTACK_HQ_URL']
           ? 'WRONGSTACK_HQ_URL env'
           : currentHq?.url
@@ -166,6 +176,7 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
               : 'default';
         lines.push(`  url:     ${color.cyan(resolved.url)}`);
         lines.push(`  enabled: ${resolved.enabled === false ? color.dim('false') : color.green('true')}`);
+        if (resolved.discover) lines.push(`  mode:    ${color.cyan('auto-discovery')}`);
         lines.push(`  source:  ${color.dim(source)}`);
         lines.push(`  token:   ${resolved.token ? color.dim(maskToken(resolved.token)) : color.dim('none (open mode)')}`);
         if (resolved.rawContent === true) lines.push(`  content: ${color.amber('raw (unredacted)')}`);

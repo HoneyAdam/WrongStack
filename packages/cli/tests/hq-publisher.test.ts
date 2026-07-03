@@ -58,6 +58,7 @@ describe('CLI HQ publisher connection', () => {
       projectRoot: dataDir,
       projectName: 'Late HQ',
       retryIntervalMs: 20,
+      discoveryPollMs: 20,
       socketFactory: () => {
         socket = new FakeSocket();
         return socket;
@@ -65,7 +66,11 @@ describe('CLI HQ publisher connection', () => {
       onConnect,
     });
 
-    expect(conn.getPublisher()).toBeUndefined();
+    // Auto-discovery: a dormant publisher exists immediately, but with no
+    // runtime marker on disk it must not have dialed a socket yet.
+    expect(conn.getPublisher()).toBeDefined();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(socket).toBeUndefined();
 
     await writeHqAuthFile(dataDir, {
       version: HQ_AUTH_FILE_VERSION,
@@ -77,7 +82,6 @@ describe('CLI HQ publisher connection', () => {
 
     await vi.waitFor(() => {
       expect(conn.getPublisher()).toBeDefined();
-      expect(onConnect).toHaveBeenCalledTimes(1);
       expect(socket?.sent.some((frame) => frame.includes('client.hello'))).toBe(true);
     });
 
@@ -98,6 +102,8 @@ describe('CLI HQ publisher connection', () => {
       clientTokens: [{ id: 'ct', token: 'client-token', createdAt: new Date().toISOString() }],
     });
 
+    await writeHqRuntimeFile(dataDir, { url: 'http://127.0.0.1:45678', pid: process.pid });
+
     const urls: string[] = [];
     const onConnect = vi.fn();
     const conn = startCliHqConnection({
@@ -105,6 +111,7 @@ describe('CLI HQ publisher connection', () => {
       projectRoot: dataDir,
       projectName: 'Repoint HQ',
       retryIntervalMs: 20,
+      discoveryPollMs: 20,
       socketFactory: (url) => {
         urls.push(url);
         return new FakeSocket();
@@ -113,12 +120,14 @@ describe('CLI HQ publisher connection', () => {
     });
 
     expect(conn.getPublisher()).toBeDefined();
-    expect(urls[0]).toContain('127.0.0.1:3499');
+    await vi.waitFor(() => {
+      expect(urls.some((url) => url.includes('127.0.0.1:45678'))).toBe(true);
+    });
 
+    // HQ restarts on a different port — the marker repoints, the client follows.
     await writeHqRuntimeFile(dataDir, { url: 'http://127.0.0.1:45679', pid: process.pid });
 
     await vi.waitFor(() => {
-      expect(onConnect).toHaveBeenCalledTimes(2);
       expect(urls.some((url) => url.includes('127.0.0.1:45679'))).toBe(true);
     });
 

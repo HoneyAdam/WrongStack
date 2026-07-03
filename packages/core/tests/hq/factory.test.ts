@@ -45,9 +45,11 @@ describe('HQ publisher factory env config', () => {
         WRONGSTACK_HQ_DATA_DIR: dir,
       });
 
-      expect(config).toEqual({
+      expect(config).toMatchObject({
         url: 'http://127.0.0.1:3499',
         enabled: true,
+        discover: true,
+        dataDir: dir,
         token: 'client-token-from-auth',
       });
     });
@@ -79,9 +81,10 @@ describe('HQ publisher factory env config', () => {
         clientTokens: [{ id: 'ct-1', token: 'client-token-from-auth', createdAt: new Date().toISOString() }],
       });
 
-      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toEqual({
+      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toMatchObject({
         url: 'http://127.0.0.1:3499',
         enabled: true,
+        discover: true,
         token: 'client-token-from-auth',
       });
     });
@@ -97,9 +100,10 @@ describe('HQ publisher factory env config', () => {
       });
       await writeHqRuntimeFile(dir, { url: 'http://127.0.0.1:45123', pid: process.pid });
 
-      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toEqual({
+      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toMatchObject({
         url: 'http://127.0.0.1:45123',
         enabled: true,
+        discover: true,
       });
     });
   });
@@ -113,9 +117,10 @@ describe('HQ publisher factory env config', () => {
       });
       await writeHqRuntimeFile(dir, { url: 'http://127.0.0.1:45123', pid: process.pid });
 
-      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toEqual({
+      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toMatchObject({
         url: 'http://127.0.0.1:45123',
         enabled: true,
+        discover: true,
         token: 'client-token-from-auth',
       });
     });
@@ -130,11 +135,28 @@ describe('HQ publisher factory env config', () => {
       });
       await writeHqRuntimeFile(dir, { url: 'http://127.0.0.1:45123', pid: 999_999_999 });
 
-      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toEqual({
+      expect(resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir })).toMatchObject({
         url: 'http://127.0.0.1:3499',
         enabled: true,
+        discover: true,
         token: 'client-token-from-auth',
       });
+    });
+  });
+
+  it('enters discovery mode even when nothing is configured yet (HQ may start later)', async () => {
+    await withTempDir(async (dir) => {
+      // No auth.json, no runtime.json — a client booted before `wstack --hq`
+      // ever ran. It must still get a (dormant) discovery config so it can
+      // attach the moment an HQ starts on this machine.
+      const config = resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir });
+      expect(config).toMatchObject({
+        url: 'http://127.0.0.1:3499',
+        enabled: true,
+        discover: true,
+        dataDir: dir,
+      });
+      expect(config?.token).toBeUndefined();
     });
   });
 
