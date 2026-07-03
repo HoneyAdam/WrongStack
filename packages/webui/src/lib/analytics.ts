@@ -1,5 +1,3 @@
-import { useCallback } from 'react';
-
 export interface AnalyticsEvent {
   event: string;
   category: string;
@@ -80,14 +78,6 @@ export function startAnalyticsFlush(): void {
   }, FLUSH_INTERVAL_MS);
 }
 
-/** Stop the periodic flush timer. Call on app teardown. */
-export function stopAnalyticsFlush(): void {
-  if (flushTimer) {
-    clearInterval(flushTimer);
-    flushTimer = null;
-  }
-}
-
 export function trackEvent(
   event: string,
   category: string,
@@ -112,25 +102,6 @@ export function trackEvent(
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.log('[Analytics]', analyticsEvent);
   }
-}
-
-export function useAnalytics() {
-  const track = useCallback(
-    (
-      event: string,
-      category: string,
-      options?: {
-        label?: string;
-        value?: number;
-        metadata?: Record<string, unknown>;
-      },
-    ) => {
-      trackEvent(event, category, options);
-    },
-    [],
-  );
-
-  return { track };
 }
 
 export function getAnalyticsQueue(): readonly AnalyticsEvent[] {

@@ -20,5 +20,3 @@
  *                        `safeJsonOrRaw` (legacy fallback)
  */
 export const MALFORMED_ARG_MARKERS = ['__raw', '__raw_arguments', '_raw'] as const;
-
-export type MalformedArgMarker = (typeof MALFORMED_ARG_MARKERS)[number];

@@ -7,9 +7,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      // Force @wrongstack/core to resolve from source (packages/core/src) instead
-      // of going through the package's "exports" field which points to dist/.
+      // Force selected workspace packages to resolve from source instead of
+      // going through each package's "exports" field which points to dist/.
+      // CLI tests import both @wrongstack/core and @wrongstack/tools; resolving
+      // them from source keeps the test environment independent from prebuilt
+      // sibling dist/ artifacts.
       '@wrongstack/core': path.resolve(__dirname, '../../packages/core/src'),
+      '@wrongstack/tools': path.resolve(__dirname, '../../packages/tools/src'),
     },
   },
   test: {

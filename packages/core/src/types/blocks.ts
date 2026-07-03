@@ -85,6 +85,3 @@ export function isToolResultBlock(b: ContentBlock): b is ToolResultBlock {
 export function isImageBlock(b: ContentBlock): b is ImageBlock {
   return b.type === 'image';
 }
-export function isThinkingBlock(b: ContentBlock): b is ThinkingBlock {
-  return b.type === 'thinking';
-}

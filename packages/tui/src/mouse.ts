@@ -33,7 +33,7 @@ export const MOUSE_OFF = `${ESC}[?1003l${ESC}[?1002l${ESC}[?1000l${ESC}[?1006l`;
 
 /**
  * Enter the alternate screen buffer (DECSET 1049). The normal screen is
- * saved and restored on exit. Used by use-mouse-mode for full-screen overlays.
+ * saved and restored on exit.
  */
 export const ALT_SCREEN_ON = `${ESC}[?1049h`;
 

@@ -31,22 +31,3 @@
 export type DistributiveOmit<T, K extends string | number | symbol> = T extends unknown
   ? Omit<T, K>
   : never;
-
-/**
- * Distributive version of the built-in {@link Pick}.
- *
- * Same problem as {@link DistributiveOmit}: `Pick<Union, K>` collapses
- * because `keyof Union` is the intersection of all members' keys.
- *
- * @example
- * ```ts
- * type Entry = { id: number; kind: 'user'; text: string }
- *            | { id: number; kind: 'tool'; name: string; ok: boolean };
- *
- * type Broken  = Pick<Entry, 'id' | 'kind'>;            // { id: number; kind: never }
- * type Working = DistributivePick<Entry, 'id' | 'kind'>; // { id; kind: 'user' } | { id; kind: 'tool' }
- * ```
- */
-export type DistributivePick<T, K extends string | number | symbol> = T extends unknown
-  ? Pick<T, K & keyof T>
-  : never;
