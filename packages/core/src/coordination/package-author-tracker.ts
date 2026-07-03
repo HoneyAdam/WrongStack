@@ -95,7 +95,13 @@ export function detectEcosystem(manifestPath: string): string {
   if (name === 'package.json') return 'npm';
   if (name === 'go.mod') return 'go';
   if (name === 'cargo.toml') return 'cargo';
-  if (name === 'pyproject.toml' || name === 'requirements.txt' || name === 'pipfile' || name === 'pipfile.lock') return 'pip';
+  if (
+    name === 'pyproject.toml' ||
+    name === 'requirements.txt' ||
+    name === 'pipfile' ||
+    name === 'pipfile.lock'
+  )
+    return 'pip';
   if (name === 'gemfile' || name === 'gemfile.lock') return 'gem';
   if (name === 'composer.json' || name === 'composer.lock') return 'composer';
   if (name.endsWith('.csproj') || name === 'packages.config') return 'nuget';
@@ -104,7 +110,7 @@ export function detectEcosystem(manifestPath: string): string {
   if (name === 'pubspec.yaml' || name === 'pubspec.lock') return 'dart';
   if (name === 'vcpkg.json') return 'vcpkg';
   if (name === 'conanfile.txt' || name === 'conanfile.py') return 'conan';
-  if (name === 'cmakeLists.txt') return 'cmake';
+  if (name === 'cmakelists.txt') return 'cmake';
   return 'unknown';
 }
 
@@ -150,9 +156,9 @@ export async function getPackageAuthor(
   for (let i = log.entries.length - 1; i >= 0; i--) {
     const e = log.entries[i];
     if (
-      e
-      && e.manifestPath.replace(/\\/g, '/') === normalizedManifest
-      && e.packageName === packageName
+      e &&
+      e.manifestPath.replace(/\\/g, '/') === normalizedManifest &&
+      e.packageName === packageName
     ) {
       return e;
     }
@@ -169,9 +175,7 @@ export async function getManifestPackages(
 ): Promise<PackageAuthorEntry[]> {
   const log = await loadLog(opts.storageDir, opts.projectRoot);
   const normalizedManifest = manifestPath.replace(/\\/g, '/');
-  return log.entries.filter(
-    (e) => e.manifestPath.replace(/\\/g, '/') === normalizedManifest,
-  );
+  return log.entries.filter((e) => e.manifestPath.replace(/\\/g, '/') === normalizedManifest);
 }
 
 /**

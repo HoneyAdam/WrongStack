@@ -30,6 +30,11 @@ describe('package-author-tracker', () => {
       ['Cargo.toml', 'cargo'],
       ['pyproject.toml', 'pip'],
       ['requirements.txt', 'pip'],
+      // Pipfile / Pipfile.lock — regression coverage for the dedup with
+      // package-outdated-watcher.ts (PR-B1). The watcher's previous local
+      // detectEcosystem only handled pyproject.toml + requirements.txt.
+      ['Pipfile', 'pip'],
+      ['Pipfile.lock', 'pip'],
       ['Gemfile', 'gem'],
       ['composer.json', 'composer'],
       ['MyProject.csproj', 'nuget'],
@@ -38,6 +43,16 @@ describe('package-author-tracker', () => {
       ['pom.xml', 'maven'],
       ['build.gradle', 'maven'],
       ['pubspec.yaml', 'dart'],
+      // conan + cmake — also previously missing from the watcher's local
+      // copy; canonical handles all three.
+      ['conanfile.txt', 'conan'],
+      ['conanfile.py', 'conan'],
+      ['cmakeLists.txt', 'cmake'],
+      // case-insensitive: canonical calls .toLowerCase() on the basename.
+      // The watcher's previous local copy did NOT, so 'Package.JSON' would
+      // have returned 'unknown' there.
+      ['Package.JSON', 'npm'],
+      ['D:\\projects\\myapp\\package.json', 'npm'],
       ['unknown-file.txt', 'unknown'],
     ])('detects %s → %s', (input, expected) => {
       expect(detectEcosystem(input as string)).toBe(expected);
@@ -84,11 +99,23 @@ describe('package-author-tracker', () => {
     it('returns the most recent entry when package is updated', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'package.json', packageName: 'prettier', versionSpec: '2.0.0', ecosystem: 'npm', agentId: 'agent-a' },
+        {
+          manifestPath: 'package.json',
+          packageName: 'prettier',
+          versionSpec: '2.0.0',
+          ecosystem: 'npm',
+          agentId: 'agent-a',
+        },
       );
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'package.json', packageName: 'prettier', versionSpec: '3.0.0', ecosystem: 'npm', agentId: 'agent-b' },
+        {
+          manifestPath: 'package.json',
+          packageName: 'prettier',
+          versionSpec: '3.0.0',
+          ecosystem: 'npm',
+          agentId: 'agent-b',
+        },
       );
 
       const entry = await getPackageAuthor(
@@ -103,11 +130,23 @@ describe('package-author-tracker', () => {
     it('stores entries in separate manifest paths independently', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'packages/a/package.json', packageName: 'lodash', versionSpec: '4.17.0', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'packages/a/package.json',
+          packageName: 'lodash',
+          versionSpec: '4.17.0',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'packages/b/package.json', packageName: 'lodash', versionSpec: '4.18.0', ecosystem: 'npm', agentId: 'executor' },
+        {
+          manifestPath: 'packages/b/package.json',
+          packageName: 'lodash',
+          versionSpec: '4.18.0',
+          ecosystem: 'npm',
+          agentId: 'executor',
+        },
       );
 
       const entryA = await getPackageAuthor(
@@ -132,15 +171,33 @@ describe('package-author-tracker', () => {
     it('returns all packages in a manifest', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'package.json', packageName: 'vitest', versionSpec: '^1.0', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'package.json',
+          packageName: 'vitest',
+          versionSpec: '^1.0',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'package.json', packageName: 'prettier', versionSpec: '^3.0', ecosystem: 'npm', agentId: 'executor' },
+        {
+          manifestPath: 'package.json',
+          packageName: 'prettier',
+          versionSpec: '^3.0',
+          ecosystem: 'npm',
+          agentId: 'executor',
+        },
       );
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'other.json', packageName: 'lodash', versionSpec: '4.x', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'other.json',
+          packageName: 'lodash',
+          versionSpec: '4.x',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
 
       const pkgs = await getManifestPackages(
@@ -158,11 +215,23 @@ describe('package-author-tracker', () => {
     it('returns all packages last added by a specific agent', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'pkg-a/package.json', packageName: 'eslint', versionSpec: '9.0.0', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'pkg-a/package.json',
+          packageName: 'eslint',
+          versionSpec: '9.0.0',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'pkg-b/package.json', packageName: 'prettier', versionSpec: '3.0.0', ecosystem: 'npm', agentId: 'executor' },
+        {
+          manifestPath: 'pkg-b/package.json',
+          packageName: 'prettier',
+          versionSpec: '3.0.0',
+          ecosystem: 'npm',
+          agentId: 'executor',
+        },
       );
 
       const byLeader = await getPackagesByAgent(
@@ -180,7 +249,13 @@ describe('package-author-tracker', () => {
     it('appends an outdated status entry', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'package.json', packageName: 'vitest', versionSpec: '^0.9.0', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'package.json',
+          packageName: 'vitest',
+          versionSpec: '^0.9.0',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
 
       await updatePackageOutdatedStatus(
@@ -191,9 +266,7 @@ describe('package-author-tracker', () => {
         '1.2.3',
       );
 
-      const log = await getFullPackageLog(
-        { storageDir: dir, projectRoot: '/test' },
-      );
+      const log = await getFullPackageLog({ storageDir: dir, projectRoot: '/test' });
 
       const lastEntry = log.entries.at(-1)!;
       expect(lastEntry.outdated).toBe(true);
@@ -205,7 +278,13 @@ describe('package-author-tracker', () => {
     it('returns the full log with metadata', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'package.json', packageName: 'vitest', versionSpec: '^1.0.0', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'package.json',
+          packageName: 'vitest',
+          versionSpec: '^1.0.0',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
 
       const log = await getFullPackageLog({ storageDir: dir, projectRoot: '/test' });
@@ -225,7 +304,13 @@ describe('package-author-tracker', () => {
     it('handles backslash paths on Windows', async () => {
       await recordPackageAction(
         { storageDir: dir, projectRoot: '/test' },
-        { manifestPath: 'D:\\projects\\myapp\\package.json', packageName: 'zod', versionSpec: '^3.0', ecosystem: 'npm', agentId: 'leader' },
+        {
+          manifestPath: 'D:\\projects\\myapp\\package.json',
+          packageName: 'zod',
+          versionSpec: '^3.0',
+          ecosystem: 'npm',
+          agentId: 'leader',
+        },
       );
 
       // Query with forward-slash path

@@ -29,6 +29,7 @@
 import type { Mailbox, MailboxMessage } from './mailbox-types.js';
 import { toErrorMessage } from '../utils/error.js';
 import {
+  detectEcosystem,
   getPackageAuthor,
   type PackageAuthorTrackerOptions,
 } from './package-author-tracker.js';
@@ -97,7 +98,10 @@ function parseOutdatedPackages(body: string): PackageOutdatedEntry[] {
     /^\|\s*([^-][^|]*?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm,
   );
   for (const rowMatch of tableRows) {
-    const cols = rowMatch[0].split('|').map((c) => c.trim()).filter(Boolean);
+    const cols = rowMatch[0]
+      .split('|')
+      .map((c) => c.trim())
+      .filter(Boolean);
     // cols[0]=Package, cols[1]=Current, cols[2]=Latest, cols[3]=Wanted, cols[4]=Manifest
     // The [^-] at the start of the regex skips the separator row (|----...|)
     if (cols.length >= 5 && cols[0] && cols[0] !== 'Package') {
@@ -132,21 +136,6 @@ function parseOutdatedPackages(body: string): PackageOutdatedEntry[] {
   return results;
 }
 
-function detectEcosystem(manifestPath: string): string {
-  const name = manifestPath.split('/').pop()?.split('\\').pop() ?? manifestPath;
-  if (name === 'package.json') return 'npm';
-  if (name === 'go.mod') return 'go';
-  if (name === 'cargo.toml') return 'cargo';
-  if (name === 'pyproject.toml' || name === 'requirements.txt') return 'pip';
-  if (name === 'gemfile' || name === 'gemfile.lock') return 'gem';
-  if (name === 'composer.json' || name === 'composer.lock') return 'composer';
-  if (name.endsWith('.csproj') || name === 'packages.config') return 'nuget';
-  if (name === 'mix.exs' || name === 'mix.lock') return 'elixir';
-  if (name === 'pom.xml' || name.startsWith('build.gradle')) return 'maven';
-  if (name === 'pubspec.yaml' || name === 'pubspec.lock') return 'dart';
-  return 'unknown';
-}
-
 interface WatcherState {
   running: boolean;
   timer: ReturnType<typeof setInterval> | null;
@@ -158,9 +147,7 @@ interface WatcherState {
  *
  * Returns a dispose function that stops polling and cleans up.
  */
-export function startPackageOutdatedWatcher(
-  opts: PackageOutdatedWatcherOptions,
-): () => void {
+export function startPackageOutdatedWatcher(opts: PackageOutdatedWatcherOptions): () => void {
   const {
     mailbox,
     packageTrackerOpts,
@@ -220,11 +207,7 @@ export function startPackageOutdatedWatcher(
 
     for (const entry of entries) {
       try {
-        const author = await getPackageAuthor(
-          packageTrackerOpts,
-          entry.manifestPath,
-          entry.name,
-        );
+        const author = await getPackageAuthor(packageTrackerOpts, entry.manifestPath, entry.name);
 
         const notifyTarget = author?.agentId ?? '*';
         const notifyBody = buildNotifyBody(entry, author?.agentName);
@@ -293,13 +276,7 @@ function buildNotifyBody(entry: PackageOutdatedEntry, authorName?: string): stri
     );
   }
 
-  lines.push(
-    '',
-    `Update with:`,
-    `\`\`\``,
-    `${getUpdateCommand(entry)}`,
-    `\`\`\``,
-  );
+  lines.push('', `Update with:`, `\`\`\``, `${getUpdateCommand(entry)}`, `\`\`\``);
 
   return lines.join('\n');
 }

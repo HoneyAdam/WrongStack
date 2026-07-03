@@ -1,10 +1,21 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the author tracker so we control author resolution per test.
+// detectEcosystem is passed through to the real implementation —
+// pre-PR-B1 the watcher had its own local detectEcosystem and this mock
+// only needed getPackageAuthor; after the dedup the watcher now imports
+// detectEcosystem from this module too, so the mock factory must
+// forward it (otherwise parseOutdatedPackages throws on undefined).
 const getPackageAuthor = vi.fn();
-vi.mock('../../src/coordination/package-author-tracker.js', () => ({
-  getPackageAuthor: (...args: unknown[]) => getPackageAuthor(...args),
-}));
+vi.mock('../../src/coordination/package-author-tracker.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../src/coordination/package-author-tracker.js')
+  >('../../src/coordination/package-author-tracker.js');
+  return {
+    ...actual,
+    getPackageAuthor: (...args: unknown[]) => getPackageAuthor(...args),
+  };
+});
 
 import { startPackageOutdatedWatcher } from '../../src/coordination/package-outdated-watcher.js';
 
@@ -16,13 +27,17 @@ function makeMailbox(messages: unknown[]) {
   } as never;
 }
 
-async function collectNotifications(messages: unknown[]): Promise<Array<{ to: string; subject: string; body: string }>> {
+async function collectNotifications(
+  messages: unknown[],
+): Promise<Array<{ to: string; subject: string; body: string }>> {
   const out: Array<{ to: string; subject: string; body: string }> = [];
   const dispose = startPackageOutdatedWatcher({
     mailbox: makeMailbox(messages),
     packageTrackerOpts: { storageDir: '/tmp', projectRoot: '/tmp' },
     pollIntervalMs: 999_999_999,
-    onNotify: async (m) => { out.push({ to: m.to, subject: m.subject, body: m.body }); },
+    onNotify: async (m) => {
+      out.push({ to: m.to, subject: m.subject, body: m.body });
+    },
     onLog: () => {},
   });
   await vi.advanceTimersByTimeAsync(0);
@@ -30,7 +45,13 @@ async function collectNotifications(messages: unknown[]): Promise<Array<{ to: st
   return out;
 }
 
-const msg = (body: string) => ({ id: 'm1', from: 'tech-stack', body, timestamp: new Date().toISOString(), type: 'result' as const });
+const msg = (body: string) => ({
+  id: 'm1',
+  from: 'tech-stack',
+  body,
+  timestamp: new Date().toISOString(),
+  type: 'result' as const,
+});
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -57,7 +78,10 @@ describe('package-outdated-watcher — extra coverage', () => {
     const table =
       '| Package | Current | Latest | Wanted | Manifest |\n' +
       '|---|---|---|---|---|\n' +
-      rows.map(([name, manifest]) => `| ${name} | 1.0.0 | 2.0.0 | ^1.0.0 | ${manifest} |`).join('\n') + '\n';
+      rows
+        .map(([name, manifest]) => `| ${name} | 1.0.0 | 2.0.0 | ^1.0.0 | ${manifest} |`)
+        .join('\n') +
+      '\n';
 
     const notes = await collectNotifications([msg(table)]);
     expect(notes).toHaveLength(rows.length);
@@ -70,7 +94,9 @@ describe('package-outdated-watcher — extra coverage', () => {
   });
 
   it('parses the key=value fallback format when there is no table', async () => {
-    const notes = await collectNotifications([msg('package: leftpad current: 1.0.0 latest: 2.0.0')]);
+    const notes = await collectNotifications([
+      msg('package: leftpad current: 1.0.0 latest: 2.0.0'),
+    ]);
     expect(notes).toHaveLength(1);
     expect(notes[0]?.subject).toContain('leftpad');
   });
