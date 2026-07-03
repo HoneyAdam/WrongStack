@@ -104,6 +104,26 @@ describe('createPrefsSeeding', () => {
     expect(written.model).toBe('gpt-5-codex');
   });
 
+  it('persists uiLocale to config.json and includes it in pref snapshots', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wstack-prefs-locale-'));
+    const globalConfigPath = path.join(dir, 'config.json');
+    writeFileSync(globalConfigPath, JSON.stringify({ version: 1, uiLocale: 'en' }), 'utf8');
+    const opts = {
+      agent: { ctx: { meta: { uiLocale: 'tr' } } },
+      globalConfigPath,
+      appConfig: {},
+    } as never;
+
+    const { prefSnapshot, persistPrefs } = createPrefsSeeding(opts);
+
+    expect(prefSnapshot()).toMatchObject({ uiLocale: 'tr' });
+    await persistPrefs({ uiLocale: 'de' });
+
+    expect((opts as { appConfig: { uiLocale?: string } }).appConfig.uiLocale).toBe('de');
+    const written = JSON.parse(readFileSync(globalConfigPath, 'utf8'));
+    expect(written.uiLocale).toBe('de');
+  });
+
   it('cacheTtl "default" removes the cache override', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'wstack-prefs-cache-'));
     const globalConfigPath = path.join(dir, 'config.json');
@@ -161,5 +181,16 @@ describe('seedConfigToMeta', () => {
         },
       },
     });
+  });
+
+  it('seeds uiLocale from config.json so WebUI starts in the shared language', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wstack-prefs-meta-locale-'));
+    const globalConfigPath = path.join(dir, 'config.json');
+    writeFileSync(globalConfigPath, JSON.stringify({ version: 1, uiLocale: 'tr' }), 'utf8');
+    const meta: Record<string, unknown> = {};
+
+    await seedConfigToMeta({ agent: { ctx: { meta } }, globalConfigPath } as never);
+
+    expect(meta['uiLocale']).toBe('tr');
   });
 });

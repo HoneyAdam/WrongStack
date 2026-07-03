@@ -564,6 +564,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     let lastActiveCfg = JSON.stringify(
       opts.appConfig?.providers?.[opts.agent.ctx.provider.id] ?? null,
     );
+    let lastUiLocale = opts.appConfig?.uiLocale;
     const watcher = watchProviderConfig(
       opts.globalConfigPath,
       getVault(opts.globalConfigPath),
@@ -574,11 +575,24 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         try {
           if (opts.appConfig && !Object.isFrozen(opts.appConfig)) {
             opts.appConfig.providers = snapshot.providers;
+            if (snapshot.uiLocale) opts.appConfig.uiLocale = snapshot.uiLocale;
           }
         } catch {
           /* frozen / read-only appConfig — ignore */
         }
         broadcastSaved(wsHandlerCtx, snapshot.providers);
+
+        // Display language live-propagation: when another surface writes
+        // Config.uiLocale (desktop shell, standalone WebUI, or another
+        // embedded WebUI), push it through the same prefs path the frontend
+        // already uses for instant i18n re-render.
+        if (snapshot.uiLocale !== lastUiLocale) {
+          lastUiLocale = snapshot.uiLocale;
+          if (snapshot.uiLocale) {
+            opts.agent.ctx.meta['uiLocale'] = snapshot.uiLocale;
+            broadcast({ type: 'prefs.updated', payload: { uiLocale: snapshot.uiLocale } });
+          }
+        }
 
         const activeId = opts.agent.ctx.provider.id;
         const newCfgStr = JSON.stringify(snapshot.providers[activeId] ?? null);

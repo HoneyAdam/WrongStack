@@ -5,9 +5,9 @@
  * headings, toasts, …). It never touches the agent, system prompts, skills,
  * the prompt library, slash commands, or model output.
  *
- * The active locale (`uiLocale`) lives in localStorage via the prefs store and
- * is NOT synced to the server / config.json — it follows the same local-only
- * precedent as the theme (see components/ThemeProvider.tsx).
+ * The active locale (`uiLocale`) lives in the prefs store for instant local
+ * rendering and is also synced through the prefs WebSocket path to shared
+ * `Config.uiLocale`, so desktop, CLI WebUI, and standalone WebUI agree.
  *
  * Importing this module (side-effect import in main.tsx) initializes i18next
  * and wires locale reactivity. The English catalog is bundled inline so the
