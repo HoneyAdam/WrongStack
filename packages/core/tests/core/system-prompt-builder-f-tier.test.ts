@@ -101,14 +101,7 @@ describe('DefaultSystemPromptBuilder — F-area tier semantics', () => {
 
   // Helper: build at a given tokenSavingMode and return the joined text.
   async function promptAt(
-    mode:
-      | 'off'
-      | 'minimal'
-      | 'light'
-      | 'medium'
-      | 'aggressive'
-      | boolean
-      | undefined,
+    mode: 'off' | 'minimal' | 'light' | 'medium' | 'aggressive' | boolean | undefined,
   ): Promise<string> {
     const b = new DefaultSystemPromptBuilder({
       todayIso: '2026-06-27',
@@ -182,7 +175,12 @@ describe('DefaultSystemPromptBuilder — F-area tier semantics', () => {
     // We assert the pairs we KNOW differ, and skip the ones we know
     // match. Future readers can re-evaluate if the prompt-builder's
     // tier gating changes.
-    const knownDiffer: Array<['off' | 'minimal' | 'light' | 'medium' | 'aggressive', 'off' | 'minimal' | 'light' | 'medium' | 'aggressive']> = [
+    const knownDiffer: Array<
+      [
+        'off' | 'minimal' | 'light' | 'medium' | 'aggressive',
+        'off' | 'minimal' | 'light' | 'medium' | 'aggressive',
+      ]
+    > = [
       ['off', 'minimal'],
       ['off', 'light'],
       ['off', 'aggressive'],
@@ -240,9 +238,11 @@ describe('DefaultSystemPromptBuilder — F-area tier semantics', () => {
     // delegates to `normalizeTokenSavingTier` from
     // packages/core/src/types/config.ts:112-125. Invalid strings
     // are coerced to 'off' at the prompt-builder boundary,
-    // matching the behavior of cli-main.ts:916, cli-main.ts:1444,
-    // and execution.ts:1037 (which also normalize before
-    // consuming the tier).
+    // matching the canonical call sites that consume
+    // `config.features.tokenSavingMode` through `normalizeTokenSavingTier`
+    // (e.g. cli-main.ts around the `lazyMode` initialization, and
+    // execution.ts). Cite the canonical import, not a specific line,
+    // since the call sites shift as the boot phase helpers move.
     //
     // These tests pin the normalization at the boundary so any
     // future regression that bypasses normalizeTokenSavingTier fails
@@ -353,15 +353,20 @@ describe('DefaultSystemPromptBuilder — F-area tier semantics', () => {
     it('tier change with FRESH tools array: prompt changes (already works)', async () => {
       // This is the baseline — when tools array differs, the cache
       // misses and the new tier is used. This already passes.
-      const opts = { todayIso: '2026-06-27', tokenSavingMode: 'off' as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive' };
+      const opts = {
+        todayIso: '2026-06-27',
+        tokenSavingMode: 'off' as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive',
+      };
       const b = new DefaultSystemPromptBuilder(opts);
       const t1 = [mkTool('alpha', 'Reads files. Use this tool to inspect files.')];
       const t2 = [mkTool('alpha', 'Reads files. Use this tool to inspect files.')];
       const p1 = (await b.build({ cwd: tmp, projectRoot: tmp, tools: t1 }))
-        .map((bl) => bl.text).join('');
+        .map((bl) => bl.text)
+        .join('');
       opts.tokenSavingMode = 'aggressive';
       const p2 = (await b.build({ cwd: tmp, projectRoot: tmp, tools: t2 }))
-        .map((bl) => bl.text).join('');
+        .map((bl) => bl.text)
+        .join('');
       expect(p1).not.toBe(p2);
     });
 
@@ -370,14 +375,19 @@ describe('DefaultSystemPromptBuilder — F-area tier semantics', () => {
       // _toolsUsageCache returns the cached text from the first
       // build, ignoring the tier change. After the fix (adding
       // tier to the cache key), this test passes.
-      const opts = { todayIso: '2026-06-27', tokenSavingMode: 'off' as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive' };
+      const opts = {
+        todayIso: '2026-06-27',
+        tokenSavingMode: 'off' as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive',
+      };
       const b = new DefaultSystemPromptBuilder(opts);
       const tools = [mkTool('alpha', 'Reads files. Use this tool to inspect files.')];
       const p1 = (await b.build({ cwd: tmp, projectRoot: tmp, tools }))
-        .map((bl) => bl.text).join('');
+        .map((bl) => bl.text)
+        .join('');
       opts.tokenSavingMode = 'aggressive';
       const p2 = (await b.build({ cwd: tmp, projectRoot: tmp, tools }))
-        .map((bl) => bl.text).join('');
+        .map((bl) => bl.text)
+        .join('');
       // After fix: p1 !== p2 because tier changed and cache key
       // includes tier. Before fix: p1 === p2 (cached).
       expect(p1).not.toBe(p2);
@@ -389,15 +399,21 @@ describe('DefaultSystemPromptBuilder — F-area tier semantics', () => {
       // includes more characters than at aggressive (70-char limit).
       // After the fix, the second build() with the new tier
       // produces the tighter-truncation prompt.
-      const longDesc = 'Reads the contents of a file at the given absolute path. Returns the file content as a string with line numbers preserved. The path must be absolute and point to an existing file. If the file does not exist, returns an error.';
-      const opts = { todayIso: '2026-06-27', tokenSavingMode: 'off' as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive' };
+      const longDesc =
+        'Reads the contents of a file at the given absolute path. Returns the file content as a string with line numbers preserved. The path must be absolute and point to an existing file. If the file does not exist, returns an error.';
+      const opts = {
+        todayIso: '2026-06-27',
+        tokenSavingMode: 'off' as 'off' | 'minimal' | 'light' | 'medium' | 'aggressive',
+      };
       const b = new DefaultSystemPromptBuilder(opts);
       const tools = [mkTool('alpha', longDesc)];
       const p1 = (await b.build({ cwd: tmp, projectRoot: tmp, tools }))
-        .map((bl) => bl.text).join('');
+        .map((bl) => bl.text)
+        .join('');
       opts.tokenSavingMode = 'aggressive';
       const p2 = (await b.build({ cwd: tmp, projectRoot: tmp, tools }))
-        .map((bl) => bl.text).join('');
+        .map((bl) => bl.text)
+        .join('');
       // After fix: aggressive (70 char limit) truncates more than off (80 char limit).
       expect(p2.length).toBeLessThan(p1.length);
     });
