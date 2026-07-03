@@ -17,6 +17,13 @@ const api: WrongStackDesktopHostApi = {
   ackCommand: (requestId: string, handled: boolean, message?: string | undefined) => {
     ipcRenderer.send(IPC.webuiCommandAck, requestId, handled, message);
   },
+  onLocaleChanged: (cb: (locale: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, locale: string) => cb(locale);
+    ipcRenderer.on(IPC.webuiLocaleChanged, handler);
+    return () => {
+      ipcRenderer.off(IPC.webuiLocaleChanged, handler);
+    };
+  },
 };
 
 const commandListeners = new Set<(command: DesktopWebuiCommand) => void>();

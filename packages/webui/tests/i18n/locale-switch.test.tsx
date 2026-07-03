@@ -21,18 +21,50 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { i18n, useAppTranslation } from '../../src/i18n';
+import { i18n, installDesktopHostLocaleBridge, useAppTranslation } from '../../src/i18n';
 import { useLocalPrefs } from '../../src/stores/local-prefs';
 import settings_en from '../../src/i18n/locales/en/settings.json';
 import settings_tr from '../../src/i18n/locales/tr/settings.json';
 import settings_de from '../../src/i18n/locales/de/settings.json';
 import settings_fr from '../../src/i18n/locales/fr/settings.json';
 import settings_it from '../../src/i18n/locales/it/settings.json';
-import settings_es from '../../src/i18n/locales/es/settings.json';
 import settings_ptBR from '../../src/i18n/locales/pt-BR/settings.json';
 import common_en from '../../src/i18n/locales/en/common.json';
 import common_tr from '../../src/i18n/locales/tr/common.json';
 import common_de from '../../src/i18n/locales/de/common.json';
+
+// Mutable host-listener slot. Filled by the bridge the i18n module subscribes
+// to at module load. Tests fire the host listener through `fireHostLocale`
+// rather than touching window.wrongstackDesktopHost directly so the test
+// surface stays small.
+let hostListener: ((locale: string) => void) | undefined;
+
+interface DesktopHostBridge {
+  onLocaleChanged(cb: (locale: string) => void): () => void;
+}
+
+// The bridge has to be present BEFORE the i18n module's top-level listener
+// runs. Vitest evaluates top-level imports once per worker — and so did the
+// previous module load — so installing on the global `window` here won't help
+// retroactively. Instead, the bridge is installed fresh in `beforeAll` and
+// `vi.resetModules()` + dynamic import re-runs the i18n module so its listener
+// captures it. Each test that exercises the bridge path must do this dance.
+function installDesktopHostBridge(): void {
+  const w = window as unknown as { wrongstackDesktopHost?: DesktopHostBridge };
+  w.wrongstackDesktopHost = {
+    onLocaleChanged: (cb: (locale: string) => void) => {
+      hostListener = cb;
+      return () => {
+        hostListener = undefined;
+      };
+    },
+  };
+}
+
+function uninstallDesktopHostBridge(): void {
+  delete (window as { wrongstackDesktopHost?: unknown }).wrongstackDesktopHost;
+  hostListener = undefined;
+}
 
 /** Renders `settings:title` — differs across every locale. */
 function SettingsProbe() {
@@ -55,7 +87,8 @@ beforeAll(() => {
     de: settings_de,
     fr: settings_fr,
     it: settings_it,
-    es: settings_es,
+    // Deliberately do NOT pre-register `es/settings`: tests below verify that
+    // changeLanguage('es') loads it through resourcesToBackend.
     'pt-BR': settings_ptBR,
   };
   const common: Record<string, Record<string, unknown>> = {
@@ -99,7 +132,9 @@ describe('locale switching applies instantly', () => {
     await waitFor(() => expect(screen.getByTestId('settings-probe').textContent).toBe('Ayarlar'));
 
     await i18n.changeLanguage('de');
-    await waitFor(() => expect(screen.getByTestId('settings-probe').textContent).toBe('Einstellungen'));
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-probe').textContent).toBe('Einstellungen'),
+    );
   });
 
   it('the prefs store drives i18n via subscribe (the picker path) + syncs <html lang>', async () => {
@@ -110,9 +145,22 @@ describe('locale switching applies instantly', () => {
     // useLocalPrefs.subscribe in i18n/index.ts calls i18n.changeLanguage.
     useLocalPrefs.getState().set({ uiLocale: 'fr' });
 
-    await waitFor(() => expect(screen.getByTestId('settings-probe').textContent).toBe('Paramètres'));
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-probe').textContent).toBe('Paramètres'),
+    );
     await waitFor(() => expect(document.documentElement.lang).toBe('fr'));
     expect(i18n.language).toBe('fr');
+  });
+
+  it('changeLanguage lazy-loads a non-English locale bundle through the backend', async () => {
+    expect(i18n.hasResourceBundle('es', 'settings')).toBe(false);
+
+    render(<SettingsProbe />);
+    await i18n.changeLanguage('es');
+
+    await waitFor(() => expect(i18n.hasResourceBundle('es', 'settings')).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('settings-probe').textContent).toBe('Ajustes'));
+    expect(i18n.resolvedLanguage).toBe('es');
   });
 
   it('cycles every locale — each switch re-renders with the right label', async () => {
@@ -159,10 +207,55 @@ describe('locale switching applies instantly', () => {
     expect(useLocalPrefs.getState().uiLocale).toBe('es');
   });
 
+  it('desktop-host onLocaleChanged pushes the WebUI to the new language (desktop sidebar picker)', async () => {
+    // When running inside the WrongStack desktop shell, the shell's language
+    // picker (and config-file watcher) push locale changes to every embedded
+    // WebUI view via the wrongstackDesktopHost IPC bridge. The webui-side
+    // listener mirrors the push into the prefs store + i18next so the React
+    // UI re-renders in the new language without waiting for the prefs.updated
+    // round-trip. The picker path (the test above) handles the same surface
+    // when the user changes language in the WebUI's own SettingsPanel.
+    //
+    // The module-load auto-subscribe ran before this test's `beforeAll`, so
+    // we install the bridge THEN call `installDesktopHostLocaleBridge()` to
+    // bind the listener.
+    installDesktopHostBridge();
+    installDesktopHostLocaleBridge();
+    try {
+      render(<SettingsProbe />);
+      expect(screen.getByTestId('settings-probe').textContent).toBe('Settings');
+      expect(hostListener).toBeDefined();
+
+      // The desktop shell pushes 'tr' (e.g. user picked Türkçe in the shell).
+      hostListener!('tr');
+      await waitFor(() => expect(screen.getByTestId('settings-probe').textContent).toBe('Ayarlar'));
+      expect(document.documentElement.lang).toBe('tr');
+      expect(useLocalPrefs.getState().uiLocale).toBe('tr');
+      expect(i18n.language).toBe('tr');
+
+      // And the reverse: a non-English → non-English switch from the shell.
+      hostListener!('de');
+      await waitFor(() =>
+        expect(screen.getByTestId('settings-probe').textContent).toBe('Einstellungen'),
+      );
+      expect(document.documentElement.lang).toBe('de');
+
+      // An unknown locale normalizes to the closest supported one (so the
+      // shell accidentally sending 'pt-PT' → Brazilian Portuguese here).
+      hostListener!('pt-PT');
+      await waitFor(() =>
+        expect(screen.getByTestId('settings-probe').textContent).toBe('Configurações'),
+      );
+      expect(useLocalPrefs.getState().uiLocale).toBe('pt-BR');
+    } finally {
+      uninstallDesktopHostBridge();
+    }
+  });
+
   it('the resourcesToBackend lazy loader CAN fetch a locale bundle (reloadResources)', async () => {
-    // The Vite backend is wired; explicit reload loads + registers the bundle.
-    // (changeLanguage's auto-load is non-deterministic under vitest timing, so
-    // this asserts the loader itself resolves — proving the browser path.)
+    // Separate smoke for explicit reloadResources: the test above covers the
+    // normal changeLanguage auto-load path, while this verifies the backend
+    // resolver itself still works when called directly.
     await i18n.reloadResources(['es'], ['chat']);
     expect(i18n.hasResourceBundle('es', 'chat')).toBe(true);
   });
