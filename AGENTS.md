@@ -28,7 +28,6 @@ packages/runtime/     — Default runtime wiring: makeDefaultRuntime()
 packages/telegram/    — Telegram bridge plugin
 packages/webui/       — Vite+React web UI: standalone `webui` binary + CLI `--webui` (see docs/webui.md)
 packages/plugins/     — Built-in plugin host: cron, file-watcher, session-tracker, subagent
-packages/skills/      — Reserved stub package (no-op build); the 23 bundled skills actually ship in `packages/core/skills/` (resolved by `resolveBundledSkillsDir`)
 packages/bench/       — Model-independent benchmark harness (Aider polyglot + SWE-bench Verified); see docs/subcommands/bench.md
 apps/wrongstack/      — bin entry (wrongstack / wstack)
 ```

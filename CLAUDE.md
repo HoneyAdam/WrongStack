@@ -43,7 +43,6 @@ packages/cli/             — REPL, argv parsing, slash commands, plugin host
 packages/tui/             — React/Ink TUI (lazy-loaded behind --tui)
 packages/webui/           — Vite/React web UI (separate `webui` binary)
 packages/telegram/        — Telegram bridge plugin
-packages/skills/          — Skill packages
 packages/bench/           — Model-independent benchmark harness (polyglot + SWE-bench) — see docs/subcommands/bench.md
 ```
 

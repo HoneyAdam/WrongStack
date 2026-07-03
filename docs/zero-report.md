@@ -50,7 +50,6 @@ packages/webui/       Web UI server/client package
 packages/plugins/     Built-in plugin host and plugins
 packages/telegram/    Telegram bridge
 packages/bench/       Benchmark harness
-packages/skills/      Stub package; bundled skills live under core skills
 ```
 
 The project documentation also defines an important dependency rule:

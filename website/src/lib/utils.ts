@@ -31,7 +31,10 @@ export const skills = [
   { name: 'api-design', description: 'REST conventions, pagination, auth, and error taxonomy' },
   { name: 'audit-log', description: 'Analyze session logs and event streams' },
   { name: 'bug-hunter', description: 'Systematic debugging and anti-pattern detection' },
-  { name: 'docker-deploy', description: 'Container builds, non-root images, and deployment checks' },
+  {
+    name: 'docker-deploy',
+    description: 'Container builds, non-root images, and deployment checks',
+  },
   { name: 'git-flow', description: 'Branching strategy and commit conventions' },
   { name: 'multi-agent', description: 'Coordinate parallel agent workflows' },
   { name: 'node-modern', description: 'Node.js 22+ patterns and best practices' },
@@ -186,7 +189,6 @@ export const packages = [
   '@wrongstack/webui',
   '@wrongstack/telegram',
   '@wrongstack/plugins',
-  '@wrongstack/skills',
   '@wrongstack/bench',
   '@wrongstack/acp',
 ] as const;
@@ -539,9 +541,7 @@ export const changelog: ChangelogEntry[] = [
     version: '0.10.3',
     date: '2026-06-02',
     tagline: 'Lockstep workspace alignment',
-    highlights: [
-      'All workspace packages bumped to 0.10.3 in lockstep',
-    ],
+    highlights: ['All workspace packages bumped to 0.10.3 in lockstep'],
   },
   {
     version: '0.9.20',
@@ -633,11 +633,7 @@ export const releaseProcess: ReleaseStep[] = [
   },
   {
     phase: 'Commit & tag',
-    steps: [
-      'git commit -am "release: X.Y.Z"',
-      'git tag vX.Y.Z',
-      'git push --follow-tags',
-    ],
+    steps: ['git commit -am "release: X.Y.Z"', 'git tag vX.Y.Z', 'git push --follow-tags'],
   },
   {
     phase: 'Verify CI',
