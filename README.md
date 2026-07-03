@@ -4,7 +4,7 @@
 
 ### _Built on the wrong stack. Shipped anyway._
 
-**An AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — across a terminal REPL, a full-screen TUI, and a browser UI, while you keep your hand on every permission.**
+**An AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — across a terminal REPL, a full-screen TUI, a browser UI, and an Electron desktop shell, while you keep your hand on every permission.**
 
 [![npm](https://img.shields.io/npm/v/wrongstack?style=flat-square&color=0b7285&label=npm)](https://www.npmjs.com/package/wrongstack)
 [![downloads](https://img.shields.io/npm/dm/wrongstack?style=flat-square&color=0b7285)](https://www.npmjs.com/package/wrongstack)
@@ -21,11 +21,11 @@ npm i -g wrongstack && wrongstack
 
 ---
 
-WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **36 built-in tools**, **22 skills**, **8 core plugins** + **10 bundled** in `@wrongstack/plugins`, and **~140 providers** pulled live from [models.dev](https://models.dev) — 138 with a built-in transport (8 `anthropic` / 3 `openai` / 126 `openai-compatible` / 1 `google`) plus 3 OAuth families (`anthropic-oauth`, `openai-codex`, `github-copilot`). No hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
+WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **36 built-in tools**, **23 skills**, **8 core first-party plugins** + **36 official plugins** in `@wrongstack/plugins`, and **~140 providers** pulled live from [models.dev](https://models.dev) — 138 with a built-in transport (8 `anthropic` / 3 `openai` / 126 `openai-compatible` / 1 `google`) plus 3 OAuth families (`anthropic-oauth`, `openai-codex`, `github-copilot`). No hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
 
 ### ✨ Why it slaps
 
-- 🧠 **Three surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), and a standalone **web UI**.
+- 🧠 **Four surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), and **WrongStack Desktop** (`--desktop` / `wstack desktop`).
 - 🤖 **A fleet, not a lone agent** — a 47-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
 - ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
@@ -48,7 +48,7 @@ npm install -g wrongstack
 pnpm install -g wrongstack
 ```
 
-This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wrongstack/providers`, `@wrongstack/tools`, `@wrongstack/mcp`, `@wrongstack/plug-lsp`, and `@wrongstack/tui`. The TUI is shipped but lazy-loaded behind `--tui`, so plain-REPL users pay no React/Ink import cost at startup. The web-based UI (`@wrongstack/webui`) is available as a separate binary (`wstackui`).
+This pulls in the full stack — `@wrongstack/core`, `@wrongstack/runtime`, `@wrongstack/providers`, `@wrongstack/tools`, `@wrongstack/mcp`, `@wrongstack/acp`, `@wrongstack/bench`, `@wrongstack/plug-lsp`, `@wrongstack/plugins`, and `@wrongstack/tui`. The TUI is shipped but lazy-loaded behind `--tui`, so plain-REPL users pay no React/Ink import cost at startup. The web-based UI (`@wrongstack/webui`) is available as a separate binary (`wstackui`). WrongStack Desktop (`@wrongstack/desktop`) is an optional Electron package; launch it with `wrongstack --desktop`, `wstack desktop`, or the direct `wrongstack-desktop` / `wstack-desktop` binaries when installed.
 
 After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an alias.)
 
@@ -56,7 +56,7 @@ After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an a
 
 ## Features
 
-### Three interactive surfaces
+### Four interactive surfaces
 
 **Plain REPL** (default): readline-based, multiline heredoc, slash commands, streaming text. Works everywhere a terminal works.
 
@@ -88,6 +88,20 @@ WS_HOST=0.0.0.0 wstackui       # expose on the LAN
 
 # Or piggy-back on the CLI process
 wrongstack --webui
+```
+
+**Desktop** (`@wrongstack/desktop`): Electron shell that hosts one or more local, token-required WebUI runtimes and keeps project/session switching native. Launch it with `wrongstack --desktop`, `wstack desktop`, `wrongstack-desktop`, or `wstack-desktop`.
+
+- Recent and registered project launcher backed by the shared `~/.wrongstack/projects.json` manifest
+- Multiple concurrent sessions per project, each with isolated local HTTP/WS ports and a per-runtime access token
+- Embedded WebUI plus native menu routing for chat, files, changes, sessions, Fleet HQ, settings, command palette, model switcher, and terminal
+- Desktop toggles for YOLO, next prediction, and context auto-compact that flow into the hosted WebUI
+- Window/sidebar/workspace restoration, project folder reveal, open-in-browser, WebUI reload, and runtime log visibility
+
+```bash
+wrongstack --desktop
+wstack desktop
+wrongstack-desktop
 ```
 
 ### 36 built-in tools
@@ -252,36 +266,63 @@ controllable on every surface:
 
 ### Plugin ecosystem — `@wrongstack/plugins`
 
-Ten ready-to-use plugins ship in one package, each available via a subpath export (`@wrongstack/plugins/<name>`):
+`@wrongstack/plugins` ships 36 official plugins in one package, each available via a subpath export (`@wrongstack/plugins/<name>`). The retired `web-search` and `json-path` plugin names are intentionally skipped at load time; use the built-in `search` / `fetch` and `json` tools instead.
 
-| Plugin | Tools | Notes |
-|--------|-------|-------|
-| `auto-doc` | `auto_doc` | JSDoc / TSDoc comment generation (dry_run for preview) |
-| `git-autocommit` | `git_autocommit` | Conventional-commit messages with auto-staging |
-| `shell-check` | `shellcheck` | ShellCheck wrapper (files or directory scan) |
-| `cost-tracker` | `cost_summary`, `cost_reset`, `cost_export` | Token usage + cost per model via `provider.response` events |
-| `file-watcher` | `watch_start`, `watch_stop`, `watch_list` | Emits `file-watcher:changed` events |
-| `web-search` | _(retired)_ | Capabilities merged into built-in `search` and `fetch` tools |
-| `json-path` | _(retired)_ | Capabilities merged into built-in `json` tool (`action` param) |
-| `cron` | `cron_schedule`, `cron_list`, `cron_cancel` | Recurring actions via `beforeIteration` / `afterIteration` hooks |
-| `template-engine` | `render_template`, `template_variables` | `{{var}}` / `{{#if}}` / `{{#each}}` expansion + system-prompt contributor |
-| `semver-bump` | `semver_bump`, `changelog_update` | Conventional-commit-driven version bumps |
+| Plugin | Tools / hooks | Notes |
+|--------|---------------|-------|
+| `auto-doc` | `auto_doc` | JSDoc / TSDoc comment generation with dry-run preview |
+| `git-autocommit` | `git_autocommit` | LLM-assisted conventional commit messages with staging support |
+| `shell-check` | `shellcheck` | ShellCheck wrapper for files or directory scans |
+| `cost-tracker` | `cost_summary`, `cost_reset`, `cost_export` | Token usage + estimated cost per model from provider events |
+| `file-watcher` | `watch_start`, `watch_stop`, `watch_list` | Project file watchers that emit `file-watcher:changed` |
+| `cron` | `cron_schedule`, `cron_list`, `cron_cancel` | Recurring tasks via iteration hooks |
+| `template-engine` | `template_expand`, `template_render`, `template_create`, `template_list` | File templates with variable substitution and prompt contribution |
+| `semver-bump` | `semver_bump`, `semver`, `semver_current`, `semver_changelog` | Conventional-commit-driven version bumps and changelog helpers |
+| `secret-scanner` | PreToolUse / PostToolUse | Blocks, redacts, or warns on plaintext credentials in tool input/output |
+| `todo-tracker` | `todo_tracker_*` | Persistent project todo backlog that survives sessions |
+| `token-budget` | `token_budget_status`, hooks | Warns near a session token limit and can stop when exhausted |
+| `lint-gate` | `lint_gate_status`, hooks | Runs Biome/ESLint before write/edit commits content |
+| `branch-guard` | `branch_guard_status`, hooks | Blocks unsafe commits, pushes, and merges on protected branches |
+| `diff-summary` | `diff_summary_status`, hooks | Injects compact git diff context after write/edit |
+| `commit-validator` | `commit_validator_status`, hooks | Enforces conventional-commit shape before commit operations |
+| `format-on-save` | `format_on_save_status`, hooks | Runs formatter after write/edit |
+| `test-runner-gate` | `test_gate_status`, hooks | Runs relevant tests after source edits |
+| `import-organizer` | `import_organizer_status`, hooks | Sorts imports and removes unused entries after write/edit |
+| `todo-listener` | `todo_listener_status`, hooks | Broadcasts todo-list snapshots to the project mailbox |
+| `session-recap` | `session_recap_status`, Stop hook | Posts a session summary to the project mailbox |
+| `spec-linker` | `spec_linker_status`, hooks | Finds unlinked plugin references in markdown and can auto-link them |
+| `loop-breaker` | hooks | Detects identical-repeat and A-B-A-B tool-call loops |
+| `path-guard` | `path_guard_status`, hooks | Blocks writes/destructive commands touching protected paths |
+| `context-pins` | `pin_add`, `pin_remove`, `pin_list` | Pinned facts persist across sessions and compaction |
+| `checkpoint` | `checkpoint_create`, `checkpoint_list`, `checkpoint_restore` | Captures file snapshots before edits and restores them on demand |
+| `error-lens` | `error_lens_history`, hooks | Distills failed command output into compact error context |
+| `dep-guard` | `dep_guard_status`, hooks | Supervises dependency installs for deny lists, typosquats, and unpinned versions |
+| `config-validator` | `config_validator_status`, hooks | Validates JSON/JSONC/YAML/TOML after edits |
+| `notify-hub` | `notify_send`, `notify_hub_status`, hooks | Sends session/tool/budget notifications to a webhook |
+| `changelog-writer` | `changelog_add`, `changelog_preview`, `changelog_write` | Collects session work and writes Keep-a-Changelog entries |
+| `injection-shield` | `injection_shield_status`, hooks | Flags prompt-injection patterns in tool output |
+| `llm-cache` | `llm_cache_status`, `llm_cache_clear`, provider wrapper | Opt-in deterministic provider-response cache |
+| `model-router` | `model_router_status`, provider wrapper | Opt-in request-size/tool-aware model routing within the active provider |
+| `prompt-firewall` | `prompt_firewall_status`, provider wrapper | Opt-in credential-leak scanner on the provider wire |
+| `auto-escalate` | `auto_escalate_status`, error hook | Opt-in retry ladder for transient provider failures |
+| `token-throttle` | `token_throttle_status`, provider wrapper | Opt-in rolling tokens-per-minute throttle |
 
-All plugins type-check under `strict` + `noUncheckedIndexedAccess`, use the real plugin API (`api.onEvent` not pipeline mutation), register `AgentExtension` for iteration hooks, and ship `Record<string, unknown>` typings on every tool `execute`.
+All plugins type-check under `strict` + `noUncheckedIndexedAccess`, use the real plugin API (`api.onEvent`, hooks, and `AgentExtension` wrappers rather than ad hoc pipeline mutation), and ship `Record<string, unknown>` typings on every tool `execute`.
 
-#### Built-in (first-party) plugins
+#### Core first-party plugins
 
-Seven plugins ship **enabled by default** and load before any user plugin — they wire core infrastructure and claim bare slash-command names (only `official` first-party plugins may do so; external plugins stay namespaced). Opt a specific one out with `{ "name": "wstack-git", "enabled": false }` in `config.plugins`, or disable all with `features.plugins: false`.
+Eight core plugins ship **enabled by default** and load before user plugins — they wire core infrastructure and claim bare slash-command names (only `official` first-party plugins may do so; external plugins stay namespaced). Opt a specific one out with `{ "name": "wstack-git", "enabled": false }` in `config.plugins`, or disable all with `features.plugins: false`.
 
 | Built-in plugin | Slash commands | What it adds |
 |-----------------|----------------|--------------|
-| `wstack-prompts` | `/prompts list\|view\|add\|delete\|edit\|extend` | Personal prompt library with LLM-powered enhancement |
+| `wstack-prompts` | `/prompts`, `/prompt`, `/prompt-gen` | Personal prompt library, merged prompt search, and AI prompt authoring |
 | `wstack-sync` | `/sync status\|enable\|disable\|push\|pull\|categories` | GitHub cloud sync for settings, skills, prompts, memory, and history — token encrypted via the secret vault, no `git` CLI needed |
 | `wstack-git` | `/commit`, `/gitcheck`, `/push` | LLM-written conventional commits, pre-commit sanity check, push |
-| `wstack-security` | `/security scan\|audit\|report` | Security scanning surface |
-| `wstack-skills` | `/skill`, `/skill-gen`, `/skill-install`, `/skill-update`, `/skill-uninstall` | Skill discovery, generation, and lifecycle |
-| `wstack-plan` | `/plan show\|add\|start\|done\|remove\|clear` | Per-session strategic roadmap (chip in the TUI status bar) |
 | `wstack-observability` | `/metrics`, `/health` | Prometheus metrics + health snapshot |
+| `wstack-security` | _backend_ | Security scanning orchestrator; the CLI owns the `/security` command surface |
+| `wstack-chimera` | `/chimera` | Post-session code quality review agent and configuration status |
+| `wstack-skills` | `/skill`, `/skill-gen`, `/skill-search`, `/skill-install`, `/skill-import`, `/skill-update`, `/skill-uninstall` | Skill discovery, registry search, generation, import, install, update, and uninstall |
+| `wstack-plan` | `/plan show\|add\|start\|done\|remove\|clear` | Per-session strategic roadmap (chip in the TUI status bar) |
 
 **Cloud sync** (`/sync`) pushes/pulls user-selected `~/.wrongstack` categories — `settings`, `skills`, `prompts`, `memory`, `history` — to a private GitHub repo over the REST API. State lives in `~/.wrongstack/sync.json` (token encrypted) + `sync-state.json`; pick categories with `/sync categories`. Pulls validate every remote tree entry and reject traversal (`..`, absolute paths, or paths resolving outside the category root); file-backed categories such as `settings` also reject nested paths.
 
@@ -308,6 +349,8 @@ wstack auth login claude      # Claude Pro/Max               → provider anthro
 wstack auth login copilot     # GitHub Copilot               → provider github-copilot
 # or: wstack auth → "s) Sign in with a subscription"
 ```
+
+Inside a live session, `/auth` opens the same interactive key manager as an Ink/TUI panel; `/auth login` jumps straight to the OAuth view. In the plain REPL, `/auth` stays non-blocking and shows a saved-provider/key dashboard plus the `wstack auth` command to run for edits.
 
 Codex and Claude use a PKCE loopback flow; Copilot uses GitHub's device flow.
 Tokens self-refresh (near-expiry + once on `401`) and are AES-256-GCM encrypted
@@ -367,7 +410,7 @@ await modeTool.execute({ action: 'set', mode: 'code-reviewer' });
 
 Switch how aggressively the session trims history: `balanced` (default), `frugal` (most token-friendly), `deep` (preserves more recent turns), `archival` (steady decision-preserving compaction). Use `/context mode` to list policies and switch at runtime. `repair` to fix damaged tool-call adjacency.
 
-### Observability — 28 typed events
+### Observability — 53 typed events
 
 `EventBus` carries events across Session, Iteration, Provider, Tool, Token/compaction, Subagent lifecycle, MCP, and Error categories. Subscribe with `events.on(name, fn)` or `events.once(name, fn)`; listeners that throw are caught and logged, never re-thrown.
 
@@ -393,9 +436,9 @@ Four-layer observability:
 - **Plugin trust tiers + capability gating**: only first-party (`official`) plugins may register bare slash-command names; tool `wrap`/`override`/`unregister` is gated on **declared capabilities** in addition to the officiality tier, so a plugin can only mutate tools it is actually authorized for
 - Threat model and adversary trust assumptions in [`SECURITY.md`](SECURITY.md); audit findings and verification in [`security-report/`](security-report/)
 
-### Bundled skills (22)
+### Bundled skills (23)
 
-`api-design`, `audit-log`, `bug-hunter`, `chimera`, `docker-deploy`, `git-flow`, `mailbox-bridge`, `multi-agent`, `node-modern`, `observability`, `output-standards`, `prompt-engineering`, `react-modern`, `refactor-planner`, `research-web`, `sdd`, `security-scanner`, `skill-creator`, `tech-stack`, `testing`, `typescript-strict`, `wrongstack-mailbox` — all following one structure (Overview → Rules → Patterns → Skills in scope). Discovered in order: project → user → bundled, with first-seen winning on name collisions.
+`api-design`, `audit-log`, `bug-hunter`, `chimera`, `docker-deploy`, `git-flow`, `mailbox-bridge`, `multi-agent`, `node-modern`, `observability`, `output-standards`, `plugin-author`, `prompt-engineering`, `react-modern`, `refactor-planner`, `research-web`, `sdd`, `security-scanner`, `skill-creator`, `tech-stack`, `testing`, `typescript-strict`, `wrongstack-mailbox` — all following one structure (Overview → Rules → Patterns → Skills in scope). Discovered in order: project → user → bundled, with first-seen winning on name collisions.
 
 ### Token-saving mode (`--token-saving-mode`)
 
@@ -424,19 +467,11 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current release: 0.277.0.** The permission-hardening, Windows command-shim,
-and tool-output polish release. **YOLO** now auto-approves normal trusted work
-while clearly destructive shell/exec/write calls still prompt; the legacy
-`--confirm-destructive`, `--yolo-destructive`, and `--force-all-yolo` flags are
-compatibility-only and do not bypass that gate. Windows `.cmd` / `.bat` launches
-now use a vetted `cmd.exe` shim across tools and ACP paths, fixing
-path-with-spaces cases without reopening shell-injection risk. `search` and
-`fetch` are smoother auto-permission read-only network tools; search parsing,
-ranking, fallback, and caching are more resilient; and the TUI now shows exec
-danger chips plus consistent bash/shell/exec previews. Also includes
-project-root containment fixes for `design` / `json` file paths, broader
-default `exec` developer tooling, dependency updates through `@types/node@26`,
-and lockstep `0.277.0` package alignment.
+**Current package line: 0.280.1.** Highlights include the Electron Desktop
+surface (`wrongstack --desktop`, `wstack desktop`, `wrongstack-desktop`), the
+interactive in-session `/auth` panel, skill registry search/install authoring
+improvements, the 36-plugin official suite, and package coverage for ACP, bench,
+WebUI HQ, and Desktop alongside the CLI/TUI/WebUI stack.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 
@@ -452,9 +487,14 @@ wstack auth login chatgpt
 # No config? Interactive picker launches automatically:
 wrongstack          # provider list → model list → save prompt → REPL
 wrongstack --tui    # same, then enters TUI
+wrongstack --webui --open  # serve browser UI and open it
 
 # TUI + YOLO (auto-approve normal project work)
 wrongstack --tui --yolo
+
+# Desktop shell
+wrongstack --desktop
+wstack desktop
 
 # Specific provider/model — skip the picker
 wrongstack --provider groq --model llama-3.3-70b-versatile
@@ -502,13 +542,21 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --replay <id>        Replay a recorded session deterministically (no API calls)
 --tui                Use the Ink TUI instead of readline REPL
 --no-tui             Force-disable the TUI (overrides --tui)
+--mouse              Full mouse mode in the TUI (in-app scroll + clickable UI)
+--webui              Serve the browser UI + WS bridge for this project
+--desktop            Open WrongStack Desktop (requires @wrongstack/desktop)
+--hq                 Start the project-independent HQ command center
+--open               Open the browser for --webui / --hq
+--no-interactive     Skip interactive provider/model setup; require saved config
 --no-banner          Suppress the startup banner
 --no-features        Minimal kernel — no MCP, plugins, memory, models.dev, skills
 --no-models-refresh  Skip the boot-time models.dev catalog refresh (offline/CI)
+--skip-index         Skip codebase indexing and large-codebase prompt
 --token-saving-mode  Lean prompt: 10 Tier-1 tools, compact skills, lazy MCP (mcp_use)
 --yolo               Auto-approve normal project work; destructive calls still prompt
 --director           Enable Director-based fleet orchestration (LLM-driven subagent planning)
 --goal "<task>"      Boot directly into goal mode — GOAL preamble injected, TUI auto-enabled
+--eternal "<task>"   Start an eternal-autonomy loop against a goal
 --ask "<text>"       Submit one turn verbatim on TUI boot (no preamble)
 --verbose / -v       Log level → debug
 --trace              Log level → trace
@@ -518,7 +566,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 ## Slash commands
 
-**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/codebase-reindex` `/dev` `/diag` `/stats` `/tools` `/tool` `/plugin` `/mcp` `/auth` `/memory` `/todos` `/tasks` `/mode` `/yolo` `/autonomy` `/interrupt` `/btw` `/next` `/enhance` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/save` `/load` `/prune` `/exit`
+**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/codebase-reindex` `/dev` `/diag` `/doctor` `/stats` `/tools` `/tool` `/plugin` `/mcp` `/auth` `/memory` `/todos` `/tasks` `/mode` `/mouse` `/yolo` `/autonomy` `/interrupt` `/btw` `/next` `/enhance` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/save` `/load` `/prune` `/exit`
 
 Every built-in command is tagged with a category (`Run` · `Session` · `Inspect` · `Agent` · `Config` · `App`); the TUI slash picker groups matches under category headers, and the WebUI surfaces 55 commands in its slash list.
 
@@ -526,7 +574,7 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 
 **TUI-only** (need `--tui`): `/model` (provider → model picker) · `/steer` (mid-flight redirect — the plain REPL uses **Esc** instead) · `/queue`
 
-**Built-in plugins** (enabled by default): `/prompts` `/sync` `/commit` `/gitcheck` `/push` `/security` `/skill` `/skill-gen` `/skill-install` `/skill-update` `/skill-uninstall` `/plan` `/metrics` `/health`
+**Built-in plugins** (enabled by default): `/prompts` `/prompt` `/prompt-gen` `/sync` `/commit` `/gitcheck` `/push` `/security` `/chimera` `/skill` `/skill-gen` `/skill-search` `/skill-install` `/skill-import` `/skill-update` `/skill-uninstall` `/plan` `/metrics` `/health`
 
 `/telegram` becomes available once the Telegram plugin is enabled — `wstack plugin install telegram`.
 
@@ -550,7 +598,7 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | `/model` | _(TUI)_ Two-step provider → model picker. In the plain REPL, relaunch with `--provider` / `--model` |
 | `/setmodel <key> <provider/model>` | Set per-role or per-phase model in the model matrix (e.g. `/setmodel security-scanner openai/gpt-4o`). Also supports `resolve <role>` and `doctor` for matrix diagnostics |
 | `/fallback` | View or edit the rate-limit fallback chain. On a `429`/`529`/`5xx` after retries, the agent rotates to the next model in the chain instead of failing; each hop prints `↻ switched to <provider/model>` |
-| `/auth [status <provider>\|open\|help]` | In-session credential dashboard. Shows saved provider/key status without blocking the REPL/TUI; run `wstack auth` for the full interactive key manager |
+| `/auth [login\|status <provider>\|open\|help]` | In-session credential manager. In TUI, opens the interactive key/OAuth panel (`/auth login` jumps to OAuth); in REPL, shows a non-blocking provider/key dashboard and points to `wstack auth` for edits |
 | `/image` or `/paste-image` | Attach clipboard PNG. TUI also `Alt+V` |
 | `/context mode <policy>` | Switch context-window mode: `balanced`, `frugal`, `deep`, `archival`. `repair` fixes damaged tool-call adjacency |
 | `/plugin install\|disable\|enable\|remove\|official [name]` | Manage plugins. `install` adds bundled package to config (no npm). Restart to load/unload |
@@ -585,7 +633,12 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 
 ```bash
 wrongstack init           # First-run setup wizard
+wrongstack auth           # Interactive credential manager
 wrongstack auth <prov>    # Store an API key (prompted, encrypted at rest)
+wrongstack auth list|status|remove <id>  # Inspect or remove saved credentials
+wrongstack webui          # Serve the browser UI (alias: --webui)
+wrongstack desktop        # Open WrongStack Desktop (alias: --desktop)
+wrongstack hq             # Start HQ command center (alias: --hq)
 wrongstack sessions       # List saved sessions for this project
 wrongstack resume <id>    # Continue a saved session
 wrongstack replay <id>    # Inspect a recorded replay log (see --replay)
@@ -599,6 +652,8 @@ wrongstack models hide|show|hidden|reset <id>  # curate which catalog models app
 wrongstack mcp            # Inspect connected MCP servers
 wrongstack plugin         # Plugin manifest commands
 wrongstack diag           # Diagnostics: provider, tokens, paths
+wrongstack doctor         # Health checks
+wrongstack export <id>    # Render/export a session
 wrongstack usage          # Token + cost totals across sessions
 wrongstack projects       # List known project hashes → paths
 wrongstack help           # Help text
@@ -668,18 +723,25 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/providers` | Anthropic/OpenAI/OpenAI-compatible/Google wire adapters + SSE |
 | `@wrongstack/tools` | 36 built-in tools (incl. SQLite codebase index) |
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
+| `@wrongstack/acp` | Agent Client Protocol client + agent support |
+| `@wrongstack/bench` | Model-independent benchmark harness (Aider polyglot + SWE-bench Verified) |
 | `@wrongstack/cli` | REPL, subcommands, slash commands, terminal renderer |
 | `@wrongstack/tui` | Ink-based TUI (lazy-loaded behind `--tui`) |
 | `@wrongstack/plug-lsp` | LSP plugin (`wrongstack-lsp-setup` binary) |
 | `@wrongstack/telegram` | Telegram plugin: send/read/notifications, `/telegram:*` slash commands |
 | `@wrongstack/webui` | Standalone web UI — `wstackui` binary, also via `wrongstack --webui` |
-| `@wrongstack/plugins` | Official plugin collection — 10 plugins via subpath exports |
+| `@wrongstack/webui-hq` | React HQ Command Center dashboard for `wrongstack --hq` |
+| `@wrongstack/desktop` | Electron desktop shell — `wrongstack --desktop`, `wstack desktop`, `wrongstack-desktop` |
+| `@wrongstack/plugins` | Official plugin collection — 36 plugins via subpath exports |
 
 ## Architecture
 
 ```
 CLI       → REPL, renderer, slash commands, subcommands
 TUI       → Ink frontend (lazy-loaded behind --tui)
+WebUI     → Browser UI + WS bridge (standalone wstackui or --webui)
+Desktop   → Electron shell hosting token-required local WebUI runtimes (--desktop)
+HQ        → Cross-machine command center (--hq)
 Steering  → Esc / /steer / /goal — mid-flight redirect + autonomous lock-in
 Director  → Fleet orchestration (LLM-driven, opt-in via --director)
 Agent     → loop, context, system prompt, permission, compaction, autoExtendLimit
@@ -694,7 +756,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **9300+ tests passing** across 500+ test files in the 0.277.0 release gate
+- **9300+ tests passing** across 500+ test files in the release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
 - All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22.19+ only, ESM-only, no CommonJS bundles

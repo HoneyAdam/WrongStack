@@ -56,8 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (was 16); notably `output-standards`, which almost every other skill
   depends on for `<next_steps>` formatting.
 
-## [Unreleased]
-
 ### Added — Desktop Surface
 
 - **WrongStack Desktop is now covered as a first-class surface** — the root
@@ -70,21 +68,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token-required local runtimes, window/sidebar persistence, browser open,
   folder reveal, reload, and runtime log visibility.
 
+### Added — 15 new plugins (21 → 36)
+
+- **`loop-breaker`** — detects runaway tool-call loops (identical repeats and
+  A-B-A-B oscillation), warns with additional context, then blocks when the loop
+  persists.
+- **`path-guard`** — blocks writes, edits, and destructive shell commands that
+  touch protected paths such as `.env`, `.git`, lockfiles, and migrations.
+- **`context-pins`** — adds `pin_add`, `pin_remove`, and `pin_list`; pinned
+  facts persist under the project directory and survive compaction.
+- **`checkpoint`** — captures pre-edit file snapshots and exposes
+  `checkpoint_create`, `checkpoint_list`, and `checkpoint_restore` for manual
+  rollback.
+- **`error-lens`** — distills failed command output into compact error context
+  and keeps `error_lens_history` for recent failures.
+- **`dep-guard`** — supervises dependency installs with deny-list,
+  typosquat/lookalike, and unpinned-version warnings.
+- **`config-validator`** — validates JSON, JSONC, YAML, and TOML files after
+  write/edit operations and reports syntax issues in the same turn.
+- **`notify-hub`** — sends configured session/tool/budget notifications and
+  ad-hoc `notify_send` messages to a webhook.
+- **`changelog-writer`** — collects session work and writes
+  Keep-a-Changelog entries through `changelog_add`, `changelog_preview`, and
+  `changelog_write`.
+- **`injection-shield`** — scans tool output for prompt-injection patterns and
+  warns the model that the content is data, not instructions.
+- **Deep provider-wrapper plugins** — `llm-cache`, `model-router`,
+  `prompt-firewall`, `auto-escalate`, and `token-throttle` now demonstrate the
+  full `AgentExtension` surface (`wrapProviderRunner` / `onError`). They load
+  inert by default and require `config.extensions['<name>'].enabled = true`
+  before changing provider-call semantics.
+
 ### Changed — Documentation
 
 - **Root README now documents all four user-facing surfaces** — plain REPL,
   Ink/React TUI, standalone/embedded WebUI, and the Electron Desktop shell.
 - **README package and command maps updated** — `@wrongstack/desktop`,
-  `@wrongstack/acp`, and `@wrongstack/bench` are listed in the package table;
-  `wrongstack webui`, `wrongstack desktop`, and `wrongstack hq` are listed
-  as subcommands; `--webui`, `--desktop`, `--hq`, `--no-interactive`, and
-  `--open` are included in the flag table.
-- **README plugin section updated to the 21-plugin catalog** — replaces the
-  stale 10-plugin table with the current catalog-backed list and calls out
-  retired plugin names (`web-search`, `json-path`) with their built-in tool
-  replacements.
+  `@wrongstack/acp`, `@wrongstack/bench`, and `@wrongstack/webui-hq` are listed
+  in the package table; `wrongstack webui`, `wrongstack desktop`, and
+  `wrongstack hq` are listed as subcommands; `--webui`, `--desktop`, `--hq`,
+  `--no-interactive`, `--open`, `--mouse`, `--eternal`, and `--skip-index` are
+  included in the flag table.
+- **README `/auth` coverage refreshed** — documents the TUI interactive auth
+  panel, `/auth login` OAuth shortcut, and the REPL's non-blocking credential
+  dashboard fallback.
+- **README plugin section updated to the 36-plugin catalog** — replaces the
+  stale 10-plugin table with the current catalog-backed list, documents the
+  opt-in deep provider-wrapper plugins, and calls out retired plugin names
+  (`web-search`, `json-path`) with their built-in tool replacements.
 - **README observability count corrected** from 28 typed events to 53 typed
   events, matching the current kernel event map categories.
+- **README bundled-skill count corrected** from 22 to 23 and now includes the
+  `plugin-author` bundled skill.
 
 ## [0.278.0] — 2026-07-01
 
