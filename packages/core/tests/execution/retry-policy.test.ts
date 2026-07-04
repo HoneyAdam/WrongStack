@@ -99,4 +99,80 @@ describe('DefaultRetryPolicy', () => {
       expect(d - 1000).toBeLessThan(1000);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // § 1.2: Retry-After hint honour
+  // -------------------------------------------------------------------------
+
+  it('honours Retry-After in seconds when present', () => {
+    // Server told us "Retry-After: 5" — come back in 5 seconds.
+    const err = new ProviderError('rate limited', 429, true, 'anthropic', {
+      body: { retryAfterMs: 5_000 },
+    });
+    expect(p.delayMs(0, err)).toBe(5_000);
+    expect(p.delayMs(2, err)).toBe(5_000); // attempt index ignored
+  });
+
+  it('honours Retry-After from a sub-second value', () => {
+    // 250ms server hint. No jitter applied — server was explicit.
+    const err = new ProviderError('throttled', 429, true, 'openai', {
+      body: { retryAfterMs: 250 },
+    });
+    expect(p.delayMs(0, err)).toBe(250);
+  });
+
+  it('clamps Retry-After to MAX_RETRY_AFTER_MS (60s)', () => {
+    // Server asks for 5 minutes — we cap to 60s.
+    const err = new ProviderError('rate limited', 429, true, 'x', {
+      body: { retryAfterMs: 5 * 60_000 },
+    });
+    expect(p.delayMs(0, err)).toBe(60_000);
+  });
+
+  it('falls through to exponential schedule when retryAfterMs is missing', () => {
+    // No retryAfterMs → use the default exponential+jitter path.
+    const err = new ProviderError('rate limited', 429, true, 'x');
+    // attempt=0 → exp=1000, jitter in [0, 1000)
+    for (let i = 0; i < 50; i++) {
+      const d = p.delayMs(0, err);
+      expect(d).toBeGreaterThanOrEqual(1000);
+      expect(d).toBeLessThan(2000);
+    }
+  });
+
+  it('falls through when retryAfterMs is malformed (zero / negative / NaN)', () => {
+    for (const bad of [
+      0,
+      -1,
+      -1000,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      const err = new ProviderError('rate limited', 429, true, 'x', {
+        body: { retryAfterMs: bad },
+      });
+      // attempt=0 → exp=1000, jitter in [0, 1000)
+      const d = p.delayMs(0, err);
+      expect(d).toBeGreaterThanOrEqual(1000);
+      expect(d).toBeLessThan(2000);
+    }
+  });
+
+  it('falls through to exponential schedule when error is a plain Error', () => {
+    // Generic Error (not ProviderError) — never has retryAfterMs; the
+    // policy must not crash and must use the default schedule.
+    const err = new Error('ECONNRESET');
+    const d = p.delayMs(0, err);
+    expect(d).toBeGreaterThanOrEqual(1000);
+    expect(d).toBeLessThan(2000);
+  });
+
+  it('falls through when err is omitted entirely', () => {
+    // The optional-second-arg form must keep back-compat. No err →
+    // exponential+jitter as before.
+    const d = p.delayMs(2);
+    expect(d).toBeGreaterThanOrEqual(4000); // 1000 * 2^2
+    expect(d).toBeLessThan(5000);
+  });
 });

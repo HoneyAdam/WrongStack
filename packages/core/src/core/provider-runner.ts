@@ -89,14 +89,17 @@ export async function runProviderWithRetry(opts: RunProviderOptions): Promise<Re
           errorDescription: description,
           status: isProviderErr ? (err as ProviderError).status : undefined,
           errorName: err instanceof Error ? err.name : undefined,
-          errorStack: err instanceof Error ? err.stack?.split('\n').slice(0, 3).join('\n') : undefined,
+          errorStack:
+            err instanceof Error ? err.stack?.split('\n').slice(0, 3).join('\n') : undefined,
         });
         // ProviderError already extends WrongStackError — passes through unchanged.
         // Raw Errors (network, timeout) get wrapped so callers can branch on .code
         // instead of parsing error messages.
         throw toWrongStackError(err);
       }
-      const delay = Math.round(retry.delayMs(attempt));
+      const delay = Math.round(
+        retry.delayMs(attempt, isProviderErr ? (err as ProviderError) : errAsErr),
+      );
       const attemptNum = attempt + 1;
       const maxAttempts = retry.maxAttempts(isProviderErr ? (err as ProviderError) : errAsErr);
       logger.warn(`Provider retry ${attemptNum}/${maxAttempts} in ${delay}ms — ${description}`, {

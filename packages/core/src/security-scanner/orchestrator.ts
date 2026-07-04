@@ -49,7 +49,7 @@ export interface FullScanResult {
 
 /**
  * LLM-powered Security Scanner Orchestrator
- * 
+ *
  * Flow:
  * 1. Detect tech stack (static)
  * 2. Generate project-specific security skill via LLM
@@ -60,7 +60,10 @@ export class SecurityScannerOrchestrator {
   private detector = defaultTechStackDetector;
   private gitignoreUpdater = defaultGitignoreUpdater;
 
-  constructor(private readonly retryPolicy?: RetryPolicy, private readonly errorHandler?: ErrorHandler) {}
+  constructor(
+    private readonly retryPolicy?: RetryPolicy,
+    private readonly errorHandler?: ErrorHandler,
+  ) {}
 
   /**
    * Wraps provider.complete with retry logic using the injected RetryPolicy.
@@ -82,7 +85,7 @@ export class SecurityScannerOrchestrator {
       const errAsErr = isProviderErr ? err : err instanceof Error ? err : new Error(String(err));
 
       // No policy or non-retryable error — rethrow immediately
-      if (!policy || !isProviderErr && !NETWORK_ERR_RE.test(errAsErr.message)) {
+      if (!policy || (!isProviderErr && !NETWORK_ERR_RE.test(errAsErr.message))) {
         throw err;
       }
 
@@ -95,17 +98,21 @@ export class SecurityScannerOrchestrator {
         if (!classified.retryable) throw err;
       }
 
-      const delay = Math.round(policy.delayMs(attempt));
+      const delay = Math.round(
+        policy.delayMs(attempt, isProviderErr ? (err as ProviderError) : errAsErr),
+      );
       const status = isProviderErr ? (err as ProviderError).status : 0;
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'security_scanner.retry',
-        attempt: attempt + 1,
-        delayMs: delay,
-        status,
-        message: errAsErr.message,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'security_scanner.retry',
+          attempt: attempt + 1,
+          delayMs: delay,
+          status,
+          message: errAsErr.message,
+          timestamp: new Date().toISOString(),
+        }),
+      );
 
       await new Promise<void>((resolve) => setTimeout(resolve, delay));
       return this.completeWithRetry(provider, request, abortController, attempt + 1);
@@ -116,10 +123,7 @@ export class SecurityScannerOrchestrator {
    * Run full security scan with LLM assistance.
    * Accepts a full Context (active agent run) or just provider+model (pre-agent session).
    */
-  async run(
-    ctx: SecurityScannerContext,
-    options: SecurityScannerOptions,
-  ): Promise<FullScanResult> {
+  async run(ctx: SecurityScannerContext, options: SecurityScannerOptions): Promise<FullScanResult> {
     const { projectRoot, reportOptions, skipGitignore, model: explicitModel } = options;
     const provider = 'provider' in ctx && ctx.provider ? ctx.provider : (ctx as never as Provider);
     const model = explicitModel ?? ('model' in ctx ? ctx.model : undefined);
@@ -140,10 +144,23 @@ export class SecurityScannerOrchestrator {
     const generatedSkill = await this.generateSkillLLM(provider, model, projectRoot, techStack);
 
     // Step 3: Scan code using LLM
-    const scanResult = await this.scanWithLLM(provider, model, projectRoot, generatedSkill, techStack, options);
+    const scanResult = await this.scanWithLLM(
+      provider,
+      model,
+      projectRoot,
+      generatedSkill,
+      techStack,
+      options,
+    );
 
     // Step 4: Synthesize report via LLM
-    const synthesizedReport = await this.synthesizeReportLLM(provider, model, projectRoot, techStack, scanResult);
+    const synthesizedReport = await this.synthesizeReportLLM(
+      provider,
+      model,
+      projectRoot,
+      techStack,
+      scanResult,
+    );
 
     // Step 5: Write report to file
     const reportPath = await this.writeReport(synthesizedReport, reportOptions);
@@ -172,7 +189,7 @@ export class SecurityScannerOrchestrator {
     provider: Provider,
     model: string | undefined,
     projectRoot: string,
-    techStack: TechStackInfo
+    techStack: TechStackInfo,
   ): Promise<GeneratedSkill> {
     // Gather project info for LLM context
     const projectInfo = await this.gatherProjectInfo(projectRoot, techStack);
@@ -184,19 +201,26 @@ export class SecurityScannerOrchestrator {
         stack: techStack.stack,
         packageManager: techStack.packageManager,
         manifestFile: techStack.manifestFile,
-        dependencies: techStack.dependencies.slice(0, 20).map(d => `- ${d.name}@${d.version}`).join('\n'),
-        nodeFocus: techStack.stack === 'nodejs'
-          ? 'Node.js specific: eval, prototype pollution, npm script injection, express middleware issues, passport.js misconfigs'
-          : '',
-        pythonFocus: techStack.stack === 'python'
-          ? 'Python specific: pickle deserialization, SQL injection in ORMs, template injection, insecure Django/Flask settings'
-          : '',
+        dependencies: techStack.dependencies
+          .slice(0, 20)
+          .map((d) => `- ${d.name}@${d.version}`)
+          .join('\n'),
+        nodeFocus:
+          techStack.stack === 'nodejs'
+            ? 'Node.js specific: eval, prototype pollution, npm script injection, express middleware issues, passport.js misconfigs'
+            : '',
+        pythonFocus:
+          techStack.stack === 'python'
+            ? 'Python specific: pickle deserialization, SQL injection in ORMs, template injection, insecure Django/Flask settings'
+            : '',
       },
     );
 
     const request: Request = {
       model: model ?? 'unknown',
-      system: [{ type: 'text', text: readBundledInstructionText('security-scanner/json-system.md') }],
+      system: [
+        { type: 'text', text: readBundledInstructionText('security-scanner/json-system.md') },
+      ],
       messages: [{ role: 'user', content: prompt }],
       maxTokens: 4096,
     };
@@ -204,12 +228,16 @@ export class SecurityScannerOrchestrator {
     try {
       const abortController = new AbortController();
       const response = await this.completeWithRetry(provider, request, abortController);
-      const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
-      
+      const text = response.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+
       // Parse JSON from response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        const sanitized = sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
+        const sanitized =
+          sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
         const skillData = JSON.parse(sanitized);
         return {
           name: skillData.name || `security-scanner-${techStack.stack}`,
@@ -226,13 +254,15 @@ export class SecurityScannerOrchestrator {
         };
       }
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'security_scanner.skill_generation_failed',
-        message: toErrorMessage(err),
-        techStack: techStack.stack,
-        timestamp: new Date().toISOString(),
-      }));
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'security_scanner.skill_generation_failed',
+          message: toErrorMessage(err),
+          techStack: techStack.stack,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
 
     // Fallback: return basic skill without LLM
@@ -249,7 +279,7 @@ export class SecurityScannerOrchestrator {
     projectRoot: string,
     skill: GeneratedSkill,
     techStack: TechStackInfo,
-    options: SecurityScannerOptions
+    options: SecurityScannerOptions,
   ): Promise<ScanResult> {
     const startTime = Date.now();
     const findings: Finding[] = [];
@@ -257,8 +287,12 @@ export class SecurityScannerOrchestrator {
     let scannedFiles = 0;
 
     // Gather files to scan
-    const files = await this.gatherFiles(projectRoot, skill.metadata.targetFiles, options.scanOptions?.depth || 'standard');
-    
+    const files = await this.gatherFiles(
+      projectRoot,
+      skill.metadata.targetFiles,
+      options.scanOptions?.depth || 'standard',
+    );
+
     // Process files in batches to avoid overwhelming the LLM
     const batchSize = 10;
     for (let i = 0; i < files.length; i += batchSize) {
@@ -273,10 +307,10 @@ export class SecurityScannerOrchestrator {
     findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
     const summary = {
-      critical: findings.filter(f => f.severity === 'critical').length,
-      high: findings.filter(f => f.severity === 'high').length,
-      medium: findings.filter(f => f.severity === 'medium').length,
-      low: findings.filter(f => f.severity === 'low').length,
+      critical: findings.filter((f) => f.severity === 'critical').length,
+      high: findings.filter((f) => f.severity === 'high').length,
+      medium: findings.filter((f) => f.severity === 'medium').length,
+      low: findings.filter((f) => f.severity === 'low').length,
       total: findings.length,
     };
 
@@ -300,7 +334,7 @@ export class SecurityScannerOrchestrator {
     model: string | undefined,
     files: string[],
     skill: GeneratedSkill,
-    _techStack: TechStackInfo
+    _techStack: TechStackInfo,
   ): Promise<Finding[]> {
     const fileContents: string[] = [];
     for (const file of files) {
@@ -318,7 +352,9 @@ export class SecurityScannerOrchestrator {
     const prompt = renderInstructionTemplate(
       readBundledInstructionText('security-scanner/analyze-batch.md'),
       {
-        patterns: skill.patterns.map(p => `- ${p.name} (${p.severity}): ${p.description}`).join('\n'),
+        patterns: skill.patterns
+          .map((p) => `- ${p.name} (${p.severity}): ${p.description}`)
+          .join('\n'),
         files: fileContents.join('\n'),
       },
     );
@@ -326,18 +362,24 @@ export class SecurityScannerOrchestrator {
     try {
       const request: Request = {
         model: model ?? 'unknown',
-        system: [{ type: 'text', text: readBundledInstructionText('security-scanner/json-system.md') }],
+        system: [
+          { type: 'text', text: readBundledInstructionText('security-scanner/json-system.md') },
+        ],
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 4096,
       };
-      
+
       const abortController = new AbortController();
       const response = await this.completeWithRetry(provider, request, abortController);
-      const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
-      
+      const text = response.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
-        const sanitized = sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
+        const sanitized =
+          sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
         const parsed = JSON.parse(sanitized) as Array<{
           file: string;
           line?: number | undefined;
@@ -348,7 +390,7 @@ export class SecurityScannerOrchestrator {
           snippet?: string | undefined;
           remediation: string;
         }>;
-        
+
         return parsed.map((item, idx) => ({
           id: `llm-finding-${idx}-${Date.now()}`,
           severity: item.severity,
@@ -364,13 +406,15 @@ export class SecurityScannerOrchestrator {
         }));
       }
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'security_scanner.llm_scan_batch_failed',
-        message: toErrorMessage(err),
-        fileCount: files.length,
-        timestamp: new Date().toISOString(),
-      }));
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'security_scanner.llm_scan_batch_failed',
+          message: toErrorMessage(err),
+          fileCount: files.length,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
 
     return [];
@@ -384,7 +428,7 @@ export class SecurityScannerOrchestrator {
     model: string | undefined,
     projectRoot: string,
     techStack: TechStackInfo,
-    scanResult: ScanResult
+    scanResult: ScanResult,
   ): Promise<string> {
     const prompt = renderInstructionTemplate(
       readBundledInstructionText('security-scanner/synthesize-report.md'),
@@ -395,14 +439,18 @@ export class SecurityScannerOrchestrator {
         high: String(scanResult.summary.high),
         medium: String(scanResult.summary.medium),
         low: String(scanResult.summary.low),
-        findings: scanResult.findings.map((f, i) => `
+        findings: scanResult.findings
+          .map(
+            (f, i) => `
 ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
    File: ${f.file}${f.line ? `:${f.line}` : ''}
    Category: ${f.category}
    Description: ${f.description}
    ${f.snippet ? `Code: \`\`\`\n${f.snippet}\n\`\`\`` : ''}
    Remediation: ${f.remediation}
-`).join('\n'),
+`,
+          )
+          .join('\n'),
         projectRoot,
         stack: techStack.stack,
         packageManager: techStack.packageManager,
@@ -412,22 +460,29 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
     try {
       const request: Request = {
         model: model ?? 'unknown',
-        system: [{ type: 'text', text: readBundledInstructionText('security-scanner/report-system.md') }],
+        system: [
+          { type: 'text', text: readBundledInstructionText('security-scanner/report-system.md') },
+        ],
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 8192,
       };
-      
+
       const abortController = new AbortController();
       const response = await this.completeWithRetry(provider, request, abortController);
-      return response.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      return response.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'security_scanner.report_synthesis_failed',
-        message: toErrorMessage(err),
-        findingsCount: scanResult.findings.length,
-        timestamp: new Date().toISOString(),
-      }));
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'security_scanner.report_synthesis_failed',
+          message: toErrorMessage(err),
+          findingsCount: scanResult.findings.length,
+          timestamp: new Date().toISOString(),
+        }),
+      );
       // Fallback to basic report
       return this.generateBasicReport(projectRoot, techStack, scanResult);
     }
@@ -436,7 +491,11 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
   /**
    * Generate a basic fallback report when LLM synthesis fails.
    */
-  private generateBasicReport(projectRoot: string, techStack: TechStackInfo, scanResult: ScanResult): string {
+  private generateBasicReport(
+    projectRoot: string,
+    techStack: TechStackInfo,
+    scanResult: ScanResult,
+  ): string {
     const lines: string[] = [];
     lines.push('# Security Scan Report');
     lines.push('');
@@ -454,9 +513,16 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
     lines.push(`| 🟡 Medium | ${scanResult.summary.medium} |`);
     lines.push(`| 🟢 Low | ${scanResult.summary.low} |`);
     lines.push('');
-    
+
     for (const finding of scanResult.findings) {
-      const emoji = finding.severity === 'critical' ? '🔴' : finding.severity === 'high' ? '🟠' : finding.severity === 'medium' ? '🟡' : '🟢';
+      const emoji =
+        finding.severity === 'critical'
+          ? '🔴'
+          : finding.severity === 'high'
+            ? '🟠'
+            : finding.severity === 'medium'
+              ? '🟡'
+              : '🟢';
       lines.push(`## ${emoji} ${finding.title}`);
       lines.push('');
       lines.push(`**File:** \`${finding.file}${finding.line ? `:${finding.line}` : ''}\``);
@@ -472,17 +538,20 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
       lines.push(`**Remediation:** ${finding.remediation}`);
       lines.push('');
     }
-    
+
     return lines.join('\n');
   }
 
   /**
    * Write synthesized report to file.
    */
-  private async writeReport(content: string, reportOptions?: Partial<ReportOptions>): Promise<string> {
+  private async writeReport(
+    content: string,
+    reportOptions?: Partial<ReportOptions>,
+  ): Promise<string> {
     const outputDir = reportOptions?.outputDir || 'security-reports';
     const format = reportOptions?.format || 'markdown';
-    
+
     try {
       await mkdir(outputDir, { recursive: true });
     } catch {
@@ -502,7 +571,7 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
    */
   private async gatherProjectInfo(projectRoot: string, _techStack: TechStackInfo): Promise<string> {
     const info: string[] = [];
-    
+
     // Read key project files
     const keyFiles = [
       'package.json',
@@ -525,7 +594,10 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
     // Add directory structure hint
     try {
       const entries = await readdir(projectRoot, { withFileTypes: true });
-      const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).slice(0, 20);
+      const dirs = entries
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .slice(0, 20);
       info.push(`\n--- Project Directories ---\n${dirs.join(', ')}`);
     } catch {
       // Skip
@@ -540,12 +612,12 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
   private async gatherFiles(
     root: string,
     _patterns: string[],
-    depth: 'quick' | 'standard' | 'deep'
+    depth: 'quick' | 'standard' | 'deep',
   ): Promise<string[]> {
     const files: string[] = [];
     const maxDepth = depth === 'quick' ? 2 : depth === 'deep' ? 20 : 5;
     const extensions = ['.ts', '.js', '.jsx', '.tsx', '.py', '.go', '.java', '.cs', '.rs'];
-    
+
     await this.gatherFilesRecursive(root, files, extensions, 0, maxDepth);
     return files;
   }
@@ -555,7 +627,7 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
     files: string[],
     extensions: string[],
     currentDepth: number,
-    maxDepth: number
+    maxDepth: number,
   ): Promise<void> {
     if (currentDepth > maxDepth) return;
 
@@ -564,15 +636,22 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const name = entry.name;
-          if (name === 'node_modules' || name === 'dist' || name === 'build' || 
-              name === '.git' || name === 'coverage' || name.startsWith('.')) continue;
-          
+          if (
+            name === 'node_modules' ||
+            name === 'dist' ||
+            name === 'build' ||
+            name === '.git' ||
+            name === 'coverage' ||
+            name.startsWith('.')
+          )
+            continue;
+
           await this.gatherFilesRecursive(
             join(dir, entry.name),
             files,
             extensions,
             currentDepth + 1,
-            maxDepth
+            maxDepth,
           );
         } else if (entry.isFile()) {
           const ext = entry.name.lastIndexOf('.');
@@ -611,7 +690,9 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
       metadata: {
         generatedAt: new Date().toISOString(),
         confidence: 0.5,
-        targetFiles: [`**/*.${techStack.stack === 'nodejs' ? 'ts' : techStack.stack === 'python' ? 'py' : 'ts'}`],
+        targetFiles: [
+          `**/*.${techStack.stack === 'nodejs' ? 'ts' : techStack.stack === 'python' ? 'py' : 'ts'}`,
+        ],
       },
     };
   }
@@ -640,7 +721,9 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
       summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
       scannedFiles: 0,
       scanDurationMs: 0,
-      errors: ['Quick scan without LLM context is not fully supported. Use run(ctx, options) for full scan.'],
+      errors: [
+        'Quick scan without LLM context is not fully supported. Use run(ctx, options) for full scan.',
+      ],
     };
   }
 }
