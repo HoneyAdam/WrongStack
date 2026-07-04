@@ -86,7 +86,7 @@ function compactSchemaNode(node: unknown, maxDescriptionChars: number): unknown 
   return out;
 }
 
-function compactDescription(text: string, maxChars: number): string {
+export function compactDescription(text: string, maxChars: number): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (normalized.length <= maxChars) return normalized;
   if (maxChars <= 20) return normalized.slice(0, maxChars);
