@@ -1,4 +1,6 @@
-import { type Context, DefaultTokenCounter, HybridCompactor, SlashCommandRegistry, ToolRegistry } from '@wrongstack/core';
+import { type Context, SlashCommandRegistry, ToolRegistry } from '@wrongstack/core';
+import { HybridCompactor } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it } from 'vitest';
 import { classifyError, needsSubagent, isSimpleFix } from '../src/slash-commands/fix-classifier.js';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';

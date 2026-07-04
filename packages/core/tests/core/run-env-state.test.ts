@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  Context,
-  ConversationState,
-  DefaultTokenCounter,
-  extractRunEnv,
-  wrapAsState,
-} from '../../src/index.js';
+import { Context } from '../../src/core/context.js';
+import { ConversationState, wrapAsState } from '../../src/core/conversation-state.js';
+import { extractRunEnv } from '../../src/core/run-env.js';
+import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
 import type { Message, Provider, SessionWriter, TextBlock } from '../../src/index.js';
 
 const fakeProvider = {} as Provider;

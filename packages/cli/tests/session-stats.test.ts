@@ -1,5 +1,6 @@
 import { Writable } from 'node:stream';
-import { DefaultTokenCounter, EventBus, stripAnsi } from '@wrongstack/core';
+import { EventBus, stripAnsi } from '@wrongstack/core';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it } from 'vitest';
 import { TerminalRenderer } from '../src/renderer.js';
 import { SessionStats } from '../src/session-stats.js';

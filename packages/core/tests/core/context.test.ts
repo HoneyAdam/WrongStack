@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Context, DefaultTokenCounter } from '../../src/index.js';
+import { Context } from '../../src/core/context.js';
+import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
 import type { Provider, SessionWriter, TextBlock } from '../../src/index.js';
 
 const fakeProvider = {} as Provider;

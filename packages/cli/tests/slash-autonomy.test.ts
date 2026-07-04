@@ -3,8 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   type Context,
-  DefaultTokenCounter,
-  HybridCompactor,
   SlashCommandRegistry,
   ToolRegistry,
   appendJournal,
@@ -12,6 +10,8 @@ import {
   goalFilePath,
   saveGoal,
 } from '@wrongstack/core';
+import { HybridCompactor } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAutonomyCommand, type AutonomyMode } from '../src/slash-commands/autonomy.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

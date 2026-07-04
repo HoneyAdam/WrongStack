@@ -67,6 +67,9 @@ const TEMPORARY_SLASH_COMMAND_IMPORT_ALLOWLIST = new Set<string>([
   'packages/cli/src/cli-eternal-flag.ts',
   'packages/cli/src/boot/dispatch-webui.ts',
   'packages/cli/src/boot/system-prompt-builder.ts',
+  // Extracted from execution.ts (Phase C3/C5) — carry its pre-existing violations.
+  'packages/cli/src/boot/tui-project-picker-callback.ts',
+  'packages/cli/src/boot/tui-sdd-callback.ts',
   'packages/cli/src/next-task-predictor.ts',
 ]);
 
