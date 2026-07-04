@@ -6,6 +6,7 @@ import { useConfigStore, useUIStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
 import { ArrowRight, Cpu, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 import { buildModelCandidates } from './QuickModelSwitcher.filter';
 
 interface SavedProvider {
@@ -133,19 +134,18 @@ export function QuickModelSwitcher() {
     setOpen(false);
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-background/60 backdrop-blur-sm pt-[15dvh]"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) setOpen(false);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') setOpen(false);
-      }}
-    >
-      <div className="w-full max-w-xl rounded-xl border bg-popover shadow-2xl overflow-hidden">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+      <DialogContent
+        className="max-w-xl gap-0 p-0 overflow-hidden pt-[15dvh]"
+        showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          inputRef.current?.focus();
+        }}
+      >
+        <DialogTitle className="sr-only">{t('activity:modelSwitcher.heading')}</DialogTitle>
+        <DialogDescription className="sr-only">{t('activity:modelSwitcher.filterPlaceholder')}</DialogDescription>
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
@@ -165,12 +165,10 @@ export function QuickModelSwitcher() {
               } else if (e.key === 'Enter') {
                 e.preventDefault();
                 commit(selected);
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                setOpen(false);
               }
             }}
             placeholder={t('activity:modelSwitcher.filterPlaceholder')}
+            aria-label={t('activity:modelSwitcher.filterPlaceholder')}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
           />
           <span className="text-[10px] text-muted-foreground font-mono">↑↓ · Enter · Esc</span>
@@ -224,7 +222,7 @@ export function QuickModelSwitcher() {
             ))
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

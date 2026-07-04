@@ -1,8 +1,9 @@
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Shield, Square, Terminal, X } from 'lucide-react';
+import { Shield, Square, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -69,17 +70,16 @@ export function ProcessMonitor({
 
   const running = processes.filter((p) => p.status === 'running');
 
-  if (!open) return null;
-
   return (
-    <div
-      className={cn(
-        'fixed inset-0 z-50 flex items-start justify-center pt-[10dvh] bg-black/40 backdrop-blur-sm',
-        className,
-      )}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="flex max-h-[75dvh] min-h-0 w-full max-w-lg flex-col rounded-xl border bg-card shadow-2xl animate-in fade-in zoom-in-95">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent
+        className={cn('max-w-lg gap-0 p-0 overflow-hidden flex flex-col max-h-[75dvh] pt-[10dvh]', className)}
+        showCloseButton={false}
+      >
+        <DialogTitle className="sr-only">{t('activity:process.heading')}</DialogTitle>
+        <DialogDescription className="sr-only">
+          {t('activity:process.subtitle', { active: running.length, total: processes.length })}
+        </DialogDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <div className="flex items-center gap-2.5">
@@ -104,13 +104,6 @@ export function ProcessMonitor({
                 {t('activity:process.killAll')}
               </button>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 rounded-md hover:bg-muted transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
         </div>
 
@@ -202,7 +195,7 @@ export function ProcessMonitor({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

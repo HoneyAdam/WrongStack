@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
 import { SLASH_COMMANDS } from '../ChatInput/slash-commands.js';
 import {
   type RunChatSlashCommandOptions,
@@ -83,14 +84,12 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl+K toggles the palette from anywhere (including closed — Radix
+      // Dialog only handles Escape + focus once it's open, so we still own
+      // the open trigger). Escape-on-close is handled by Radix now.
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setOpen(!useUIStore.getState().paletteOpen);
-        return;
-      }
-      if (e.key === 'Escape' && useUIStore.getState().paletteOpen) {
-        e.preventDefault();
-        setOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -304,8 +303,6 @@ export function CommandPalette() {
 
   useEffect(() => { if (index >= filtered.length) setIndex(0); }, [filtered.length, index]);
 
-  if (!open) return null;
-
   const dispatchPick = (item: PaletteItem | undefined) => {
     if (!item) return;
     setOpen(false);
@@ -313,16 +310,22 @@ export function CommandPalette() {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-start justify-center pt-[14dvh] px-4"
-      onClick={() => setOpen(false)}
-      onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl rounded-xl border bg-popover shadow-2xl overflow-hidden flex flex-col"
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+      <DialogContent
+        className="max-w-2xl gap-0 p-0 overflow-hidden pt-[14dvh]"
+        // The palette has its own footer; hide the default Radix close X so
+        // it doesn't overlap the search input. Escape + backdrop still work.
+        showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          // Focus the search input instead of the dialog container.
+          e.preventDefault();
+          inputRef.current?.focus();
+        }}
       >
+        {/* Visually-hidden accessible title/description so Radix's a11y
+            contract is satisfied without cluttering the visual layout. */}
+        <DialogTitle className="sr-only">{t('commandPalette:title')}</DialogTitle>
+        <DialogDescription className="sr-only">{t('commandPalette:placeholder')}</DialogDescription>
         <div className="flex items-center gap-2 px-4 py-3 border-b">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
@@ -330,6 +333,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('commandPalette:placeholder')}
+            aria-label={t('commandPalette:placeholder')}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setIndex((i) => (i + 1) % Math.max(1, filtered.length)); }
@@ -353,8 +357,8 @@ export function CommandPalette() {
           <span>{t('commandPalette:footer.select')}</span>
           <span>{t('commandPalette:footer.dismiss')}</span>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -780,6 +780,7 @@
     "noMatch": "No match"
   },
   "modelSwitcher": {
+    "heading": "Switch model",
     "filterPlaceholder": "Filter providers and models…",
     "noSavedProviders": "No saved providers — register a key in Settings first.",
     "active": "active"

@@ -1,5 +1,6 @@
 {
   "placeholder": "Search commands, sessions, settings…",
+  "title": "Command palette",
   "noMatches": "No matches for \"{{query}}\"",
   "footer": {
     "navigate": "↑↓ navigate",

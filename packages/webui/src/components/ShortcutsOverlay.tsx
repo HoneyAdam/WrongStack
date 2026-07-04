@@ -1,7 +1,8 @@
 import { useUIStore } from '@/stores';
 import { useAppTranslation } from '@/i18n';
-import { Keyboard, X } from 'lucide-react';
+import { Keyboard } from 'lucide-react';
 import { useEffect } from 'react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 interface Shortcut {
   keys: string[];
@@ -92,53 +93,30 @@ export function ShortcutsOverlay() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // "?" — but only when the user isn't typing in an input. Otherwise
-      // typing a literal "?" into the chat would open this overlay.
+      // "?" toggles from anywhere (open when closed); Escape-on-close is
+      // handled by Radix Dialog now, so it's intentionally not mirrored here.
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
       const isTyping = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
       if (!isTyping && e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         setOpen(!useUIStore.getState().shortcutsOpen);
-        return;
-      }
-      if (e.key === 'Escape' && useUIStore.getState().shortcutsOpen) {
-        e.preventDefault();
-        setOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setOpen]);
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center px-4"
-      onClick={() => setOpen(false)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') setOpen(false);
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl rounded-xl border bg-popover shadow-2xl overflow-hidden flex flex-col max-h-[80dvh]"
-      >
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+      <DialogContent className="max-w-2xl gap-0 p-0 overflow-hidden flex flex-col max-h-[80dvh]">
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div className="flex items-center gap-2">
             <Keyboard className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">{t('activity:shortcuts.heading')}</h2>
+            <DialogTitle className="text-sm font-semibold">{t('activity:shortcuts.heading')}</DialogTitle>
           </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
+        <DialogDescription className="sr-only">{t('activity:shortcuts.heading')}</DialogDescription>
         <div className="overflow-y-auto px-5 py-4 space-y-6">
           {SHORTCUTS.map((group) => (
             <div key={group.sectionKey}>
@@ -173,7 +151,7 @@ export function ShortcutsOverlay() {
           <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-background">?</kbd>{' '}
           {t('activity:shortcuts.footerPost')}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

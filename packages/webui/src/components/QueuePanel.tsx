@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useChatStore } from '@/stores';
 import type { QueuedItem, QueueMode } from '@/stores/chat-store';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 type SortDir = 'oldest' | 'newest';
 
@@ -70,19 +71,16 @@ export function QueuePanel({
     return indexed;
   }, [queue, sortDir]);
 
-  if (!open) return null;
-
   return (
-    <div
-      className={cn(
-        'fixed inset-0 z-50 flex items-start justify-center pt-[10dvh] bg-black/40 backdrop-blur-sm',
-        className,
-      )}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="flex max-h-[70dvh] min-h-0 w-full max-w-lg flex-col rounded-xl border bg-card shadow-2xl animate-in fade-in zoom-in-95">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent
+        className={cn('max-w-lg gap-0 p-0 overflow-hidden flex flex-col max-h-[70dvh] pt-[10dvh]', className)}
+        showCloseButton={false}
+      >
+        <DialogTitle className="sr-only">{t('activity:queue.heading')}</DialogTitle>
+        <DialogDescription className="sr-only">
+          {t('activity:queue.subtitle', { count: queue.length })}
+        </DialogDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <div className="flex items-center gap-2.5">
@@ -130,14 +128,6 @@ export function QueuePanel({
                 {t('activity:queue.clear')}
               </button>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 rounded-md hover:bg-muted transition-colors"
-              title={t('activity:queue.closeTitle')}
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
         </div>
 
@@ -201,8 +191,8 @@ export function QueuePanel({
             <p className="text-[10px] text-muted-foreground text-center">{t('activity:queue.footer')}</p>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -34,3 +34,12 @@ export {
 export { SparklineChart } from './sparkline';
 export { ConcurrencyGauge } from './concurrency-gauge';
 export { EventTimeline } from './event-timeline';
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from './sheet';
