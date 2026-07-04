@@ -1,12 +1,10 @@
 ## MCP tools (lazy-loaded)
 
-MCP server tools are not registered by default in token-saving mode to keep the prompt compact. Each server's process is running in the background; only tool registration is deferred.
+MCP servers are running in the background, but their tools are not registered in token-saving mode — only registration is deferred. When you need a server's tools:
 
-When you need a specific MCP server's tools:
-
-1. `mcp_control({ action: "list" })`: see which servers are connected
-2. `mcp_control({ action: "activate", server: "<name>" })`: register its tools
+1. `mcp_control({ action: "list" })` — see connected servers
+2. `mcp_control({ action: "activate", server: "<name>" })` — register its tools
 3. Use the tools as needed
-4. `mcp_control({ action: "deactivate", server: "<name>" })`: unregister when done
+4. `mcp_control({ action: "deactivate", server: "<name>" })` — unregister when done
 
-Activation/deactivation is ephemeral (no config writes) and does not affect the server connection, only tool visibility.
+Activation/deactivation is ephemeral (no config writes) and affects only tool visibility, not the server connection.
