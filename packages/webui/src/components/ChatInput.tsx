@@ -2,6 +2,7 @@ import { expectDefined, toErrorMessage } from '@wrongstack/core';
 import { Bell, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -29,7 +30,14 @@ export function ChatInput({
 }: {
   onOpenBreakdown?: (() => void) | undefined;
 } = {}) {
-  const { isLoading, setLoading, addMessage, clearMessages } = useChatStore();
+  const { isLoading, setLoading, addMessage, clearMessages } = useChatStore(
+    useShallow((s) => ({
+      isLoading: s.isLoading,
+      setLoading: s.setLoading,
+      addMessage: s.addMessage,
+      clearMessages: s.clearMessages,
+    })),
+  );
   const messages = useChatStore((s) => s.messages);
   /** A "started" chat is one that already has at least one message — i.e.
    *  the user has sent a prompt at some point and is now either waiting
@@ -42,7 +50,7 @@ export function ChatInput({
   const enqueue = useChatStore((s) => s.enqueue);
   const removeQueued = useChatStore((s) => s.removeQueued);
   const clearQueue = useChatStore((s) => s.clearQueue);
-  const { setCurrentView } = useUIStore();
+  const setCurrentView = useUIStore((s) => s.setCurrentView);
   const pushPrompt = useUIStore((s) => s.pushPrompt);
   const promptHistory = useUIStore((s) => s.promptHistory);
   const ws = useWebSocket();

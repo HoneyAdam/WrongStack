@@ -3,6 +3,7 @@ import { useConfigStore, useSessionStore } from '@/stores';
 import { fmtTok } from '@/components/ChatView/utils';
 import { AlertTriangle, FileText, MessageSquare, RefreshCw, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppTranslation, i18n } from '@/i18n';
 
 /** Debug payload from context.debug WS response. */
@@ -26,7 +27,9 @@ interface ContextBreakdownModalProps {
 
 export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalProps) {
   const wsUrl = useConfigStore((s) => s.wsUrl);
-  const { lastInputTokens, maxContext } = useSessionStore();
+  const { lastInputTokens, maxContext } = useSessionStore(
+    useShallow((s) => ({ lastInputTokens: s.lastInputTokens, maxContext: s.maxContext })),
+  );
   const { t } = useAppTranslation();
 
   const [data, setData] = useState<ContextDebugPayload | null>(null);

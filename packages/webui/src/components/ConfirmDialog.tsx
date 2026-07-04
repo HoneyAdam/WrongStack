@@ -4,6 +4,7 @@ import { useLocalPrefs } from '@/stores/local-prefs';
 import { useUIStore } from '@/stores';
 import { AlertTriangle, FileEdit, Globe, ShieldAlert, Terminal, Wrench, Zap } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { DiffView, diffFromToolInput } from './DiffView';
 import { Button } from './ui/button';
 import {
@@ -94,7 +95,13 @@ function SmartInputPreview({
 }
 
 export function ConfirmDialog() {
-  const { showConfirmDialog, confirmInfo, hideConfirm } = useUIStore();
+  const { showConfirmDialog, confirmInfo, hideConfirm } = useUIStore(
+    useShallow((s) => ({
+      showConfirmDialog: s.showConfirmDialog,
+      confirmInfo: s.confirmInfo,
+      hideConfirm: s.hideConfirm,
+    })),
+  );
   const { t } = useAppTranslation();
   const yolo = useLocalPrefs((s) => s.yolo);
   const setLocalPrefs = useLocalPrefs((s) => s.set);

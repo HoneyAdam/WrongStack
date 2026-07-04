@@ -21,6 +21,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { ContextFillBar } from './ContextBar';
 import { ContextBreakdownModal } from './ContextBreakdownModal';
 import { AgentTranscript } from './AgentTranscript';
@@ -579,8 +580,21 @@ export function AgentsPage({
 }): React.ReactElement {
   const { t } = useAppTranslation();
   const fleetAgents = useFleetStore((s) => s.agents);
-  const sessionStore = useSessionStore();
-  const { provider, model } = useConfigStore();
+  // Narrow selectors — the bare `useSessionStore()` form re-rendered on every
+  // unrelated session-store write (todos, modes, …). We only consume the
+  // cost/context/identity fields below.
+  const sessionStore = useSessionStore(
+    useShallow((s) => ({
+      sessionId: s.session?.id,
+      cost: s.cost,
+      lastInputTokens: s.lastInputTokens,
+      maxContext: s.maxContext,
+      startTime: s.startTime,
+    })),
+  );
+  const { provider, model } = useConfigStore(
+    useShallow((s) => ({ provider: s.provider, model: s.model })),
+  );
   const chatIsLoading = useChatStore((s) => s.isLoading);
   const chatMessages = useChatStore((s) => s.messages);
 
@@ -602,7 +616,7 @@ export function AgentsPage({
     return {
       id: 'leader',
       name: 'LEADER',
-      sessionId: sessionStore.session?.id,
+      sessionId: sessionStore.sessionId,
       provider,
       model,
       status: isLoading ? ('running' as const) : ('idle' as const),
@@ -619,7 +633,7 @@ export function AgentsPage({
       extensions: 0,
       toolLog: [],
     };
-  }, [provider, model, sessionStore.cost, sessionStore.lastInputTokens, sessionStore.maxContext, sessionStore.startTime, sessionStore.session?.id, chatMessages, chatIsLoading]);
+  }, [provider, model, sessionStore.cost, sessionStore.lastInputTokens, sessionStore.maxContext, sessionStore.startTime, sessionStore.sessionId, chatMessages, chatIsLoading]);
 
   // ── Merge leader + fleet ──
   // The server now emits subagent.event for subagentId 'leader' as well.

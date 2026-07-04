@@ -26,6 +26,7 @@ import {
   Shield,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import QRCode from 'qrcode';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -871,7 +872,15 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
 
 export function SetupScreen() {
   const { t } = useAppTranslation();
-  const { model, setProvider, setModel, wsConnected, wsUrl } = useConfigStore();
+  const { model, setProvider, setModel, wsConnected, wsUrl } = useConfigStore(
+    useShallow((s) => ({
+      model: s.model,
+      setProvider: s.setProvider,
+      setModel: s.setModel,
+      wsConnected: s.wsConnected,
+      wsUrl: s.wsUrl,
+    })),
+  );
   useWebSocket();
 
   // Step: 'keys' | 'done'

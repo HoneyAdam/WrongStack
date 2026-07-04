@@ -22,7 +22,7 @@ export function ThemeProvider({
   defaultTheme = 'system',
   storageKey = 'wrongstack-theme',
 }: ThemeProviderProps) {
-  const { setTheme: setStoreTheme } = useConfigStore();
+  const setStoreTheme = useConfigStore((s) => s.setTheme);
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem(storageKey) as Theme) || defaultTheme;

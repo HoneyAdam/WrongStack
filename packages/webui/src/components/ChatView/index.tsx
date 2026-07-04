@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { VList, type VListHandle } from 'virtua';
 import { AutonomyPicker } from '../AutonomyPicker';
 import { ChatInput } from '../ChatInput';
@@ -120,7 +121,19 @@ export function ChatView() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const compactMode = useUIStore((s) => s.compactMode);
-  const { totalTokens, startTime, lastInputTokens, maxContext, iteration } = useSessionStore();
+  // Narrow selectors via useShallow — the bare `useSessionStore()` form used
+  // here re-rendered ChatView on every unrelated session-store write (todos,
+  // modes, env, …). The shallow slice only changes when one of these five
+  // fields actually flips.
+  const { totalTokens, startTime, lastInputTokens, maxContext, iteration } = useSessionStore(
+    useShallow((s) => ({
+      totalTokens: s.totalTokens,
+      startTime: s.startTime,
+      lastInputTokens: s.lastInputTokens,
+      maxContext: s.maxContext,
+      iteration: s.iteration,
+    })),
+  );
   const session = useSessionStore((s) => s.session);
   const sessionId = session?.id;
   const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
@@ -144,7 +157,9 @@ export function ChatView() {
     return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onKey); };
   }, [switcherOpen]);
 
-  const { provider, model } = useConfigStore();
+  const { provider, model } = useConfigStore(
+    useShallow((s) => ({ provider: s.provider, model: s.model })),
+  );
   const vlistRef = useRef<VListHandle>(null);
 
   // Grouped, memoized rows — recomputed only when the messages array identity

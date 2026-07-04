@@ -19,6 +19,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 interface PromptCard {
   id: 'understand' | 'create' | 'investigate' | 'improve';
@@ -105,8 +106,12 @@ function fillTextarea(text: string): void {
 
 export function WelcomeScreen() {
   const { t } = useAppTranslation();
-  const { projectName, cwd } = useSessionStore();
-  const { provider, model } = useConfigStore();
+  const { projectName, cwd } = useSessionStore(
+    useShallow((s) => ({ projectName: s.projectName, cwd: s.cwd })),
+  );
+  const { provider, model } = useConfigStore(
+    useShallow((s) => ({ provider: s.provider, model: s.model })),
+  );
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const wsUrl = useConfigStore((s) => s.wsUrl);
   /** Saved-provider count. We subscribe directly to `providers.saved`

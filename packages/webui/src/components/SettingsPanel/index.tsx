@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { toast } from '@/components/Toaster';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import {
@@ -122,7 +123,17 @@ function routeRuntimeParts(reasoning: ModelRouteReasoning | undefined): string[]
 }
 
 export function SettingsPanel() {
-  const { provider, model: activeModel, setProvider, setModel, setConfig, wsConnected, wsUrl } = useConfigStore();
+  const { provider, model: activeModel, setProvider, setModel, setConfig, wsConnected, wsUrl } = useConfigStore(
+    useShallow((s) => ({
+      provider: s.provider,
+      model: s.model,
+      setProvider: s.setProvider,
+      setModel: s.setModel,
+      setConfig: s.setConfig,
+      wsConnected: s.wsConnected,
+      wsUrl: s.wsUrl,
+    })),
+  );
   const { theme, setTheme } = useTheme();
   const ws = useWebSocket();
   const wsClient = ws.client;

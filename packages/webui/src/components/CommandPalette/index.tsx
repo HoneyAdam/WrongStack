@@ -40,6 +40,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { SLASH_COMMANDS } from '../ChatInput/slash-commands.js';
 import {
   type RunChatSlashCommandOptions,
@@ -61,8 +62,10 @@ export function CommandPalette() {
   const open = useUIStore((s) => s.paletteOpen);
   const setOpen = useUIStore((s) => s.setPaletteOpen);
   const setTheme = useConfigStore((s) => s.setTheme);
-  const { entries: historyEntries } = useHistoryStore();
-  const { addMessage, clearMessages } = useChatStore();
+  const historyEntries = useHistoryStore((s) => s.entries);
+  const { addMessage, clearMessages } = useChatStore(
+    useShallow((s) => ({ addMessage: s.addMessage, clearMessages: s.clearMessages })),
+  );
   const ws = useWebSocket();
   const { t } = useAppTranslation();
 

@@ -8,6 +8,7 @@
  */
 
 import { Activity, Bot, Cpu, Users, Zap } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { type BackgroundStyle, useMonitorStore, useOfficeMapStore } from '@/stores';
@@ -69,7 +70,14 @@ export function OfficeMapSettingsPanel() {
     setBackground,
   } = useOfficeMapStore();
 
-  const { clientCounts, currentSession, totalAgents, activeAgents } = useMonitorStore();
+  const { clientCounts, currentSession, totalAgents, activeAgents } = useMonitorStore(
+    useShallow((s) => ({
+      clientCounts: s.clientCounts,
+      currentSession: s.currentSession,
+      totalAgents: s.totalAgents,
+      activeAgents: s.activeAgents,
+    })),
+  );
   const totalClients = clientCounts.tui + clientCounts.webui + clientCounts.repl;
   const fmtNum = (n?: number) => n?.toLocaleString() ?? '0';
 

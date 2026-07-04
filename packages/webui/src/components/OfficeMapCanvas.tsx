@@ -31,6 +31,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Bot,
   Monitor,
@@ -140,7 +141,15 @@ function StatusLED({ status, small, activity = 0 }: { status: ClientStatus; smal
 
 function StatsHUD() {
   const { t } = useAppTranslation();
-  const { clientCounts, currentSession, totalAgents, activeAgents, aggregate } = useMonitorStore();
+  const { clientCounts, currentSession, totalAgents, activeAgents, aggregate } = useMonitorStore(
+    useShallow((s) => ({
+      clientCounts: s.clientCounts,
+      currentSession: s.currentSession,
+      totalAgents: s.totalAgents,
+      activeAgents: s.activeAgents,
+      aggregate: s.aggregate,
+    })),
+  );
   const totalClients = clientCounts.tui + clientCounts.webui + clientCounts.repl;
 
   // Format tokens with commas
