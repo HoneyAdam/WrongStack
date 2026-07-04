@@ -165,6 +165,14 @@ export function handleRunResult(msg: WSServerMessage) {
   useChatStore.getState().flushThinkingLog(Math.max(1, payload.iterations));
   useSessionStore.getState().setIteration(null);
   useChatStore.getState().setLoading(false);
+  // Finalize the streaming assistant message so the UI stops showing the
+  // typing indicator. Previously the message stayed `streaming: true` even
+  // after run.result, leaving a perpetual "typing…" bubble if no later
+  // message superseded it.
+  const streamingId = useChatStore.getState().currentAssistantMessageId;
+  if (streamingId) {
+    useChatStore.getState().updateMessage(streamingId, { streaming: false });
+  }
   useChatStore.getState().setCurrentAssistantMessage(null);
   useChatStore.getState().clearThinking();
   const runStart = useChatStore.getState().runStart;
