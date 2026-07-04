@@ -13,7 +13,20 @@ concurrency:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # Matrix: ubuntu-latest (existing) + windows-latest (J-area coverage).
+    # The project claims Windows support in its lockstep-release story
+    # (publishes to npm on 3 platforms per docs/zero-report.md), but
+    # CI has historically run only on Linux, leaving Windows-specific
+    # code paths (shell escaping, path handling, line-ending) unverified
+    # until release day. Adding windows-latest here exposes those
+    # failures at PR time, where they're cheap to fix. macos-latest
+    # is intentionally not included — start with the most user-relevant
+    # OS (Windows) and add others if Windows coverage proves valuable.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
     steps:
