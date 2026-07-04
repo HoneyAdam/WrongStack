@@ -1411,49 +1411,64 @@ export function OfficeMapCanvas() {
   }, [vizEvents, setNodes, setEdges, ACTIVE_MS, fleetAgents]);
 
   // Decay edge intensities and node activity over time (runs every second).
+  //
+  // Performance: previously this called setEdges/setNodes ONCE PER active
+  // element inside the loop, so a fleet with N live edges + M live nodes
+  // triggered N+M React state updates (and full array rebuilds) every tick.
+  // We now mutate the refs in place and apply a SINGLE setEdges + SINGLE
+  // setNodes at the end, collapsing N+M renders into at most two.
   useEffect(() => {
     const interval = setInterval(() => {
-      // Decay edge intensities
+      const edgeUpdates = new Map<string, { intensity: number; animated: boolean }>();
+      let edgesChanged = false;
       for (const [id, intensity] of edgeIntensitiesRef.current) {
         const decayed = intensity * 0.85;
         if (decayed < 0.05) {
           edgeIntensitiesRef.current.delete(id);
-          setEdges((eds) =>
-            eds.map((e) =>
-              e.id === id
-                ? { ...e, animated: false, data: { ...e.data, animated: false } }
-                : e,
-            ),
-          );
+          edgeUpdates.set(id, { intensity: 0, animated: false });
+          edgesChanged = true;
         } else {
           edgeIntensitiesRef.current.set(id, decayed);
-          setEdges((eds) =>
-            eds.map((e) =>
-              e.id === id ? { ...e, data: { ...e.data, intensity: decayed } } : e,
-            ),
-          );
+          edgeUpdates.set(id, { intensity: decayed, animated: true });
+          edgesChanged = true;
         }
       }
+      if (edgesChanged) {
+        setEdges((eds) =>
+          eds.map((e) => {
+            const upd = edgeUpdates.get(e.id);
+            return upd
+              ? {
+                  ...e,
+                  animated: upd.animated,
+                  data: { ...e.data, animated: upd.animated, intensity: upd.intensity },
+                }
+              : e;
+          }),
+        );
+      }
 
-      // Decay node activity
+      const nodeUpdates = new Map<string, number>();
+      let nodesChanged = false;
       for (const [id, activity] of vizActivityRef.current) {
         const decayed = activity * 0.90;
         if (decayed < 0.03) {
           vizActivityRef.current.delete(id);
-          // Clear activity from node data
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === id ? { ...n, data: { ...n.data, vizActivity: 0 } } : n,
-            ),
-          );
+          nodeUpdates.set(id, 0);
+          nodesChanged = true;
         } else {
           vizActivityRef.current.set(id, decayed);
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === id ? { ...n, data: { ...n.data, vizActivity: decayed } } : n,
-            ),
-          );
+          nodeUpdates.set(id, decayed);
+          nodesChanged = true;
         }
+      }
+      if (nodesChanged) {
+        setNodes((nds) =>
+          nds.map((n) => {
+            const next = nodeUpdates.get(n.id);
+            return next !== undefined ? { ...n, data: { ...n.data, vizActivity: next } } : n;
+          }),
+        );
       }
     }, 1000);
     return () => clearInterval(interval);
