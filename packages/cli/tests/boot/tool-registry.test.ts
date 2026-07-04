@@ -82,10 +82,10 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
       events: makeEvents() as never,
       wpaths: makeWpaths() as never,
     });
-    // Exactly three single-tool registrations: mailbox,
-    // mail_send, mail_inbox. No memory tools.
+    // Exactly four single-tool registrations: mailbox,
+    // mail_send, mail_inbox, fleet_status. No memory tools.
     const singles = calls.filter(c => c.kind === 'single');
-    expect(singles).toHaveLength(3);
+    expect(singles).toHaveLength(4);
   });
 
   it('skips memory tools when memoryStore is null even if features.memory is true', () => {
@@ -107,7 +107,7 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
     // features.memory && memoryStore \u2014 the null case
     // is now a no-op.
     const singles = calls.filter(c => c.kind === 'single');
-    expect(singles).toHaveLength(3);
+    expect(singles).toHaveLength(4);
   });
 
   it('registers all four memory tools when features.memory is true AND memoryStore is provided', () => {
@@ -120,10 +120,10 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
       events: makeEvents() as never,
       wpaths: makeWpaths() as never,
     });
-    // 3 mailbox tools + 4 memory tools = 7 single
+    // 3 mailbox tools + fleet_status + 4 memory tools = 8 single
     // registrations.
     const singles = calls.filter(c => c.kind === 'single');
-    expect(singles).toHaveLength(7);
+    expect(singles).toHaveLength(8);
   });
 
   it('applies configured tool description modes to the real registry', () => {

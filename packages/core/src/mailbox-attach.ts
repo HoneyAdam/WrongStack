@@ -16,8 +16,10 @@ import { wstackGlobalRoot } from './utils/wstack-paths.js';
 import { toErrorMessage } from './utils/error.js';
 import { mailboxSessionTag, resolveMailboxIdentity } from './coordination/mailbox-tool.js';
 import type { Mailbox, MailboxMessage } from './coordination/mailbox-types.js';
+import type { FleetConfig } from './types/config.js';
 import type { AgentInternals } from './core/agent-internals.js';
 import { createMailboxChecker } from './core/mailbox-loop.js';
+import { buildFleetPulseBlock, fleetPulseSignature } from './core/fleet-pulse.js';
 
 export function attachMailboxChecker(
   a: AgentInternals,
@@ -118,4 +120,57 @@ function attachMailboxCheckerInner(
     agentId: () => ensureRegistered(),
     aliases: [baseIdOf()],
   });
+}
+
+/** Min interval between registry reads for the pulse — keeps the digest
+ *  from adding a file read to every iteration of a fast agent. */
+const PULSE_MIN_READ_INTERVAL_MS = 30_000;
+
+/**
+ * Fleet-pulse provider: returns a fresh "[FLEET PULSE]" digest block when
+ * (a) the read throttle allows, (b) at least one online peer exists, and
+ * (c) the peer picture actually changed since the last injected pulse.
+ * Otherwise `null`. Same best-effort posture as the mailbox checker — any
+ * failure degrades to "no pulse", never to a thrown error.
+ */
+export function attachFleetPulse(
+  a: AgentInternals,
+  cfg?: FleetConfig['pulse'],
+): () => Promise<{ type: 'text'; text: string } | null> {
+  if (!a.ctx.projectRoot || cfg?.enabled === false) {
+    return async () => null;
+  }
+  try {
+    const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
+    // No EventBus/HQ publisher here — the pulse is a read-only registry
+    // consumer; the checker's mailbox instance already owns event emission.
+    const mailbox: Mailbox = new GlobalMailbox(projectDir);
+    let lastReadAt = 0;
+    let lastSignature = '';
+    return async () => {
+      try {
+        const now = Date.now();
+        if (now - lastReadAt < PULSE_MIN_READ_INTERVAL_MS) return null;
+        lastReadAt = now;
+        const statuses = await mailbox.getAgentStatuses();
+        const selfId =
+          (a.ctx.meta['globalAgentId'] as string | undefined) ??
+          `${a.ctx.agentId ?? 'leader'}@${mailboxSessionTag(a.ctx.session.id)}`;
+        const online = statuses.filter((s) => s.online && s.agentId !== selfId);
+        const signature = fleetPulseSignature(online);
+        if (online.length === 0 || signature === lastSignature) return null;
+        const block = buildFleetPulseBlock(statuses, {
+          selfId,
+          maxAgents: cfg?.maxAgents,
+          maxChars: cfg?.maxChars,
+        });
+        if (block) lastSignature = signature;
+        return block;
+      } catch {
+        return null;
+      }
+    };
+  } catch {
+    return async () => null;
+  }
 }

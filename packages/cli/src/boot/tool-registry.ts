@@ -49,7 +49,7 @@ import type {
   ToolResultRenderModeConfig,
   WstackPaths,
 } from '@wrongstack/core';
-import { applyToolDescriptionModes, applyToolResultRenderModes, createContextManagerTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
+import { applyToolDescriptionModes, applyToolResultRenderModes, createContextManagerTool, makeFleetStatusTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
 import { builtinToolsPack, configureDangerBypass, configureExecPolicy, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from '@wrongstack/tools';
 import { configureAutophasePolicy } from '../autophase-host.js';
 import type { TokenSavingTier } from '@wrongstack/core';
@@ -152,6 +152,12 @@ export function registerBuiltinTools(deps: RegisterBuiltinToolsDeps): void {
   );
   deps.toolRegistry.register(
     makeMailInboxTool({ projectDir: deps.wpaths.projectDir, events: deps.events }),
+  );
+  // Read-only live peer snapshot (fleet_status) — the pull half of peer
+  // awareness; the push half is the periodic fleet-pulse digest in the
+  // agent loop.
+  deps.toolRegistry.register(
+    makeFleetStatusTool({ projectDir: deps.wpaths.projectDir, events: deps.events }),
   );
   applyToolDescriptionModes(deps.toolRegistry, deps.config.tools?.descriptionMode);
   // Apply on-screen result render modes. Independent of descriptionMode —

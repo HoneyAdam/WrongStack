@@ -51,6 +51,7 @@ import {
   getSessionRegistry,
   makeMailboxTool,
   makeMailInboxTool,
+  makeFleetStatusTool,
   makeMailSendTool,
   type Container,
   type ConfigStore,
@@ -200,6 +201,7 @@ export async function createPreContextServices(
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
   toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir, events }));
   toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir, events }));
+  toolRegistry.register(makeFleetStatusTool({ projectDir: wpaths.projectDir, events }));
   applyToolDescriptionModes(toolRegistry, config.tools?.descriptionMode);
   applyToolResultRenderModes(toolRegistry, config.tools?.resultRenderMode);
   configureExecPolicy(config.tools?.exec ?? {});

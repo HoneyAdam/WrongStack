@@ -125,6 +125,9 @@ export const WIDE_SUBAGENT_CAPABILITIES: readonly ToolCapability[] = [
   ToolCapabilities.SHELL_RESTRICTED,
   ToolCapabilities.SHELL_EXEC,
   ToolCapabilities.PACKAGE_INSTALL,
+  // Read-only fleet visibility (fleet_status) — peer awareness has no blast
+  // radius and every fleet worker should coordinate around its peers.
+  ToolCapabilities.COORDINATION_FLEET_READ,
 ];
 
 /**

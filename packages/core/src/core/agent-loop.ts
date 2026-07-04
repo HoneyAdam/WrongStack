@@ -13,7 +13,7 @@ import { toErrorMessage } from '../utils/error.js';
 import { consumeAutonomousContinue } from './continue-to-next-iteration.js';
 import { buildBtwBlock, consumeBtwNotes } from './btw.js';
 import { buildQueuedMessagesBlock, consumeQueuedMessagesUpdate } from './queued-messages.js';
-import { attachMailboxChecker } from '../mailbox-attach.js';
+import { attachFleetPulse, attachMailboxChecker } from '../mailbox-attach.js';
 import { injectPendingMailboxMessages } from './mailbox-loop.js';
 import { runProviderWithRetry } from './provider-runner.js';
 import { requestLimitExtension } from './iteration-limit.js';
@@ -59,6 +59,18 @@ export function createAgentLoopHandler(
   // mailbox path from the session transcript directory. Ephemeral
   // sessions (no transcriptPath) get a no-op that returns [].
   const checkMailbox = attachMailboxChecker(a);
+
+  // Fleet-pulse peer digest — periodic "[FLEET PULSE]" block so every
+  // agent (leader AND fleet subagents) sees what its peers are doing
+  // mid-run, not just at spawn time. Config comes from the bound
+  // ConfigStore when available (CLI/WebUI); bare Agents fall back to
+  // defaults. Cadence: at most every `everyNIterations` iterations, and
+  // the provider itself throttles registry reads + dedups by signature.
+  const fleetPulseCfg = a.container.has(TOKENS.ConfigStore)
+    ? a.container.resolve(TOKENS.ConfigStore).get().fleet?.pulse
+    : undefined;
+  const getFleetPulse = attachFleetPulse(a, fleetPulseCfg);
+  const pulseEveryN = Math.max(1, fleetPulseCfg?.everyNIterations ?? 5);
 
   /**
    * Run context window pipeline — but skip the pipeline call entirely
@@ -573,6 +585,18 @@ export function createAgentLoopHandler(
 
         injectPendingBtwNotes();
         injectQueueAwareness();
+
+        // Fold the fleet-pulse peer digest in on its cadence (i=1, then
+        // every N). Best-effort: the provider returns null on throttle,
+        // no-change, no-peers, or any failure.
+        if (i % pulseEveryN === 1 || pulseEveryN === 1) {
+          try {
+            const pulse = await getFleetPulse();
+            if (pulse) foldBlockIntoConversation(pulse);
+          } catch {
+            // Never let peer awareness break the loop.
+          }
+        }
 
         // Check inter-agent mailbox for steer/btw messages from other agents.
         // Non-blocking best-effort — a broken mailbox must not stop the agent.

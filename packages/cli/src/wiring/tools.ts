@@ -11,6 +11,7 @@ import {
   applyToolResultRenderModes,
   makeMailboxTool,
   makeMailInboxTool,
+  makeFleetStatusTool,
   makeMailSendTool,
   normalizeTokenSavingTier,
   type TokenSavingTier,
@@ -119,6 +120,7 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir }));
   toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir }));
   toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir }));
+  toolRegistry.register(makeFleetStatusTool({ projectDir: wpaths.projectDir }));
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));

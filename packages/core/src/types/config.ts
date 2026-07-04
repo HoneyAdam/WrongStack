@@ -795,6 +795,67 @@ export interface SkillsConfig {
   registryUrl?: string | undefined;
 }
 
+/**
+ * Fleet peer-awareness + supervision settings. All sub-features are
+ * enabled-by-default with conservative throttles; each has its own kill
+ * switch. See `FleetSupervisor` (coordination/fleet-supervisor.ts) for the
+ * supervisor semantics.
+ */
+export interface FleetConfig {
+  /** Periodic "[FLEET PULSE]" peer-status digest folded into each agent's context. */
+  pulse?:
+    | {
+        /** Default true. */
+        enabled?: boolean | undefined;
+        /** Inject at most every N agent iterations. Default 5. */
+        everyNIterations?: number | undefined;
+        /** Hard cap on digest characters. Default 900. */
+        maxChars?: number | undefined;
+        /** Max peers listed per digest. Default 15. */
+        maxAgents?: number | undefined;
+      }
+    | undefined;
+  /** Broadcast `type:'status'` mails on meaningful subagent transitions. */
+  statusBroadcasts?:
+    | {
+        /** Default true. */
+        enabled?: boolean | undefined;
+        /** Min interval between broadcasts about the same subagent. Default 15000. */
+        minIntervalMsPerAgent?: number | undefined;
+        /** Global cap on broadcasts per minute (excess dropped + counted). Default 20. */
+        globalPerMinuteCap?: number | undefined;
+      }
+    | undefined;
+  /** Brain-gated fleet supervisor (rebalance/steer/spawn-helper). */
+  supervisor?: FleetSupervisorConfig | undefined;
+}
+
+/** Config surface for the brain-gated FleetSupervisor. */
+export interface FleetSupervisorConfig {
+  /** Kill switch. Default true (active whenever a Director is running). */
+  enabled?: boolean | undefined;
+  /** Evaluation tick. Default 20000. */
+  intervalMs?: number | undefined;
+  /** Per-(signal,subject) re-engagement cooldown. Default 120000. */
+  cooldownMs?: number | undefined;
+  /** Hard cap on interventions touching one subagent per run. Default 3. */
+  maxInterventionsPerSubagent?: number | undefined;
+  /** Pending task pinned to a busy worker longer than this → starvation signal. Default 60000. */
+  pinnedWaitMs?: number | undefined;
+  /** ≥ this many pending tasks pinned to one worker (with an idle sibling) → overload signal. Default 2. */
+  overloadPinnedThreshold?: number | undefined;
+  /** pending > backlogFactor × live workers (sustained) → spawn-helper signal. Default 2. */
+  backlogFactor?: number | undefined;
+  /** Running subagent with no tool activity for this long → stuck signal. Default 180000. */
+  stuckMs?: number | undefined;
+  /** Consecutive failed/timeout results from one subagent → failure-streak signal. Default 2. */
+  failureStreak?: number | undefined;
+  /** Allow the supervisor to spawn helper subagents. Default true. */
+  allowSpawn?: boolean | undefined;
+  /** Allow the supervisor to terminate subagents (highest risk). Default false. */
+  allowTerminate?: boolean | undefined;
+}
+
 export interface Config {
   version: 1;
   provider: string;
@@ -936,6 +997,14 @@ export interface Config {
   modelRuntime?: ModelRuntimeConfig | undefined;
   /** HQ client publishing settings, used by CLI/REPL/TUI/WebUI consistently. */
   hq?: HqClientConfig | undefined;
+  /**
+   * Fleet awareness + supervision settings (peer-status pulse digests,
+   * status-broadcast mails, and the brain-gated FleetSupervisor). SECURITY:
+   * in the in-project config DENY list — a repo-committed config must not be
+   * able to enable autonomous spawning/steering or mailbox traffic. Only
+   * honoured from the user's `~/.wrongstack/config.json`.
+   */
+  fleet?: FleetConfig | undefined;
   /**
    * Cloud sync configuration. Stored separately in sync.json to avoid
    * accidentally committing the GitHub token to project configs.

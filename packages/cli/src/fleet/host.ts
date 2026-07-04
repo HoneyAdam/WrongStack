@@ -60,6 +60,7 @@ import { makeProviderFromConfig } from '@wrongstack/providers';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { createFallbackModelExtension } from '../fallback-model.js';
 import { buildRoutingRunner } from './routing.js';
+import { createFleetStatusBroadcaster } from './status-broadcast.js';
 
 function buildShadowAgentTaskDescription(reason: string): string {
   return `Shadow Agent one-shot fleet monitor. Reason: ${reason}.
@@ -302,6 +303,10 @@ export class MultiAgentHost {
   private shadowPassInFlight = false;
   private shadowQueuedProblem: string | null = null;
   private readonly shadowActivityOffHandles: Array<() => void> = [];
+  /** Peer-awareness status broadcaster (mailbox `status` mails on subagent
+   *  transitions + rich registry heartbeats). Started in buildDirector(),
+   *  stopped in dispose(). */
+  private statusBroadcaster: { start(): void; stop(): void } | null = null;
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -440,6 +445,19 @@ export class MultiAgentHost {
       agentMonitor.setFleetBus(this.director.fleet);
       agentMonitor.start();
     }
+
+    // Peer-awareness broadcaster: subagent lifecycle transitions become
+    // `type:'status'` broadcast mails (visible to every agent on the
+    // project, cross-process) and rich registry heartbeats (what makes the
+    // fleet-pulse digest show each worker's current task).
+    this.statusBroadcaster = createFleetStatusBroadcaster({
+      events: this.deps.events,
+      mailboxFactory: () => new GlobalMailbox(this.mailboxProjectDir(), this.deps.events),
+      sessionTag: () => mailboxSessionTag(this.deps.session.id),
+      subagentName: (id) => this.director?.status().subagents.find((s) => s.id === id)?.name,
+      config: config.fleet?.statusBroadcasts,
+    });
+    this.statusBroadcaster.start();
 
     this.directorOffHandles.push(
       this.director.fleet.filter('budget.threshold_reached', (e) => {
@@ -1756,6 +1774,10 @@ export class MultiAgentHost {
     // Unregister coordinator task.assigned listener
     this.coordinatorOffHandle?.();
     this.coordinatorOffHandle = null;
+    // Stop the peer-awareness status broadcaster (detaches bus listeners,
+    // clears pending coalesce timers).
+    this.statusBroadcaster?.stop();
+    this.statusBroadcaster = null;
     // Stop the AdaptiveConcurrencyController
     this.adaptiveConcurrencyController?.dispose();
     this.adaptiveConcurrencyController = undefined;

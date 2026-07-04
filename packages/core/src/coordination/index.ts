@@ -126,7 +126,10 @@ export {
   makeCollabDebugTool,
   makeFleetEmitTool,
   makeFleetTool,
-  makeFleetTool as makeFleetStatusTool,
+  // NOTE: `makeFleetStatusTool` is no longer an alias of makeFleetTool — it
+  // is the standalone read-only peer-snapshot tool from fleet-status-tool.ts
+  // (exported below). The old leader-side fleet_status was consolidated into
+  // `fleet` (action: status).
   makeFleetTool as makeFleetUsageTool,
   makeFleetTool as makeFleetSessionTool,
   makeFleetTool as makeFleetHealthTool,
@@ -177,6 +180,7 @@ export type { ICoordinator } from './icoordinator.js';
 export type { IFleetManager } from './ifleet-manager.js';
 export { LargeAnswerStore } from './large-answer-store.js';
 export { type MailToolsOptions, makeMailInboxTool, makeMailSendTool } from './mail-tools.js';
+export { type FleetStatusToolOptions, makeFleetStatusTool } from './fleet-status-tool.js';
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './mailbox.js';
 export type {

@@ -369,6 +369,11 @@ const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = 
   { key: 'extensions', reason: 'Per-plugin config can carry command/credential fields.' },
   { key: 'hq', reason: 'Carries HQ client token credential and endpoint URL.' },
   { key: 'acp', reason: 'Per-agent ACP command/args/env override → arbitrary command exec (RCE).' },
+  {
+    key: 'fleet',
+    reason:
+      'Fleet supervision knobs: a repo-committed config could enable autonomous subagent spawning/steering/termination and mailbox traffic on the victim machine.',
+  },
 ];
 
 /**
@@ -426,6 +431,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'sync',
   'extensions',
   'acp',
+  'fleet',
 ]);
 
 /**

@@ -423,6 +423,7 @@ export { normalizeRecipient } from './coordination/mailbox-types.js';
 export { GlobalMailbox, resolveProjectDir } from './coordination/global-mailbox.js';
 export { makeMailboxTool, resolveMailboxIdentity, mailboxSessionTag, type MailboxToolOptions, type MailboxResolver } from './coordination/mailbox-tool.js';
 export { makeMailSendTool, makeMailInboxTool, type MailToolsOptions } from './coordination/mail-tools.js';
+export { makeFleetStatusTool, type FleetStatusToolOptions } from './coordination/fleet-status-tool.js';
 export type {
   Mailbox,
   MailboxMessage,
