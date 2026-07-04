@@ -618,6 +618,24 @@ export interface AutonomyConfig {
   statuslineMode?: 'minimum' | 'detailed' | undefined;
   /** Single short word shown in the TUI rainbow working-state chip. Default: "thinking". */
   thinkingWord?: string | undefined;
+  /**
+   * Persist the TUI prompt input history to disk per project so Up/Down
+   * navigation recalls prompts across sessions. Secrets are scrubbed before
+   * they reach disk. Default: enabled, 100 entries.
+   */
+  inputHistory?: InputHistoryConfig | undefined;
+}
+
+/**
+ * Per-project TUI input history persistence options. Lives under
+ * `config.autonomy.inputHistory` because the TUI-specific knobs on Config
+ * are grouped there.
+ */
+export interface InputHistoryConfig {
+  /** Persist history to ~/.wrongstack/projects/<slug>/input-history.json. Default: true. */
+  enabled?: boolean | undefined;
+  /** Max entries kept on disk (and in memory). Default: 100. */
+  maxEntries?: number | undefined;
 }
 
 /**

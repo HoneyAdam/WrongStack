@@ -21,12 +21,15 @@ import {
   clearActiveKit,
   clearPersistedActiveKit,
   DefaultPromptLoader,
+  DefaultSecretScrubber,
   DefaultSessionRewinder,
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
   getDesignKitLoader,
   InputBuilder,
+  INPUT_HISTORY_DEFAULT_MAX,
+  InputHistoryStore,
   isDesignStack,
   loadActiveKit,
   loadGoal,
@@ -155,7 +158,6 @@ import {
   inputIndexAtRowCol,
   layoutInputRows,
   tokenLengthForward,
-  tokenSpanAt,
 } from './input-tokens.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
@@ -202,7 +204,13 @@ import {
   nextInputWordStart,
   previousInputWordStart,
 } from './input-editing.js';
-export { deleteWordBackward, deleteWordForward, isInputWordSeparator, nextInputWordStart, previousInputWordStart } from './input-editing.js';
+export {
+  deleteWordBackward,
+  deleteWordForward,
+  isInputWordSeparator,
+  nextInputWordStart,
+  previousInputWordStart,
+} from './input-editing.js';
 
 /**
  * Convert restored session messages into TUI history entries so a resumed
@@ -346,10 +354,12 @@ export interface AppProps {
    *  toggle the title animation within the running session. */
   titleController?: { setEnabled: (on: boolean) => void } | undefined;
   /**
-   * Token-saving mode indicator. When true, the status bar shows a "💾 save"
-   * chip and the tool count reflects registered (non-omitted) tools.
+   * Token-saving mode tier. Rendered as a `💾 <tier>` chip on the status bar
+   * line 2 (hidden when tier is `'off'`) so the user knows which system-prompt
+   * compactness level is active. The tool count chip next to it always
+   * reflects the tier's registered (non-omitted) tool count.
    */
-  tokenSavingMode?: boolean | undefined;
+  tokenSavingMode?: TokenSavingTier | undefined;
   /** Number of registered tools, displayed on the status bar line 2. */
   toolCount?: number | undefined;
   /**
@@ -1356,6 +1366,69 @@ export function App({
     debugStreamStats: null,
     countdown: null,
   });
+
+  // Per-project TUI input history store. Lives at
+  // ~/.wrongstack/projects/<slug>/input-history.json. Secrets are scrubbed
+  // before they reach disk (see InputHistoryStore). Declared AFTER useReducer
+  // because the load effect dispatches `setInputHistory` and the save effect
+  // reads `state.inputHistory`.
+  const inputHistoryStore = useMemo(() => {
+    if (!projectRoot) return null;
+    const file = resolveWstackPaths({ projectRoot }).projectInputHistory;
+    return new InputHistoryStore(file, new DefaultSecretScrubber(), INPUT_HISTORY_DEFAULT_MAX);
+  }, [projectRoot]);
+
+  // Load persisted input history once on mount (before the user types).
+  // The loadedRef flips true when load resolves (success or failure), which
+  // gates the save effect below so the initial empty buffer can't overwrite
+  // the on-disk history before it has been read.
+  const inputHistoryLoadedRef = useRef(false);
+  const inputHistorySaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const inputHistoryLastSavedRef = useRef<string>('');
+  useEffect(() => {
+    if (!inputHistoryStore) return;
+    let cancelled = false;
+    inputHistoryStore
+      .load()
+      .then((entries) => {
+        if (cancelled) return;
+        inputHistoryLoadedRef.current = true;
+        // Seed the last-saved snapshot so the save effect doesn't immediately
+        // rewrite the file we just read.
+        inputHistoryLastSavedRef.current = JSON.stringify(entries);
+        if (entries.length === 0) return;
+        dispatch({ type: 'setInputHistory', entries });
+      })
+      .catch(() => {
+        if (!cancelled) inputHistoryLoadedRef.current = true;
+        // Best-effort: a failed load leaves the in-memory history empty,
+        // which is the same as a fresh project. No UI disruption.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inputHistoryStore]);
+
+  // Persist input history to disk, debounced 200ms. Mirrors the todos-
+  // checkpoint pattern: many rapid historyPush events collapse into one
+  // write. Skipped until the load effect has resolved (loadedRef) and when
+  // the in-memory snapshot hasn't changed since the last write.
+  useEffect(() => {
+    if (!inputHistoryStore || !inputHistoryLoadedRef.current) return;
+    const snapshot = JSON.stringify(state.inputHistory);
+    if (snapshot === inputHistoryLastSavedRef.current) return;
+    if (inputHistorySaveTimerRef.current) clearTimeout(inputHistorySaveTimerRef.current);
+    inputHistorySaveTimerRef.current = setTimeout(() => {
+      inputHistoryLastSavedRef.current = snapshot;
+      inputHistoryStore.save(state.inputHistory).catch(() => {
+        // Best-effort persistence; a failed write does not disrupt the UI.
+        // The next change will retry.
+      });
+    }, 200);
+    return () => {
+      if (inputHistorySaveTimerRef.current) clearTimeout(inputHistorySaveTimerRef.current);
+    };
+  }, [state.inputHistory, inputHistoryStore]);
 
   // Prompt library picker opener (declared after useReducer: it dispatches).
   const getPromptLoader = (): DefaultPromptLoader | null => {
@@ -2852,7 +2925,13 @@ export function App({
     return () => {
       if (onPanelOpen) onPanelOpen.current = null;
     };
-  }, [onPanelOpen, dispatch, openProjectPicker, openStatuslinePicker, authPanelController.openAuthPanel]);
+  }, [
+    onPanelOpen,
+    dispatch,
+    openProjectPicker,
+    openStatuslinePicker,
+    authPanelController.openAuthPanel,
+  ]);
   // Keep the F10 sessions panel live: refresh every 5s while open
   useEffect(() => {
     if (!state.sessionsPanelOpen || !getLiveSessions) return undefined;
@@ -6992,9 +7071,7 @@ export function App({
               autoProceedCountdown={state.countdown?.remainingSeconds ?? null}
               sessionCount={sessionCount}
               mailbox={mailboxStatus}
-              tokenSavingMode={
-                getSettings ? getSettings().featureTokenSaving !== 'off' : tokenSavingMode
-              }
+              tokenSavingMode={tokenSavingMode}
               toolCount={toolCount}
               sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
             />

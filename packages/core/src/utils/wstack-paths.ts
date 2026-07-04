@@ -94,6 +94,8 @@ export interface WstackPaths {
   projectSlug: string;
   /** ~/.wrongstack/projects/<hash>/goal.json — goal persistence */
   projectGoal: string;
+  /** ~/.wrongstack/projects/<hash>/input-history.json — TUI prompt input history */
+  projectInputHistory: string;
   /** ~/.wrongstack/projects/<hash>/specs — SDD spec files */
   projectSpecs: string;
   /** ~/.wrongstack/projects/<hash>/task-graphs — SDD task graphs */
@@ -213,6 +215,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     projectHash: hash,
     projectSlug: slug,
     projectGoal: path.join(projectDir, 'goal.json'),
+    projectInputHistory: path.join(projectDir, 'input-history.json'),
     projectSpecs: path.join(projectDir, 'specs'),
     projectTaskGraphs: path.join(projectDir, 'task-graphs'),
     projectSddSession: path.join(projectDir, 'sdd-session.json'),

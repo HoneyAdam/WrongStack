@@ -214,3 +214,55 @@ describe('input history — draft preservation across navigation (Adım 3)', () 
     expect(s.historyDraft).toBe('');
   });
 });
+
+describe('input history reducer — setInputHistory (persistence load)', () => {
+  it('replaces the entire history in one shot', () => {
+    const s = reducer(historyState(), {
+      type: 'setInputHistory',
+      entries: ['a', 'b', 'c'],
+    });
+    expect(s.inputHistory).toEqual(['a', 'b', 'c']);
+  });
+
+  it('does not touch buffer/cursor/historyIndex (only the list)', () => {
+    const s = reducer(
+      historyState({ buffer: 'typed', cursor: 5, historyIndex: 0 }),
+      { type: 'setInputHistory', entries: ['loaded'] },
+    );
+    expect(s.buffer).toBe('typed');
+    expect(s.cursor).toBe(5);
+    expect(s.historyIndex).toBe(0);
+  });
+
+  it('caps at 100 entries on load (defensive)', () => {
+    const many = Array.from({ length: 150 }, (_, i) => `e-${i}`);
+    const s = reducer(historyState(), { type: 'setInputHistory', entries: many });
+    expect(s.inputHistory).toHaveLength(100);
+  });
+
+  it('accepts an empty list (loaded empty stays empty)', () => {
+    const s = reducer(historyState({ inputHistory: ['stale'] }), {
+      type: 'setInputHistory',
+      entries: [],
+    });
+    expect(s.inputHistory).toEqual([]);
+  });
+});
+
+describe('input history reducer — clearInputHistory', () => {
+  it('empties the history and resets navigation state', () => {
+    const s = reducer(
+      historyState({
+        inputHistory: ['a', 'b'],
+        historyIndex: 1,
+        buffer: 'a',
+        historyDraft: 'leftover',
+      }),
+      { type: 'clearInputHistory' },
+    );
+    expect(s.inputHistory).toEqual([]);
+    expect(s.historyIndex).toBe(0);
+    expect(s.historyDraft).toBe('');
+  });
+});
+

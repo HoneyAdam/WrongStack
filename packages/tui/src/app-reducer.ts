@@ -355,6 +355,19 @@ export function reducer(state: State, action: Action): State {
         historyDraft: next === 0 ? '' : state.historyDraft,
       };
     }
+    case 'setInputHistory': {
+      // Replace the in-memory history entirely (used by the persistence
+      // layer on mount to seed state.inputHistory from disk). We do NOT
+      // touch buffer/cursor/historyIndex — this only refreshes the list
+      // the Up/Down keys walk through.
+      return { ...state, inputHistory: action.entries.slice(0, 100) };
+    }
+    case 'clearInputHistory': {
+      // /clear: drop every remembered prompt. In-memory only; the disk
+      // file is cleared separately via the InputHistoryStore.clear() side
+      // effect in app.tsx.
+      return { ...state, inputHistory: [], historyIndex: 0, historyDraft: '' };
+    }
     case 'modelPickerOpen':
       return {
         ...state,

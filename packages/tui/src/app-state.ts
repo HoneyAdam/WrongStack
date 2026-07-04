@@ -992,6 +992,8 @@ export type Action =
   | { type: 'historyPush'; text: string }
   | { type: 'historyUp' }
   | { type: 'historyDown' }
+  | { type: 'setInputHistory'; entries: string[] }
+  | { type: 'clearInputHistory' }
   | { type: 'confirmOpen'; info: State['confirmQueue'][0] }
   | { type: 'confirmClose' }
   | { type: 'enhanceOpen'; info: NonNullable<State['enhance']> }

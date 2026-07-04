@@ -172,6 +172,10 @@ export {
 } from './prompt-store.js';
 export { PromptUsageStore, type PromptUsage } from './prompt-usage-store.js';
 export {
+  InputHistoryStore,
+  INPUT_HISTORY_DEFAULT_MAX,
+} from './input-history-store.js';
+export {
   CloudSync,
   type SyncResult,
   ALL_SYNC_CATEGORIES,
