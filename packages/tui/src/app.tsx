@@ -1242,6 +1242,7 @@ export function App({
     nextQueueId: 1,
     inputHistory: [],
     historyIndex: 0,
+    historyDraft: '',
     modelPicker: {
       open: false,
       step: 'provider' as const,

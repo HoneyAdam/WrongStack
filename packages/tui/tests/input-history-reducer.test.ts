@@ -15,6 +15,7 @@ function historyState(over: Partial<State> = {}): State {
   return {
     inputHistory: [],
     historyIndex: 0,
+    historyDraft: '',
     buffer: '',
     cursor: 0,
     ...over,
@@ -158,20 +159,15 @@ describe('input history reducer — clearInput interaction', () => {
 });
 
 /**
- * Draft-loss regression coverage.
+ * Draft preservation across history navigation (Adım 3 fix).
  *
- * Current behaviour (pre-fix): when the user starts typing a half-written
- * prompt, then presses Up to peek at history and Down to come back, the
- * half-written prompt is GONE — `historyDown` to index 0 hard-codes the
- * buffer to `''`. Adım 3 of the refactor restores it via `state.historyDraft`.
- *
- * The first test below documents the CURRENT (buggy) behaviour so the fix
- * is forced to flip it green; the second describes the target behaviour.
+ * Before this fix, peeking at history with Up and coming back with Down
+ * discarded the user's half-typed prompt: `historyDown` to index 0 hard-
+ * coded the buffer to ''. The fix snapshots the draft on the first Up
+ * (via `state.historyDraft`) and restores it on the way back down.
  */
-describe('input history — draft preservation across navigation (Adım 3 target)', () => {
-  it('CURRENTLY loses the in-progress draft when returning to index 0', () => {
-    // This test pins today's behaviour. When Adım 3 lands, flip the
-    // expectation to `toBe('half-typed')` and move this into the target suite.
+describe('input history — draft preservation across navigation (Adım 3)', () => {
+  it('preserves the in-progress draft when returning to index 0', () => {
     let s = historyState({
       inputHistory: ['previous'],
       buffer: 'half-typed',
@@ -180,11 +176,41 @@ describe('input history — draft preservation across navigation (Adım 3 target
     s = reducer(s, { type: 'historyUp' }); // peek at "previous"
     expect(s.buffer).toBe('previous');
     s = reducer(s, { type: 'historyDown' }); // back to index 0
-    // BUG: draft is gone. Adım 3 must restore "half-typed" here.
-    expect(s.buffer).toBe('');
+    expect(s.buffer).toBe('half-typed');
+    expect(s.cursor).toBe(10);
+    // The draft snapshot is cleared once we're back at the buffer.
+    expect(s.historyDraft).toBe('');
   });
 
-  it.todo(
-    'TARGET: restores the in-progress draft when returning to index 0 (Adım 3)',
-  );
+  it('captures the draft only on the first Up (not on subsequent navigation)', () => {
+    let s = historyState({
+      inputHistory: ['first', 'second'],
+      buffer: 'original-draft',
+      cursor: 14,
+    });
+    s = reducer(s, { type: 'historyUp' }); // -> "first", snapshot "original-draft"
+    expect(s.historyDraft).toBe('original-draft');
+    // Edit the buffer mentally — but the snapshot must NOT change as we
+    // keep walking up. It still holds the original draft.
+    s = reducer(s, { type: 'historyUp' }); // -> "second"
+    expect(s.historyDraft).toBe('original-draft');
+    expect(s.buffer).toBe('second');
+  });
+
+  it('clears historyDraft on clearInput', () => {
+    const s = reducer(
+      historyState({ inputHistory: ['x'], historyIndex: 1, buffer: 'x', historyDraft: 'leftover' }),
+      { type: 'clearInput' },
+    );
+    expect(s.historyDraft).toBe('');
+    expect(s.historyIndex).toBe(0);
+  });
+
+  it('restores an empty draft when history was entered with an empty buffer', () => {
+    let s = historyState({ inputHistory: ['only'], buffer: '', cursor: 0 });
+    s = reducer(s, { type: 'historyUp' });
+    s = reducer(s, { type: 'historyDown' });
+    expect(s.buffer).toBe('');
+    expect(s.historyDraft).toBe('');
+  });
 });

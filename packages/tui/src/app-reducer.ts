@@ -111,6 +111,7 @@ export function reducer(state: State, action: Action): State {
         buffer: '',
         cursor: 0,
         historyIndex: 0,
+        historyDraft: '',
         picker: { open: false, query: '', matches: [], selected: 0 },
         slashPicker: { open: false, query: '', matches: [], selected: 0 },
       };
@@ -326,13 +327,33 @@ export function reducer(state: State, action: Action): State {
       if (state.inputHistory.length === 0) return state;
       const next = Math.min(state.historyIndex + 1, state.inputHistory.length);
       const entry = state.inputHistory[next - 1] ?? '';
-      return { ...state, historyIndex: next, buffer: entry, cursor: entry.length };
+      // On the first Up (index 0 -> 1), snapshot the in-progress draft so
+      // historyDown back to index 0 can restore it instead of clearing the
+      // buffer. Without this, peeking at history loses a half-typed prompt.
+      const historyDraft = state.historyIndex === 0 ? state.buffer : state.historyDraft;
+      return {
+        ...state,
+        historyIndex: next,
+        buffer: entry,
+        cursor: entry.length,
+        historyDraft,
+      };
     }
     case 'historyDown': {
       if (state.historyIndex === 0) return state;
       const next = state.historyIndex - 1;
-      const entry = next === 0 ? '' : (state.inputHistory[next - 1] ?? '');
-      return { ...state, historyIndex: next, buffer: entry, cursor: entry.length };
+      // Returning to index 0 restores the draft captured on the first Up,
+      // so the user's in-progress prompt survives a history peek.
+      const entry = next === 0 ? state.historyDraft : (state.inputHistory[next - 1] ?? '');
+      return {
+        ...state,
+        historyIndex: next,
+        buffer: entry,
+        cursor: entry.length,
+        // Clear the draft snapshot once we're back at the buffer; the next
+        // Up will capture whatever the user has typed by then.
+        historyDraft: next === 0 ? '' : state.historyDraft,
+      };
     }
     case 'modelPickerOpen':
       return {

@@ -243,6 +243,14 @@ export type State = {
   inputHistory: string[];
   /** 0 = current buffer (not in history), 1 = most recent, n = nth most recent. */
   historyIndex: number;
+  /**
+   * Snapshot of the in-progress draft captured the first time the user
+   * presses Up to enter history navigation. Restored when they navigate
+   * back down to index 0, so peeking at history no longer discards a
+   * half-typed prompt. Empty when not navigating. See historyUp/Down in
+   * app-reducer.ts.
+   */
+  historyDraft: string;
   /** Two-step model picker (provider → model) — opened by `/model`. */
   modelPicker: {
     open: boolean;
