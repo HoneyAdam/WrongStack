@@ -1,6 +1,14 @@
 import { expectDefined } from '@wrongstack/core';
 import { lazy, Suspense, useEffect } from 'react';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
+import {
+  DESKTOP_COMMAND_DOCKS,
+  DESKTOP_COMMAND_VIEWS,
+  DESKTOP_COMMAND_WORK_TABS,
+  publishDesktopCommandAck,
+  publishDesktopPrefsSnapshot,
+  publishDesktopReady,
+} from '@/lib/desktop-host';
 import { isDesktopShell } from '@/lib/desktop-shell';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
@@ -91,89 +99,6 @@ const SpecsView = lazy(() => import('./components/SpecsView').then((m) => ({ def
 const TerminalPanel = lazy(() =>
   import('./components/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
 );
-
-const DESKTOP_COMMAND_VIEWS = new Set([
-  'chat',
-  'settings',
-  'autophase',
-  'specs',
-  'sddboard',
-  'sddwizard',
-  'files',
-  'changes',
-  'sessions',
-  'setup',
-  'skill',
-  'officemap',
-  'mailbox',
-  'debug',
-  'design-gallery',
-  'refresh-debug',
-  'analytics',
-]);
-
-const DESKTOP_COMMAND_DOCKS = new Set([
-  'autophase',
-  'goal',
-  'fleet',
-  'work',
-  'worktrees',
-  'collab',
-]);
-
-const DESKTOP_COMMAND_WORK_TABS = new Set(['todos', 'tasks', 'plan']);
-
-function publishDesktopPrefsSnapshot(): void {
-  if (typeof window === 'undefined') return;
-  const host = (
-    window as unknown as {
-      wrongstackDesktopHost?: {
-        setReady?: (ready: boolean) => void;
-        setPrefs?: (prefs: {
-          yolo: boolean;
-          nextPrediction: boolean;
-          contextAutoCompact: boolean;
-        }) => void;
-        ackCommand?: (requestId: string, handled: boolean, message?: string | undefined) => void;
-      };
-    }
-  ).wrongstackDesktopHost;
-  if (!host?.setPrefs) return;
-  const prefs = useLocalPrefs.getState();
-  host.setPrefs({
-    yolo: prefs.yolo,
-    nextPrediction: prefs.nextPrediction,
-    contextAutoCompact: prefs.contextAutoCompact,
-  });
-}
-
-function publishDesktopReady(ready: boolean): void {
-  if (typeof window === 'undefined') return;
-  const host = (
-    window as unknown as {
-      wrongstackDesktopHost?: {
-        setReady?: (ready: boolean) => void;
-      };
-    }
-  ).wrongstackDesktopHost;
-  host?.setReady?.(ready);
-}
-
-function publishDesktopCommandAck(
-  requestId: unknown,
-  handled: boolean,
-  message?: string | undefined,
-): void {
-  if (typeof window === 'undefined' || typeof requestId !== 'string') return;
-  const host = (
-    window as unknown as {
-      wrongstackDesktopHost?: {
-        ackCommand?: (id: string, handled: boolean, message?: string | undefined) => void;
-      };
-    }
-  ).wrongstackDesktopHost;
-  host?.ackCommand?.(requestId, handled, message);
-}
 
 /** Suspense fallback for lazy-loaded views — a quiet centered spinner so the
  *  first open of the editor / terminal / office map doesn't look frozen. */

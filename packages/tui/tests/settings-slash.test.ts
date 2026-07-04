@@ -81,7 +81,7 @@ describe('settingsPickerJumpNames', () => {
     expect(names).toHaveLength(SETTINGS_PICKER_JUMP_CHORDS.length);
     // First and last entries match the order in SETTINGS_PICKER_JUMP_CHORDS.
     expect(names[0]).toBe('index-on-session-start');
-    expect(names.at(-1)).toBe('config-scope');
+    expect(names.at(-1)).toBe('animation');
   });
 
   it('every name resolves back to a field via the by-name lookup', () => {

@@ -45,6 +45,7 @@ function baseProps(over: Record<string, unknown> = {}) {
     debugStream: false,
     statuslineMode: 'detailed' as const,
     configScope: 'global' as const,
+    animationStyle: 'rainbow',
     filter: '',
     ...over,
   } as never as React.ComponentProps<typeof SettingsPicker>;

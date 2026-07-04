@@ -105,6 +105,18 @@ const INTENTIONALLY_UNHANDLED = new Set<string>([
   'autophase.resumed',
   'autophase.saved',
   'autophase.stopped',
+  // Prompt-library fire-and-forget acks. The modal applies an optimistic update
+  // when toggling a favorite / inserting a prompt and never reads the server
+  // `{ success }` echo, so dropping it changes nothing the user sees.
+  'prompts.favorite',
+  'prompts.used',
+  // Server-side prompt search. The WebUI modal filters the already-loaded
+  // `prompts.list` payload locally and never issues `prompts.search`, so this
+  // response has no browser consumer (it exists for other pickers).
+  'prompts.search',
+  // Redundant design-state echo. The gallery mirrors activeKit/stack/overrides
+  // from the `design.list` payload (handled) and never issues `design.state`.
+  'design.state',
 ]);
 
 describe('WebUI two-way WS completeness (server→client)', () => {
