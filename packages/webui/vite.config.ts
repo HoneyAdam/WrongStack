@@ -62,8 +62,23 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
+        // Split heavy libraries into separate cacheable chunks. These pair
+        // with `React.lazy` in App.tsx so the editor / terminal / flow graph
+        // code is only downloaded when the user actually opens that view.
+        //   monaco  → ~3-4 MB, only needed for the Files editor + diff views
+        //   xyflow  → ~250 KB, only needed for OfficeMap + SddFlowGraph
+        //   xterm   → ~150 KB, only needed for the integrated terminal
+        //   markdown→ react-markdown + rehype-highlight (~100 KB), chat only
+        //   vendor  → everything else from node_modules
         manualChunks(id) {
-          return id.includes('node_modules') ? 'vendor' : undefined;
+          if (id.includes('node_modules')) {
+            if (id.includes('monaco-editor') || id.includes('@monaco-editor')) return 'monaco';
+            if (id.includes('@xyflow')) return 'xyflow';
+            if (id.includes('@xterm')) return 'xterm';
+            if (id.includes('react-markdown') || id.includes('rehype-highlight') || id.includes('remark-gfm') || id.includes('highlight.js') || id.includes('lowlight') || id.includes('mdast') || id.includes('micromark') || id.includes('unified') || id.includes('hast')) return 'markdown';
+            return 'vendor';
+          }
+          return undefined;
         },
       },
     },

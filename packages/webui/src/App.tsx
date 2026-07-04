@@ -1,5 +1,5 @@
 import { expectDefined } from '@wrongstack/core';
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { isDesktopShell } from '@/lib/desktop-shell';
 import { streamCoalescer } from '@/lib/stream-coalescer';
@@ -25,39 +25,72 @@ import {
 } from './components/activity-bar/nav';
 import { ActivityBar, PANEL_ORDER } from './components/activity-bar';
 import { AgentsMonitor } from './components/AgentsMonitor';
-import { AnalyticsDashboard } from './components/AnalyticsDashboard';
-import { AutoPhaseView } from './components/AutoPhaseView';
 import { ChangesView } from './components/ChangesView';
 import { ChatView } from './components/ChatView';
-import { CodeEditor } from './components/CodeEditor';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConfirmModalHost, PromptModalHost } from './components/ConfirmModal';
 import { ConnectionBanner } from './components/ConnectionBanner';
-import { DebugDashboard } from './components/DebugDashboard';
-import { DesignGalleryView } from './components/DesignGalleryView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FleetMonitor } from './components/FleetMonitor';
 import { InspectorPanel } from './components/InspectorPanel';
-import { MailboxDetailView } from './components/MailboxDetailView';
-import { OfficeMapPanel } from './components/OfficeMapPanel';
-import { ProcessMonitor } from './components/ProcessMonitor';
-import { QueuePanel } from './components/QueuePanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
-import { RefreshDebugView } from './components/RefreshDebugView';
-import { SddBoardView } from './components/SddBoardView';
-import { SddWizard } from './components/SddWizard';
-import { SessionsDashboard } from './components/SessionsDashboard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SetupScreen } from './components/SetupScreen';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
-import { SkillDetailView } from './components/SkillDetailView';
-import { SpecsView } from './components/SpecsView';
-import { TerminalPanel } from './components/TerminalPanel';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { toast, Toaster } from './components/Toaster';
 import { WorkspaceDock } from './components/WorkspaceDock';
+
+// ── Lazy-loaded views ──────────────────────────────────────────────────────
+// These pull heavy libraries (Monaco ~4MB, @xyflow, xterm) or are themselves
+// large, and are gated behind specific `currentView` values. Code-splitting
+// them keeps the initial bundle small; the chunk is fetched on first open.
+const AnalyticsDashboard = lazy(() =>
+  import('./components/AnalyticsDashboard').then((m) => ({ default: m.AnalyticsDashboard })),
+);
+const AutoPhaseView = lazy(() =>
+  import('./components/AutoPhaseView').then((m) => ({ default: m.AutoPhaseView })),
+);
+const CodeEditor = lazy(() =>
+  import('./components/CodeEditor').then((m) => ({ default: m.CodeEditor })),
+);
+const DebugDashboard = lazy(() =>
+  import('./components/DebugDashboard').then((m) => ({ default: m.DebugDashboard })),
+);
+const DesignGalleryView = lazy(() =>
+  import('./components/DesignGalleryView').then((m) => ({ default: m.DesignGalleryView })),
+);
+const MailboxDetailView = lazy(() =>
+  import('./components/MailboxDetailView').then((m) => ({ default: m.MailboxDetailView })),
+);
+const OfficeMapPanel = lazy(() =>
+  import('./components/OfficeMapPanel').then((m) => ({ default: m.OfficeMapPanel })),
+);
+const ProcessMonitor = lazy(() =>
+  import('./components/ProcessMonitor').then((m) => ({ default: m.ProcessMonitor })),
+);
+const QueuePanel = lazy(() =>
+  import('./components/QueuePanel').then((m) => ({ default: m.QueuePanel })),
+);
+const RefreshDebugView = lazy(() =>
+  import('./components/RefreshDebugView').then((m) => ({ default: m.RefreshDebugView })),
+);
+const SddBoardView = lazy(() =>
+  import('./components/SddBoardView').then((m) => ({ default: m.SddBoardView })),
+);
+const SddWizard = lazy(() => import('./components/SddWizard').then((m) => ({ default: m.SddWizard })));
+const SessionsDashboard = lazy(() =>
+  import('./components/SessionsDashboard').then((m) => ({ default: m.SessionsDashboard })),
+);
+const SkillDetailView = lazy(() =>
+  import('./components/SkillDetailView').then((m) => ({ default: m.SkillDetailView })),
+);
+const SpecsView = lazy(() => import('./components/SpecsView').then((m) => ({ default: m.SpecsView })));
+const TerminalPanel = lazy(() =>
+  import('./components/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
+);
 
 const DESKTOP_COMMAND_VIEWS = new Set([
   'chat',
@@ -140,6 +173,19 @@ function publishDesktopCommandAck(
     }
   ).wrongstackDesktopHost;
   host?.ackCommand?.(requestId, handled, message);
+}
+
+/** Suspense fallback for lazy-loaded views — a quiet centered spinner so the
+ *  first open of the editor / terminal / office map doesn't look frozen. */
+function PanelSuspense({ label }: { label?: string }) {
+  return (
+    <div className="flex flex-1 min-h-0 min-w-0 items-center justify-center bg-background text-muted-foreground">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+        {label ? <span className="text-xs">{label}</span> : null}
+      </div>
+    </div>
+  );
 }
 
 function AppInner() {
@@ -869,35 +915,47 @@ function AppInner() {
           </div>
         )}
         {currentView === 'autophase' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <AutoPhaseView onClose={() => showPanel('chat')} />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <AutoPhaseView onClose={() => showPanel('chat')} />
+            </div>
+          </Suspense>
         )}
         {currentView === 'specs' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <SpecsView onClose={() => showPanel('chat')} />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <SpecsView onClose={() => showPanel('chat')} />
+            </div>
+          </Suspense>
         )}
         {currentView === 'sddboard' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <SddBoardView onClose={() => showPanel('chat')} />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <SddBoardView onClose={() => showPanel('chat')} />
+            </div>
+          </Suspense>
         )}
         {currentView === 'sddwizard' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <SddWizard onClose={() => showPanel('chat')} />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <SddWizard onClose={() => showPanel('chat')} />
+            </div>
+          </Suspense>
         )}
         {currentView === 'sessions' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-            <SessionsDashboard />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+              <SessionsDashboard />
+            </div>
+          </Suspense>
         )}
         {/* ── Debug Dashboard — accessed via /debug URL ── */}
         {currentView === 'debug' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <DebugDashboard />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <DebugDashboard />
+            </div>
+          </Suspense>
         )}
 
         {/* ── Refresh-resilience verifier — accessed via /refresh-debug URL. ──
@@ -906,16 +964,20 @@ function AppInner() {
          *  visible surface there's no way for the user to verify the
          *  contract from the WebUI itself, which was a stated requirement. */}
         {currentView === 'refresh-debug' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <RefreshDebugView />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <RefreshDebugView />
+            </div>
+          </Suspense>
         )}
 
         {/* ── IDE Code Editor (only in Files view) ── */}
         {currentView === 'files' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <CodeEditor />
-          </div>
+          <Suspense fallback={<PanelSuspense label="Loading editor…" />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <CodeEditor />
+            </div>
+          </Suspense>
         )}
 
         {/* ── Source-control diff — file list lives in the SidePanel ── */}
@@ -927,44 +989,56 @@ function AppInner() {
 
         {/* ── Mailbox detail — wide main area; list lives in the SidePanel ── */}
         {currentView === 'mailbox' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <MailboxDetailView className="h-full min-h-0" />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <MailboxDetailView className="h-full min-h-0" />
+            </div>
+          </Suspense>
         )}
 
         {/* ── Design Studio gallery — live kit previews ── */}
         {currentView === 'design-gallery' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <DesignGalleryView className="h-full" />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <DesignGalleryView className="h-full" />
+            </div>
+          </Suspense>
         )}
 
         {/* ── Skill detail — wide main area; list lives in the SidePanel ── */}
         {currentView === 'skill' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <SkillDetailView className="h-full" />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <SkillDetailView className="h-full" />
+            </div>
+          </Suspense>
         )}
 
         {/* ── Office Map (Fleet HQ) — wide main area; settings in the SidePanel ── */}
         {currentView === 'officemap' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <OfficeMapPanel />
-          </div>
+          <Suspense fallback={<PanelSuspense label="Loading map…" />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <OfficeMapPanel />
+            </div>
+          </Suspense>
         )}
 
         {/* ── Analytics Dashboard — event stats, session metrics, usage ── */}
         {currentView === 'analytics' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <AnalyticsDashboard />
-          </div>
+          <Suspense fallback={<PanelSuspense />}>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <AnalyticsDashboard />
+            </div>
+          </Suspense>
         )}
 
         {/* Integrated terminal bottom dock. It lives inside main's flex column
             so every view above it gets a smaller, scrollable height instead of
             being covered by a fixed overlay. */}
         {terminalOpen && (
-          <TerminalPanel desktopShell={desktopShell} onClose={() => setTerminalOpen(false)} />
+          <Suspense fallback={<PanelSuspense label="Loading terminal…" />}>
+            <TerminalPanel desktopShell={desktopShell} onClose={() => setTerminalOpen(false)} />
+          </Suspense>
         )}
       </main>
 
@@ -972,16 +1046,24 @@ function AppInner() {
       {fleetMonitorOpen && <FleetMonitor onClose={() => setFleetMonitorOpen(false)} />}
 
       {/* Agents Monitor sidebar overlay */}
-      {agentsMonitorOpen && <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />}
+      {agentsMonitorOpen && (
+        <Suspense fallback={null}>
+          <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />
+        </Suspense>
+      )}
 
       {/* Process Monitor overlay — triggered by /kill */}
       {processMonitorOpen && (
-        <ProcessMonitor open={processMonitorOpen} onClose={() => setProcessMonitorOpen(false)} />
+        <Suspense fallback={null}>
+          <ProcessMonitor open={processMonitorOpen} onClose={() => setProcessMonitorOpen(false)} />
+        </Suspense>
       )}
 
       {/* Queue Panel overlay — triggered by /queue */}
       {queuePanelOpen && (
-        <QueuePanel open={queuePanelOpen} onClose={() => setQueuePanelOpen(false)} />
+        <Suspense fallback={null}>
+          <QueuePanel open={queuePanelOpen} onClose={() => setQueuePanelOpen(false)} />
+        </Suspense>
       )}
 
       {/* Global overlays */}

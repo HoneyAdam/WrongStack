@@ -17,7 +17,7 @@ import {
   Terminal,
   Zap,
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { VList, type VListHandle } from 'virtua';
 import { AutonomyPicker } from '../AutonomyPicker';
 import { ChatInput } from '../ChatInput';
@@ -28,13 +28,18 @@ import { ContextBreakdownModal } from '../ContextBreakdownModal';
 import { CostChip } from '../CostChip';
 import { MessageBubble } from '../MessageBubble';
 import { ModePicker } from '../ModePicker';
-import { ProcessMonitor } from '../ProcessMonitor';
 import { SearchOverlay } from '../SearchOverlay';
 import { ToolGroup } from '../ToolGroup';
 import { WelcomeScreen } from '../WelcomeScreen';
 import { Button } from '../ui/button';
 import { type ChatRow, buildChatRows, fmtTok } from './utils.js';
 import { ThinkingBubble } from './ThinkingBubble.js';
+
+// Lazy: ProcessMonitor pulls xterm + node-pty types and is only opened via the
+// header "processes" button. Keeping it out of the eager chat bundle.
+const ProcessMonitor = lazy(() =>
+  import('../ProcessMonitor').then((m) => ({ default: m.ProcessMonitor })),
+);
 
 /**
  * One virtualized chat row. Module-scoped + memoized so a stable row keeps its
@@ -734,7 +739,9 @@ export function ChatView() {
       </div>
 
       {/* Overlays — triggered by header buttons */}
-      <ProcessMonitor open={processOpen} onClose={() => setProcessOpen(false)} />
+      <Suspense fallback={null}>
+        <ProcessMonitor open={processOpen} onClose={() => setProcessOpen(false)} />
+      </Suspense>
       <CheckpointTimeline open={checkpointOpen} onClose={() => setCheckpointOpen(false)} />
       <ContextBreakdownModal open={breakdownOpen} onClose={() => setBreakdownOpen(false)} />
     </div>
