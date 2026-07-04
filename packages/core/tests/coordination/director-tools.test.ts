@@ -40,6 +40,7 @@ beforeEach(() => {
     spawn: vi.fn(async () => 'sub-1'),
     assign: vi.fn(async () => 'task-1'),
     awaitTasks: vi.fn(async () => [{ taskId: 't', status: 'done' }]),
+    awaitTasksAny: vi.fn(async () => ({ completed: [{ taskId: 't', status: 'success' }], pending: ['t2'] })),
     ask: vi.fn(async () => 'the answer'),
     rollUp: vi.fn(() => 'rolled up'),
     terminate: vi.fn(async () => {}),
@@ -133,9 +134,40 @@ describe('task/ask tools', () => {
     expect(res).toMatchObject({ taskId: 'task-1', subagentId: 's1' });
   });
 
-  it('await_tasks returns results', async () => {
+  it('await_tasks returns results (default all-mode unchanged)', async () => {
     const res = await makeAwaitTasksTool(asDir()).execute({ taskIds: ['t'] }, {} as never, {} as never);
     expect(res).toMatchObject({ results: [{ taskId: 't' }] });
+    expect((director.awaitTasksAny as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('await_tasks mode:"any" returns first finisher + pending ids + hint', async () => {
+    const res = await makeAwaitTasksTool(asDir()).execute(
+      { taskIds: ['t', 't2'], mode: 'any' },
+      {} as never,
+      {} as never,
+    );
+    expect(res).toMatchObject({
+      mode: 'any',
+      completed: [{ taskId: 't', status: 'success' }],
+      pending: ['t2'],
+    });
+    expect((res as { hint?: string }).hint).toContain('pending');
+    expect((director.awaitTasks as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('await_tasks mode:"any" forwards timeoutMs and surfaces timedOut without a hint-worthy result', async () => {
+    (director.awaitTasksAny as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      completed: [],
+      pending: ['t'],
+      timedOut: true,
+    });
+    const res = await makeAwaitTasksTool(asDir()).execute(
+      { taskIds: ['t'], mode: 'any', timeoutMs: 500 },
+      {} as never,
+      {} as never,
+    );
+    expect(res).toMatchObject({ mode: 'any', completed: [], pending: ['t'], timedOut: true });
+    expect(director.awaitTasksAny).toHaveBeenCalledWith(['t'], { timeoutMs: 500 });
   });
 
   it('ask_subagent returns an inline answer', async () => {

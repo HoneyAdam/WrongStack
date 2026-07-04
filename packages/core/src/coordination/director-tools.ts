@@ -146,13 +146,34 @@ export function makeAssignTool(director: Director): Tool {
 export function makeAwaitTasksTool(director: Director): Tool {
   return {
     name: 'await_tasks',
-    description: 'Block until every named task completes. Returns the array of TaskResult.',
+    description:
+      'Wait for assigned tasks. mode:"all" (default) blocks until EVERY named task completes and returns all results. mode:"any" returns as soon as AT LEAST ONE completes — use it for independent tasks so you can handle each finisher immediately (reassign work, spawn helpers) instead of idling on the slowest; call again with the returned `pending` ids to pick up the next finisher.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
-    inputSchema: { type: 'object', properties: { taskIds: { type: 'array', items: { type: 'string' }, description: 'One or more task ids returned by `assign_task`.' } }, required: ['taskIds'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskIds: { type: 'array', items: { type: 'string' }, description: 'One or more task ids returned by `assign_task`.' },
+        mode: { type: 'string', enum: ['all', 'any'], description: '"all" (default): block until every task completes. "any": return on the first completion with the rest listed as pending.' },
+        timeoutMs: { type: 'number', minimum: 1, description: 'mode:"any" only — return {timedOut:true, completed:[]} if nothing completes within this window instead of blocking.' },
+      },
+      required: ['taskIds'],
+    },
     async execute(input: unknown) {
-      const i = input as { taskIds: string[] };
+      const i = input as { taskIds: string[]; mode?: 'all' | 'any' | undefined; timeoutMs?: number | undefined };
+      if (i.mode === 'any') {
+        const r = await director.awaitTasksAny(i.taskIds, i.timeoutMs !== undefined ? { timeoutMs: i.timeoutMs } : undefined);
+        return {
+          mode: 'any',
+          completed: r.completed,
+          pending: r.pending,
+          ...(r.timedOut ? { timedOut: true } : {}),
+          ...(r.pending.length > 0
+            ? { hint: 'Handle the completed results now. Re-call await_tasks with the pending ids (mode:"any") for the next finisher — or assign new work to the now-idle subagent first.' }
+            : {}),
+        };
+      }
       const results = await director.awaitTasks(i.taskIds);
       return { results };
     },

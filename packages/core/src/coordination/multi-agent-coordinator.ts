@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { AgentBridge, BridgeMessage } from '../types/agent-bridge.js';
 import type {
+  AwaitAnyResult,
   CoordinatorStatus,
   MultiAgentConfig,
   MultiAgentCoordinator,
@@ -383,6 +384,47 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         });
       }),
     );
+  }
+
+  /**
+   * Wait until AT LEAST ONE of the named tasks completes. Returns every
+   * requested result already available at that moment (drain-what's-done)
+   * plus the ids still outstanding, so callers can loop "handle finishers,
+   * re-await the remainder" instead of blocking on the whole batch.
+   *
+   * Unlike `awaitTasks`, this never rejects and deliberately does NOT
+   * inherit `config.timeoutMs` — a "return whatever is done" call has no
+   * business timing out unless the caller asks for a window explicitly.
+   */
+  async awaitTasksAny(
+    taskIds: string[],
+    opts?: { timeoutMs?: number },
+  ): Promise<AwaitAnyResult> {
+    const ids = new Set(taskIds);
+    const completed = this.completedResults.filter((r) => ids.has(r.taskId));
+    if (completed.length > 0 || ids.size === 0) {
+      const done = new Set(completed.map((r) => r.taskId));
+      return { completed, pending: taskIds.filter((id) => !done.has(id)) };
+    }
+    return new Promise<AwaitAnyResult>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const handler = ({ result }: { task: TaskSpec; result: TaskResult }) => {
+        if (!ids.has(result.taskId)) return;
+        if (timer) clearTimeout(timer);
+        this.off('task.completed', handler);
+        resolve({
+          completed: [result],
+          pending: taskIds.filter((id) => id !== result.taskId),
+        });
+      };
+      if (opts?.timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          this.off('task.completed', handler);
+          resolve({ completed: [], pending: [...taskIds], timedOut: true });
+        }, opts.timeoutMs);
+      }
+      this.on('task.completed', handler);
+    });
   }
 
   /**

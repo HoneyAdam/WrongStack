@@ -266,6 +266,19 @@ export interface CoordinatorEvents {
   done: { results: TaskResult[]; totalIterations: number };
 }
 
+/**
+ * Result of {@link MultiAgentCoordinator.awaitTasksAny} — a partial drain of a
+ * task-id batch. `completed` holds every requested id that has already
+ * settled (at least one, unless `timedOut`); `pending` holds the rest, so the
+ * caller can loop "handle finishers, re-await the remainder".
+ */
+export interface AwaitAnyResult {
+  completed: TaskResult[];
+  pending: string[];
+  /** Set when `timeoutMs` elapsed with zero completions among the requested ids. */
+  timedOut?: boolean;
+}
+
 export interface MultiAgentCoordinator {
   readonly coordinatorId: string;
   readonly config: MultiAgentConfig;
@@ -287,6 +300,14 @@ export interface MultiAgentCoordinator {
    * Resolves to an array in the same order as `taskIds`.
    */
   awaitTasks(taskIds: string[]): Promise<TaskResult[]>;
+  /**
+   * Wait until AT LEAST ONE of the named tasks completes, then return every
+   * requested result available at that moment plus the still-pending ids.
+   * Ids that already completed resolve immediately (drain-what's-done). With
+   * `timeoutMs`, resolves (never rejects) with `timedOut: true` and zero
+   * completions when the window elapses first.
+   */
+  awaitTasksAny(taskIds: string[], opts?: { timeoutMs?: number }): Promise<AwaitAnyResult>;
   /** Snapshot of completed task results. */
   results(): readonly TaskResult[];
 }

@@ -7,6 +7,7 @@ import { DirectorStateCheckpoint, type DirectorStateSnapshot } from '../storage/
 import type { BridgeMessage } from '../types/agent-bridge.js';
 import type { ModelMatrixEntry } from '../types/config.js';
 import type {
+  AwaitAnyResult,
   CoordinatorStatus,
   MultiAgentConfig,
   SubagentConfig,
@@ -395,6 +396,17 @@ export class Director implements ICoordinator {
       resolve: (r: TaskResult) => void;
     }
   >();
+  /** First-completion waiters registered by `awaitTasksAny`. Kept separate
+   *  from `taskWaiters` on purpose: a `taskWaiters` entry marks a result as
+   *  "will be delivered in-band" and suppresses the fire-and-forget
+   *  report-back — but an any-await only consumes ONE of its ids, so the
+   *  losers must stay eligible for the mailbox notifier. Entries carry an
+   *  optional timeout timer so `shutdown()` can clear them. */
+  private readonly anyWaiters = new Set<{
+    ids: ReadonlySet<string>;
+    resolve: (r: TaskResult) => void;
+    timer?: ReturnType<typeof setTimeout> | undefined;
+  }>();
   /** Cache of completed results in case the consumer asks AFTER the
    *  coordinator already fired the event — `awaitTasks(['t-1'])` after
    *  t-1 finished should resolve immediately, not hang. */
@@ -639,16 +651,34 @@ export class Director implements ICoordinator {
         waiter.resolve(r);
         this.taskWaiters.delete(r.taskId);
       }
+      // Sweep first-completion waiters: every unresolved any-await whose id
+      // set contains this task consumes the result in-band (each caller
+      // wants "the first of MY set" — overlapping sets all wake). Later
+      // completions of the same batch (the "losers") match no waiter and
+      // fall through to the report-back below — that is the whole point of
+      // awaitTasksAny: early finishers return in-band, slow siblings arrive
+      // as mailbox results instead of going silent.
+      let anyConsumed = false;
+      for (const aw of [...this.anyWaiters]) {
+        if (!aw.ids.has(r.taskId)) continue;
+        if (aw.timer) clearTimeout(aw.timer);
+        this.anyWaiters.delete(aw);
+        aw.resolve(r);
+        anyConsumed = true;
+      }
+      const consumedInBand = !!waiter || anyConsumed;
       if (internalTask) return;
       // Mirror into the on-disk checkpoint + session event stream so a
       // crashed director leaves a complete picture of which tasks landed.
       const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
-      // Fire-and-forget report-back: nobody was awaiting this task, so the
-      // result would otherwise sit in the cache until the leader polls.
+      // Fire-and-forget report-back: this result is not being returned
+      // in-band (no batch waiter, not the winning result of an any-await),
+      // so it would otherwise sit in the cache until the leader polls.
       // Hand it to the notifier (host wires this to the project mailbox,
       // which injects it into the leader's conversation before its next
-      // step). Awaited tasks skip this — their result returns in-band.
-      if (!waiter && this.taskResultNotifier) {
+      // step). In-band-consumed tasks skip this — their result returns
+      // directly from await_tasks.
+      if (!consumedInBand && this.taskResultNotifier) {
         const resultText =
           typeof r.result === 'string'
             ? r.result
@@ -1418,6 +1448,14 @@ export class Director implements ICoordinator {
       this.coordinator.off('task.completed', this.taskCompletedListener);
       this.taskCompletedListener = null;
     }
+    // Drop any-await waiters: clear their timeout timers so nothing keeps
+    // the event loop alive past shutdown. The promises themselves stay
+    // pending — same contract as `taskWaiters`, whose awaiters also never
+    // resolve once the director is gone.
+    for (const aw of this.anyWaiters) {
+      if (aw.timer) clearTimeout(aw.timer);
+    }
+    this.anyWaiters.clear();
     // Detach the FleetBus filters installed in the constructor. Same
     // rationale as the coordinator listener above — repeated Director
     // construction without these unsubs accumulates listeners on the
@@ -1503,6 +1541,15 @@ export class Director implements ICoordinator {
         waiter.resolve(synthetic);
         this.taskWaiters.delete(taskWithId.id);
       }
+      // Also wake any-await callers watching this id — a post-workComplete
+      // assign never reaches the coordinator, so the taskCompletedListener
+      // sweep would otherwise never see it and the any-await would hang.
+      for (const aw of [...this.anyWaiters]) {
+        if (!aw.ids.has(taskWithId.id)) continue;
+        if (aw.timer) clearTimeout(aw.timer);
+        this.anyWaiters.delete(aw);
+        aw.resolve(synthetic);
+      }
       return taskWithId.id;
     }
     if (task.subagentId) {
@@ -1578,6 +1625,58 @@ export class Director implements ICoordinator {
         return promise;
       }),
     );
+  }
+
+  /**
+   * Wait until AT LEAST ONE of the named tasks completes, then return every
+   * requested result already cached plus the still-pending ids. This is the
+   * leader's "handle whichever finishes next" primitive — unlike
+   * `awaitTasks` it never blocks on the slowest sibling, and the siblings
+   * that complete later still reach the leader through the fire-and-forget
+   * report-back (see the consumed-in-band rule in `taskCompletedListener`).
+   *
+   * Deliberately does NOT register `taskWaiters` entries for the pending
+   * ids: a `taskWaiters` entry would mark those results as in-band-consumed
+   * and silence the mailbox notifier for results this caller never receives.
+   *
+   * With `timeoutMs`, resolves (never rejects) `{timedOut: true}` and zero
+   * completions when the window elapses first.
+   */
+  awaitTasksAny(
+    taskIds: string[],
+    opts?: { timeoutMs?: number },
+  ): Promise<AwaitAnyResult> {
+    const completed = taskIds
+      .map((id) => this.completed.get(id))
+      .filter((r): r is TaskResult => r !== undefined);
+    if (completed.length > 0 || taskIds.length === 0) {
+      const done = new Set(completed.map((r) => r.taskId));
+      return Promise.resolve({
+        completed,
+        pending: taskIds.filter((id) => !done.has(id)),
+      });
+    }
+    return new Promise<AwaitAnyResult>((resolve) => {
+      const entry: {
+        ids: ReadonlySet<string>;
+        resolve: (r: TaskResult) => void;
+        timer?: ReturnType<typeof setTimeout> | undefined;
+      } = {
+        ids: new Set(taskIds),
+        resolve: (r) =>
+          resolve({
+            completed: [r],
+            pending: taskIds.filter((id) => id !== r.taskId),
+          }),
+      };
+      if (opts?.timeoutMs !== undefined) {
+        entry.timer = setTimeout(() => {
+          this.anyWaiters.delete(entry);
+          resolve({ completed: [], pending: [...taskIds], timedOut: true });
+        }, opts.timeoutMs);
+      }
+      this.anyWaiters.add(entry);
+    });
   }
 
   async terminate(subagentId: string): Promise<void> {
