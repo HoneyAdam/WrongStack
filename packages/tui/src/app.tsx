@@ -191,44 +191,18 @@ export function selectedSlashCommandLine(picker: {
   return picked ? `/${picked.name}` : null;
 }
 
-function isInputWordSeparator(ch: string | undefined): boolean {
-  return ch === undefined || /\s/.test(ch);
-}
-
-export function previousInputWordStart(buffer: string, cursor: number): number {
-  let i = Math.max(0, Math.min(cursor, buffer.length));
-  const chipAtCursor = tokenSpanAt(buffer, i);
-  if (chipAtCursor && i > chipAtCursor.start) return chipAtCursor.start;
-  while (i > 0 && isInputWordSeparator(buffer[i - 1])) i--;
-  const chipBeforeCursor = tokenSpanAt(buffer, i);
-  if (chipBeforeCursor && i === chipBeforeCursor.end) return chipBeforeCursor.start;
-  while (i > 0 && !isInputWordSeparator(buffer[i - 1])) {
-    const chip = tokenSpanAt(buffer, i - 1);
-    if (chip) {
-      i = chip.start;
-      continue;
-    }
-    i--;
-  }
-  return i;
-}
-
-export function nextInputWordStart(buffer: string, cursor: number): number {
-  let i = Math.max(0, Math.min(cursor, buffer.length));
-  const chipAtCursor = tokenSpanAt(buffer, i);
-  if (chipAtCursor && i < chipAtCursor.end) i = chipAtCursor.end;
-  else
-    while (i < buffer.length && !isInputWordSeparator(buffer[i])) {
-      const chip = tokenSpanAt(buffer, i);
-      if (chip) {
-        i = chip.end;
-        continue;
-      }
-      i++;
-    }
-  while (i < buffer.length && isInputWordSeparator(buffer[i])) i++;
-  return i;
-}
+// Word-navigation and word-deletion helpers live in input-editing.ts.
+// Imported for local use (handleKey) and re-exported so existing imports
+// from '../src/app.js' keep working. See input-editing.ts for the word-
+// boundary policy (whitespace + ASCII punctuation, underscore kept as a
+// word char).
+import {
+  deleteWordBackward,
+  deleteWordForward,
+  nextInputWordStart,
+  previousInputWordStart,
+} from './input-editing.js';
+export { deleteWordBackward, deleteWordForward, isInputWordSeparator, nextInputWordStart, previousInputWordStart } from './input-editing.js';
 
 /**
  * Convert restored session messages into TUI history entries so a resumed
@@ -5291,17 +5265,13 @@ export function App({
 
     if (key.backspace) {
       if (key.ctrl) {
-        if (cursor === 0) return;
-        const chip = tokenSpanAt(buffer, cursor);
-        const deleteStart =
-          chip && cursor > chip.start && cursor < chip.end
-            ? chip.start
-            : previousInputWordStart(buffer, cursor);
-        const deleteEnd = chip && cursor > chip.start && cursor < chip.end ? chip.end : cursor;
-        const next = buffer.slice(0, deleteStart) + buffer.slice(deleteEnd);
-        // Cancel next-steps auto-submit countdown when buffer changes.
-        cancelNextStepsCountdown();
-        setDraft(next, deleteStart);
+        // Ctrl+Backspace — delete one word back. Shares the chip-aware
+        // deleteWordBackward helper with Ctrl+W below.
+        const res = deleteWordBackward(buffer, cursor);
+        if (res) {
+          cancelNextStepsCountdown();
+          setDraft(res.buffer, res.cursor);
+        }
         return;
       }
 
@@ -5323,19 +5293,27 @@ export function App({
       return;
     }
 
+    // Ctrl+W — Unix shell word-delete-backward. Shares the same chip-aware
+    // deleteWordBackward helper as Ctrl+Backspace so the two are always
+    // identical: Ctrl+W is the Unix habit, Ctrl+Backspace is the GUI habit.
+    if (key.ctrl && input === 'w') {
+      const res = deleteWordBackward(buffer, cursor);
+      if (res) {
+        cancelNextStepsCountdown();
+        setDraft(res.buffer, res.cursor);
+      }
+      return;
+    }
+
     if (key.delete) {
       if (key.ctrl) {
-        if (cursor >= buffer.length) return;
-        const chip = tokenSpanAt(buffer, cursor);
-        const deleteStart = chip && cursor > chip.start && cursor < chip.end ? chip.start : cursor;
-        const deleteEnd =
-          chip && cursor > chip.start && cursor < chip.end
-            ? chip.end
-            : nextInputWordStart(buffer, cursor);
-        const next = buffer.slice(0, deleteStart) + buffer.slice(deleteEnd);
-        // Cancel next-steps auto-submit countdown when buffer changes.
-        cancelNextStepsCountdown();
-        setDraft(next, deleteStart);
+        // Ctrl+Delete — delete one word forward. Chip-aware via the
+        // shared deleteWordForward helper.
+        const res = deleteWordForward(buffer, cursor);
+        if (res) {
+          cancelNextStepsCountdown();
+          setDraft(res.buffer, res.cursor);
+        }
         return;
       }
 
