@@ -377,6 +377,13 @@ export type State = {
     /** Where to persist settings: 'global' or 'project'. */
     configScope: 'global' | 'project';
     /**
+     * Animation style for the working/thinking chip in the status bar. One
+     * of the styles exported by `components/animation-style.tsx`, plus the
+     * meta-mode `'cycle'` that rotates through the variant styles every
+     * `CYCLE_INTERVAL_SECONDS`. Persisted on every ←/→ change in `/settings`.
+     */
+    animationStyle: 'rainbow' | 'wave' | 'pulse' | 'dots' | 'breathe' | 'cycle';
+    /**
      * Live filter for the row-search modal (entered via `/`). Empty
      * string means filter is inactive. Non-empty means the user is
      * typing a search query and only matching rows are visible.
@@ -776,6 +783,12 @@ export type Settings = {
   cacheTtl: CacheTtl;
   /** Where to persist settings: 'global' or 'project'. */
   configScope: 'global' | 'project';
+  /**
+   * Animation style for the working/thinking chip in the status bar. One of
+   * the renderable styles plus the meta-mode `'cycle'` that rotates through
+   * the variant styles every `CYCLE_INTERVAL_SECONDS`.
+   */
+  animationStyle: 'rainbow' | 'wave' | 'pulse' | 'dots' | 'breathe' | 'cycle';
   /** Full mouse mode: in-app managed scroll + clickable UI (SGR tracking on). */
   mouseMode?: boolean | undefined;
   /** Whether the process circuit breaker gates bash/exec. Default false (off). */
@@ -885,6 +898,12 @@ export type Action =
       auditLevel: AuditLevel;
       indexOnStart: boolean;
       multiDiffSummaryThreshold: number;
+      /**
+       * Animation style for the working/thinking chip in the status bar.
+       * One of the renderable styles plus the meta-mode `'cycle'`. Persisted
+       * to disk on every ←/→ change in `/settings`.
+       */
+      animationStyle: 'rainbow' | 'wave' | 'pulse' | 'dots' | 'breathe' | 'cycle';
       /**
        * Persisted row index for where to land when the picker reopens.
        * See `Settings.lastSettingsField`.

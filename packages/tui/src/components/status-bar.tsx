@@ -9,6 +9,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import type { GitInfo } from '../git-info.js';
+import {
+  type AnimationStyle,
+  BREATHE_FRAMES,
+  CYCLE_TICK_INTERVAL_MS,
+  DOTS_FRAMES,
+  HUE_WHEEL,
+  pulseColor,
+  stripTrailingDots,
+  styleForCycleTick,
+  waveColor,
+} from './animation-style.js';
 
 // ─── Stream chip expiration helpers ─────────────────────────────────────────
 
@@ -229,7 +240,14 @@ export interface TokenDisplayTotals {
 }
 
 export function tokenDisplayTotals(
-  usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined } | undefined,
+  usage:
+    | {
+        input: number;
+        output: number;
+        cacheRead?: number | undefined;
+        cacheWrite?: number | undefined;
+      }
+    | undefined,
   currentRequest: { input: number; cacheRead: number } | undefined,
 ): TokenDisplayTotals {
   const usageInput = usage ? usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : 0;
@@ -330,7 +348,7 @@ export interface MailboxStatus {
   /** Number of online agents in the project. */
   onlineAgents: number;
   /** Per-source count of online clients. */
-  onlineClients: { tui: number; webui: number; repl: number; };
+  onlineClients: { tui: number; webui: number; repl: number };
   /** Latest received message subject (if any). Null = no messages yet. */
   lastSubject?: string | null | undefined;
   /** Latest received message sender (if any). */
@@ -348,6 +366,14 @@ export interface StatusBarProps {
   state: 'idle' | 'running' | 'streaming' | 'aborting';
   /** Single word rendered in the rainbow working-state chip. */
   thinkingWord?: string | undefined;
+  /**
+   * Animation style for the working/thinking chip. Defaults to `'rainbow'`
+   * when omitted so legacy callers stay visually consistent. The special
+   * `'cycle'` value rotates through the variant styles every
+   * `CYCLE_INTERVAL_SECONDS`. Live-mirrored from the configStore so
+   * `/settings → Animation` updates the chip in the active chat.
+   */
+  thinkingAnimationStyle?: AnimationStyle | 'cycle' | undefined;
   tokenCounter?: TokenCounter | undefined;
   hint?: string | undefined;
   queueCount?: number | undefined;
@@ -463,13 +489,16 @@ export interface StatusBarProps {
    * a "🐛 stream" chip on line 3 with chunk count, size, delta, and total
    * bytes. Cleared on provider.response (per-iteration stream reset).
    */
-  debugStreamStats?: {
-    chunkCount: number;
-    lastChunkSize: number;
-    lastDeltaMs: number;
-    totalBytes: number;
-    lastChunkAt: string;
-  } | null | undefined;
+  debugStreamStats?:
+    | {
+        chunkCount: number;
+        lastChunkSize: number;
+        lastDeltaMs: number;
+        totalBytes: number;
+        lastChunkAt: string;
+      }
+    | null
+    | undefined;
   /**
    * Seconds remaining in the prompt-refinement auto-send countdown.
    * When non-null, replaces the old in-panel timer display with a
@@ -525,6 +554,7 @@ export function StatusBar({
   version,
   state,
   thinkingWord,
+  thinkingAnimationStyle,
   tokenCounter,
   hint,
   queueCount = 0,
@@ -619,7 +649,26 @@ export function StatusBar({
   }, [state]);
   const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx]);
 
-  const { label: stateLabel, color: stateColor } = stateChip(state, fleet?.running ?? 0, thinkingWord);
+  // Animation style for the working/thinking chip. Defaults to `rainbow`
+  // when omitted (legacy callers) so the chip still works. Special value
+  // `'cycle'` rotates through wave → pulse → dots → breathe every
+  // `CYCLE_INTERVAL_SECONDS`; that interval is ticked locally on a 1Hz
+  // timer and only re-renders when the user picked cycle mode AND the
+  // agent is actively working.
+  const animationStyle: AnimationStyle | 'cycle' = thinkingAnimationStyle ?? 'rainbow';
+  const [cycleTick, setCycleTick] = useState(0);
+  useEffect(() => {
+    if (animationStyle !== 'cycle') return;
+    if (state === 'idle' || state === 'aborting') return;
+    const t = setInterval(() => setCycleTick((n) => n + 1), CYCLE_TICK_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [animationStyle, state]);
+
+  const { label: stateLabel, color: stateColor } = stateChip(
+    state,
+    fleet?.running ?? 0,
+    thinkingWord,
+  );
   // Animated spinner for thinking/streaming; static ● for idle/aborting.
   const statePrefix = state === 'idle' || state === 'aborting' ? '●' : spinner;
   // When the agent is actively working, paint the state chip as a moving
@@ -655,20 +704,35 @@ export function StatusBar({
   // Stream chip visibility — these gate both the chip render AND the separator before it.
   // Unlike the raw hasBrainActivity flags, these respect the hidden set and expiration.
   const showBrain = isStreamChipVisible('brain', brain, hiddenSet, visibleChips);
-  const showDebugStream = isStreamChipVisible('debug_stream', debugStreamStats, hiddenSet, visibleChips);
+  const showDebugStream = isStreamChipVisible(
+    'debug_stream',
+    debugStreamStats,
+    hiddenSet,
+    visibleChips,
+  );
   const showEnhance = isStreamChipVisible('enhance', enhanceCountdown, hiddenSet, visibleChips);
   const showMailbox = showChip('mailbox') && hasMailboxActivity(mailbox);
-  const hasNextStepsAutoSubmit = nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
+  const hasNextStepsAutoSubmit =
+    nextStepsAutoSubmitCountdown != null && nextStepsAutoSubmitCountdown > 0;
 
   // Next-steps auto-submit countdown color: green → yellow → red as the timer
   // drops (thresholds 20s / 10s), via the shared countdownColor ramp.
-  const nextStepsColor = nextStepsAutoSubmitCountdown != null
-    ? countdownColor(nextStepsAutoSubmitCountdown, 20, 10)
-    : 'green';
+  const nextStepsColor =
+    nextStepsAutoSubmitCountdown != null
+      ? countdownColor(nextStepsAutoSubmitCountdown, 20, 10)
+      : 'green';
 
-  const hasTaskActivity = tasks && (tasks.pending > 0 || tasks.inProgress > 0 || tasks.completed > 0 || tasks.blocked > 0 || tasks.failed > 0);
+  const hasTaskActivity =
+    tasks &&
+    (tasks.pending > 0 ||
+      tasks.inProgress > 0 ||
+      tasks.completed > 0 ||
+      tasks.blocked > 0 ||
+      tasks.failed > 0);
   const hasThirdLine =
-    (todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && showChip('todos')) ||
+    (todos &&
+      (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) &&
+      showChip('todos')) ||
     (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && showChip('plan')) ||
     (hasTaskActivity && showChip('tasks')) ||
     (fleetHasActivity && showChip('fleet')) ||
@@ -684,16 +748,21 @@ export function StatusBar({
       : '',
     hasTaskActivity && showChip('tasks') ? `task ${tasks!.inProgress}/${tasks!.pending}` : '',
     fleetHasActivity && showChip('fleet')
-      ? fleet ? `agent ▶${fleet.running} ·${fleet.idle}` : `agent ${subagentCount}`
+      ? fleet
+        ? `agent ▶${fleet.running} ·${fleet.idle}`
+        : `agent ${subagentCount}`
       : '',
-    typeof processCount === 'number' && processCount > 0 && showChip('processes') ? `proc ${processCount}` : '',
+    typeof processCount === 'number' && processCount > 0 && showChip('processes')
+      ? `proc ${processCount}`
+      : '',
   ].filter(Boolean);
 
   if (mode === 'minimum') {
     const ctxMax = context?.max;
     const ctxRatio = context && ctxMax ? context.used / ctxMax : undefined;
     const ctxClampedRatio = ctxRatio !== undefined ? Math.min(ctxRatio, 1) : undefined;
-    const ctxPctText = ctxRatio !== undefined ? `${Math.min(Math.round(ctxRatio * 100), 100)}%` : undefined;
+    const ctxPctText =
+      ctxRatio !== undefined ? `${Math.min(Math.round(ctxRatio * 100), 100)}%` : undefined;
     return (
       <Box
         flexDirection="column"
@@ -707,22 +776,38 @@ export function StatusBar({
         <Box flexDirection="row" gap={2}>
           {version && showChip('version') ? (
             <Text>
-              <Text color="blue" bold>WS</Text>
+              <Text color="blue" bold>
+                WS
+              </Text>
               <Text dimColor> v{version}</Text>
             </Text>
           ) : null}
-          {version && showChip('version') && (showChip('state') || showChip('model')) ? <Text dimColor>│</Text> : null}
+          {version && showChip('version') && (showChip('state') || showChip('model')) ? (
+            <Text dimColor>│</Text>
+          ) : null}
           {showChip('state') && thinking ? (
-            <WaveText text={`${statePrefix} ${stateLabel}`} phase={spinnerIdx} />
+            <ThinkingChip
+              text={`${statePrefix} ${stateLabel}`}
+              style={thinkingAnimationStyle ?? 'rainbow'}
+              phase={spinnerIdx}
+              cycleTick={cycleTick}
+            />
           ) : showChip('state') ? (
-            <Text color={stateColor}>{statePrefix} {stateLabel}</Text>
+            <Text color={stateColor}>
+              {statePrefix} {stateLabel}
+            </Text>
           ) : null}
           {showChip('state') && showChip('model') ? <Text dimColor>│</Text> : null}
           {showChip('model') ? <Text color="magenta">{model}</Text> : null}
-          {ctxClampedRatio !== undefined && ctxPctText && ctxMax !== undefined && showChip('context') ? (
+          {ctxClampedRatio !== undefined &&
+          ctxPctText &&
+          ctxMax !== undefined &&
+          showChip('context') ? (
             <>
               <Text dimColor>│</Text>
-              <Text color={ctxClampedRatio < 0.6 ? 'green' : ctxClampedRatio < 0.75 ? 'yellow' : 'red'}>
+              <Text
+                color={ctxClampedRatio < 0.6 ? 'green' : ctxClampedRatio < 0.75 ? 'yellow' : 'red'}
+              >
                 ctx {ctxPctText}/{fmtTok(ctxMax)}
               </Text>
             </>
@@ -814,11 +899,11 @@ export function StatusBar({
                   const clampedRatio = Math.min(ratio, 1);
                   const pctText = `${Math.min(Math.round(ratio * 100), 100)}%`;
                   return (
-                    <Text color={clampedRatio < 0.6 ? 'green' : clampedRatio < 0.75 ? 'yellow' : 'red'}>
+                    <Text
+                      color={clampedRatio < 0.6 ? 'green' : clampedRatio < 0.75 ? 'yellow' : 'red'}
+                    >
                       ctx {renderMeter(clampedRatio, 8)} {pctText}/{fmtTok(context.max)}
-                      {contextStrategy ? (
-                        <Text dimColor> [{contextStrategy}]</Text>
-                      ) : null}
+                      {contextStrategy ? <Text dimColor> [{contextStrategy}]</Text> : null}
                     </Text>
                   );
                 })()}
@@ -878,21 +963,24 @@ export function StatusBar({
                 <Text color="red">⚙ index paused (/reindex)</Text>
               </>
             ) : null}
-            {breakerCountdown && showChip('breaker') ? (() => {
-              const secs = Math.ceil(breakerCountdown.remainingMs / 1000);
-              const ratio = breakerCountdown.totalMs > 0
-                ? breakerCountdown.remainingMs / breakerCountdown.totalMs
-                : 0;
-              const c = secs > 20 ? 'green' : secs > 10 ? 'yellow' : 'red';
-              return (
-                <>
-                  <Text dimColor>│</Text>
-                  <Text color={c} bold>
-                    ⚡ kill/reset in {secs}s{ratio <= 0.25 ? '!' : ''}
-                  </Text>
-                </>
-              );
-            })() : null}
+            {breakerCountdown && showChip('breaker')
+              ? (() => {
+                  const secs = Math.ceil(breakerCountdown.remainingMs / 1000);
+                  const ratio =
+                    breakerCountdown.totalMs > 0
+                      ? breakerCountdown.remainingMs / breakerCountdown.totalMs
+                      : 0;
+                  const c = secs > 20 ? 'green' : secs > 10 ? 'yellow' : 'red';
+                  return (
+                    <>
+                      <Text dimColor>│</Text>
+                      <Text color={c} bold>
+                        ⚡ kill/reset in {secs}s{ratio <= 0.25 ? '!' : ''}
+                      </Text>
+                    </>
+                  );
+                })()
+              : null}
           </>
         )}
       </Box>
@@ -918,11 +1006,15 @@ export function StatusBar({
                   ∞ {autonomy.toUpperCase()}
                 </Text>
               ) : null,
-              eternalStage && showChip('eternal_stage') ? <EternalStageChip stage={eternalStage} /> : null,
+              eternalStage && showChip('eternal_stage') ? (
+                <EternalStageChip stage={eternalStage} />
+              ) : null,
               elapsedMs !== undefined && showChip('elapsed') ? (
                 <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
               ) : null,
-              projectName && showChip('project') ? <Text color="blue">📁 {truncateChip(projectName, 24)}</Text> : null,
+              projectName && showChip('project') ? (
+                <Text color="blue">📁 {truncateChip(projectName, 24)}</Text>
+              ) : null,
               workingDir && showChip('working_dir') ? (
                 <Text color="blue">📂 {truncateChip(workingDir, 28)}</Text>
               ) : null,
@@ -945,9 +1037,15 @@ export function StatusBar({
                   [{goalSummary.goalState}] (iter {goalSummary.iterations})
                 </Text>
               ) : null,
-              modeLabel && showChip('mode') ? <Text color="cyan">{modeIcon(modeLabel)}</Text> : null,
+              modeLabel && showChip('mode') ? (
+                <Text color="cyan">{modeIcon(modeLabel)}</Text>
+              ) : null,
               hasAutoProceed && showChip('auto_proceed') ? (
-                <Text color={autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'}>
+                <Text
+                  color={
+                    autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'
+                  }
+                >
                   ⏳ auto in {autoProceedCountdown}s
                 </Text>
               ) : null,
@@ -959,16 +1057,26 @@ export function StatusBar({
                 </Text>
               ) : null,
               sessionCount != null && sessionCount > 0 && showChip('sessions') ? (
-                <Text color="cyan">⧉ {sessionCount} session{sessionCount === 1 ? '' : 's'}</Text>
+                <Text color="cyan">
+                  ⧉ {sessionCount} session{sessionCount === 1 ? '' : 's'}
+                </Text>
               ) : null,
               toolCount != null && showChip('tools') ? (
-                <Text color="cyan">🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}</Text>
+                <Text color="cyan">
+                  🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}
+                </Text>
               ) : null,
-              tokenSavingMode !== undefined && tokenSavingMode !== 'off' && showChip('token_saving') ? (
-                <Text color="yellow" bold>💾 {tokenSavingMode}</Text>
+              tokenSavingMode !== undefined &&
+              tokenSavingMode !== 'off' &&
+              showChip('token_saving') ? (
+                <Text color="yellow" bold>
+                  💾 {tokenSavingMode}
+                </Text>
               ) : null,
               sideEffectCount > 0 ? (
-                <Text color="yellow">⚠ {sideEffectCount} audit{sideEffectCount === 1 ? '' : 's'}</Text>
+                <Text color="yellow">
+                  ⚠ {sideEffectCount} audit{sideEffectCount === 1 ? '' : 's'}
+                </Text>
               ) : null,
             ].filter((c): c is React.ReactElement => c !== null),
             termWidth - 6,
@@ -985,7 +1093,9 @@ export function StatusBar({
         <Box flexDirection="row" gap={2}>
           {renderChipLine(
             [
-              todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) && showChip('todos') ? (
+              todos &&
+              (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) &&
+              showChip('todos') ? (
                 <Text>
                   <Text dimColor>todos </Text>
                   {todos.inProgress > 0 ? <Text color="yellow">⌛{todos.inProgress}</Text> : null}
@@ -995,7 +1105,9 @@ export function StatusBar({
                   {todos.completed > 0 ? <Text color="green">✓{todos.completed}</Text> : null}
                 </Text>
               ) : null,
-              plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && showChip('plan') ? (
+              plan &&
+              (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) &&
+              showChip('plan') ? (
                 <Text>
                   <Text color="cyan">📋 </Text>
                   {plan.inProgress > 0 ? <Text color="yellow">⌛{plan.inProgress}</Text> : null}
@@ -1014,7 +1126,10 @@ export function StatusBar({
                   {tasks!.pending > 0 ? <Text dimColor>☐{tasks!.pending}</Text> : null}
                   {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
                   {tasks!.blocked > 0 ? <Text color="red">⊘{tasks!.blocked}</Text> : null}
-                  {(tasks!.pending > 0 || tasks!.blocked > 0) && (tasks!.completed > 0 || tasks!.failed > 0) ? ' ' : ''}
+                  {(tasks!.pending > 0 || tasks!.blocked > 0) &&
+                  (tasks!.completed > 0 || tasks!.failed > 0)
+                    ? ' '
+                    : ''}
                   {tasks!.completed > 0 ? <Text color="green">✓{tasks!.completed}</Text> : null}
                   {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
                   {tasks!.failed > 0 ? <Text color="red">✗{tasks!.failed}</Text> : null}
@@ -1026,7 +1141,8 @@ export function StatusBar({
                   <Text>
                     <Text color="blue">🌐 </Text>
                     {fleet.running > 0 ? <Text color="yellow">▶{fleet.running}</Text> : null}
-                    {fleet.running > 0 && (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
+                    {fleet.running > 0 &&
+                    (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
                       ? ' '
                       : ''}
                     {fleet.pending > 0 ? <Text dimColor>☐{fleet.pending}</Text> : null}
@@ -1056,7 +1172,9 @@ export function StatusBar({
                   ⏳ auto-send in {enhanceCountdown}s
                 </Text>
               ) : null,
-              hasNextStepsAutoSubmit && nextStepsAutoSubmitCountdown != null && showChip('next_steps') ? (
+              hasNextStepsAutoSubmit &&
+              nextStepsAutoSubmitCountdown != null &&
+              showChip('next_steps') ? (
                 <>
                   <Text color={nextStepsColor} bold>
                     ⏳ {nextStepsAutoSubmitCountdown}s
@@ -1093,16 +1211,30 @@ export function StatusBar({
           <Text dimColor>│</Text>
           <Text color="cyan">
             👥 {mailbox!.onlineAgents} agent{mailbox!.onlineAgents === 1 ? '' : 's'}
-            {(mailbox!.onlineClients.tui + mailbox!.onlineClients.webui + mailbox!.onlineClients.repl) > 0 ? (
+            {mailbox!.onlineClients.tui +
+              mailbox!.onlineClients.webui +
+              mailbox!.onlineClients.repl >
+            0 ? (
               <Text color="green">
                 {mailbox!.onlineClients.tui > 0 ? (
-                  <Text color="green"> · 🖥 TUI{mailbox!.onlineClients.tui > 1 ? `×${mailbox!.onlineClients.tui}` : ''}</Text>
+                  <Text color="green">
+                    {' '}
+                    · 🖥 TUI{mailbox!.onlineClients.tui > 1 ? `×${mailbox!.onlineClients.tui}` : ''}
+                  </Text>
                 ) : null}
                 {mailbox!.onlineClients.webui > 0 ? (
-                  <Text color="green"> · 🌐 WebUI{mailbox!.onlineClients.webui > 1 ? `×${mailbox!.onlineClients.webui}` : ''}</Text>
+                  <Text color="green">
+                    {' '}
+                    · 🌐 WebUI
+                    {mailbox!.onlineClients.webui > 1 ? `×${mailbox!.onlineClients.webui}` : ''}
+                  </Text>
                 ) : null}
                 {mailbox!.onlineClients.repl > 0 ? (
-                  <Text color="green"> · ⌨ REPL{mailbox!.onlineClients.repl > 1 ? `×${mailbox!.onlineClients.repl}` : ''}</Text>
+                  <Text color="green">
+                    {' '}
+                    · ⌨ REPL
+                    {mailbox!.onlineClients.repl > 1 ? `×${mailbox!.onlineClients.repl}` : ''}
+                  </Text>
                 ) : null}
               </Text>
             ) : null}
@@ -1439,4 +1571,75 @@ function fmtDebugBytes(n: number): string {
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
+}
+
+/**
+ * ThinkingChip — render the working/thinking label with the chosen
+ * animation style. Picks between the 5 styles (rainbow/wave/pulse/
+ * dots/breathe) plus the meta-mode `cycle` that rotates through the
+ * variant styles every `CYCLE_INTERVAL_SECONDS`. Rainbow remains
+ * the per-glyph Catppuccin pastel hue sweep (the original wave UI);
+ * the other four reuse the helpers from `animation-style.tsx`.
+ */
+function ThinkingChip({
+  text,
+  style,
+  phase,
+  cycleTick,
+}: {
+  text: string;
+  style: AnimationStyle | 'cycle';
+  phase: number;
+  cycleTick: number;
+}): React.ReactElement {
+  const live: AnimationStyle = style === 'cycle' ? styleForCycleTick(cycleTick) : style;
+  if (live === 'rainbow') {
+    return (
+      <Text bold>
+        {Array.from(text).map((ch, i) => (
+          <Text key={i} color={HUE_WHEEL[(i + phase) % HUE_WHEEL.length] ?? '#ffffff'}>
+            {ch}
+          </Text>
+        ))}
+      </Text>
+    );
+  }
+  if (live === 'wave') {
+    const len = Array.from(text).length;
+    return (
+      <Text bold>
+        {Array.from(text).map((ch, i) => (
+          <Text key={i} color={waveColor(i, phase, len)}>
+            {ch}
+          </Text>
+        ))}
+      </Text>
+    );
+  }
+  if (live === 'pulse') {
+    return (
+      <Text bold color={pulseColor(phase)}>
+        {text}
+      </Text>
+    );
+  }
+  if (live === 'dots') {
+    const stripped = stripTrailingDots(text);
+    const idx = phase % DOTS_FRAMES.length;
+    const suffix = DOTS_FRAMES[idx] ?? '';
+    return (
+      <Text bold color="green">
+        {stripped}
+        {suffix ? ` ${suffix}` : ''}
+      </Text>
+    );
+  }
+  // 'breathe' — spinning braille prefix, static text.
+  const idx = phase % BREATHE_FRAMES.length;
+  const prefix = BREATHE_FRAMES[idx] ?? '⠋';
+  return (
+    <Text bold color="green">
+      {prefix} {text}
+    </Text>
+  );
 }

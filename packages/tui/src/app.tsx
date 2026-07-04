@@ -1297,6 +1297,7 @@ export function App({
       thinkingWordDraft: '',
       cacheTtl: 'default',
       configScope: 'global',
+      animationStyle: 'rainbow',
     },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
@@ -1612,6 +1613,19 @@ export function App({
   // session without a restart. Falls back to the boot prop when unavailable.
   const liveSettings = getSettings?.();
   const liveStatuslineMode = liveSettings?.statuslineMode ?? 'detailed';
+  // The animation style for the working/thinking chip in the status bar.
+  // `getSettings()` returns an untyped record, so the value is widened to the
+  // animation picker literal union before passing it down. Falls back to
+  // 'rainbow' so an unrecognised value still leaves a working chip.
+  const liveAnimationStyle =
+    (liveSettings?.animationStyle as
+      | 'rainbow'
+      | 'wave'
+      | 'pulse'
+      | 'dots'
+      | 'breathe'
+      | 'cycle'
+      | undefined) ?? 'rainbow';
   const liveThinkingWord = liveSettings?.thinkingWord ?? 'thinking';
   // When the user hasn't pinned a word (unset, the literal default, or
   // 'random'), surface a fresh fun word from the pool for each working spell;
@@ -2611,6 +2625,7 @@ export function App({
             thinkingWord: sp.thinkingWord,
             cacheTtl: sp.cacheTtl,
             configScope: sp.configScope,
+            animationStyle: sp.animationStyle,
           });
         }
         if (prev.projectPicker) {
@@ -2982,6 +2997,7 @@ export function App({
       thinkingWord: s.thinkingWord ?? 'thinking',
       cacheTtl: s.cacheTtl ?? 'default',
       configScope: s.configScope ?? 'global',
+      animationStyle: s.animationStyle ?? 'rainbow',
     });
   }, [getSettings]);
 
@@ -3246,6 +3262,7 @@ export function App({
         thinkingWord: sp.thinkingWord,
         cacheTtl: sp.cacheTtl,
         configScope: sp.configScope,
+        animationStyle: sp.animationStyle,
       }),
     ).then((err: string | null) => {
       if (err) dispatch({ type: 'settingsHint', text: err });
@@ -3287,6 +3304,7 @@ export function App({
     state.settingsPicker.thinkingWord,
     state.settingsPicker.cacheTtl,
     state.settingsPicker.configScope,
+    state.settingsPicker.animationStyle,
     saveSettings,
   ]);
 
@@ -5194,6 +5212,7 @@ export function App({
           thinkingWord: cfg.thinkingWord ?? 'thinking',
           cacheTtl: cfg.cacheTtl ?? 'default',
           configScope: cfg.configScope ?? 'global',
+          animationStyle: cfg.animationStyle ?? 'rainbow',
         });
       }
       return;
@@ -6811,6 +6830,7 @@ export function App({
               reasoningPreserve={state.settingsPicker.reasoningPreserve}
               cacheTtl={state.settingsPicker.cacheTtl}
               configScope={state.settingsPicker.configScope}
+              animationStyle={state.settingsPicker.animationStyle}
               filter={state.settingsPicker.filter}
               hint={state.settingsPicker.hint}
             />
@@ -7036,6 +7056,7 @@ export function App({
               version={appVersion}
               state={state.status}
               thinkingWord={displayThinkingWord}
+              thinkingAnimationStyle={liveAnimationStyle ?? state.settingsPicker.animationStyle}
               tokenCounter={tokenCounter}
               hint={renderRunningTools(state.runningTools) || state.hint}
               queueCount={state.queue.length}

@@ -28,7 +28,9 @@ import {
   THINKING_WORD_FIELD,
   THINKING_WORD_PRESETS,
   TOKEN_SAVING_TIERS,
+  ANIMATION_STYLE_CHOICES,
 } from './components/settings-picker.js';
+import type { AnimationStyleChoice } from './components/settings-picker.js';
 import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinking-word.js';
 import {
   AUTH_PANEL_INITIAL,
@@ -672,6 +674,7 @@ export function reducer(state: State, action: Action): State {
           filter: '',
           cacheTtl: action.cacheTtl,
           configScope: action.configScope,
+          animationStyle: action.animationStyle,
           hint: undefined,
         },
       };
@@ -1089,6 +1092,21 @@ export function reducer(state: State, action: Action): State {
           settingsPicker: {
             ...sp,
             configScope: expectDefined(CONFIG_SCOPES[next]),
+            hint: undefined,
+          },
+        };
+      }
+      // Field 36: animation style (cycle ANIMATION_STYLE_CHOICES)
+      if (f === 36) {
+        const i = ANIMATION_STYLE_CHOICES.indexOf(sp.animationStyle as AnimationStyleChoice);
+        const base = i < 0 ? 0 : i;
+        const next =
+          (base + action.delta + ANIMATION_STYLE_CHOICES.length) % ANIMATION_STYLE_CHOICES.length;
+        return {
+          ...state,
+          settingsPicker: {
+            ...sp,
+            animationStyle: expectDefined(ANIMATION_STYLE_CHOICES[next]),
             hint: undefined,
           },
         };

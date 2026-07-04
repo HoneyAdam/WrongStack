@@ -1,6 +1,10 @@
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
 import { MAX_TUI_THINKING_WORD_LENGTH } from '../thinking-word.js';
+import {
+  ANIMATION_STYLES,
+  ANIMATION_STYLE_DESCS,
+} from './animation-style.js';
 
 /** Selectable presets for the auto-proceed delay, so the field is fully
  *  keyboard-cyclable (←/→) instead of needing typed numeric input. */
@@ -102,6 +106,16 @@ export function formatEnhanceDelay(ms: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
 
+/** Animation style choices for the settings picker — all AnimationStyles plus 'cycle'. */
+export const ANIMATION_STYLE_CHOICES = [...ANIMATION_STYLES, 'cycle'] as const;
+export type AnimationStyleChoice = (typeof ANIMATION_STYLE_CHOICES)[number];
+
+/** Human-readable label for an animation style choice (including cycle). */
+export function formatAnimationStyle(style: AnimationStyleChoice): string {
+  if (style === 'cycle') return 'cycle (shuffle all)';
+  return ANIMATION_STYLE_DESCS[style];
+}
+
 const MODE_DESC: Record<SettingsMode, string> = {
   off: 'Agent stops after each turn (normal)',
   suggest: 'Shows next-step suggestions after each turn',
@@ -177,6 +191,11 @@ export interface SettingsPickerProps {
   /** Where settings are persisted. */
   configScope: ConfigScope;
   /**
+   * Animation style for the status bar's working/thinking chip.
+   * One of the AnimationStyle values, or 'cycle' to rotate through variants.
+   */
+  animationStyle: AnimationStyleChoice;
+  /**
    * Live filter for the row-search modal (entered via `/`). When non-empty,
    * the picker renders only matching rows. The leading `/` is part of the
    * value (matches fzf/vim convention) — the matcher strips it before
@@ -187,7 +206,7 @@ export interface SettingsPickerProps {
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 36;
+export const SETTINGS_FIELD_COUNT = 37;
 
 /**
  * Field index of the "Thinking word" row. The reducer's per-field switch and
@@ -279,6 +298,11 @@ export const SETTINGS_PICKER_JUMP_CHORDS: ReadonlyArray<SettingsPickerJumpChord>
   { mod: 'alt-shift', letter: 'a', field: 32, label: 'Audit level' },
   { mod: 'alt-shift', letter: 'b', field: 33, label: 'Stream debug logging' },
   { mod: 'alt-shift', letter: 'g', field: 35, label: 'Config scope' },
+  // ── Unmapped / Chord for Animation ──
+  // 'N' for a**N**imation — Alt+N is unlisted (only Alt+B,C,D,E,F are taken).
+  // Animation sits in the UX section alongside the rest of the visible-only
+  // toggle rows and is newly added after the Debug section at field 36.
+  { mod: 'alt', letter: 'n', field: 36, label: 'Animation' },
 ]);
 
 /**
@@ -460,6 +484,7 @@ export type SettingsPickerPatch = Partial<{
   thinkingWord: string;
   cacheTtl: CacheTtl;
   configScope: ConfigScope;
+  animationStyle: AnimationStyleChoice;
 }>;
 
 /**
@@ -504,6 +529,7 @@ export const SETTINGS_FIELD_LABELS: readonly string[] = [
   'Stream debug logging', // 33
   'Statusline', // 34
   'Config scope', // 35
+  'Animation', // 36
 ];
 
 /**
@@ -564,6 +590,7 @@ export function resolveSettingsFieldValue(
     [32, 'auditLevel', AUDIT_LEVELS],
     [34, 'statuslineMode', STATUSLINE_MODES],
     [35, 'configScope', CONFIG_SCOPES],
+    [36, 'animationStyle', ANIMATION_STYLE_CHOICES],
   ];
   for (const [f, key, values] of ENUM_FIELDS) {
     if (field !== f) continue;
@@ -672,6 +699,7 @@ export function getSettingsFieldValue(
     [23, 'reasoningMode'], [24, 'reasoningEffort'], [26, 'cacheTtl'],
     [28, 'contextStrategy'], [29, 'contextMode'], [31, 'logLevel'],
     [32, 'auditLevel'], [34, 'statuslineMode'], [35, 'configScope'],
+    [36, 'animationStyle'],
   ];
   for (const [f, key] of ENUM_KEYS) {
     if (field !== f) continue;
@@ -741,7 +769,7 @@ const SETTINGS_SECTIONS: ReadonlyArray<{ name: string; fields: readonly number[]
   },
   {
     name: 'Debug',
-    fields: [33, 34, 35],
+    fields: [33, 34, 35, 36],
   },
 ];
 
@@ -821,6 +849,7 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsPickerValues> = Object.freeze({
   thinkingWord: 'thinking',
   cacheTtl: 'default',
   configScope: 'global',
+  animationStyle: 'rainbow',
 } as const);
 
 /**
@@ -857,7 +886,7 @@ function buildResetPatch(field: number): SettingsPickerPatch | null {
     [24, 'reasoningEffort'], [25, 'reasoningPreserve'], [26, 'cacheTtl'],
     [27, 'contextAutoCompact'], [28, 'contextStrategy'], [29, 'contextMode'],
     [30, 'maxConcurrent'], [31, 'logLevel'], [32, 'auditLevel'], [33, 'debugStream'],
-    [34, 'statuslineMode'], [35, 'configScope'],
+    [34, 'statuslineMode'], [35, 'configScope'], [36, 'animationStyle'],
   ];
   for (const [f, key] of KEY_MAP) {
     if (f === field) {
@@ -908,6 +937,7 @@ export function SettingsPicker({
   debugStream,
   statuslineMode,
   configScope,
+  animationStyle,
   hint,
 }: SettingsPickerProps): React.ReactElement {
   const boolVal = (v: boolean) => (v ? 'on' : 'off');
@@ -1116,6 +1146,11 @@ export function SettingsPicker({
       label: 'Config scope',
       value: configScope,
       detail: 'global (~/.wrongstack/) or project (.wrongstack/)',
+    },
+    {
+      label: 'Animation',
+      value: animationStyle,
+      detail: formatAnimationStyle(animationStyle),
     },
   ];
 
