@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { ProviderError } from '../types/provider.js';
 import { NETWORK_ERR_RE } from './regex-patterns.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
@@ -28,7 +29,12 @@ export class DefaultRetryPolicy implements RetryPolicy {
   delayMs(attempt: number): number {
     const base = 1000;
     const exp = base * 2 ** attempt;
-    const jitter = Math.random() * base;
+    // crypto.randomInt(min, max) is half-open: returns an integer in
+    // [min, max). With (0, base) we get integers in [0, 1000), matching
+    // the previous Math.random() * 1000 jitter range. Using crypto
+    // (not Math.random) per the project's deterministic-source
+    // convention (see docs/design-provider-health-gate.md).
+    const jitter = randomInt(0, base);
     return Math.min(30_000, exp + jitter);
   }
 }

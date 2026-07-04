@@ -65,4 +65,38 @@ describe('DefaultRetryPolicy', () => {
     }
     expect(sum3).toBeGreaterThan(sum0);
   });
+
+  // Regression: § 1.1 PR-B2-from-the-report — switched from
+  // Math.random() to crypto.randomInt(). Verify the jitter is still
+  // distributed across the expected [0, 1000) integer range. 10k
+  // samples → roughly uniform across the 1000 possible values.
+  it('delayMs jitter is uniformly distributed across [0, 1000)', () => {
+    const buckets = new Array<number>(10).fill(0); // 10 buckets of width 100
+    const samples = 10_000;
+    for (let i = 0; i < samples; i++) {
+      // attempt=0 → exp=1000, jitter is the entire [0, 1000) range
+      const d = p.delayMs(0);
+      const jitter = d - 1000; // strip the base exponential
+      expect(jitter).toBeGreaterThanOrEqual(0);
+      expect(jitter).toBeLessThan(1000);
+      const bucket = Math.floor(jitter / 100);
+      buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+    }
+    // Each of the 10 buckets should hold ~1000 samples (within ±10%).
+    // We allow ±15% to keep the test stable across CI noise.
+    for (const count of buckets) {
+      expect(count).toBeGreaterThan((samples / 10) * 0.85);
+      expect(count).toBeLessThan((samples / 10) * 1.15);
+    }
+  });
+
+  // Regression: jitter should never exceed 1000 — the upper bound of
+  // the [0, base) range. crypto.randomInt(min, max) is half-open so
+  // the inclusive upper bound is `base - 1` (i.e. 999).
+  it('delayMs jitter never exceeds 1000 - 1 (crypto.randomInt half-open)', () => {
+    for (let i = 0; i < 1000; i++) {
+      const d = p.delayMs(0);
+      expect(d - 1000).toBeLessThan(1000);
+    }
+  });
 });
