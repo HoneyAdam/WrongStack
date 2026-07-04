@@ -129,6 +129,7 @@ export {
   handleSessionCheckpoints,
   handleSessionDelete,
   handleSessionNew,
+  handleSessionRename,
   handleSessionResume,
   handleSessionRewind,
   handleSessionSave,

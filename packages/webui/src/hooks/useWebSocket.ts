@@ -158,6 +158,13 @@ export function useWebSocket() {
     },
     [client],
   );
+  const renameSession = useCallback(
+    (id: string, name: string) => {
+      useHistoryStore.getState().updateEntryName(id, name);
+      client.renameSession(id, name);
+    },
+    [client],
+  );
   const resumeSession = useCallback((id: string) => client.resumeSessionById(id), [client]);
   const saveSession = useCallback(() => client.saveSession(), [client]);
   const listTools = useCallback(() => client.listTools(), [client]);
@@ -212,7 +219,7 @@ export function useWebSocket() {
     client, sendMessage, sendAbort, sendConfirm, switchModel,
     listProviders, listProviderModels, listSavedProviders,
     addKey, updateKey, deleteKey, setActiveKey, addProvider, removeProvider,
-    listSessions, deleteSession, resumeSession, saveSession,
+    listSessions, deleteSession, renameSession, resumeSession, saveSession,
     listTools, listMemory, listSkills, getDiag, getStats, getPlan,
     listModes, switchMode, listContextModes, switchContextMode,
     createContextMode, updateContextMode, deleteContextMode, repairContext,

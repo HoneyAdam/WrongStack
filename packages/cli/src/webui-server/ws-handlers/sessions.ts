@@ -213,6 +213,43 @@ export async function handleSessionDelete(
   }
 }
 
+export async function handleSessionRename(
+  ctx: SessionsContext,
+  ws: WebSocket,
+  id: string,
+  name: string,
+): Promise<void> {
+  if (!id) {
+    sendResult(ctx, ws, false, 'Session id is required');
+    return;
+  }
+  try {
+    const store = storeFor(ctx.opts);
+    await store.rename(id, name);
+    sendResult(ctx, ws, true, name ? `Renamed session to "${name}"` : `Cleared session name`);
+    // Broadcast the refreshed list so every open WebUI reflects the new name.
+    const list = await store.list(50);
+    const currentId = currentSessionId(ctx);
+    ctx.broadcast({
+      type: 'sessions.list',
+      payload: {
+        sessions: list.map((s) => ({
+          id: s.id,
+          name: s.name,
+          title: s.title,
+          startedAt: s.startedAt,
+          model: s.model,
+          provider: s.provider,
+          tokenTotal: s.tokenTotal,
+          isCurrent: s.id === currentId,
+        })),
+      },
+    });
+  } catch (err) {
+    sendResult(ctx, ws, false, toErrorMessage(err));
+  }
+}
+
 export function handleSessionSave(ctx: SessionsContext, ws: WebSocket): void {
   // SessionWriter auto-flushes — confirm for UI habit parity.
   sendResult(ctx, ws, true, `Session ${ctx.opts.session.id} is auto-saved`);

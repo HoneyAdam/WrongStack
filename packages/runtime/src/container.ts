@@ -23,6 +23,7 @@ import {
   type Tool,
   type WstackPaths,
 } from '@wrongstack/core';
+import { getSessionRegistry } from '@wrongstack/core/storage';
 
 export interface CreateContainerOptions {
   config: Config;
@@ -104,6 +105,24 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
         // Scrub secrets out of persisted user/model turns (F-06). Tool output
         // is already scrubbed by the executor.
         secretScrubber: container.resolve(TOKENS.SecretScrubber),
+        // Cross-process guard consulted by delete(): refuses to remove a
+        // session that a LIVE terminal/TUI/WebUI in this project is using.
+        // The store also checks active.json directly; this widens the check
+        // to every concurrently-running surface (active.json only tracks the
+        // latest active session per project).
+        isSessionInUse: async (sessionId) => {
+          try {
+            const registry = getSessionRegistry(wpaths.globalRoot);
+            const live = await registry.listByProject(wpaths.projectSlug);
+            const hit = live.find((e) => e.sessionId === sessionId);
+            if (hit) {
+              return `active in ${hit.projectName} (PID ${hit.pid})`;
+            }
+          } catch {
+            // registry unavailable — fall back to the active.json check only
+          }
+          return null;
+        },
       }),
   );
 

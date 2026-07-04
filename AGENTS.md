@@ -409,6 +409,28 @@ are controlled by `Config.session.auditLevel` (default: "standard").
 `DefaultSessionStore.list()` reads a side-car `<id>.summary.json` for fast listing.
 `DefaultSessionReader` provides query/replay/search/export.
 
+**Session names.** `SessionSummary.name?` is an optional user-supplied label,
+distinct from `title` (which is auto-derived from the first `user_input` and
+overwritten on every rebuild). `name` is set via `SessionStore.rename(id, name)`
+(an empty/whitespace `name` clears it) and persisted in `.summary.json` +
+`_index.jsonl`; the CLI surfaces it as `/sessions rename <id> [name...]` and the
+WebUI via the `session.rename` WS message (both servers) + the rename pencil in
+the sidebar. Listings should prefer `name` over `title` when present. The field
+is additive and backward-compatible — old sidecars/indices without it load fine.
+Rename is **not** guarded by the in-use check (it only changes a label).
+
+**Delete in-use guard.** `DefaultSessionStore.delete()` refuses to remove a
+session any live process in this project is using — otherwise a parallel
+terminal/TUI/WebUI could drop a session another surface is still writing to
+(silent data loss + a stale `active.json`). Two checks run, in order:
+(1) `active.json` (the per-project RecoveryLock, read via
+`readActiveSessionId()`); (2) the optional `SessionStoreOptions.isSessionInUse`
+callback, which the runtime container and the standalone WebUI wire to
+`SessionRegistry.listByProject(slug)` so a session held open by a *different*
+surface than the deleter is also protected. When the callback is omitted (e.g. a
+bare test store), only the `active.json` check runs. The guard throws (it does
+not silently skip), so callers surface the error.
+
 **Source of truth for paths:** `resolveWstackPaths()` in `packages/core/src/utils/wstack-paths.ts`.
 
 ### Recording invariants (do not regress)

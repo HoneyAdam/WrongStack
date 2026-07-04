@@ -460,3 +460,95 @@ describe('DefaultSessionStore.loadEventsOnly — fast-path loader', () => {
     expect(full.events.length).toBe(eventsOnly.events.length);
   });
 });
+
+describe('DefaultSessionStore.rename', () => {
+  it('persists a name to the .summary.json sidecar and reflects it in list()', async () => {
+    const w = await store.create({ id: '2026-07-04/rn1', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: now(), content: 'hello world this is the first message' });
+    await w.close();
+
+    const updated = await store.rename('2026-07-04/rn1', 'DB refactor');
+    expect(updated.name).toBe('DB refactor');
+    expect(updated.title).toContain('hello world');
+
+    const listed = await store.list();
+    expect(listed.find((s) => s.id === '2026-07-04/rn1')?.name).toBe('DB refactor');
+
+    const raw = await fs.readFile(path.join(tmp, '2026-07-04', 'rn1.summary.json'), 'utf8');
+    expect(JSON.parse(raw).name).toBe('DB refactor');
+  });
+
+  it('clears the name when given an empty/whitespace string', async () => {
+    const w = await store.create({ id: '2026-07-04/rn2', model: 'm', provider: 'p' });
+    await w.close();
+    await store.rename('2026-07-04/rn2', 'temp name');
+    const cleared = await store.rename('2026-07-04/rn2', '   ');
+    expect(cleared.name).toBeUndefined();
+    const listed = await store.list();
+    expect(listed.find((s) => s.id === '2026-07-04/rn2')?.name).toBeUndefined();
+  });
+
+  it('throws "Session not found" when the session JSONL does not exist', async () => {
+    await expect(store.rename('2026-07-04/ghost', 'nope')).rejects.toThrow(/Session not found/);
+  });
+
+  it('overwrites a previous name on a second rename', async () => {
+    const w = await store.create({ id: '2026-07-04/rn3', model: 'm', provider: 'p' });
+    await w.close();
+    await store.rename('2026-07-04/rn3', 'first');
+    const second = await store.rename('2026-07-04/rn3', 'second');
+    expect(second.name).toBe('second');
+    const listed = await store.list();
+    expect(listed.find((s) => s.id === '2026-07-04/rn3')?.name).toBe('second');
+  });
+});
+
+describe('DefaultSessionStore.delete — in-use protection', () => {
+  it('refuses to delete a session marked active in active.json', async () => {
+    const w = await store.create({ id: '2026-07-04/act1', model: 'm', provider: 'p' });
+    await w.close();
+    // Simulate another process holding this session active.
+    await fs.writeFile(
+      path.join(tmp, 'active.json'),
+      JSON.stringify({ v: 1, sessionId: '2026-07-04/act1', pid: 99999, hostname: 'other', startedAt: now() }),
+    );
+    await expect(store.delete('2026-07-04/act1')).rejects.toThrow(/currently active/);
+    // The session is still on disk.
+    await expect(fs.access(path.join(tmp, '2026-07-04', 'act1.jsonl'))).resolves.toBeUndefined();
+  });
+
+  it('deletes a session that is not active and not in the registry', async () => {
+    const w = await store.create({ id: '2026-07-04/free1', model: 'm', provider: 'p' });
+    await w.close();
+    await store.delete('2026-07-04/free1');
+    await expect(fs.access(path.join(tmp, '2026-07-04', 'free1.jsonl'))).rejects.toThrow();
+  });
+
+  it('refuses to delete when the isSessionInUse callback reports in use', async () => {
+    const guardedStore = new DefaultSessionStore({
+      dir: tmp,
+      isSessionInUse: async (id) =>
+        id === '2026-07-04/regn1' ? 'active in WrongStack (PID 12345)' : null,
+    });
+    const w = await guardedStore.create({ id: '2026-07-04/regn1', model: 'm', provider: 'p' });
+    await w.close();
+    await expect(guardedStore.delete('2026-07-04/regn1')).rejects.toThrow(/in use/);
+    await expect(fs.access(path.join(tmp, '2026-07-04', 'regn1.jsonl'))).resolves.toBeUndefined();
+    // A different session is deletable through the same guarded store.
+    const w2 = await guardedStore.create({ id: '2026-07-04/regn2', model: 'm', provider: 'p' });
+    await w2.close();
+    await guardedStore.delete('2026-07-04/regn2');
+    await expect(fs.access(path.join(tmp, '2026-07-04', 'regn2.jsonl'))).rejects.toThrow();
+  });
+
+  it('still deletes when isSessionInUse resolves null', async () => {
+    const guardedStore = new DefaultSessionStore({
+      dir: tmp,
+      isSessionInUse: async () => null,
+    });
+    const w = await guardedStore.create({ id: '2026-07-04/gn1', model: 'm', provider: 'p' });
+    await w.close();
+    await guardedStore.delete('2026-07-04/gn1');
+    await expect(fs.access(path.join(tmp, '2026-07-04', 'gn1.jsonl'))).rejects.toThrow();
+  });
+});

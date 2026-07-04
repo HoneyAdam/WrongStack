@@ -264,3 +264,106 @@ describe('buildExitCommand', () => {
     expect(res?.exit).toBe(true);
   });
 });
+
+// ── /sessions rename ───────────────────────────────────────────────────────
+
+describe('/sessions rename', () => {
+  it('errors without a session id', async () => {
+    const cmd = buildLoadCommand({} as never);
+    const res = await cmd.run('rename', fakeCtx());
+    expect(res?.message).toMatch(/Usage:.*rename/);
+  });
+
+  it('errors when no session store is configured', async () => {
+    const cmd = buildLoadCommand({} as never);
+    const res = await cmd.run('rename 2026-07-04/sess_x my name', fakeCtx());
+    expect(res?.message).toMatch(/No session store/);
+  });
+
+  it('calls sessionStore.rename with the joined name and reports success', async () => {
+    const rename = vi.fn().mockResolvedValue({ id: 'x', title: 'auto', name: 'DB refactor' });
+    const cmd = buildLoadCommand({
+      sessionStore: { rename },
+    } as never);
+    const res = await cmd.run('rename 2026-07-04/sess_x DB refactor', fakeCtx());
+    expect(rename).toHaveBeenCalledWith('2026-07-04/sess_x', 'DB refactor');
+    expect(res?.message).toContain('DB refactor');
+  });
+
+  it('clears the name when the name argument is empty', async () => {
+    const rename = vi.fn().mockResolvedValue({ id: 'x', title: 'auto' });
+    const cmd = buildLoadCommand({
+      sessionStore: { rename },
+    } as never);
+    await cmd.run('rename 2026-07-04/sess_x', fakeCtx());
+    expect(rename).toHaveBeenCalledWith('2026-07-04/sess_x', '');
+  });
+
+  it('surfaces a rename failure as an error message', async () => {
+    const rename = vi.fn().mockRejectedValue(new Error('Session not found: x'));
+    const cmd = buildLoadCommand({
+      sessionStore: { rename },
+    } as never);
+    const res = await cmd.run('rename 2026-07-04/ghost nope', fakeCtx());
+    expect(res?.message).toMatch(/Rename failed.*Session not found/);
+  });
+});
+
+// ── /sessions delete ───────────────────────────────────────────────────────
+
+describe('/sessions delete', () => {
+  it('errors without a session id', async () => {
+    const cmd = buildLoadCommand({} as never);
+    const res = await cmd.run('delete', fakeCtx());
+    expect(res?.message).toMatch(/Usage:.*delete/);
+  });
+
+  it('refuses to delete the active session', async () => {
+    const ctx = fakeCtx(); // session.id === 'sess-1'
+    const del = vi.fn().mockResolvedValue(undefined);
+    const cmd = buildLoadCommand({
+      sessionStore: { delete: del },
+      context: ctx,
+    } as never);
+    const res = await cmd.run('delete sess-1', ctx);
+    expect(res?.message).toMatch(/Cannot delete the active session/);
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('deletes a non-active session with --force (no confirm prompt)', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    const confirm = vi.fn();
+    const cmd = buildLoadCommand({
+      sessionStore: { delete: del },
+      confirm,
+    } as never);
+    const res = await cmd.run('delete 2026-07-04/old --force', fakeCtx());
+    expect(del).toHaveBeenCalledWith('2026-07-04/old');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(res?.message).toContain('Deleted session');
+  });
+
+  it('prompts for confirmation without --force', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    const confirm = vi.fn().mockResolvedValue(true);
+    const cmd = buildLoadCommand({
+      sessionStore: { delete: del },
+      confirm,
+    } as never);
+    await cmd.run('delete 2026-07-04/old', fakeCtx());
+    expect(confirm).toHaveBeenCalled();
+    expect(del).toHaveBeenCalledWith('2026-07-04/old');
+  });
+
+  it('cancels when confirmation is declined', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    const confirm = vi.fn().mockResolvedValue(false);
+    const cmd = buildLoadCommand({
+      sessionStore: { delete: del },
+      confirm,
+    } as never);
+    const res = await cmd.run('delete 2026-07-04/old', fakeCtx());
+    expect(del).not.toHaveBeenCalled();
+    expect(res?.message).toMatch(/cancelled/);
+  });
+});

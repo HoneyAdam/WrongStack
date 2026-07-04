@@ -757,6 +757,10 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'session.delete', payload: { id } });
   }
 
+  renameSession(id: string, name: string) {
+    this.send({ type: 'session.rename', payload: { id, name } });
+  }
+
   setWorkingDir(path: string) {
     this.send({ type: 'working_dir.set', payload: { path } });
   }

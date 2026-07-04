@@ -13,6 +13,7 @@ export interface SessionRouteHandlers {
   updateContextMode: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   deleteContextMode: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   listSessions: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
+  renameSession: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   deleteSession: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   resumeSession: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   saveSession: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
@@ -58,6 +59,9 @@ export async function handleSessionRoute(
       return true;
     case 'sessions.list':
       await handlers.listSessions(ws, msg);
+      return true;
+    case 'session.rename':
+      await handlers.renameSession(ws, msg);
       return true;
     case 'session.delete':
       await handlers.deleteSession(ws, msg);

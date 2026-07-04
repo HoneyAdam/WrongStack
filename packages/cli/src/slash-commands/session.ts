@@ -133,6 +133,61 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
         return killSession(targetId, force ? undefined : opts.confirm);
       }
 
+      // /sessions rename <id> [name...] — set/clear a user-supplied name.
+      // The name persists in .summary.json + _index.jsonl and shows up in
+      // /sessions list and the WebUI alongside the auto-derived title.
+      if (first === 'rename') {
+        const targetId = parts[1];
+        if (!targetId) {
+          return { message: color.yellow('Usage: /sessions rename <sessionId> [name...]  (empty name clears)') };
+        }
+        if (!opts.sessionStore) {
+          return { message: color.yellow('No session store configured.') };
+        }
+        const nameParts = parts.slice(2);
+        const name = nameParts.join(' ').trim();
+        try {
+          const summary = await opts.sessionStore.rename(targetId, name);
+          return {
+            message: name
+              ? color.green(`Renamed ${targetId} → "${name}"`)
+              : color.green(`Cleared name on ${targetId} (title: "${summary.title}")`),
+          };
+        } catch (err) {
+          return { message: color.red(`Rename failed: ${toErrorMessage(err)}`) };
+        }
+      }
+
+      // /sessions delete <id> — delete any saved session (not just empty).
+      // The active session is protected (mirror the WebUI guard) — resume or
+      // start a different session first.
+      if (first === 'delete') {
+        const targetId = parts[1];
+        if (!targetId) {
+          return { message: color.yellow('Usage: /sessions delete <sessionId> [--force]') };
+        }
+        if (!opts.sessionStore) {
+          return { message: color.yellow('No session store configured.') };
+        }
+        const currentId = opts.context?.session?.id;
+        if (targetId === currentId) {
+          return {
+            message: color.yellow('Cannot delete the active session. Resume or start another first.'),
+          };
+        }
+        const force = parts.includes('--force') || parts.includes('-y');
+        if (!force && opts.confirm) {
+          const ok = await opts.confirm(`Delete session ${targetId}? This cannot be undone.`, false);
+          if (ok !== true) return { message: color.dim('Delete cancelled.') };
+        }
+        try {
+          await opts.sessionStore.delete(targetId);
+          return { message: color.green(`Deleted session ${targetId}`) };
+        } catch (err) {
+          return { message: color.red(`Delete failed: ${toErrorMessage(err)}`) };
+        }
+      }
+
       const showIncomplete = parts.includes('--incomplete') || parts.includes('-i');
       const recoverIdx = parts.indexOf('--recover');
       const recoverTarget = recoverIdx >= 0 ? parts[recoverIdx + 1] : undefined;
@@ -242,7 +297,8 @@ export function buildLoadCommand(opts: SlashCommandContext): SlashCommand {
         const date = color.dim(s.startedAt.slice(0, 16).replace('T', ' '));
         const isCurrent = s.id === currentId;
         const marker = isCurrent ? color.cyan(' (current)') : '';
-        return `  ${color.bold(s.id)}${marker}\n    ${date}  ${stat}\n    ${color.dim(s.title)}`;
+        const label = s.name ? `${color.bold(s.id)} ${color.cyan(`(${s.name})`)}` : color.bold(s.id);
+        return `  ${label}${marker}\n    ${date}  ${stat}\n    ${color.dim(s.title)}`;
       });
       const msg = [
         color.bold(`Recent sessions (${list.length}):`),
