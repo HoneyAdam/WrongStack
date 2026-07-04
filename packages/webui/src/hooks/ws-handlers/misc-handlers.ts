@@ -1,16 +1,11 @@
 import { normalizedEqual } from '@wrongstack/core';
 import { toast } from '@/components/Toaster';
 import { getWSClient } from '@/lib/ws-client';
+import { isActiveSessionMessage } from '@/lib/ws-client-utils';
 import type { PhaseItem } from '@/components/PhasePanel';
 import { useAutoPhaseStore, useChatStore, useFileStore, useGitChangesStore, useGitInfoStore, useGoalStore, useSessionStore, useUIStore, useVizStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import type { WSServerMessage } from '@/types';
-
-function isActiveSessionMessage(msg: WSServerMessage): boolean {
-  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
-  const activeId = useSessionStore.getState().session?.id;
-  return !sessionId || !activeId || sessionId === activeId;
-}
 
 function deriveAutoPhaseStatus(phases: PhaseItem[] | undefined): 'running' | 'paused' | 'completed' | 'failed' | undefined {
   if (!phases || phases.length === 0) return undefined;

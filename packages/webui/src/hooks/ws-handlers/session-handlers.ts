@@ -3,6 +3,7 @@ import { isDesktopShell } from '@/lib/desktop-shell';
 import { setFaviconStatus } from '@/lib/favicon';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { getWSClient } from '@/lib/ws-client';
+import { isActiveSessionMessage, pipeViz } from '@/lib/ws-client-utils';
 import { navigateToView, showPanel } from '@/lib/view-navigation';
 import type { ChatMessage, SessionHistoryEntry, SubagentView } from '@/stores';
 import {
@@ -120,20 +121,6 @@ function hydrateReplayMessages(replay: ReplayMessage[]): ChatMessage[] {
   }
 
   return messages;
-}
-
-function pipeViz(msg: WSServerMessage) {
-  const vizEv = wsToVizEvent(msg.type, msg.payload as Record<string, unknown>);
-  if (vizEv) {
-    useVizStore.getState().pushEvent(vizEv);
-    useVizStore.getState().setActive(true);
-  }
-}
-
-function isActiveSessionMessage(msg: WSServerMessage): boolean {
-  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
-  const activeId = useSessionStore.getState().session?.id;
-  return !sessionId || !activeId || sessionId === activeId;
 }
 
 const warnedCostModels = new Set<string>();

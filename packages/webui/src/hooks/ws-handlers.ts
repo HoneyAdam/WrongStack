@@ -1,6 +1,7 @@
 import { type AgentTranscriptKind, type SessionHistoryEntry, useChatStore, useConfigStore, useFleetStore, useHistoryStore, useSessionStore, useSpecsStore, useSddBoardStore, useSddWizardStore, useSideEffectStore } from '@/stores';
 import type { SideEffectEntry } from '@/stores';
 import type { WSServerMessage } from '@/types';
+import { isActiveSessionMessage } from '@/lib/ws-client-utils';
 
 // Chat domain handlers extracted to chat-handlers.ts
 import { chatHandlerMap } from './ws-handlers/chat-handlers.js';
@@ -31,12 +32,6 @@ export function handleSessionEnd() {
 }
 
 // ── Info / misc handlers ──
-
-function isActiveSessionMessage(msg: WSServerMessage): boolean {
-  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
-  const activeId = useSessionStore.getState().session?.id;
-  return !sessionId || !activeId || sessionId === activeId;
-}
 
 export function handleToolsList(msg: WSServerMessage) {
   const p = msg.payload as { tools: Array<{ name: string; description: string; params: string[] }> };

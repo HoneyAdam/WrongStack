@@ -5,24 +5,10 @@ import { setFaviconStatus } from '@/lib/favicon';
 import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
 import { getWSClient } from '@/lib/ws-client';
 import { streamCoalescer } from '@/lib/stream-coalescer';
+import { isActiveSessionMessage, pipeViz } from '@/lib/ws-client-utils';
 import { useChatStore, useConfigStore, useSessionStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
-import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
 import type { WSServerMessage } from '@/types';
-
-function pipeViz(msg: WSServerMessage) {
-  const vizEv = wsToVizEvent(msg.type, msg.payload as Record<string, unknown>);
-  if (vizEv) {
-    useVizStore.getState().pushEvent(vizEv);
-    useVizStore.getState().setActive(true);
-  }
-}
-
-function isActiveSessionMessage(msg: WSServerMessage): boolean {
-  const sessionId = (msg.payload as { sessionId?: string | undefined } | undefined)?.sessionId;
-  const activeId = useSessionStore.getState().session?.id;
-  return !sessionId || !activeId || sessionId === activeId;
-}
 
 export const chatHandlers = {
   handleIterationStarted,
