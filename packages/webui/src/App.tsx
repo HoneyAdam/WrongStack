@@ -896,66 +896,86 @@ function AppInner() {
                 <WorkspaceDock sessionId={sessionId} />
               </div>
             )}
-            <ChatView />
+            <ErrorBoundary level="panel" name="Chat">
+              <ChatView />
+            </ErrorBoundary>
             {/* Bottom inspector panel — DevTools-style dock that slides
                 up/down. Replaces the fixed BottomDock (which blocked the
-                chat input) and the modal Fleet/Agents drawers. Lives in
-                the chat view so it doesn't clutter settings/sessions. */}
-            <InspectorPanel />
+                chat input) and the modal Fleet/Agents drawers. Lives in the
+                chat view so it doesn't clutter settings/sessions. */}
+            <ErrorBoundary level="panel" name="Inspector">
+              <InspectorPanel />
+            </ErrorBoundary>
           </>
         )}
         {currentView === 'settings' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <SettingsPanel />
-          </div>
+          <ErrorBoundary level="panel" name="Settings">
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <SettingsPanel />
+            </div>
+          </ErrorBoundary>
         )}
         {currentView === 'setup' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <SetupScreen />
-          </div>
+          <ErrorBoundary level="panel" name="Setup">
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <SetupScreen />
+            </div>
+          </ErrorBoundary>
         )}
         {currentView === 'autophase' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <AutoPhaseView onClose={() => showPanel('chat')} />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="AutoPhase">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <AutoPhaseView onClose={() => showPanel('chat')} />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
         {currentView === 'specs' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <SpecsView onClose={() => showPanel('chat')} />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Specs">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <SpecsView onClose={() => showPanel('chat')} />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
         {currentView === 'sddboard' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <SddBoardView onClose={() => showPanel('chat')} />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="SDD Board">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <SddBoardView onClose={() => showPanel('chat')} />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
         {currentView === 'sddwizard' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <SddWizard onClose={() => showPanel('chat')} />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="SDD Wizard">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <SddWizard onClose={() => showPanel('chat')} />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
         {currentView === 'sessions' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-              <SessionsDashboard />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Sessions">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+                <SessionsDashboard />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
         {/* ── Debug Dashboard — accessed via /debug URL ── */}
         {currentView === 'debug' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <DebugDashboard />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Debug Dashboard">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <DebugDashboard />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── Refresh-resilience verifier — accessed via /refresh-debug URL. ──
@@ -964,106 +984,134 @@ function AppInner() {
          *  visible surface there's no way for the user to verify the
          *  contract from the WebUI itself, which was a stated requirement. */}
         {currentView === 'refresh-debug' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <RefreshDebugView />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Refresh Debug">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <RefreshDebugView />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── IDE Code Editor (only in Files view) ── */}
         {currentView === 'files' && (
-          <Suspense fallback={<PanelSuspense label="Loading editor…" />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <CodeEditor />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Editor">
+            <Suspense fallback={<PanelSuspense label="Loading editor…" />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <CodeEditor />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── Source-control diff — file list lives in the SidePanel ── */}
         {currentView === 'changes' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <ChangesView className="h-full min-h-0" />
-          </div>
+          <ErrorBoundary level="panel" name="Changes">
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+              <ChangesView className="h-full min-h-0" />
+            </div>
+          </ErrorBoundary>
         )}
 
         {/* ── Mailbox detail — wide main area; list lives in the SidePanel ── */}
         {currentView === 'mailbox' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <MailboxDetailView className="h-full min-h-0" />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Mailbox">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <MailboxDetailView className="h-full min-h-0" />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── Design Studio gallery — live kit previews ── */}
         {currentView === 'design-gallery' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <DesignGalleryView className="h-full" />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Design Gallery">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <DesignGalleryView className="h-full" />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── Skill detail — wide main area; list lives in the SidePanel ── */}
         {currentView === 'skill' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <SkillDetailView className="h-full" />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Skill">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <SkillDetailView className="h-full" />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── Office Map (Fleet HQ) — wide main area; settings in the SidePanel ── */}
         {currentView === 'officemap' && (
-          <Suspense fallback={<PanelSuspense label="Loading map…" />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <OfficeMapPanel />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Office Map">
+            <Suspense fallback={<PanelSuspense label="Loading map…" />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <OfficeMapPanel />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* ── Analytics Dashboard — event stats, session metrics, usage ── */}
         {currentView === 'analytics' && (
-          <Suspense fallback={<PanelSuspense />}>
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <AnalyticsDashboard />
-            </div>
-          </Suspense>
+          <ErrorBoundary level="panel" name="Analytics">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <AnalyticsDashboard />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {/* Integrated terminal bottom dock. It lives inside main's flex column
             so every view above it gets a smaller, scrollable height instead of
             being covered by a fixed overlay. */}
         {terminalOpen && (
-          <Suspense fallback={<PanelSuspense label="Loading terminal…" />}>
-            <TerminalPanel desktopShell={desktopShell} onClose={() => setTerminalOpen(false)} />
-          </Suspense>
+          <ErrorBoundary level="panel" name="Terminal">
+            <Suspense fallback={<PanelSuspense label="Loading terminal…" />}>
+              <TerminalPanel desktopShell={desktopShell} onClose={() => setTerminalOpen(false)} />
+            </Suspense>
+          </ErrorBoundary>
         )}
       </main>
 
       {/* Fleet Monitor sidebar overlay */}
-      {fleetMonitorOpen && <FleetMonitor onClose={() => setFleetMonitorOpen(false)} />}
+      {fleetMonitorOpen && (
+        <ErrorBoundary level="panel" name="Fleet Monitor">
+          <FleetMonitor onClose={() => setFleetMonitorOpen(false)} />
+        </ErrorBoundary>
+      )}
 
       {/* Agents Monitor sidebar overlay */}
       {agentsMonitorOpen && (
-        <Suspense fallback={null}>
-          <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />
-        </Suspense>
+        <ErrorBoundary level="panel" name="Agents Monitor">
+          <Suspense fallback={null}>
+            <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Process Monitor overlay — triggered by /kill */}
       {processMonitorOpen && (
-        <Suspense fallback={null}>
-          <ProcessMonitor open={processMonitorOpen} onClose={() => setProcessMonitorOpen(false)} />
-        </Suspense>
+        <ErrorBoundary level="panel" name="Process Monitor">
+          <Suspense fallback={null}>
+            <ProcessMonitor open={processMonitorOpen} onClose={() => setProcessMonitorOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Queue Panel overlay — triggered by /queue */}
       {queuePanelOpen && (
-        <Suspense fallback={null}>
-          <QueuePanel open={queuePanelOpen} onClose={() => setQueuePanelOpen(false)} />
-        </Suspense>
+        <ErrorBoundary level="panel" name="Queue">
+          <Suspense fallback={null}>
+            <QueuePanel open={queuePanelOpen} onClose={() => setQueuePanelOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* Global overlays */}
