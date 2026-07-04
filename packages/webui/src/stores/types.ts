@@ -95,6 +95,8 @@ export interface SessionInfo {
 export interface SessionHistoryEntry {
   id: string;
   title: string;
+  /** Optional user-set name; takes precedence over `title` when present. */
+  name?: string;
   startedAt: string;
   model: string;
   provider: string;

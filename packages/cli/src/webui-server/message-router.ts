@@ -140,6 +140,7 @@ import {
   handleSessionCheckpoints,
   handleSessionDelete,
   handleSessionNew,
+  handleSessionRename,
   handleSessionResume,
   handleSessionRewind,
   handleSessionSave,
@@ -455,6 +456,13 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         (msg as { payload?: { limit?: number } }).payload?.limit ?? 50,
       ),
     'session.new': (_msg, ws) => handleSessionNew(sessionsCtx, ws),
+    'session.rename': (msg, ws) =>
+      handleSessionRename(
+        sessionsCtx,
+        ws,
+        (msg as { payload: { id: string; name?: string } }).payload.id,
+        (msg as { payload: { id: string; name?: string } }).payload.name ?? '',
+      ),
     'session.delete': (msg, ws) =>
       handleSessionDelete(sessionsCtx, ws, (msg as { payload: { id: string } }).payload.id),
     'session.save': (_msg, ws) => handleSessionSave(sessionsCtx, ws),

@@ -341,6 +341,39 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         sendResult(ws, false, errMessage(err));
       }
     },
+    renameSession: async (ws, msg) => {
+      const payload = (msg as { payload?: { id?: unknown; name?: unknown } }).payload ?? {};
+      const id = typeof payload.id === 'string' ? payload.id : '';
+      const name = typeof payload.name === 'string' ? payload.name : '';
+      if (!id) {
+        sendResult(ws, false, 'Session id is required');
+        return;
+      }
+      try {
+        await ctx.getSessionStore().rename(id, name);
+        sendResult(ws, true, name ? `Renamed session to "${name}"` : `Cleared session name`);
+        // Broadcast the refreshed list so every open WebUI reflects the new name.
+        const list = await ctx.getSessionStore().list(50);
+        const currentId = ctx.getSession().id;
+        broadcast(ctx.clients, {
+          type: 'sessions.list',
+          payload: {
+            sessions: list.map((s) => ({
+              id: s.id,
+              name: s.name,
+              title: s.title,
+              startedAt: s.startedAt,
+              model: s.model,
+              provider: s.provider,
+              tokenTotal: s.tokenTotal,
+              isCurrent: s.id === currentId,
+            })),
+          },
+        });
+      } catch (err) {
+        sendResult(ws, false, errMessage(err));
+      }
+    },
     resumeSession: async (ws, msg) => {
       const { id } = (msg as { payload: { id: string } }).payload;
       try {

@@ -15,7 +15,7 @@ import { useAppTranslation } from '@/i18n';
 export function HistoryPanel() {
   const wsConnected = useConfigStore((s) => s.wsConnected);
   const { entries, loading, error } = useHistoryStore();
-  const { listSessions, resumeSession, deleteSession } = useWebSocket();
+  const { listSessions, resumeSession, deleteSession, renameSession } = useWebSocket();
   const activeSessionId = useSessionStore((s) => s.session?.id);
   const { t } = useAppTranslation();
 
@@ -41,6 +41,7 @@ export function HistoryPanel() {
         listSessions={listSessions}
         resumeSession={resumeSession}
         deleteSession={deleteSession}
+        renameSession={renameSession}
       />
       <div className="border-t px-3 py-2 shrink-0">
         <button

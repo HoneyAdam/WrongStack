@@ -39,6 +39,16 @@ export interface SessionStoreOptions {
    * conversation-turn gap (finding F-06).
    */
   secretScrubber?: SecretScrubber | undefined;
+  /**
+   * Optional guard consulted by {@link DefaultSessionStore.delete} before
+   * removing a session. Returns `true` if the session is currently in use by
+   * any live process (e.g. it is the active session of another terminal, TUI,
+   * or WebUI in this project). The store ALWAYS also checks `active.json`
+   * directly; this callback widens the check to cross-process live sessions
+   * via the SessionRegistry. When omitted, only the `active.json` check runs.
+   * Resolves to a human-readable reason when in use, or `null` when safe.
+   */
+  isSessionInUse?: ((sessionId: string) => Promise<string | null>) | undefined;
 }
 
 /**
@@ -78,6 +88,7 @@ export class DefaultSessionStore implements SessionStore {
   private readonly dir: string;
   private readonly events?: EventBus | undefined;
   private readonly secretScrubber?: SecretScrubber | undefined;
+  private readonly isSessionInUse?: ((sessionId: string) => Promise<string | null>) | undefined;
 
   /**
    * In-memory cache for load() results, keyed by session ID. The cache is
@@ -99,6 +110,7 @@ export class DefaultSessionStore implements SessionStore {
     this.dir = opts.dir;
     this.events = opts.events;
     this.secretScrubber = opts.secretScrubber;
+    this.isSessionInUse = opts.isSessionInUse;
   }
 
   /**
@@ -1227,8 +1239,98 @@ export class DefaultSessionStore implements SessionStore {
     await this.writeTombstone(id);
   }
 
+  /**
+   * Read the session id currently marked active in `active.json`, or `null`
+   * when the lock is absent/unreadable. Shared by {@link delete} and
+   * {@link prune} to avoid clobbering a session a live process is writing to.
+   */
+  private async readActiveSessionId(): Promise<string | null> {
+    try {
+      const raw = await fsp.readFile(path.join(this.dir, 'active.json'), 'utf8');
+      const active = JSON.parse(raw) as { sessionId?: string | undefined };
+      return active.sessionId ?? null;
+    } catch {
+      // no active.json — nothing to protect
+      return null;
+    }
+  }
+
   async delete(id: string): Promise<void> {
+    // Guard 1: never delete the session another process in this project is
+    // actively writing to. active.json is the per-project RecoveryLock; every
+    // CLI/TUI/WebUI writes it on session start. Without this check, deleting
+    // a session that a parallel surface holds open would silently drop every
+    // subsequent append (the JSONL is gone) while the writer keeps buffering —
+    // a data-loss + recovery-inconsistency bug.
+    const activeId = await this.readActiveSessionId();
+    if (activeId && id === activeId) {
+      throw new Error(
+        `Session ${id} is currently active in this project and cannot be deleted. Resume or start another session first.`,
+      );
+    }
+    // Guard 2: cross-process live-session registry. active.json only tracks
+    // the *latest* active session per project; the registry lists every live
+    // process (multiple terminals/TUIs/WebUIs can each have their own active
+    // session). When wired, this catches a delete targeting a session that a
+    // *different* surface is using, even though it isn't in our active.json.
+    if (this.isSessionInUse) {
+      const reason = await this.isSessionInUse(id);
+      if (reason) {
+        throw new Error(`Session ${id} is in use (${reason}) and cannot be deleted.`);
+      }
+    }
     await this.deleteSession(id);
+  }
+
+  async rename(id: string, name: string): Promise<SessionSummary> {
+    const trimmed = name.trim();
+    const manifest = this.sessionPath(id, '.summary.json');
+    const jsonlPath = this.sessionPath(id, '.jsonl');
+    // Refuse to name a session that has no JSONL on disk. `summaryFor`
+    // would otherwise synthesize a '(damaged)' summary and persist it,
+    // creating a phantom entry. ENOENT → throw a typed error so callers
+    // can surface "session not found" cleanly.
+    try {
+      await fsp.stat(jsonlPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOENT') {
+        throw new Error(`Session not found: ${id}`);
+      }
+      throw err;
+    }
+
+    // Load the current summary (sidecar first, rebuild on miss) and apply
+    // the name mutation. summaryFor() already emits read/failure events.
+    // Build the updated summary with explicit name handling so we stay
+    // compatible with exactOptionalPropertyTypes: a cleared name is omitted
+    // from the object entirely (not set to undefined).
+    const summary = await this.summaryFor(id);
+    const { name: _drop, ...rest } = summary;
+    const updated: SessionSummary = trimmed ? { ...rest, name: trimmed } : rest;
+
+    const t0 = Date.now();
+    let outcome: 'success' | 'failure' = 'success';
+    let errorMsg: string | undefined;
+    try {
+      await atomicWrite(manifest, JSON.stringify(updated), { mode: 0o600 });
+    } catch (err) {
+      outcome = 'failure';
+      errorMsg = toErrorMessage(err);
+      this.emitError(id, manifest, 'rename', errorMsg, false);
+      throw err;
+    } finally {
+      this.emitWrite(id, manifest, 'close', outcome, Date.now() - t0, undefined, errorMsg);
+    }
+
+    // Mirror the change into the index so list() reflects it immediately.
+    // appendToIndex dedupes by id ("latest wins"), so the stale entry is
+    // shadowed without a full compact.
+    await this.appendToIndex(updated);
+    this.invalidateShardManifestBySessionId(id);
+    this._indexCache = null;
+    this.clearLoadCache(id);
+    return updated;
   }
 
   async prune(maxAgeDays = 30): Promise<number> {
@@ -1236,14 +1338,7 @@ export class DefaultSessionStore implements SessionStore {
     let deleted = 0;
 
     // Read the active session lock to avoid pruning the current session.
-    let activeSessionId: string | null = null;
-    try {
-      const raw = await fsp.readFile(path.join(this.dir, 'active.json'), 'utf8');
-      const active = JSON.parse(raw) as { sessionId?: string | undefined };
-      activeSessionId = active.sessionId ?? null;
-    } catch {
-      // no active.json â€” nothing to protect
-    }
+    const activeSessionId = await this.readActiveSessionId();
 
     const isPrunableJsonl = (name: string): boolean =>
       name.endsWith('.jsonl') &&

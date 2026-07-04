@@ -218,7 +218,28 @@ export async function createPreContextServices(
   }
 
   // ── Session store + session ──
-  const sessionStore = opts.services?.session ?? new DefaultSessionStore({ dir: wpaths.projectSessions });
+  const sessionStore =
+    opts.services?.session ??
+    new DefaultSessionStore({
+      dir: wpaths.projectSessions,
+      // Cross-process guard for delete(): refuses to remove a session that a
+      // live terminal/TUI/WebUI in this project is using. The store also
+      // checks active.json directly; this widens it to every concurrent
+      // surface via the SessionRegistry.
+      isSessionInUse: async (sessionId) => {
+        try {
+          const registry = getSessionRegistry(wpaths.globalRoot);
+          const live = await registry.listByProject(wpaths.projectSlug);
+          const hit = live.find((e) => e.sessionId === sessionId);
+          if (hit) {
+            return `active in ${hit.projectName} (PID ${hit.pid})`;
+          }
+        } catch {
+          // registry unavailable — fall back to the active.json check only
+        }
+        return null;
+      },
+    });
   if (!opts.services?.session) {
     sessionStore.prune(DEFAULT_SESSION_PRUNE_DAYS).then((count) => {
       if (count > 0) logger.info(`Pruned ${count} old session${count === 1 ? '' : 's'}.`);

@@ -4,6 +4,7 @@ import { type useHistoryStore, useUIStore } from '@/stores';
 import {
   History,
   Loader2,
+  Pencil,
   RefreshCw,
   Search,
   Star,
@@ -25,6 +26,7 @@ interface SessionListProps {
   listSessions: ReturnType<typeof useWebSocket>['listSessions'];
   resumeSession: ReturnType<typeof useWebSocket>['resumeSession'];
   deleteSession: ReturnType<typeof useWebSocket>['deleteSession'];
+  renameSession: ReturnType<typeof useWebSocket>['renameSession'];
 }
 
 export const formatRelative = (iso: string): string => {
@@ -56,6 +58,7 @@ export function SessionList({
   listSessions,
   resumeSession,
   deleteSession,
+  renameSession,
 }: SessionListProps) {
   const favoriteSessionIds = useUIStore((s) => s.favoriteSessionIds);
   const { t } = useAppTranslation();
@@ -64,6 +67,18 @@ export function SessionList({
   const setSessionNickname = useUIStore((s) => s.setSessionNickname);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+
+  // Persist a rename: keep the local nickname cache in sync (instant label
+  // feedback) AND send it to the server so it survives reload/other clients.
+  // An empty draft clears the name (the auto-derived title takes over again).
+  const commitRename = useCallback(
+    (id: string, draft: string) => {
+      setRenamingId(null);
+      setSessionNickname(id, draft);
+      renameSession(id, draft);
+    },
+    [renameSession, setSessionNickname],
+  );
 
   // Resume-in-flight feedback: mark the clicked row until the server's
   // session.start lands (the refreshed list flips isCurrent) and block
@@ -107,6 +122,7 @@ export function SessionList({
     const filtered = q
       ? historyEntries.filter(
           (e) =>
+            (e.name?.toLowerCase().includes(q) ?? false) ||
             e.title.toLowerCase().includes(q) ||
             e.model.toLowerCase().includes(q) ||
             e.provider.toLowerCase().includes(q) ||
@@ -219,7 +235,7 @@ export function SessionList({
                       type="button"
                       disabled={entry.isCurrent || renamingId === entry.id || resumingId !== null}
                       onClick={() => handleResume(entry.id)}
-                      onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(entry.id); setRenameDraft(sessionNicknames[entry.id] ?? entry.title ?? ''); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(entry.id); setRenameDraft(sessionNicknames[entry.id] ?? entry.name ?? entry.title ?? ''); }}
                       className="block w-full rounded-md px-3 py-2 pr-16 text-left disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <div className="min-w-0 flex-1">
@@ -228,14 +244,14 @@ export function SessionList({
                             value={renameDraft}
                             onChange={(e) => setRenameDraft(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
-                            onBlur={() => { setSessionNickname(entry.id, renameDraft); setRenamingId(null); }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSessionNickname(entry.id, renameDraft); setRenamingId(null); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); } }}
+                            onBlur={() => commitRename(entry.id, renameDraft)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(entry.id, renameDraft); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); } }}
                             placeholder={entry.title || t('activity:sessions.nicknamePlaceholder')}
                             className="w-full text-sm bg-background border border-input rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
                           />
                         ) : (
-                          <div className="font-medium truncate text-foreground" title={sessionNicknames[entry.id] ? t('activity:sessions.renameTitleNickname', { nickname: sessionNicknames[entry.id], title: entry.title }) : t('activity:sessions.renameTitle', { title: entry.title })}>
-                            {sessionNicknames[entry.id] || entry.title || t('activity:sessions.empty')}
+                          <div className="font-medium truncate text-foreground" title={sessionNicknames[entry.id] ?? entry.name ?? entry.title ? t('activity:sessions.renameTitleNickname', { nickname: sessionNicknames[entry.id] ?? entry.name ?? entry.title, title: entry.title }) : t('activity:sessions.renameTitle', { title: entry.title })}>
+                            {sessionNicknames[entry.id] || entry.name || entry.title || t('activity:sessions.empty')}
                           </div>
                         )}
                         <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{entry.provider}/{entry.model}</div>
@@ -257,6 +273,16 @@ export function SessionList({
                       <button type="button" onClick={() => toggleFavoriteSession(entry.id)} className={cn('transition-opacity hover:text-amber-500', favoriteSessionIds.includes(entry.id) ? 'opacity-100 text-amber-500' : 'opacity-0 group-hover:opacity-100 text-muted-foreground')} title={favoriteSessionIds.includes(entry.id) ? t('activity:sessions.unfavorite') : t('activity:sessions.markFavorite')}>
                         <Star className={cn('h-3.5 w-3.5', favoriteSessionIds.includes(entry.id) && 'fill-current')} />
                       </button>
+                      {renamingId !== entry.id && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setRenamingId(entry.id); setRenameDraft(sessionNicknames[entry.id] ?? entry.name ?? entry.title ?? ''); }}
+                          className={cn('transition-opacity hover:text-primary', (entry.name || sessionNicknames[entry.id]) ? 'opacity-100 text-primary/70' : 'opacity-0 group-hover:opacity-100 text-muted-foreground')}
+                          title={t('activity:sessions.rename', { defaultValue: 'Rename' })}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       {!entry.isCurrent && (
                         <button
                           type="button"

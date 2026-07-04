@@ -211,6 +211,15 @@ export type FileSnapshot = {
 export interface SessionSummary {
   id: string;
   title: string;
+  /**
+   * Optional user-supplied name for the session. Unlike {@link title} (which
+   * is auto-derived from the first user message and overwritten on every
+   * rebuild), `name` is set explicitly via {@link SessionStore.rename} and
+   * persisted in the `.summary.json` sidecar and `_index.jsonl`. Listings
+   * should prefer `name` over `title` when present; `title` remains the
+   * fallback and stays in sync as the conversation evolves.
+   */
+  name?: string | undefined;
   startedAt: string;
   /** When the session finished (null if still running / crashed). */
   endedAt?: string | undefined;
@@ -266,6 +275,14 @@ export interface SessionStore {
    */
   resume(id: string): Promise<ResumedSession>;
   list(limit?: number): Promise<SessionSummary[]>;
+  /**
+   * Set or clear a user-supplied name on a session. An empty/whitespace
+   * `name` clears the field (the summary's auto-derived `title` remains).
+   * Persists the change to the `.summary.json` sidecar and updates the
+   * `_index.jsonl` cache so subsequent `list()` calls reflect it.
+   * Returns the refreshed summary. Throws if the session does not exist.
+   */
+  rename(id: string, name: string): Promise<SessionSummary>;
   delete(id: string): Promise<void>;
   /**
    * Rewrite the session JSONL file to contain only a fresh session_start

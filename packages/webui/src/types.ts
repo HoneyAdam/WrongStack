@@ -1198,6 +1198,7 @@ export type WSClientMessage =
   | { type: 'session.save'; payload?: SessionScopedPayload }
   | { type: 'sessions.list'; payload: { limit: number } & SessionScopedPayload }
   | { type: 'session.delete'; payload: { id: string } }
+  | { type: 'session.rename'; payload: { id: string; name: string } }
   | { type: 'modes.list' }
   | { type: 'mode.switch'; payload: { id: string } }
   | { type: 'files.list'; payload: { query?: string | undefined; limit?: number | undefined; path?: string | undefined } }
