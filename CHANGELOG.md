@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Fleet supervision + peer awareness
+
+- **Early-finisher awaits** — `await_tasks` gains `mode: "all" | "any"` (+
+  `timeoutMs` for any-mode): the leader can handle each finisher as it lands
+  instead of blocking on the slowest sibling. Backed by
+  `Director.awaitTasksAny` / coordinator `awaitTasksAny`. The fire-and-forget
+  report-back is no longer silenced for an entire awaited batch — only
+  results actually returned in-band skip the mailbox notification, so slow
+  siblings of an any-await reach the leader as `result` mails.
+- **FleetSupervisor** (`/supervisor`) — a brain-gated shadow watcher over the
+  Director fleet: detects pinned-task starvation, overloaded workers, deep
+  backlogs, stuck agents, and failure streaks; clears every proposal through
+  the tiered Brain (`/brain risk` ceiling) and then rebalances pending tasks
+  onto idle workers ("workload reduced" steer to the loser), spawns helpers,
+  steers stuck/failing workers, or notifies the leader. New rebalancing
+  primitives `listPendingTasks` / `retargetPendingTask` (pending tasks only —
+  running work is never pulled). Audit trail via new
+  `fleet.supervisor.{signal,decision,action}` events and `/supervisor log`.
+- **Peer awareness** — agents on the same project now see each other mid-run:
+  a periodic `[FLEET PULSE]` digest folded into every agent's context, a
+  read-only `fleet_status` tool (available to subagents), and `type:'status'`
+  broadcast mails on subagent spawn/completion/budget pressure (rate-capped).
+  Task start/stop now enriches the mailbox registry heartbeat with
+  `currentTask`, so cross-process peers see live task info.
+- **Config** — new top-level `fleet` key (`pulse`, `statusBroadcasts`,
+  `supervisor`), deny-listed for repo-committed in-project config.
+
 ### Added — Skill system (registry search, authoring toolkit, private repos)
 
 - **`/skill-search`** — new command that searches the skills.sh skill registry

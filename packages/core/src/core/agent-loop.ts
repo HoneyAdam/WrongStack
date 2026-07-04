@@ -66,9 +66,17 @@ export function createAgentLoopHandler(
   // ConfigStore when available (CLI/WebUI); bare Agents fall back to
   // defaults. Cadence: at most every `everyNIterations` iterations, and
   // the provider itself throttles registry reads + dedups by signature.
-  const fleetPulseCfg = a.container.has(TOKENS.ConfigStore)
-    ? a.container.resolve(TOKENS.ConfigStore).get().fleet?.pulse
-    : undefined;
+  // Read defensively: minimal hosts and test harnesses hand Agents a
+  // container stub without the full Container surface.
+  const fleetPulseCfg = (() => {
+    try {
+      return typeof a.container?.has === 'function' && a.container.has(TOKENS.ConfigStore)
+        ? a.container.resolve(TOKENS.ConfigStore).get().fleet?.pulse
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
   const getFleetPulse = attachFleetPulse(a, fleetPulseCfg);
   const pulseEveryN = Math.max(1, fleetPulseCfg?.everyNIterations ?? 5);
 

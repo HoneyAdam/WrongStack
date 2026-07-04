@@ -89,10 +89,11 @@ const mw: Middleware<Request> = {
 | **Worktree** | `worktree.allocated`, `worktree.committed`, `worktree.merged`, `worktree.conflict`, `worktree.released`, `worktree.failed` |
 | **Session (audit)** | `checkpoint.written`, `in_flight.started`, `in_flight.ended`, `token.cost_estimate_unavailable` |
 | **Fleet** | `coordinator.stats` |
+| **Fleet supervisor** | `fleet.supervisor.signal`, `fleet.supervisor.decision`, `fleet.supervisor.action` |
 | **Brain** | `brain.decision_requested`, `brain.decision_answered`, `brain.decision_ask_human`, `brain.human_answered`, `brain.decision_denied`, `brain.intervention` |
 | **Errors** | `error` |
 
-Total: **~53 events** across 13 categories. Source of truth is the `EventMap` type in `events.ts` — any new event must be added there AND to this table.
+Total: **~56 events** across 14 categories. Source of truth is the `EventMap` type in `events.ts` — any new event must be added there AND to this table.
 
 **RunController** — One per `Agent.run`. Owns `AbortController`, chains parent signal, drains abort hooks LIFO on dispose.
 
@@ -162,6 +163,56 @@ mode/effort/preserve. CLI `/setmodel` and WebUI Settings → Model Routing both
 persist the same matrix shape.
 
 For director-driven evolution, see `docs/director-architecture.md`.
+
+### Fleet supervision + peer awareness
+
+**Early finishers (`awaitTasksAny`)** — `Director.awaitTasksAny(ids, {timeoutMs?})`
+(and the coordinator method behind it) resolves on the FIRST completion,
+returning `{completed, pending, timedOut?}`; already-cached ids drain
+immediately. The leader tool `await_tasks` takes `mode: 'all'|'any'` (+
+`timeoutMs` for any-mode) so a leader can handle each finisher as it lands
+instead of blocking on the slowest sibling. **Consumed-in-band rule**
+(`director.ts` taskCompletedListener): a result returned in-band — by an
+`awaitTasks` batch waiter or as the winning result of an any-await — sends
+no report-back mail; every other completion (fire-and-forget tasks AND the
+slow siblings of an any-await) reaches the leader as a mailbox `result`.
+
+**Rebalancing primitives** — `listPendingTasks()` /
+`retargetPendingTask(taskId, subagentId|undefined)` on coordinator +
+Director. Only still-PENDING tasks move (task id preserved, so waiters/
+notifier/checkpoints resolve unchanged); running tasks can only be steered
+or terminated.
+
+**FleetSupervisor** (`core/coordination/fleet-supervisor.ts`) — brain-gated
+shadow watcher over the generic Director fleet (SDD keeps its own
+`SddSupervisor`). Rule-first signals: pinned starvation, overloaded worker,
+deep backlog (→ spawn helper), stuck agent, failure streak, idle-with-work.
+Every proposal goes through the session `TOKENS.BrainArbiter`
+(`fallback:'ask_human'`, so policy answers recommended low-risk instantly
+and the LLM tier handles medium/high under the `/brain risk` ceiling).
+Actions: retarget + steer-the-loser + notify leader, spawn helper, steer,
+notify, terminate (opt-in `allowTerminate`). Rate limits: per-(signal,
+subject) cooldown, single engagement in flight, `maxInterventionsPerSubagent`,
+one retarget per task. Non-interference: never calls budget `extend`/`deny`
+(Director's budgetFilter stays sole negotiator), never preempts running
+tasks, never flips autonomy, dormant after `work_complete`. Wired in
+`MultiAgentHost.buildDirector` (CLI); inspect/toggle via `/supervisor`;
+audit trail = `fleet.supervisor.*` events. Config: `config.fleet.supervisor`.
+
+**Peer awareness** — three mechanisms so agents on a project see each other
+mid-run, not just at spawn: (1) **fleet-pulse digest** — every Agent's loop
+folds a `[FLEET PULSE]` peer block in every N iterations
+(`core/core/fleet-pulse.ts` formatter + `attachFleetPulse` in
+`mailbox-attach.ts`; signature-deduped, char-capped, 30s registry-read
+throttle); (2) **`fleet_status` tool** — read-only live peer snapshot from
+the mailbox registry (`coordination/fleet-status-tool.ts`, capability
+`coordination.fleet.read`, in `WIDE_SUBAGENT_CAPABILITIES`); (3) **status
+broadcasts** — `cli/fleet/status-broadcast.ts` turns subagent
+spawn/completion/budget-pressure into `type:'status'` broadcast mails
+(per-agent coalescing + global per-minute cap) and pushes
+`currentTask`/`status` into mailbox heartbeats on task start/stop. Config:
+`config.fleet.pulse` / `config.fleet.statusBroadcasts`. The whole `fleet`
+key is **deny-listed for in-project config**.
 
 ### The Brain (decision layer)
 
@@ -475,7 +526,7 @@ filter that lets through only a small set of benign preferences (`model`,
 `context`, `tools`, `features`, `autonomy`, `indexing`, `session`, `log`,
 `launch`, …) and drops every other top-level field — `provider`, `apiKey`,
 `baseUrl`, `providers`, `mcpServers`, `hooks`, `plugins`, `sync`, `yolo`,
-`extensions`, `hq` — before the merge, surfacing the dropped keys in a
+`extensions`, `hq`, `acp`, `fleet` — before the merge, surfacing the dropped keys in a
 `config.in_project_unsafe_fields_ignored` warning. Without that strip a malicious
 repo would get RCE on launch (an `mcpServers`/`hooks` entry, or an
 `extensions['@wrongstack/plug-lsp'].servers[].command` the LSP plugin spawns)
@@ -556,7 +607,7 @@ Slash commands are documented in `docs/slash/`. When adding a new one:
 4. Add tests: `packages/cli/tests/slash-<name>.test.ts`
 5. Add docs: `docs/slash/<name>.md`
 
-**Currently registered (33):** `help`, `init`, `clear`, `compact`, `context`, `tools`, `plugin`, `mcp`, `diag`, `stats`, `spawn`, `agents`, `director`, `fleet`, `memory`, `todos`, `sdd`, `save`, `load`, `yolo`, `autonomy`, `goal`, `brain`, `btw`, `next`, `mode`, `exit`, `fix`, `autophase`, `worktree`, `settings`, `collab`, `statusline`.
+**Currently registered (34):** `help`, `init`, `clear`, `compact`, `context`, `tools`, `plugin`, `mcp`, `diag`, `stats`, `spawn`, `agents`, `director`, `fleet`, `memory`, `todos`, `sdd`, `save`, `load`, `yolo`, `autonomy`, `goal`, `brain`, `btw`, `next`, `mode`, `exit`, `fix`, `autophase`, `worktree`, `settings`, `collab`, `statusline`, `supervisor`.
 
 Previously-planned but not yet implemented: `git`, `health`, `metrics`, `plan`, `security`. Their `docs/slash/*.md` files were deleted in 2026-06-13 (H13 from the 2026-06-03 audit). If any of them become priorities, add them via a `buildXxxCommand` registered in `packages/cli/src/slash-commands/index.ts` first, then write a fresh `docs/slash/<name>.md` describing the actual implementation. (The skill commands — `/skill`, `/skill-gen`, `/skill-install`, `/skill-import`, `/skill-update`, `/skill-uninstall` — are implemented as a first-party plugin, `createSkillsPlugin` in `packages/core/src/plugins/skills-plugin.ts`, not as builtin slash commands.)
 
