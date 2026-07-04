@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, useAppTranslation } from '@/i18n';
 import { useUIStore } from '@/stores';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 interface PromptVar {
   name: string;
@@ -254,17 +255,19 @@ export function PromptLibraryModal() {
     });
   }, [client, draft]);
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => setOpen(false)}
-    >
-      <div
-        className="flex h-[80dvh] min-h-0 min-w-0 w-full max-w-4xl overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+      <DialogContent
+        className="max-w-4xl h-[80dvh] p-0 gap-0 overflow-hidden"
+        showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          searchRef.current?.focus();
+        }}
       >
+        <DialogTitle className="sr-only">{t('activity:promptLib.heading')}</DialogTitle>
+        <DialogDescription className="sr-only">{t('activity:promptLib.searchPlaceholder')}</DialogDescription>
+        <div className="flex h-full min-h-0 min-w-0 w-full overflow-hidden">
         {/* Left: search + categories + results */}
         <div className="flex min-h-0 min-w-0 w-1/2 flex-col border-r border-border">
           <div className="border-b border-border p-3">
@@ -629,6 +632,7 @@ export function PromptLibraryModal() {
           )}
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

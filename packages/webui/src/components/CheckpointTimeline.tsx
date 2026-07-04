@@ -1,8 +1,9 @@
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Clock, History, Rewind, X } from 'lucide-react';
+import { Clock, History, Rewind } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -66,17 +67,15 @@ export function CheckpointTimeline({
     [ws.client, onClose],
   );
 
-  if (!open) return null;
-
   return (
-    <div
-      className={cn(
-        'fixed inset-0 z-50 flex items-start justify-center pt-[10dvh] bg-black/40 backdrop-blur-sm',
-        className,
-      )}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-md rounded-xl border bg-card shadow-2xl max-h-[75dvh] flex flex-col animate-in fade-in zoom-in-95">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent
+        className={cn('max-w-md gap-0 p-0 overflow-hidden flex flex-col max-h-[75dvh] pt-[10dvh]', className)}
+      >
+        <DialogTitle className="sr-only">{t('activity:checkpoint.heading')}</DialogTitle>
+        <DialogDescription className="sr-only">
+          {t('activity:checkpoint.countSuffix', { count: checkpoints.length })}
+        </DialogDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <div className="flex items-center gap-2.5">
@@ -90,13 +89,6 @@ export function CheckpointTimeline({
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-muted transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
         {/* Description bar */}
@@ -184,7 +176,7 @@ export function CheckpointTimeline({
           <kbd className="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Esc</kbd>{' '}
           {t('activity:checkpoint.footerPost')}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

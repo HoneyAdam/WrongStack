@@ -1338,6 +1338,7 @@
     "noRecentEvents": "No recent events. Interact with the UI to generate events."
   },
   "promptLib": {
+    "heading": "Prompt library",
     "searchPlaceholder": "Search prompts…",
     "newPrompt": "＋ New prompt",
     "all": "All",
