@@ -42,6 +42,61 @@ export function pipeViz(msg: WSServerMessage): void {
   }
 }
 
+/**
+ * Shape-check a server message payload against a record of required keys +
+ * their expected primitive types. Returns the payload cast to T when every
+ * required key is present and matches its type, otherwise `null`.
+ *
+ * This is the light runtime guard that WS handlers can use BEFORE the
+ * `as {...}` cast, so a malformed server payload (missing field, wrong
+ * type) is dropped deliberately instead of crashing the handler. The
+ * generic WS emit() try/catch logs the crash but silently drops the
+ * message — a `safePayload` check turns that into an early return the
+ * handler can reason about.
+ *
+ * Usage:
+ *   const p = safePayload(msg, { text: 'string', messageId: 'string' });
+ *   if (!p) return;
+ *   // p is now typed as { text: string; messageId: string }
+ *
+ * `optional` keys are checked only when present.
+ */
+export function safePayload<T extends Record<string, unknown>>(
+  msg: WSServerMessage,
+  required: Record<string, 'string' | 'number' | 'boolean' | 'object' | 'array'>,
+  optional?: Record<string, 'string' | 'number' | 'boolean' | 'object' | 'array'>,
+): T | null {
+  const p = (msg.payload ?? {}) as Record<string, unknown>;
+  for (const [key, kind] of Object.entries(required)) {
+    const v = p[key];
+    if (!matchesKind(v, kind)) return null;
+  }
+  if (optional) {
+    for (const [key, kind] of Object.entries(optional)) {
+      const v = p[key];
+      if (v !== undefined && v !== null && !matchesKind(v, kind)) return null;
+    }
+  }
+  return p as unknown as T;
+}
+
+function matchesKind(value: unknown, kind: string): boolean {
+  switch (kind) {
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number';
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'object':
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    case 'array':
+      return Array.isArray(value);
+    default:
+      return false;
+  }
+}
+
 export type PendingConfirm = Record<string, never>;
 
 export type WsStatus =

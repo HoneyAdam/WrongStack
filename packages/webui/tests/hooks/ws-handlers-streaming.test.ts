@@ -123,6 +123,7 @@ describe('streaming pipeline: text_delta → coalescer → chat-store', () => {
       type: 'run.result',
       payload: {
         status: 'done',
+        iterations: 1,
         sessionId: 'sess_stream',
         messageId,
       },

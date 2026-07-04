@@ -5,7 +5,7 @@ import { setFaviconStatus } from '@/lib/favicon';
 import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
 import { getWSClient } from '@/lib/ws-client';
 import { streamCoalescer } from '@/lib/stream-coalescer';
-import { isActiveSessionMessage, pipeViz } from '@/lib/ws-client-utils';
+import { isActiveSessionMessage, pipeViz, safePayload } from '@/lib/ws-client-utils';
 import { useChatStore, useConfigStore, useSessionStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import type { WSServerMessage } from '@/types';
@@ -52,7 +52,11 @@ export function handleTextDelta(msg: WSServerMessage) {
   // has no visible effect on the cinematic view (it scrolls past faster
   // than any frame budget). Iteration/tool/run-result events still pipe
   // through, so viz reflects the structural shape of the run.
-  const payload = msg.payload as { text: string; messageId: string };
+  const payload = safePayload<{ text: string; messageId: string }>(msg, {
+    text: 'string',
+    messageId: 'string',
+  });
+  if (!payload) return;
   streamCoalescer.flush('__thinking__');
   useChatStore.getState().clearThinking();
   let id = useChatStore.getState().currentAssistantMessageId;
@@ -160,9 +164,22 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
 
 export function handleRunResult(msg: WSServerMessage) {
   if (!isActiveSessionMessage(msg)) return;
-  const payload = msg.payload as { status: string; iterations: number; finalText?: string | undefined; error?: { code: string | undefined; message: string; recoverable: boolean } };
+  const payload = safePayload<{
+    status: string;
+    iterations?: number;
+    finalText?: string;
+    error?: { code?: string; message: string; recoverable: boolean };
+  }>(
+    msg,
+    { status: 'string' },
+    { iterations: 'number', finalText: 'string', error: 'object' },
+  );
+  if (!payload) return;
+  // iterations is optional on the wire (some server builds omit it on
+  // early-exit paths); default to 1 so downstream math + copy stays sane.
+  const iterations = payload.iterations ?? 1;
   streamCoalescer.flushAll();
-  useChatStore.getState().flushThinkingLog(Math.max(1, payload.iterations));
+  useChatStore.getState().flushThinkingLog(Math.max(1, iterations));
   useSessionStore.getState().setIteration(null);
   useChatStore.getState().setLoading(false);
   // Finalize the streaming assistant message so the UI stops showing the
@@ -188,7 +205,7 @@ export function handleRunResult(msg: WSServerMessage) {
     }
     if (lastAssistantIdx !== -1) {
       const sessionCost = useSessionStore.getState().cost;
-      useChatStore.getState().updateMessage(all[lastAssistantIdx]?.id, { runSummary: { iterations: payload.iterations, tools: toolCount, durationMs: Date.now() - runStart.at, costDelta: Math.max(0, sessionCost - runStart.cost) } });
+      useChatStore.getState().updateMessage(all[lastAssistantIdx]?.id, { runSummary: { iterations, tools: toolCount, durationMs: Date.now() - runStart.at, costDelta: Math.max(0, sessionCost - runStart.cost) } });
     }
   }
   useChatStore.getState().setRunStart(null);
@@ -199,8 +216,8 @@ export function handleRunResult(msg: WSServerMessage) {
     if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('error');
   } else if (payload.status === 'done') {
     if (typeof document !== 'undefined' && document.hidden) {
-      toast.success(`Run completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}`);
-      notifyIfHidden(`${useSessionStore.getState().projectName || 'Agent'} run finished`, `Completed in ${payload.iterations} iteration${payload.iterations === 1 ? '' : 's'}.`);
+      toast.success(`Run completed in ${iterations} iteration${iterations === 1 ? '' : 's'}`);
+      notifyIfHidden(`${useSessionStore.getState().projectName || 'Agent'} run finished`, `Completed in ${iterations} iteration${iterations === 1 ? '' : 's'}.`);
       setFaviconStatus('ready');
     }
     void ensureNotificationPermission();
