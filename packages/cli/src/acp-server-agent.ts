@@ -19,7 +19,6 @@ import {
   Context,
   createDefaultPipelines,
   DefaultLogger,
-  DefaultTokenCounter,
   EventBus,
   type Logger,
   type PermissionDecision,
@@ -31,6 +30,7 @@ import {
   ToolValidationError,
   type WstackPaths,
 } from '@wrongstack/core';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import type { RunTurnApi } from '@wrongstack/acp/agent';
 import { createDefaultContainer } from '@wrongstack/runtime';

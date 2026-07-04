@@ -336,6 +336,7 @@ export {
   Director,
   FleetSpawnBudgetError,
   FleetCostCapError,
+  type TaskResultNotification,
 } from './coordination/director.js';
 export {
   makeSpawnTool,

@@ -2,9 +2,9 @@ import {
   type BootConfigOptions,
   type Config,
   bootConfig as coreBootConfig,
-  type DefaultPathResolver,
   type WstackPaths,
 } from '@wrongstack/core';
+import type { DefaultPathResolver } from '@wrongstack/core/infrastructure';
 
 export interface BootPaths {
   cwd: string;

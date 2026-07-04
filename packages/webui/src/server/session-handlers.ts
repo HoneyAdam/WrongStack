@@ -14,13 +14,13 @@ import type { WebSocket } from 'ws';
 import {
   type Context,
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
-  type DefaultTokenCounter,
   type SessionStore,
   type ToolRegistry,
   type createStrategyCompactor,
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
 } from '@wrongstack/core';
+import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { ConnectedClient } from './types.js';
 import type { SessionRouteHandlers } from './session-routes.js';
 import type { CustomModeStore } from './custom-context-modes.js';

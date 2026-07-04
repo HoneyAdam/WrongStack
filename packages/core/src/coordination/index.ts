@@ -99,6 +99,7 @@ export {
   Director,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  type TaskResultNotification,
 } from './director.js';
 export {
   composeDirectorPrompt,

@@ -25,7 +25,7 @@ Monorepo is pnpm + Node ≥ 22. All commands run from the repo root.
 | Benchmarks | `pnpm run bench` |
 | Pre-release gate | `pnpm run release:check` (typecheck + test + build) |
 
-Per-package work: `pnpm --filter @wrongstack/core test` (or `build`/`typecheck`). Dev launchers: `dev.sh` / `dev.ps1` at repo root.
+Per-package work: `pnpm --filter @wrongstack/core build` (or `typecheck`). Packages have no `test` script — run tests from the repo root: `pnpm vitest run packages/core/tests`. Dev launchers: `dev.sh` / `dev.ps1` at repo root.
 
 ## Architecture in one screen
 

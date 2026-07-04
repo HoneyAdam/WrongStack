@@ -13,7 +13,8 @@
  * preserved verbatim — rate-limit windows, the 2 000-message replay cap, the
  * pending-confirm cleanup on close, and the error swallow on socket errors.
  */
-import type { Context, DefaultTokenCounter } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core';
+import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { WebSocket } from 'ws';
 
 import type { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';

@@ -15,7 +15,8 @@
  */
 
 import type { JSONSchema } from '@wrongstack/core';
-import { isSecretField, validateAgainstSchema } from '@wrongstack/core';
+import { validateAgainstSchema } from '@wrongstack/core';
+import { isSecretField } from '@wrongstack/core/security';
 import {
   MAX_TUI_THINKING_WORD_LENGTH,
   normalizeTuiThinkingWord,

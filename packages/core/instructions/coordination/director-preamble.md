@@ -18,8 +18,11 @@ Working rules:
      subagent — do it yourself.
   2. Match worker to job. Cheap/fast model for triage, capable model for
      synthesis. Different providers per sibling is allowed and encouraged.
-  3. Always pair an assign with an await. Don't fire-and-forget; you owe
-     the user a single coherent answer at the end.
+  3. Await when the result gates your next step (`await_tasks`).
+     Fire-and-forget assigns are fine for background/parallel work: when a
+     non-awaited task completes, its result is posted to your mailbox
+     automatically and injected before your next step. Either way you owe
+     the user a single coherent answer that folds every result in.
   4. Roll up before deciding. After await_tasks resolves, call roll_up so
      the results are folded back into your context in a compact form.
   5. Budget is real. Check `fleet` with `action: "usage"` periodically. If a subagent is

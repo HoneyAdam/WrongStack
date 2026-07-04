@@ -148,6 +148,26 @@ describe('buildMailboxBlock', () => {
     expect(text).toContain('Factor this result into your next decision');
   });
 
+  it('appends the btw CTA saying no reply is needed', () => {
+    const text = buildMailboxBlock([msg({ type: 'btw' })]).text;
+    expect(text).toContain('FYI only');
+    expect(text).toContain('no reply needed');
+  });
+
+  it('appends the status CTA about avoiding duplicate work', () => {
+    const text = buildMailboxBlock([msg({ type: 'status' })]).text;
+    expect(text).toContain('Peer status update');
+    expect(text).toContain('no reply needed');
+  });
+
+  it('btw/status stay non-actionable (no Action required footer)', () => {
+    const text = buildMailboxBlock([
+      msg({ type: 'btw', id: 'm_btw' }),
+      msg({ type: 'status', id: 'm_status' }),
+    ]).text;
+    expect(text).not.toContain('Action required');
+  });
+
   it('does NOT add a CTA paragraph for plain note messages', () => {
     const text = buildMailboxBlock([msg({ type: 'note' })]).text;
     expect(text).not.toContain('Action required');

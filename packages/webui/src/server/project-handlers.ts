@@ -12,10 +12,10 @@ import type {
   DefaultSessionStore,
   DefaultMemoryStore,
   DefaultModeStore,
-  DefaultTokenCounter,
   SkillLoader,
   ToolRegistry,
 } from '@wrongstack/core';
+import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { ConnectedClient } from './types.js';
 import type { ProjectRouteHandlers } from './project-routes.js';
 import { broadcast, errMessage, send, sendResult } from './ws-utils.js';

@@ -171,6 +171,14 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
       parts.push('↳ A subagent has completed its work. Factor this result into your next decision.');
       parts.push('');
     }
+    if (m.type === 'btw') {
+      parts.push('↳ FYI only — absorb the information and stay on your current task; no reply needed.');
+      parts.push('');
+    }
+    if (m.type === 'status') {
+      parts.push('↳ Peer status update — use it to avoid duplicate or conflicting work; no reply needed.');
+      parts.push('');
+    }
     if (m.type === 'review') {
       parts.push('↳ This is a review request. Inspect the referenced code/doc/PR when convenient; an immediate reply is not required.');
       parts.push('');

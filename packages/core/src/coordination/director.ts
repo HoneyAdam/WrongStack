@@ -18,7 +18,7 @@ import type { SessionWriter } from '../types/session.js';
 import type { Tool } from '../types/tool.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
-import { safeParse } from '../utils/safe-json.js';
+import { safeParse, safeStringify } from '../utils/safe-json.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
 import {
   type CollabDebugReport,
@@ -73,11 +73,41 @@ import {
  * symmetric with how other agents are built and avoids smuggling a
  * heavy LLM dependency into core just for the director path.
  */
+/**
+ * Payload handed to {@link DirectorOptions.taskResultNotifier} when a
+ * fire-and-forget task completes (no `awaitTasks` waiter was pending).
+ */
+export interface TaskResultNotification {
+  taskId: string;
+  /** Task description (or task id when no description was recorded). */
+  title: string;
+  status: TaskResult['status'];
+  subagentId: string;
+  /** Human-readable subagent name from the fleet manifest, when known. */
+  subagentName?: string | undefined;
+  /** The subagent's textual result (stringified when structured). */
+  resultText?: string | undefined;
+  /** Flattened `kind: message` error string for non-success statuses. */
+  errorText?: string | undefined;
+  iterations: number;
+  toolCalls: number;
+  durationMs: number;
+}
+
 export interface DirectorOptions {
   config: MultiAgentConfig;
   runner?: SubagentRunner | undefined;
   /** Optional Brain arbiter above the director for policy/decision escalation. */
   brain?: BrainArbiter | undefined;
+  /**
+   * Called when a task completes with NO pending `awaitTasks` waiter —
+   * i.e. a fire-and-forget `assign_task`. Wire this to the project
+   * mailbox so the result reaches the leader's conversation automatically
+   * instead of waiting for a poll. Synchronous `delegate` calls attach a
+   * waiter up front, so they never double-report through this hook.
+   * Internal tasks (shadow passes) are excluded. Errors are swallowed.
+   */
+  taskResultNotifier?: ((n: TaskResultNotification) => void | Promise<void>) | undefined;
   /** Optional logger for structured debug/error logging. Falls back to console if omitted. */
   logger?: Logger | undefined;
   /**
@@ -407,6 +437,8 @@ export class Director implements ICoordinator {
   private readonly roster?: Record<string, SubagentConfig> | undefined;
   private readonly directorPreamble: string;
   private readonly subagentBaseline: string;
+  /** See {@link DirectorOptions.taskResultNotifier}. */
+  private readonly taskResultNotifier?: DirectorOptions['taskResultNotifier'];
   /** Absolute path to the fleet's shared scratchpad directory, or null
    *  when none was configured. Exposed as a readonly getter for callers
    *  that need to surface the path to the user (e.g. the CLI logging
@@ -512,6 +544,7 @@ export class Director implements ICoordinator {
     this.roster = opts.roster;
     this.directorPreamble = opts.directorPreamble ?? DEFAULT_DIRECTOR_PREAMBLE;
     this.subagentBaseline = opts.subagentBaseline ?? DEFAULT_SUBAGENT_BASELINE;
+    this.taskResultNotifier = opts.taskResultNotifier;
     this.sharedScratchpadPath = opts.sharedScratchpadPath ?? null;
     this.maxSpawns = opts.maxSpawns ?? Number.POSITIVE_INFINITY;
     this.maxSpawnDepth = opts.maxSpawnDepth ?? 2;
@@ -610,6 +643,37 @@ export class Director implements ICoordinator {
       // Mirror into the on-disk checkpoint + session event stream so a
       // crashed director leaves a complete picture of which tasks landed.
       const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
+      // Fire-and-forget report-back: nobody was awaiting this task, so the
+      // result would otherwise sit in the cache until the leader polls.
+      // Hand it to the notifier (host wires this to the project mailbox,
+      // which injects it into the leader's conversation before its next
+      // step). Awaited tasks skip this — their result returns in-band.
+      if (!waiter && this.taskResultNotifier) {
+        const resultText =
+          typeof r.result === 'string'
+            ? r.result
+            : r.result !== undefined
+              ? safeStringify(r.result)
+              : undefined;
+        try {
+          void Promise.resolve(
+            this.taskResultNotifier({
+              taskId: r.taskId,
+              title,
+              status: r.status,
+              subagentId: r.subagentId,
+              subagentName: this.manifestEntries.get(r.subagentId)?.name,
+              resultText,
+              errorText: r.error ? `${r.error.kind}: ${r.error.message}` : undefined,
+              iterations: r.iterations,
+              toolCalls: r.toolCalls,
+              durationMs: r.durationMs,
+            }),
+          ).catch(() => {});
+        } catch {
+          // Notifier failures must never disturb task-completion bookkeeping.
+        }
+      }
       const failed = r.status !== 'success';
       // Disk-side state-checkpoint and session JSONL both store `error`
       // as a string for historical reasons. The structured SubagentError

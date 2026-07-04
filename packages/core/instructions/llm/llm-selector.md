@@ -13,8 +13,7 @@ Importance tiers:
 - "medium": routine exchanges, confirmations, straightforward Q&A
 
 Rules:
-- Always keep the most recent K pairs (preserve recency)
-- Never collapse the final 2 user/assistant pairs (working memory)
+- Preserve recency: never collapse the final 2 user/assistant pairs (working memory)
 - Preserve tool results that modified files or had external effects
 - Collapse old, low-information exchanges (greetings, acknowledgements, etc.)
 - If unsure, keep rather than collapse (errors are more costly than waste)

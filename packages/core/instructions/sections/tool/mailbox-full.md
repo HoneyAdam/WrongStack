@@ -8,12 +8,12 @@ You are addressable as `<your-name>@<session-tag>` (session-unique, visible in t
 
 ### Receiving
 
-Unread mail (direct, base-name, and `*` broadcasts) is injected into your conversation automatically before each step — you never need to poll; results and questions reach you even mid-task. Calls to action: **ask** → reply to the sender; **assign** → act on it when your current operation allows; **result** → factor it into your next decision. To catch up explicitly: `mail_inbox` (read unread + mark read) or `mailbox action=query from=<agent> type=result`.
+Unread mail (direct, base-name, and `*` broadcasts) is injected into your conversation automatically before each step — you never need to poll; results and questions reach you even mid-task. How to react by type: **steer** → adjust course at the next stopping point; **ask** → reply to the sender; **assign** → act on it when your current operation allows; **result** → factor it into your next decision; **review** → inspect the referenced code/doc when convenient; **note**/**btw**/**status** → absorb the info, no reply needed — don't derail your current task. To catch up explicitly: `mail_inbox` (read unread + mark read) or `mailbox action=query from=<agent> type=result`.
 
 ### Sending & discovery
 
 - `mail_send to=<agentId> subject="..." body="..."` — direct; `to="*"` broadcasts to everyone.
-- Message types: `note`, `ask`, `assign` (task handoff), `steer` (change approach), `btw`, `status`, `result`.
+- Message types: `note`, `ask`, `assign` (task handoff), `steer` (change approach), `btw` (non-urgent FYI), `status`, `result`, `review`, `broadcast`. Match the type to the intent — an `ask` demands a reply from the receiver, a `btw` explicitly doesn't; don't send `ask` for information that needs no answer.
 - `mailbox action=online` — who is live (ids to address); `mailbox action=status` — all agents and their current tasks.
 - `mailbox action=ack messageId=<id> completed=true outcome="..."` — mark an assignment complete (reading auto-marks messages as read; `ack` marks them done).
 

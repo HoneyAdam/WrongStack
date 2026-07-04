@@ -29,7 +29,6 @@ import type {
   Context,
   DefaultMemoryStore,
   DefaultModeStore,
-  DefaultTokenCounter,
   EventBus,
   Logger,
   ModelsRegistry,
@@ -45,6 +44,7 @@ import type {
   Container,
   SessionReader,
 } from '@wrongstack/core';
+import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 /** Session shape returned by `SessionStore.create()`. */
 type Session = Awaited<ReturnType<SessionStore['create']>>;
 import {

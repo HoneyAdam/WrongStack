@@ -40,6 +40,7 @@ import type {
   SkillLoader,
   ToolRegistry,
 } from '@wrongstack/core';
+import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import {
   enhanceUserPrompt,
   gatedEnhancerReasoning,
@@ -51,7 +52,6 @@ import type {
   BrainAutoRisk,
   Compactor,
   ConfigStore,
-  DefaultTokenCounter,
   Logger,
   SecretVault,
 } from '@wrongstack/core';

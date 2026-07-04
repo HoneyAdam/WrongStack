@@ -1,5 +1,4 @@
 import {
-  buildRecoveryStrategies,
   type Config,
   Container,
   createStrategyCompactor,
@@ -15,7 +14,6 @@ import {
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   type DefaultSystemPromptBuilderOptions,
-  DefaultTokenCounter,
   type EventBus,
   type Logger,
   type ModelsRegistry,
@@ -23,6 +21,10 @@ import {
   type Tool,
   type WstackPaths,
 } from '@wrongstack/core';
+// PR-C1 (66c4eb68): execution/ and infrastructure/ symbols come from the
+// published subpaths now that types/index.ts no longer re-exports them.
+import { buildRecoveryStrategies } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
 
 export interface CreateContainerOptions {

@@ -18,7 +18,6 @@ import {
   Context,
   createDefaultPipelines,
   DEFAULT_SUBAGENT_BASELINE,
-  DefaultTokenCounter,
   type DefaultMultiAgentCoordinator,
   Director,
   type DirectorSessionFactory,
@@ -26,10 +25,14 @@ import {
   FLEET_ROSTER,
   FleetManager,
   GlobalMailbox,
+  mailboxSessionTag,
   mergeModelRuntime,
   type ModelsRegistry,
   makeDirectorSessionFactory,
   makeFleetEmitTool,
+  resolveProjectDir,
+  type TaskResultNotification,
+  wstackGlobalRoot,
   type Provider,
   type ProviderRegistry,
   type ReasoningConfig,
@@ -50,6 +53,9 @@ import {
   ToolValidationError,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
+// PR-C1: DefaultTokenCounter moved off the root barrel — infrastructure/
+// symbols are imported from the published subpath (see commit 66c4eb68).
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { createFallbackModelExtension } from '../fallback-model.js';
@@ -217,6 +223,22 @@ export interface MultiAgentHostOptions {
    * treating a stale subagent id as active.
    */
   onShadowAgentStopped?: ((subagentId: string) => void) | undefined;
+  /**
+   * Resolved shared-mailbox project directory (`~/.wrongstack/projects/<slug>`)
+   * — the SAME directory the leader's mailbox checker attaches to (see
+   * `resolveProjectDir` + `wstackGlobalRoot`). Used for the fire-and-forget
+   * task-result report-back and the subagent online-agents block. When
+   * omitted, both fall back to `resolveProjectDir(deps.projectRoot, ...)`
+   * computed here.
+   */
+  mailboxProjectDir?: string | undefined;
+  /**
+   * Mailbox id of THIS session's leader, for task-result report-back.
+   * Defaults to `leader@<sessionTag(session.id)>` — the exact identity the
+   * CLI leader registers under (wiring/session.ts pins agentId: 'leader').
+   * Override for embedders whose leader uses a custom base id.
+   */
+  getLeaderMailboxId?: (() => string | undefined) | undefined;
 }
 
 /**
@@ -381,6 +403,10 @@ export class MultiAgentHost {
       fleetManager, // pass so director.fleetManager is never undefined
       brain: this.opts.brain,
       roster: FLEET_ROSTER, // pass so spawn_subagent recognizes shadow-agent role
+      // Fire-and-forget report-back: when an assign_task completes with no
+      // pending await, post the result to this session's leader via the
+      // project mailbox (injected inline before the leader's next step).
+      taskResultNotifier: (n) => this.reportTaskResultToLeader(n),
     });
     this.director.on('task.completed', ({ task, result }) => {
       this.fleetManager?.removePendingTask(task.id);
@@ -782,10 +808,13 @@ export class MultiAgentHost {
       // at a phase's git worktree so isolated checkouts don't collide.
       const subCwd = subCfg.cwd ?? this.deps.cwd;
 
-      // Fetch online agents from the shared mailbox to include in subagent prompt
+      // Fetch online agents from the shared mailbox to include in subagent prompt.
+      // NOTE: must use the RESOLVED project dir (~/.wrongstack/projects/<slug>)
+      // — the raw repo root previously passed here pointed GlobalMailbox at a
+      // nonexistent <repo>/_mailbox.* and the online list was always empty.
       let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
       try {
-        const subagentMailbox = new GlobalMailbox(this.deps.projectRoot);
+        const subagentMailbox = new GlobalMailbox(this.mailboxProjectDir());
         onlineAgents = await subagentMailbox.getAgentStatuses();
       } catch {
         // Non-fatal — mailbox errors should not block subagent creation
@@ -1243,6 +1272,45 @@ export class MultiAgentHost {
       for (const c of tool.capabilities ?? []) caps.add(c);
     }
     return [...caps];
+  }
+
+  /** Resolved shared-mailbox project dir — same as the leader's checker. */
+  private mailboxProjectDir(): string {
+    return (
+      this.opts.mailboxProjectDir ?? resolveProjectDir(this.deps.projectRoot, wstackGlobalRoot())
+    );
+  }
+
+  /**
+   * Fire-and-forget report-back (wired as the Director's
+   * `taskResultNotifier`): posts a non-awaited task's outcome to THIS
+   * session's leader via the project mailbox. The leader's mailbox checker
+   * injects it inline before the next step, so `assign_task`-without-await
+   * results reach the conversation without polling. The body carries a
+   * short excerpt only — the full result stays in the director's completed
+   * cache, retrievable via `await_tasks`/`roll_up`.
+   */
+  private async reportTaskResultToLeader(n: TaskResultNotification): Promise<void> {
+    try {
+      const leaderId =
+        this.opts.getLeaderMailboxId?.() ?? `leader@${mailboxSessionTag(this.deps.session.id)}`;
+      const mailbox = new GlobalMailbox(this.mailboxProjectDir(), this.deps.events);
+      const ok = n.status === 'success';
+      const MAX_BODY = 700;
+      const raw = (ok ? n.resultText : (n.errorText ?? n.status)) ?? '(no textual result)';
+      const excerpt = raw.length > MAX_BODY ? `${raw.slice(0, MAX_BODY)}…` : raw;
+      const title = n.title.length > 80 ? `${n.title.slice(0, 80)}…` : n.title;
+      await mailbox.send({
+        from: n.subagentName ?? n.subagentId,
+        to: leaderId,
+        type: 'result',
+        subject: `[task ${n.status}] ${title}`,
+        body: `${excerpt}\n\n(taskId: ${n.taskId} — ${n.iterations} iterations, ${n.toolCalls} tool calls, ${Math.round(n.durationMs / 1000)}s. Full result: await_tasks(["${n.taskId}"]) or roll_up.)`,
+        priority: ok ? 'normal' : 'high',
+      });
+    } catch {
+      // Report-back is best-effort; never disturb task completion.
+    }
   }
 
   private subagentToolRegistry(allow?: string[]): ToolRegistry {

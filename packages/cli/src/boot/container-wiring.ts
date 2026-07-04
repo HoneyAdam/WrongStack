@@ -38,7 +38,8 @@
 //     (system-prompt.ts or similar).
 
 import type { Config, EventBus, Logger, Renderer, ModelsRegistry, WstackPaths } from '@wrongstack/core';
-import { DefaultPathResolver, EventBus as CoreEventBus, TOKENS } from '@wrongstack/core';
+import { EventBus as CoreEventBus, TOKENS } from '@wrongstack/core';
+import { DefaultPathResolver } from '@wrongstack/core/infrastructure';
 import { createDefaultContainer } from '@wrongstack/runtime';
 import { makePromptDelegate } from '../permission-prompt.js';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';

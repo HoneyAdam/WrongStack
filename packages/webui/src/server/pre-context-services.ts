@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { WebSocket } from 'ws';
 import type { Config, Logger } from '@wrongstack/core';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import {
   AgentStatusTracker,
   AnnotationsStore,
@@ -35,7 +36,6 @@ import {
   DefaultSessionStore,
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
-  DefaultTokenCounter,
   EventBus,
   FleetNotifier,
   GlobalMailbox,

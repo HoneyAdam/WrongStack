@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Director } from '../../src/coordination/director.js';
+import { Director, type TaskResultNotification } from '../../src/coordination/director.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type {
   SubagentConfig,
@@ -1253,5 +1253,72 @@ describe('Director orchestration', () => {
 
     expect(countListeners('tool.executed')).toBe(toolBefore);
     expect(countListeners('budget.threshold_reached')).toBe(budgetBefore);
+  });
+});
+
+describe('Director taskResultNotifier (fire-and-forget report-back)', () => {
+  function build(notifier: (n: TaskResultNotification) => void): Director {
+    const runner = vi.fn(
+      async (task: TaskSpec, _ctx: SubagentRunContext): Promise<SubagentRunOutcome> => ({
+        result: `done:${task.description}`,
+        iterations: 1,
+        toolCalls: 1,
+      }),
+    );
+    return new Director({
+      config: {
+        coordinatorId: 'notify-director',
+        doneCondition: { type: 'all_tasks_done' },
+        maxConcurrent: 2,
+      },
+      runner,
+      taskResultNotifier: notifier,
+    });
+  }
+
+  it('fires for a completed task with NO pending await (fire-and-forget assign)', async () => {
+    const notifier = vi.fn();
+    const d = build(notifier);
+    const id = await d.spawn({ name: 'worker' });
+    const taskId = await d.assign({ id: 't-noawait', description: 'background job', subagentId: id });
+
+    await expect.poll(() => notifier.mock.calls.length).toBe(1);
+    const n = notifier.mock.calls[0]![0] as TaskResultNotification;
+    expect(n.taskId).toBe(taskId);
+    expect(n.status).toBe('success');
+    expect(n.title).toBe('background job');
+    expect(n.resultText).toBe('done:background job');
+    expect(n.subagentId).toBe(id);
+    await d.shutdown();
+  });
+
+  it('does NOT fire when the task is being awaited (delegate path)', async () => {
+    const notifier = vi.fn();
+    const d = build(notifier);
+    const id = await d.spawn({ name: 'worker' });
+    const taskId = await d.assign({ id: 't-awaited', description: 'sync job', subagentId: id });
+    const [result] = await d.awaitTasks([taskId]);
+
+    expect(result?.status).toBe('success');
+    // Give any stray async notifier call a chance to land before asserting.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(notifier).not.toHaveBeenCalled();
+    await d.shutdown();
+  });
+
+  it('a throwing notifier does not disturb completion bookkeeping', async () => {
+    const notifier = vi.fn(() => {
+      throw new Error('mailbox down');
+    });
+    const d = build(notifier);
+    const id = await d.spawn({ name: 'worker' });
+    const taskId = await d.assign({ id: 't-throws', description: 'job', subagentId: id });
+
+    await expect.poll(() => notifier.mock.calls.length).toBe(1);
+    // Result must still be cached and retrievable after the notifier threw.
+    const [result] = await d.awaitTasks([taskId]);
+    expect(result?.status).toBe('success');
+    expect(result?.result).toBe('done:job');
+    await d.shutdown();
   });
 });

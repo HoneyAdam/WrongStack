@@ -51,7 +51,14 @@ export {
   type PersistedActiveKit,
   recordKitChoice,
 } from './design-project-store.js';
-export { DefaultErrorHandler } from './error-handler.js';
+// Full error-handler surface — PR-C1 (66c4eb68) moved consumers here from
+// the types/ barrel, which used to `export *` this module.
+export {
+  buildRecoveryStrategies,
+  DEFAULT_RECOVERY_STRATEGIES,
+  DefaultErrorHandler,
+  type RecoveryStrategy,
+} from './error-handler.js';
 export {
   EternalAutonomyEngine,
   type EternalAutonomyOptions,
