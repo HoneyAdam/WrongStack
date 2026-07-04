@@ -16,6 +16,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useHqStore } from '../store.js';
+import { LiveMailboxView } from './mailbox-live-view.js';
 import type {
   HqEventEnvelope,
   HqMailboxEventPayload,
@@ -60,8 +61,9 @@ function shortId(s: string): string {
 }
 
 export function MailboxView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['snapshot', 'events']);
   const snapshot = state.snapshot;
+  const [mode, setMode] = useState<'grouped' | 'live'>('live');
 
   const { projects, hasAnyActivity } = useMemo(
     () => groupMailboxEvents(snapshot, state.events),
@@ -82,9 +84,29 @@ export function MailboxView(): React.ReactElement {
         {totalUnread} unread · {totalIncomplete} incomplete
         {hasAnyActivity ? ' · showing detailed messages' : ''}
       </div>
-      {projects.map((g) => (
-        <ProjectSection key={g.projectId} group={g} />
-      ))}
+      <div className="hq-mailbox-modebar" role="tablist" aria-label="Mailbox view mode">
+        <button
+          type="button"
+          className={'hq-btn secondary' + (mode === 'live' ? ' hq-btn-selected' : '')}
+          aria-selected={mode === 'live'}
+          onClick={() => setMode('live')}
+        >
+          Live feed
+        </button>
+        <button
+          type="button"
+          className={'hq-btn secondary' + (mode === 'grouped' ? ' hq-btn-selected' : '')}
+          aria-selected={mode === 'grouped'}
+          onClick={() => setMode('grouped')}
+        >
+          Grouped by project
+        </button>
+      </div>
+      {mode === 'live' ? (
+        <LiveMailboxView snapshot={snapshot} events={state.events} />
+      ) : (
+        projects.map((g) => <ProjectSection key={g.projectId} group={g} />)
+      )}
     </div>
   );
 }
@@ -288,7 +310,7 @@ function Count({
 // Re-export the latest mailbox events for callers that want to surface
 // them in tooltips (e.g. the nav badge). Keeps the view self-contained.
 export function useLatestMailboxEvent(): HqEventEnvelope<HqMailboxEventPayload> | null {
-  const state = useHqStore();
+  const state = useHqStore(['events']);
   for (let i = state.events.length - 1; i >= 0; i--) {
     const evt = state.events[i];
     if (

@@ -5,7 +5,7 @@ import type React from 'react';
 import { useHqStore } from '../store.js';
 
 export function CostView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['snapshot']);
   const projects = state.snapshot?.projects ?? [];
   const total = state.snapshot?.totals.totalCostUsd ?? 0;
 

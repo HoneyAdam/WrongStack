@@ -8,6 +8,7 @@ import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/co
 import { getHqClient } from './lib/hq-ws-client.js';
 
 export type ViewId =
+  | 'cockpit'
   | 'fleet'
   | 'console'
   | 'mailbox'
@@ -35,21 +36,34 @@ let state: HqState = {
   snapshot: null,
   events: [],
   alerts: [],
-  activeView: 'fleet',
+  activeView: 'cockpit',
   selectedSessionId: null,
   selectedClientId: null,
   connected: false,
 };
 
 const listeners = new Set<() => void>();
+/** Maps each listener to the keys it cares about (null = all keys). */
+const listenerKeys = new Map<() => void, string[] | null>();
 
-function notify(): void {
-  for (const l of listeners) l();
+function notify(changedKeys: string[]): void {
+  // Only invoke listeners whose key filter intersects the changed keys.
+  // Listeners registered without a filter (null) are always notified.
+  for (const l of listeners) {
+    const keys = listenerKeys.get(l);
+    if (keys == null || keys.some((k) => changedKeys.includes(k))) {
+      l();
+    }
+  }
 }
 
-function subscribe(listener: () => void): () => void {
+function subscribe(listener: () => void, keys?: string[]): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  listenerKeys.set(listener, keys ?? null);
+  return () => {
+    listeners.delete(listener);
+    listenerKeys.delete(listener);
+  };
 }
 
 function getSnapshotState(): HqState {
@@ -58,7 +72,7 @@ function getSnapshotState(): HqState {
 
 function setState(patch: Partial<HqState>): void {
   state = { ...state, ...patch };
-  notify();
+  notify(Object.keys(patch));
 }
 
 // ── WS wiring (once) ────────────────────────────────────────────────────────
@@ -81,11 +95,11 @@ function wireClient(): void {
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
 
-export function useHqStore(): HqState {
+export function useHqStore(keys?: string[]): HqState {
   useEffect(() => {
     wireClient();
   }, []);
-  return useSyncExternalStore(subscribe, getSnapshotState, getSnapshotState);
+  return useSyncExternalStore((cb) => subscribe(cb, keys), getSnapshotState, getSnapshotState);
 }
 
 export function setActiveView(view: ViewId): void {
@@ -108,7 +122,11 @@ export async function fetchJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function postCommand(clientId: string, type: string, payload: unknown): Promise<{ commandId: string; queued: boolean }> {
+export async function postCommand(
+  clientId: string,
+  type: string,
+  payload: unknown,
+): Promise<{ commandId: string; queued: boolean }> {
   const res = await fetch('/api/command', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

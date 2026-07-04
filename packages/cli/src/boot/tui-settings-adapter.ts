@@ -38,6 +38,16 @@ export interface SettingsAdapter {
   saveSettings: (s: LiveSettingsInput) => Promise<string | null>;
 }
 
+const ANIMATION_STYLES = ['rainbow', 'wave', 'pulse', 'dots', 'breathe', 'cycle'] as const;
+type AnimationStyleValue = (typeof ANIMATION_STYLES)[number];
+
+/** Widen an untyped config value to the animation-style union; default 'rainbow'. */
+function normalizeAnimationStyle(raw: unknown): AnimationStyleValue {
+  return typeof raw === 'string' && (ANIMATION_STYLES as readonly string[]).includes(raw)
+    ? (raw as AnimationStyleValue)
+    : 'rainbow';
+}
+
 /**
  * Build the getSettings/saveSettings pair for the TUI SettingsPicker.
  *
@@ -123,6 +133,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       debugStream: cfg.debugStream ?? false,
       statuslineMode: autonomy?.statuslineMode === 'minimum' ? 'minimum' : 'detailed',
       thinkingWord: normalizeTuiThinkingWord(autonomy?.thinkingWord),
+      animationStyle: normalizeAnimationStyle(autonomy?.animationStyle),
       configScope: cfg.configScope ?? 'global',
       enhanceDelayMs:
         ((cfg.autonomy as Record<string, unknown> | undefined)?.enhanceDelayMs as number) ??
@@ -193,6 +204,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.midRunSendPicker !== undefined ||
         s.statuslineMode !== undefined ||
         s.thinkingWord !== undefined ||
+        s.animationStyle !== undefined ||
         s.autonomyNextPrompt !== undefined ||
         s.autoProceedMaxIterations !== undefined ||
         s.reasoningMode !== undefined ||
@@ -236,6 +248,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         if (s.statuslineMode !== undefined) autonomy.statuslineMode = s.statuslineMode;
         if (s.thinkingWord !== undefined)
           autonomy.thinkingWord = normalizeTuiThinkingWord(s.thinkingWord);
+        if (s.animationStyle !== undefined) autonomy.animationStyle = s.animationStyle;
         if (s.autonomyNextPrompt !== undefined) autonomy.autonomyNextPrompt = s.autonomyNextPrompt;
         if (s.autoProceedMaxIterations !== undefined)
           autonomy.autoProceedMaxIterations = s.autoProceedMaxIterations;

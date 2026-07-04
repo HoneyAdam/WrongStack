@@ -75,7 +75,11 @@ export function tryParseJson(s: string): unknown {
   }
 }
 
-export function scanNumberedRange(text: string): { first?: number | undefined; last?: number | undefined; count: number } {
+export function scanNumberedRange(text: string): {
+  first?: number | undefined;
+  last?: number | undefined;
+  count: number;
+} {
   let first: number | undefined;
   let last: number | undefined;
   let count = 0;
@@ -127,7 +131,9 @@ export function formatMatchHit(hit: unknown): string | undefined {
 const ARG_BUDGET = 60;
 
 function stringArrayOf(v: unknown): string[] | undefined {
-  return Array.isArray(v) ? v.filter((item): item is string => typeof item === 'string') : undefined;
+  return Array.isArray(v)
+    ? v.filter((item): item is string => typeof item === 'string')
+    : undefined;
 }
 
 function fileScopeSummary(files: unknown, fallback?: string | undefined): string {
@@ -223,7 +229,10 @@ export function formatToolArgs(toolName: string, input: unknown): string {
     }
     case 'task': {
       const action = stringOf(obj['action']) ?? 'show';
-      const task = obj['task'] && typeof obj['task'] === 'object' ? (obj['task'] as Record<string, unknown>) : undefined;
+      const task =
+        obj['task'] && typeof obj['task'] === 'object'
+          ? (obj['task'] as Record<string, unknown>)
+          : undefined;
       const target =
         stringOf(obj['target']) ??
         stringOf(obj['id']) ??
@@ -290,7 +299,12 @@ export function formatToolArgs(toolName: string, input: unknown): string {
       const filter = stringOf(obj['filter']);
       const since = stringOf(obj['since']);
       const lines = typeof obj['lines'] === 'number' ? `${obj['lines']} lines` : '';
-      return [target ? shortenPath(target, 34) : '', filter ? `/${truncMid(filter, 16)}/` : '', since, lines]
+      return [
+        target ? shortenPath(target, 34) : '',
+        filter ? `/${truncMid(filter, 16)}/` : '',
+        since,
+        lines,
+      ]
         .filter(Boolean)
         .join(' · ');
     }
@@ -322,11 +336,17 @@ export function formatToolArgs(toolName: string, input: unknown): string {
     case 'codebase-index': {
       const langs = stringArrayOf(obj['langs']);
       const force = obj['force'] === true ? 'force' : '';
-      return [force, langs && langs.length > 0 ? langs.join(',') : 'incremental'].filter(Boolean).join(' · ');
+      return [force, langs && langs.length > 0 ? langs.join(',') : 'incremental']
+        .filter(Boolean)
+        .join(' · ');
     }
     case 'codebase-search': {
       const query = stringOf(obj['query']);
-      const filters = [stringOf(obj['kind']), stringOf(obj['lang']), stringOf(obj['file']) ? `in ${shortenPath(String(obj['file']), 24)}` : '']
+      const filters = [
+        stringOf(obj['kind']),
+        stringOf(obj['lang']),
+        stringOf(obj['file']) ? `in ${shortenPath(String(obj['file']), 24)}` : '',
+      ]
         .filter(Boolean)
         .join(' · ');
       return [query ? `"${truncMid(query, 30)}"` : '', filters].filter(Boolean).join(' · ');
@@ -361,8 +381,20 @@ function summarizeJsonObject(obj: Record<string, unknown>): string | null {
   const keys = Object.keys(obj);
   if (keys.length === 0) return null;
   const priority = [
-    'ok', 'status', 'timedOut', 'stopReason', 'reason', 'error', 'message',
-    'result', 'summary', 'iterations', 'toolCalls', 'durationMs', 'subagentId', 'taskId',
+    'ok',
+    'status',
+    'timedOut',
+    'stopReason',
+    'reason',
+    'error',
+    'message',
+    'result',
+    'summary',
+    'iterations',
+    'toolCalls',
+    'durationMs',
+    'subagentId',
+    'taskId',
   ];
   const ordered = [
     ...priority.filter((k) => keys.includes(k)),
@@ -446,7 +478,9 @@ export function formatToolOutput(
     const files = numOf(o['files_modified']);
     const reps = numOf(o['total_replacements']);
     if (files !== undefined && reps !== undefined) {
-      return [`${reps} replacement${reps === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}`];
+      return [
+        `${reps} replacement${reps === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}`,
+      ];
     }
   }
 
@@ -563,7 +597,9 @@ export function formatToolOutput(
       const o = json as Record<string, unknown>;
       const danger = o['danger'];
       const level =
-        danger && typeof danger === 'object' ? (danger as Record<string, unknown>)['level'] : undefined;
+        danger && typeof danger === 'object'
+          ? (danger as Record<string, unknown>)['level']
+          : undefined;
       const reasons =
         danger && typeof danger === 'object'
           ? ((danger as Record<string, unknown>)['reasons'] as unknown)
@@ -913,10 +949,21 @@ export function formatToolVisualOutput(
   ) {
     return visualEdit(toolName, text, ok);
   }
-  if (toolName === 'bash' || toolName === 'shell' || toolName === 'git' || toolName === 'exec' || toolName === 'install') {
+  if (
+    toolName === 'bash' ||
+    toolName === 'shell' ||
+    toolName === 'git' ||
+    toolName === 'exec' ||
+    toolName === 'install'
+  ) {
     return visualCommand(toolName, text, ok);
   }
-  if (toolName === 'test' || toolName === 'lint' || toolName === 'typecheck' || toolName === 'format') {
+  if (
+    toolName === 'test' ||
+    toolName === 'lint' ||
+    toolName === 'typecheck' ||
+    toolName === 'format'
+  ) {
     return visualVerifier(toolName, text, ok);
   }
   if (toolName === 'fetch' || toolName === 'webfetch' || toolName === 'web_fetch') {
@@ -928,14 +975,25 @@ export function formatToolVisualOutput(
   if (toolName === 'scaffold') return visualScaffold(text);
   if (toolName === 'todo') return visualTodo(text);
   if (toolName === 'task' || toolName === 'plan') return visualWorkBoard(toolName, text, ok);
-  if (toolName === 'remember' || toolName === 'forget' || toolName === 'search_memory' || toolName === 'find_related_memories') {
+  if (
+    toolName === 'remember' ||
+    toolName === 'forget' ||
+    toolName === 'search_memory' ||
+    toolName === 'find_related_memories'
+  ) {
     return visualMemory(toolName, text, ok);
   }
   if (toolName === 'logs') return visualLogs(text);
   if (toolName === 'document') return visualDocument(text);
-  if (toolName === 'tool_help' || toolName === 'tool_search') return visualToolCatalog(toolName, text);
-  if (toolName === 'tool_use' || toolName === 'batch_tool_use') return visualMetaExecution(toolName, text, ok);
-  if (toolName === 'codebase-index' || toolName === 'codebase-search' || toolName === 'codebase-stats') {
+  if (toolName === 'tool_help' || toolName === 'tool_search')
+    return visualToolCatalog(toolName, text);
+  if (toolName === 'tool_use' || toolName === 'batch_tool_use')
+    return visualMetaExecution(toolName, text, ok);
+  if (
+    toolName === 'codebase-index' ||
+    toolName === 'codebase-search' ||
+    toolName === 'codebase-stats'
+  ) {
     return visualCodebase(toolName, text, ok);
   }
   if (toolName === 'set_working_dir') return visualWorkingDir(text, ok);
@@ -944,7 +1002,10 @@ export function formatToolVisualOutput(
   return undefined;
 }
 
-export function ToolOutputLines({ lines, hasFollowingBlock }: {
+export function ToolOutputLines({
+  lines,
+  hasFollowingBlock,
+}: {
   lines: ToolVisualLine[];
   hasFollowingBlock?: boolean | undefined;
 }): React.ReactElement {
@@ -1013,34 +1074,28 @@ function colorForVisualKind(kind: ToolVisualLineKind): string | undefined {
  * user only sees the raw diff body (or nothing in `simple` mode),
  * which makes the tool entry look empty.
  */
-function visualEdit(
-  toolName: string,
-  text: string,
-  ok: boolean,
-): ToolVisualLine[] | undefined {
+function visualEdit(toolName: string, text: string, ok: boolean): ToolVisualLine[] | undefined {
   const rows: ToolVisualLine[] = [];
   const parsed = tryParseJson(text);
   if (parsed && typeof parsed === 'object') {
     const obj = parsed as Record<string, unknown>;
     const path = typeof obj['path'] === 'string' ? (obj['path'] as string) : undefined;
-    const replacements = typeof obj['replacements'] === 'number' ? (obj['replacements'] as number) : undefined;
+    const replacements =
+      typeof obj['replacements'] === 'number' ? (obj['replacements'] as number) : undefined;
     const bytes = typeof obj['bytes'] === 'number' ? (obj['bytes'] as number) : undefined;
     const created = obj['created'] === true;
     const files = Array.isArray(obj['files']) ? (obj['files'] as unknown[]) : undefined;
     const results = Array.isArray(obj['results']) ? (obj['results'] as unknown[]) : undefined;
 
     if (toolName === 'edit' && path !== undefined) {
-      const repText = replacements !== undefined
-        ? `${replacements} replacement${replacements === 1 ? '' : 's'}`
-        : undefined;
+      const repText =
+        replacements !== undefined
+          ? `${replacements} replacement${replacements === 1 ? '' : 's'}`
+          : undefined;
       rows.push({ kind: 'ok', text: '', marker: 'edit ', path });
       if (repText) rows.push({ kind: 'meta', text: repText });
     } else if (toolName === 'write' && path !== undefined) {
-      const sizeText = bytes !== undefined
-        ? `${bytes} bytes`
-        : created
-          ? 'new file'
-          : 'updated';
+      const sizeText = bytes !== undefined ? `${bytes} bytes` : created ? 'new file' : 'updated';
       rows.push({ kind: 'ok', text: '', marker: 'write ', path });
       rows.push({ kind: 'meta', text: sizeText });
     } else if ((toolName === 'diff' || toolName === 'patch') && files && files.length > 0) {
@@ -1094,14 +1149,29 @@ function visualRead(text: string): ToolVisualLine[] | undefined {
     const first = firstNonEmpty(lines.join('\n'));
     return first ? [{ kind: 'meta', text: first }] : undefined;
   }
-  const rows: ToolVisualLine[] = numbered.slice(0, 5).map((match) => ({
+
+  // First 10 lines always shown in full
+  const rows: ToolVisualLine[] = numbered.slice(0, 10).map((match) => ({
     kind: 'code',
     lineNo: match[1],
     text: match[2] ?? '',
   }));
-  if (numbered.length > rows.length) {
-    rows.push({ kind: 'meta', text: `${numbered.length - rows.length} more read line(s)` });
+
+  // From the 11th line onward, show up to 5 more lines
+  if (numbered.length > 10) {
+    const extra: ToolVisualLine[] = numbered.slice(10, 15).map((match) => ({
+      kind: 'code' as const,
+      lineNo: match[1],
+      text: match[2] ?? '',
+    }));
+    rows.push(...extra);
+
+    // Remaining lines beyond 15 get a count summary
+    if (numbered.length > 15) {
+      rows.push({ kind: 'meta', text: `more ${numbered.length - 15} line(s)` });
+    }
   }
+
   return rows;
 }
 
@@ -1144,7 +1214,8 @@ function visualSearch(toolName: string, text: string): ToolVisualLine[] | undefi
       consumed++;
     }
   }
-  if (lines.length > consumed) rows.push({ kind: 'meta', text: `${lines.length - consumed} more result line(s)` });
+  if (lines.length > consumed)
+    rows.push({ kind: 'meta', text: `${lines.length - consumed} more result line(s)` });
   return rows.length > 0 ? rows : undefined;
 }
 
@@ -1155,12 +1226,18 @@ function visualSearchMatches(matches: unknown[], count: number): ToolVisualLine[
     const hit = parseMatchHit(match);
     if (hit) rows.push({ kind: 'match', path: hit.path, lineNo: hit.line, text: hit.text });
   }
-  if (rows.length === 0) return count > 0 ? [{ kind: 'meta', text: `${count} result${count === 1 ? '' : 's'}` }] : undefined;
-  if (count > rows.length) rows.push({ kind: 'meta', text: `${count - rows.length} more result(s)` });
+  if (rows.length === 0)
+    return count > 0
+      ? [{ kind: 'meta', text: `${count} result${count === 1 ? '' : 's'}` }]
+      : undefined;
+  if (count > rows.length)
+    rows.push({ kind: 'meta', text: `${count - rows.length} more result(s)` });
   return rows;
 }
 
-function parseMatchHit(hit: unknown): { path?: string | undefined; line?: string | undefined; text: string } | undefined {
+function parseMatchHit(
+  hit: unknown,
+): { path?: string | undefined; line?: string | undefined; text: string } | undefined {
   if (typeof hit === 'string') {
     const m = hit.match(/^(.+?):(\d+):(.*)$/);
     return m?.[1] && m[2] ? { path: m[1], line: m[2], text: m[3] ?? '' } : { text: hit };
@@ -1171,7 +1248,11 @@ function parseMatchHit(hit: unknown): { path?: string | undefined; line?: string
     const line = numOf(o['line']) ?? numOf(o['lineNumber']);
     const title = stringOf(o['title']);
     const snippet = stringOf(o['snippet']);
-    const text = stringOf(o['text']) ?? stringOf(o['match']) ?? stringOf(o['preview']) ?? [title, snippet].filter(Boolean).join(' — ');
+    const text =
+      stringOf(o['text']) ??
+      stringOf(o['match']) ??
+      stringOf(o['preview']) ??
+      [title, snippet].filter(Boolean).join(' — ');
     return { path, line: line === undefined ? undefined : String(line), text };
   }
   return undefined;
@@ -1181,26 +1262,34 @@ function visualPathList(toolName: string, text: string): ToolVisualLine[] | unde
   const json = tryParseJson(text);
   const files =
     json && typeof json === 'object' && Array.isArray((json as Record<string, unknown>)['files'])
-      ? ((json as Record<string, unknown>)['files'] as unknown[]).filter((v): v is string => typeof v === 'string')
+      ? ((json as Record<string, unknown>)['files'] as unknown[]).filter(
+          (v): v is string => typeof v === 'string',
+        )
       : bodyLines(text).filter((line) => line.trim() && !line.startsWith(`${toolName}:`));
   if (files.length === 0) return undefined;
-  const rows = files.slice(0, VISUAL_MAX_LINES).map((file): ToolVisualLine => ({
-    kind: 'path',
-    path: file,
-    text: '',
-  }));
-  if (files.length > rows.length) rows.push({ kind: 'meta', text: `${files.length - rows.length} more path(s)` });
+  const rows = files.slice(0, VISUAL_MAX_LINES).map(
+    (file): ToolVisualLine => ({
+      kind: 'path',
+      path: file,
+      text: '',
+    }),
+  );
+  if (files.length > rows.length)
+    rows.push({ kind: 'meta', text: `${files.length - rows.length} more path(s)` });
   return rows;
 }
 
 function visualTree(text: string): ToolVisualLine[] | undefined {
   const lines = bodyLines(text).filter((line) => line.trim());
   if (lines.length === 0) return undefined;
-  const rows = lines.slice(0, VISUAL_MAX_LINES).map((line): ToolVisualLine => ({
-    kind: line.includes('──') || line.includes('|--') ? 'path' : 'meta',
-    text: line,
-  }));
-  if (lines.length > rows.length) rows.push({ kind: 'meta', text: `${lines.length - rows.length} more tree line(s)` });
+  const rows = lines.slice(0, VISUAL_MAX_LINES).map(
+    (line): ToolVisualLine => ({
+      kind: line.includes('──') || line.includes('|--') ? 'path' : 'meta',
+      text: line,
+    }),
+  );
+  if (lines.length > rows.length)
+    rows.push({ kind: 'meta', text: `${lines.length - rows.length} more tree line(s)` });
   return rows;
 }
 
@@ -1220,7 +1309,9 @@ function visualCommand(toolName: string, text: string, ok: boolean): ToolVisualL
   const header = parseHeaderLine(text);
   const sections = parseNamedSections(text);
   return commandRows({
-    exit: numberFromParsedField(header.fields, 'exit_code') ?? numberFromParsedField(header.fields, 'exitCode'),
+    exit:
+      numberFromParsedField(header.fields, 'exit_code') ??
+      numberFromParsedField(header.fields, 'exitCode'),
     timedOut: header.fields['timed_out'] === 'true' || header.fields['timedOut'] === 'true',
     stdout: sections.get('stdout') ?? sections.get('output'),
     stderr: sections.get('stderr') ?? sections.get('error'),
@@ -1238,9 +1329,23 @@ function commandRows(opts: {
   label?: string | undefined;
 }): ToolVisualLine[] | undefined {
   const rows: ToolVisualLine[] = [];
-  const statusKind: ToolVisualLineKind = opts.timedOut ? 'warn' : opts.ok && (opts.exit ?? 0) === 0 ? 'ok' : 'error';
-  const status = opts.timedOut ? 'timed out' : opts.exit !== undefined ? `exit ${opts.exit}` : opts.ok ? 'completed' : 'failed';
-  rows.push({ kind: statusKind, marker: statusKind === 'ok' ? 'ok ' : statusKind === 'warn' ? '! ' : 'x ', text: opts.label ? `${opts.label} ${status}` : status });
+  const statusKind: ToolVisualLineKind = opts.timedOut
+    ? 'warn'
+    : opts.ok && (opts.exit ?? 0) === 0
+      ? 'ok'
+      : 'error';
+  const status = opts.timedOut
+    ? 'timed out'
+    : opts.exit !== undefined
+      ? `exit ${opts.exit}`
+      : opts.ok
+        ? 'completed'
+        : 'failed';
+  rows.push({
+    kind: statusKind,
+    marker: statusKind === 'ok' ? 'ok ' : statusKind === 'warn' ? '! ' : 'x ',
+    text: opts.label ? `${opts.label} ${status}` : status,
+  });
   appendOutputPreview(rows, opts.stdout, 'stdout');
   appendOutputPreview(rows, opts.stderr, 'stderr');
   return rows.length > 0 ? rows.slice(0, VISUAL_MAX_LINES) : undefined;
@@ -1253,15 +1358,24 @@ function visualVerifier(toolName: string, text: string, ok: boolean): ToolVisual
     const errors = numOf(obj['errors']) ?? numOf(obj['failed']) ?? 0;
     const warnings = numOf(obj['warnings']) ?? 0;
     const changed = numOf(obj['files_changed']) ?? 0;
-    const statusKind: ToolVisualLineKind = !ok || errors > 0 ? 'error' : changed > 0 ? 'warn' : 'ok';
+    const statusKind: ToolVisualLineKind =
+      !ok || errors > 0 ? 'error' : changed > 0 ? 'warn' : 'ok';
     const parts = [
       toolName,
       errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : undefined,
       warnings > 0 ? `${warnings} warning${warnings === 1 ? '' : 's'}` : undefined,
       changed > 0 ? `${changed} changed` : undefined,
-      toolName === 'test' ? `${numOf(obj['passed']) ?? 0}/${numOf(obj['tests_run']) ?? 0} passed` : undefined,
+      toolName === 'test'
+        ? `${numOf(obj['passed']) ?? 0}/${numOf(obj['tests_run']) ?? 0} passed`
+        : undefined,
     ].filter(Boolean);
-    return [{ kind: statusKind, marker: statusKind === 'ok' ? 'ok ' : statusKind === 'warn' ? '! ' : 'x ', text: parts.join(' · ') || toolName }];
+    return [
+      {
+        kind: statusKind,
+        marker: statusKind === 'ok' ? 'ok ' : statusKind === 'warn' ? '! ' : 'x ',
+        text: parts.join(' · ') || toolName,
+      },
+    ];
   }
 
   const header = parseHeaderLine(text);
@@ -1270,22 +1384,31 @@ function visualVerifier(toolName: string, text: string, ok: boolean): ToolVisual
   const errorContext = sections.get('error_context');
   const fields = { ...header.fields, ...parseKeyValueLines(report) };
   const status = fields['status'];
-  const errorCount = numberFromParsedField(fields, 'errors') ?? numberFromParsedField(fields, 'failed') ?? 0;
+  const errorCount =
+    numberFromParsedField(fields, 'errors') ?? numberFromParsedField(fields, 'failed') ?? 0;
   const warningCount = numberFromParsedField(fields, 'warnings') ?? 0;
   const changed = numberFromParsedField(fields, 'files_changed') ?? 0;
   const statusKind: ToolVisualLineKind =
-    !ok || errorContext || errorCount > 0 ? 'error' : status === 'changed' || changed > 0 ? 'warn' : 'ok';
-  const rows: ToolVisualLine[] = [{
-    kind: statusKind,
-    marker: statusKind === 'ok' ? 'ok ' : statusKind === 'warn' ? '! ' : 'x ',
-    text: [
-      toolName,
-      status ? `status=${status}` : undefined,
-      errorCount > 0 ? `${errorCount} error${errorCount === 1 ? '' : 's'}` : undefined,
-      warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? '' : 's'}` : undefined,
-      changed > 0 ? `${changed} changed` : undefined,
-    ].filter(Boolean).join(' · '),
-  }];
+    !ok || errorContext || errorCount > 0
+      ? 'error'
+      : status === 'changed' || changed > 0
+        ? 'warn'
+        : 'ok';
+  const rows: ToolVisualLine[] = [
+    {
+      kind: statusKind,
+      marker: statusKind === 'ok' ? 'ok ' : statusKind === 'warn' ? '! ' : 'x ',
+      text: [
+        toolName,
+        status ? `status=${status}` : undefined,
+        errorCount > 0 ? `${errorCount} error${errorCount === 1 ? '' : 's'}` : undefined,
+        warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? '' : 's'}` : undefined,
+        changed > 0 ? `${changed} changed` : undefined,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    },
+  ];
   appendOutputPreview(rows, errorContext, 'stderr');
   return rows.slice(0, VISUAL_MAX_LINES);
 }
@@ -1307,13 +1430,28 @@ function visualFetch(text: string): ToolVisualLine[] | undefined {
   );
 }
 
-function fetchRows(status: number | undefined, contentType: string | undefined, content: string | undefined): ToolVisualLine[] | undefined {
-  const kind: ToolVisualLineKind = status === undefined ? 'meta' : status >= 200 && status < 300 ? 'ok' : status >= 300 && status < 400 ? 'warn' : 'error';
-  const rows: ToolVisualLine[] = [{
-    kind,
-    marker: kind === 'ok' ? 'ok ' : kind === 'warn' ? '! ' : kind === 'error' ? 'x ' : undefined,
-    text: [status !== undefined ? `HTTP ${status}` : 'HTTP', contentType?.split(';')[0]].filter(Boolean).join(' · '),
-  }];
+function fetchRows(
+  status: number | undefined,
+  contentType: string | undefined,
+  content: string | undefined,
+): ToolVisualLine[] | undefined {
+  const kind: ToolVisualLineKind =
+    status === undefined
+      ? 'meta'
+      : status >= 200 && status < 300
+        ? 'ok'
+        : status >= 300 && status < 400
+          ? 'warn'
+          : 'error';
+  const rows: ToolVisualLine[] = [
+    {
+      kind,
+      marker: kind === 'ok' ? 'ok ' : kind === 'warn' ? '! ' : kind === 'error' ? 'x ' : undefined,
+      text: [status !== undefined ? `HTTP ${status}` : 'HTTP', contentType?.split(';')[0]]
+        .filter(Boolean)
+        .join(' · '),
+    },
+  ];
   const preview = firstNonEmpty(content ?? '');
   if (preview) rows.push({ kind: 'stdout', text: preview });
   return rows;
@@ -1327,23 +1465,43 @@ function visualJson(text: string): ToolVisualLine[] | undefined {
   if (err) return [{ kind: 'error', marker: 'x ', text: err }];
   const type = stringOf(obj['type']);
   const keys = Array.isArray(obj['keys']) ? obj['keys'].length : undefined;
-  return [{ kind: 'ok', marker: 'ok ', text: [type ?? 'json', keys !== undefined ? `${keys} key${keys === 1 ? '' : 's'}` : undefined].filter(Boolean).join(' · ') }];
+  return [
+    {
+      kind: 'ok',
+      marker: 'ok ',
+      text: [type ?? 'json', keys !== undefined ? `${keys} key${keys === 1 ? '' : 's'}` : undefined]
+        .filter(Boolean)
+        .join(' · '),
+    },
+  ];
 }
 
 function visualOutdated(text: string): ToolVisualLine[] | undefined {
   const lines = bodyLines(text).filter((line) => line.trim() && !line.startsWith('outdated'));
   if (lines.length === 0) return undefined;
-  return lines.slice(0, VISUAL_MAX_LINES).map((line): ToolVisualLine => ({ kind: 'warn', marker: '! ', text: line }));
+  return lines
+    .slice(0, VISUAL_MAX_LINES)
+    .map((line): ToolVisualLine => ({ kind: 'warn', marker: '! ', text: line }));
 }
 
 function visualAudit(text: string): ToolVisualLine[] | undefined {
   const lines = bodyLines(text).filter((line) => line.trim() && !line.startsWith('audit'));
   if (lines.length === 0) return undefined;
-  return lines.slice(0, VISUAL_MAX_LINES).map((line): ToolVisualLine => ({
-    kind: /^critical|^high/i.test(line) ? 'error' : /^moderate|^medium/i.test(line) ? 'warn' : 'meta',
-    marker: /^critical|^high/i.test(line) ? 'x ' : /^moderate|^medium/i.test(line) ? '! ' : undefined,
-    text: line,
-  }));
+  return lines.slice(0, VISUAL_MAX_LINES).map(
+    (line): ToolVisualLine => ({
+      kind: /^critical|^high/i.test(line)
+        ? 'error'
+        : /^moderate|^medium/i.test(line)
+          ? 'warn'
+          : 'meta',
+      marker: /^critical|^high/i.test(line)
+        ? 'x '
+        : /^moderate|^medium/i.test(line)
+          ? '! '
+          : undefined,
+      text: line,
+    }),
+  );
 }
 
 function visualScaffold(text: string): ToolVisualLine[] | undefined {
@@ -1356,7 +1514,8 @@ function visualScaffold(text: string): ToolVisualLine[] | undefined {
   for (const file of created.slice(0, 5)) {
     if (typeof file === 'string') rows.push({ kind: 'ok', marker: '+ ', path: file, text: '' });
   }
-  if (skipped.length > 0) rows.push({ kind: 'warn', marker: '! ', text: `${skipped.length} skipped` });
+  if (skipped.length > 0)
+    rows.push({ kind: 'warn', marker: '! ', text: `${skipped.length} skipped` });
   return rows.length > 0 ? rows : undefined;
 }
 
@@ -1368,14 +1527,20 @@ function visualTodo(text: string): ToolVisualLine[] | undefined {
       : parseHeaderLine(text).fields;
   const count = numberFromParsedField(fields, 'count') ?? 0;
   const inProgress = numberFromParsedField(fields, 'in_progress') ?? 0;
-  return [{
-    kind: count > 0 ? 'ok' : 'meta',
-    marker: count > 0 ? 'ok ' : undefined,
-    text: `${count} todo${count === 1 ? '' : 's'}${inProgress > 0 ? ` · ${inProgress} in progress` : ''}`,
-  }];
+  return [
+    {
+      kind: count > 0 ? 'ok' : 'meta',
+      marker: count > 0 ? 'ok ' : undefined,
+      text: `${count} todo${count === 1 ? '' : 's'}${inProgress > 0 ? ` · ${inProgress} in progress` : ''}`,
+    },
+  ];
 }
 
-function visualWorkBoard(toolName: string, text: string, ok: boolean): ToolVisualLine[] | undefined {
+function visualWorkBoard(
+  toolName: string,
+  text: string,
+  ok: boolean,
+): ToolVisualLine[] | undefined {
   const json = tryParseJson(text);
   if (json && typeof json === 'object' && !Array.isArray(json)) {
     const obj = json as Record<string, unknown>;
@@ -1386,7 +1551,11 @@ function visualWorkBoard(toolName: string, text: string, ok: boolean): ToolVisua
     for (const todo of todos.slice(0, 3)) {
       if (todo && typeof todo === 'object') {
         const o = todo as Record<string, unknown>;
-        rows.push({ kind: 'path', marker: '+ ', text: stringOf(o['content']) ?? stringOf(o['id']) ?? 'todo' });
+        rows.push({
+          kind: 'path',
+          marker: '+ ',
+          text: stringOf(o['content']) ?? stringOf(o['id']) ?? 'todo',
+        });
       }
     }
     return rows.slice(0, VISUAL_MAX_LINES);
@@ -1395,16 +1564,24 @@ function visualWorkBoard(toolName: string, text: string, ok: boolean): ToolVisua
   const header = parseHeaderLine(text);
   const sections = parseNamedSections(text);
   const rows = boardSummaryRows(toolName, header.fields, ok);
-  appendBoardPreview(rows, sections.get('message') ?? sections.get('plan') ?? bodyLines(text).join('\n'));
+  appendBoardPreview(
+    rows,
+    sections.get('message') ?? sections.get('plan') ?? bodyLines(text).join('\n'),
+  );
   return rows.slice(0, VISUAL_MAX_LINES);
 }
 
-function boardSummaryRows(toolName: string, fields: Record<string, string>, ok: boolean): ToolVisualLine[] {
+function boardSummaryRows(
+  toolName: string,
+  fields: Record<string, string>,
+  ok: boolean,
+): ToolVisualLine[] {
   const success = fields['ok'] !== 'false' && ok;
   const count = numberFromParsedField(fields, 'count');
   const open = numberFromParsedField(fields, 'open');
   const completed = numberFromParsedField(fields, 'completed');
-  const inProgress = numberFromParsedField(fields, 'inProgress') ?? numberFromParsedField(fields, 'in_progress');
+  const inProgress =
+    numberFromParsedField(fields, 'inProgress') ?? numberFromParsedField(fields, 'in_progress');
   const parts = [
     toolName,
     count !== undefined ? `${count} item${count === 1 ? '' : 's'}` : undefined,
@@ -1412,11 +1589,13 @@ function boardSummaryRows(toolName: string, fields: Record<string, string>, ok: 
     completed !== undefined ? `${completed} done` : undefined,
     inProgress !== undefined && inProgress > 0 ? `${inProgress} in progress` : undefined,
   ].filter(Boolean);
-  return [{
-    kind: success ? 'ok' : 'error',
-    marker: success ? 'ok ' : 'x ',
-    text: parts.join(' · ') || toolName,
-  }];
+  return [
+    {
+      kind: success ? 'ok' : 'error',
+      marker: success ? 'ok ' : 'x ',
+      text: parts.join(' · ') || toolName,
+    },
+  ];
 }
 
 function appendBoardPreview(rows: ToolVisualLine[], text: string | undefined): void {
@@ -1426,7 +1605,10 @@ function appendBoardPreview(rows: ToolVisualLine[], text: string | undefined): v
     .map((line) => line.replace(/^[\s│├└─>*-]+/, '').trim())
     .filter((line) => line && !line.startsWith('{') && !line.startsWith('['));
   for (const line of lines.slice(0, 4)) {
-    rows.push({ kind: line.includes('failed') || line.includes('not configured') ? 'error' : 'meta', text: line });
+    rows.push({
+      kind: line.includes('failed') || line.includes('not configured') ? 'error' : 'meta',
+      text: line,
+    });
   }
 }
 
@@ -1448,7 +1630,11 @@ function visualMemory(toolName: string, text: string, ok: boolean): ToolVisualLi
   return [memoryStatusRow(toolName, header.fields, ok)];
 }
 
-function memoryStatusRow(toolName: string, fields: Record<string, string>, ok: boolean): ToolVisualLine {
+function memoryStatusRow(
+  toolName: string,
+  fields: Record<string, string>,
+  ok: boolean,
+): ToolVisualLine {
   const scope = fields['scope'];
   const removed = numberFromParsedField(fields, 'removed');
   const text =
@@ -1466,7 +1652,11 @@ function memoryResultRows(results: unknown[]): ToolVisualLine[] | undefined {
       const parsed = tryParseJson(result);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const o = parsed as Record<string, unknown>;
-        rows.push({ kind: 'meta', marker: tagMarker(stringOf(o['priority'])), text: memoryText(o) });
+        rows.push({
+          kind: 'meta',
+          marker: tagMarker(stringOf(o['priority'])),
+          text: memoryText(o),
+        });
       } else {
         rows.push({ kind: 'meta', text: result });
       }
@@ -1475,7 +1665,8 @@ function memoryResultRows(results: unknown[]): ToolVisualLine[] | undefined {
       rows.push({ kind: 'meta', marker: tagMarker(stringOf(o['priority'])), text: memoryText(o) });
     }
   }
-  if (results.length > rows.length) rows.push({ kind: 'meta', text: `${results.length - rows.length} more memory result(s)` });
+  if (results.length > rows.length)
+    rows.push({ kind: 'meta', text: `${results.length - rows.length} more memory result(s)` });
   return rows;
 }
 
@@ -1495,16 +1686,23 @@ function visualLogs(text: string): ToolVisualLine[] | undefined {
   const json = tryParseJson(text);
   if (json && typeof json === 'object' && !Array.isArray(json)) {
     const obj = json as Record<string, unknown>;
-    const rows: ToolVisualLine[] = [{
-      kind: 'meta',
-      text: `${stringOf(obj['source']) ?? 'logs'} · ${numOf(obj['total']) ?? 0} entries${obj['truncated'] === true ? ' · truncated' : ''}`,
-    }];
+    const rows: ToolVisualLine[] = [
+      {
+        kind: 'meta',
+        text: `${stringOf(obj['source']) ?? 'logs'} · ${numOf(obj['total']) ?? 0} entries${obj['truncated'] === true ? ' · truncated' : ''}`,
+      },
+    ];
     const entries = Array.isArray(obj['entries']) ? obj['entries'] : [];
     appendLogEntries(rows, entries);
     return rows;
   }
   const header = parseHeaderLine(text);
-  const rows: ToolVisualLine[] = [{ kind: 'meta', text: `${header.label}${header.fields['total'] ? ` · ${header.fields['total']} entries` : ''}` }];
+  const rows: ToolVisualLine[] = [
+    {
+      kind: 'meta',
+      text: `${header.label}${header.fields['total'] ? ` · ${header.fields['total']} entries` : ''}`,
+    },
+  ];
   appendLogEntries(rows, bodyLines(text));
   return rows.slice(0, VISUAL_MAX_LINES);
 }
@@ -1515,14 +1713,30 @@ function appendLogEntries(rows: ToolVisualLine[], entries: unknown[]): void {
       rows.push(logLine(entry));
     } else if (entry && typeof entry === 'object') {
       const o = entry as Record<string, unknown>;
-      rows.push(logLine([stringOf(o['timestamp']), stringOf(o['level']), stringOf(o['source']), stringOf(o['message'])].filter(Boolean).join(' ')));
+      rows.push(
+        logLine(
+          [
+            stringOf(o['timestamp']),
+            stringOf(o['level']),
+            stringOf(o['source']),
+            stringOf(o['message']),
+          ]
+            .filter(Boolean)
+            .join(' '),
+        ),
+      );
     }
   }
-  if (entries.length > 5) rows.push({ kind: 'meta', text: `${entries.length - 5} more log line(s)` });
+  if (entries.length > 5)
+    rows.push({ kind: 'meta', text: `${entries.length - 5} more log line(s)` });
 }
 
 function logLine(line: string): ToolVisualLine {
-  const kind: ToolVisualLineKind = /\b(error|fatal|panic)\b/i.test(line) ? 'error' : /\b(warn|warning)\b/i.test(line) ? 'warn' : 'stdout';
+  const kind: ToolVisualLineKind = /\b(error|fatal|panic)\b/i.test(line)
+    ? 'error'
+    : /\b(warn|warning)\b/i.test(line)
+      ? 'warn'
+      : 'stdout';
   return { kind, marker: kind === 'error' ? 'x ' : kind === 'warn' ? '! ' : undefined, text: line };
 }
 
@@ -1573,7 +1787,11 @@ function visualToolCatalog(toolName: string, text: string): ToolVisualLine[] | u
   if (json && typeof json === 'object' && !Array.isArray(json)) {
     const obj = json as Record<string, unknown>;
     const total = numOf(obj['total']) ?? 0;
-    rows.push({ kind: total > 0 ? 'ok' : 'warn', marker: total > 0 ? 'ok ' : '! ', text: `${toolName} · ${total} result${total === 1 ? '' : 's'}` });
+    rows.push({
+      kind: total > 0 ? 'ok' : 'warn',
+      marker: total > 0 ? 'ok ' : '! ',
+      text: `${toolName} · ${total} result${total === 1 ? '' : 's'}`,
+    });
     const tools = Array.isArray(obj['tools']) ? obj['tools'] : [];
     for (const tool of tools.slice(0, 5)) {
       if (tool && typeof tool === 'object') {
@@ -1581,7 +1799,9 @@ function visualToolCatalog(toolName: string, text: string): ToolVisualLine[] | u
         rows.push({
           kind: o['mutating'] === true ? 'warn' : 'path',
           marker: o['mutating'] === true ? '! ' : undefined,
-          text: [stringOf(o['name']), stringOf(o['permission']), stringOf(o['description'])].filter(Boolean).join(' · '),
+          text: [stringOf(o['name']), stringOf(o['permission']), stringOf(o['description'])]
+            .filter(Boolean)
+            .join(' · '),
         });
       }
     }
@@ -1591,30 +1811,40 @@ function visualToolCatalog(toolName: string, text: string): ToolVisualLine[] | u
   return [{ kind: 'meta', text: header.label || toolName }];
 }
 
-function visualMetaExecution(toolName: string, text: string, ok: boolean): ToolVisualLine[] | undefined {
+function visualMetaExecution(
+  toolName: string,
+  text: string,
+  ok: boolean,
+): ToolVisualLine[] | undefined {
   const json = tryParseJson(text);
   if (!json || typeof json !== 'object' || Array.isArray(json)) {
     const header = parseHeaderLine(text);
-    return [{ kind: ok ? 'ok' : 'error', marker: ok ? 'ok ' : 'x ', text: header.label || toolName }];
+    return [
+      { kind: ok ? 'ok' : 'error', marker: ok ? 'ok ' : 'x ', text: header.label || toolName },
+    ];
   }
   const obj = json as Record<string, unknown>;
   if (toolName === 'tool_use') {
     const success = obj['success'] !== false && ok;
     const target = stringOf(obj['tool']) ?? 'tool';
-    return [{
-      kind: success ? 'ok' : 'error',
-      marker: success ? 'ok ' : 'x ',
-      text: `${target} · ${numOf(obj['executionMs']) ?? 0}ms${success ? '' : ` · ${stringOf(obj['error']) ?? 'failed'}`}`,
-    }];
+    return [
+      {
+        kind: success ? 'ok' : 'error',
+        marker: success ? 'ok ' : 'x ',
+        text: `${target} · ${numOf(obj['executionMs']) ?? 0}ms${success ? '' : ` · ${stringOf(obj['error']) ?? 'failed'}`}`,
+      },
+    ];
   }
   const total = numOf(obj['total']) ?? 0;
   const succeeded = numOf(obj['succeeded']) ?? 0;
   const failed = numOf(obj['failed']) ?? 0;
-  const rows: ToolVisualLine[] = [{
-    kind: failed > 0 || !ok ? 'error' : 'ok',
-    marker: failed > 0 || !ok ? 'x ' : 'ok ',
-    text: `${succeeded}/${total} succeeded${failed > 0 ? ` · ${failed} failed` : ''}`,
-  }];
+  const rows: ToolVisualLine[] = [
+    {
+      kind: failed > 0 || !ok ? 'error' : 'ok',
+      marker: failed > 0 || !ok ? 'x ' : 'ok ',
+      text: `${succeeded}/${total} succeeded${failed > 0 ? ` · ${failed} failed` : ''}`,
+    },
+  ];
   const results = Array.isArray(obj['results']) ? obj['results'] : [];
   for (const result of results.slice(0, 5)) {
     if (result && typeof result === 'object') {
@@ -1634,17 +1864,23 @@ function visualCodebase(toolName: string, text: string, ok: boolean): ToolVisual
   const json = tryParseJson(text);
   if (!json || typeof json !== 'object' || Array.isArray(json)) {
     const header = parseHeaderLine(text);
-    return [{ kind: ok ? 'ok' : 'warn', marker: ok ? 'ok ' : '! ', text: header.label || toolName }];
+    return [
+      { kind: ok ? 'ok' : 'warn', marker: ok ? 'ok ' : '! ', text: header.label || toolName },
+    ];
   }
   const obj = json as Record<string, unknown>;
   if (toolName === 'codebase-search') {
     const status = stringOf(obj['indexStatus']);
     const total = numOf(obj['total']) ?? 0;
-    const rows: ToolVisualLine[] = [{
-      kind: status ? 'warn' : 'ok',
-      marker: status ? '! ' : 'ok ',
-      text: status ?? `${total} symbol result${total === 1 ? '' : 's'} for "${stringOf(obj['query']) ?? ''}"`,
-    }];
+    const rows: ToolVisualLine[] = [
+      {
+        kind: status ? 'warn' : 'ok',
+        marker: status ? '! ' : 'ok ',
+        text:
+          status ??
+          `${total} symbol result${total === 1 ? '' : 's'} for "${stringOf(obj['query']) ?? ''}"`,
+      },
+    ];
     const results = Array.isArray(obj['results']) ? obj['results'] : [];
     for (const result of results.slice(0, 5)) {
       if (result && typeof result === 'object') {
@@ -1653,7 +1889,9 @@ function visualCodebase(toolName: string, text: string, ok: boolean): ToolVisual
           kind: 'match',
           path: stringOf(r['file']),
           lineNo: numOf(r['line'])?.toString(),
-          text: [stringOf(r['kind']), stringOf(r['name']), stringOf(r['signature'])].filter(Boolean).join(' · '),
+          text: [stringOf(r['kind']), stringOf(r['name']), stringOf(r['signature'])]
+            .filter(Boolean)
+            .join(' · '),
         });
       }
     }
@@ -1661,54 +1899,85 @@ function visualCodebase(toolName: string, text: string, ok: boolean): ToolVisual
   }
   if (toolName === 'codebase-index') {
     const errors = Array.isArray(obj['errors']) ? obj['errors'] : [];
-    return [{
-      kind: errors.length > 0 || !ok ? 'error' : stringOf(obj['note']) ? 'warn' : 'ok',
-      marker: errors.length > 0 || !ok ? 'x ' : stringOf(obj['note']) ? '! ' : 'ok ',
-      text: stringOf(obj['note']) ?? `${numOf(obj['filesIndexed']) ?? 0} files · ${numOf(obj['symbolsIndexed']) ?? 0} symbols · ${fmtDuration(numOf(obj['durationMs']) ?? 0)}`,
-    }];
+    return [
+      {
+        kind: errors.length > 0 || !ok ? 'error' : stringOf(obj['note']) ? 'warn' : 'ok',
+        marker: errors.length > 0 || !ok ? 'x ' : stringOf(obj['note']) ? '! ' : 'ok ',
+        text:
+          stringOf(obj['note']) ??
+          `${numOf(obj['filesIndexed']) ?? 0} files · ${numOf(obj['symbolsIndexed']) ?? 0} symbols · ${fmtDuration(numOf(obj['durationMs']) ?? 0)}`,
+      },
+    ];
   }
   const status = stringOf(obj['indexStatus']);
-  return [{
-    kind: status ? 'warn' : 'ok',
-    marker: status ? '! ' : 'ok ',
-    text: status ?? `${numOf(obj['totalSymbols']) ?? 0} symbols · ${numOf(obj['totalFiles']) ?? 0} files · ${fmtBytes(numOf(obj['sizeBytes']) ?? 0)}`,
-  }];
+  return [
+    {
+      kind: status ? 'warn' : 'ok',
+      marker: status ? '! ' : 'ok ',
+      text:
+        status ??
+        `${numOf(obj['totalSymbols']) ?? 0} symbols · ${numOf(obj['totalFiles']) ?? 0} files · ${fmtBytes(numOf(obj['sizeBytes']) ?? 0)}`,
+    },
+  ];
 }
 
 function visualWorkingDir(text: string, ok: boolean): ToolVisualLine[] | undefined {
   const json = tryParseJson(text);
-  const obj = json && typeof json === 'object' && !Array.isArray(json) ? (json as Record<string, unknown>) : undefined;
+  const obj =
+    json && typeof json === 'object' && !Array.isArray(json)
+      ? (json as Record<string, unknown>)
+      : undefined;
   if (!obj) return undefined;
   const err = stringOf(obj['error']);
-  return [{
-    kind: err || !ok ? 'error' : 'ok',
-    marker: err || !ok ? 'x ' : 'ok ',
-    path: stringOf(obj['current']),
-    text: err ?? stringOf(obj['message']) ?? 'working directory',
-  }];
+  return [
+    {
+      kind: err || !ok ? 'error' : 'ok',
+      marker: err || !ok ? 'x ' : 'ok ',
+      path: stringOf(obj['current']),
+      text: err ?? stringOf(obj['message']) ?? 'working directory',
+    },
+  ];
 }
 
 function visualMode(text: string, ok: boolean): ToolVisualLine[] | undefined {
   const json = tryParseJson(text);
-  const obj = json && typeof json === 'object' && !Array.isArray(json) ? (json as Record<string, unknown>) : undefined;
+  const obj =
+    json && typeof json === 'object' && !Array.isArray(json)
+      ? (json as Record<string, unknown>)
+      : undefined;
   if (!obj) return undefined;
   if (Array.isArray(obj['modes'])) {
     const modes = obj['modes'] as unknown[];
-    const rows: ToolVisualLine[] = [{ kind: 'ok', marker: 'ok ', text: `${modes.length} mode${modes.length === 1 ? '' : 's'}` }];
+    const rows: ToolVisualLine[] = [
+      { kind: 'ok', marker: 'ok ', text: `${modes.length} mode${modes.length === 1 ? '' : 's'}` },
+    ];
     for (const mode of modes.slice(0, 5)) {
       if (mode && typeof mode === 'object') {
         const m = mode as Record<string, unknown>;
-        rows.push({ kind: 'path', text: [stringOf(m['id']), stringOf(m['name']), stringOf(m['description'])].filter(Boolean).join(' · ') });
+        rows.push({
+          kind: 'path',
+          text: [stringOf(m['id']), stringOf(m['name']), stringOf(m['description'])]
+            .filter(Boolean)
+            .join(' · '),
+        });
       }
     }
     return rows;
   }
   const success = obj['success'] !== false && ok;
-  return [{
-    kind: success ? 'ok' : 'error',
-    marker: success ? 'ok ' : 'x ',
-    text: [stringOf(obj['action']) ?? 'mode', stringOf(obj['currentMode']), stringOf(obj['message'])].filter(Boolean).join(' · '),
-  }];
+  return [
+    {
+      kind: success ? 'ok' : 'error',
+      marker: success ? 'ok ' : 'x ',
+      text: [
+        stringOf(obj['action']) ?? 'mode',
+        stringOf(obj['currentMode']),
+        stringOf(obj['message']),
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    },
+  ];
 }
 
 function recordToStringFields(obj: Record<string, unknown>): Record<string, string> {
@@ -1722,11 +1991,16 @@ function recordToStringFields(obj: Record<string, unknown>): Record<string, stri
   return out;
 }
 
-function appendOutputPreview(rows: ToolVisualLine[], output: string | undefined, kind: 'stdout' | 'stderr'): void {
+function appendOutputPreview(
+  rows: ToolVisualLine[],
+  output: string | undefined,
+  kind: 'stdout' | 'stderr',
+): void {
   if (!output) return;
   const lines = output.split(/\r?\n/).filter((line) => line.trim());
   for (const line of lines.slice(0, 3)) rows.push({ kind, text: line.trim() });
-  if (lines.length > 3) rows.push({ kind: 'meta', text: `${lines.length - 3} more ${kind} line(s)` });
+  if (lines.length > 3)
+    rows.push({ kind: 'meta', text: `${lines.length - 3} more ${kind} line(s)` });
 }
 
 function bodyLines(text: string): string[] {
@@ -1857,8 +2131,10 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
   return (
     <Box flexDirection="column" marginTop={0}>
       <Box flexDirection="row">
-        <Text color={color}>{glyph}{' '}</Text>
-        <Text bold color={color}>{name}</Text>
+        <Text color={color}>{glyph} </Text>
+        <Text bold color={color}>
+          {name}
+        </Text>
         <Text dimColor>{`  ⏱ ${fmtDuration(elapsedMs)}`}</Text>
         {hidden > 0 ? (
           <Text dimColor>{`  (${totalLines} lines, showing last ${MAX_STREAM_LINES})`}</Text>
@@ -1866,7 +2142,9 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
       </Box>
       <Box flexDirection="column" marginLeft={2}>
         {rows.map((r, i) => (
-          <Text key={i} dimColor italic={Boolean(r.italic)}>{r.text || ' '}</Text>
+          <Text key={i} dimColor italic={Boolean(r.italic)}>
+            {r.text || ' '}
+          </Text>
         ))}
       </Box>
     </Box>

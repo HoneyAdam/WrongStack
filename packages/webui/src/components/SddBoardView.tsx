@@ -1,4 +1,19 @@
-import { Activity, AlertTriangle, CheckCircle2, Cpu, Eraser, Pause, Play, RotateCcw, Square, Trash2, Undo2, X, XCircle, Zap } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Cpu,
+  Eraser,
+  Pause,
+  Play,
+  RotateCcw,
+  Square,
+  Trash2,
+  Undo2,
+  X,
+  XCircle,
+  Zap,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -263,7 +278,9 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
-                    {m === 'graph' ? t('activity:sddBoard.graphLabel') : t('activity:sddBoard.kanbanLabel')}
+                    {m === 'graph'
+                      ? t('activity:sddBoard.graphLabel')
+                      : t('activity:sddBoard.kanbanLabel')}
                   </button>
                 ))}
               </div>
@@ -275,7 +292,8 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                 title={t('activity:sddBoard.retryAllTitle')}
                 className="inline-flex items-center gap-1 rounded-md bg-orange-500/15 px-2.5 py-1 text-xs font-medium text-orange-600 dark:text-orange-300 hover:bg-orange-500/25"
               >
-                <RotateCcw className="h-3.5 w-3.5" /> {t('activity:sddBoard.retryFailed', { count: p?.failed ?? 0 })}
+                <RotateCcw className="h-3.5 w-3.5" />{' '}
+                {t('activity:sddBoard.retryFailed', { count: p?.failed ?? 0 })}
               </button>
             )}
             {active && (
@@ -323,10 +341,16 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                   <button
                     type="button"
                     onClick={onRollback}
-                    title={t('activity:sddBoard.rollbackTitle', { count: snapshot.mergedCommits?.length ?? 0, base: snapshot.baseBranch ?? t('activity:sdd.baseBranchFallback') })}
+                    title={t('activity:sddBoard.rollbackTitle', {
+                      count: snapshot.mergedCommits?.length ?? 0,
+                      base: snapshot.baseBranch ?? t('activity:sdd.baseBranchFallback'),
+                    })}
                     className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-300 hover:bg-amber-500/25"
                   >
-                    <Undo2 className="h-3.5 w-3.5" /> {t('activity:sddBoard.rollback', { count: snapshot.mergedCommits?.length ?? 0 })}
+                    <Undo2 className="h-3.5 w-3.5" />{' '}
+                    {t('activity:sddBoard.rollback', {
+                      count: snapshot.mergedCommits?.length ?? 0,
+                    })}
                   </button>
                 )}
               </>
@@ -336,7 +360,8 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
             {snapshot &&
               (destroying ? (
                 <span className="inline-flex items-center gap-1 rounded-md bg-red-500/15 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-300">
-                  <RotateCcw className="h-3.5 w-3.5 animate-spin" /> {active ? t('activity:sddBoard.stopping') : t('activity:sddBoard.destroying')}
+                  <RotateCcw className="h-3.5 w-3.5 animate-spin" />{' '}
+                  {active ? t('activity:sddBoard.stopping') : t('activity:sddBoard.destroying')}
                 </span>
               ) : (
                 <button
@@ -373,7 +398,11 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
                   />
                 )}
                 {p.failed > 0 && (
-                  <Stat label={t('activity:sddBoard.statFailed')} value={p.failed} color="text-red-600 dark:text-red-300" />
+                  <Stat
+                    label={t('activity:sddBoard.statFailed')}
+                    value={p.failed}
+                    color="text-red-600 dark:text-red-300"
+                  />
                 )}
                 <Stat
                   label={t('activity:sddBoard.statWave')}
@@ -391,7 +420,9 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
               {/* Live agent roster */}
               <div className="flex min-h-[24px] items-center gap-1.5">
                 {roster.length === 0 ? (
-                  <span className="text-[11px] text-muted-foreground">{t('activity:sddBoard.noActiveWorkers')}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {t('activity:sddBoard.noActiveWorkers')}
+                  </span>
                 ) : (
                   roster.map((a, i) => (
                     <span
@@ -421,7 +452,10 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
       {/* lifecycle result banner — outcome of the last clean/rollback/destroy */}
       {lifecycleResult && (
-        <LifecycleResultBanner result={lifecycleResult} onDismiss={() => setLifecycleResult(null)} />
+        <LifecycleResultBanner
+          result={lifecycleResult}
+          onDismiss={() => setLifecycleResult(null)}
+        />
       )}
 
       {/* deadlock banner */}
@@ -441,7 +475,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
       {/* ── Dashboard: animated DAG (left) + side panel (right) ── */}
       <div className="flex min-h-0 min-w-0 flex-1">
-        <div className="relative min-h-0 min-w-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {!snapshot ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
               <Zap className="h-10 w-10 text-violet-500/40" />
@@ -512,14 +546,21 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
 /** Human one-liner for a lifecycle outcome. */
 function lifecycleMessage(r: SddLifecycleResultUI): string {
-  const opKey = r.op === 'cleanup_worktrees' ? 'lcClean' : r.op === 'rollback' ? 'lcRollback' : 'lcDestroy';
+  const opKey =
+    r.op === 'cleanup_worktrees' ? 'lcClean' : r.op === 'rollback' ? 'lcRollback' : 'lcDestroy';
   const op = i18n.t(`activity:sddBoard.${opKey}`);
-  if (!r.ok) return i18n.t('activity:sddBoard.lcFailed', { op, reason: r.reason ?? i18n.t('activity:sddBoard.lcUnknownError') });
+  if (!r.ok)
+    return i18n.t('activity:sddBoard.lcFailed', {
+      op,
+      reason: r.reason ?? i18n.t('activity:sddBoard.lcUnknownError'),
+    });
   const parts: string[] = [];
-  if (typeof r.removed === 'number') parts.push(i18n.t('activity:sddBoard.lcWorktrees', { count: r.removed }));
+  if (typeof r.removed === 'number')
+    parts.push(i18n.t('activity:sddBoard.lcWorktrees', { count: r.removed }));
   if (typeof r.reverted === 'number' && r.reverted > 0)
     parts.push(i18n.t('activity:sddBoard.lcCommits', { count: r.reverted }));
-  if (r.deleted?.length) parts.push(i18n.t('activity:sddBoard.lcDeleted', { items: r.deleted.join(', ') }));
+  if (r.deleted?.length)
+    parts.push(i18n.t('activity:sddBoard.lcDeleted', { items: r.deleted.join(', ') }));
   const body = parts.length ? parts.join(' · ') : i18n.t('activity:sddBoard.lcNothing');
   // A destroy that was asked to revert but couldn't carries an ok:true + reason.
   return r.reason

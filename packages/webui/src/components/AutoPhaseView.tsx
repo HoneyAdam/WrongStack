@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppTranslation, i18n } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAutoPhaseStore, useChatStore, useWorktreeStore } from '@/stores';
+import { showPanel } from '@/components/activity-bar/nav';
 import { cn } from '@/lib/utils';
 import { BoardView } from './BoardView';
 import { WorktreeGraph } from './WorktreeGraph';
@@ -71,7 +72,13 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
     });
     setPlanningGoal(g);
     setGoal('');
-    client?.send?.({ type: 'autophase.start', payload: { title: g, autonomous: true, worktrees: isolate } });
+    client?.send?.({
+      type: 'autophase.start',
+      payload: { title: g, autonomous: true, worktrees: isolate },
+    });
+    // Navigate to chat so the user sees the echoed goal and live agent
+    // messages in the transcript.
+    showPanel('chat');
   }, [goal, planningGoal, client, isolate]);
 
   const handleCancelPlanning = useCallback(() => {
@@ -85,7 +92,9 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
 
   const handlePauseResume = useCallback(() => {
     client?.send?.(
-      status === 'paused' ? { type: 'autophase.resume', payload: {} } : { type: 'autophase.pause', payload: {} },
+      status === 'paused'
+        ? { type: 'autophase.resume', payload: {} }
+        : { type: 'autophase.pause', payload: {} },
     );
   }, [client, status]);
 
@@ -126,7 +135,9 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
         <div className="flex items-center gap-2">
           <Layers className="h-5 w-5 text-muted-foreground" />
           <div>
-            <h1 className="text-lg font-semibold">{hasPhases ? title || 'AutoPhase' : 'AutoPhase'}</h1>
+            <h1 className="text-lg font-semibold">
+              {hasPhases ? title || 'AutoPhase' : 'AutoPhase'}
+            </h1>
             {hasPhases && (
               <p className="text-xs text-muted-foreground">
                 {t('activity:autoPhase.summary', { count: phases.length, pct: overallPercent })}
@@ -183,7 +194,8 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
-              <Zap className="h-3.5 w-3.5" /> {autonomous ? t('activity:autoPhase.autonomous') : t('activity:autoPhase.manual')}
+              <Zap className="h-3.5 w-3.5" />{' '}
+              {autonomous ? t('activity:autoPhase.autonomous') : t('activity:autoPhase.manual')}
             </button>
           )}
           {isLive && (
@@ -191,11 +203,21 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               <button
                 type="button"
                 onClick={handlePauseResume}
-                title={status === 'paused' ? t('activity:autoPhase.resumeTitle') : t('activity:autoPhase.pauseTitle')}
+                title={
+                  status === 'paused'
+                    ? t('activity:autoPhase.resumeTitle')
+                    : t('activity:autoPhase.pauseTitle')
+                }
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
-                {status === 'paused' ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                {status === 'paused' ? t('activity:autoPhase.resume') : t('activity:autoPhase.pause')}
+                {status === 'paused' ? (
+                  <Play className="h-3.5 w-3.5" />
+                ) : (
+                  <Pause className="h-3.5 w-3.5" />
+                )}
+                {status === 'paused'
+                  ? t('activity:autoPhase.resume')
+                  : t('activity:autoPhase.pause')}
               </button>
               <button
                 type="button"
@@ -219,7 +241,9 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               </button>
               {confirmRevert ? (
                 <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-xs">
-                  <span className="text-amber-700 dark:text-amber-300">{t('activity:autoPhase.revertConfirm')}</span>
+                  <span className="text-amber-700 dark:text-amber-300">
+                    {t('activity:autoPhase.revertConfirm')}
+                  </span>
                   <button
                     type="button"
                     onClick={handleRevert}
@@ -260,7 +284,9 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
           <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             <Rocket className="h-3 w-3" /> {t('activity:autoPhase.goal')}
           </div>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{goalText}</p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+            {goalText}
+          </p>
         </div>
       )}
 
@@ -284,7 +310,9 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <Rocket className="h-3 w-3" /> {t('activity:autoPhase.goal')}
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{planningGoal}</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                {planningGoal}
+              </p>
             </div>
             <Button variant="outline" onClick={handleCancelPlanning} className="gap-2">
               <Square className="h-4 w-4 fill-current" /> {t('common:action.cancel')}
@@ -298,9 +326,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
             <div className="text-center space-y-2">
               <Rocket className="h-10 w-10 mx-auto text-primary/60" />
               <h2 className="text-xl font-semibold">{t('activity:autoPhase.startHeading')}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('activity:autoPhase.startBody')}
-              </p>
+              <p className="text-sm text-muted-foreground">{t('activity:autoPhase.startBody')}</p>
             </div>
 
             <textarea
@@ -336,9 +362,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
 
             <p className="text-xs text-muted-foreground text-center">
               {t('activity:autoPhase.ctrlHint')} ·{' '}
-              {isolate
-                ? t('activity:autoPhase.isolateOn')
-                : t('activity:autoPhase.isolateOff')}
+              {isolate ? t('activity:autoPhase.isolateOn') : t('activity:autoPhase.isolateOff')}
             </p>
           </div>
         </div>

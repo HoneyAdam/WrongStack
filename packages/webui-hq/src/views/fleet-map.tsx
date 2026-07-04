@@ -7,7 +7,7 @@ import { useHqStore, selectSession } from '../store.js';
 import type { HqSessionSnapshotPayload } from '@wrongstack/core';
 
 export function FleetMapView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['snapshot', 'selectedSessionId']);
   const snap = state.snapshot;
 
   if (snap === null) {

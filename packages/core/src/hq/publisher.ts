@@ -33,8 +33,14 @@ export interface HqSocketLike {
   readyState: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
-  addEventListener?(type: 'open' | 'close' | 'error' | 'message', listener: (event: unknown) => void): void;
-  removeEventListener?(type: 'open' | 'close' | 'error' | 'message', listener: (event: unknown) => void): void;
+  addEventListener?(
+    type: 'open' | 'close' | 'error' | 'message',
+    listener: (event: unknown) => void,
+  ): void;
+  removeEventListener?(
+    type: 'open' | 'close' | 'error' | 'message',
+    listener: (event: unknown) => void,
+  ): void;
   on?(type: 'open' | 'close' | 'error' | 'message', listener: (event: unknown) => void): void;
   off?(type: 'open' | 'close' | 'error' | 'message', listener: (event: unknown) => void): void;
 }
@@ -47,7 +53,9 @@ export interface HqPublisherCommandResult {
   message?: string;
 }
 
-export type HqPublisherCommandHandler = (command: HqQueuedCommand) => void | HqPublisherCommandResult | Promise<void | HqPublisherCommandResult>;
+export type HqPublisherCommandHandler = (
+  command: HqQueuedCommand,
+) => void | HqPublisherCommandResult | Promise<void | HqPublisherCommandResult>;
 
 export interface HqPublisherOptions {
   url: string;
@@ -100,7 +108,9 @@ const DEFAULT_COMMAND_POLL_LIMIT = 25;
 function defaultSocketFactory(url: string): HqSocketLike {
   const WebSocketCtor = globalThis.WebSocket;
   if (WebSocketCtor === undefined) {
-    throw new Error('No global WebSocket implementation is available; provide HqPublisherOptions.socketFactory.');
+    throw new Error(
+      'No global WebSocket implementation is available; provide HqPublisherOptions.socketFactory.',
+    );
   }
   return new WebSocketCtor(url) as HqSocketLike;
 }
@@ -113,7 +123,11 @@ function toClientUrl(baseUrl: string, token: string | undefined): string {
   return url.toString();
 }
 
-function addSocketListener(socket: HqSocketLike, type: 'open' | 'close' | 'error' | 'message', listener: (event: unknown) => void): void {
+function addSocketListener(
+  socket: HqSocketLike,
+  type: 'open' | 'close' | 'error' | 'message',
+  listener: (event: unknown) => void,
+): void {
   if (socket.addEventListener !== undefined) {
     socket.addEventListener(type, listener);
     return;
@@ -121,7 +135,11 @@ function addSocketListener(socket: HqSocketLike, type: 'open' | 'close' | 'error
   socket.on?.(type, listener);
 }
 
-function removeSocketListener(socket: HqSocketLike, type: 'open' | 'close' | 'error' | 'message', listener: (event: unknown) => void): void {
+function removeSocketListener(
+  socket: HqSocketLike,
+  type: 'open' | 'close' | 'error' | 'message',
+  listener: (event: unknown) => void,
+): void {
   if (socket.removeEventListener !== undefined) {
     socket.removeEventListener(type, listener);
     return;
@@ -151,7 +169,12 @@ export class HqPublisher {
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
     this.now = options.now ?? (() => new Date().toISOString());
     this.idFactory = options.idFactory ?? randomUUID;
-    this.capabilities = options.capabilities ?? ['telemetry.publish', 'mailbox.summary', 'fleet.summary', 'session.summary'];
+    this.capabilities = options.capabilities ?? [
+      'telemetry.publish',
+      'mailbox.summary',
+      'fleet.summary',
+      'session.summary',
+    ];
     this.reconnect = options.reconnect ?? true;
     this.reconnectBaseMs = options.reconnectBaseMs ?? DEFAULT_RECONNECT_BASE_MS;
     this.reconnectMaxMs = options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS;
@@ -189,7 +212,7 @@ export class HqPublisher {
 
     const onOpen = () => {
       this.reconnectAttempt = 0;
-      this.sendHello();
+      this.sendHelloNow();
       this.flushQueue();
       if (this.options.onCommand !== undefined) {
         this.startCommandPolling();
@@ -230,7 +253,9 @@ export class HqPublisher {
     socket?.close(1000, 'hq publisher closed');
   }
 
-  publishEvent<TPayload>(options: HqPublishEventOptions & { payload: TPayload }): HqEventEnvelope<TPayload> {
+  publishEvent<TPayload>(
+    options: HqPublishEventOptions & { payload: TPayload },
+  ): HqEventEnvelope<TPayload> {
     const event = createHqEventEnvelope({
       id: this.idFactory(),
       type: options.type,
@@ -248,11 +273,16 @@ export class HqPublisher {
 
   async publishMailboxSnapshot(
     mailbox: Pick<Mailbox, 'query' | 'getAgentStatuses'>,
-    options: Omit<HqMailboxSnapshotOptions, 'redactionPolicy'> & { sessionId?: string; timestamp?: string },
+    options: Omit<HqMailboxSnapshotOptions, 'redactionPolicy'> & {
+      sessionId?: string;
+      timestamp?: string;
+    },
   ): Promise<HqEventEnvelope<HqMailboxSnapshotPayload>> {
     const payload = await createMailboxSnapshotPayloadFromMailbox(mailbox, {
       ...options,
-      ...(this.options.redactionPolicy !== undefined ? { redactionPolicy: this.options.redactionPolicy } : {}),
+      ...(this.options.redactionPolicy !== undefined
+        ? { redactionPolicy: this.options.redactionPolicy }
+        : {}),
     });
     return this.publishEvent({
       type: 'mailbox.snapshot',
@@ -279,7 +309,9 @@ export class HqPublisher {
       ...(input.agent !== undefined ? { agent: input.agent } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
       ...(input.previewLength !== undefined ? { previewLength: input.previewLength } : {}),
-      ...(this.options.redactionPolicy !== undefined ? { redactionPolicy: this.options.redactionPolicy } : {}),
+      ...(this.options.redactionPolicy !== undefined
+        ? { redactionPolicy: this.options.redactionPolicy }
+        : {}),
     });
     return this.publishEvent({
       type: 'mailbox.event',
@@ -373,8 +405,8 @@ export class HqPublisher {
     });
   }
 
-  private sendHello(): void {
-    this.sendFrame({
+  private createHelloFrame(): HqClientHelloMessage {
+    return {
       type: 'client.hello',
       payload: {
         protocolVersion: HQ_PROTOCOL_VERSION,
@@ -382,16 +414,33 @@ export class HqPublisher {
         project: this.options.project,
         capabilities: this.capabilities,
       },
-    });
+    };
   }
 
-  private sendFrame(frame: HqClientHelloMessage | HqClientEventMessage | HqClientCommandPollMessage | HqClientCommandAckMessage): void {
+  private sendHelloNow(): void {
+    const socket = this.socket;
+    if (socket?.readyState !== OPEN_STATE) {
+      this.sendFrame(this.createHelloFrame());
+      return;
+    }
+    socket.send(JSON.stringify(this.createHelloFrame()));
+  }
+
+  private sendFrame(
+    frame:
+      | HqClientHelloMessage
+      | HqClientEventMessage
+      | HqClientCommandPollMessage
+      | HqClientCommandAckMessage,
+  ): void {
     const serialized = JSON.stringify(frame);
     const socket = this.socket;
-    if (socket?.readyState === OPEN_STATE) {
+    // Fast path: socket is open and nothing queued — send immediately.
+    if (socket?.readyState === OPEN_STATE && this.queue.length === 0) {
       socket.send(serialized);
       return;
     }
+    // Slow path: socket offline or queue already has pending frames — enqueue.
     this.enqueue(serialized);
     this.connect();
   }
@@ -401,17 +450,22 @@ export class HqPublisher {
     this.queue.push(serialized);
   }
 
+  /** Batch-dequeue up to 50 frames at a time, yielding to the microtask
+   *  queue between batches so we don't starve the event loop on reconnect. */
   private flushQueue(): void {
     const socket = this.socket;
-    if (socket?.readyState !== OPEN_STATE) return;
-    const pending = this.queue;
-    this.queue = [];
-    for (const frame of pending) socket.send(frame);
+    if (socket?.readyState !== OPEN_STATE || this.queue.length === 0) return;
+    const batch = this.queue.splice(0, 50);
+    for (const frame of batch) socket.send(frame);
+    if (this.queue.length > 0) setImmediate(() => this.flushQueue());
   }
 
   private startCommandPolling(): void {
     if (this.options.onCommand === undefined || this.commandPollTimer !== null) return;
-    this.commandPollTimer = setInterval(() => this.pollCommands(), this.options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS);
+    this.commandPollTimer = setInterval(
+      () => this.pollCommands(),
+      this.options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS,
+    );
     this.commandPollTimer.unref?.();
   }
 
@@ -440,7 +494,10 @@ export class HqPublisher {
   }
 
   private extractMessageData(event: unknown): string | null {
-    const value = typeof event === 'object' && event !== null && 'data' in event ? (event as { data?: unknown }).data : event;
+    const value =
+      typeof event === 'object' && event !== null && 'data' in event
+        ? (event as { data?: unknown }).data
+        : event;
     if (typeof value === 'string') return value;
     if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
     if (ArrayBuffer.isView(value)) {
@@ -459,7 +516,8 @@ export class HqPublisher {
       try {
         const result = await handler(command);
         if (result !== undefined) this.ackCommand(result);
-        else if (command.requiresAck) this.ackCommand({ commandId: command.commandId, status: 'accepted' });
+        else if (command.requiresAck)
+          this.ackCommand({ commandId: command.commandId, status: 'accepted' });
       } catch (err) {
         this.ackCommand({
           commandId: command.commandId,

@@ -484,9 +484,9 @@ export function DiffBlock({
         if (useColor) {
           const bg = row.kind === 'add' ? theme.diffAddBg : theme.diffDelBg;
           return (
-            <Box key={key} flexDirection="column">
+            <Box key={key} flexDirection="column" width="100%">
               {segments.map((seg, si) => (
-                <Box key={si} backgroundColor={bg} minWidth={1} flexShrink={0}>
+                <Box key={si} backgroundColor={bg} width="100%">
                   <Text>
                     {si === 0 ? (
                       <>

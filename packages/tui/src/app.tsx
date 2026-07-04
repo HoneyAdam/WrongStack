@@ -7056,7 +7056,15 @@ export function App({
               version={appVersion}
               state={state.status}
               thinkingWord={displayThinkingWord}
-              thinkingAnimationStyle={liveAnimationStyle ?? state.settingsPicker.animationStyle}
+              thinkingAnimationStyle={
+                // While the settings picker is open, preview the picker's live
+                // ←/→ selection synchronously (saveSettings → configStore is
+                // async, so liveAnimationStyle lags a keystroke). When closed,
+                // use the persisted value from getSettings().
+                state.settingsPicker.open
+                  ? state.settingsPicker.animationStyle
+                  : liveAnimationStyle
+              }
               tokenCounter={tokenCounter}
               hint={renderRunningTools(state.runningTools) || state.hint}
               queueCount={state.queue.length}

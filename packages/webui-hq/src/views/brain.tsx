@@ -16,7 +16,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export function BrainView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['events']);
   const events = state.events.filter((e) => e.type === 'brain.event').slice(-100).reverse();
 
   if (events.length === 0) {

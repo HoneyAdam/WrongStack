@@ -155,8 +155,12 @@ export function buildLiveFeedFromHq(
   const { projectIds, ...rest } = filters;
   const grouped = groupMailboxEvents(snapshot, events);
   let flat: FlatMessage[] = [];
+  // Treat an explicit empty array the same as `undefined` — the caller
+  // hasn't picked a project yet, so don't accidentally drop every row.
+  const projectFilterActive =
+    projectIds !== undefined && projectIds.length > 0 ? new Set(projectIds) : null;
   for (const g of grouped.projects) {
-    if (projectIds && !projectIds.includes(g.projectId)) continue;
+    if (projectFilterActive && !projectFilterActive.has(g.projectId)) continue;
     flat = flat.concat(g.messages);
   }
   return buildLiveFeed(flat, rest);

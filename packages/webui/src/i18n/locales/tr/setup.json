@@ -12,6 +12,9 @@
     "pickBackUp": "Kaldığın yerden devam et",
     "recentPrompts": "Son promptlar",
     "quickCommands": "Hızlı komutlar",
+    "startingPrompts": "Başlangıç promptları",
+    "shufflePrompts": "Karıştır",
+    "shufflePromptsHint": "Yeni bir başlangıç promptları seti göster",
     "empty": "(boş)",
     "card": {
       "understand": {

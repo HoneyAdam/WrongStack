@@ -13,9 +13,11 @@ import { WorktreeView } from './views/worktree.js';
 import { TrendsView } from './views/trends.js';
 import { AlertsView } from './views/alerts.js';
 import { ControlView } from './views/control.js';
+import { CockpitView } from './views/cockpit.js';
 import './app.css';
 
 const VIEWS: { id: ViewId; label: string; icon: string }[] = [
+  { id: 'cockpit', label: 'Cockpit', icon: '🛰' },
   { id: 'fleet', label: 'Fleet', icon: '🖥' },
   { id: 'console', label: 'Console', icon: '💬' },
   { id: 'mailbox', label: 'Mailbox', icon: '📬' },
@@ -28,7 +30,7 @@ const VIEWS: { id: ViewId; label: string; icon: string }[] = [
 ];
 
 export function HqApp(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['snapshot', 'alerts']);
   const snap = state.snapshot;
   const totals = snap?.totals;
   const unread = totals?.unreadMailboxMessages ?? 0;
@@ -38,6 +40,9 @@ export function HqApp(): React.ReactElement {
     <div className="hq-app">
       <header className="hq-header">
         <div className="hq-brand">WrongStack HQ</div>
+        <span className="hq-ui-badge" title="Served from @wrongstack/webui-hq/dist">
+          built webui-hq
+        </span>
         <div className="hq-led" data-live={state.connected} />
         <span className="hq-conn">{state.connected ? 'connected' : 'reconnecting…'}</span>
         <div className="hq-stats">
@@ -58,11 +63,14 @@ export function HqApp(): React.ReactElement {
             <span className="hq-tab-icon">{v.icon}</span>
             <span className="hq-tab-label">{v.label}</span>
             {v.id === 'mailbox' && unread > 0 ? <span className="hq-badge">{unread}</span> : null}
-            {v.id === 'alerts' && activeAlerts > 0 ? <span className="hq-badge red">{activeAlerts}</span> : null}
+            {v.id === 'alerts' && activeAlerts > 0 ? (
+              <span className="hq-badge red">{activeAlerts}</span>
+            ) : null}
           </button>
         ))}
       </nav>
       <main className="hq-main">
+        {state.activeView === 'cockpit' && <CockpitView />}
         {state.activeView === 'fleet' && <FleetMapView />}
         {state.activeView === 'console' && <LiveConsoleView />}
         {state.activeView === 'mailbox' && <MailboxView />}
@@ -77,7 +85,15 @@ export function HqApp(): React.ReactElement {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string | number; accent?: string }): React.ReactElement {
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  accent?: string;
+}): React.ReactElement {
   return (
     <div className={'hq-stat' + (accent ? ` ${accent}` : '')}>
       <span className="hq-stat-num">{value}</span>

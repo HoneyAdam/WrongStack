@@ -16,7 +16,7 @@ const KIND_ICON: Record<string, string> = {
 };
 
 export function WorktreeView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['events']);
   const events = state.events.filter((e) => e.type === 'worktree.event').slice(-100).reverse();
 
   if (events.length === 0) {

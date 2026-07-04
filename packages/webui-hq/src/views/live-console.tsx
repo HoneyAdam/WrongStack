@@ -14,7 +14,7 @@ interface TranscriptResponse {
 }
 
 export function LiveConsoleView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['events', 'selectedSessionId']);
   const sessionId = state.selectedSessionId;
   const [entries, setEntries] = useState<HqTranscriptEntry[]>([]);
   const [loading, setLoading] = useState(false);

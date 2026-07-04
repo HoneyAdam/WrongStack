@@ -854,7 +854,12 @@ export function StatusBar({
           // Ultra-compact: state · model
           <>
             {showChip('state') && thinking ? (
-              <WaveText text={`${statePrefix}${stateLabel}`} phase={spinnerIdx} />
+              <ThinkingChip
+                text={`${statePrefix}${stateLabel}`}
+                style={animationStyle}
+                phase={spinnerIdx}
+                cycleTick={cycleTick}
+              />
             ) : showChip('state') ? (
               <Text color={stateColor}>
                 {statePrefix}
@@ -879,7 +884,12 @@ export function StatusBar({
               </>
             ) : null}
             {showChip('state') && thinking ? (
-              <WaveText text={`${statePrefix} ${stateLabel}`} phase={spinnerIdx} />
+              <ThinkingChip
+                text={`${statePrefix} ${stateLabel}`}
+                style={animationStyle}
+                phase={spinnerIdx}
+                cycleTick={cycleTick}
+              />
             ) : showChip('state') ? (
               <Text color={stateColor}>
                 {statePrefix} {stateLabel}
@@ -1475,42 +1485,6 @@ export function stateChip(
   if (state === 'idle') return { label: 'idle', color: 'cyan' };
   if (state === 'aborting') return { label: 'aborting…', color: 'yellow' };
   return { label: `${normalizeTuiThinkingWord(thinkingWord)}…`, color: 'green' };
-}
-
-// Pastel (Catppuccin Mocha) hue-wheel for the animated "thinking…" wave. 12
-// stops give a smooth gradient as the per-character offset shifts each spinner
-// tick — soft tones so the wave stays gentle rather than neon.
-const WAVE_COLORS = [
-  '#f38ba8', // red
-  '#eba0ac', // maroon
-  '#fab387', // peach
-  '#f9e2af', // yellow
-  '#a6e3a1', // green
-  '#94e2d5', // teal
-  '#89dceb', // sky
-  '#89b4fa', // blue
-  '#b4befe', // lavender
-  '#cba6f7', // mauve
-  '#f5c2e7', // pink
-  '#f2cdcd', // flamingo
-];
-
-/**
- * Render `text` as a moving rainbow: each glyph gets a color from {@link
- * WAVE_COLORS} indexed by (charIndex + phase), so advancing `phase` slides the
- * gradient sideways like a wave. Whitespace is emitted plain (color is a no-op
- * on it) to keep word spacing intact.
- */
-function WaveText({ text, phase }: { text: string; phase: number }): React.ReactElement {
-  return (
-    <Text bold>
-      {Array.from(text).map((ch, i) => (
-        <Text key={i} color={WAVE_COLORS[(i + phase) % WAVE_COLORS.length] ?? '#ffffff'}>
-          {ch}
-        </Text>
-      ))}
-    </Text>
-  );
 }
 
 const FILLED = '█';

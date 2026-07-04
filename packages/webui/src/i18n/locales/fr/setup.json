@@ -12,6 +12,9 @@
     "pickBackUp": "Reprendre",
     "recentPrompts": "Prompts récents",
     "quickCommands": "Commandes rapides",
+    "startingPrompts": "Prompts de départ",
+    "shufflePrompts": "Mélanger",
+    "shufflePromptsHint": "Afficher un nouveau lot de prompts de départ",
     "empty": "(vide)",
     "card": {
       "understand": {

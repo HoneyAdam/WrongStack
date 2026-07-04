@@ -12,6 +12,9 @@
     "pickBackUp": "Pick back up",
     "recentPrompts": "Recent prompts",
     "quickCommands": "Quick commands",
+    "startingPrompts": "Starting prompts",
+    "shufflePrompts": "Shuffle",
+    "shufflePromptsHint": "Show a fresh set of starting prompts",
     "empty": "(empty)",
     "card": {
       "understand": {

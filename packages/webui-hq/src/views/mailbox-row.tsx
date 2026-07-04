@@ -1,19 +1,4 @@
-/**
- * Shared message row component (skeleton).
- *
- * Phase 2 skeleton: a placeholder that accepts the same `flat`
- * prop the current `MessageRow` in `mailbox.tsx` takes, so the
- * view-mode toggle in Phase 5 can swap the two views without
- * changing the row markup. The full row render (icon + subject +
- * from→to + body preview + meta line) lands in Phase 4 — for now
- * the component just renders the subject so the build is green
- * and the integration site is obvious.
- *
- * Keeping the row as its own file means the grouped view and the
- * live view share the exact same message markup, so a tweak to
- * how (e.g.) a "high priority" indicator is shown applies to both
- * at once.
- */
+/** Shared mailbox message row used by grouped and live mailbox views. */
 import type React from 'react';
 import { useState } from 'react';
 import type { FlatMessage } from './mailbox-grouping.js';
@@ -29,22 +14,95 @@ export interface MessageRowProps {
 export function MessageRow({ flat, defaultExpanded }: MessageRowProps): React.ReactElement {
   const [open, setOpen] = useState(Boolean(defaultExpanded));
   const m = flat.message;
+  const hasBody = m.hasBody || (m.bodyPreview !== undefined && m.bodyPreview.length > 0);
   const typeMeta = MAILBOX_TYPE_LABEL[m.type] ?? { icon: '✉️', tone: 'info' };
+  const fromTo = `${m.from} → ${m.to}`;
 
-  // Skeleton render — the real row (subject + from→to + body + meta) is
-  // added in Phase 4. For now we render a minimal placeholder so the
-  // build is green and Phase 5 (view-mode toggle) has something to
-  // call.
   return (
-    <div className="hq-msg" onClick={() => setOpen((v) => !v)}>
-      <span className="hq-msg-icon" title={m.type}>
-        {typeMeta.icon}
-      </span>
-      <span className="hq-pill">{m.type}</span>
-      <span className="hq-msg-subject">{m.subject || '(no subject)'}</span>
-      <span className="hq-mono hq-msg-time">{formatMailboxTime(m.timestamp)}</span>
-      <span className="hq-mono hq-msg-id">{shortMailboxId(m.messageId)}</span>
-      {open ? <div className="hq-msg-body">{m.bodyPreview ?? '(no body)'}</div> : null}
+    <div className={'hq-msg' + (m.completed ? ' done' : '')}>
+      <div className="hq-msg-head" onClick={() => hasBody && setOpen((v) => !v)}>
+        <span className="hq-msg-icon" title={m.type}>
+          {typeMeta.icon}
+        </span>
+        <span className={'hq-pill ' + typeMeta.tone}>{m.type}</span>
+        {m.priority === 'high' && <span className="hq-pill error">high</span>}
+        {m.priority === 'low' && <span className="hq-pill idle">low</span>}
+        <span className="hq-msg-subject" title={m.subject}>
+          {m.subject || '(no subject)'}
+        </span>
+        <span className="hq-mono hq-msg-route">{fromTo}</span>
+        <span className="hq-mono hq-msg-time" title={m.timestamp}>
+          {formatMailboxTime(m.timestamp)}
+        </span>
+        <span className="hq-mono hq-msg-id">{shortMailboxId(m.messageId)}</span>
+        <span className={'hq-msg-flag ' + (m.completed ? 'done' : 'open')}>
+          {m.completed
+            ? `completed${m.completedBy !== undefined ? ` by ${m.completedBy}` : ''}`
+            : 'open'}
+        </span>
+        {hasBody && (
+          <button
+            type="button"
+            className="hq-toggle hq-msg-toggle"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
+            aria-label={open ? 'Collapse body' : 'Expand body'}
+          >
+            {open ? '▾' : '▸'}
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="hq-msg-body">
+          {m.bodyPreview !== undefined && m.bodyPreview.length > 0 ? (
+            <pre className="hq-msg-pre">{m.bodyPreview}</pre>
+          ) : (
+            <div className="hq-empty" style={{ padding: 8, fontSize: 12 }}>
+              (empty body)
+            </div>
+          )}
+          {m.outcomePreview !== undefined && m.outcomePreview.length > 0 && (
+            <>
+              <div className="hq-msg-sublabel">outcome</div>
+              <pre className="hq-msg-pre">{m.outcomePreview}</pre>
+            </>
+          )}
+          <div className="hq-msg-meta">
+            <span>
+              <strong>source:</strong> {flat.source}
+            </span>
+            {m.replyTo !== undefined && (
+              <span>
+                <strong>reply to:</strong> {shortMailboxId(m.replyTo)}
+              </span>
+            )}
+            {m.senderSessionId !== undefined && (
+              <span>
+                <strong>sender session:</strong> {shortMailboxId(m.senderSessionId)}
+              </span>
+            )}
+            {(m.readCount ?? 0) > 0 && (
+              <span>
+                <strong>reads:</strong> {m.readCount}
+              </span>
+            )}
+            {m.unreadCount !== undefined && m.unreadCount > 0 && (
+              <span>
+                <strong>unread:</strong> {m.unreadCount}
+              </span>
+            )}
+            {m.task !== undefined && (
+              <span>
+                <strong>task:</strong> {m.task.taskId ?? '—'}
+                {m.task.agentName !== undefined ? ` · ${m.task.agentName}` : ''}
+                {m.task.status !== undefined ? ` (${m.task.status})` : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

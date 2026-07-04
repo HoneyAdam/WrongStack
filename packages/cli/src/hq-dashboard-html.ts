@@ -66,6 +66,8 @@ export const HQ_HTML = `<!DOCTYPE html>
   #root { height: 100vh; display: flex; flex-direction: column; }
   .hq-top { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: rgba(13,17,23,0.7); backdrop-filter: blur(8px); }
   .hq-brand { font-size: 17px; font-weight: 800; letter-spacing: 0.2px; background: linear-gradient(90deg, var(--accent), var(--purple)); -webkit-background-clip: text; background-clip: text; color: transparent; white-space: nowrap; }
+  .hq-ui-badge { color: var(--amber); border: 1px solid var(--border); background: var(--inset); border-radius: 7px; padding: 3px 8px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+  .hq-ui-badge::before { content: 'UI:'; color: var(--dim); margin-right: 4px; }
   .hq-led { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; }
   .hq-led.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
   .hq-led.dead { background: var(--dim); }
@@ -635,6 +637,7 @@ async function boot(){
     });
     return h('div', { className: 'hq-top' },
       h('div', { className: 'hq-brand' }, '📋 WrongStack HQ'),
+      h('div', { className: 'hq-ui-badge', title: 'Served from packages/cli/src/hq-dashboard-html.ts' }, 'inline fallback'),
       h('div', { className: 'hq-conn' }, h('span', { className: 'hq-led ' + (p.connected?'live':'dead') }), p.connected ? 'Live' : 'Reconnecting…'),
       h('button', { className: 'theme-btn', title: 'Toggle light / dark', onClick: toggleTheme }, Store.theme==='light' ? '🌙' : '☀️'),
       h('div', { className: 'statbar' },
@@ -1081,7 +1084,7 @@ function renderFallback(){
     var tree = buildTree(snap);
     var sel = Store.selected;
     var html = '';
-    html += '<div class="hq-top"><div class="hq-brand">📋 WrongStack HQ</div>';
+    html += '<div class="hq-top"><div class="hq-brand">📋 WrongStack HQ</div><div class="hq-ui-badge" title="Served from packages/cli/src/hq-dashboard-html.ts">inline fallback</div>';
     html += '<div class="hq-conn"><span class="hq-led '+(Store.connected?'live':'dead')+'"></span>'+(Store.connected?'Live':'Reconnecting…')+'</div>';
     html += '<button class="theme-btn" id="fb-theme">'+(Store.theme==='light'?'🌙':'☀️')+'</button>';
     html += '<div class="statbar">';

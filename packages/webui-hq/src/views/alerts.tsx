@@ -13,7 +13,7 @@ interface AlertsApiResponse {
 }
 
 export function AlertsView(): React.ReactElement {
-  const state = useHqStore();
+  const state = useHqStore(['alerts', 'snapshot']);
   const [apiActive, setApiActive] = useState<HqAlert[]>([]);
   const [apiHistory, setApiHistory] = useState<HqAlert[]>([]);
 

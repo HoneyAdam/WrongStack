@@ -12,6 +12,9 @@
     "pickBackUp": "Fortsetzen",
     "recentPrompts": "Zuletzt verwendete Prompts",
     "quickCommands": "Schnellbefehle",
+    "startingPrompts": "Start-Prompts",
+    "shufflePrompts": "Mischen",
+    "shufflePromptsHint": "Einen neuen Satz Start-Prompts anzeigen",
     "empty": "(leer)",
     "card": {
       "understand": {

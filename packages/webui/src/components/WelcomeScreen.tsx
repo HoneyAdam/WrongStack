@@ -14,11 +14,12 @@ import {
   KeyRound,
   Keyboard,
   Lightbulb,
+  RefreshCw,
   Search,
   Sparkles,
   Zap,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 interface PromptCard {
@@ -27,8 +28,13 @@ interface PromptCard {
   title: string;
   hint: string;
   tone: string;
-  prompts: string[];
+  /** Full pool of project-agnostic prompts. Only a random subset (PROMPTS_PER_CARD)
+   *  is shown at a time; the Shuffle control re-samples from this pool. */
+  pool: string[];
 }
+
+/** How many prompts to surface per card at once. */
+const PROMPTS_PER_CARD = 3;
 
 const CARDS: PromptCard[] = [
   {
@@ -37,10 +43,19 @@ const CARDS: PromptCard[] = [
     title: 'Understand',
     hint: 'Explore and analyze the codebase',
     tone: 'text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20',
-    prompts: [
+    pool: [
       'Map out the structure of this codebase: what are the main modules or components, how do they depend on each other, and what are the key patterns used throughout?',
       'Find and document the public API surface — all exported interfaces, functions, and types that other parts of the system depend on.',
       'Trace the flow of data through the system for a typical operation. Where does input validation happen? Where are side effects triggered?',
+      'Give me a guided tour of this codebase as if I just joined the team — where should I start reading, and what are the handful of files I should understand first?',
+      'Explain the overall architecture and the main design decisions behind it. What trade-offs were made, and why?',
+      'Identify the core domain concepts and how they map to the code. What vocabulary do I need to understand this project?',
+      'Where does execution begin? Trace the entry point through startup, configuration loading, and into the main loop or request handler.',
+      'What external dependencies and integrations does this project rely on, and how does the code talk to each of them?',
+      'How is state managed and where does it live? Walk me through the lifecycle of the most important piece of data in the system.',
+      'Summarize what this project does, who it is for, and how the pieces fit together — in plain language, no jargon.',
+      'Which parts of this codebase are the most complex or the hardest to change safely, and what makes them that way?',
+      'Show me how a single request or command flows end to end, from the outer boundary down to where the real work happens.',
     ],
   },
   {
@@ -49,10 +64,19 @@ const CARDS: PromptCard[] = [
     title: 'Create',
     hint: 'Build new features and functionality',
     tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    prompts: [
+    pool: [
       'Add a new feature that covers the full stack: data model, business logic, and any UI or API layers. Follow existing patterns in this codebase.',
       'Write comprehensive tests for a module with low coverage. Include happy paths, edge cases, and error scenarios.',
       'Add observability to a critical path — structured logging, error tracking, or metrics that help diagnose issues in production.',
+      'Scaffold a new module following the existing conventions — same structure, naming, and patterns as the rest of the codebase.',
+      'Add input validation and clear error messages to a user-facing entry point that currently trusts its inputs.',
+      'Write documentation for a part of the code that lacks it — usage examples, edge cases, and the gotchas worth warning about.',
+      'Take a value that is currently hardcoded and turn it into a proper configuration option, wired through cleanly with a sensible default.',
+      'Build a small CLI or script that automates a repetitive task in this project.',
+      'Create an integration test that exercises a real end-to-end path instead of mocking everything away.',
+      'Add a health check or self-diagnostic that reports whether the system’s dependencies are reachable and configured correctly.',
+      'Introduce a feature-flag mechanism so new behavior can be rolled out gradually and switched off without a redeploy.',
+      'Add pagination, filtering, or sorting to a data-listing path that currently returns everything at once.',
     ],
   },
   {
@@ -61,10 +85,19 @@ const CARDS: PromptCard[] = [
     title: 'Investigate',
     hint: 'Debug issues and find root causes',
     tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20',
-    prompts: [
+    pool: [
       "Something isn't working as expected — help me trace from the symptom to the root cause. Follow the code path and identify where behavior diverges from intent.",
-      'There\'s a difference between how this works locally versus in production or CI. Check for environment differences, configuration issues, or hidden assumptions.',
+      "There's a difference between how this works locally versus in production or CI. Check for environment differences, configuration issues, or hidden assumptions.",
       'Performance is degrading. Identify the bottlenecks — whether N+1 queries, blocking I/O, unnecessary allocations, or something else — and propose targeted fixes.',
+      'Help me reproduce an intermittent bug: what timing, ordering, or conditions could make it flaky, and how do I make it deterministic?',
+      'This code throws or misbehaves under some inputs. Find the exact conditions that trigger it and explain why they do.',
+      'Memory or resource usage keeps growing over time. Look for leaks — unclosed handles, unbounded caches, or retained references.',
+      'A recent change broke something. Help me narrow down what introduced the regression and why it slipped through.',
+      'Two parts of the system disagree about the same data. Find where they diverge and determine which one is actually wrong.',
+      'Add targeted logging or assertions to narrow down where this bug really happens, then help me interpret the output.',
+      "This test is failing or flaky. Figure out whether it's the test that's wrong or the code it's checking.",
+      'Walk a confusing edge case through the code and tell me whether the resulting behavior is a genuine bug or intended.',
+      'I suspect a race condition or ordering issue. Look for shared state that’s read or written without proper coordination.',
     ],
   },
   {
@@ -73,13 +106,39 @@ const CARDS: PromptCard[] = [
     title: 'Improve',
     hint: 'Refactor and optimize existing code',
     tone: 'text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/20',
-    prompts: [
+    pool: [
       'Find duplicated or similar logic that could be consolidated into shared utilities. Extract the common parts and update the call sites.',
       'Identify modules that have grown too large or handle too many responsibilities. Propose a cleaner separation that can be done incrementally.',
       'Review error handling across the codebase: are errors consistent, well-contextualized, and properly propagated? Suggest improvements to the worst cases.',
+      'Reduce complexity in the most tangled function you can find — simplify the control flow without changing its behavior.',
+      'Improve the naming and readability of a confusing area so the next person understands it faster.',
+      'Find and remove dead code, unused exports, and obsolete branches that no longer serve a purpose.',
+      'Tighten up the types (or add types) in a loosely-typed area so more bugs are caught at compile time instead of at runtime.',
+      'Optimize a hot path for speed or memory — but measure before and after so the win is real, not assumed.',
+      'Replace a fragile pattern — magic numbers, stringly-typed values, deep nesting — with something safer and clearer.',
+      'Improve test quality: hunt down weak assertions, over-mocking, and tests that pass without really verifying anything.',
+      'Make an inconsistent API consistent — align naming, argument order, and return shapes across similar functions.',
+      'Harden the code against invalid states — make illegal states unrepresentable wherever the design allows it.',
     ],
   },
 ];
+
+/** Pick `n` distinct random items from `pool` (Fisher–Yates on a copy). */
+function sampleN<T>(pool: readonly T[], n: number): T[] {
+  const copy = pool.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, Math.min(n, copy.length));
+}
+
+/** Sample a fresh subset of prompts for every card. */
+function shuffleAllCards(): Record<PromptCard['id'], string[]> {
+  const out = {} as Record<PromptCard['id'], string[]>;
+  for (const card of CARDS) out[card.id] = sampleN(card.pool, PROMPTS_PER_CARD);
+  return out;
+}
 
 const SLASH_REFS: Array<{ id: string; name: string; hint: string }> = [
   { id: 'help', name: '/help', hint: 'list every slash command' },
@@ -154,6 +213,15 @@ export function WelcomeScreen() {
   const sessionNicknames = useUIStore((s) => s.sessionNicknames);
   const recentSessions = historyEntries.filter((e) => !e.isCurrent).slice(0, 4);
 
+  /** Which prompts are currently visible per card. Re-sampled from each
+   *  card's pool on first paint and every time the user hits Shuffle, so
+   *  the starting prompts stay fresh instead of always showing the same
+   *  three. Lazy initializer runs the shuffle once on mount. */
+  const [visiblePrompts, setVisiblePrompts] = useState<Record<PromptCard['id'], string[]>>(
+    shuffleAllCards,
+  );
+  const shufflePrompts = useCallback(() => setVisiblePrompts(shuffleAllCards()), []);
+
   return (
     <div className="flex flex-col gap-8 py-8 px-2 max-w-5xl mx-auto w-full">
       {/* Hero */}
@@ -217,8 +285,23 @@ export function WelcomeScreen() {
       )}
 
       {/* Prompt cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[calc(100dvh-16rem)] lg:max-h-none overflow-y-auto">
-        {CARDS.map((card, ci) => {
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+            {t('setup:welcome.startingPrompts')}
+          </span>
+          <button
+            type="button"
+            onClick={shufflePrompts}
+            className="group/shuffle flex items-center gap-1.5 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-accent/40 transition-colors"
+            title={t('setup:welcome.shufflePromptsHint')}
+          >
+            <RefreshCw className="h-3.5 w-3.5 transition-transform group-hover/shuffle:rotate-180 duration-300" />
+            {t('setup:welcome.shufflePrompts')}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[calc(100dvh-16rem)] lg:max-h-none overflow-y-auto">
+          {CARDS.map((card, ci) => {
           const Icon = card.icon;
           return (
             <div
@@ -241,9 +324,9 @@ export function WelcomeScreen() {
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                {card.prompts.map((p, i) => (
+                {(visiblePrompts[card.id] ?? []).map((p) => (
                   <button
-                    key={i}
+                    key={p}
                     type="button"
                     onClick={() => fillTextarea(p)}
                     className="text-left text-xs leading-relaxed text-foreground/80 hover:text-foreground border border-transparent hover:border-border/60 rounded-lg px-3 py-2 hover:bg-muted/40 transition-colors line-clamp-3"
@@ -255,7 +338,8 @@ export function WelcomeScreen() {
               </div>
             </div>
           );
-        })}
+          })}
+        </div>
       </div>
 
       {/* Recent sessions — one-click resume. We pull the most recent
