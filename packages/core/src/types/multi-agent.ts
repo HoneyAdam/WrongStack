@@ -310,6 +310,15 @@ export interface MultiAgentCoordinator {
   awaitTasksAny(taskIds: string[], opts?: { timeoutMs?: number }): Promise<AwaitAnyResult>;
   /** Snapshot of completed task results. */
   results(): readonly TaskResult[];
+  /** Defensive snapshot of the still-queued (not yet dispatched) tasks. */
+  listPendingTasks(): readonly TaskSpec[];
+  /**
+   * Re-pin a still-pending task to a different subagent (`undefined` =
+   * unpin) and try to dispatch. Returns `false` when the task is no longer
+   * pending (dispatched/completed/unknown) or the target subagent does not
+   * exist. Running tasks can never be pulled — steer or terminate instead.
+   */
+  retargetPendingTask(taskId: string, subagentId: string | undefined): boolean;
 }
 
 /**

@@ -181,6 +181,15 @@ export type { IFleetManager } from './ifleet-manager.js';
 export { LargeAnswerStore } from './large-answer-store.js';
 export { type MailToolsOptions, makeMailInboxTool, makeMailSendTool } from './mail-tools.js';
 export { type FleetStatusToolOptions, makeFleetStatusTool } from './fleet-status-tool.js';
+export {
+  FleetSupervisor,
+  type FleetSupervisorActions,
+  type FleetSupervisorConfig,
+  type FleetSupervisorOptions,
+  type FleetSupervisorSource,
+  type SupervisedSubagent,
+  type SupervisorLogEntry,
+} from './fleet-supervisor.js';
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './mailbox.js';
 export type {

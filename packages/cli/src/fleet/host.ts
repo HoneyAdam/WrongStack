@@ -24,6 +24,7 @@ import {
   EventBus,
   FLEET_ROSTER,
   FleetManager,
+  FleetSupervisor,
   GlobalMailbox,
   mailboxSessionTag,
   mergeModelRuntime,
@@ -53,6 +54,7 @@ import {
   ToolValidationError,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
+import { toErrorMessage } from '@wrongstack/core/utils/error';
 // PR-C1: DefaultTokenCounter moved off the root barrel — infrastructure/
 // symbols are imported from the published subpath (see commit 66c4eb68).
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
@@ -61,6 +63,7 @@ import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context
 import { createFallbackModelExtension } from '../fallback-model.js';
 import { buildRoutingRunner } from './routing.js';
 import { createFleetStatusBroadcaster } from './status-broadcast.js';
+import { setActiveFleetSupervisor } from './supervisor-registry.js';
 
 function buildShadowAgentTaskDescription(reason: string): string {
   return `Shadow Agent one-shot fleet monitor. Reason: ${reason}.
@@ -307,6 +310,10 @@ export class MultiAgentHost {
    *  transitions + rich registry heartbeats). Started in buildDirector(),
    *  stopped in dispose(). */
   private statusBroadcaster: { start(): void; stop(): void } | null = null;
+  /** Brain-gated FleetSupervisor over this director's fleet. Built in
+   *  buildDirector() (when a BrainArbiter is available), stopped in
+   *  dispose(). Also published to the supervisor registry for /supervisor. */
+  private fleetSupervisor: FleetSupervisor | null = null;
 
   constructor(
     private readonly deps: MultiAgentDeps,
@@ -458,6 +465,8 @@ export class MultiAgentHost {
       config: config.fleet?.statusBroadcasts,
     });
     this.statusBroadcaster.start();
+
+    this.buildFleetSupervisor(config);
 
     this.directorOffHandles.push(
       this.director.fleet.filter('budget.threshold_reached', (e) => {
@@ -1300,6 +1309,77 @@ export class MultiAgentHost {
   }
 
   /**
+   * Construct + start the brain-gated FleetSupervisor over this director's
+   * fleet. Requires a BrainArbiter (production always wires one); without
+   * it there is no safe decision path, so supervision stays off. All
+   * actions flow through Director APIs — the supervisor never touches
+   * coordinator internals or budget negotiation.
+   */
+  private buildFleetSupervisor(config: Config): void {
+    const director = this.director;
+    const brain = this.opts.brain;
+    const supervisorCfg = config.fleet?.supervisor;
+    if (!director || !brain || supervisorCfg?.enabled === false) return;
+    const supTag = () => mailboxSessionTag(this.deps.session.id);
+    const mailbox = () => new GlobalMailbox(this.mailboxProjectDir(), this.deps.events);
+    this.fleetSupervisor = new FleetSupervisor({
+      events: this.deps.events,
+      fleet: director.fleet,
+      brain,
+      sessionId: () => this.deps.session.id,
+      config: supervisorCfg,
+      source: {
+        subagents: () => director.status().subagents,
+        listPendingTasks: () => director.listPendingTasks(),
+        isWorkComplete: () => director.isWorkComplete(),
+      },
+      actions: {
+        retargetPendingTask: (taskId, subagentId) =>
+          director.retargetPendingTask(taskId, subagentId),
+        spawnHelper: async ({ reason }) => {
+          try {
+            const subagentId = await director.spawn({
+              id: `helper-${randomUUID().slice(0, 8)}`,
+              name: 'fleet helper',
+              systemPromptOverride: `You are a helper worker spawned by the fleet supervisor to drain a task backlog (${reason}). Complete assigned tasks efficiently and report results.`,
+            });
+            return { subagentId };
+          } catch (err) {
+            return { error: toErrorMessage(err) };
+          }
+        },
+        steerAgent: async (subagentId, subject, body) => {
+          // Subagent mailbox base id == its coordinator id (ctx.agentId is
+          // set to subagentName = subCfg.id at spawn), so the session-tagged
+          // unique address reaches exactly this worker.
+          await mailbox().send({
+            from: `supervisor@${supTag()}`,
+            to: `${subagentId}@${supTag()}`,
+            type: 'steer',
+            subject,
+            body,
+            priority: 'high',
+          });
+        },
+        notifyLeader: async (subject, body) => {
+          const leaderId = this.opts.getLeaderMailboxId?.() ?? `leader@${supTag()}`;
+          await mailbox().send({
+            from: `supervisor@${supTag()}`,
+            to: leaderId,
+            type: 'status',
+            subject,
+            body,
+            priority: 'normal',
+          });
+        },
+        terminate: (subagentId) => director.terminate(subagentId),
+      },
+    });
+    this.fleetSupervisor.start();
+    setActiveFleetSupervisor(this.fleetSupervisor);
+  }
+
+  /**
    * Fire-and-forget report-back (wired as the Director's
    * `taskResultNotifier`): posts a non-awaited task's outcome to THIS
    * session's leader via the project mailbox. The leader's mailbox checker
@@ -1778,6 +1858,10 @@ export class MultiAgentHost {
     // clears pending coalesce timers).
     this.statusBroadcaster?.stop();
     this.statusBroadcaster = null;
+    // Stop the fleet supervisor and clear the /supervisor registry handle.
+    this.fleetSupervisor?.stop();
+    if (this.fleetSupervisor) setActiveFleetSupervisor(null);
+    this.fleetSupervisor = null;
     // Stop the AdaptiveConcurrencyController
     this.adaptiveConcurrencyController?.dispose();
     this.adaptiveConcurrencyController = undefined;

@@ -424,6 +424,14 @@ export { GlobalMailbox, resolveProjectDir } from './coordination/global-mailbox.
 export { makeMailboxTool, resolveMailboxIdentity, mailboxSessionTag, type MailboxToolOptions, type MailboxResolver } from './coordination/mailbox-tool.js';
 export { makeMailSendTool, makeMailInboxTool, type MailToolsOptions } from './coordination/mail-tools.js';
 export { makeFleetStatusTool, type FleetStatusToolOptions } from './coordination/fleet-status-tool.js';
+export {
+  FleetSupervisor,
+  type FleetSupervisorActions,
+  type FleetSupervisorOptions,
+  type FleetSupervisorSource,
+  type SupervisedSubagent,
+  type SupervisorLogEntry,
+} from './coordination/fleet-supervisor.js';
 export type {
   Mailbox,
   MailboxMessage,

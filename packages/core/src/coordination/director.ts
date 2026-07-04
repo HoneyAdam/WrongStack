@@ -1679,6 +1679,46 @@ export class Director implements ICoordinator {
     });
   }
 
+  /** Defensive snapshot of tasks still queued (not yet dispatched). */
+  listPendingTasks(): readonly TaskSpec[] {
+    return this.coordinator.listPendingTasks();
+  }
+
+  /**
+   * Re-pin a still-pending task to a different subagent (`undefined` =
+   * unpin) — the rebalancing primitive used by the FleetSupervisor and
+   * available to hosts. Only queued tasks can move; a dispatched task
+   * returns `false` (steer or terminate its worker instead). Keeps
+   * ownership bookkeeping (taskOwners, checkpoint, fleet manifest) in
+   * sync with the coordinator's queue.
+   */
+  retargetPendingTask(taskId: string, subagentId: string | undefined): boolean {
+    const ok = this.coordinator.retargetPendingTask(taskId, subagentId);
+    if (!ok) return false;
+    if (subagentId) {
+      this.taskOwners.set(taskId, subagentId);
+      if (this.fleetManager) {
+        this.fleetManager.addTaskToSubagent(subagentId, taskId);
+      } else {
+        const entry = this.manifestEntries.get(subagentId);
+        if (entry && !entry.taskIds.includes(taskId)) entry.taskIds.push(taskId);
+      }
+    } else {
+      this.taskOwners.delete(taskId);
+    }
+    const description = this.taskDescriptions.get(taskId) ?? taskId;
+    this.fleetManager?.addPendingTask(taskId, subagentId ?? '', description);
+    this.stateCheckpoint?.recordTaskAssigned({
+      taskId,
+      subagentId,
+      description,
+      status: 'running',
+      assignedAt: new Date().toISOString(),
+    });
+    this.scheduleManifest();
+    return true;
+  }
+
   async terminate(subagentId: string): Promise<void> {
     await this.coordinator.stop(subagentId);
   }

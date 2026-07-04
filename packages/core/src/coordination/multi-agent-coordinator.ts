@@ -355,6 +355,32 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     return this.completedResults;
   }
 
+  /** Defensive snapshot of the still-queued (not yet dispatched) tasks. */
+  listPendingTasks(): readonly TaskSpec[] {
+    return this.pendingTasks.map((t) => ({ ...t }));
+  }
+
+  /**
+   * Re-pin a still-PENDING task to a different subagent (`undefined` =
+   * unpin, any idle worker may take it), then try to dispatch. Returns
+   * `false` when the task is not in the pending queue — already
+   * dispatched, completed, or unknown. Running tasks can never be pulled;
+   * they can only be steered or terminated. The mutation is synchronous
+   * (same tick as the check), so it cannot race a concurrent dispatch:
+   * `tryDispatchNext` runs on this same call stack or a later one.
+   *
+   * The task keeps its id, so waiters, the report-back notifier, and
+   * checkpoint bookkeeping resolve unchanged when it eventually completes.
+   */
+  retargetPendingTask(taskId: string, subagentId: string | undefined): boolean {
+    const task = this.pendingTasks.find((t) => t.id === taskId);
+    if (!task) return false;
+    if (subagentId !== undefined && !this.subagents.has(subagentId)) return false;
+    task.subagentId = subagentId;
+    this.tryDispatchNext();
+    return true;
+  }
+
   /**
    * Wait for one or more tasks to complete and return their results.
    * If a task is already done when called, returns immediately.

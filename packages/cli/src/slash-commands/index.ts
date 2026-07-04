@@ -541,6 +541,7 @@ import { buildWorkingDirCommand } from './working-dir.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildYoloCommand } from './yolo.js';
 import { buildShadowCommand } from './shadow.js';
+import { buildSupervisorCommand } from './supervisor.js';
 import { buildAuditCommand } from './audit.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
@@ -620,6 +621,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
       onPanelOpen: opts.onPanelOpen,
     }),
     buildShadowCommand(opts),
+    buildSupervisorCommand(opts),
     buildAuditCommand(opts),
   ];
 }
