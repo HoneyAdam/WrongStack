@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 import { AgentTranscript } from '@/components/AgentTranscript';
 import { SparklineChart } from '@/components/ui/sparkline';
 import { cn } from '@/lib/utils';
@@ -562,27 +563,23 @@ export function FleetMonitor({
     [fleetList, selectedIdx, onClose, onSelectAgent],
   );
 
-  useEffect(() => {
-    const handleGlobal = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleGlobal);
-    return () => window.removeEventListener('keydown', handleGlobal);
-  }, [onClose]);
+  // Escape-on-close is handled by Radix Dialog (Sheet) now. The ArrowUp/
+  // ArrowDown/Enter agent navigation is panel-scoped via onKeyDown below.
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-black/10 backdrop-blur-[1px]"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        className="fixed right-0 top-0 z-50 flex h-full min-h-0 w-[720px] max-w-[95vw] flex-col border-l bg-background shadow-2xl animate-slide-in-right"
+    <Sheet open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <SheetContent
+        side="right"
+        className="w-[720px] max-w-[95vw] sm:max-w-[95vw] flex flex-col p-0 gap-0"
+        // Arrow-key agent navigation is panel-scoped (not window-scoped) so it
+        // doesn't interfere with chat typing while the panel is open.
         onKeyDown={handleKeyDown}
         tabIndex={-1}
       >
+        <SheetTitle className="sr-only">{t('activity:fleet.fleetMonitor')}</SheetTitle>
+        <SheetDescription className="sr-only">
+          {t('activity:fleet.runningCount', { count: runningCount })}
+        </SheetDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b bg-card/80 backdrop-blur shrink-0">
           <div className="flex items-center gap-3">
@@ -770,7 +767,7 @@ export function FleetMonitor({
           </div>
         )}
       </div>
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }

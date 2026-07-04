@@ -24,6 +24,7 @@ import { SparklineChart } from '@/components/ui/sparkline';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
 import { EMPTY_AGENT_TRANSCRIPT, useFleetStore } from '@/stores';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 
 export interface AgentsMonitorProps {
   onClose: () => void;
@@ -258,29 +259,23 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
     [fleetList.length, onClose],
   );
 
-  useEffect(() => {
-    const handleGlobal = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleGlobal);
-    return () => window.removeEventListener('keydown', handleGlobal);
-  }, [onClose]);
+  // Escape-on-close is handled by Radix Dialog (Sheet) now. The ArrowUp/
+  // ArrowDown/Enter agent navigation is panel-scoped via onKeyDown below.
 
   const selectedAgent = fleetList[selectedIdx] ?? null;
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-black/10 backdrop-blur-[1px]"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        className="fixed right-0 top-0 z-50 flex h-full min-h-0 w-[600px] max-w-[90vw] flex-col border-l bg-background shadow-2xl animate-slide-in-right"
+    <Sheet open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <SheetContent
+        side="right"
+        className="w-[600px] max-w-[90vw] sm:max-w-[90vw] flex flex-col p-0 gap-0"
         onKeyDown={handleKeyDown}
         tabIndex={-1}
       >
+        <SheetTitle className="sr-only">{t('activity:agentsMonitor.heading')}</SheetTitle>
+        <SheetDescription className="sr-only">
+          {t('activity:agentsMonitor.heading')}
+        </SheetDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b bg-card/80 backdrop-blur shrink-0">
           <div className="flex items-center gap-3">
@@ -366,7 +361,7 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
             </div>
           </div>
         )}
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }
