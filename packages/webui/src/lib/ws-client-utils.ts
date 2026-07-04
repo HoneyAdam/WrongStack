@@ -1,6 +1,15 @@
 import type { WSServerMessage } from '../types';
 
-export type EventHandler = (msg: WSServerMessage) => void;
+/**
+ * Generic event handler. When the consumer knows the literal message type K,
+ * `EventHandler<K>` narrows the received message to the matching union member
+ * so payload access is type-checked without an `as` cast. The bare
+ * `EventHandler` (no parameter) keeps the wider `WSServerMessage` shape for
+ * the internal dispatch table, where any message type may arrive.
+ */
+export type EventHandler<K extends WSServerMessage['type'] = WSServerMessage['type']> = (
+  msg: Extract<WSServerMessage, { type: K }>,
+) => void;
 
 export type PendingConfirm = Record<string, never>;
 

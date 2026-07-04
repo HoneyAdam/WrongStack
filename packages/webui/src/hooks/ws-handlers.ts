@@ -121,7 +121,15 @@ export function handleError(msg: WSServerMessage) {
   handleSessionDomainError(msg);
 }
 
-export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
+/**
+ * Type-safe handler map. Keyed by `WSServerMessage['type']` — a typo'd key
+ * or a handler for an unknown server message type now fails at compile time.
+ * Each handler receives the wide `WSServerMessage` (the dispatcher only
+ * guarantees the type matches the key, not the payload narrowing), so the
+ * individual handlers still do their own payload shaping. The win is key
+ * safety + forcing every handler to be a (msg) => void.
+ */
+export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServerMessage) => void>> = {
   ...chatHandlerMap,
   ...sessionHandlerMap,
   ...fleetHandlerMap,
@@ -233,21 +241,5 @@ export const WS_HANDLERS: Record<string, (msg: WSServerMessage) => void> = {
   },
   'projects.selected': (_msg: WSServerMessage) => {
     // Legacy server response. Project switching/registering is no longer a WebUI surface.
-  },
-  'prompts.search': (_msg: WSServerMessage) => {
-    // Reserved for server-side prompt search; the current modal filters its
-    // loaded prompt list locally.
-  },
-  'prompts.created': (_msg: WSServerMessage) => {
-    // Fire-and-forget acknowledgement for future prompt creation UI.
-  },
-  'prompts.favorite': (_msg: WSServerMessage) => {
-    // PromptLibraryModal updates favorite state optimistically.
-  },
-  'prompts.used': (_msg: WSServerMessage) => {
-    // Best-effort usage telemetry acknowledgement.
-  },
-  'design.state': (_msg: WSServerMessage) => {
-    // Design panels hydrate from design.list/design.use/design.set.
   },
 };

@@ -1407,6 +1407,7 @@ export type WSServerMessage =
   | { type: 'mailbox.received'; payload: Record<string, unknown> }
   | { type: 'mailbox.agent_registered'; payload: Record<string, unknown> }
   | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } }
+  | WSSideEffects
   | { type: 'git.info'; payload: { branch: string; added: number; deleted: number; untracked: number; behind: number; ahead: number } }
   | { type: 'git.changes'; payload: { files: Array<{ path: string; status: string; added: number; deleted: number; staged: boolean }>; error?: string | undefined } }
   | { type: 'git.diff'; payload: { path: string; oldText?: string | undefined; newText?: string | undefined; binary?: boolean | undefined; tooLarge?: boolean | undefined; error?: string | undefined } }

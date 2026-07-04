@@ -387,18 +387,39 @@ export class WrongStackWebSocketClient {
     }
   }
 
-  on(eventType: string, handler: EventHandler): () => void {
+  /**
+   * Register a handler for a server message type. Two overloads:
+   *  - `on('text_delta', (msg) => …)` — msg is narrowed to the matching union
+   *    member, so `msg.payload` is statically typed. No cast needed.
+   *  - `on(someString, handler)` — for runtime-computed type names; the
+   *    handler receives the wider `WSServerMessage`. Backwards compatible.
+   */
+  on<K extends WSServerMessage['type']>(
+    eventType: K,
+    handler: (msg: Extract<WSServerMessage, { type: K }>) => void,
+  ): () => void;
+  on(eventType: string, handler: EventHandler): () => void;
+  on(eventType: string, handler: ((msg: never) => void) | EventHandler): () => void {
     let handlers = this.handlers.get(eventType);
     if (!handlers) {
       handlers = new Set();
       this.handlers.set(eventType, handlers);
     }
-    handlers.add(handler);
-    return () => handlers?.delete(handler);
+    // The internal table stores the wide EventHandler; the generic overload
+    // hands us a narrowed fn that accepts only one union member — widening it
+    // to EventHandler (msg: WSServerMessage) is sound because the dispatcher
+    // only ever calls it with messages of the registered `eventType`.
+    handlers.add(handler as EventHandler);
+    return () => handlers?.delete(handler as EventHandler);
   }
 
-  off(eventType: string, handler: EventHandler) {
-    this.handlers.get(eventType)?.delete(handler);
+  off<K extends WSServerMessage['type']>(
+    eventType: K,
+    handler: (msg: Extract<WSServerMessage, { type: K }>) => void,
+  ): void;
+  off(eventType: string, handler: EventHandler): void;
+  off(eventType: string, handler: ((msg: never) => void) | EventHandler): void {
+    this.handlers.get(eventType)?.delete(handler as EventHandler);
   }
 
   sendMessage(content: string, imageBase64?: string): string {
