@@ -4065,6 +4065,19 @@ export function App({
   const [nextStepsAutoSubmitLabel, setNextStepsAutoSubmitLabel] = useState<string | null>(null);
   const nextStepsAutoSubmitSuggestionRef = useRef<string | null>(null);
   const nextStepsAutoSubmitTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  // Cancel any in-flight next-steps auto-submit countdown. Called from every
+  // input-editing branch that mutates the buffer (backspace/delete/word-kill/
+  // char-insert) so a stale countdown can't fire while the user is editing.
+  // Declared after the timer/label state and refs it touches; the body mirrors
+  // the inline blocks that previously appeared in handleKey.
+  const cancelNextStepsCountdown = useCallback((): void => {
+    if (nextStepsAutoSubmitTimerRef.current == null) return;
+    clearInterval(nextStepsAutoSubmitTimerRef.current);
+    nextStepsAutoSubmitTimerRef.current = undefined;
+    setNextStepsAutoSubmitCountdown(null);
+    setNextStepsAutoSubmitLabel(null);
+    nextStepsAutoSubmitSuggestionRef.current = null;
+  }, []);
   const getActiveSessionId = useCallback(() => agent.ctx.session.id, [agent]);
 
   useTuiEventBridge({
@@ -5286,13 +5299,7 @@ export function App({
         const deleteEnd = chip && cursor > chip.start && cursor < chip.end ? chip.end : cursor;
         const next = buffer.slice(0, deleteStart) + buffer.slice(deleteEnd);
         // Cancel next-steps auto-submit countdown when buffer changes.
-        if (nextStepsAutoSubmitTimerRef.current != null) {
-          clearInterval(nextStepsAutoSubmitTimerRef.current);
-          nextStepsAutoSubmitTimerRef.current = undefined;
-          setNextStepsAutoSubmitCountdown(null);
-          setNextStepsAutoSubmitLabel(null);
-          nextStepsAutoSubmitSuggestionRef.current = null;
-        }
+        cancelNextStepsCountdown();
         setDraft(next, deleteStart);
         return;
       }
@@ -5310,13 +5317,7 @@ export function App({
       if (cursor === 0) return;
       const next = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
       // Cancel next-steps auto-submit countdown when buffer changes.
-      if (nextStepsAutoSubmitTimerRef.current != null) {
-        clearInterval(nextStepsAutoSubmitTimerRef.current);
-        nextStepsAutoSubmitTimerRef.current = undefined;
-        setNextStepsAutoSubmitCountdown(null);
-        setNextStepsAutoSubmitLabel(null);
-        nextStepsAutoSubmitSuggestionRef.current = null;
-      }
+      cancelNextStepsCountdown();
       setDraft(next, cursor - 1);
       return;
     }
@@ -5332,13 +5333,7 @@ export function App({
             : nextInputWordStart(buffer, cursor);
         const next = buffer.slice(0, deleteStart) + buffer.slice(deleteEnd);
         // Cancel next-steps auto-submit countdown when buffer changes.
-        if (nextStepsAutoSubmitTimerRef.current != null) {
-          clearInterval(nextStepsAutoSubmitTimerRef.current);
-          nextStepsAutoSubmitTimerRef.current = undefined;
-          setNextStepsAutoSubmitCountdown(null);
-          setNextStepsAutoSubmitLabel(null);
-          nextStepsAutoSubmitSuggestionRef.current = null;
-        }
+        cancelNextStepsCountdown();
         setDraft(next, deleteStart);
         return;
       }
@@ -5348,13 +5343,7 @@ export function App({
       const span = tokenLengthForward(buffer, cursor) || 1;
       const next = buffer.slice(0, cursor) + buffer.slice(cursor + span);
       // Cancel next-steps auto-submit countdown when buffer changes.
-      if (nextStepsAutoSubmitTimerRef.current != null) {
-        clearInterval(nextStepsAutoSubmitTimerRef.current);
-        nextStepsAutoSubmitTimerRef.current = undefined;
-        setNextStepsAutoSubmitCountdown(null);
-        setNextStepsAutoSubmitLabel(null);
-        nextStepsAutoSubmitSuggestionRef.current = null;
-      }
+      cancelNextStepsCountdown();
       setDraft(next, cursor);
       return;
     }
@@ -5626,13 +5615,7 @@ export function App({
     }
     if (key.ctrl && input === 'u') {
       // Cancel next-steps auto-submit countdown when buffer changes.
-      if (nextStepsAutoSubmitTimerRef.current != null) {
-        clearInterval(nextStepsAutoSubmitTimerRef.current);
-        nextStepsAutoSubmitTimerRef.current = undefined;
-        setNextStepsAutoSubmitCountdown(null);
-        setNextStepsAutoSubmitLabel(null);
-        nextStepsAutoSubmitSuggestionRef.current = null;
-      }
+      cancelNextStepsCountdown();
       setDraft('', 0);
       return;
     }
@@ -5645,13 +5628,7 @@ export function App({
       const span = tokenLengthForward(buffer, cursor) || 1;
       const next = buffer.slice(0, cursor) + buffer.slice(cursor + span);
       // Cancel next-steps auto-submit countdown when buffer changes.
-      if (nextStepsAutoSubmitTimerRef.current != null) {
-        clearInterval(nextStepsAutoSubmitTimerRef.current);
-        nextStepsAutoSubmitTimerRef.current = undefined;
-        setNextStepsAutoSubmitCountdown(null);
-        setNextStepsAutoSubmitLabel(null);
-        nextStepsAutoSubmitSuggestionRef.current = null;
-      }
+      cancelNextStepsCountdown();
       setDraft(next, cursor);
       return;
     }
@@ -5661,13 +5638,7 @@ export function App({
       if (cursor >= buffer.length) return;
       const next = buffer.slice(0, cursor);
       // Cancel next-steps auto-submit countdown when buffer changes.
-      if (nextStepsAutoSubmitTimerRef.current != null) {
-        clearInterval(nextStepsAutoSubmitTimerRef.current);
-        nextStepsAutoSubmitTimerRef.current = undefined;
-        setNextStepsAutoSubmitCountdown(null);
-        setNextStepsAutoSubmitLabel(null);
-        nextStepsAutoSubmitSuggestionRef.current = null;
-      }
+      cancelNextStepsCountdown();
       setDraft(next, cursor);
       return;
     }
@@ -5714,13 +5685,7 @@ export function App({
     }
 
     // Cancel next-steps auto-submit countdown when user types anything.
-    if (nextStepsAutoSubmitTimerRef.current != null) {
-      clearInterval(nextStepsAutoSubmitTimerRef.current);
-      nextStepsAutoSubmitTimerRef.current = undefined;
-      setNextStepsAutoSubmitCountdown(null);
-      setNextStepsAutoSubmitLabel(null);
-      nextStepsAutoSubmitSuggestionRef.current = null;
-    }
+    cancelNextStepsCountdown();
 
     const next = buffer.slice(0, cursor) + input + buffer.slice(cursor);
     setDraft(next, cursor + input.length);
