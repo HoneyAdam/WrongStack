@@ -2,7 +2,7 @@ import { installFaviconVisibilityReset } from '@/lib/favicon';
 import { getWSClient } from '@/lib/ws-client';
 import type { WrongStackWebSocketClient } from '@/lib/ws-client';
 import { useConfigStore, useHistoryStore, useUIStore } from '@/stores';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { WS_HANDLERS } from './ws-handlers.js';
 
 /**
@@ -30,13 +30,21 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
 }
 
 /**
- * Mounts the WebSocket connection and installs event handlers EXACTLY ONCE.
+ * Mounts the WebSocket connection and installs event handlers.
  * Call this from App.tsx (top of the tree) and nowhere else.
+ *
+ * The handler install/uninstall runs every time `wsUrl` changes — this is
+ * intentional and fixes a silent-stall bug. The previous design guarded the
+ * install with a one-shot `useRef` flag, so after a `wsUrl` change the effect
+ * re-ran (re-connecting the socket and tearing the old handlers down via
+ * cleanup) but never re-registered `WS_HANDLERS` — every server message was
+ * then silently dropped until a full page reload. The singleton client is
+ * stable and `ws.on()` is cheap, so unconditional (re)install is both safe
+ * and correct.
  */
 export function useWebSocketBootstrap(): void {
   const { autoConnect, wsUrl } = useConfigStore();
   const setWsStatus = useConfigStore((s) => s.setWsStatus);
-  const installed = useRef(false);
 
   useEffect(() => {
     if (!autoConnect) return;
@@ -66,10 +74,6 @@ export function useWebSocketBootstrap(): void {
         }));
       });
 
-    if (installed.current) {
-      return () => { cancelled = true; offStatus(); };
-    }
-    installed.current = true;
     const off = installHandlers(ws);
     return () => {
       cancelled = true;
