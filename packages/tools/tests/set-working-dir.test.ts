@@ -3,11 +3,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  DefaultTokenCounter,
   type Provider,
   type SessionWriter,
   Context,
 } from '@wrongstack/core';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { setWorkingDirTool } from '../src/set-working-dir.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────

@@ -1,15 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  Context,
-  DefaultTokenCounter,
-  HybridCompactor,
-  IntelligentCompactor,
-  type Message,
-  type Provider,
-  type SessionWriter,
-  type StateChange,
-  type TextBlock,
-} from '../../src/index.js';
+import { Context } from '../../src/core/context.js';
+import type { StateChange } from '../../src/core/conversation-state.js';
+import { HybridCompactor } from '../../src/execution/compactor.js';
+import { IntelligentCompactor } from '../../src/execution/intelligent-compactor.js';
+import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
+import type { Message, Provider, SessionWriter, TextBlock } from '../../src/index.js';
 
 /**
  * L1-A regression: prove the reactive-state migration actually fires

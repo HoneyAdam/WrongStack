@@ -1,13 +1,13 @@
 import {
   type Context,
-  DefaultTokenCounter,
-  HybridCompactor,
   SlashCommandRegistry,
   ToolRegistry,
   type Message,
   type TodoItem,
   type MemoryStore,
 } from '@wrongstack/core';
+import { HybridCompactor } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type SlashCommandContext,

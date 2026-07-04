@@ -11,7 +11,10 @@ vi.mock('@wrongstack/tools/codebase-index/index', () => ({
   searchCodebaseIndex,
 }));
 
-describe('completion WebSocket handler', () => {
+// The in-test `await import(...)` of completion-handlers pays the whole module
+// graph's transform cost on first hit — under full-suite CPU contention that
+// alone can blow the default 5s budget, so give the block generous headroom.
+describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   let tempDir: string;
 
   beforeEach(() => {

@@ -21,13 +21,13 @@
 import {
   type Context,
   createSecurityPlugin,
-  DefaultTokenCounter,
-  HybridCompactor,
   type Message,
   SlashCommandRegistry,
   type TodoItem,
   ToolRegistry,
 } from '@wrongstack/core';
+import { HybridCompactor } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it } from 'vitest';
 import {
   buildBuiltinSlashCommands,

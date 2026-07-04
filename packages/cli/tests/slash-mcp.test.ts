@@ -1,10 +1,10 @@
 import {
   type Context,
-  DefaultTokenCounter,
-  HybridCompactor,
   SlashCommandRegistry,
   ToolRegistry,
 } from '@wrongstack/core';
+import { HybridCompactor } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it, vi } from 'vitest';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
 import { parseMcpArgs } from '../src/slash-commands/mcp-utils.js';

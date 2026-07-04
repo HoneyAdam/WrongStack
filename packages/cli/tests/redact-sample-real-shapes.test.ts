@@ -20,13 +20,13 @@
 // the only field that passes through.
 import {
   type Context,
-  DefaultTokenCounter,
-  HybridCompactor,
   type Message,
   SlashCommandRegistry,
   type TodoItem,
   ToolRegistry,
 } from '@wrongstack/core';
+import { HybridCompactor } from '@wrongstack/core/execution';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it } from 'vitest';
 import {
   buildBuiltinSlashCommands,

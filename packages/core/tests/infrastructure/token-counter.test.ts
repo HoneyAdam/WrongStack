@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DefaultTokenCounter } from '../../src/index.js';
+import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type { ModelsRegistry, ResolvedModel } from '../../src/index.js';
 

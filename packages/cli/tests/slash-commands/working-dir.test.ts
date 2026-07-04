@@ -3,11 +3,11 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  DefaultTokenCounter,
   type Provider,
   type SessionWriter,
   Context,
 } from '@wrongstack/core';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { buildWorkingDirCommand } from '../../src/slash-commands/working-dir.js';
 import type { SlashCommandContext } from '../../src/slash-commands/index.js';
 
