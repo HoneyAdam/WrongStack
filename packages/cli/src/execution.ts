@@ -1099,7 +1099,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             onProjectSelect(pickerCtx, slug, kind),
           // `wrongstack quick` sets flags.quick — open the F3 agents monitor by default.
           initialAgentsMonitorOpen: !!flags.quick,
-          tokenSavingMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
+          tokenSavingMode: normalizeTokenSavingTier(config.features.tokenSavingMode),
           toolCount: agent.tools.list().length,
           onPanelOpen,
         } as never as import('@wrongstack/tui').RunTuiOptions);

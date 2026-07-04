@@ -7071,7 +7071,7 @@ export function App({
               autoProceedCountdown={state.countdown?.remainingSeconds ?? null}
               sessionCount={sessionCount}
               mailbox={mailboxStatus}
-              tokenSavingMode={tokenSavingMode}
+              tokenSavingMode={liveSettings?.featureTokenSaving ?? tokenSavingMode}
               toolCount={toolCount}
               sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
             />

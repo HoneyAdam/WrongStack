@@ -99,7 +99,7 @@ describe('StatusBar overflow handling (width-budget)', () => {
       git: { branch: 'feature/long-branch-name', deleted: 2, untracked: 3 } as never,
       sessionCount: 4,
       toolCount: 42,
-      tokenSavingMode: true,
+      tokenSavingMode: 'medium',
       goalSummary: {
         goal: 'ship the statusline overflow handling end to end',
         goalState: 'active',
@@ -123,7 +123,7 @@ describe('StatusBar overflow handling (width-budget)', () => {
       git: { branch: 'feature/long-branch-name', deleted: 0, untracked: 0 } as never,
       sessionCount: 9,
       toolCount: 99,
-      tokenSavingMode: true,
+      tokenSavingMode: 'medium',
     });
     const line = frame.split('\n').find((l) => l.includes('YOLO')) ?? '';
     expect(line).toContain('⚠ YOLO');

@@ -1,5 +1,5 @@
 import { expectDefined } from '@wrongstack/core';
-import type { EventBus, TokenCounter, AutonomyStage } from '@wrongstack/core';
+import type { EventBus, TokenCounter, AutonomyStage, TokenSavingTier } from '@wrongstack/core';
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
 import { Fragment, isValidElement } from 'react';
@@ -493,11 +493,11 @@ export interface StatusBarProps {
   /** Mailbox activity — unread count, online agents, latest message. */
   mailbox?: MailboxStatus | undefined;
   /**
-   * Token-saving mode indicator. When true, renders a "💾 save" chip on
-   * line 2 to remind the user that non-essential tools are omitted and
-   * system prompt sections are trimmed.
+   * Token-saving tier. When set and not `'off'`, renders a `💾 <tier>` chip
+   * on line 2 to remind the user that non-essential tools are omitted and
+   * system prompt sections are trimmed at that compactness level.
    */
-  tokenSavingMode?: boolean | undefined;
+  tokenSavingMode?: TokenSavingTier | undefined;
   /**
    * Number of registered tools. Rendered as a chip on line 2 so the user
    * can see how many tools are available (lower count in token-saving mode).
@@ -642,7 +642,7 @@ export function StatusBar({
     (goalSummary !== null && goalSummary !== undefined && showChip('goal')) ||
     (!!modeLabel && showChip('mode')) ||
     (hasAutoProceed && showChip('auto_proceed')) ||
-    (tokenSavingMode && showChip('token_saving')) ||
+    (tokenSavingMode !== undefined && tokenSavingMode !== 'off' && showChip('token_saving')) ||
     (typeof toolCount === 'number' && toolCount > 0 && showChip('tools')) ||
     (sessionCount != null && sessionCount > 0 && showChip('sessions'));
 
@@ -964,8 +964,8 @@ export function StatusBar({
               toolCount != null && showChip('tools') ? (
                 <Text color="cyan">🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}</Text>
               ) : null,
-              tokenSavingMode && showChip('token_saving') ? (
-                <Text color="yellow" bold>💾 save</Text>
+              tokenSavingMode !== undefined && tokenSavingMode !== 'off' && showChip('token_saving') ? (
+                <Text color="yellow" bold>💾 {tokenSavingMode}</Text>
               ) : null,
               sideEffectCount > 0 ? (
                 <Text color="yellow">⚠ {sideEffectCount} audit{sideEffectCount === 1 ? '' : 's'}</Text>
