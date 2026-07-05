@@ -118,8 +118,12 @@ describe('IC1: pre-empt fires before deadline (used < limit)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('IC2: granted pre-empt — fresh 85% window at new ceiling', () => {
   it('after grant, subsequent pre-empt uses the new extended ceiling', async () => {
-    const timeoutMs = 200;
-    const ceiling2 = timeoutMs * 3; // 600ms
+    // Keep enough slack between the 85% pre-empt and the deadline for full-suite
+    // CPU contention. With a 200ms ceiling the timer can wake 1-2ms after the
+    // deadline and correctly take the at-deadline path, which makes this test
+    // flaky while preserving production behavior.
+    const timeoutMs = 1000;
+    const ceiling2 = 1600;
 
     const negotiations: Array<{ kind: string; used: number; limit: number }> = [];
 
@@ -147,20 +151,21 @@ describe('IC2: granted pre-empt — fresh 85% window at new ceiling', () => {
     // under CPU load a fixed wait can elapse before the watchdog timer fires.
     await expect.poll(() => negotiations.length, { timeout: 3000 }).toBeGreaterThanOrEqual(1);
 
-    // First negotiation: pre-empt at ~170ms, limit=200 (original ceiling)
+    // First negotiation: pre-empt at ~850ms, limit=1000 (original ceiling)
     expect(negotiations.length).toBeGreaterThanOrEqual(1);
     expect(negotiations[0]!.limit).toBe(timeoutMs);
     expect(negotiations[0]!.used).toBeLessThan(timeoutMs); // proactive
 
-    // After grant (ceiling → 600ms), next pre-empt fires at 85% × 600 = ~510ms
-    await new Promise((r) => setTimeout(r, 300));
+    // After grant (ceiling -> 1600ms), next pre-empt fires at 85% * 1600 = ~1360ms.
+    await expect
+      .poll(() => negotiations.filter((n) => n.limit === ceiling2).length, { timeout: 3000 })
+      .toBeGreaterThanOrEqual(1);
 
-    // Second pre-empt (if fired) should use the new ceiling
+    // Second pre-empt should use the new ceiling.
     const second = negotiations.find((n) => n.limit === ceiling2);
-    if (second) {
-      expect(second.limit).toBe(ceiling2);
-      expect(second.used).toBeLessThan(ceiling2);
-    }
+    expect(second).toBeDefined();
+    expect(second!.limit).toBe(ceiling2);
+    expect(second!.used).toBeLessThan(ceiling2);
 
     coord.stopAll();
   });

@@ -16,6 +16,7 @@
  */
 
 import { Bot, ChevronLeft, ChevronRight, Cpu, Crown, Loader2, Wrench, X, Zap } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { ContextBar } from '@/components/ContextBar';
 import { AgentTranscript } from '@/components/AgentTranscript';
