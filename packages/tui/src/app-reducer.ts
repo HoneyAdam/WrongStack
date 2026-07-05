@@ -92,6 +92,7 @@ export function reducer(state: State, action: Action): State {
       if (
         (e.kind === 'user' ||
           e.kind === 'assistant' ||
+          e.kind === 'thinking' ||
           e.kind === 'info' ||
           e.kind === 'warn' ||
           e.kind === 'error' ||

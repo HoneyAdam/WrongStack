@@ -291,13 +291,20 @@ export function rehydrateHistory(
   for (const msg of messages) {
     if (msg.role === 'system') continue;
     const text = textOf(msg).trim();
-    if (!text) continue;
     if (msg.role === 'user') {
-      entries.push({ id: nextId++, kind: 'user', text });
+      // Tool-result-only user turns carry no text — skip them (the tool
+      // entries were already emitted alongside the assistant that called them).
+      if (text) entries.push({ id: nextId++, kind: 'user', text });
       continue;
     }
     if (msg.role === 'assistant') {
-      entries.push({ id: nextId++, kind: 'assistant', text });
+      // Push the prose entry ONLY when there is text — but never skip the
+      // message wholesale on empty text: a tool-calling turn frequently has
+      // no accompanying prose (the model just calls a tool), and its
+      // `tool_use` blocks MUST still be walked below. Skipping the whole
+      // message here is what dumped every text-less tool call into the
+      // end-of-timeline fallback bucket on resume/recovery.
+      if (text) entries.push({ id: nextId++, kind: 'assistant', text });
       // Walk the assistant content for tool_use blocks and emit a tool entry
       // for each, in the order the blocks appear. Skips text/thinking blocks
       // — the body text was already pushed above.
@@ -1670,6 +1677,7 @@ export function App({
   // final chunk lands in pending after run() returns and ends up flashing
   // into the next frame's tail (leaking into scrollback).
   const streamingTextRef = useRef('');
+  const streamSegmentsRef = useRef<Array<{ kind: 'assistant' | 'thinking'; text: string }>>([]);
   const pendingDeltaRef = useRef('');
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -3777,6 +3785,14 @@ export function App({
     // read the complete stream when `agent.run` returns without racing
     // the throttle's last unflushed batch.
     const FLUSH_MS = 100;
+    const appendStreamSegment = (kind: 'assistant' | 'thinking', text: string) => {
+      const last = streamSegmentsRef.current.at(-1);
+      if (last?.kind === kind) {
+        last.text += text;
+      } else {
+        streamSegmentsRef.current.push({ kind, text });
+      }
+    };
     const flush = () => {
       if (pendingDeltaRef.current) {
         dispatch({ type: 'streamDelta', delta: pendingDeltaRef.current });
@@ -3792,6 +3808,18 @@ export function App({
       // bare `[200~` in the rendered text (same failure as the input path).
       const text = e.text.replace(/\x1b?\[200~|\x1b?\[201~/g, '');
       streamingTextRef.current += text;
+      pendingDeltaRef.current += text;
+      appendStreamSegment('assistant', text);
+      if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
+    });
+    const offThinking = events.on('provider.thinking_delta', (e) => {
+      // Reasoning/thinking deltas (Codex reasoning summaries, Anthropic
+      // extended thinking, OpenAI-compatible <think> blocks). Buffered in
+      // stream-order alongside assistant prose so the per-iteration flush
+      // commits them as a THINKING entry BEFORE the next tool entry, and
+      // the live tail mirrors whatever segment type is currently streaming.
+      const text = e.text.replace(/\x1b?\[200~|\x1b?\[201~/g, '');
+      appendStreamSegment('thinking', text);
       pendingDeltaRef.current += text;
       if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
     });
@@ -3902,14 +3930,29 @@ export function App({
     // since the per-iteration flushes have already done so.
     const offProvResp = events.on('provider.response', () => {
       const text = streamingTextRef.current;
+      const segments = streamSegmentsRef.current;
       streamingTextRef.current = '';
+      streamSegmentsRef.current = [];
       pendingDeltaRef.current = '';
       if (flushTimerRef.current) {
         clearTimeout(flushTimerRef.current);
         flushTimerRef.current = null;
       }
       dispatch({ type: 'streamReset' });
-      if (text.trim()) {
+      // Commit buffered segments in stream order. Each contiguous run of the
+      // same kind becomes one history entry, so a turn that streamed
+      // thinking → text → tool lands as THINKING then ASSISTANT before the
+      // tool entry — matching what the user saw live. When no thinking was
+      // emitted the segments array is a single assistant entry, preserving
+      // the original single-commit behavior.
+      for (const seg of segments) {
+        if (seg.text.trim()) {
+          dispatch({ type: 'addEntry', entry: { kind: seg.kind, text: seg.text } });
+        }
+      }
+      // Fallback: if segments were empty but streamingTextRef had content
+      // (legacy path / segments not populated), still commit as assistant.
+      if (segments.length === 0 && text.trim()) {
         dispatch({ type: 'addEntry', entry: { kind: 'assistant', text } });
       }
     });
@@ -3973,6 +4016,7 @@ export function App({
     });
     return () => {
       offDelta();
+      offThinking();
       offToolStart();
       offIterStart();
       offIterEnd();
@@ -5822,7 +5866,24 @@ export function App({
       // 2) if no assistant entry appeared but agent.run returned finalText,
       //    recover it so the TUI still shows the reply and parsed next steps.
       const lingering = streamingTextRef.current;
-      if (lingering.trim()) {
+      const lingeringSegments = streamSegmentsRef.current;
+      streamingTextRef.current = '';
+      streamSegmentsRef.current = [];
+      pendingDeltaRef.current = '';
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      dispatch({ type: 'streamReset' });
+      // Commit any ordered segments first (thinking then assistant), falling
+      // back to the legacy single-string path when segments were not populated.
+      if (lingeringSegments.length > 0) {
+        for (const seg of lingeringSegments) {
+          if (seg.text.trim()) {
+            dispatch({ type: 'addEntry', entry: { kind: seg.kind, text: seg.text } });
+          }
+        }
+      } else if (lingering.trim()) {
         dispatch({ type: 'addEntry', entry: { kind: 'assistant', text: lingering } });
       } else if (
         result.status === 'done' &&
@@ -5832,13 +5893,6 @@ export function App({
       ) {
         dispatch({ type: 'addEntry', entry: { kind: 'assistant', text: result.finalText } });
       }
-      streamingTextRef.current = '';
-      pendingDeltaRef.current = '';
-      if (flushTimerRef.current) {
-        clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      dispatch({ type: 'streamReset' });
 
       if (result.status === 'aborted') {
         const reason = result.abortReason ? `Aborted (${result.abortReason}).` : 'Aborted.';
@@ -7189,11 +7243,13 @@ export function App({
                 onCoordinatorStop={onCoordinatorStop ?? undefined}
                 coordinatorRunning={coordinatorRunning}
               />
-            ) : director ? (
+            ) : director || Object.keys(state.fleet).length > 0 || state.collabSession ? (
               <FleetPanel
                 entries={entriesWithLeader}
                 totalCost={state.fleetCost}
                 roster={fleetRoster}
+                todos={agent.ctx.todos}
+                nowTick={nowTick}
                 collabSession={state.collabSession}
               />
             ) : null}

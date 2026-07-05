@@ -153,6 +153,29 @@ export const Entry = React.memo(function Entry({
           </Text>
         </Box>
       );
+    case 'thinking': {
+      const contentWidth = assistantContentWidth(termWidth);
+      return (
+        <Box
+          flexDirection="column"
+          marginX={0}
+          marginY={1}
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor="magenta"
+          paddingLeft={1}
+        >
+          <Box flexDirection="row">
+            <Text bold color="magenta">
+              {'THINKING'}
+            </Text>
+          </Box>
+          <AssistantBody text={entry.text} termWidth={termWidth} contentWidth={contentWidth} />
+        </Box>
+      );
+    }
     case 'assistant': {
       const contentWidth = assistantContentWidth(termWidth);
       const { steps, stripped } = nextSteps;

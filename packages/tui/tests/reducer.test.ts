@@ -455,6 +455,19 @@ describe('TUI reducer', () => {
     expect(s.streamingText).toBe('');
   });
 
+  it('addEntry commits a thinking entry with text', () => {
+    let s = initial();
+    s = reducer(s, { type: 'addEntry', entry: { kind: 'thinking', text: 'reasoning here' } });
+    expect(s.entries).toHaveLength(1);
+    expect(s.entries[0]).toMatchObject({ kind: 'thinking', text: 'reasoning here' });
+  });
+
+  it('addEntry skips empty thinking entries', () => {
+    let s = initial();
+    s = reducer(s, { type: 'addEntry', entry: { kind: 'thinking', text: '   ' } });
+    expect(s.entries).toHaveLength(0);
+  });
+
   it('picker open/close lifecycle', () => {
     let s = initial();
     s = reducer(s, { type: 'pickerOpen', query: 'src' });

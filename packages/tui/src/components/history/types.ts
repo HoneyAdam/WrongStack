@@ -8,6 +8,7 @@ import type { Lang } from '../../highlight.js';
 export type HistoryEntry =
   | { id: number; kind: 'user'; text: string; queued?: boolean | undefined; pasteContent?: string | undefined }
   | { id: number; kind: 'assistant'; text: string }
+  | { id: number; kind: 'thinking'; text: string }
   | {
       id: number;
       kind: 'tool';
