@@ -666,9 +666,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
         if (contextManagement) lines.push(contextManagement);
       } else {
         // Adaptive threshold based on model context window size.
-        // Small context (<=32k) → trigger earlier; large context (>32k) → more relaxed.
-        // Fallback to 0 when unknown → conservative compaction (50 % threshold).
-        const maxCtx = this.modelCapabilities()?.maxContextTokens ?? 0;
+        // Small context (<=32k) → trigger earlier; large context (>=128k) → more relaxed.
+        const maxCtx = this.modelCapabilities()?.maxContextTokens ?? 128000;
         const threshold = maxCtx <= 32000 ? '50' : '70';
         const contextManagement = this.instructionSection(
           instructions,
