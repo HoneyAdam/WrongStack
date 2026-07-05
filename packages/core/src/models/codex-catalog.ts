@@ -57,7 +57,7 @@ export const CODEX_MODELS: ReadonlyArray<CodexModelMeta> = [
   {
     id: 'gpt-5.3-codex-spark',
     name: 'GPT-5.3 Codex Spark',
-    description: 'Ultra-fast coding model.',
+    description: 'Ultra-fast coding model (research preview).',
   },
 ];
 
