@@ -11,6 +11,18 @@ import { recordToolOutputEvidence } from '../utils/context-evidence.js';
 import { toErrorMessage } from '../utils/error.js';
 import type { AgentInternals } from './agent-internals.js';
 
+/**
+ * Tools whose serialized output is a unified diff that UIs render as a
+ * colored diff block (TUI `DiffBlock`, WebUI `DiffView`). The default
+ * 400-char event-preview cap slices the last visible diff line mid-word
+ * (a stray `…`), so these tools get a much larger budget. The serializer
+ * already compacts large diffs (≤260 lines via `compactDiff`) and the
+ * renderers cap the number of visible rows, so this only needs to be big
+ * enough that the shown hunk survives intact.
+ */
+const DIFF_TOOL_NAMES = new Set(['edit', 'write', 'replace', 'patch', 'diff']);
+const DIFF_TOOL_EVENT_PREVIEW_MAX = 16_000;
+
 export interface AgentToolHandler {
   executeTools(toolUses: ToolUseBlock[]): Promise<ToolResultBlock[]>;
   executeSingleWithDecision(
@@ -129,7 +141,10 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
       durationMs,
       ok,
       input,
-      output: truncateForEvent(content),
+      output: truncateForEvent(
+        content,
+        DIFF_TOOL_NAMES.has(toolName) ? DIFF_TOOL_EVENT_PREVIEW_MAX : undefined,
+      ),
       outputBytes: sig.outputBytes,
       outputTokens: sig.outputTokens,
       outputLines: sig.outputLines,

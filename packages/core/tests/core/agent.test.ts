@@ -915,6 +915,50 @@ describe('Agent — additional coverage', () => {
     expect(executed[0]?.output?.endsWith('…')).toBe(true);
   });
 
+  it('gives diff-producing tools a larger event-preview cap (no mid-diff …)', async () => {
+    // A file-mutating tool's output is a unified diff the UIs render as a
+    // colored diff block. The default 400-char cap would slice the last
+    // visible diff line mid-word; edit/write/replace/patch/diff get a much
+    // larger budget so the shown hunk survives intact.
+    // Kept under the serializer's 260-line compaction threshold so the full
+    // body is emitted — ~50 lines × ~30 chars is well past the 400-char
+    // default cap but nowhere near the raised diff cap.
+    const bigDiff = ['--- a/foo.ts', '+++ b/foo.ts', '@@ -1,1 +1,50 @@']
+      .concat(Array.from({ length: 50 }, (_, i) => `+line ${i} ${'x'.repeat(20)}`))
+      .join('\n');
+    const edit: Tool = {
+      name: 'edit',
+      description: 'returns a big diff',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      permission: 'auto',
+      mutating: true,
+      async execute() {
+        return { path: 'foo.ts', replacements: 1, diff: bigDiff };
+      },
+    };
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'edit', input: { path: 'foo.ts' } }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'ok' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [edit]);
+    cleanupDirs.push(tmp);
+
+    const executed: Array<{ name: string; output?: string }> = [];
+    (agent as never as { events: EventBus }).events.on('tool.executed', (e) => {
+      executed.push({ name: e.name, output: e.output });
+    });
+
+    const result = await agent.run('go');
+    expect(result.status).toBe('done');
+    expect(executed).toHaveLength(1);
+    // Well beyond the 400-char default — the diff body is preserved.
+    expect((executed[0]?.output?.length ?? 0)).toBeGreaterThan(1000);
+    expect(executed[0]?.output).toContain('line 0 ');
+  });
+
   it('emits provider.error when retries are exhausted', async () => {
     class AlwaysFailProvider implements Provider {
       readonly id = 'doomed';

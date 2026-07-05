@@ -229,6 +229,24 @@ describe('<DiffBlock /> rendering', () => {
     expect(frame).not.toContain('…');
   });
 
+  it('renders the full changed-line body at a known content width (no truncation)', () => {
+    // With a known contentWidth the changed-line body renders in full — the
+    // wash pads it out to the content edge with trailing spaces (verified in
+    // a real terminal; ink-testing-library strips ANSI + trailing whitespace
+    // so the pad itself isn't visible here). The body must survive intact
+    // regardless.
+    const body = 'const className = "flex gap-3 animate-pulse rounded-2xl px-3 py-2";';
+    const frame = renderDiffBlock([{ kind: 'del', text: `-${body}`, oldLine: 17 }], {
+      useColor: true,
+      contentWidth: 120,
+      removed: 1,
+      lang: 'ts',
+    });
+    expect(frame.replace(/\s+/g, ' ')).toContain(body);
+    expect(frame).not.toContain('…');
+    expect(frame).toMatch(/17 -/);
+  });
+
   it('syntax highlighting is length-preserving — body text unchanged under lang=ts', () => {
     const plain = renderDiffBlock([{ kind: 'add', text: '+const x = "hi"; // note', newLine: 1 }], {
       lang: 'plain',

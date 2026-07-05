@@ -326,19 +326,28 @@ export const Entry = React.memo(function Entry({
         // (`…\SidePanel\DesignStudioPanel.tsx`) instead of wrapping the
         // bullet onto its own row.
         const targetBudget = Math.max(24, termWidth - mutation.verb.length - 16);
+        const hasCounts = mutation.added > 0 || mutation.removed > 0;
         return (
           <Box flexDirection="column">
             <Text>
-              <Text color={theme.success}>{'●'}</Text>
+              <Text color={color}>{glyph}</Text>
               <Text> </Text>
-              <Text bold color="white">
+              <Text bold color={color}>
                 {`${mutation.verb}(${shortenPath(mutation.target, targetBudget)})`}
               </Text>
               <Text dimColor>{`  ·  ${fmtDuration(entry.durationMs)}`}</Text>
             </Text>
             <Text>
               <Text dimColor>{'  ⎿  '}</Text>
-              <Text>{statsText}</Text>
+              {mutation.added > 0 ? (
+                <Text bold color={theme.success}>{`+${mutation.added}`}</Text>
+              ) : null}
+              {mutation.added > 0 && mutation.removed > 0 ? <Text> </Text> : null}
+              {mutation.removed > 0 ? (
+                <Text bold color={theme.error}>{`-${mutation.removed}`}</Text>
+              ) : null}
+              {hasCounts ? <Text dimColor>{'  '}</Text> : null}
+              <Text dimColor>{statsText}</Text>
             </Text>
             {entry.resultRenderMode !== 'simple' && multiDiffs ? (
               <Box flexDirection="column">

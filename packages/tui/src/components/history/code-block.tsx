@@ -416,6 +416,21 @@ export function DiffBlock({
     typeof contentWidth === 'number'
       ? Math.max(16, contentWidth - (2 + 3 + gutterWidth + 3))
       : DIFF_FALLBACK_WRAP_WIDTH;
+  // When the width is known, the add/del wash pads its body out to the full
+  // `bodyBudget` with trailing spaces so the dark green/maroon background
+  // spans the whole line — right up to the content edge — instead of
+  // stopping at the end of the (often short) text. This is required because
+  // Ink only paints a background behind actual characters (a `<Text
+  // backgroundColor>` colours its trailing spaces; a `<Box backgroundColor>`
+  // does NOT fill the empty area), so the wash needs real padding chars to
+  // reach the edge. The approval-dialog path (no contentWidth) skips the
+  // padding to avoid over-wide rows in the bordered confirm box.
+  const hasWidth = typeof contentWidth === 'number';
+  const padBody = (seg: Token[]): number => {
+    if (!hasWidth) return 0;
+    const len = seg.reduce((n, t) => n + t.text.length, 0);
+    return Math.max(0, bodyBudget - len);
+  };
   // Continuation-row prefix: same width as `   ${ln} X ` so wrapped
   // segments line up with the first segment's body column.
   const contPrefix = `   ${blank}   `;
@@ -483,11 +498,16 @@ export function DiffBlock({
         // colored marker alone distinguishes add vs del.
         if (useColor) {
           const bg = row.kind === 'add' ? theme.diffAddBg : theme.diffDelBg;
+          // Wash lives on the <Text> (not the parent <Box>): Ink paints a
+          // background behind characters only, so the whole line — prefix,
+          // marker, syntax-highlighted body and the trailing pad — must sit
+          // inside one background <Text> for the wash to reach the edge.
           return (
-            <Box key={key} flexDirection="column" width="100%">
-              {segments.map((seg, si) => (
-                <Box key={si} backgroundColor={bg} width="100%">
-                  <Text>
+            <Box key={key} flexDirection="column">
+              {segments.map((seg, si) => {
+                const pad = padBody(seg);
+                return (
+                  <Text key={si} backgroundColor={bg}>
                     {si === 0 ? (
                       <>
                         <Text dimColor>{`   ${ln} `}</Text>
@@ -500,9 +520,10 @@ export function DiffBlock({
                       <Text dimColor>{contPrefix}</Text>
                     )}
                     {renderTokens(seg)}
+                    {pad > 0 ? <Text>{' '.repeat(pad)}</Text> : null}
                   </Text>
-                </Box>
-              ))}
+                );
+              })}
             </Box>
           );
         }
