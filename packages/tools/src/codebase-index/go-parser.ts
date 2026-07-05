@@ -23,14 +23,94 @@ export async function parseSymbols(opts: {
   const { file, content, lang } = opts;
 
   try {
-    return await syncGoParse(file, content, lang);
+    const parsed = await syncGoParse(file, content, lang);
+    if (parsed.symbols.length > 0) {
+      return parsed;
+    }
+    return fallbackParse(file, content, lang);
   } catch {
     /* v8 ignore next -- syncGoParse has its own catch; this outer guard is defensive. */
-    return { file, lang, symbols: [], mtimeMs: Date.now() };
+    return fallbackParse(file, content, lang);
   }
 }
 
 export { detectLang } from './ts-parser.js';
+
+// ─── Lightweight fallback parser ────────────────────────────────────────────
+
+function fallbackParse(filePath: string, content: string, lang: SymbolLang): FileSymbols {
+  if (!/^\s*package\s+[A-Za-z_]\w*/m.test(content) || hasUnbalancedDelimiters(content)) {
+    return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
+  }
+
+  const symbols: IndexSymbol[] = [];
+  const packageName = content.match(/^\s*package\s+([A-Za-z_]\w*)/m)?.[1] ?? '';
+  const lines = content.split(/\r?\n/);
+  for (const [idx, line] of lines.entries()) {
+    const trimmed = line.trimStart();
+    const col = line.length - trimmed.length + 1;
+    const fn = /^func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/.exec(trimmed);
+    if (fn?.[1]) {
+      addFallbackSymbol(symbols, { filePath, lang, kind: trimmed.startsWith('func (') ? 'method' : 'function', name: fn[1], line: idx + 1, col, signature: trimmed, scope: packageName ? `${packageName}.${fn[1]}` : fn[1] });
+      continue;
+    }
+
+    const typeDecl = /^type\s+([A-Za-z_]\w*)\b/.exec(trimmed);
+    if (typeDecl?.[1]) {
+      addFallbackSymbol(symbols, { filePath, lang, kind: 'type', name: typeDecl[1], line: idx + 1, col, signature: trimmed, scope: packageName });
+      continue;
+    }
+
+    const valueDecl = /^(const|var)\s+([A-Za-z_]\w*)\b/.exec(trimmed);
+    if (valueDecl?.[1] && valueDecl[2]) {
+      addFallbackSymbol(symbols, { filePath, lang, kind: valueDecl[1] as 'const' | 'var', name: valueDecl[2], line: idx + 1, col, signature: trimmed, scope: packageName });
+    }
+  }
+
+  return { file: filePath, lang, symbols, mtimeMs: Date.now() };
+}
+
+function addFallbackSymbol(
+  symbols: IndexSymbol[],
+  opts: {
+    filePath: string;
+    lang: SymbolLang;
+    kind: IndexSymbol['kind'];
+    name: string;
+    line: number;
+    col: number;
+    signature: string;
+    scope: string;
+  },
+): void {
+  symbols.push({
+    id: 0,
+    lang: opts.lang,
+    kind: opts.kind,
+    name: opts.name,
+    file: opts.filePath,
+    line: opts.line,
+    col: opts.col,
+    signature: opts.signature,
+    docComment: '',
+    scope: opts.scope,
+    text: `${opts.name} ${opts.signature}`.trim(),
+  });
+}
+
+function hasUnbalancedDelimiters(content: string): boolean {
+  const pairs: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+  const closers = new Set(Object.values(pairs));
+  const stack: string[] = [];
+  for (const ch of content) {
+    if (pairs[ch]) {
+      stack.push(pairs[ch]);
+    } else if (closers.has(ch) && stack.pop() !== ch) {
+      return true;
+    }
+  }
+  return stack.length > 0;
+}
 
 // ─── Inline Go parser script ────────────────────────────────────────────────
 
