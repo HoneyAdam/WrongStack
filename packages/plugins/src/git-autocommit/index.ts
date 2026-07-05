@@ -51,13 +51,19 @@ const llmGenerated = { value: 0 };
 // Git helpers
 // ---------------------------------------------------------------------------
 
-function runGit(args: string[], cwd?: string): string {
+const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+// `git commit` runs repository hooks. In this repo the pre-commit hook can
+// rebuild packages and run workspace typecheck, which routinely exceeds the
+// short timeout appropriate for read-only git commands.
+const GIT_COMMIT_TIMEOUT_MS = 5 * 60_000;
+
+function runGit(args: string[], cwd?: string, timeoutMs = DEFAULT_GIT_TIMEOUT_MS): string {
   try {
     return execFileSync('git', args, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 30_000,
+      timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
       windowsHide: true,
     }).trim();
@@ -98,7 +104,7 @@ function stageFiles(files: string[] | undefined, cwd?: string): void {
 }
 
 function commitWithMessage(message: string, cwd?: string): string {
-  return runGit(['commit', '-m', message], cwd);
+  return runGit(['commit', '-m', message], cwd, GIT_COMMIT_TIMEOUT_MS);
 }
 
 // ---------------------------------------------------------------------------

@@ -67,7 +67,7 @@ describe('git_autocommit', () => {
     expect(res.error).toMatch(/files must be an array/);
   });
 
-  it('stages provided files, commits, and appends to the session', async () => {
+  it('stages provided files, commits with a hook-friendly timeout, and appends to the session', async () => {
     gitHandler = (args) => {
       const k = key(args);
       if (k === 'diff --cached --name-only') return 'a.ts';
@@ -88,6 +88,11 @@ describe('git_autocommit', () => {
     expect(res.hash).toBe('deadbeef committed');
     expect(res.message).toBe('feat(core): add thing\n\ndetails');
     expect(res.stagedFiles).toEqual(['a.ts']);
+    expect(cp.execFileSync).toHaveBeenCalledWith(
+      'git',
+      expect.arrayContaining(['commit', '-m']),
+      expect.objectContaining({ timeout: 300_000 }),
+    );
     expect(sessionAppend).toHaveBeenCalledOnce();
   });
 
