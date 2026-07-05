@@ -57,7 +57,7 @@ function walk(
     return;
   }
   if (schema.enum !== undefined) {
-    if (!schema.enum.some((e) => deepEqual(e, value))) {
+    if (!enumIncludes(schema.enum, value)) {
       errors.push({
         path: path || '<root>',
         message: `expected one of ${JSON.stringify(schema.enum)}, got ${JSON.stringify(value)}`,
@@ -133,6 +133,11 @@ function describeType(v: unknown): string {
 function joinPath(parent: string, key: string): string {
   if (!parent) return key;
   return `${parent}.${key}`;
+}
+
+function enumIncludes(values: readonly unknown[], value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return values.includes(value);
+  return values.some((candidate) => deepEqual(candidate, value));
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
