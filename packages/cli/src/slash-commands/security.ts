@@ -3,9 +3,9 @@
 // Three subcommands, all synchronous from the user's perspective:
 //
 //   /security audit-deps    run `pnpm audit` against project dependencies
-//   /security scan          dispatch a bug-hunter subagent to scan the cwd
-//                           (uses the director mailbox if available; otherwise
-//                            prints instructions for spawning one manually)
+//   /security scan          print valid ways to dispatch a bug-hunter
+//                           subagent to scan the cwd from a director-capable
+//                           surface
 //   /security redact-test   run DefaultSecretScrubber over a sample payload
 //                           and print which fields were redacted (proves the
 //                           log redaction pipeline works end-to-end)
@@ -116,13 +116,16 @@ function scanCommand(opts: SlashCommandContext): { message: string } {
     '',
   ];
   // Slash commands run synchronously in the TUI — we can't host a subagent
-  // here. Print the dispatch instructions so the user can run it from any
-  // other terminal or subagent-aware surface (HQ / webui / CLI subcommand).
+  // here. Print dispatch instructions that match currently wired director
+  // surfaces instead of pointing at a non-existent package script.
   lines.push(color.dim('  The TUI is a synchronous surface and cannot host a subagent itself.'));
-  lines.push(color.dim('  Dispatch from any of these surfaces instead:'));
+  lines.push(color.dim('  Start or use a director-capable session, then dispatch with:'));
   lines.push('');
-  lines.push(color.cyan('    pnpm --filter @wrongstack/cli security:scan'));
-  lines.push(color.cyan('    → /collab with bug-hunter role from a subagent session'));
+  lines.push(color.cyan('    /director'));
+  lines.push(
+    color.cyan('    /delegate --role=bug-hunter "Run a security scan of the current project"'),
+  );
+  lines.push(color.cyan('    /fleet dispatch Run a security scan of the current project'));
   lines.push(color.cyan('    → HQ → Security → Run scan'));
   lines.push('');
   lines.push(color.dim('  The subagent role is `bug-hunter`. Findings stream on the'));

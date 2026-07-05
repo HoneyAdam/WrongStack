@@ -22,8 +22,10 @@ way.
 
 Slash commands are a synchronous UI surface and cannot host a subagent
 themselves, so `scan` prints how to dispatch the `bug-hunter` role from a
-surface that can (CLI subcommand, a subagent session via `/collab`, or
-HQ → Security → Run scan). Findings stream on the FleetBus as `bug.found`
+director-capable surface. In the TUI, run `/director` first if needed, then use
+`/delegate --role=bug-hunter "Run a security scan of the current project"` or
+`/fleet dispatch Run a security scan of the current project`. HQ can also start
+one from Security → Run scan. Findings stream on the FleetBus as `bug.found`
 events and land in the audit log.
 
 ## redact-test
@@ -42,5 +44,5 @@ out explicitly.
 /security redact-test
 ```
 
-See also: `/audit` (side-effect trail), `docs/subcommands` for the
-`security:scan` CLI path, SECURITY.md for the project's security policy.
+See also: `/audit` (side-effect trail), `/delegate`, `/fleet dispatch`, and
+SECURITY.md for the project's security policy.

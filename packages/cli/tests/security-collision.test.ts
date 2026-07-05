@@ -139,6 +139,10 @@ describe('cli boot order: plugin security then built-in /security', () => {
     const r = await ctx.registry.dispatch('/security scan', fakeCtx);
     expect(r?.message).toBeTruthy();
     expect(r?.message ?? '').toContain('dispatch');
+    expect(r?.message ?? '').toContain('/delegate --role=bug-hunter');
+    expect(r?.message ?? '').toContain('/fleet dispatch');
+    expect(r?.message ?? '').not.toContain('security:scan');
+    expect(r?.message ?? '').not.toContain('/collab');
     expect(r?.message ?? '').not.toMatch(/requires an active LLM provider/i);
   });
 
