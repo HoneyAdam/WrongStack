@@ -8,6 +8,7 @@ import type { Director } from './director.js';
 import { applyRosterBudget } from './fleet.js';
 import { safeParse } from '../utils/safe-json.js';
 import { toErrorMessage } from '../utils/error.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 
 /**
  * Opaque host interface so this factory doesn't have to depend on the
@@ -188,6 +189,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
       "Set `task` to a complete instruction. Either pick `role` from the roster (audit-log, bug-hunter, refactor-planner, security-scanner) or pass `name` to run a free-form coding agent. For non-trivial work, also pass `timeoutMs`, `maxIterations`, and `maxToolCalls`. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Auto-promotes the host into director mode on first call.",
     permission: 'auto',
     mutating: false,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema,
     async execute(input: unknown) {
       const sessionId = opts.directorRunId;

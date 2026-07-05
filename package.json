@@ -39,16 +39,16 @@
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
+    "@biomejs/biome": "^2.5.2",
     "@playwright/test": "^1.61.1",
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^4.1.9",
     "@wrongstack/tools": "workspace:*",
     "cross-env": "^10.1.0",
     "jsdom": "^29.1.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
-    "undici-types": "^8.5.0",
+    "undici-types": "^8.7.0",
     "vitest": "^4.1.9"
   },
   "overrides": {

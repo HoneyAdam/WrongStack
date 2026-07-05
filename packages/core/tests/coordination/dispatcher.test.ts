@@ -4,14 +4,14 @@ import {
   ALL_AGENT_DEFINITIONS,
   DEFAULT_DISPATCH_ROLE,
   dispatchAgent,
-  scoreAgents,
   makeLLMClassifier,
+  scoreAgents,
 } from '../../src/coordination/index.js';
 
 describe('catalog', () => {
-  it('has 48 catalog agents, all with role/prompt/keywords', () => {
+  it('has 50 catalog agents, all with role/prompt/keywords', () => {
     const roles = Object.keys(AGENT_CATALOG);
-    expect(roles.length).toBe(48);
+    expect(roles.length).toBe(50);
     for (const def of Object.values(AGENT_CATALOG)) {
       expect(def.config.role).toBeTruthy();
       expect((def.config.prompt ?? '').length).toBeGreaterThan(50);
@@ -23,7 +23,12 @@ describe('catalog', () => {
 
 describe('catalog routing health', () => {
   it('every agent is reachable: it tops the scoreboard for a task built from its own keywords', () => {
-    const unreachable: Array<{ role: string; winner: string; targetScore: number; topScore: number }> = [];
+    const unreachable: Array<{
+      role: string;
+      winner: string;
+      targetScore: number;
+      topScore: number;
+    }> = [];
     for (const def of ALL_AGENT_DEFINITIONS) {
       const role = def.config.role as string;
       // A task that contains exactly this agent's signal words. The agent
@@ -49,7 +54,10 @@ describe('catalog routing health', () => {
   it('no two agents share an identical keyword set (which would make routing order-dependent)', () => {
     const bySet = new Map<string, string[]>();
     for (const def of ALL_AGENT_DEFINITIONS) {
-      const key = [...def.capability.keywords].map((k) => k.trim()).sort().join('|');
+      const key = [...def.capability.keywords]
+        .map((k) => k.trim())
+        .sort()
+        .join('|');
       const arr = bySet.get(key) ?? [];
       arr.push(def.config.role as string);
       bySet.set(key, arr);

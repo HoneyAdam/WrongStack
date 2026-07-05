@@ -103,7 +103,7 @@ interface TestGateConfig {
 }
 
 const DEFAULTS: TestGateConfig = {
-  enabled: true,
+  enabled: false,
   runner: 'auto',
   command: '',
   timeoutMs: 30_000,
@@ -121,7 +121,7 @@ function readConfig(raw: unknown): TestGateConfig {
       ? r['runner']
       : 'auto';
   return {
-    enabled: r['enabled'] !== false,
+    enabled: r['enabled'] === true,
     runner,
     command: typeof r['command'] === 'string' ? r['command'] : DEFAULTS.command,
     timeoutMs:
@@ -497,7 +497,7 @@ const plugin: Plugin = {
     properties: {
       enabled: {
         type: 'boolean',
-        default: true,
+        default: false,
         description: 'Master switch.',
       },
       runner: {

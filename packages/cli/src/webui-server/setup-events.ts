@@ -303,6 +303,7 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             type: 'provider.response',
             payload: sessionPayload({
               sessionId: e.sessionId,
+              content: e.content,
               usage: e.usage,
               stopReason: e.stopReason,
               messageId: 'current',

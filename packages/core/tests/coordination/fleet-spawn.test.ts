@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import * as fleetSpawn from '../../src/coordination/fleet-spawn.js';
-import type { DirectorFleetHost } from '../../src/coordination/fleet-spawn.js';
-import { InMemoryBridgeTransport } from '../../src/coordination/in-memory-transport.js';
 import {
-  FleetSpawnBudgetError,
-  FleetCostCapError,
   FleetContextOverflowError,
+  FleetCostCapError,
+  FleetSpawnBudgetError,
 } from '../../src/coordination/director/director-errors.js';
+import type { DirectorFleetHost } from '../../src/coordination/fleet-spawn.js';
+import * as fleetSpawn from '../../src/coordination/fleet-spawn.js';
+import { InMemoryBridgeTransport } from '../../src/coordination/in-memory-transport.js';
 import type { SubagentConfig, TaskResult, TaskSpec } from '../../src/types/multi-agent.js';
 
 function makeHost(overrides: Partial<DirectorFleetHost> = {}): DirectorFleetHost {
@@ -54,7 +54,13 @@ function makeHost(overrides: Partial<DirectorFleetHost> = {}): DirectorFleetHost
 }
 
 const cfg = (over: Partial<SubagentConfig> = {}): SubagentConfig =>
-  ({ name: 'worker', role: 'hunter', provider: 'anthropic', model: 'claude', ...over }) as SubagentConfig;
+  ({
+    name: 'worker',
+    role: 'hunter',
+    provider: 'anthropic',
+    model: 'claude',
+    ...over,
+  }) as SubagentConfig;
 
 describe('fleet-spawn spawn()', () => {
   it('refuses to spawn once workComplete() has been called', async () => {
@@ -64,11 +70,28 @@ describe('fleet-spawn spawn()', () => {
   });
 
   it('resolves a model from the matrix when the config did not pin one', async () => {
-    const host = makeHost({ modelMatrix: { hunter: { model: 'matrix-model', provider: 'matrix-prov' } } as never });
+    const host = makeHost({
+      modelMatrix: { hunter: { model: 'matrix-model', provider: 'matrix-prov' } } as never,
+    });
     const config = cfg({ model: undefined, provider: undefined });
     await fleetSpawn.spawn(host, config);
     expect(config.model).toBe('matrix-model');
     expect(config.provider).toBe('matrix-prov');
+  });
+
+  it('does not pre-apply a wildcard matrix route to reviewer', async () => {
+    const host = makeHost({
+      modelMatrix: { '*': { model: 'same-model', provider: 'same-provider' } } as never,
+    });
+    const config = cfg({
+      name: 'Reviewer',
+      role: 'reviewer',
+      model: undefined,
+      provider: undefined,
+    });
+    await fleetSpawn.spawn(host, config);
+    expect(config.model).toBeUndefined();
+    expect(config.provider).toBeUndefined();
   });
 
   it('spawns inline (no FleetManager), recording counters, meta, manifest and price lookup', async () => {
@@ -104,16 +127,26 @@ describe('fleet-spawn spawn()', () => {
   });
 
   it('enforces inline spawn-depth, spawn-count, cost and context caps', async () => {
-    await expect(fleetSpawn.spawn(makeHost({ spawnDepth: 5, maxSpawnDepth: 5 }), cfg())).rejects.toBeInstanceOf(FleetSpawnBudgetError);
-    await expect(fleetSpawn.spawn(makeHost({ spawnCount: 10, maxSpawns: 10 }), cfg())).rejects.toBeInstanceOf(FleetSpawnBudgetError);
+    await expect(
+      fleetSpawn.spawn(makeHost({ spawnDepth: 5, maxSpawnDepth: 5 }), cfg()),
+    ).rejects.toBeInstanceOf(FleetSpawnBudgetError);
+    await expect(
+      fleetSpawn.spawn(makeHost({ spawnCount: 10, maxSpawns: 10 }), cfg()),
+    ).rejects.toBeInstanceOf(FleetSpawnBudgetError);
     await expect(
       fleetSpawn.spawn(
-        makeHost({ maxFleetCostUsd: 5, usage: { snapshot: () => ({ total: { cost: 9 } }), removeSubagent: vi.fn() } as never }),
+        makeHost({
+          maxFleetCostUsd: 5,
+          usage: { snapshot: () => ({ total: { cost: 9 } }), removeSubagent: vi.fn() } as never,
+        }),
         cfg(),
       ),
     ).rejects.toBeInstanceOf(FleetCostCapError);
     await expect(
-      fleetSpawn.spawn(makeHost({ maxLeaderContextLoad: 0.5, leaderContextPressure: 99_000 }), cfg()),
+      fleetSpawn.spawn(
+        makeHost({ maxLeaderContextLoad: 0.5, leaderContextPressure: 99_000 }),
+        cfg(),
+      ),
     ).rejects.toBeInstanceOf(FleetContextOverflowError);
   });
 
@@ -134,11 +167,26 @@ describe('fleet-spawn spawn()', () => {
 
   it('maps every FleetManager rejection kind to its error type', async () => {
     const mk = (kind: string) =>
-      makeHost({ fleetManager: { canSpawn: () => ({ kind, limit: 1, observed: 2 }), assignNicknameAndRecord: vi.fn(), recordSpawn: vi.fn(), removeSubagent: vi.fn() } as never });
-    await expect(fleetSpawn.spawn(mk('max_spawn_depth'), cfg())).rejects.toBeInstanceOf(FleetSpawnBudgetError);
-    await expect(fleetSpawn.spawn(mk('max_spawns'), cfg())).rejects.toBeInstanceOf(FleetSpawnBudgetError);
-    await expect(fleetSpawn.spawn(mk('max_cost_usd'), cfg())).rejects.toBeInstanceOf(FleetCostCapError);
-    await expect(fleetSpawn.spawn(mk('max_context_load'), cfg())).rejects.toBeInstanceOf(FleetContextOverflowError);
+      makeHost({
+        fleetManager: {
+          canSpawn: () => ({ kind, limit: 1, observed: 2 }),
+          assignNicknameAndRecord: vi.fn(),
+          recordSpawn: vi.fn(),
+          removeSubagent: vi.fn(),
+        } as never,
+      });
+    await expect(fleetSpawn.spawn(mk('max_spawn_depth'), cfg())).rejects.toBeInstanceOf(
+      FleetSpawnBudgetError,
+    );
+    await expect(fleetSpawn.spawn(mk('max_spawns'), cfg())).rejects.toBeInstanceOf(
+      FleetSpawnBudgetError,
+    );
+    await expect(fleetSpawn.spawn(mk('max_cost_usd'), cfg())).rejects.toBeInstanceOf(
+      FleetCostCapError,
+    );
+    await expect(fleetSpawn.spawn(mk('max_context_load'), cfg())).rejects.toBeInstanceOf(
+      FleetContextOverflowError,
+    );
   });
 });
 
@@ -149,8 +197,19 @@ describe('fleet-spawn assign()', () => {
   it('synthesizes an aborted result and resolves a waiter when work is complete', async () => {
     const host = makeHost({ workCompleteFlag: true });
     let resolved: TaskResult | undefined;
-    host.taskWaiters.set('t1', { promise: Promise.resolve() as never, resolve: (r) => { resolved = r; } });
-    const id = await fleetSpawn.assign(host, { description: 'x' } as TaskSpec, 't1', noopDesc, noopOwner);
+    host.taskWaiters.set('t1', {
+      promise: Promise.resolve() as never,
+      resolve: (r) => {
+        resolved = r;
+      },
+    });
+    const id = await fleetSpawn.assign(
+      host,
+      { description: 'x' } as TaskSpec,
+      't1',
+      noopDesc,
+      noopOwner,
+    );
     expect(id).toBe('t1');
     expect(host.completed.get('t1')?.status).toBe('stopped');
     expect(resolved?.error?.kind).toBe('aborted_by_parent');
@@ -159,7 +218,13 @@ describe('fleet-spawn assign()', () => {
 
   it('handles work-complete with no pending waiter', async () => {
     const host = makeHost({ workCompleteFlag: true });
-    const id = await fleetSpawn.assign(host, { id: 't2', description: 'x' } as TaskSpec, 't2', noopDesc, noopOwner);
+    const id = await fleetSpawn.assign(
+      host,
+      { id: 't2', description: 'x' } as TaskSpec,
+      't2',
+      noopDesc,
+      noopOwner,
+    );
     expect(id).toBe('t2');
     expect(host.completed.has('t2')).toBe(true);
   });
@@ -175,7 +240,9 @@ describe('fleet-spawn assign()', () => {
       noopOwner,
     );
     expect(id).toBe('task-9');
-    expect((host.manifestEntries.get('sub-1') as { taskIds: string[] }).taskIds).toContain('task-9');
+    expect((host.manifestEntries.get('sub-1') as { taskIds: string[] }).taskIds).toContain(
+      'task-9',
+    );
     expect(host.coordinator.assign).toHaveBeenCalled();
     expect(noopDesc).toHaveBeenCalledWith('task-9', 'do it');
     expect(noopOwner).toHaveBeenCalledWith('task-9', 'sub-1');
@@ -199,7 +266,14 @@ describe('fleet-spawn assign()', () => {
 describe('fleet-spawn awaitTasks()', () => {
   it('returns cached results, existing waiter promises, and creates fresh waiters', async () => {
     const host = makeHost();
-    const cached: TaskResult = { subagentId: 's', taskId: 'a', status: 'completed', iterations: 0, toolCalls: 0, durationMs: 0 };
+    const cached: TaskResult = {
+      subagentId: 's',
+      taskId: 'a',
+      status: 'completed',
+      iterations: 0,
+      toolCalls: 0,
+      durationMs: 0,
+    };
     host.completed.set('a', cached);
     const existingPromise = Promise.resolve({ taskId: 'b' } as TaskResult);
     host.taskWaiters.set('b', { promise: existingPromise, resolve: vi.fn() });
@@ -244,7 +318,12 @@ describe('fleet-spawn terminate/terminateAll/remove()', () => {
   });
 
   it('delegates nickname cleanup to FleetManager on remove when present', async () => {
-    const fleetManager = { removeSubagent: vi.fn(), canSpawn: vi.fn(), assignNicknameAndRecord: vi.fn(), recordSpawn: vi.fn() };
+    const fleetManager = {
+      removeSubagent: vi.fn(),
+      canSpawn: vi.fn(),
+      assignNicknameAndRecord: vi.fn(),
+      recordSpawn: vi.fn(),
+    };
     const host = makeHost({ fleetManager: fleetManager as never });
     await fleetSpawn.remove(host, 'sub-1');
     expect(fleetManager.removeSubagent).toHaveBeenCalledWith('sub-1');

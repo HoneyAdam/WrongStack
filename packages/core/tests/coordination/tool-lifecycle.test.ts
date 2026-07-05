@@ -120,6 +120,34 @@ describe('Tool lifecycle — executeStream', () => {
     expect(partials.join('')).toBe(chunks.join(''));
   });
 
+  it('does not coalesce live-preview partial_output events', async () => {
+    const events = new EventBus();
+    const partials: string[] = [];
+    events.on('tool.progress', (e) => {
+      if (e.event.type === 'partial_output' && e.event.text) partials.push(e.event.text);
+    });
+
+    const previewTool: Tool = {
+      name: 'preview-write',
+      description: 'streams live preview lines',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: true,
+      execute: vi.fn(),
+      async *executeStream(): AsyncGenerator<ToolStreamEvent<string>> {
+        yield { type: 'partial_output', text: 'one\n', data: { livePreview: true } };
+        yield { type: 'partial_output', text: 'two\n', data: { livePreview: true } };
+        yield { type: 'partial_output', text: 'three\n', data: { livePreview: true } };
+        yield { type: 'final', output: 'done' };
+      },
+    };
+
+    const executor = makeExecutor([previewTool], events);
+    await executor.executeBatch([makeUse('preview-write')], makeCtx(), 'sequential');
+
+    expect(partials).toEqual(['one\n', 'two\n', 'three\n']);
+  });
+
   it('progress event carries the tool name and call id', async () => {
     const events = new EventBus();
     let captured: { name: string; id: string } | null = null;

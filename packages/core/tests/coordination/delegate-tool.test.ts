@@ -15,6 +15,7 @@ import type {
   SubagentRunOutcome,
   TaskSpec,
 } from '../../src/types/multi-agent.js';
+import { ToolCapabilities } from '../../src/security/capabilities.js';
 
 /**
  * Tests the `delegate` LLM-callable tool. The tool is the
@@ -93,6 +94,11 @@ describe('createDelegateTool', () => {
       },
     };
   }
+
+  it('declares subagent.spawn capability for subagent guards', () => {
+    const tool = createDelegateTool({ host: buildHost(null) });
+    expect(tool.capabilities).toContain(ToolCapabilities.SUBAGENT_SPAWN);
+  });
 
   it('runs a delegated task end-to-end via roster role', async () => {
     director = buildLiveDirector();

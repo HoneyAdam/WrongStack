@@ -4,8 +4,7 @@ import type { Context, Tool, ToolStreamEvent } from '@wrongstack/core';
 import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { normalizeCommandOutput } from './_util.js';
-import { killWin32Tree, redactCommand } from './process-registry.js';
-import { getProcessRegistry } from './process-registry.js';
+import { getProcessRegistry, redactCommand } from './process-registry.js';
 import { checkAndBlockKillCommand } from './bash-kill-guard.js';
 import { pickShell, shellArgs, type BashShell, wrapPowerShellScript, diagnoseBashism } from './_shell-pick.js';
 import { resolvePowerShell } from './_win32-resolve.js';
@@ -425,17 +424,14 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       timeoutMs: number,
     ): void {
       if (isWin) {
-        // Tree-kill so grandchildren of the shell die too. Direct kill only
-        // as a delayed fallback — killing cmd.exe first would break
-        // taskkill's tree enumeration and orphan the real command.
-        if (typeof child.pid === 'number' && child.exitCode === null && killWin32Tree(child.pid)) {
-          const fallback = setTimeout(() => {
-            if (child.exitCode === null) {
-              try { child.kill(); } catch { /* ignore */ }
-            }
-          }, 2000);
-          timers.push(fallback);
-          fallback.unref?.();
+        // Let the registry handle Windows tree-kill and its fallback timing.
+        // A direct child.kill() before taskkill settles can orphan the real
+        // command and leave inherited stdio pipes open.
+        if (typeof child.pid === 'number' && child.exitCode === null) {
+          const attempted = registry.kill(child.pid, { force: true, graceMs: timeoutMs });
+          if (!attempted) {
+            try { child.kill(); } catch { /* ignore */ }
+          }
         } else {
           try { child.kill(); } catch { /* ignore */ }
         }

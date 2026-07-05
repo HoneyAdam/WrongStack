@@ -34,7 +34,8 @@ vi.mock('@/lib/notify', () => ({
 vi.mock('@/lib/ws-client', () => ({ getWSClient: () => ({ send: vi.fn() }) }));
 
 // ── SUT (imported after mocks) ────────────────────────────────────────────
-import { handleTextDelta, handleRunResult } from '../../src/hooks/ws-handlers/chat-handlers';
+import { handleTextDelta, handleRunResult, handleToolStarted } from '../../src/hooks/ws-handlers/chat-handlers';
+import { handleProviderResponse } from '../../src/hooks/ws-handlers/session-handlers';
 import { streamCoalescer } from '../../src/lib/stream-coalescer';
 import { useChatStore } from '../../src/stores/chat-store';
 import { useSessionStore } from '../../src/stores/session-store';
@@ -133,6 +134,110 @@ describe('streaming pipeline: text_delta → coalescer → chat-store', () => {
     expect(messages.length).toBe(1);
     expect(messages[0]?.content).toBe('finalizing');
     expect(messages[0]?.streaming).toBe(false);
+  });
+
+  it('flushes and finalizes pending assistant text before a tool bubble', () => {
+    handleTextDelta(delta('msg_tool_intro', 'I will inspect the file first.'));
+
+    handleToolStarted({
+      type: 'tool.started',
+      payload: {
+        sessionId: 'sess_stream',
+        id: 'toolu_1',
+        name: 'read',
+        input: { path: 'src/a.ts' },
+        messageId: 'tool_toolu_1',
+      },
+    } as unknown as WSServerMessage);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => m.role)).toEqual(['assistant', 'tool']);
+    expect(messages[0]?.content).toBe('I will inspect the file first.');
+    expect(messages[0]?.streaming).toBe(false);
+    expect(messages[1]).toMatchObject({ role: 'tool', toolName: 'read', toolUseId: 'toolu_1' });
+  });
+
+  it('adds non-streamed provider response text before a tool bubble', () => {
+    handleProviderResponse({
+      type: 'provider.response',
+      payload: {
+        sessionId: 'sess_stream',
+        content: [
+          { type: 'text', text: 'I will inspect the file first.' },
+          { type: 'tool_use', id: 'toolu_2', name: 'read', input: { path: 'src/b.ts' } },
+        ],
+        usage: { input: 10, output: 4, cacheRead: 0, cacheWrite: 0 },
+        stopReason: 'tool_use',
+        messageId: 'current',
+      },
+    } as unknown as WSServerMessage);
+
+    handleToolStarted({
+      type: 'tool.started',
+      payload: {
+        sessionId: 'sess_stream',
+        id: 'toolu_2',
+        name: 'read',
+        input: { path: 'src/b.ts' },
+        messageId: 'tool_toolu_2',
+      },
+    } as unknown as WSServerMessage);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => m.role)).toEqual(['assistant', 'tool']);
+    expect(messages[0]?.content).toBe('I will inspect the file first.');
+    expect(messages[0]?.usage).toMatchObject({ input: 10, output: 4 });
+    expect(messages[1]).toMatchObject({ role: 'tool', toolName: 'read', toolUseId: 'toolu_2' });
+  });
+
+  it('does not duplicate streamed text when provider response also carries content', async () => {
+    handleTextDelta(delta('msg_dup', 'Already streamed.'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    handleProviderResponse({
+      type: 'provider.response',
+      payload: {
+        sessionId: 'sess_stream',
+        content: [{ type: 'text', text: 'Already streamed.' }],
+        usage: { input: 12, output: 5, cacheRead: 0, cacheWrite: 0 },
+        stopReason: 'tool_use',
+        messageId: 'current',
+      },
+    } as unknown as WSServerMessage);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => m.role)).toEqual(['assistant']);
+    expect(messages[0]?.content).toBe('Already streamed.');
+    expect(messages[0]?.streaming).toBe(false);
+    expect(messages[0]?.usage).toMatchObject({ input: 12, output: 5 });
+  });
+
+  it('does not duplicate provider response text when run.result repeats finalText', () => {
+    handleProviderResponse({
+      type: 'provider.response',
+      payload: {
+        sessionId: 'sess_stream',
+        content: [{ type: 'text', text: 'Final response.' }],
+        usage: { input: 8, output: 3, cacheRead: 0, cacheWrite: 0 },
+        stopReason: 'end_turn',
+        messageId: 'current',
+      },
+    } as unknown as WSServerMessage);
+
+    handleRunResult({
+      type: 'run.result',
+      payload: {
+        status: 'done',
+        iterations: 1,
+        sessionId: 'sess_stream',
+        finalText: 'Final response.',
+      },
+    } as unknown as WSServerMessage);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages.map((m) => m.role)).toEqual(['assistant']);
+    expect(messages[0]?.content).toBe('Final response.');
   });
 
   it('falls back to run.result finalText when no streamed assistant message exists', () => {

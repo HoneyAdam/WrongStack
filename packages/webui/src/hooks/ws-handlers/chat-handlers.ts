@@ -85,8 +85,10 @@ export function handleToolStarted(msg: WSServerMessage) {
   const payload = msg.payload as { id: string; name: string; input?: unknown | undefined; messageId: string };
   const existingId = useChatStore.getState().getToolMessageId(payload.id);
   if (existingId) { useChatStore.getState().setCurrentToolId(existingId); return; }
-  streamCoalescer.flush('__thinking__');
+  streamCoalescer.flushAll();
   useChatStore.getState().clearThinking();
+  const assistantId = useChatStore.getState().currentAssistantMessageId;
+  if (assistantId) useChatStore.getState().finalizeMessage(assistantId);
   useChatStore.getState().setCurrentAssistantMessage(null);
   const id = useChatStore.getState().addMessage({ role: 'tool', content: '', toolName: payload.name, toolInput: payload.input, toolUseId: payload.id });
   useChatStore.getState().setCurrentToolId(id);
@@ -195,7 +197,18 @@ export function handleRunResult(msg: WSServerMessage) {
     // Defensive fallback: a run may complete with finalText even if the live
     // text_delta/provider.response path failed to create a visible assistant
     // bubble. Preserve the user-facing reply so next steps can render.
-    useChatStore.getState().addMessage({ role: 'assistant', content: finalText });
+    const runStart = useChatStore.getState().runStart;
+    const hasSameFinalText = useChatStore
+      .getState()
+      .messages.some(
+        (m) =>
+          m.role === 'assistant' &&
+          (!runStart || m.timestamp >= runStart.at) &&
+          m.content.trim() === finalText,
+      );
+    if (!hasSameFinalText) {
+      useChatStore.getState().addMessage({ role: 'assistant', content: finalText });
+    }
   }
   useChatStore.getState().setCurrentAssistantMessage(null);
   useChatStore.getState().clearThinking();

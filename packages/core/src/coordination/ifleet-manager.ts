@@ -1,5 +1,6 @@
-import type { FleetBus, FleetUsage } from './fleet-bus.js';
 import type { SubagentConfig } from '../types/multi-agent.js';
+import type { FleetBus, FleetUsage } from './fleet-bus.js';
+import type { WorktreeTaskStateUpdate } from './worktree-task-runner.js';
 
 /**
  * Interface for fleet-level lifecycle and policy. Covers:
@@ -27,7 +28,11 @@ export interface IFleetManager {
    * Per-subagent metadata captured at spawn time (provider/model/name).
    * Returns undefined if the subagent is not known to this manager.
    */
-  getSubagentMeta(id: string): { provider?: string | undefined; model?: string | undefined; name?: string | undefined } | undefined;
+  getSubagentMeta(
+    id: string,
+  ):
+    | { provider?: string | undefined; model?: string | undefined; name?: string | undefined }
+    | undefined;
 
   /**
    * Called before a spawn is recorded. Returns a reason string if the
@@ -35,7 +40,11 @@ export interface IFleetManager {
    * overload, etc.), or null to proceed. Director.spawn() calls this
    * internally.
    */
-  canSpawn(config: SubagentConfig): { kind: 'max_spawns' | 'max_spawn_depth' | 'max_cost_usd' | 'max_context_load'; limit: number; observed: number } | null;
+  canSpawn(config: SubagentConfig): {
+    kind: 'max_spawns' | 'max_spawn_depth' | 'max_cost_usd' | 'max_context_load';
+    limit: number;
+    observed: number;
+  } | null;
 
   /**
    * Update the leader agent's current context pressure (tokens used in the
@@ -70,7 +79,11 @@ export interface IFleetManager {
    * @param priceLookup Per-token rate lookup for cost calculation.
    *   When omitted the cost column in usage snapshots stays at 0.
    */
-  recordSpawn(subagentId: string, config: SubagentConfig, priceLookup?: Record<string, number>): void;
+  recordSpawn(
+    subagentId: string,
+    config: SubagentConfig,
+    priceLookup?: Record<string, number>,
+  ): void;
 
   /**
    * Write the fleet manifest to disk. Returns the path written
@@ -101,6 +114,9 @@ export interface IFleetManager {
    */
   addPendingTask(taskId: string, subagentId: string, description: string): void;
 
+  /** Record the latest git-worktree lifecycle state for a task. */
+  recordTaskWorktree(update: WorktreeTaskStateUpdate): void;
+
   /**
    * Remove a pending task. Called when the task completes so the
    * pending list stays accurate.
@@ -112,7 +128,17 @@ export interface IFleetManager {
    * Called by `Director` after constructing the coordinator so
    * FleetManager's stats reflect live subagent data.
    */
-  setCoordinator(coordinator: { getStats(): { total: number; running: number; idle: number; stopped: number; inFlight: number; pending: number; completed: number } }): void;
+  setCoordinator(coordinator: {
+    getStats(): {
+      total: number;
+      running: number;
+      idle: number;
+      stopped: number;
+      inFlight: number;
+      pending: number;
+      completed: number;
+    };
+  }): void;
 
   /**
    * Coordinator stats snapshot for the TUI and monitoring tools.

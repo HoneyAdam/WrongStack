@@ -1,0 +1,249 @@
+/**
+ * smart-rename plugin — whole-word identifier rename inside a single source
+ * file using regex replacement.
+ *
+ * Tool registered:
+ * - smart_rename : Replace whole-word occurrences of oldName with newName.
+ *
+ * No hooks are registered.
+ *
+ * Config (`config.extensions['smart-rename']`):
+ *
+ * ```jsonc
+ * {
+ *   "enabled": true,
+ *   "extensions": [".ts", ".tsx", ".js", ".jsx"]
+ * }
+ * ```
+ *
+ * @public
+ */
+
+import { readFileSync, writeFileSync } from 'node:fs';
+import { extname, isAbsolute, relative, resolve } from 'node:path';
+import type { Plugin } from '@wrongstack/core';
+
+const API_VERSION = '^0.1.10';
+
+// ---------------------------------------------------------------------------
+// Module-scope state (H1 audit pattern)
+// ---------------------------------------------------------------------------
+
+interface SmartRenameState {
+  renameCount: number;
+  replacementCount: number;
+  errorCount: number;
+}
+
+const state: SmartRenameState = {
+  renameCount: 0,
+  replacementCount: 0,
+  errorCount: 0,
+};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+interface SmartRenameConfig {
+  enabled: boolean;
+  extensions: string[];
+}
+
+const DEFAULTS: SmartRenameConfig = {
+  enabled: true,
+  extensions: ['.ts', '.tsx', '.js', '.jsx'],
+};
+
+function readConfig(raw: unknown): SmartRenameConfig {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  const r = raw as Record<string, unknown>;
+  return {
+    enabled: r['enabled'] !== false,
+    extensions: Array.isArray(r['extensions'])
+      ? (r['extensions'] as unknown[]).filter((x): x is string => typeof x === 'string')
+      : DEFAULTS.extensions,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+function withinProject(p: string): boolean {
+  if (typeof p !== 'string' || p.length === 0 || p.length > 4096) return false;
+  const root = process.cwd();
+  const resolved = isAbsolute(p) ? resolve(p) : resolve(root, p);
+  const rel = relative(root, resolved);
+  if (rel === '' || rel === '.') return true;
+  if (rel.startsWith('..')) return false;
+  if (isAbsolute(rel)) return false;
+  return true;
+}
+
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+function relativePath(p: string): string {
+  return toPosix(relative(process.cwd(), p));
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ---------------------------------------------------------------------------
+// Rename logic
+// ---------------------------------------------------------------------------
+
+function renameInContent(content: string, oldName: string, newName: string): { preview: string; replacements: number } {
+  const re = new RegExp(`\\b${escapeRegex(oldName)}\\b`, 'g');
+  let replacements = 0;
+  const preview = content.replace(re, () => {
+    replacements++;
+    return newName;
+  });
+  return { preview, replacements };
+}
+
+// ---------------------------------------------------------------------------
+// Plugin
+// ---------------------------------------------------------------------------
+
+const plugin: Plugin = {
+  name: 'smart-rename',
+  version: '0.1.0',
+  description: 'Whole-word identifier rename inside a single source file',
+  apiVersion: API_VERSION,
+  capabilities: { tools: true },
+  defaultConfig: { ...DEFAULTS },
+  configSchema: {
+    type: 'object',
+    properties: {
+      enabled: { type: 'boolean', default: true, description: 'Master switch.' },
+      extensions: {
+        type: 'array',
+        items: { type: 'string' },
+        default: ['.ts', '.tsx', '.js', '.jsx'],
+        description: 'File extensions allowed for renaming.',
+      },
+    },
+  },
+
+  setup(api) {
+    state.renameCount = 0;
+    state.replacementCount = 0;
+    state.errorCount = 0;
+
+    const cfg = readConfig(api.config.extensions?.['smart-rename']);
+
+    // --- smart_rename tool ---
+    api.tools.register({
+      name: 'smart_rename',
+      description:
+        'Replace whole-word occurrences of an identifier in a source file. Returns a preview by default; set apply:true to write the result back to disk.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Source file path (relative to project root).' },
+          oldName: { type: 'string', description: 'Identifier to replace.' },
+          newName: { type: 'string', description: 'New identifier.' },
+          apply: { type: 'boolean', default: false, description: 'When true, write the preview back to disk.' },
+        },
+        required: ['path', 'oldName', 'newName'],
+      },
+      permission: 'auto',
+      category: 'Development',
+      mutating: true,
+      async execute(input: { path?: string; oldName?: string; newName?: string; apply?: boolean }) {
+        if (!cfg.enabled) return { ok: false, error: 'smart-rename is disabled' };
+
+        const rawPath = input.path;
+        const oldName = input.oldName;
+        const newName = input.newName;
+
+        if (!rawPath || typeof rawPath !== 'string') {
+          return { ok: false, error: 'path is required' };
+        }
+        if (!oldName || typeof oldName !== 'string' || oldName.length === 0) {
+          return { ok: false, error: 'oldName is required' };
+        }
+        if (!newName || typeof newName !== 'string' || newName.length === 0) {
+          return { ok: false, error: 'newName is required' };
+        }
+        if (!withinProject(rawPath)) {
+          return { ok: false, error: 'path is outside the project root' };
+        }
+
+        const ext = extname(rawPath).toLowerCase();
+        if (!cfg.extensions.includes(ext)) {
+          return { ok: false, error: `extension ${ext} is not allowed for rename` };
+        }
+
+        const resolved = resolve(process.cwd(), rawPath);
+        let content: string;
+        try {
+          content = readFileSync(resolved, 'utf-8');
+        } catch (err) {
+          state.errorCount += 1;
+          return { ok: false, error: String(err) };
+        }
+
+        const { preview, replacements } = renameInContent(content, oldName, newName);
+        state.renameCount += 1;
+        state.replacementCount += replacements;
+
+        if (input.apply) {
+          try {
+            writeFileSync(resolved, preview, 'utf-8');
+          } catch (err) {
+            state.errorCount += 1;
+            return { ok: false, error: String(err) };
+          }
+        }
+
+        return {
+          ok: true,
+          path: relativePath(resolved),
+          replacements,
+          preview,
+          applied: Boolean(input.apply),
+        };
+      },
+    });
+
+    api.log.info('smart-rename plugin loaded', {
+      version: '0.1.0',
+      extensions: cfg.extensions,
+    });
+  },
+
+  teardown(api) {
+    const final = {
+      renames: state.renameCount,
+      replacements: state.replacementCount,
+      errors: state.errorCount,
+    };
+    state.renameCount = 0;
+    state.replacementCount = 0;
+    state.errorCount = 0;
+    api.log.info('smart-rename: teardown complete', { final });
+  },
+
+  async health() {
+    return {
+      ok: state.errorCount === 0,
+      message: state.errorCount
+        ? `smart-rename: ${state.errorCount} error(s)`
+        : `smart-rename: ${state.renameCount} rename(s), ${state.replacementCount} replacement(s)`,
+      counters: {
+        renames: state.renameCount,
+        replacements: state.replacementCount,
+        errors: state.errorCount,
+      },
+    };
+  },
+};
+
+export default plugin;

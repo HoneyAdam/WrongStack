@@ -52,7 +52,10 @@ export interface ModelPick {
 
 export interface RouterCosts {
   /** Cumulative cost per provider/model key. */
-  byModel: Record<string, { cost: number; tokens: { input: number; output: number }; calls: number }>;
+  byModel: Record<
+    string,
+    { cost: number; tokens: { input: number; output: number }; calls: number }
+  >;
   /** Grand total. */
   totalCost: number;
 }
@@ -62,30 +65,139 @@ export interface RouterCosts {
  * is self-contained — callers can override with richer data from model-intelligence.
  */
 const DEFAULT_PROFILES: ModelIntelligenceEntry[] = [
-  { provider: 'anthropic', pattern: /claude-opus/i, family: 'Claude Opus', strengths: ['reasoning', 'planning'], bestFor: ['planning', 'security', 'debugging'], costTier: 'premium', speedTier: 'slow' },
-  { provider: 'anthropic', pattern: /claude-sonnet/i, family: 'Claude Sonnet', strengths: ['coding', 'balanced'], bestFor: ['coding', 'general'], costTier: 'standard', speedTier: 'fast' },
-  { provider: 'anthropic', pattern: /claude-haiku/i, family: 'Claude Haiku', strengths: ['speed'], bestFor: ['lightweight', 'docs'], avoidFor: ['planning'], costTier: 'budget', speedTier: 'fast' },
-  { provider: 'openai', pattern: /gpt-5|o3|o4/i, family: 'GPT-5/o3/o4', strengths: ['reasoning', 'coding'], bestFor: ['planning', 'coding', 'debugging'], costTier: 'premium', speedTier: 'normal' },
-  { provider: 'openai', pattern: /gpt-4/i, family: 'GPT-4', strengths: ['coding'], bestFor: ['coding', 'docs'], costTier: 'standard', speedTier: 'fast' },
-  { provider: 'openai', pattern: /gpt-4o-mini/i, family: 'GPT-4o Mini', strengths: ['speed'], bestFor: ['lightweight', 'docs'], avoidFor: ['planning'], costTier: 'budget', speedTier: 'fast' },
-  { provider: 'google', pattern: /gemini-(?:2\.5|3)/i, family: 'Gemini 2.5/3', strengths: ['context', 'coding'], bestFor: ['coding', 'data'], costTier: 'standard', speedTier: 'normal' },
-  { provider: 'google', pattern: /gemini.*flash/i, family: 'Gemini Flash', strengths: ['speed'], bestFor: ['lightweight', 'docs'], avoidFor: ['planning'], costTier: 'budget', speedTier: 'fast' },
-  { provider: 'deepseek', pattern: /deepseek/i, family: 'DeepSeek', strengths: ['coding', 'cost-effective'], bestFor: ['coding', 'general'], costTier: 'standard', speedTier: 'normal' },
+  {
+    provider: 'anthropic',
+    pattern: /claude-opus/i,
+    family: 'Claude Opus',
+    strengths: ['reasoning', 'planning'],
+    bestFor: ['planning', 'security', 'debugging'],
+    costTier: 'premium',
+    speedTier: 'slow',
+  },
+  {
+    provider: 'anthropic',
+    pattern: /claude-sonnet/i,
+    family: 'Claude Sonnet',
+    strengths: ['coding', 'balanced'],
+    bestFor: ['coding', 'general'],
+    costTier: 'standard',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'anthropic',
+    pattern: /claude-haiku/i,
+    family: 'Claude Haiku',
+    strengths: ['speed'],
+    bestFor: ['lightweight', 'docs'],
+    avoidFor: ['planning'],
+    costTier: 'budget',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'openai',
+    pattern: /gpt-5|o3|o4/i,
+    family: 'GPT-5/o3/o4',
+    strengths: ['reasoning', 'coding'],
+    bestFor: ['planning', 'coding', 'debugging'],
+    costTier: 'premium',
+    speedTier: 'normal',
+  },
+  {
+    provider: 'openai',
+    pattern: /gpt-4/i,
+    family: 'GPT-4',
+    strengths: ['coding'],
+    bestFor: ['coding', 'docs'],
+    costTier: 'standard',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'openai',
+    pattern: /gpt-4o-mini/i,
+    family: 'GPT-4o Mini',
+    strengths: ['speed'],
+    bestFor: ['lightweight', 'docs'],
+    avoidFor: ['planning'],
+    costTier: 'budget',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'google',
+    pattern: /gemini-(?:2\.5|3)/i,
+    family: 'Gemini 2.5/3',
+    strengths: ['context', 'coding'],
+    bestFor: ['coding', 'data'],
+    costTier: 'standard',
+    speedTier: 'normal',
+  },
+  {
+    provider: 'google',
+    pattern: /gemini.*flash/i,
+    family: 'Gemini Flash',
+    strengths: ['speed'],
+    bestFor: ['lightweight', 'docs'],
+    avoidFor: ['planning'],
+    costTier: 'budget',
+    speedTier: 'fast',
+  },
+  {
+    provider: 'deepseek',
+    pattern: /deepseek/i,
+    family: 'DeepSeek',
+    strengths: ['coding', 'cost-effective'],
+    bestFor: ['coding', 'general'],
+    costTier: 'standard',
+    speedTier: 'normal',
+  },
 ];
 
 /** Map common task keywords to categories for model matching. */
 const TASK_CATEGORIES: Record<string, string> = {
-  plan: 'planning', architect: 'planning', design: 'planning', strategy: 'planning',
-  security: 'security', vuln: 'security', exploit: 'security', auth: 'security',
-  doc: 'docs', readme: 'docs', explain: 'docs', write: 'docs',
-  test: 'testing', spec: 'testing', assert: 'testing', coverage: 'testing',
-  refactor: 'refactoring', cleanup: 'refactoring', restructure: 'refactoring',
-  bug: 'debugging', fix: 'debugging', debug: 'debugging', trace: 'debugging', crash: 'debugging',
-  data: 'data', json: 'data', sql: 'data', query: 'data', analyze: 'data', parse: 'data',
-  frontend: 'frontend', react: 'frontend', ui: 'frontend', css: 'frontend', component: 'frontend',
-  backend: 'backend', api: 'backend', server: 'backend', endpoint: 'backend',
-  review: 'review', audit: 'review', inspect: 'review',
-  simple: 'lightweight', quick: 'lightweight', trivial: 'lightweight',
+  plan: 'planning',
+  architect: 'planning',
+  design: 'planning',
+  strategy: 'planning',
+  security: 'security',
+  vuln: 'security',
+  exploit: 'security',
+  auth: 'security',
+  doc: 'docs',
+  readme: 'docs',
+  explain: 'docs',
+  write: 'docs',
+  test: 'testing',
+  spec: 'testing',
+  assert: 'testing',
+  coverage: 'testing',
+  refactor: 'refactoring',
+  cleanup: 'refactoring',
+  restructure: 'refactoring',
+  bug: 'debugging',
+  fix: 'debugging',
+  debug: 'debugging',
+  trace: 'debugging',
+  crash: 'debugging',
+  data: 'data',
+  json: 'data',
+  sql: 'data',
+  query: 'data',
+  analyze: 'data',
+  parse: 'data',
+  frontend: 'frontend',
+  react: 'frontend',
+  ui: 'frontend',
+  css: 'frontend',
+  component: 'frontend',
+  backend: 'backend',
+  api: 'backend',
+  server: 'backend',
+  endpoint: 'backend',
+  review: 'review',
+  audit: 'review',
+  inspect: 'review',
+  simple: 'lightweight',
+  quick: 'lightweight',
+  trivial: 'lightweight',
 };
 
 export class ModelRouter {
@@ -115,16 +227,40 @@ export class ModelRouter {
   /** Simplified phase lookup for common roles. */
   private roleToPhase(role: string): string | undefined {
     const phaseMap: Record<string, string> = {
-      planner: 'plan', architect: 'plan', 'refactor-planner': 'plan',
-      executor: 'code', refactor: 'code', simplifier: 'code', migration: 'code',
-      'bug-hunter': 'code', debugger: 'code', tracer: 'code',
-      test: 'code', e2e: 'code', performance: 'code', chaos: 'code',
-      'security-scanner': 'review', 'security-reviewer': 'review', 'code-reviewer': 'review',
-      critic: 'review', accessibility: 'review', compliance: 'review',
-      analyst: 'code', data: 'code', database: 'code',
-      frontend: 'code', backend: 'code', api: 'code', auth: 'code',
-      designer: 'code', document: 'code',
-      researcher: 'plan', explore: 'plan', search: 'plan',
+      planner: 'plan',
+      architect: 'plan',
+      'refactor-planner': 'plan',
+      executor: 'code',
+      refactor: 'code',
+      simplifier: 'code',
+      migration: 'code',
+      'bug-hunter': 'code',
+      debugger: 'code',
+      tracer: 'code',
+      test: 'code',
+      verifier: 'code',
+      e2e: 'code',
+      performance: 'code',
+      chaos: 'code',
+      'security-scanner': 'review',
+      'security-reviewer': 'review',
+      'code-reviewer': 'review',
+      reviewer: 'review',
+      critic: 'review',
+      accessibility: 'review',
+      compliance: 'review',
+      analyst: 'code',
+      data: 'code',
+      database: 'code',
+      frontend: 'code',
+      backend: 'code',
+      api: 'code',
+      auth: 'code',
+      designer: 'code',
+      document: 'code',
+      researcher: 'plan',
+      explore: 'plan',
+      search: 'plan',
     };
     return phaseMap[role];
   }
@@ -174,14 +310,24 @@ export class ModelRouter {
     }
     // Map role to category
     const roleMap: Record<string, string> = {
-      'security-scanner': 'security', 'security-reviewer': 'security',
-      'bug-hunter': 'debugging', debugger: 'debugging',
-      planner: 'planning', architect: 'planning',
-      'refactor-planner': 'refactoring', refactor: 'refactoring',
-      test: 'testing', e2e: 'testing',
-      document: 'docs', simplifier: 'docs',
-      'code-reviewer': 'review', critic: 'review',
-      'frontend': 'frontend', 'backend': 'backend',
+      'security-scanner': 'security',
+      'security-reviewer': 'security',
+      'bug-hunter': 'debugging',
+      debugger: 'debugging',
+      planner: 'planning',
+      architect: 'planning',
+      'refactor-planner': 'refactoring',
+      refactor: 'refactoring',
+      test: 'testing',
+      e2e: 'testing',
+      verifier: 'testing',
+      document: 'docs',
+      simplifier: 'docs',
+      'code-reviewer': 'review',
+      reviewer: 'review',
+      critic: 'review',
+      frontend: 'frontend',
+      backend: 'backend',
     };
     return roleMap[role] ?? 'general';
   }
@@ -233,7 +379,12 @@ export class ModelRouter {
   }
 
   /** Record cost for a model. */
-  recordCost(provider: string, model: string, cost: number, tokens?: { input: number; output: number }): void {
+  recordCost(
+    provider: string,
+    model: string,
+    cost: number,
+    tokens?: { input: number; output: number },
+  ): void {
     const key = `${provider}/${model}`;
     const entry = this.costs.byModel[key] ?? { cost: 0, tokens: { input: 0, output: 0 }, calls: 0 };
     entry.cost += cost;
@@ -260,9 +411,19 @@ export class ModelRouter {
   suggestMatrix(): Record<string, ModelPick> {
     const matrix: Record<string, ModelPick> = {};
     const roles = [
-      'security-scanner', 'bug-hunter', 'planner', 'architect',
-      'refactor-planner', 'test', 'document', 'code-reviewer',
-      'executor', 'debugger', 'analyst',
+      'security-scanner',
+      'bug-hunter',
+      'planner',
+      'architect',
+      'refactor-planner',
+      'test',
+      'document',
+      'code-reviewer',
+      'reviewer',
+      'verifier',
+      'executor',
+      'debugger',
+      'analyst',
     ];
 
     for (const role of roles) {

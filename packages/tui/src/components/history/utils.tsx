@@ -2071,6 +2071,7 @@ function numberFromParsedField(fields: Record<string, string>, key: string): num
 
 export const MAX_STREAM_DISPLAY_CHARS = 480;
 const MAX_STREAM_LINES = 8;
+const WRITE_CREATE_STREAM_LINES = 3;
 
 /**
  * Build the CONSTANT-height content block for the live tool-stream box: always
@@ -2120,29 +2121,31 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
   void tick;
 
   const elapsedMs = Date.now() - startedAt;
+  const streamLines = name === 'write' ? WRITE_CREATE_STREAM_LINES : MAX_STREAM_LINES;
   const totalLines = text.split('\n').length;
-  const hidden = Math.max(0, totalLines - MAX_STREAM_LINES);
+  const hidden = Math.max(0, totalLines - streamLines);
   const contentWidth = Math.max(20, Math.min(termWidth - 4, 100));
   // Constant-height content block (see streamBoxRows): the live region must not
   // grow row-by-row as output streams, or it scrolls the terminal and leaks the
   // "◆ <tool> ⏱ …" header into scrollback on every update in inline mode.
-  const rows = streamBoxRows(text, MAX_STREAM_LINES, contentWidth);
+  const rows = streamBoxRows(text, streamLines, contentWidth);
+  const isWritePreview = name === 'write';
 
   return (
     <Box flexDirection="column" marginTop={0}>
       <Box flexDirection="row">
         <Text color={color}>{glyph} </Text>
         <Text bold color={color}>
-          {name}
+          {isWritePreview ? 'write · creating file' : name}
         </Text>
         <Text dimColor>{`  ⏱ ${fmtDuration(elapsedMs)}`}</Text>
         {hidden > 0 ? (
-          <Text dimColor>{`  (${totalLines} lines, showing last ${MAX_STREAM_LINES})`}</Text>
+          <Text dimColor>{`  (${totalLines} lines, showing last ${streamLines})`}</Text>
         ) : null}
       </Box>
       <Box flexDirection="column" marginLeft={2}>
         {rows.map((r, i) => (
-          <Text key={i} dimColor italic={Boolean(r.italic)}>
+          <Text key={i} color={isWritePreview ? 'gray' : undefined} dimColor={!isWritePreview} italic={Boolean(r.italic)}>
             {r.text || ' '}
           </Text>
         ))}

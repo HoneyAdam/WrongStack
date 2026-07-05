@@ -45,6 +45,21 @@ const noopProvider: Provider = {
   },
 };
 
+function providerFor(id: string): Provider {
+  return {
+    ...noopProvider,
+    id,
+    async complete() {
+      return {
+        content: [{ type: 'text', text: 'ok' }],
+        stopReason: 'end_turn',
+        usage: { input: 0, output: 0 },
+        model: id,
+      };
+    },
+  };
+}
+
 const readTool: Tool = {
   name: 'read',
   description: 'read',
@@ -133,7 +148,11 @@ function makeDeps(providerRegistered = true, configOverride: Partial<Config> = {
   );
 
   const providerRegistry = new ProviderRegistry();
-  if (providerRegistered) providerRegistry.register({ type: 'noop', create: () => noopProvider });
+  if (providerRegistered) {
+    for (const type of ['noop', 'alt', 'openai', 'anthropic']) {
+      providerRegistry.register({ type, create: () => providerFor(type) });
+    }
+  }
 
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(readTool);
@@ -219,5 +238,59 @@ describe('makeLightSubagentFactory', () => {
     const req = await r.agent.pipelines.request.run({ model: 'noop' } as never);
 
     expect(req.reasoning).toEqual({ effort: 'low' });
+  });
+
+  it('diversifies reviewer away from the implementation lane when no reviewer route is pinned', async () => {
+    const deps = makeDeps(true, {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      providers: {
+        anthropic: {
+          type: 'anthropic',
+          apiKey: 'sk-ant',
+          models: ['claude-sonnet-4-6'],
+        },
+        openai: {
+          type: 'openai',
+          apiKey: 'sk-oai',
+          models: ['gpt-5'],
+        },
+      },
+      modelMatrix: {
+        '*': { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+      },
+    } as never);
+    const factory = makeLightSubagentFactory(deps);
+    const r = await factory({ id: 's1', role: 'reviewer' });
+
+    expect(r.agent.ctx.model).toBe('gpt-5');
+    expect(r.agent.ctx.provider.id).toBe('openai');
+  });
+
+  it('preserves an explicit reviewer model route', async () => {
+    const deps = makeDeps(true, {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      providers: {
+        anthropic: {
+          type: 'anthropic',
+          apiKey: 'sk-ant',
+          models: ['claude-sonnet-4-6'],
+        },
+        openai: {
+          type: 'openai',
+          apiKey: 'sk-oai',
+          models: ['gpt-5'],
+        },
+      },
+      modelMatrix: {
+        reviewer: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+      },
+    } as never);
+    const factory = makeLightSubagentFactory(deps);
+    const r = await factory({ id: 's1', role: 'reviewer' });
+
+    expect(r.agent.ctx.model).toBe('claude-sonnet-4-6');
+    expect(r.agent.ctx.provider.id).toBe('anthropic');
   });
 });

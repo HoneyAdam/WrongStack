@@ -110,6 +110,18 @@ export interface RegistryStats {
 }
 
 const DEFAULT_GRACE_MS = 2000;
+const WIN32_TASKKILL_TIMEOUT_MS = 5000;
+
+interface Win32TreeKillOptions {
+  /**
+   * Upper bound for taskkill itself before the caller's fallback may run.
+   * This is deliberately separate from POSIX SIGTERM grace: on Windows the
+   * direct-child fallback must not fire while taskkill is still walking the
+   * child tree, or it can orphan grandchildren that keep stdio open.
+   */
+  timeoutMs?: number | undefined;
+  onSettled?: (() => void) | undefined;
+}
 
 /**
  * Kill an entire process tree on Windows via `taskkill /T /F`.
@@ -121,21 +133,46 @@ const DEFAULT_GRACE_MS = 2000;
  * the rest of the session — which both prevents the child's 'close' event
  * from ever firing and grows in-memory output buffers without bound.
  *
- * Fire-and-forget: returns true if taskkill was spawned, false if spawning
- * it failed (caller should fall back to a direct `child.kill()`).
+ * Returns true if taskkill was spawned, false if spawning it failed (caller
+ * should fall back to a direct `child.kill()`). Callers that need a direct
+ * fallback should pass `onSettled`; it runs after taskkill exits, errors, or
+ * exceeds `timeoutMs`, avoiding the race where killing cmd.exe first prevents
+ * taskkill from enumerating and killing grandchildren.
  */
-export function killWin32Tree(pid: number): boolean {
+export function killWin32Tree(pid: number, opts: Win32TreeKillOptions = {}): boolean {
   try {
     const child = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
       stdio: 'ignore',
       windowsHide: true,
     });
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      try {
+        opts.onSettled?.();
+      } catch {
+        /* fallback callbacks are best-effort */
+      }
+    };
     // spawn() reports a failure to launch (e.g. taskkill not on PATH, blocked by
     // security software) via an ASYNC 'error' event — the surrounding try/catch
     // only traps synchronous throws. Without a listener that event is unhandled
     // and crashes the whole process. Swallow it: this is best-effort tree-kill
     // and the registry still has the direct child.kill() fallback.
-    child.on('error', () => {});
+    child.on('error', settle);
+    child.on('close', settle);
+    timeout = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* already exited */
+      }
+      settle();
+    }, Math.max(1, opts.timeoutMs ?? WIN32_TASKKILL_TIMEOUT_MS));
+    timeout.unref?.();
     child.unref();
     return true;
   } catch {
@@ -423,17 +460,25 @@ export class ProcessRegistryImpl {
       // taskkill's parent-pid tree enumeration and orphan the grandchildren
       // again — it runs as a delayed fallback instead.
       const liveRealChild = p.child.exitCode === null && typeof p.child.pid === 'number';
-      if (liveRealChild && killWin32Tree(pid)) {
-        const fallback = setTimeout(() => {
-          if (p.child.exitCode === null) {
-            try {
-              p.child.kill('SIGKILL');
-            } catch {
-              // Process may have already exited.
-            }
+      const directFallback = () => {
+        if (p.child.exitCode === null) {
+          try {
+            p.child.kill('SIGKILL');
+          } catch {
+            // Process may have already exited.
           }
-        }, graceMs);
-        fallback.unref?.();
+        }
+      };
+      if (
+        liveRealChild &&
+        killWin32Tree(pid, {
+          timeoutMs: Math.max(graceMs, WIN32_TASKKILL_TIMEOUT_MS),
+          onSettled: directFallback,
+        })
+      ) {
+        // The direct fallback is intentionally chained from taskkill's
+        // completion. Killing cmd.exe before taskkill has walked the tree can
+        // orphan the real command and leave stdio pipes open forever.
       } else {
         try {
           p.child.kill(force ? 'SIGKILL' : 'SIGTERM');

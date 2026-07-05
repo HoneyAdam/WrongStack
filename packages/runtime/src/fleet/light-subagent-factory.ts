@@ -21,21 +21,20 @@ import {
   Agent,
   type AgentFactory,
   type AgentFactoryResult,
-  applyModelRuntime,
   AutoApprovePermissionPolicy,
+  applyModelRuntime,
   type Config,
   type Container,
   Context,
   createDefaultPipelines,
   createFallbackModelExtension,
   EventBus,
-  mergeModelRuntime,
   type ModelsRegistry,
+  mergeModelRuntime,
   type ProviderRegistry,
   type ReasoningConfig,
   type Request,
-  resolveModelMatrix,
-  resolveModelTargetFromEntry,
+  resolveSubagentModelTarget,
   type SessionWriter,
   type SubagentConfig,
   type TextBlock,
@@ -96,10 +95,7 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
     const config = configStore.get();
     const modelsRegistry = deps.modelsRegistry ?? deps.container.safeResolve(TOKENS.ModelsRegistry);
 
-    const matrixEntry = subCfg.model
-      ? undefined
-      : resolveModelMatrix(config.modelMatrix, subCfg.role);
-    const matrixTarget = resolveModelTargetFromEntry(config, matrixEntry);
+    const matrixTarget = subCfg.model ? undefined : resolveSubagentModelTarget(config, subCfg.role);
     const effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
     const effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
     const provider = buildProvider(deps.providerRegistry, config, effProvider, effModel);

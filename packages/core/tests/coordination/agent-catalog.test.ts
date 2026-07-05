@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ALL_AGENT_DEFINITIONS,
   AGENT_CATALOG,
   AGENTS_BY_PHASE,
-  getAgentDefinition,
   type AgentPhase,
+  ALL_AGENT_DEFINITIONS,
+  getAgentDefinition,
 } from '../../src/coordination/agents/index.js';
-import {
-  FLEET_ROSTER,
-  FLEET_ROSTER_BUDGETS,
-  applyRosterBudget,
-} from '../../src/coordination/fleet.js';
 import { Director } from '../../src/coordination/director.js';
 import { makeSpawnTool } from '../../src/coordination/director-tools.js';
+import {
+  applyRosterBudget,
+  FLEET_ROSTER,
+  FLEET_ROSTER_BUDGETS,
+} from '../../src/coordination/fleet.js';
 import type {
   SubagentRunContext,
   SubagentRunOutcome,
@@ -35,9 +35,9 @@ const KEBAB = /^[a-z][a-z0-9-]*$/;
 const TOOL_ID = /^[a-z][a-z0-9_-]*$/;
 
 describe('agent catalog integrity', () => {
-  it('has 48 catalog definitions and AGENT_CATALOG keys match 1:1', () => {
-    expect(ALL_AGENT_DEFINITIONS.length).toBe(48);
-    expect(Object.keys(AGENT_CATALOG).length).toBe(48);
+  it('has 50 catalog definitions and AGENT_CATALOG keys match 1:1', () => {
+    expect(ALL_AGENT_DEFINITIONS.length).toBe(50);
+    expect(Object.keys(AGENT_CATALOG).length).toBe(50);
     for (const def of ALL_AGENT_DEFINITIONS) {
       expect(AGENT_CATALOG[def.config.role as string]).toBe(def);
     }
@@ -78,7 +78,7 @@ describe('agent catalog integrity', () => {
     }
   });
 
-  it('groups every catalog agent into exactly one phase and the groups sum to 48', () => {
+  it('groups every catalog agent into exactly one phase and the groups sum to 50', () => {
     let total = 0;
     const seen = new Set<string>();
     for (const phase of PHASES) {
@@ -91,8 +91,8 @@ describe('agent catalog integrity', () => {
       }
       total += group.length;
     }
-    expect(total).toBe(48);
-    expect(seen.size).toBe(48);
+    expect(total).toBe(50);
+    expect(seen.size).toBe(50);
   });
 
   it('getAgentDefinition resolves known roles and rejects unknown ones', () => {
@@ -102,8 +102,8 @@ describe('agent catalog integrity', () => {
 });
 
 describe('fleet roster derivation', () => {
-  it('FLEET_ROSTER is the 45 catalog agents + 4 legacy = 49', () => {
-    expect(Object.keys(FLEET_ROSTER).length).toBe(49);
+  it('FLEET_ROSTER is the catalog plus the standalone shadow-agent role', () => {
+    expect(Object.keys(FLEET_ROSTER).length).toBe(51);
     // Legacy four are preserved alongside the catalog.
     for (const legacy of ['audit-log', 'bug-hunter', 'refactor-planner', 'security-scanner']) {
       expect(FLEET_ROSTER[legacy]).toBeDefined();
@@ -141,12 +141,16 @@ describe('catalog spawnability (real Director + spawn tool)', () => {
       _ctx: SubagentRunContext,
     ): Promise<SubagentRunOutcome> => ({ iterations: 1, toolCalls: 1 });
     return new Director({
-      config: { coordinatorId: 'catalog', doneCondition: { type: 'all_tasks_done' }, maxConcurrent: 4 },
+      config: {
+        coordinatorId: 'catalog',
+        doneCondition: { type: 'all_tasks_done' },
+        maxConcurrent: 4,
+      },
       runner,
     });
   }
 
-  it('spawns every one of the 49 roster roles without error', async () => {
+  it('spawns every one of the 51 roster roles without error', async () => {
     const director = makeDirector();
     const spawn = makeSpawnTool(director, FLEET_ROSTER);
     const spawnedIds: string[] = [];
@@ -158,10 +162,10 @@ describe('catalog spawnability (real Director + spawn tool)', () => {
       spawnedIds.push(result.subagentId!);
     }
 
-    // All 49 produced distinct subagent ids (instantiateRosterConfig must not
+    // All 51 produced distinct subagent ids (instantiateRosterConfig must not
     // reuse the template id) and the director registered each one.
-    expect(new Set(spawnedIds).size).toBe(49);
-    expect(director.status().subagents.length).toBe(49);
+    expect(new Set(spawnedIds).size).toBe(51);
+    expect(director.status().subagents.length).toBe(51);
   });
 
   it('reports a clean error for an unknown role instead of throwing', async () => {
@@ -191,7 +195,18 @@ describe('browser and e2e agent tool lists', () => {
   ] as const;
 
   const READ_TOOLS = ['read', 'grep', 'glob', 'search', 'tree'] as const;
-  const HEAVY_TOOLS = ['bash', 'exec', 'write', 'edit', 'replace', 'patch', 'lint', 'format', 'typecheck', 'test'] as const;
+  const HEAVY_TOOLS = [
+    'bash',
+    'exec',
+    'write',
+    'edit',
+    'replace',
+    'patch',
+    'lint',
+    'format',
+    'typecheck',
+    'test',
+  ] as const;
 
   const browserDef = getAgentDefinition(BROWSER_ROLE);
   const e2eDef = getAgentDefinition(E2E_ROLE);

@@ -39,6 +39,21 @@ function contentToToolResult(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content);
 }
 
+function providerResponseText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(
+      (block): block is { type: string; text: string } =>
+        !!block &&
+        typeof block === 'object' &&
+        (block as { type?: unknown }).type === 'text' &&
+        typeof (block as { text?: unknown }).text === 'string',
+    )
+    .map((block) => block.text)
+    .join('\n');
+}
+
 function hydrateReplayMessages(replay: ReplayMessage[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const toolMessagesByUseId = new Map<string, ChatMessage>();
@@ -377,7 +392,9 @@ export function handleProviderResponse(msg: WSServerMessage) {
     };
     stopReason: string;
     messageId: string;
+    content?: unknown;
   };
+  const responseText = providerResponseText(payload.content);
 
   const u = payload.usage;
   const delta = (u.input ?? 0) + (u.cacheWrite ?? 0) - (u.cacheRead ?? 0);
@@ -396,9 +413,25 @@ export function handleProviderResponse(msg: WSServerMessage) {
   const id = useChatStore.getState().currentAssistantMessageId;
   if (id) {
     streamCoalescer.flush(id);
+    const streamed = useChatStore.getState().messages.find((m) => m.id === id);
+    const streamedText = streamed?.content ?? '';
+    if (responseText.trim()) {
+      if (!streamedText.trim()) {
+        useChatStore.getState().updateMessage(id, { content: responseText });
+      } else if (responseText.startsWith(streamedText) && responseText.length > streamedText.length) {
+        useChatStore.getState().updateMessage(id, { content: responseText });
+      }
+    }
     useChatStore.getState().finalizeMessage(id);
     if (payload.usage.output > 0)
       useChatStore.getState().updateMessage(id, { usage: payload.usage });
+  } else if (responseText.trim()) {
+    const messageId = useChatStore.getState().addMessage({
+      role: 'assistant',
+      content: responseText,
+      usage: payload.usage.output > 0 ? payload.usage : undefined,
+    });
+    useChatStore.getState().finalizeMessage(messageId);
   }
   useChatStore.getState().setCurrentAssistantMessage(null);
   streamCoalescer.flush('__thinking__');

@@ -32,6 +32,28 @@ export interface DirectorTaskState {
   toolCalls?: number | undefined;
   durationMs?: number | undefined;
   error?: string | undefined;
+  worktree?: DirectorTaskWorktreeState | undefined;
+}
+
+export interface DirectorTaskWorktreeState {
+  taskId: string;
+  subagentId: string;
+  handleId: string;
+  dir: string;
+  branch: string;
+  baseBranch: string;
+  status:
+    | 'allocated'
+    | 'fallback'
+    | 'committed'
+    | 'merged'
+    | 'kept'
+    | 'released'
+    | 'conflict'
+    | 'failed';
+  commitSha?: string | undefined;
+  conflictFiles?: string[] | undefined;
+  error?: string | undefined;
 }
 
 export interface DirectorStateSnapshot {
@@ -42,9 +64,11 @@ export interface DirectorStateSnapshot {
   maxSpawns?: number | undefined;
   spawnDepth: number;
   maxSpawnDepth: number;
-  directorBudget?: {
-    maxCostUsd?: number | undefined;
-  } | undefined;
+  directorBudget?:
+    | {
+        maxCostUsd?: number | undefined;
+      }
+    | undefined;
   subagents: DirectorSubagentState[];
   tasks: DirectorTaskState[];
   /** Aggregated usage snapshot. Optional — populated by the Director on save when available. */
@@ -159,9 +183,11 @@ export class DirectorStateCheckpoint {
       maxSpawns?: number | undefined;
       spawnDepth: number;
       maxSpawnDepth: number;
-      directorBudget?: {
-        maxCostUsd?: number | undefined;
-      } | undefined;
+      directorBudget?:
+        | {
+            maxCostUsd?: number | undefined;
+          }
+        | undefined;
     },
     debounceMs = 250,
   ) {
@@ -243,9 +269,27 @@ export class DirectorStateCheckpoint {
   ): void {
     this.snapshot = {
       ...this.snapshot,
-      tasks: this.snapshot.tasks.map((t) =>
-        t.taskId === taskId ? { ...t, ...patch } : t,
-      ),
+      tasks: this.snapshot.tasks.map((t) => (t.taskId === taskId ? { ...t, ...patch } : t)),
+    };
+    this.bumpUpdatedAt();
+    this.schedule();
+  }
+
+  recordTaskWorktree(taskId: string, worktree: DirectorTaskWorktreeState): void {
+    const exists = this.snapshot.tasks.some((t) => t.taskId === taskId);
+    this.snapshot = {
+      ...this.snapshot,
+      tasks: exists
+        ? this.snapshot.tasks.map((t) => (t.taskId === taskId ? { ...t, worktree } : t))
+        : [
+            ...this.snapshot.tasks,
+            {
+              taskId,
+              subagentId: worktree.subagentId,
+              status: 'running',
+              worktree,
+            },
+          ],
     };
     this.bumpUpdatedAt();
     this.schedule();
@@ -301,10 +345,7 @@ export class DirectorStateCheckpoint {
         mode: 0o600,
       });
     } catch (err) {
-      console.warn(
-        '[director-state] checkpoint write failed:',
-        toErrorMessage(err),
-      );
+      console.warn('[director-state] checkpoint write failed:', toErrorMessage(err));
     } finally {
       this.writing = false;
       /* v8 ignore start -- concurrency-defensive: rewriteRequested is only set by an overlapping persist() */

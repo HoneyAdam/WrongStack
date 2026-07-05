@@ -18,6 +18,7 @@
  */
 import type { Plugin } from '@wrongstack/core';
 
+import agentHandoff from './agent-handoff/index.js';
 import autoDoc from './auto-doc/index.js';
 import autoEscalate from './auto-escalate/index.js';
 import branchGuard from './branch-guard/index.js';
@@ -36,6 +37,7 @@ import formatOnSave from './format-on-save/index.js';
 import gitAutocommit from './git-autocommit/index.js';
 import importOrganizer from './import-organizer/index.js';
 import injectionShield from './injection-shield/index.js';
+import knowledgeGraph from './knowledge-graph/index.js';
 import lintGate from './lint-gate/index.js';
 import llmCache from './llm-cache/index.js';
 import loopBreaker from './loop-breaker/index.js';
@@ -43,17 +45,43 @@ import modelRouter from './model-router/index.js';
 import notifyHub from './notify-hub/index.js';
 import pathGuard from './path-guard/index.js';
 import pluginStackObserver from './plugin-stack-observer/index.js';
+import prDrafter from './pr-drafter/index.js';
 import promptFirewall from './prompt-firewall/index.js';
 import secretScanner from './secret-scanner/index.js';
 import semverBump from './semver-bump/index.js';
 import sessionRecap from './session-recap/index.js';
 import shellCheck from './shell-check/index.js';
 import templateEngine from './template-engine/index.js';
+import testCoverageGate from './test-coverage-gate/index.js';
 import testRunnerGate from './test-runner-gate/index.js';
+import typeGate from './type-gate/index.js';
 import todoListener from './todo-listener/index.js';
 import todoTracker from './todo-tracker/index.js';
 import tokenBudget from './token-budget/index.js';
 import tokenThrottle from './token-throttle/index.js';
+
+// New plugins added in 2026-07 batch
+import accessibilityAuditor from './accessibility-auditor/index.js';
+import apiCompatibilityGate from './api-compatibility-gate/index.js';
+import autoI18nExtractor from './auto-i18n-extractor/index.js';
+import codeMetrics from './code-metrics/index.js';
+import deadCodeDetector from './dead-code-detector/index.js';
+import dependencyVulnerabilityGate from './dependency-vulnerability-gate/index.js';
+import docSyncGuard from './doc-sync-guard/index.js';
+import duplicateCodeDetector from './duplicate-code-detector/index.js';
+import featureFlagTracker from './feature-flag-tracker/index.js';
+import interfaceContractGuard from './interface-contract-guard/index.js';
+import licenseAuditGate from './license-audit-gate/index.js';
+import migrationPlanner from './migration-planner/index.js';
+import performanceRegressionGate from './performance-regression-gate/index.js';
+import refactorSuggester from './refactor-suggester/index.js';
+import releaseNotesGenerator from './release-notes-generator/index.js';
+import schemaEvolutionGuard from './schema-evolution-guard/index.js';
+import securityHotspotScanner from './security-hotspot-scanner/index.js';
+import semanticSearchIndexer from './semantic-search-indexer/index.js';
+import smartRename from './smart-rename/index.js';
+import testFlakeDetector from './test-flake-detector/index.js';
+import testGenerator from './test-generator/index.js';
 
 // NOTE: `spec-linker` is NOT imported here to avoid a circular
 // dependency (spec-linker imports `catalog.ts` to read its own
@@ -67,6 +95,7 @@ interface CatalogEntry {
 }
 
 const ENTRIES: CatalogEntry[] = [
+  { name: agentHandoff.name, path: './src/agent-handoff' },
   { name: autoDoc.name, path: './src/auto-doc' },
   { name: gitAutocommit.name, path: './src/git-autocommit' },
   { name: shellCheck.name, path: './src/shell-check' },
@@ -104,6 +133,31 @@ const ENTRIES: CatalogEntry[] = [
   { name: autoEscalate.name, path: './src/auto-escalate' },
   { name: tokenThrottle.name, path: './src/token-throttle' },
   { name: pluginStackObserver.name, path: './src/plugin-stack-observer' },
+  { name: knowledgeGraph.name, path: './src/knowledge-graph' },
+  { name: prDrafter.name, path: './src/pr-drafter' },
+  { name: testCoverageGate.name, path: './src/test-coverage-gate' },
+  { name: typeGate.name, path: './src/type-gate' },
+  { name: accessibilityAuditor.name, path: './src/accessibility-auditor' },
+  { name: apiCompatibilityGate.name, path: './src/api-compatibility-gate' },
+  { name: autoI18nExtractor.name, path: './src/auto-i18n-extractor' },
+  { name: codeMetrics.name, path: './src/code-metrics' },
+  { name: deadCodeDetector.name, path: './src/dead-code-detector' },
+  { name: dependencyVulnerabilityGate.name, path: './src/dependency-vulnerability-gate' },
+  { name: docSyncGuard.name, path: './src/doc-sync-guard' },
+  { name: duplicateCodeDetector.name, path: './src/duplicate-code-detector' },
+  { name: featureFlagTracker.name, path: './src/feature-flag-tracker' },
+  { name: interfaceContractGuard.name, path: './src/interface-contract-guard' },
+  { name: licenseAuditGate.name, path: './src/license-audit-gate' },
+  { name: migrationPlanner.name, path: './src/migration-planner' },
+  { name: performanceRegressionGate.name, path: './src/performance-regression-gate' },
+  { name: refactorSuggester.name, path: './src/refactor-suggester' },
+  { name: releaseNotesGenerator.name, path: './src/release-notes-generator' },
+  { name: schemaEvolutionGuard.name, path: './src/schema-evolution-guard' },
+  { name: securityHotspotScanner.name, path: './src/security-hotspot-scanner' },
+  { name: semanticSearchIndexer.name, path: './src/semantic-search-indexer' },
+  { name: smartRename.name, path: './src/smart-rename' },
+  { name: testFlakeDetector.name, path: './src/test-flake-detector' },
+  { name: testGenerator.name, path: './src/test-generator' },
 ];
 
 /**

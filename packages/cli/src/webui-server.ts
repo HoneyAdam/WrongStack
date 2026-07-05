@@ -869,6 +869,16 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         abortControllers,
         pendingConfirms,
         buildSessionStartPayload,
+        loadReplay: async () => {
+          const activeSession = opts.agent.ctx.session ?? opts.session;
+          await activeSession.flush().catch(() => undefined);
+          if (opts.sessionStore) {
+            const data = await opts.sessionStore.load(activeSession.id);
+            return { messages: data.messages, usage: data.usage };
+          }
+          const usage = opts.agent.ctx.tokenCounter.total();
+          return { messages: opts.agent.ctx.messages, usage };
+        },
         needsSetup: opts.needsSetup ?? false,
       }),
     );

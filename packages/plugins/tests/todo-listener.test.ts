@@ -39,12 +39,12 @@ interface PluginAPI {
   };
 }
 
-function createMockAPI(opts: { withMailbox?: boolean } = {}): PluginAPI {
+function createMockAPI(opts: { withMailbox?: boolean; enabled?: boolean } = {}): PluginAPI {
   return {
     tools: { register: vi.fn() },
     slashCommands: { register: vi.fn() },
     pipelines: {},
-    config: { extensions: {} },
+    config: { extensions: opts.enabled === true ? { 'todo-listener': { enabled: true } } : {} },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() },
     session: { append: vi.fn().mockResolvedValue(undefined) },
@@ -113,19 +113,19 @@ describe('todo-listener plugin', () => {
       expect(props?.cooldownMs).toBeDefined();
     });
 
-    it('defaultConfig has safe defaults', () => {
+    it('defaultConfig is quiet unless explicitly enabled', () => {
       const defaults = todoListenerPlugin.defaultConfig as Record<string, unknown>;
-      expect(defaults.enabled).toBe(true);
+      expect(defaults.enabled).toBe(false);
       expect(defaults.subjectPrefix).toBe('todo: ');
       expect(defaults.broadcastOnChange).toBe(true);
-      expect(defaults.cooldownMs).toBe(5_000);
+      expect(defaults.cooldownMs).toBe(30_000);
     });
   });
 
   // -------------------------------------------------------------------------
   describe('H1 audit pattern', () => {
     it('teardown clears state and logs the unload line', () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       todoListenerPlugin.teardown!(api as never);
       expect(api.log.info).toHaveBeenCalledWith(
@@ -135,7 +135,7 @@ describe('todo-listener plugin', () => {
     });
 
     it('health() returns ok with counter info', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const health = await todoListenerPlugin.health!();
       expect(health.ok).toBe(true);
@@ -144,7 +144,7 @@ describe('todo-listener plugin', () => {
     });
 
     it('setup is idempotent: counters reset on re-init', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       await hook({
@@ -162,7 +162,7 @@ describe('todo-listener plugin', () => {
   // -------------------------------------------------------------------------
   describe('hook filtering', () => {
     it('skips when toolName is not `todo`', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       const result = await hook({
@@ -175,7 +175,7 @@ describe('todo-listener plugin', () => {
     });
 
     it('skips when tool result is an error', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       const result = await hook({
@@ -188,7 +188,7 @@ describe('todo-listener plugin', () => {
     });
 
     it('skips when api.mailbox is undefined (graceful no-op)', async () => {
-      const api = createMockAPI({ withMailbox: false });
+      const api = createMockAPI({ withMailbox: false, enabled: true });
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       const result = await hook({
@@ -205,8 +205,20 @@ describe('todo-listener plugin', () => {
       expect(status.counters.skipped).toBe(1);
     });
 
-    it('does not fire when enabled=false', async () => {
+    it('does not fire by default', async () => {
       const api = createMockAPI({ withMailbox: true });
+      todoListenerPlugin.setup(api as never);
+      const hook = getHook(api);
+      await hook({
+        toolName: 'todo',
+        toolInput: { todos: [{ id: '1', content: 'a', status: 'pending' }] },
+        toolResult: { content: 'ok', isError: false },
+      });
+      expect(api.mailbox?.send).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when enabled=false', async () => {
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       api.config.extensions = { 'todo-listener': { enabled: false } };
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
@@ -222,7 +234,7 @@ describe('todo-listener plugin', () => {
   // -------------------------------------------------------------------------
   describe('mailbox broadcast', () => {
     it('sends a status message with subject + body on the first call', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       await hook({
@@ -252,7 +264,7 @@ describe('todo-listener plugin', () => {
     });
 
     it('suppresses identical consecutive payloads (broadcastOnChange)', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       const todos = [
@@ -264,8 +276,8 @@ describe('todo-listener plugin', () => {
     });
 
     it('still broadcasts when the list changes (different id)', async () => {
-      const api = createMockAPI({ withMailbox: true });
-      api.config.extensions = { 'todo-listener': { cooldownMs: 0 } };
+      const api = createMockAPI({ withMailbox: true, enabled: true });
+      api.config.extensions = { 'todo-listener': { enabled: true, cooldownMs: 0 } };
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       await hook({
@@ -282,8 +294,8 @@ describe('todo-listener plugin', () => {
     });
 
     it('enforces cooldownMs between broadcasts', async () => {
-      const api = createMockAPI({ withMailbox: true });
-      api.config.extensions = { 'todo-listener': { cooldownMs: 60_000 } };
+      const api = createMockAPI({ withMailbox: true, enabled: true });
+      api.config.extensions = { 'todo-listener': { enabled: true, cooldownMs: 60_000 } };
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
       await hook({
@@ -310,7 +322,7 @@ describe('todo-listener plugin', () => {
     });
 
     it('records errorCount when mailbox.send throws', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       api.mailbox!.send.mockRejectedValue(new Error('mailbox write failed'));
       todoListenerPlugin.setup(api as never);
       const hook = getHook(api);
@@ -335,7 +347,7 @@ describe('todo-listener plugin', () => {
     }
 
     it('reports config + counters + mailbox availability', async () => {
-      const api = createMockAPI({ withMailbox: true });
+      const api = createMockAPI({ withMailbox: true, enabled: true });
       todoListenerPlugin.setup(api as never);
       const tool = getStatusTool(api);
       const status = (await tool.execute()) as {
@@ -349,7 +361,7 @@ describe('todo-listener plugin', () => {
       expect(status.enabled).toBe(true);
       expect(status.subjectPrefix).toBe('todo: ');
       expect(status.broadcastOnChange).toBe(true);
-      expect(status.cooldownMs).toBe(5_000);
+      expect(status.cooldownMs).toBe(30_000);
       expect(status.mailboxAvailable).toBe(true);
       expect(status.counters.invocations).toBe(0);
       expect(status.counters.sent).toBe(0);

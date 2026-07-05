@@ -5,6 +5,7 @@
 
 import type { BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
 import type { Context } from '../core/context.js';
+import type { ContentBlock } from '../types/blocks.js';
 import type { MemoryClearedPayload, MemoryConsolidatedPayload, MemoryForgottenPayload, MemoryRememberedPayload } from '../types/memory.js';
 import type { PermissionDecision } from '../types/permission.js';
 import type { Usage } from '../types/provider.js';
@@ -132,6 +133,7 @@ export interface EventMap {
     sessionId?: string | undefined;
     ctx: Context;
     model: string;
+    content?: ContentBlock[] | undefined;
     usage: Usage;
     stopReason: string;
   };

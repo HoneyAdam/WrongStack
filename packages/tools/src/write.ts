@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import { atomicWrite, ToolValidationError, unifiedDiff } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import type { Context, Tool } from '@wrongstack/core';
 import { safeResolveReal } from './_util.js';
 
 interface WriteInput {
@@ -48,70 +48,101 @@ export const writeTool: Tool<WriteInput, WriteOutput> = {
     required: ['path', 'content'],
   },
   async execute(input, ctx) {
-    if (!input?.path) {
-      throw new ToolValidationError({
-        message: 'write: path is required',
-        field: 'path',
-      });
-    }
-    if (input.content === undefined) {
-      throw new ToolValidationError({
-        message: 'write: content is required',
-        field: 'content',
-      });
-    }
-    const absPath = await safeResolveReal(input.path, ctx);
-
-    let existed = false;
-    let prev = '';
-    try {
-      const stat = await fs.stat(absPath);
-      existed = stat.isFile();
-      if (existed) {
-        if (!ctx.hasRead(absPath)) {
-          // User approved this write (confirm → yes/always) but ctx has no
-          // read record. The model may call write without a prior explicit
-          // read. Read the file now so we can compute the diff and honor
-          // the user's intent to overwrite. Tag as 'write' (NOT 'user') so
-          // this internal read-for-diff does not widen the permission bypass
-          // — the user never saw the old content (P1 #1).
-          prev = await fs.readFile(absPath, 'utf8');
-          ctx.recordRead(absPath, stat.mtimeMs, 'write');
-        } else {
-          prev = await fs.readFile(absPath, 'utf8');
-        }
-      }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw err;
+    return writeFile(input, ctx);
+  },
+  async *executeStream(input, ctx) {
+    const prepared = await prepareWrite(input, ctx);
+    if (!prepared.existed) {
+      for (const line of input.content.split('\n')) {
+        yield { type: 'partial_output', text: `${line}\n`, data: { livePreview: true } };
       }
     }
-
-    await atomicWrite(absPath, input.content);
-
-    const diff = existed
-      ? unifiedDiff(prev, input.content, { fromFile: input.path, toFile: input.path })
-      : `+++ ${input.path}\n+ (new file, ${input.content.split('\n').length} lines)`;
-
-    const stat = await fs.stat(absPath);
-    // Tag as 'write' so the permission bypass does not auto-approve a later
-    // write to this path — the user approved THIS write, not future ones
-    // (P1 #1).
-    ctx.recordRead(absPath, stat.mtimeMs, 'write');
-
-    // Record for session rewind
-    ctx.session.recordFileChange({
-      path: absPath,
-      action: existed ? 'modified' : 'created',
-      before: existed ? prev : null,
-      after: input.content,
-    });
-
-    return {
-      path: absPath,
-      bytes_written: Buffer.byteLength(input.content, 'utf8'),
-      created: !existed,
-      diff,
-    };
+    yield { type: 'final', output: await finishWrite(input, ctx, prepared) };
   },
 };
+
+type PreparedWrite = {
+  absPath: string;
+  existed: boolean;
+  prev: string;
+};
+
+async function writeFile(input: WriteInput, ctx: Context): Promise<WriteOutput> {
+  return finishWrite(input, ctx, await prepareWrite(input, ctx));
+}
+
+async function prepareWrite(input: WriteInput, ctx: Context): Promise<PreparedWrite> {
+  if (!input?.path) {
+    throw new ToolValidationError({
+      message: 'write: path is required',
+      field: 'path',
+    });
+  }
+  if (input.content === undefined) {
+    throw new ToolValidationError({
+      message: 'write: content is required',
+      field: 'content',
+    });
+  }
+  const absPath = await safeResolveReal(input.path, ctx);
+
+  let existed = false;
+  let prev = '';
+  try {
+    const stat = await fs.stat(absPath);
+    existed = stat.isFile();
+    if (existed) {
+      if (!ctx.hasRead(absPath)) {
+        // User approved this write (confirm → yes/always) but ctx has no
+        // read record. The model may call write without a prior explicit
+        // read. Read the file now so we can compute the diff and honor
+        // the user's intent to overwrite. Tag as 'write' (NOT 'user') so
+        // this internal read-for-diff does not widen the permission bypass
+        // — the user never saw the old content (P1 #1).
+        prev = await fs.readFile(absPath, 'utf8');
+        ctx.recordRead(absPath, stat.mtimeMs, 'write');
+      } else {
+        prev = await fs.readFile(absPath, 'utf8');
+      }
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err;
+    }
+  }
+
+  return { absPath, existed, prev };
+}
+
+async function finishWrite(
+  input: WriteInput,
+  ctx: Context,
+  prepared: PreparedWrite,
+): Promise<WriteOutput> {
+  await atomicWrite(prepared.absPath, input.content);
+
+  const diff = prepared.existed
+    ? unifiedDiff(prepared.prev, input.content, { fromFile: input.path, toFile: input.path })
+    : `+++ ${input.path}\n+ (new file, ${input.content.split('\n').length} lines)`;
+
+  const stat = await fs.stat(prepared.absPath);
+  // Tag as 'write' so the permission bypass does not auto-approve a later
+  // write to this path — the user approved THIS write, not future ones
+  // (P1 #1).
+  ctx.recordRead(prepared.absPath, stat.mtimeMs, 'write');
+
+  // Record for session rewind
+  ctx.session.recordFileChange({
+    path: prepared.absPath,
+    action: prepared.existed ? 'modified' : 'created',
+    before: prepared.existed ? prepared.prev : null,
+    after: input.content,
+  });
+
+  return {
+    path: prepared.absPath,
+    bytes_written: Buffer.byteLength(input.content, 'utf8'),
+    created: !prepared.existed,
+    diff,
+  };
+}

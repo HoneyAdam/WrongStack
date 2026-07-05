@@ -13,7 +13,7 @@
  * preserved verbatim — rate-limit windows, the 2 000-message replay cap, the
  * pending-confirm cleanup on close, and the error swallow on socket errors.
  */
-import type { Context } from '@wrongstack/core';
+import type { Context, Message, Usage } from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { WebSocket } from 'ws';
 
@@ -38,8 +38,14 @@ export interface ConnectionHandlerOptions {
   sessionStartPayload(): Promise<SessionStartEnriched>;
   /** Token counter — `total()` feeds the replayUsage block. */
   tokenCounter: DefaultTokenCounter;
-  /** Agent context — `context.messages` feeds the replayMessages block. */
+  /** Agent context — fallback source for replay when the session log is unavailable. */
   context: Context;
+  /**
+   * Load the visible chat replay for a reconnecting client. Prefer the
+   * session log over `context.messages`: context is the model working set and
+   * may have been compacted, while the session log is the UI transcript.
+   */
+  loadReplay?: (() => Promise<{ messages: Message[]; usage?: Usage | undefined } | null>) | undefined;
   /** Live WS clients map (shared with the dispatcher + broadcaster). */
   clients: Map<WebSocket, ConnectedClient>;
   /** Pending permission confirmations — drained to 'no' on disconnect. */
@@ -132,12 +138,13 @@ export function createConnectionHandler(
       .then(async (payload) => {
         const enriched: SessionStartEnriched = { ...payload };
         try {
-          const live = opts.context.messages ?? [];
+          const replay = await opts.loadReplay?.();
+          const live = replay?.messages ?? opts.context.messages ?? [];
           const slice = live.length > REPLAY_MESSAGE_CAP ? live.slice(-REPLAY_MESSAGE_CAP) : live;
           if (slice.length > 0) {
             enriched.replayMessages = slice;
           }
-          const total = opts.tokenCounter.total();
+          const total = replay?.usage ?? opts.tokenCounter.total();
           if (total.input + total.output + (total.cacheRead ?? 0) + (total.cacheWrite ?? 0) > 0) {
             enriched.replayUsage = {
               input: total.input,

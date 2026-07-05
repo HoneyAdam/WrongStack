@@ -130,6 +130,7 @@ export interface WSIterationLimitReached {
 export interface WSProviderResponse {
   type: 'provider.response';
   payload: SessionScopedPayload & {
+    content?: unknown;
     usage: Usage;
     stopReason: string;
     messageId: string;

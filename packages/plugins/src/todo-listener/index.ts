@@ -20,10 +20,10 @@
  *
  * ```jsonc
  * {
- *   "enabled": true,
+ *   "enabled": false,
  *   "subjectPrefix": "todo: ",
  *   "broadcastOnChange": true,
- *   "cooldownMs": 5000
+ *   "cooldownMs": 30000
  * }
  * ```
  *
@@ -85,17 +85,17 @@ interface TodoListenerConfig {
 }
 
 const DEFAULTS: TodoListenerConfig = {
-  enabled: true,
+  enabled: false,
   subjectPrefix: 'todo: ',
   broadcastOnChange: true,
-  cooldownMs: 5_000,
+  cooldownMs: 30_000,
 };
 
 function readConfig(raw: unknown): TodoListenerConfig {
   if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
   const r = raw as Record<string, unknown>;
   return {
-    enabled: r['enabled'] !== false,
+    enabled: r['enabled'] === true,
     subjectPrefix: typeof r['subjectPrefix'] === 'string' ? r['subjectPrefix'] : DEFAULTS.subjectPrefix,
     broadcastOnChange: r['broadcastOnChange'] !== false,
     cooldownMs:
@@ -139,7 +139,7 @@ const plugin: Plugin = {
   configSchema: {
     type: 'object',
     properties: {
-      enabled: { type: 'boolean', default: true, description: 'Master switch.' },
+      enabled: { type: 'boolean', default: false, description: 'Master switch.' },
       subjectPrefix: {
         type: 'string',
         default: DEFAULTS.subjectPrefix,
@@ -153,7 +153,7 @@ const plugin: Plugin = {
       cooldownMs: {
         type: 'number',
         minimum: 0,
-        default: 5_000,
+        default: DEFAULTS.cooldownMs,
         description: 'Minimum interval between consecutive broadcasts (ms).',
       },
     },

@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Logger } from '../types/logger.js';
-import type { BrainArbiter } from './brain.js';
 import { DirectorStateCheckpoint, type DirectorStateSnapshot } from '../storage/director-state.js';
 import type { BridgeMessage } from '../types/agent-bridge.js';
 import type { ModelMatrixEntry } from '../types/config.js';
+import type { Logger } from '../types/logger.js';
 import type {
   AwaitAnyResult,
   CoordinatorStatus,
@@ -20,17 +19,24 @@ import type { Tool } from '../types/tool.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 import { safeParse, safeStringify } from '../utils/safe-json.js';
+import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
+import type { BrainArbiter } from './brain.js';
 import {
   type CollabDebugReport,
   CollabSession,
   type CollabSessionOptions,
 } from './collab-debug.js';
 import {
-  DEFAULT_DIRECTOR_PREAMBLE,
-  DEFAULT_SUBAGENT_BASELINE,
+  FleetContextOverflowError,
+  FleetCostCapError,
+  FleetSpawnBudgetError,
+} from './director/director-errors.js';
+import {
   composeDirectorPrompt,
   composeSubagentPrompt,
+  DEFAULT_DIRECTOR_PREAMBLE,
+  DEFAULT_SUBAGENT_BASELINE,
   rosterSummaryFromConfigs,
 } from './director-prompts.js';
 import {
@@ -41,6 +47,7 @@ import {
   makeCollabDebugTool,
   makeFleetEmitTool,
   makeFleetTool,
+  makeQualityGateTool,
   makeRollUpTool,
   makeSpawnTool,
   makeTerminateAllTool,
@@ -52,14 +59,14 @@ import type { FleetManager } from './fleet-manager.js';
 import type { ICoordinator } from './icoordinator.js';
 import { InMemoryBridgeTransport } from './in-memory-transport.js';
 import { LargeAnswerStore } from './large-answer-store.js';
-import { resolveModelMatrix } from './model-matrix.js';
+import { resolveModelMatrixResolution, roleNeedsIndependentReviewModel } from './model-matrix.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import {
-  FleetSpawnBudgetError,
-  FleetCostCapError,
-  FleetContextOverflowError,
-} from './director/director-errors.js';
+  type FleetWorktreePolicy,
+  type WorktreeTaskStateUpdate,
+  wrapSubagentRunnerWithWorktrees,
+} from './worktree-task-runner.js';
 
 /**
  * Director — high-level orchestrator that owns a `MultiAgentCoordinator`,
@@ -304,6 +311,26 @@ export interface DirectorOptions {
    * is also accepted for tests and one-shot runs.
    */
   modelMatrix?: ModelMatrixSource | undefined;
+  /**
+   * Optional git-worktree manager for Director fleet isolation. When supplied,
+   * task runners can execute side-effectful subagents in per-task worktrees and
+   * squash-merge successful branches back into the base checkout.
+   */
+  worktrees?: WorktreeManager | undefined;
+  /** Worktree policy. Defaults to `auto` when `worktrees` is provided. */
+  worktreePolicy?: FleetWorktreePolicy | undefined;
+  /**
+   * Optional guarded merge-conflict resolver invoked by WorktreeManager when a
+   * successful task branch cannot squash-merge cleanly.
+   */
+  worktreeConflictResolver?:
+    | ((info: {
+        task: TaskSpec;
+        config: SubagentConfig;
+        conflictFiles: string[];
+        cwd: string;
+      }) => Promise<boolean>)
+    | undefined;
 }
 
 /** Either a static matrix or a live getter (re-read on every spawn). */
@@ -313,9 +340,9 @@ export type ModelMatrixSource =
 
 // Re-exported from director-errors.ts for backward compatibility
 export {
-  FleetSpawnBudgetError,
-  FleetCostCapError,
   FleetContextOverflowError,
+  FleetCostCapError,
+  FleetSpawnBudgetError,
 } from './director/director-errors.js';
 
 export class Director implements ICoordinator {
@@ -364,9 +391,7 @@ export class Director implements ICoordinator {
 
   private currentSessionId(): string | undefined {
     const value =
-      typeof this.sessionIdSource === 'function'
-        ? this.sessionIdSource()
-        : this.sessionIdSource;
+      typeof this.sessionIdSource === 'function' ? this.sessionIdSource() : this.sessionIdSource;
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
   /** Optional Brain arbiter for director-level policy decisions. */
@@ -441,6 +466,7 @@ export class Director implements ICoordinator {
       provider?: string | undefined;
       model?: string | undefined;
       taskIds: string[];
+      worktrees?: Record<string, WorktreeTaskStateUpdate> | undefined;
     }
   >();
   /** Tracks assigned nicknames so the same name is never reused in one fleet. */
@@ -486,6 +512,8 @@ export class Director implements ICoordinator {
   /** Resolves task descriptions back from `assign()` so completion events
    *  can also carry a human-readable title. */
   private readonly taskDescriptions = new Map<string, string>();
+  /** Latest worktree state per task id (allocated/committed/merged/conflict/etc.). */
+  private readonly taskWorktrees = new Map<string, WorktreeTaskStateUpdate>();
   /** Snapshot of which subagent owns each task — drives state-checkpoint
    *  status updates without re-walking the manifest. */
   private readonly taskOwners = new Map<string, string>();
@@ -617,9 +645,19 @@ export class Director implements ICoordinator {
         (id) => this.subagentMeta.get(id),
       );
     }
+    const runner =
+      opts.runner && (opts.worktrees || opts.worktreePolicy)
+        ? wrapSubagentRunnerWithWorktrees({
+            runner: opts.runner,
+            worktrees: opts.worktrees,
+            policy: opts.worktreePolicy,
+            conflictResolver: opts.worktreeConflictResolver,
+            onUpdate: (update) => this.recordWorktreeTaskUpdate(update),
+          })
+        : opts.runner;
     this.coordinator = new DefaultMultiAgentCoordinator(
       { ...opts.config, coordinatorId: this.id },
-      { runner: opts.runner, sessionId: () => this.currentSessionId() },
+      { runner, sessionId: () => this.currentSessionId() },
     );
     this.coordinator.setFleetBus(this.fleet);
     this.fleetManager?.setCoordinator(this.coordinator);
@@ -1123,6 +1161,18 @@ export class Director implements ICoordinator {
     this.manifestTimer = null;
   }
 
+  private recordWorktreeTaskUpdate(update: WorktreeTaskStateUpdate): void {
+    this.taskWorktrees.set(update.taskId, update);
+    const owner = this.taskOwners.get(update.taskId) ?? update.subagentId;
+    const entry = this.manifestEntries.get(owner);
+    if (entry) {
+      entry.worktrees = { ...(entry.worktrees ?? {}), [update.taskId]: update };
+    }
+    this.stateCheckpoint?.recordTaskWorktree(update.taskId, update);
+    this.fleetManager?.recordTaskWorktree(update);
+    if (!this.fleetManager) this.scheduleManifest();
+  }
+
   /**
    * Spawn a subagent. Identical to the coordinator's `spawn()` but
    * captures provider/model metadata for the usage aggregator and
@@ -1163,7 +1213,11 @@ export class Director implements ICoordinator {
     // itself all reflect the matched model. Explicit per-spawn models win.
     if (!config.model && this.modelMatrix) {
       const matrix = typeof this.modelMatrix === 'function' ? this.modelMatrix() : this.modelMatrix;
-      const entry = resolveModelMatrix(matrix, config.role);
+      const resolution = resolveModelMatrixResolution(matrix, config.role);
+      const entry =
+        resolution?.source === 'default' && roleNeedsIndependentReviewModel(config.role)
+          ? undefined
+          : resolution?.entry;
       if (entry?.model) {
         config.model = entry.model;
         if (entry.provider) config.provider = entry.provider;
@@ -1415,6 +1469,7 @@ export class Director implements ICoordinator {
         // success/failure state.
         results: e.taskIds.map((tid) => {
           const r = this.completed.get(tid);
+          const worktree = e.worktrees?.[tid];
           return r
             ? {
                 taskId: tid,
@@ -1422,8 +1477,9 @@ export class Director implements ICoordinator {
                 iterations: r.iterations,
                 toolCalls: r.toolCalls,
                 durationMs: r.durationMs,
+                ...(worktree ? { worktree } : {}),
               }
-            : { taskId: tid, status: 'pending' as const };
+            : { taskId: tid, status: 'pending' as const, ...(worktree ? { worktree } : {}) };
         }),
       })),
       usage: this.usage.snapshot(),
@@ -1476,7 +1532,9 @@ export class Director implements ICoordinator {
     this.subagentBridges.clear();
     await this.bridge.stop().catch((err) => this.logShutdownError('director_bridge_stop', err));
     if (this.fleetManager) {
-      await this.fleetManager.flushManifest().catch((err) => this.logShutdownError('fleet_manifest_flush', err));
+      await this.fleetManager
+        .flushManifest()
+        .catch((err) => this.logShutdownError('fleet_manifest_flush', err));
     } else if (this.manifestPath) {
       await this.writeManifest().catch((err) => this.logShutdownError('manifest_write', err));
     }
@@ -1642,10 +1700,7 @@ export class Director implements ICoordinator {
    * With `timeoutMs`, resolves (never rejects) `{timedOut: true}` and zero
    * completions when the window elapses first.
    */
-  awaitTasksAny(
-    taskIds: string[],
-    opts?: { timeoutMs?: number },
-  ): Promise<AwaitAnyResult> {
+  awaitTasksAny(taskIds: string[], opts?: { timeoutMs?: number }): Promise<AwaitAnyResult> {
     const completed = taskIds
       .map((id) => this.completed.get(id))
       .filter((r): r is TaskResult => r !== undefined);
@@ -1959,6 +2014,7 @@ export class Director implements ICoordinator {
       makeAskTool(this),
       makeAskResultTool(this),
       makeRollUpTool(this),
+      makeQualityGateTool(this, effectiveRoster),
       makeTerminateTool(this),
       makeTerminateAllTool(this),
       makeFleetTool(this),

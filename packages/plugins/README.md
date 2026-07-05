@@ -1,7 +1,7 @@
 # @wrongstack/plugins
 
 First-party plugin collection for [WrongStack](https://github.com/WrongStack/WrongStack).
-Thirty-six focused, single-purpose plugins ship in this package. Core safety
+Sixty-two focused, single-purpose plugins ship in this package. Core safety
 plugins load automatically for every `wstack` session; provider-wire plugins
 are opt-in because they can change model-call semantics.
 
@@ -58,6 +58,32 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. To opt out, add
 | 34 | [`prompt-firewall`](./src/prompt-firewall) | `prompt_firewall_status` | Provider runner wrapper | Opt-in provider-wire prompt/secret scanning and redaction/blocking |
 | 35 | [`auto-escalate`](./src/auto-escalate) | `auto_escalate_status` | `onError` extension | Opt-in retry/escalation ladder for transient provider errors |
 | 36 | [`token-throttle`](./src/token-throttle) | `token_throttle_status` | Provider runner wrapper | Opt-in rolling-window token throttling for provider calls |
+| 37 | [`type-gate`](./src/type-gate) | `type_gate_status` | `PostToolUse` | Runs `tsc --noEmit` after `write`/`edit` to catch type regressions |
+| 38 | [`test-coverage-gate`](./src/test-coverage-gate) | `coverage_gate_status` | `PostToolUse` | Detects test-coverage regressions after source-file edits |
+| 39 | [`pr-drafter`](./src/pr-drafter) | `pr_draft` | `Stop` + event subscriptions | Drafts a pull-request description from session commits/files/diff |
+| 40 | [`agent-handoff`](./src/agent-handoff) | `handoff_note`, `handoff_status` | `subagent.done` event listener | Posts structured handoff notes when subagents finish |
+| 41 | [`knowledge-graph`](./src/knowledge-graph) | `kg_add_fact`, `kg_query`, `kg_remove_fact`, `kg_status` | System prompt contributor | Persistent structured (subject, relation, object) project facts |
+| 42 | [`dead-code-detector`](./src/dead-code-detector) | `dead_code_scan` | `PostToolUse` | Regex-based scan for exported identifiers that appear unused |
+| 43 | [`dependency-vulnerability-gate`](./src/dependency-vulnerability-gate) | `dependency_audit_status` | `PostToolUse` | Runs `npm/pnpm audit` after installs and blocks on severe vulnerabilities |
+| 44 | [`migration-planner`](./src/migration-planner) | `migration_plan`, `migration_status` | `PostToolUse` | Reads changelogs and produces version-migration checklists |
+| 45 | [`semantic-search-indexer`](./src/semantic-search-indexer) | `semantic_search`, `semantic_index_status` | — | Lightweight keyword index over project source files |
+| 46 | [`auto-i18n-extractor`](./src/auto-i18n-extractor) | `i18n_extract`, `i18n_status` | `PostToolUse` | Detects hardcoded user-facing strings and suggests i18n keys |
+| 47 | [`doc-sync-guard`](./src/doc-sync-guard) | `doc_sync_status` | `PostToolUse` | Warns when README/docs edits omit recently changed source files |
+| 48 | [`api-compatibility-gate`](./src/api-compatibility-gate) | `api_compat_status` | `PostToolUse` | Detects removed exports in entry-point files as breaking changes |
+| 49 | [`performance-regression-gate`](./src/performance-regression-gate) | `perf_regression_status` | — | Compares benchmark results and reports regressions |
+| 50 | [`test-flake-detector`](./src/test-flake-detector) | `flake_detect`, `flake_status` | — | Runs a test command N times to identify flaky tests |
+| 51 | [`schema-evolution-guard`](./src/schema-evolution-guard) | `schema_evolution_status` | `PostToolUse` | Detects destructive patterns in DB/API schema files |
+| 52 | [`license-audit-gate`](./src/license-audit-gate) | `license_audit_status` | `PostToolUse` | Audits newly added dependency licenses against an allowlist |
+| 53 | [`accessibility-auditor`](./src/accessibility-auditor) | `a11y_audit`, `a11y_status` | `PostToolUse` | Audits UI files for missing alt, labels, button text, duplicate ids |
+| 54 | [`security-hotspot-scanner`](./src/security-hotspot-scanner) | `security_hotspot_scan`, `security_hotspot_status` | `PostToolUse` | Scans source for security anti-patterns after writes/edits |
+| 55 | [`duplicate-code-detector`](./src/duplicate-code-detector) | `detect_duplicate_code`, `duplicate_code_status` | `PostToolUse` | Detects duplicate/similar code blocks using normalized-line fingerprints |
+| 56 | [`code-metrics`](./src/code-metrics) | `measure_code_metrics`, `metrics_status` | `PostToolUse` | Computes LOC, comment ratio, function count, and approximate cyclomatic complexity |
+| 57 | [`refactor-suggester`](./src/refactor-suggester) | `suggest_refactors`, `refactor_status` | `PostToolUse` | Flags long functions, deep nesting, many parameters, magic numbers, console.log |
+| 58 | [`test-generator`](./src/test-generator) | `generate_unit_tests` | — | Generates a unit-test skeleton from exported functions/classes |
+| 59 | [`release-notes-generator`](./src/release-notes-generator) | `generate_release_notes` | — | Groups conventional commits into a release-notes markdown draft |
+| 60 | [`smart-rename`](./src/smart-rename) | `smart_rename` | — | Whole-word symbol rename with preview and optional apply |
+| 61 | [`feature-flag-tracker`](./src/feature-flag-tracker) | `scan_feature_flags`, `feature_flag_status` | `PostToolUse` | Scans source files for feature-flag usage and reports flag inventory |
+| 62 | [`interface-contract-guard`](./src/interface-contract-guard) | `check_interface_contracts`, `interface_contract_status` | `PostToolUse` | Warns when TypeScript interfaces change or lack implementers |
 
 ### Removed plugins (use built-in tools instead)
 
@@ -672,7 +698,7 @@ context. Increase `includeTranscriptTail` for more history.
 Two hooks working together:
 
 **PostToolUse** (always active when the plugin is enabled):
-scans markdown files for *unlinked* references to one of the 36
+scans markdown files for *unlinked* references to one of the 62
 known plugins and surfaces them to the LLM via
 `additionalContext`. The plugin does NOT modify the file — it
 only injects a low-noise context block listing the unlinked
@@ -696,7 +722,7 @@ the PostToolUse context tells the LLM what to fix.
 
 **Detection rules** (both hooks):
 - Source matches `config.fileGlobs` (default: `**/*.md`, `**/*.mdx`)
-- The reference matches one of the 36 known plugin names
+- The reference matches one of the 62 known plugin names
   (case-insensitive)
 - It is NOT already wrapped in a markdown link `[name](...)` or
   inline code `` `name` ``

@@ -147,6 +147,13 @@ AGENTS.md
 *.sqlite
 *.sqlite3
 
+# Sensitive file types — prevent accidental commits of keys and tokens
+*.pem
+*.key
+*.p12
+*.pfx
+*.token
+
 .mavis/
 .opencode/
 .antigravitycli/

@@ -1029,7 +1029,31 @@ function extractUnifiedDiffText(text: string): string | undefined {
     (line) => line.startsWith('--- ') || line.startsWith('diff --git') || line.startsWith('@@'),
   );
   if (start === -1) return undefined;
-  return lines.slice(start).join('\n');
+  // Stop at the boundary where appended PostToolUse plugin notices begin.
+  //
+  // The tool executor glues each PostToolUse hook's `additionalContext`
+  // onto the serialized tool result with `${serializedDiff}\n\n${notice}`
+  // (core `tool-executor.ts`, non-`separate` contextAs). For `write`/`edit`
+  // that tail is the observability output from plugins such as diff-summary
+  // (which injects a WHOLE second `git diff`), dead-code-detector,
+  // code-metrics, and interface-contract-guard.
+  //
+  // A well-formed unified diff never contains a truly-empty line: every body
+  // line carries a leading ` `/`+`/`-` (a blank source line renders as a lone
+  // space or a lone `+`/`-`), and the serializer joins its sections with single
+  // newlines. So the first length-0 line at or after the diff start is exactly
+  // the blank line the executor inserted before the plugin tail. Cutting there
+  // keeps the tool's own diff and drops the notices — without it,
+  // `parseUnifiedDiff` consumes the tail as bogus context/add/del rows that
+  // render inside the Update diff view with continuing gutter line numbers.
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i]?.length === 0) {
+      end = i;
+      break;
+    }
+  }
+  return lines.slice(start, end).join('\n');
 }
 
 function newFileDiffFromWriteInput(

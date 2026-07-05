@@ -7,7 +7,7 @@ import {
   getDangerousCapabilities,
   hasDangerousCapabilityForSubagents,
 } from '../security/capabilities.js';
-import type { ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
+import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Tool, ToolProgressEvent, ToolErrorCategory } from '../types/tool.js';
 import { ToolErrorCategory as ToolErrorCategoryEnum } from '../types/tool.js';
 import type {
@@ -413,13 +413,20 @@ export class ToolExecutor {
             ctx,
           );
           if (post.additionalContext) {
-            const appended = `\n\n${post.additionalContext}`;
-            result = { ...result, content: `${result.content}${appended}` };
-            // Only the appended bytes are new — the pre-hook portion was
-            // already counted by enforceCap. Walking just the appended
-            // tail is `O(additionalContext.length)`, never `O(content)`.
-            // Floor at 0 to match `decrementBudget`'s pre-fix clamp.
-            budget = Math.max(0, budget - Buffer.byteLength(appended, 'utf8'));
+            if (post.contextAs === 'separate') {
+              // Keep plugin notices visually separated from the actual tool
+              // output by appending them as a distinct user message.
+              const block: ContentBlock = { type: 'text', text: post.additionalContext };
+              ctx.state.appendMessage({ role: 'user', content: [block] });
+            } else {
+              const appended = `\n\n${post.additionalContext}`;
+              result = { ...result, content: `${result.content}${appended}` };
+              // Only the appended bytes are new — the pre-hook portion was
+              // already counted by enforceCap. Walking just the appended
+              // tail is `O(additionalContext.length)`, never `O(content)`.
+              // Floor at 0 to match `decrementBudget`'s pre-fix clamp.
+              budget = Math.max(0, budget - Buffer.byteLength(appended, 'utf8'));
+            }
           }
         }
         const outputChars = typeof result.content === 'string' ? result.content.length : 0;
@@ -755,6 +762,11 @@ export class ToolExecutor {
           break;
         }
         if (ev.type === 'partial_output' && typeof ev.text === 'string') {
+          if (ev.data?.['livePreview'] === true) {
+            flushProgressTail(true);
+            emitProgress(ev);
+            continue;
+          }
           // P3 #22: accumulate the head (first PROGRESS_HEAD_CHARS) for the
           // final force-flush, while the tail follows the original per-event
           // coalescing behavior. This preserves backward compatibility with

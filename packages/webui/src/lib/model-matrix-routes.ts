@@ -49,6 +49,7 @@ export const MODEL_MATRIX_ROUTE_GROUPS = [
     phase: 'verify',
     label: 'Verify',
     roles: [
+      { role: 'verifier', name: 'Verifier' },
       { role: 'test', name: 'Test' },
       { role: 'e2e', name: 'E2E' },
       { role: 'browser', name: 'Browser' },
@@ -63,6 +64,7 @@ export const MODEL_MATRIX_ROUTE_GROUPS = [
     phase: 'review',
     label: 'Review',
     roles: [
+      { role: 'reviewer', name: 'Reviewer' },
       { role: 'code-reviewer', name: 'Code Reviewer' },
       { role: 'security-reviewer', name: 'Security Reviewer' },
       { role: 'accessibility', name: 'Accessibility' },
@@ -118,9 +120,8 @@ export const MODEL_MATRIX_ROUTE_GROUPS = [
 
 export const MODEL_MATRIX_PHASE_ROUTES = MODEL_MATRIX_ROUTE_GROUPS.map((group) => group.phase);
 
-export const MODEL_MATRIX_ROUTE_ROLES: readonly ModelMatrixRouteRole[] = MODEL_MATRIX_ROUTE_GROUPS.flatMap(
-  (group) => [...group.roles],
-);
+export const MODEL_MATRIX_ROUTE_ROLES: readonly ModelMatrixRouteRole[] =
+  MODEL_MATRIX_ROUTE_GROUPS.flatMap((group) => [...group.roles]);
 
 export const MODEL_MATRIX_ROLE_ROUTES = MODEL_MATRIX_ROUTE_ROLES.map((role) => role.role);
 

@@ -37,19 +37,19 @@ export interface ModelProfile {
 
 /** Task categories that map to agent roles. */
 export type TaskType =
-  | 'coding'         // general software development
-  | 'planning'       // architecture, design, strategy
-  | 'security'       // vulnerability scanning, security review
-  | 'docs'           // documentation, writing, explanation
-  | 'testing'        // test writing, test review
-  | 'refactoring'    // code restructuring, cleanup
-  | 'debugging'      // bug hunting, error tracing
-  | 'data'           // data analysis, JSON, DB queries
-  | 'frontend'       // React, UI, CSS
-  | 'backend'        // API, server, infrastructure
-  | 'review'         // code review, PR review
-  | 'lightweight'    // simple tasks, quick answers
-  | 'general';       // fallback — any task
+  | 'coding' // general software development
+  | 'planning' // architecture, design, strategy
+  | 'security' // vulnerability scanning, security review
+  | 'docs' // documentation, writing, explanation
+  | 'testing' // test writing, test review
+  | 'refactoring' // code restructuring, cleanup
+  | 'debugging' // bug hunting, error tracing
+  | 'data' // data analysis, JSON, DB queries
+  | 'frontend' // React, UI, CSS
+  | 'backend' // API, server, infrastructure
+  | 'review' // code review, PR review
+  | 'lightweight' // simple tasks, quick answers
+  | 'general'; // fallback — any task
 
 /** Known model profiles. Patterns are tried in order; first match wins. */
 export const MODEL_PROFILES: ModelProfile[] = [
@@ -58,7 +58,12 @@ export const MODEL_PROFILES: ModelProfile[] = [
     provider: 'anthropic',
     pattern: /claude-opus/i,
     family: 'Claude Opus',
-    strengths: ['complex reasoning', 'multi-step planning', 'nuanced judgment', 'long-form analysis'],
+    strengths: [
+      'complex reasoning',
+      'multi-step planning',
+      'nuanced judgment',
+      'long-form analysis',
+    ],
     weaknesses: ['latency', 'cost'],
     bestFor: ['planning', 'security', 'debugging', 'review'],
     costTier: 'premium',
@@ -167,13 +172,13 @@ export const TASK_TO_ROLE: Record<TaskType, string[]> = {
   planning: ['planner', 'architect', 'refactor-planner'],
   security: ['security-scanner', 'security-reviewer'],
   docs: ['document', 'simplifier'],
-  testing: ['test', 'e2e'],
+  testing: ['verifier', 'test', 'e2e'],
   refactoring: ['refactor-planner', 'refactor', 'simplifier'],
   debugging: ['debugger', 'bug-hunter', 'tracer'],
   data: ['analyst', 'data', 'database'],
   frontend: ['frontend', 'designer'],
   backend: ['backend', 'api', 'auth'],
-  review: ['code-reviewer', 'critic'],
+  review: ['reviewer', 'code-reviewer', 'critic'],
   lightweight: ['executor', 'simplifier'],
   general: ['executor', 'analyst'],
 };

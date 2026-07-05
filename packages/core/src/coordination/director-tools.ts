@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { SubagentConfig, TaskSpec } from '../types/multi-agent.js';
-import type { JSONSchema, Tool } from '../types/tool.js';
-import { type Director, FleetSpawnBudgetError, FleetCostCapError } from './director.js';
-import { dispatchAgent } from './dispatcher.js';
-import type { AgentDefinition } from './agents/index.js';
-import type { CollabSessionOptions } from './collab-debug.js';
-import { toErrorMessage } from '../utils/error.js';
 import { ToolCapabilities } from '../security/capabilities.js';
+import type { SubagentConfig, TaskResult, TaskSpec } from '../types/multi-agent.js';
+import type { JSONSchema, Tool } from '../types/tool.js';
+import { toErrorMessage } from '../utils/error.js';
+import { type AgentDefinition, getAgentDefinition } from './agents/index.js';
+import type { CollabSessionOptions } from './collab-debug.js';
+import { type Director, FleetCostCapError, FleetSpawnBudgetError } from './director.js';
+import { dispatchAgent } from './dispatcher.js';
 
 // ---------------------------------------------------------------------------
 // Director-facing tool factories.
@@ -19,25 +19,67 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
   const inputSchema: JSONSchema = {
     type: 'object',
     properties: {
-      role: { type: 'string', description: 'Roster role id. When set, the spawn uses the matching config from the roster and ignores other fields.' },
-      description: { type: 'string', description: 'Free-form task description. When `role` is not set, the director uses the smart dispatcher to route this to the best-matching catalog agent. Use this when you don\'t know the exact role name.' },
-      name: { type: 'string', description: 'Display name for the subagent. Used as a fallback when description-based dispatch does not resolve a role.' },
-      provider: { type: 'string', description: 'Provider id (e.g. "anthropic", "openai"). Defaults to the leader provider when omitted.' },
-      model: { type: 'string', description: 'Model id within the provider. Defaults to the leader model when omitted.' },
-      systemPromptOverride: { type: 'string', description: 'Extra prompt text appended after the role-base prompt.' },
+      role: {
+        type: 'string',
+        description:
+          'Roster role id. When set, the spawn uses the matching config from the roster and ignores other fields.',
+      },
+      description: {
+        type: 'string',
+        description:
+          "Free-form task description. When `role` is not set, the director uses the smart dispatcher to route this to the best-matching catalog agent. Use this when you don't know the exact role name.",
+      },
+      name: {
+        type: 'string',
+        description:
+          'Display name for the subagent. Used as a fallback when description-based dispatch does not resolve a role.',
+      },
+      provider: {
+        type: 'string',
+        description:
+          'Provider id (e.g. "anthropic", "openai"). Defaults to the leader provider when omitted.',
+      },
+      model: {
+        type: 'string',
+        description: 'Model id within the provider. Defaults to the leader model when omitted.',
+      },
+      systemPromptOverride: {
+        type: 'string',
+        description: 'Extra prompt text appended after the role-base prompt.',
+      },
       maxIterations: { type: 'number', minimum: 1 },
       maxToolCalls: { type: 'number', minimum: 1 },
       maxCostUsd: { type: 'number', minimum: 0 },
-      timeoutMs: { type: 'number', minimum: 1, description: 'Hard wall-clock cap in milliseconds. Defaults to none (idle timeout is the default reaper).' },
-      idleTimeoutMs: { type: 'number', minimum: 1, description: 'Idle timeout in ms: reap the subagent after this long with no activity. Resets on every iteration/tool call. Default is role/coordinator-specific.' },
-      maxTokens: { type: 'number', minimum: 1, description: 'Maximum total tokens (input + output) the subagent may use.' },
+      timeoutMs: {
+        type: 'number',
+        minimum: 1,
+        description:
+          'Hard wall-clock cap in milliseconds. Defaults to none (idle timeout is the default reaper).',
+      },
+      idleTimeoutMs: {
+        type: 'number',
+        minimum: 1,
+        description:
+          'Idle timeout in ms: reap the subagent after this long with no activity. Resets on every iteration/tool call. Default is role/coordinator-specific.',
+      },
+      maxTokens: {
+        type: 'number',
+        minimum: 1,
+        description: 'Maximum total tokens (input + output) the subagent may use.',
+      },
+      worktree: {
+        anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['auto', 'required', 'off'] }],
+        description:
+          'Git-worktree isolation override. true/"required" requires an isolated worktree; false/"off" disables it; "auto" follows fleet policy.',
+      },
     },
     required: [],
   };
   return {
     name: 'spawn_subagent',
     description: 'Create a new subagent under this director. Returns the subagent id.',
-    usageHint: 'Pass `role` (matches the roster), `description` (smart dispatch to best agent), or `name` + `provider`/`model`. Returns `{ subagentId }`.',
+    usageHint:
+      'Pass `role` (matches the roster), `description` (smart dispatch to best agent), or `name` + `provider`/`model`. Returns `{ subagentId }`.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
@@ -52,7 +94,8 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
 
       if (role && roster) {
         const base = roster[role];
-        if (!base) return { error: `unknown role "${role}". roster has: ${Object.keys(roster).join(', ')}` };
+        if (!base)
+          return { error: `unknown role "${role}". roster has: ${Object.keys(roster).join(', ')}` };
         cfg = instantiateRosterConfig(role, base);
       } else if (description && !role) {
         // Smart dispatch: route description to best catalog agent using dispatcher
@@ -84,16 +127,31 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
       if (typeof i.name === 'string') cfg.name = i.name;
       if (typeof i.provider === 'string') cfg.provider = i.provider;
       if (typeof i.model === 'string') cfg.model = i.model;
-      if (typeof i.systemPromptOverride === 'string') cfg.systemPromptOverride = i.systemPromptOverride;
+      if (typeof i.systemPromptOverride === 'string')
+        cfg.systemPromptOverride = i.systemPromptOverride;
       if (typeof i.maxIterations === 'number') cfg.maxIterations = i.maxIterations;
       if (typeof i.maxToolCalls === 'number') cfg.maxToolCalls = i.maxToolCalls;
       if (typeof i.maxCostUsd === 'number') cfg.maxCostUsd = i.maxCostUsd;
       if (typeof i.timeoutMs === 'number') cfg.timeoutMs = i.timeoutMs;
       if (typeof i.idleTimeoutMs === 'number') cfg.idleTimeoutMs = i.idleTimeoutMs;
       if (typeof i.maxTokens === 'number') cfg.maxTokens = i.maxTokens;
+      if (
+        typeof i.worktree === 'boolean' ||
+        i.worktree === 'auto' ||
+        i.worktree === 'required' ||
+        i.worktree === 'off'
+      ) {
+        cfg.worktree = i.worktree;
+      }
       try {
         const subagentId = await director.spawn(cfg);
-        return { subagentId, provider: cfg.provider, model: cfg.model, name: cfg.name, role: cfg.role };
+        return {
+          subagentId,
+          provider: cfg.provider,
+          model: cfg.model,
+          name: cfg.name,
+          role: cfg.role,
+        };
       } catch (err) {
         if (err instanceof FleetSpawnBudgetError) {
           return { error: err.message, kind: err.kind, limit: err.limit, observed: err.observed };
@@ -116,13 +174,553 @@ function instantiateRosterConfig(role: string, base: SubagentConfig): SubagentCo
   };
 }
 
+type QualityGateVerdict = 'pass' | 'fail' | 'inconclusive';
+
+interface QualityGateInput {
+  task?: string | undefined;
+  implementerTaskIds?: string[] | undefined;
+  repairSubagentId?: string | undefined;
+  maxRepairAttempts?: number | undefined;
+  targets?: string[] | undefined;
+  commands?: string[] | undefined;
+  expected?: string | undefined;
+  evidence?: string | undefined;
+  reviewer?: boolean | undefined;
+  verifier?: boolean | undefined;
+  timeoutMs?: number | undefined;
+  reviewerWorktree?: SubagentConfig['worktree'] | undefined;
+  verifierWorktree?: SubagentConfig['worktree'] | undefined;
+}
+
+interface QualityRoleReport {
+  role: 'reviewer' | 'verifier';
+  subagentId: string;
+  taskId: string;
+  status: TaskResult['status'];
+  verdict: QualityGateVerdict;
+  summary: string;
+  uncertaintyFlags?: string | undefined;
+  error?: string | undefined;
+}
+
+interface QualityGateAssessment {
+  verdict: QualityGateVerdict;
+  passed: boolean;
+  mustFix: string[];
+  uncertaintyFlags: string[];
+}
+
+export function makeQualityGateTool(
+  director: Director,
+  roster?: Record<string, SubagentConfig>,
+): Tool {
+  return {
+    name: 'quality_gate',
+    description:
+      'Run a first-class implementation quality gate. It can await implementer task ids, spawn independent verifier/reviewer agents, summarize their verdicts, and optionally send must-fix feedback back to an implementer until the gate passes or the repair-attempt limit is reached.',
+    usageHint:
+      'Use after code-changing work. Provide implementerTaskIds when available. Add repairSubagentId to iterate fixes automatically. Verdict only passes when every enabled reviewer/verifier explicitly passes.',
+    permission: 'auto',
+    mutating: false,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description: 'Original implementation task or acceptance goal being gated.',
+        },
+        implementerTaskIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional completed or in-flight implementer task ids to await and include as implementation evidence.',
+        },
+        repairSubagentId: {
+          type: 'string',
+          description:
+            'Optional implementer subagent id. When set and the gate fails, quality_gate assigns a repair task with reviewer/verifier feedback and reruns the gate.',
+        },
+        maxRepairAttempts: {
+          type: 'number',
+          minimum: 0,
+          maximum: 5,
+          description:
+            'Maximum automatic repair iterations. Default: 2 when repairSubagentId is set, otherwise 0.',
+        },
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Files, packages, or paths that reviewer/verifier should focus on.',
+        },
+        commands: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Verification commands that should pass, e.g. ["pnpm --filter @wrongstack/core typecheck"].',
+        },
+        expected: {
+          type: 'string',
+          description: 'Expected behavior or acceptance criteria.',
+        },
+        evidence: {
+          type: 'string',
+          description: 'Known implementation notes, diff summary, or commands already run.',
+        },
+        reviewer: {
+          type: 'boolean',
+          description: 'Whether to run the reviewer lane. Default true.',
+        },
+        verifier: {
+          type: 'boolean',
+          description: 'Whether to run the verifier lane. Default true.',
+        },
+        timeoutMs: {
+          type: 'number',
+          minimum: 1,
+          description: 'Optional per reviewer/verifier/repair task timeout.',
+        },
+        reviewerWorktree: {
+          anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['auto', 'required', 'off'] }],
+          description: 'Reviewer worktree override. Default off because reviewer is read-only.',
+        },
+        verifierWorktree: {
+          anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['auto', 'required', 'off'] }],
+          description:
+            'Verifier worktree override. Default auto so test artifacts stay isolated when fleet policy wants it.',
+        },
+      },
+    } satisfies JSONSchema,
+    async execute(input: unknown) {
+      const i = normalizeQualityGateInput(input);
+      const runReviewer = i.reviewer !== false;
+      const runVerifier = i.verifier !== false;
+      if (!runReviewer && !runVerifier) {
+        return {
+          verdict: 'inconclusive',
+          passed: false,
+          error: 'quality_gate requires reviewer, verifier, or both.',
+        };
+      }
+
+      const implementerResults =
+        i.implementerTaskIds && i.implementerTaskIds.length > 0
+          ? await director.awaitTasks(i.implementerTaskIds)
+          : [];
+      const maxRepairAttempts = clampRepairAttempts(
+        i.maxRepairAttempts ?? (i.repairSubagentId ? 2 : 0),
+      );
+      const repairResults: TaskResult[] = [];
+      const attempts: Array<{
+        attempt: number;
+        verdict: QualityGateVerdict;
+        passed: boolean;
+        reports: QualityRoleReport[];
+        mustFix: string[];
+        uncertaintyFlags: string[];
+      }> = [];
+
+      for (let attempt = 1; ; attempt++) {
+        const gateTaskIds: string[] = [];
+        const taskRoleById = new Map<string, 'reviewer' | 'verifier'>();
+
+        if (runVerifier) {
+          const subagentId = await director.spawn(
+            makeQualityGateSubagentConfig('verifier', roster, i.verifierWorktree ?? 'auto'),
+          );
+          const taskId = await director.assign({
+            id: randomUUID(),
+            subagentId,
+            description: buildVerifierTask(i, {
+              attempt,
+              implementerResults,
+              repairResults,
+              priorAttempts: attempts,
+            }),
+            timeoutMs: i.timeoutMs,
+          });
+          gateTaskIds.push(taskId);
+          taskRoleById.set(taskId, 'verifier');
+        }
+
+        if (runReviewer) {
+          const subagentId = await director.spawn(
+            makeQualityGateSubagentConfig('reviewer', roster, i.reviewerWorktree ?? 'off'),
+          );
+          const taskId = await director.assign({
+            id: randomUUID(),
+            subagentId,
+            description: buildReviewerTask(i, {
+              attempt,
+              implementerResults,
+              repairResults,
+              priorAttempts: attempts,
+            }),
+            timeoutMs: i.timeoutMs,
+          });
+          gateTaskIds.push(taskId);
+          taskRoleById.set(taskId, 'reviewer');
+        }
+
+        const gateResults = await director.awaitTasks(gateTaskIds);
+        const reports = gateResults.map((r) => assessRoleResult(taskRoleById.get(r.taskId), r));
+        const assessment = assessQualityGate(reports);
+        attempts.push({ attempt, reports, ...assessment });
+
+        if (assessment.passed || !i.repairSubagentId || attempt > maxRepairAttempts) {
+          return {
+            verdict: assessment.verdict,
+            passed: assessment.passed,
+            attempts,
+            repairAttemptsUsed: repairResults.length,
+            implementerResults: implementerResults.map(summarizeTaskResult),
+            nextAction: assessment.passed
+              ? 'accept'
+              : i.repairSubagentId && attempt > maxRepairAttempts
+                ? 'manual_intervention_or_raise_repair_limit'
+                : 'inspect_failures',
+          };
+        }
+
+        const repairTaskId = await director.assign({
+          id: randomUUID(),
+          subagentId: i.repairSubagentId,
+          description: buildRepairTask(i, attempts[attempts.length - 1]!, attempt),
+          timeoutMs: i.timeoutMs,
+        });
+        const [repairResult] = await director.awaitTasks([repairTaskId]);
+        if (repairResult) repairResults.push(repairResult);
+        if (repairResult?.status !== 'success') {
+          return {
+            verdict: 'fail',
+            passed: false,
+            attempts,
+            repairAttemptsUsed: repairResults.length,
+            repairResult: repairResult ? summarizeTaskResult(repairResult) : undefined,
+            implementerResults: implementerResults.map(summarizeTaskResult),
+            nextAction: 'repair_failed',
+          };
+        }
+      }
+    },
+  };
+}
+
+function normalizeQualityGateInput(input: unknown): QualityGateInput {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  return {
+    task: typeof raw.task === 'string' ? raw.task : undefined,
+    implementerTaskIds: stringArray(raw.implementerTaskIds),
+    repairSubagentId:
+      typeof raw.repairSubagentId === 'string' && raw.repairSubagentId.trim()
+        ? raw.repairSubagentId.trim()
+        : undefined,
+    maxRepairAttempts:
+      typeof raw.maxRepairAttempts === 'number' ? raw.maxRepairAttempts : undefined,
+    targets: stringArray(raw.targets),
+    commands: stringArray(raw.commands),
+    expected: typeof raw.expected === 'string' ? raw.expected : undefined,
+    evidence: typeof raw.evidence === 'string' ? raw.evidence : undefined,
+    reviewer: typeof raw.reviewer === 'boolean' ? raw.reviewer : undefined,
+    verifier: typeof raw.verifier === 'boolean' ? raw.verifier : undefined,
+    timeoutMs: typeof raw.timeoutMs === 'number' ? raw.timeoutMs : undefined,
+    reviewerWorktree: normalizeWorktreeOverride(raw.reviewerWorktree),
+    verifierWorktree: normalizeWorktreeOverride(raw.verifierWorktree),
+  };
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function normalizeWorktreeOverride(value: unknown): SubagentConfig['worktree'] | undefined {
+  if (typeof value === 'boolean') return value;
+  if (value === 'auto' || value === 'required' || value === 'off') return value;
+  return undefined;
+}
+
+function clampRepairAttempts(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(5, Math.floor(value)));
+}
+
+function makeQualityGateSubagentConfig(
+  role: 'reviewer' | 'verifier',
+  roster: Record<string, SubagentConfig> | undefined,
+  worktree: SubagentConfig['worktree'],
+): SubagentConfig {
+  const base = roster?.[role] ?? getAgentDefinition(role)?.config ?? { name: role, role };
+  return {
+    ...instantiateRosterConfig(role, base),
+    worktree,
+  };
+}
+
+function buildVerifierTask(
+  input: QualityGateInput,
+  state: {
+    attempt: number;
+    implementerResults: TaskResult[];
+    repairResults: TaskResult[];
+    priorAttempts: Array<{ attempt: number; reports: QualityRoleReport[] }>;
+  },
+): string {
+  return [
+    'Run the independent verification gate for this implementation.',
+    'Return Markdown with `## Verdict` and make the first verdict word exactly `pass`, `fail`, or `blocked`.',
+    'Do not edit code. Run the smallest meaningful command set and include exact failures.',
+    '',
+    `Gate attempt: ${state.attempt}`,
+    input.task ? `Original task:\n${input.task}` : undefined,
+    input.targets?.length
+      ? `Targets:\n${input.targets.map((t) => `- ${t}`).join('\n')}`
+      : undefined,
+    input.commands?.length
+      ? `Required or suggested commands:\n${input.commands.map((c) => `- ${c}`).join('\n')}`
+      : undefined,
+    input.expected ? `Expected behavior:\n${input.expected}` : undefined,
+    input.evidence ? `Known evidence:\n${input.evidence}` : undefined,
+    taskResultsBlock('Implementer results', state.implementerResults),
+    taskResultsBlock('Repair results so far', state.repairResults),
+    priorAttemptsBlock(state.priorAttempts),
+  ]
+    .filter((part): part is string => !!part)
+    .join('\n\n');
+}
+
+function buildReviewerTask(
+  input: QualityGateInput,
+  state: {
+    attempt: number;
+    implementerResults: TaskResult[];
+    repairResults: TaskResult[];
+    priorAttempts: Array<{ attempt: number; reports: QualityRoleReport[] }>;
+  },
+): string {
+  return [
+    'Run independent code review for this implementation.',
+    'Return Markdown with `## Verdict` and make the first verdict phrase exactly `approve`, `request changes`, or `needs verification`.',
+    'Do not edit code. Treat missing proof, vague tests, and uncertainty as blocking until verifier evidence exists.',
+    '',
+    `Gate attempt: ${state.attempt}`,
+    input.task ? `Original task:\n${input.task}` : undefined,
+    input.targets?.length
+      ? `Targets:\n${input.targets.map((t) => `- ${t}`).join('\n')}`
+      : undefined,
+    input.expected ? `Expected behavior:\n${input.expected}` : undefined,
+    input.evidence ? `Known evidence:\n${input.evidence}` : undefined,
+    taskResultsBlock('Implementer results', state.implementerResults),
+    taskResultsBlock('Repair results so far', state.repairResults),
+    priorAttemptsBlock(state.priorAttempts),
+  ]
+    .filter((part): part is string => !!part)
+    .join('\n\n');
+}
+
+function buildRepairTask(
+  input: QualityGateInput,
+  attempt: {
+    attempt: number;
+    reports: QualityRoleReport[];
+    mustFix: string[];
+    uncertaintyFlags: string[];
+  },
+  attemptNumber: number,
+): string {
+  return [
+    `Repair the implementation after quality gate attempt ${attemptNumber} failed.`,
+    'Address every must-fix item. Run relevant checks before returning.',
+    'Do not claim done unless verifier/reviewer feedback is resolved.',
+    '',
+    input.task ? `Original task:\n${input.task}` : undefined,
+    input.targets?.length
+      ? `Targets:\n${input.targets.map((t) => `- ${t}`).join('\n')}`
+      : undefined,
+    input.commands?.length
+      ? `Commands expected to pass:\n${input.commands.map((c) => `- ${c}`).join('\n')}`
+      : undefined,
+    input.expected ? `Expected behavior:\n${input.expected}` : undefined,
+    attempt.mustFix.length
+      ? `Must fix:\n${attempt.mustFix.map((f) => `- ${f}`).join('\n')}`
+      : undefined,
+    attempt.uncertaintyFlags.length
+      ? `Uncertainty flags to resolve:\n${attempt.uncertaintyFlags.map((f) => `- ${f}`).join('\n')}`
+      : undefined,
+    `Reviewer/verifier reports:\n${attempt.reports
+      .map((r) => `### ${r.role} (${r.verdict})\n${r.summary}`)
+      .join('\n\n')}`,
+  ]
+    .filter((part): part is string => !!part)
+    .join('\n\n');
+}
+
+function taskResultsBlock(title: string, results: TaskResult[]): string | undefined {
+  if (results.length === 0) return undefined;
+  return `${title}:\n${results.map((r) => `### ${r.subagentId}/${r.taskId}\n${summarizeTaskResult(r).summary}`).join('\n\n')}`;
+}
+
+function priorAttemptsBlock(
+  attempts: Array<{ attempt: number; reports: QualityRoleReport[] }>,
+): string | undefined {
+  if (attempts.length === 0) return undefined;
+  return `Prior quality gate attempts:\n${attempts
+    .map(
+      (a) =>
+        `### Attempt ${a.attempt}\n${a.reports
+          .map((r) => `- ${r.role}: ${r.verdict}${r.error ? ` (${r.error})` : ''}`)
+          .join('\n')}`,
+    )
+    .join('\n\n')}`;
+}
+
+function summarizeTaskResult(result: TaskResult): {
+  taskId: string;
+  subagentId: string;
+  status: TaskResult['status'];
+  summary: string;
+  error?: string | undefined;
+} {
+  const text =
+    typeof result.result === 'string'
+      ? result.result
+      : result.result !== undefined
+        ? JSON.stringify(result.result, null, 2)
+        : '';
+  const error = result.error ? `${result.error.kind}: ${result.error.message}` : undefined;
+  return {
+    taskId: result.taskId,
+    subagentId: result.subagentId,
+    status: result.status,
+    summary: excerpt(text || error || '(no output)', 4000),
+    error,
+  };
+}
+
+function assessRoleResult(
+  role: 'reviewer' | 'verifier' | undefined,
+  result: TaskResult,
+): QualityRoleReport {
+  const resolvedRole = role ?? (result.subagentId.includes('review') ? 'reviewer' : 'verifier');
+  const summary = summarizeTaskResult(result);
+  const text = summary.summary;
+  const uncertaintyFlags = extractSection(text, 'Uncertainty Flags');
+  if (result.status !== 'success') {
+    return {
+      role: resolvedRole,
+      subagentId: result.subagentId,
+      taskId: result.taskId,
+      status: result.status,
+      verdict: 'fail',
+      summary: text,
+      uncertaintyFlags,
+      error: summary.error ?? result.status,
+    };
+  }
+  return {
+    role: resolvedRole,
+    subagentId: result.subagentId,
+    taskId: result.taskId,
+    status: result.status,
+    verdict: parseQualityVerdict(resolvedRole, text),
+    summary: text,
+    uncertaintyFlags,
+  };
+}
+
+function assessQualityGate(reports: QualityRoleReport[]): QualityGateAssessment {
+  const mustFix: string[] = [];
+  const uncertaintyFlags: string[] = [];
+  let hasFail = false;
+  let hasInconclusive = false;
+
+  for (const report of reports) {
+    if (report.verdict === 'fail') hasFail = true;
+    if (report.verdict === 'inconclusive') hasInconclusive = true;
+    const blocking =
+      extractSection(report.summary, 'Must Fix') ||
+      extractSection(report.summary, 'Failures') ||
+      extractSection(report.summary, 'Verification Gaps');
+    if (blocking) mustFix.push(`${report.role}: ${excerpt(blocking, 1000)}`);
+    if (report.uncertaintyFlags) {
+      uncertaintyFlags.push(`${report.role}: ${excerpt(report.uncertaintyFlags, 1000)}`);
+    }
+    if (report.error) mustFix.push(`${report.role}: ${report.error}`);
+  }
+
+  if (hasFail) return { verdict: 'fail', passed: false, mustFix, uncertaintyFlags };
+  if (hasInconclusive || reports.length === 0) {
+    return { verdict: 'inconclusive', passed: false, mustFix, uncertaintyFlags };
+  }
+  return { verdict: 'pass', passed: true, mustFix, uncertaintyFlags };
+}
+
+function parseQualityVerdict(role: 'reviewer' | 'verifier', text: string): QualityGateVerdict {
+  const normalized = text.toLowerCase();
+  const verdictBlock =
+    normalized.match(/(?:^|\n)\s*(?:#+\s*)?verdict\b[^\n]*(?:\n|:|-)?([\s\S]{0,500})/)?.[0] ??
+    normalized.slice(0, 1000);
+  if (role === 'reviewer') {
+    if (
+      /\b(request\s+changes|needs\s+verification|reject|rejected|fail|failed|blocked)\b/.test(
+        verdictBlock,
+      )
+    ) {
+      return 'fail';
+    }
+    if (/\b(approve|approved|pass|passed)\b/.test(verdictBlock)) return 'pass';
+    if (
+      sectionHasBlockingContent(text, 'Must Fix') ||
+      sectionHasBlockingContent(text, 'Verification Gaps')
+    ) {
+      return 'fail';
+    }
+    return 'inconclusive';
+  }
+  if (/\b(fail|failed|blocked|red)\b/.test(verdictBlock)) return 'fail';
+  if (/\b(pass|passed|green|approve|approved)\b/.test(verdictBlock)) return 'pass';
+  if (sectionHasBlockingContent(text, 'Failures')) return 'fail';
+  return 'inconclusive';
+}
+
+function sectionHasBlockingContent(text: string, heading: string): boolean {
+  const section = extractSection(text, heading);
+  if (!section) return false;
+  return !/^\s*(none|n\/a|no\b|no issues|empty|\(none\))\s*\.?\s*$/i.test(section.trim());
+}
+
+function extractSection(text: string, heading: string): string | undefined {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*#{1,6}\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=\\n\\s*#{1,6}\\s+|$)`,
+    'i',
+  );
+  const match = text.match(pattern);
+  const body = match?.[1]?.trim();
+  return body ? body : undefined;
+}
+
+function excerpt(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 20).trimEnd()}\n...(truncated)`;
+}
+
 export function makeAssignTool(director: Director): Tool {
   const inputSchema: JSONSchema = {
     type: 'object',
     properties: {
       subagentId: { type: 'string', minLength: 1, description: 'Target subagent id. Required.' },
-      description: { type: 'string', minLength: 1, description: 'The task in natural language — what you want this subagent to do.' },
-      maxToolCalls: { type: 'number', minimum: 1, description: 'Optional per-task tool-call budget override.' },
+      description: {
+        type: 'string',
+        minLength: 1,
+        description: 'The task in natural language — what you want this subagent to do.',
+      },
+      maxToolCalls: {
+        type: 'number',
+        minimum: 1,
+        description: 'Optional per-task tool-call budget override.',
+      },
       timeoutMs: { type: 'number', minimum: 1, description: 'Optional per-task timeout in ms.' },
     },
     required: ['subagentId', 'description'],
@@ -135,8 +733,19 @@ export function makeAssignTool(director: Director): Tool {
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema,
     async execute(input: unknown) {
-      const i = input as { subagentId: string; description: string; maxToolCalls?: number | undefined; timeoutMs?: number | undefined };
-      const task: TaskSpec = { id: randomUUID(), description: i.description, subagentId: i.subagentId, maxToolCalls: i.maxToolCalls, timeoutMs: i.timeoutMs };
+      const i = input as {
+        subagentId: string;
+        description: string;
+        maxToolCalls?: number | undefined;
+        timeoutMs?: number | undefined;
+      };
+      const task: TaskSpec = {
+        id: randomUUID(),
+        description: i.description,
+        subagentId: i.subagentId,
+        maxToolCalls: i.maxToolCalls,
+        timeoutMs: i.timeoutMs,
+      };
       const taskId = await director.assign(task);
       return { taskId, subagentId: i.subagentId };
     },
@@ -154,23 +763,46 @@ export function makeAwaitTasksTool(director: Director): Tool {
     inputSchema: {
       type: 'object',
       properties: {
-        taskIds: { type: 'array', items: { type: 'string' }, description: 'One or more task ids returned by `assign_task`.' },
-        mode: { type: 'string', enum: ['all', 'any'], description: '"all" (default): block until every task completes. "any": return on the first completion with the rest listed as pending.' },
-        timeoutMs: { type: 'number', minimum: 1, description: 'mode:"any" only — return {timedOut:true, completed:[]} if nothing completes within this window instead of blocking.' },
+        taskIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'One or more task ids returned by `assign_task`.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['all', 'any'],
+          description:
+            '"all" (default): block until every task completes. "any": return on the first completion with the rest listed as pending.',
+        },
+        timeoutMs: {
+          type: 'number',
+          minimum: 1,
+          description:
+            'mode:"any" only — return {timedOut:true, completed:[]} if nothing completes within this window instead of blocking.',
+        },
       },
       required: ['taskIds'],
     },
     async execute(input: unknown) {
-      const i = input as { taskIds: string[]; mode?: 'all' | 'any' | undefined; timeoutMs?: number | undefined };
+      const i = input as {
+        taskIds: string[];
+        mode?: 'all' | 'any' | undefined;
+        timeoutMs?: number | undefined;
+      };
       if (i.mode === 'any') {
-        const r = await director.awaitTasksAny(i.taskIds, i.timeoutMs !== undefined ? { timeoutMs: i.timeoutMs } : undefined);
+        const r = await director.awaitTasksAny(
+          i.taskIds,
+          i.timeoutMs !== undefined ? { timeoutMs: i.timeoutMs } : undefined,
+        );
         return {
           mode: 'any',
           completed: r.completed,
           pending: r.pending,
           ...(r.timedOut ? { timedOut: true } : {}),
           ...(r.pending.length > 0
-            ? { hint: 'Handle the completed results now. Re-call await_tasks with the pending ids (mode:"any") for the next finisher — or assign new work to the now-idle subagent first.' }
+            ? {
+                hint: 'Handle the completed results now. Re-call await_tasks with the pending ids (mode:"any") for the next finisher — or assign new work to the now-idle subagent first.',
+              }
             : {}),
         };
       }
@@ -183,16 +815,25 @@ export function makeAwaitTasksTool(director: Director): Tool {
 export function makeAskTool(director: Director): Tool {
   return {
     name: 'ask_subagent',
-    description: 'Synchronously ask a subagent a question. Blocks until the subagent replies via the bridge.',
+    description:
+      'Synchronously ask a subagent a question. Blocks until the subagent replies via the bridge.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
-        subagentId: { type: 'string', minLength: 1, description: 'Subagent to ask. Must be a previously spawned id.' },
+        subagentId: {
+          type: 'string',
+          minLength: 1,
+          description: 'Subagent to ask. Must be a previously spawned id.',
+        },
         question: { type: 'string', minLength: 1, description: 'The question or instruction.' },
-        timeoutMs: { type: 'number', minimum: 1, description: 'Optional timeout in ms (default 30s).' },
+        timeoutMs: {
+          type: 'number',
+          minimum: 1,
+          description: 'Optional timeout in ms (default 30s).',
+        },
       },
       required: ['subagentId', 'question'],
     },
@@ -226,7 +867,8 @@ export function makeAskTool(director: Director): Tool {
 export function makeAskResultTool(director: Director): Tool {
   return {
     name: 'ask_result',
-    description: 'Retrieve a large `ask_subagent` response that was stored out-of-context (>2K chars). Returns the full stored value.',
+    description:
+      'Retrieve a large `ask_subagent` response that was stored out-of-context (>2K chars). Returns the full stored value.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
@@ -245,7 +887,10 @@ export function makeAskResultTool(director: Director): Tool {
       const i = input as { key: string };
       const value = director.largeAnswerStore.retrieveAnswer(i.key);
       if (value === undefined) {
-        return { ok: false, error: `No stored answer found for key "${i.key}" — it may have been cleared or the key is invalid.` };
+        return {
+          ok: false,
+          error: `No stored answer found for key "${i.key}" — it may have been cleared or the key is invalid.`,
+        };
       }
       return { ok: true, value };
     },
@@ -255,15 +900,23 @@ export function makeAskResultTool(director: Director): Tool {
 export function makeRollUpTool(director: Director): Tool {
   return {
     name: 'roll_up',
-    description: "Aggregate completed task results into a single formatted summary.",
+    description: 'Aggregate completed task results into a single formatted summary.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
     inputSchema: {
       type: 'object',
       properties: {
-        taskIds: { type: 'array', items: { type: 'string' }, description: 'Completed task ids to aggregate.' },
-        style: { type: 'string', enum: ['markdown', 'json'], description: 'Output flavor — markdown (default) or json.' },
+        taskIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Completed task ids to aggregate.',
+        },
+        style: {
+          type: 'string',
+          enum: ['markdown', 'json'],
+          description: 'Output flavor — markdown (default) or json.',
+        },
       },
       required: ['taskIds'],
     },
@@ -278,11 +931,16 @@ export function makeRollUpTool(director: Director): Tool {
 export function makeTerminateTool(director: Director): Tool {
   return {
     name: 'terminate_subagent',
-    description: 'Forcibly abort a subagent. The subagent finishes its current iteration then exits with status "stopped".',
+    description:
+      'Forcibly abort a subagent. The subagent finishes its current iteration then exits with status "stopped".',
     permission: 'auto',
     mutating: true,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
-    inputSchema: { type: 'object', properties: { subagentId: { type: 'string', description: 'Subagent to abort.' } }, required: ['subagentId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { subagentId: { type: 'string', description: 'Subagent to abort.' } },
+      required: ['subagentId'],
+    },
     async execute(input: unknown) {
       const i = input as { subagentId: string };
       await director.terminate(i.subagentId);
@@ -306,7 +964,10 @@ export function makeTerminateAllTool(director: Director): Tool {
     inputSchema: { type: 'object', properties: {}, required: [] },
     async execute() {
       await director.terminateAll();
-      return { ok: true, message: `Fleet shutdown complete — all subagents stopped, pending tasks drained.` };
+      return {
+        ok: true,
+        message: `Fleet shutdown complete — all subagents stopped, pending tasks drained.`,
+      };
     },
   };
 }
@@ -349,12 +1010,17 @@ export function makeFleetTool(director: Director): Tool {
         },
         tail: {
           type: 'number',
-          description: 'Number of trailing JSONL lines (action: "session" only). Omit for the full transcript.',
+          description:
+            'Number of trailing JSONL lines (action: "session" only). Omit for the full transcript.',
         },
       },
     },
     async execute(input: unknown) {
-      const i = (input ?? {}) as { action?: string | undefined; subagentId?: string | undefined; tail?: number | undefined };
+      const i = (input ?? {}) as {
+        action?: string | undefined;
+        subagentId?: string | undefined;
+        tail?: number | undefined;
+      };
       const action = i.action ?? 'status';
 
       switch (action) {
@@ -367,7 +1033,12 @@ export function makeFleetTool(director: Director): Tool {
             action: 'status',
             subagents: base.subagents,
             coordinatorStats: stats
-              ? { total: stats.total, running: stats.running, idle: stats.idle, stopped: stats.stopped }
+              ? {
+                  total: stats.total,
+                  running: stats.running,
+                  idle: stats.idle,
+                  stopped: stats.stopped,
+                }
               : undefined,
             pending: fleetStatus?.pending ?? [],
             usage: fm?.snapshot(),
@@ -404,7 +1075,10 @@ export function makeFleetTool(director: Director): Tool {
         case 'session': {
           const subagentId = i.subagentId;
           if (!subagentId) {
-            return { action: 'session', error: 'fleet: subagentId is required for action: "session"' };
+            return {
+              action: 'session',
+              error: 'fleet: subagentId is required for action: "session"',
+            };
           }
           const result = await director.readSession(subagentId, i.tail);
           if (!result) {
@@ -417,7 +1091,9 @@ export function makeFleetTool(director: Director): Tool {
         }
 
         default:
-          return { error: `fleet: unknown action "${action}". Valid: status, usage, health, session.` };
+          return {
+            error: `fleet: unknown action "${action}". Valid: status, usage, health, session.`,
+          };
       }
     },
   };
@@ -476,7 +1152,12 @@ export function makeCollabDebugTool(director: Director): Tool {
       required: ['targetPaths'],
     },
     async execute(input: unknown) {
-      const i = input as { targetPaths?: string[] | undefined; timeoutMs?: number | undefined; maxTargetFiles?: number | undefined; contextWindow?: number | undefined };
+      const i = input as {
+        targetPaths?: string[] | undefined;
+        timeoutMs?: number | undefined;
+        maxTargetFiles?: number | undefined;
+        contextWindow?: number | undefined;
+      };
       if (!i.targetPaths?.length) {
         return { error: 'collab_debug: targetPaths is required and must be non-empty.' };
       }
@@ -530,7 +1211,8 @@ export function makeFleetEmitTool(director: Director): Tool {
       properties: {
         type: {
           type: 'string',
-          description: 'Event type string (e.g. bug.found, refactor.plan, critic.evaluation, progress, result).',
+          description:
+            'Event type string (e.g. bug.found, refactor.plan, critic.evaluation, progress, result).',
         },
         payload: {
           type: 'object',
@@ -570,10 +1252,10 @@ export function makeWorkCompleteTool(director: Director): Tool {
   return {
     name: 'work_complete',
     description:
-      "Signal that the director is satisfied with the results and the fleet should wind down. " +
-      "After calling this, spawn_subagent will refuse with a budget error and assign_task " +
-      "will instantly complete any queued tasks as aborted. Running subagents finish naturally. " +
-      "Call terminate_subagent separately to stop specific subagents immediately.",
+      'Signal that the director is satisfied with the results and the fleet should wind down. ' +
+      'After calling this, spawn_subagent will refuse with a budget error and assign_task ' +
+      'will instantly complete any queued tasks as aborted. Running subagents finish naturally. ' +
+      'Call terminate_subagent separately to stop specific subagents immediately.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],

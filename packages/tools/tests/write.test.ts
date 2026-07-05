@@ -36,6 +36,40 @@ describe('write tool', () => {
     expect(await fs.readFile(path.join(sb.dir, 'new.txt'), 'utf8')).toBe('hello');
   });
 
+  it('streams each line before finalizing a new file write', async () => {
+    const events = [];
+    for await (const event of writeTool.executeStream!(
+      { path: 'streamed.txt', content: 'one\ntwo\nthree' },
+      sb.ctx,
+      { signal: newSignal() },
+    )) {
+      events.push(event);
+    }
+
+    expect(events.slice(0, 3)).toEqual([
+      { type: 'partial_output', text: 'one\n', data: { livePreview: true } },
+      { type: 'partial_output', text: 'two\n', data: { livePreview: true } },
+      { type: 'partial_output', text: 'three\n', data: { livePreview: true } },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: 'final', output: { created: true } });
+    expect(await fs.readFile(path.join(sb.dir, 'streamed.txt'), 'utf8')).toBe('one\ntwo\nthree');
+  });
+
+  it('does not stream overwritten file contents', async () => {
+    await fs.writeFile(path.join(sb.dir, 'existing-stream.txt'), 'old');
+    const events = [];
+    for await (const event of writeTool.executeStream!(
+      { path: 'existing-stream.txt', content: 'new' },
+      sb.ctx,
+      { signal: newSignal() },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'final', output: { created: false } });
+  });
+
   it('overwrites existing file without prior read (auto-reads internally)', async () => {
     await fs.writeFile(path.join(sb.dir, 'existing.txt'), 'old');
     // Write tool auto-reads the file internally when not already recorded as read.

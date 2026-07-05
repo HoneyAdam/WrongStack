@@ -8,10 +8,12 @@ import * as path from 'node:path';
 import { ACP_AGENT_COMMANDS, findAgentDescriptor, makeACPSubagentRunner } from '@wrongstack/acp';
 import type { BrainArbiter, SubagentRunner, TextBlock } from '@wrongstack/core';
 import {
+  AdaptiveConcurrencyController,
   Agent,
+  AgentError,
   type AgentFactory,
-  applyModelRuntime,
   AutoApprovePermissionPolicy,
+  applyModelRuntime,
   type Config,
   type ConfigStore,
   type Container,
@@ -25,39 +27,39 @@ import {
   FLEET_ROSTER,
   FleetManager,
   FleetSupervisor,
+  type FleetWorktreePolicy,
   GlobalMailbox,
-  mailboxSessionTag,
-  mergeModelRuntime,
   type ModelsRegistry,
+  mailboxSessionTag,
   makeDirectorSessionFactory,
   makeFleetEmitTool,
-  resolveProjectDir,
-  type TaskResultNotification,
-  wstackGlobalRoot,
+  makePreferSideConflictResolver,
+  mergeModelRuntime,
   type Provider,
   type ProviderRegistry,
   type ReasoningConfig,
   type Request,
-  resolveModelMatrix,
-  resolveModelTargetFromEntry,
+  resolveProjectDir,
+  resolveSubagentModelTarget,
   type SessionWriter,
   type SubagentConfig,
   type SystemPromptBuilder,
   type TaskResult,
+  type TaskResultNotification,
+  TOKENS,
   type TokenCounter,
   type Tool,
   ToolRegistry,
-  WIDE_SUBAGENT_CAPABILITIES,
-  AdaptiveConcurrencyController,
-  AgentError,
-  TOKENS,
   ToolValidationError,
+  WIDE_SUBAGENT_CAPABILITIES,
+  WorktreeManager,
+  wstackGlobalRoot,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
-import { toErrorMessage } from '@wrongstack/core/utils/error';
 // PR-C1: DefaultTokenCounter moved off the root barrel — infrastructure/
 // symbols are imported from the published subpath (see commit 66c4eb68).
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
+import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { createFallbackModelExtension } from '../fallback-model.js';
@@ -77,6 +79,57 @@ Run exactly one quiet pass:
 - If the fleet is healthy and no command needs a reply, keep the final answer to "shadow: quiet".
 
 The host will stop this Shadow Agent after this pass. Do not schedule follow-up work.`;
+}
+
+const DEFAULT_SUBAGENT_HIDDEN_TOOLS = new Set([
+  'delegate',
+  'spawn_subagent',
+  'assign_task',
+  'await_tasks',
+  'ask_subagent',
+  'ask_result',
+  'roll_up',
+  'quality_gate',
+  'terminate_subagent',
+  'terminate_all',
+  'work_complete',
+  'collab_debug',
+  'fleet_emit',
+]);
+
+function resolveFleetWorktreePolicy(config: Config): FleetWorktreePolicy {
+  const env = process.env['WRONGSTACK_FLEET_WORKTREES']?.trim().toLowerCase();
+  if (env === '0' || env === 'false' || env === 'off') {
+    return { ...(config.fleet?.worktrees ?? {}), enabled: false, mode: 'off' };
+  }
+  if (env === 'required') {
+    return { ...(config.fleet?.worktrees ?? {}), enabled: true, mode: 'required' };
+  }
+  if (env === 'auto' || env === '1' || env === 'true' || env === 'on') {
+    return { ...(config.fleet?.worktrees ?? {}), enabled: true, mode: 'auto' };
+  }
+  const configured = config.fleet?.worktrees ?? {};
+  return {
+    ...configured,
+    enabled: configured.enabled ?? true,
+    mode: configured.mode ?? 'auto',
+  };
+}
+
+function makeFleetWorktreeConflictResolver() {
+  const mode = process.env['WRONGSTACK_FLEET_CONFLICT_RESOLVER']?.trim().toLowerCase();
+  if (mode !== 'prefer-incoming' && mode !== 'prefer-base') return undefined;
+  const resolver = makePreferSideConflictResolver(mode === 'prefer-incoming' ? 'incoming' : 'base');
+  return (info: {
+    task: import('@wrongstack/core').TaskSpec;
+    conflictFiles: string[];
+    cwd: string;
+  }) =>
+    resolver({
+      task: info.task as never,
+      conflictFiles: info.conflictFiles,
+      cwd: info.cwd,
+    });
 }
 
 export interface MultiAgentDeps {
@@ -395,6 +448,15 @@ export class MultiAgentHost {
       (this.opts.sessionsRoot && this.opts.directorRunId
         ? path.join(this.opts.sessionsRoot, this.opts.directorRunId, 'shared')
         : undefined);
+    const worktreePolicy = resolveFleetWorktreePolicy(config);
+    const worktrees =
+      worktreePolicy.enabled === false || worktreePolicy.mode === 'off'
+        ? undefined
+        : new WorktreeManager({
+            projectRoot: this.deps.projectRoot,
+            events: this.deps.events,
+            sessionId: () => this.deps.session.id,
+          });
     this.director = new Director({
       config: coordinatorConfig,
       manifestPath: this.opts.manifestPath,
@@ -412,6 +474,9 @@ export class MultiAgentHost {
       // Live getter (not a snapshot) so a mid-session `/setmodel` takes
       // effect on the next spawn — the director is built lazily + once.
       modelMatrix: () => this.deps.configStore.get().modelMatrix,
+      worktrees,
+      worktreePolicy,
+      worktreeConflictResolver: makeFleetWorktreeConflictResolver(),
       fleetManager, // pass so director.fleetManager is never undefined
       brain: this.opts.brain,
       roster: FLEET_ROSTER, // pass so spawn_subagent recognizes shadow-agent role
@@ -435,13 +500,18 @@ export class MultiAgentHost {
       const monitor = this.opts.agentMonitor;
       if (monitor) {
         const subagentId = task.subagentId ?? task.id;
-        const status = result.status === 'success' ? 'completed' as const
-          : result.status === 'timeout' ? 'timeout' as const
-          : result.status === 'stopped' ? 'stopped' as const
-          : 'failed' as const;
-        const summary = result.status === 'success'
-          ? `Completed in ${result.iterations} iterations`
-          : result.error?.message ?? result.status;
+        const status =
+          result.status === 'success'
+            ? ('completed' as const)
+            : result.status === 'timeout'
+              ? ('timeout' as const)
+              : result.status === 'stopped'
+                ? ('stopped' as const)
+                : ('failed' as const);
+        const summary =
+          result.status === 'success'
+            ? `Completed in ${result.iterations} iterations`
+            : (result.error?.message ?? result.status);
         monitor.completeSubagent(subagentId, status, summary);
       }
     });
@@ -643,22 +713,28 @@ export class MultiAgentHost {
     this.shadowActivityOffHandles.push(
       this.deps.events.on('agent.run.started', () => this.noteShadowWorkStarted()),
       this.deps.events.on('agent.run.completed', (e) => {
-        const problem = e.status === 'failed' || e.status === 'max_iterations'
-          ? `leader run ended with ${e.status}`
-          : undefined;
+        const problem =
+          e.status === 'failed' || e.status === 'max_iterations'
+            ? `leader run ended with ${e.status}`
+            : undefined;
         this.noteShadowWorkCompleted(problem);
       }),
       this.deps.events.on('subagent.task_started', () => this.noteShadowWorkStarted()),
       this.deps.events.on('subagent.task_completed', (e) => {
-        const problem = e.status === 'failed' || e.status === 'timeout'
-          ? `subagent ${e.subagentId} task ${e.taskId} ended with ${e.status}${e.error?.message ? `: ${e.error.message}` : ''}`
-          : undefined;
+        const problem =
+          e.status === 'failed' || e.status === 'timeout'
+            ? `subagent ${e.subagentId} task ${e.taskId} ended with ${e.status}${e.error?.message ? `: ${e.error.message}` : ''}`
+            : undefined;
         this.noteShadowWorkCompleted(problem);
       }),
     );
   }
 
-  private recordShadowAgent(subagentId: string, taskId: string, intervalMs = this.shadowHeartbeatIntervalMs): void {
+  private recordShadowAgent(
+    subagentId: string,
+    taskId: string,
+    intervalMs = this.shadowHeartbeatIntervalMs,
+  ): void {
     this.shadowAgentId = subagentId;
     this.shadowTaskId = taskId;
     this.shadowHeartbeatIntervalMs = intervalMs;
@@ -718,7 +794,10 @@ export class MultiAgentHost {
         : reason;
       return;
     }
-    if (this.shadowPassInFlight || (this.shadowAgentId && this.isActiveSubagent(this.shadowAgentId))) {
+    if (
+      this.shadowPassInFlight ||
+      (this.shadowAgentId && this.isActiveSubagent(this.shadowAgentId))
+    ) {
       this.shadowQueuedProblem = this.shadowQueuedProblem
         ? `${this.shadowQueuedProblem}; ${reason}`
         : reason;
@@ -752,8 +831,12 @@ export class MultiAgentHost {
             provider: liveConfig.provider,
             model: liveConfig.model,
             tools: [
-              'fleet', 'fleet', 'fleet',
-              'mailbox', 'mail_inbox', 'mail_send',
+              'fleet',
+              'fleet',
+              'fleet',
+              'mailbox',
+              'mail_inbox',
+              'mail_send',
               'terminate_subagent',
             ],
           },
@@ -820,10 +903,10 @@ export class MultiAgentHost {
       // autonomy-parallel engine) call the factory without going through the
       // director — resolve here too so they honor the matrix. Explicit
       // per-subagent model/provider always win.
-      const matrixEntry = subCfg.model
+      const liveConfig = this.deps.configStore.get();
+      const matrixTarget = subCfg.model
         ? undefined
-        : resolveModelMatrix(this.deps.configStore.get().modelMatrix, subCfg.role);
-      const matrixTarget = resolveModelTargetFromEntry(this.deps.configStore.get(), matrixEntry);
+        : resolveSubagentModelTarget(liveConfig, subCfg.role);
       const effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
       const effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
       const matrixFallbacks = matrixTarget?.fallbackModels;
@@ -941,7 +1024,8 @@ export class MultiAgentHost {
         projectRoot: this.deps.projectRoot,
         // Subagents inherit the leader's filesystem-access scope.
         allowOutsideProjectRoot:
-          config.features?.allowOutsideProjectRoot ?? !(config.tools?.restrictToProjectRoot ?? false),
+          config.features?.allowOutsideProjectRoot ??
+          !(config.tools?.restrictToProjectRoot ?? false),
         model: effModel,
         tools: this.filterTools(tools),
         // Distinct mailbox identity: without these, every subagent fell back
@@ -974,7 +1058,8 @@ export class MultiAgentHost {
         name: 'ModelRuntimeSettings',
         async handler(req: Request) {
           return applyModelRuntime(req, {
-            getSettings: () => mergeModelRuntime(subagentConfigStore.get().modelRuntime, runtimeOverride),
+            getSettings: () =>
+              mergeModelRuntime(subagentConfigStore.get().modelRuntime, runtimeOverride),
             getReasoningConfig: () => subReasoningConfig,
             getCapabilities: () => ctx.provider.capabilities,
           });
@@ -1008,7 +1093,8 @@ export class MultiAgentHost {
           // explicit list or smart default. Mirrors the runtime light factory.
           getConfig: () => {
             const live = this.deps.configStore.get();
-            if (subCfg.fallbackModels?.length) return { ...live, fallbackModels: subCfg.fallbackModels };
+            if (subCfg.fallbackModels?.length)
+              return { ...live, fallbackModels: subCfg.fallbackModels };
             if (matrixFallbacks?.length) return { ...live, fallbackModels: matrixFallbacks };
             return live;
           },
@@ -1129,11 +1215,12 @@ export class MultiAgentHost {
         };
       }
     }
-    if (!cmd) throw new ToolValidationError({
-      message: `Unknown ACP agent: ${subagentId}`,
-      field: 'subagentId',
-      context: { requested: subagentId },
-    });
+    if (!cmd)
+      throw new ToolValidationError({
+        message: `Unknown ACP agent: ${subagentId}`,
+        field: 'subagentId',
+        context: { requested: subagentId },
+      });
     // LRU eviction: remove oldest entries if at capacity
     while (this.acpRunnerAccessOrder.length >= MultiAgentHost.ACP_CACHE_MAX) {
       const oldest = this.acpRunnerAccessOrder.shift();
@@ -1207,7 +1294,8 @@ export class MultiAgentHost {
   ): Promise<ReasoningConfig | undefined> {
     if (!this.deps.modelsRegistry) return undefined;
     try {
-      return (await this.deps.modelsRegistry.getModel(providerId, modelId))?.capabilities.reasoningConfig;
+      return (await this.deps.modelsRegistry.getModel(providerId, modelId))?.capabilities
+        .reasoningConfig;
     } catch {
       return undefined;
     }
@@ -1252,7 +1340,9 @@ export class MultiAgentHost {
   /** Returns a tool slice for the subagent — full set unless restricted. */
   private filterTools(allow?: string[]): Tool[] {
     const all = this.deps.toolRegistry.list();
-    if (!allow || allow.length === 0) return all;
+    if (!allow || allow.length === 0) {
+      return all.filter((tool) => !DEFAULT_SUBAGENT_HIDDEN_TOOLS.has(tool.name));
+    }
     const allowSet = new Set(allow);
     const result = new Map<string, Tool>();
     for (const tool of all) {
@@ -1412,11 +1502,10 @@ export class MultiAgentHost {
   }
 
   private subagentToolRegistry(allow?: string[]): ToolRegistry {
-    if (!allow || allow.length === 0) return this.deps.toolRegistry;
-    // Build a *filtered* registry containing only the allow-listed tools.
-    // Start from an empty registry (not a clone of the full one — cloning
-    // copies every tool, defeating the filter and throwing a duplicate
-    // error when we re-register the allowed slice).
+    // Build a per-subagent registry from the visible tool slice. Even the
+    // "full" default hides host orchestration controls like `delegate` and
+    // `spawn_subagent`: subagents keep full developer power (read/write/shell/
+    // build/install) but do not receive recursive delegation affordances.
     const sub = new ToolRegistry();
     for (const t of this.filterTools(allow)) sub.register(t);
     return sub;
@@ -1466,15 +1555,11 @@ export class MultiAgentHost {
     // so the director's manifest entries get populated. Calling the
     // underlying coordinator directly would still execute the task, but
     // the manifest would be empty — that surprised the first test.
-    const { subagentId, taskId } = await this._spawnAndAssign(
-      subagentConfig,
-      description,
-      {
-        internalTask: isShadowSpawn,
-        stopShadowAfterTask: isShadowSpawn,
-        shadowIntervalMs: opts?.shadowIntervalMs,
-      },
-    );
+    const { subagentId, taskId } = await this._spawnAndAssign(subagentConfig, description, {
+      internalTask: isShadowSpawn,
+      stopShadowAfterTask: isShadowSpawn,
+      shadowIntervalMs: opts?.shadowIntervalMs,
+    });
     // Track the pending task via FleetManager so status() can show descriptions
     // without host-side state duplication.
     if (!isShadowSpawn) {
@@ -1512,18 +1597,20 @@ export class MultiAgentHost {
     // Capture director reference before await to avoid TOCTOU race with
     // concurrent stopAll() — this.director is a shared mutable field.
     const director = this.director;
-    if (!director) throw new AgentError({
-      message: 'Director is not initialized',
-      code: 'AGENT_RUN_FAILED',
-      context: { phase: 'awaitTaskAndSpawn' },
-    });
+    if (!director)
+      throw new AgentError({
+        message: 'Director is not initialized',
+        code: 'AGENT_RUN_FAILED',
+        context: { phase: 'awaitTaskAndSpawn' },
+      });
     const results = await director.awaitTasks([taskId]);
     const result = results[0];
-    if (!result) throw new AgentError({
-      message: `Task ${taskId} completed but no result returned`,
-      code: 'AGENT_RUN_FAILED',
-      context: { taskId },
-    });
+    if (!result)
+      throw new AgentError({
+        message: `Task ${taskId} completed but no result returned`,
+        code: 'AGENT_RUN_FAILED',
+        context: { taskId },
+      });
     return result;
   }
 
@@ -1547,11 +1634,12 @@ export class MultiAgentHost {
   ): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();
     // Always goes through the Director — single code path after buildDirector()
-    if (!this.director) throw new AgentError({
-      message: 'Director is not initialized',
-      code: 'AGENT_RUN_FAILED',
-      context: { phase: 'spawnAndAssign' },
-    });
+    if (!this.director)
+      throw new AgentError({
+        message: 'Director is not initialized',
+        code: 'AGENT_RUN_FAILED',
+        context: { phase: 'spawnAndAssign' },
+      });
     const subagentId = await this.director.spawn(subagentConfig);
     const task = { id: taskId, description, subagentId };
     if (opts?.internalTask) {

@@ -544,6 +544,11 @@ export async function startWebUI(
     sessionStartPayload,
     tokenCounter,
     context,
+    loadReplay: async () => {
+      await session.flush().catch(() => undefined);
+      const data = await sessionStore.load(session.id);
+      return { messages: data.messages, usage: data.usage };
+    },
     clients,
     pendingConfirms,
     autoPhaseHandler,

@@ -1,0 +1,621 @@
+/**
+ * semantic-search-indexer plugin — lightweight keyword-based search over
+ * project source files.
+ *
+ * The plugin builds an in-memory inverted index (no persistence, no
+ * embeddings) and exposes two tools:
+ *
+ *  - `semantic_search`       — ranked keyword search with TF scoring
+ *  - `semantic_index_status` — index counters and configuration
+ *
+ * Files are tokenized into lowercase alphanumeric terms and indexed with
+ * per-document term frequencies. Queries are scored by summing the TF of
+ * each matched query token, then results are returned with the matching
+ * file path, score, and a handful of matched lines.
+ *
+ * Config (`config.extensions['semantic-search-indexer']`):
+ *
+ * ```jsonc
+ * {
+ *   "enabled": true,
+ *   "includeExtensions": [".ts", ".tsx", ".js", ".jsx"],
+ *   "excludePatterns": ["node_modules", "\\.git", "dist"],
+ *   "maxFileBytes": 1_000_000,
+ *   "defaultLimit": 10,
+ *   "minTokenLength": 2,
+ *   "maxMatchesPerFile": 10,
+ *   "maxFiles": 5000
+ * }
+ * ```
+ *
+ * @public
+ */
+
+import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
+import type { Plugin } from '@wrongstack/core';
+
+const API_VERSION = '^0.1.10';
+
+// ---------------------------------------------------------------------------
+// Module-scope state (H1 audit pattern)
+// ---------------------------------------------------------------------------
+
+interface Posting {
+  tf: number;
+}
+
+interface FileEntry {
+  lines: string[];
+  size: number;
+}
+
+interface InvertedIndex {
+  terms: Map<string, Map<string, Posting>>;
+  files: Map<string, FileEntry>;
+}
+
+interface SemanticSearchState {
+  index: InvertedIndex | null;
+  cachedPath: string | null;
+  fileCount: number;
+  termCount: number;
+  bytesIndexed: number;
+  truncated: boolean;
+  queryCount: number;
+  reindexCount: number;
+  hookUnregister: (() => void) | null;
+}
+
+const state: SemanticSearchState = {
+  index: null,
+  cachedPath: null,
+  fileCount: 0,
+  termCount: 0,
+  bytesIndexed: 0,
+  truncated: false,
+  queryCount: 0,
+  reindexCount: 0,
+  hookUnregister: null,
+};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+interface SemanticSearchConfig {
+  enabled: boolean;
+  includeExtensions: string[];
+  excludePatterns: string[];
+  maxFileBytes: number;
+  defaultLimit: number;
+  minTokenLength: number;
+  maxMatchesPerFile: number;
+  maxFiles: number;
+}
+
+const DEFAULTS: SemanticSearchConfig = {
+  enabled: true,
+  includeExtensions: [
+    '.ts',
+    '.tsx',
+    '.js',
+    '.jsx',
+    '.mjs',
+    '.cjs',
+    '.py',
+    '.java',
+    '.go',
+    '.rs',
+    '.rb',
+    '.php',
+    '.cpp',
+    '.c',
+    '.h',
+    '.cs',
+    '.swift',
+    '.kt',
+    '.scala',
+    '.sh',
+    '.md',
+    '.json',
+    '.yaml',
+    '.yml',
+    '.css',
+    '.scss',
+    '.html',
+  ],
+  excludePatterns: ['node_modules', '\\.git', '\\.wrongstack', '\\.temp_files', 'coverage', 'dist'],
+  maxFileBytes: 1_000_000,
+  defaultLimit: 10,
+  minTokenLength: 2,
+  maxMatchesPerFile: 10,
+  maxFiles: 5_000,
+};
+
+function readConfig(raw: unknown): SemanticSearchConfig {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULTS, includeExtensions: [...DEFAULTS.includeExtensions], excludePatterns: [...DEFAULTS.excludePatterns] };
+  const r = raw as Record<string, unknown>;
+
+  const includeExtensions = Array.isArray(r['includeExtensions'])
+    ? (r['includeExtensions'] as unknown[]).filter((x): x is string => typeof x === 'string')
+    : [...DEFAULTS.includeExtensions];
+
+  const excludePatterns = Array.isArray(r['excludePatterns'])
+    ? (r['excludePatterns'] as unknown[]).filter((x): x is string => typeof x === 'string')
+    : [...DEFAULTS.excludePatterns];
+
+  const clamp = (v: unknown, min: number, max: number, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? v : fallback;
+
+  return {
+    enabled: r['enabled'] !== false,
+    includeExtensions,
+    excludePatterns,
+    maxFileBytes: clamp(r['maxFileBytes'], 1_024, 50_000_000, DEFAULTS.maxFileBytes),
+    defaultLimit: clamp(r['defaultLimit'], 1, 1_000, DEFAULTS.defaultLimit),
+    minTokenLength: clamp(r['minTokenLength'], 1, 10, DEFAULTS.minTokenLength),
+    maxMatchesPerFile: clamp(r['maxMatchesPerFile'], 1, 100, DEFAULTS.maxMatchesPerFile),
+    maxFiles: clamp(r['maxFiles'], 1, 50_000, DEFAULTS.maxFiles),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Path safety
+// ---------------------------------------------------------------------------
+
+function normalizeSlashes(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+function withinProject(p: string): boolean {
+  if (typeof p !== 'string' || p.length === 0 || p.length > 4096) return false;
+  const root = normalizeSlashes(process.cwd());
+  const resolved = normalizeSlashes(isAbsolute(p) ? resolve(p) : resolve(root, p));
+  const rel = normalizeSlashes(relative(root, resolved));
+  if (rel === '' || rel === '.') return true;
+  if (rel.startsWith('..')) return false;
+  if (isAbsolute(rel)) return false;
+  return true;
+}
+
+function resolveProjectPath(p: string | undefined): string | null {
+  const raw = typeof p === 'string' && p.length > 0 ? p : '.';
+  if (!withinProject(raw)) return null;
+  const root = normalizeSlashes(process.cwd());
+  return normalizeSlashes(isAbsolute(raw) ? resolve(raw) : resolve(root, raw));
+}
+
+// ---------------------------------------------------------------------------
+// Tokenization + indexing
+// ---------------------------------------------------------------------------
+
+function tokenize(text: string, minLength: number): string[] {
+  const tokens: string[] = [];
+  for (const match of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+    if (match.length >= minLength) tokens.push(match);
+  }
+  return tokens;
+}
+
+function compileExcludes(patterns: string[]): RegExp[] {
+  const out: RegExp[] = [];
+  for (const p of patterns) {
+    try {
+      out.push(new RegExp(p));
+    } catch {
+      // skip invalid patterns
+    }
+  }
+  return out;
+}
+
+function shouldIndexFile(filePath: string, cfg: SemanticSearchConfig): boolean {
+  if (cfg.includeExtensions.length === 0) return true;
+  const lower = filePath.toLowerCase();
+  for (const ext of cfg.includeExtensions) {
+    if (lower.endsWith(ext.toLowerCase())) return true;
+  }
+  return false;
+}
+
+function indexFile(absPath: string, relPath: string, cfg: SemanticSearchConfig): void {
+  if (!state.index) return;
+  if (!shouldIndexFile(relPath, cfg)) return;
+
+  let stats: ReturnType<typeof statSync>;
+  try {
+    stats = statSync(absPath);
+  } catch {
+    return;
+  }
+  if (!stats.isFile() || stats.size > cfg.maxFileBytes) return;
+
+  let content: string;
+  try {
+    content = readFileSync(absPath, 'utf-8');
+  } catch {
+    return;
+  }
+  if (content.includes('\u0000')) return; // skip binary-looking files
+
+  state.bytesIndexed += content.length;
+  const lines = content.split(/\r?\n/);
+  state.index.files.set(relPath, { lines, size: stats.size });
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const terms = tokenize(lines[i]!, cfg.minTokenLength);
+    for (const term of terms) {
+      let postings = state.index.terms.get(term);
+      if (!postings) {
+        postings = new Map<string, Posting>();
+        state.index.terms.set(term, postings);
+      }
+      let posting = postings.get(relPath);
+      if (!posting) {
+        posting = { tf: 0 };
+        postings.set(relPath, posting);
+      }
+      posting.tf += 1;
+    }
+  }
+}
+
+function walkDirectory(absPath: string, cfg: SemanticSearchConfig, excludes: RegExp[]): void {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(absPath, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const root = normalizeSlashes(process.cwd());
+
+  for (const ent of entries) {
+    if (state.fileCount >= cfg.maxFiles) {
+      state.truncated = true;
+      return;
+    }
+
+    const absChild = normalizeSlashes(resolve(absPath, ent.name));
+    const relChild = normalizeSlashes(relative(root, absChild));
+    if (relChild === '' || relChild === '.') continue;
+
+    if (excludes.some((re) => re.test(relChild))) continue;
+
+    if (ent.isDirectory()) {
+      walkDirectory(absChild, cfg, excludes);
+      if (state.truncated) return;
+    } else if (ent.isFile()) {
+      indexFile(absChild, relChild, cfg);
+      state.fileCount += 1;
+    }
+  }
+}
+
+function buildIndex(rootPath: string, cfg: SemanticSearchConfig): void {
+  state.index = { terms: new Map(), files: new Map() };
+  state.cachedPath = rootPath;
+  state.fileCount = 0;
+  state.termCount = 0;
+  state.bytesIndexed = 0;
+  state.truncated = false;
+  state.reindexCount += 1;
+
+  const excludes = compileExcludes(cfg.excludePatterns);
+
+  let rootStats: ReturnType<typeof statSync>;
+  try {
+    rootStats = statSync(rootPath);
+  } catch {
+    state.termCount = 0;
+    return;
+  }
+
+  if (rootStats.isFile()) {
+    const relPath = normalizeSlashes(relative(normalizeSlashes(process.cwd()), rootPath));
+    indexFile(rootPath, relPath === '' ? '.' : relPath, cfg);
+    state.fileCount = state.index.files.size;
+  } else if (rootStats.isDirectory()) {
+    walkDirectory(rootPath, cfg, excludes);
+  }
+
+  state.termCount = state.index.terms.size;
+}
+
+// ---------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------
+
+interface SearchResult {
+  path: string;
+  score: number;
+  matchedTerms: string[];
+  matchedLines: { lineNumber: number; text: string }[];
+}
+
+function runQuery(query: string, limit: number, cfg: SemanticSearchConfig): SearchResult[] {
+  if (!state.index) return [];
+
+  const rawTokens = tokenize(query, cfg.minTokenLength);
+  const uniqueTokens = [...new Set(rawTokens)];
+  if (uniqueTokens.length === 0) return [];
+
+  const scores = new Map<string, number>();
+  const matchedTerms = new Map<string, Set<string>>();
+
+  for (const token of uniqueTokens) {
+    const postings = state.index.terms.get(token);
+    if (!postings) continue;
+    for (const [filePath, posting] of postings) {
+      scores.set(filePath, (scores.get(filePath) ?? 0) + posting.tf);
+      let terms = matchedTerms.get(filePath);
+      if (!terms) {
+        terms = new Set<string>();
+        matchedTerms.set(filePath, terms);
+      }
+      terms.add(token);
+    }
+  }
+
+  const ranked = Array.from(scores.entries())
+    .map(([path, score]) => ({
+      path,
+      score,
+      terms: Array.from(matchedTerms.get(path) ?? []),
+    }))
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+
+  const top = ranked.slice(0, limit);
+
+  return top.map(({ path, score, terms }) => {
+    const entry = state.index!.files.get(path);
+    const matchedLines: { lineNumber: number; text: string }[] = [];
+
+    if (entry) {
+      const querySet = new Set(uniqueTokens);
+      for (let i = 0; i < entry.lines.length; i += 1) {
+        const line = entry.lines[i]!;
+        const lower = line.toLowerCase();
+        for (const token of querySet) {
+          if (lower.includes(token)) {
+            matchedLines.push({ lineNumber: i + 1, text: line.trim() });
+            break;
+          }
+        }
+        if (matchedLines.length >= cfg.maxMatchesPerFile) break;
+      }
+    }
+
+    return { path, score, matchedTerms: terms, matchedLines };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Plugin
+// ---------------------------------------------------------------------------
+
+const plugin: Plugin = {
+  name: 'semantic-search-indexer',
+  version: '0.1.0',
+  description: 'Builds an in-memory keyword index over project source files and answers ranked search queries',
+  apiVersion: API_VERSION,
+  capabilities: { tools: true },
+  defaultConfig: { ...DEFAULTS, includeExtensions: [...DEFAULTS.includeExtensions], excludePatterns: [...DEFAULTS.excludePatterns] },
+  configSchema: {
+    type: 'object',
+    properties: {
+      enabled: { type: 'boolean', default: true, description: 'Master switch.' },
+      includeExtensions: {
+        type: 'array',
+        items: { type: 'string' },
+        default: DEFAULTS.includeExtensions,
+        description: 'Only index files with these extensions. Empty = all files.',
+      },
+      excludePatterns: {
+        type: 'array',
+        items: { type: 'string' },
+        default: DEFAULTS.excludePatterns,
+        description: 'Regex patterns; matching relative paths are skipped.',
+      },
+      maxFileBytes: {
+        type: 'number',
+        minimum: 1024,
+        maximum: 50_000_000,
+        default: 1_000_000,
+        description: 'Files larger than this are skipped.',
+      },
+      defaultLimit: {
+        type: 'number',
+        minimum: 1,
+        maximum: 1_000,
+        default: 10,
+        description: 'Default number of results per query.',
+      },
+      minTokenLength: {
+        type: 'number',
+        minimum: 1,
+        maximum: 10,
+        default: 2,
+        description: 'Minimum length of an indexed/query token.',
+      },
+      maxMatchesPerFile: {
+        type: 'number',
+        minimum: 1,
+        maximum: 100,
+        default: 10,
+        description: 'Maximum matching lines returned per result.',
+      },
+      maxFiles: {
+        type: 'number',
+        minimum: 1,
+        maximum: 50_000,
+        default: 5_000,
+        description: 'Maximum files to index in one build.',
+      },
+    },
+  },
+
+  setup(api) {
+    // Idempotent re-init (H1 pattern).
+    state.index = null;
+    state.cachedPath = null;
+    state.fileCount = 0;
+    state.termCount = 0;
+    state.bytesIndexed = 0;
+    state.truncated = false;
+    state.queryCount = 0;
+    state.reindexCount = 0;
+    if (state.hookUnregister) {
+      try {
+        state.hookUnregister();
+      } catch {
+        // best-effort
+      }
+      state.hookUnregister = null;
+    }
+
+    const cfg = readConfig(api.config.extensions?.['semantic-search-indexer']);
+
+    // --- semantic_search ---
+    api.tools.register({
+      name: 'semantic_search',
+      description:
+        'Search project source files with a lightweight keyword index. ' +
+        'Returns ranked file paths, TF scores, and matched lines.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Space-separated keywords to search for.',
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of results (defaults to configured defaultLimit).',
+          },
+          path: {
+            type: 'string',
+            description: 'Directory or file to search under (defaults to project root).',
+          },
+        },
+        required: ['query'],
+      },
+      permission: 'auto',
+      category: 'Search',
+      mutating: false,
+      riskTier: 'safe',
+      icon: 'search',
+      async execute(input: { query?: string; limit?: number; path?: string }) {
+        if (!cfg.enabled) {
+          return { ok: false, error: 'semantic-search-indexer is disabled' };
+        }
+
+        const resolved = resolveProjectPath(input.path);
+        if (!resolved) {
+          return { ok: false, error: 'path outside project root' };
+        }
+
+        if (!state.index || state.cachedPath !== resolved) {
+          buildIndex(resolved, cfg);
+        }
+
+        const query = String(input.query ?? '');
+        const limit =
+          typeof input.limit === 'number' && input.limit >= 1
+            ? Math.floor(input.limit)
+            : cfg.defaultLimit;
+
+        const results = runQuery(query, limit, cfg);
+        const queryTokens = [...new Set(tokenize(query, cfg.minTokenLength))];
+        state.queryCount += 1;
+        api.metrics.counter('queries');
+
+        return {
+          ok: true,
+          query,
+          queryTokens,
+          indexedPath: state.cachedPath,
+          totalResults: results.length,
+          limit,
+          results,
+        };
+      },
+    });
+
+    // --- semantic_index_status ---
+    api.tools.register({
+      name: 'semantic_index_status',
+      description: 'Reports semantic-search-indexer state: indexed path, file/term counts, and counters.',
+      inputSchema: { type: 'object', properties: {} },
+      permission: 'auto',
+      category: 'Diagnostics',
+      mutating: false,
+      riskTier: 'safe',
+      icon: 'index',
+      async execute() {
+        return {
+          ok: true,
+          enabled: cfg.enabled,
+          indexedPath: state.cachedPath,
+          fileCount: state.fileCount,
+          termCount: state.termCount,
+          bytesIndexed: state.bytesIndexed,
+          truncated: state.truncated,
+          counters: {
+            queries: state.queryCount,
+            reindexes: state.reindexCount,
+          },
+        };
+      },
+    });
+
+    api.log.info('semantic-search-indexer plugin loaded', {
+      version: '0.1.0',
+      defaultLimit: cfg.defaultLimit,
+      maxFiles: cfg.maxFiles,
+    });
+  },
+
+  teardown(api) {
+    if (state.hookUnregister) {
+      try {
+        state.hookUnregister();
+      } catch {
+        // best-effort
+      }
+      state.hookUnregister = null;
+    }
+    const final = {
+      fileCount: state.fileCount,
+      termCount: state.termCount,
+      queries: state.queryCount,
+      reindexes: state.reindexCount,
+    };
+    state.index = null;
+    state.cachedPath = null;
+    state.fileCount = 0;
+    state.termCount = 0;
+    state.bytesIndexed = 0;
+    state.truncated = false;
+    state.queryCount = 0;
+    state.reindexCount = 0;
+    api.log.info('semantic-search-indexer: teardown complete', { final });
+  },
+
+  async health() {
+    return {
+      ok: true,
+      message: `semantic-search-indexer: ${state.fileCount} file(s), ${state.termCount} term(s), ${state.queryCount} query(ies)`,
+      counters: {
+        fileCount: state.fileCount,
+        termCount: state.termCount,
+        bytesIndexed: state.bytesIndexed,
+        queries: state.queryCount,
+        reindexes: state.reindexCount,
+      },
+    };
+  },
+};
+
+export default plugin;

@@ -413,6 +413,7 @@ describe('Director orchestration', () => {
       'collab_debug',
       'fleet',
       'fleet_emit',
+      'quality_gate',
       'roll_up',
       'spawn_subagent',
       'terminate_all',
@@ -701,7 +702,7 @@ describe('Director orchestration', () => {
     return { director: d, runner };
   }
 
-  it('director.tools() exposes all 12 tools including collab_debug and fleet', async () => {
+  it('director.tools() exposes all 13 tools including collab_debug, fleet, and quality_gate', async () => {
     const { director: d } = buildDirector();
     _director = d;
     const tools = d.tools();
@@ -714,6 +715,7 @@ describe('Director orchestration', () => {
       'collab_debug',
       'fleet',
       'fleet_emit',
+      'quality_gate',
       'roll_up',
       'spawn_subagent',
       'terminate_all',
@@ -1280,7 +1282,11 @@ describe('Director taskResultNotifier (fire-and-forget report-back)', () => {
     const notifier = vi.fn();
     const d = build(notifier);
     const id = await d.spawn({ name: 'worker' });
-    const taskId = await d.assign({ id: 't-noawait', description: 'background job', subagentId: id });
+    const taskId = await d.assign({
+      id: 't-noawait',
+      description: 'background job',
+      subagentId: id,
+    });
 
     await expect.poll(() => notifier.mock.calls.length).toBe(1);
     const n = notifier.mock.calls[0]![0] as TaskResultNotification;

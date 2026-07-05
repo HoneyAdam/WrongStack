@@ -1,6 +1,20 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { Writable } from 'node:stream';
 import { Spinner } from '../src/spinner.js';
+
+const originalNoColor = process.env.NO_COLOR;
+
+beforeAll(() => {
+  delete process.env.NO_COLOR;
+});
+
+afterAll(() => {
+  if (originalNoColor === undefined) {
+    delete process.env.NO_COLOR;
+  } else {
+    process.env.NO_COLOR = originalNoColor;
+  }
+});
 
 // Minimal mock stream that tracks writes
 class MockStream extends Writable {

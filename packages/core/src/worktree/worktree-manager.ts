@@ -222,6 +222,16 @@ export class WorktreeManager {
     const squash = opts.squash ?? true;
     this.setStatus(handle, 'merging');
 
+    const status = await this.runGit(
+      ['status', '--porcelain', '--untracked-files=no'],
+      this.projectRoot,
+    );
+    if (status.stdout.trim().length > 0) {
+      const reason = 'working tree has uncommitted changes — commit or stash first';
+      this.fail(handle, reason);
+      return { ok: false, stderr: reason };
+    }
+
     const checkout = await this.runGit(['checkout', handle.baseBranch], this.projectRoot);
     if (checkout.code !== 0) {
       this.fail(handle, checkout.stderr || `checkout ${handle.baseBranch} failed`);
@@ -359,7 +369,10 @@ export class WorktreeManager {
         ['branch', '--list', '--format=%(refname:short)', 'wstack/ap/*'],
         this.projectRoot,
       );
-      for (const b of branches.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+      for (const b of branches.stdout
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)) {
         await this.runGit(['branch', '-D', b], this.projectRoot);
       }
     } catch {
@@ -412,7 +425,10 @@ export class WorktreeManager {
           flush();
           curDir = line.slice('worktree '.length).trim();
         } else if (line.startsWith('branch ')) {
-          curBranch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
+          curBranch = line
+            .slice('branch '.length)
+            .trim()
+            .replace(/^refs\/heads\//, '');
         } else if (line.trim() === '') {
           flush();
         }
@@ -427,7 +443,10 @@ export class WorktreeManager {
         ['branch', '--list', '--format=%(refname:short)', 'wstack/ap/*'],
         this.projectRoot,
       );
-      branches = b.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+      branches = b.stdout
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
     } catch {
       // best-effort
     }
@@ -501,7 +520,12 @@ export class WorktreeManager {
       const conflictFiles = [...new Set([...fromOutput, ...fromIndex])];
       // `merge --squash` leaves no MERGE_HEAD — hard-reset to undo cleanly.
       await this.runGit(['reset', '--hard', 'HEAD'], this.projectRoot).catch(() => undefined);
-      return { ok: false, conflict: true, conflictFiles, reason: merged.stderr || 'merge conflict' };
+      return {
+        ok: false,
+        conflict: true,
+        conflictFiles,
+        reason: merged.stderr || 'merge conflict',
+      };
     }
     const idArgs = await this.identityArgs(this.projectRoot);
     const commit = await this.runGit(
@@ -600,7 +624,10 @@ export class WorktreeManager {
           ['branch', '--list', '--format=%(refname:short)', 'wstack/ap/*'],
           this.projectRoot,
         );
-        detected += branches.stdout.split('\n').map((s) => s.trim()).filter(Boolean).length;
+        detected += branches.stdout
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean).length;
       } catch {
         // best-effort
       }
@@ -628,7 +655,11 @@ export class WorktreeManager {
 
     const status = await this.runGit(['status', '--porcelain'], this.projectRoot);
     if (status.stdout.trim().length > 0) {
-      return { ok: false, reverted: 0, reason: 'working tree has uncommitted changes — commit or stash first' };
+      return {
+        ok: false,
+        reverted: 0,
+        reason: 'working tree has uncommitted changes — commit or stash first',
+      };
     }
 
     const co = await this.runGit(['checkout', baseBranch], this.projectRoot);
@@ -669,7 +700,9 @@ export class WorktreeManager {
   ): Promise<MergeResult | null> {
     let resolved = false;
     try {
-      resolved = opts.resolve ? await opts.resolve({ conflictFiles, cwd: this.projectRoot }) : false;
+      resolved = opts.resolve
+        ? await opts.resolve({ conflictFiles, cwd: this.projectRoot })
+        : false;
     } catch {
       resolved = false;
     }
@@ -865,9 +898,7 @@ export class WorktreeManager {
 
   private currentSessionId(): string | undefined {
     const value =
-      typeof this.sessionIdSource === 'function'
-        ? this.sessionIdSource()
-        : this.sessionIdSource;
+      typeof this.sessionIdSource === 'function' ? this.sessionIdSource() : this.sessionIdSource;
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 

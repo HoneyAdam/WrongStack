@@ -1,0 +1,158 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:child_process', () => ({
+  execFileSync: vi.fn(),
+}));
+
+const { execFileSync } = await import('node:child_process');
+const typeGatePlugin = (await import('../src/type-gate')).default;
+
+interface MockApi {
+  tools: { register: ReturnType<typeof vi.fn> };
+  config: { extensions: Record<string, unknown> };
+  log: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+  metrics: {
+    counter: ReturnType<typeof vi.fn>;
+  };
+  registerHook: ReturnType<typeof vi.fn>;
+}
+
+function makeApi(overrides: { extensions?: Record<string, unknown>; enabled?: boolean } = {}): MockApi {
+  return {
+    tools: { register: vi.fn() },
+    config: {
+      extensions: overrides.extensions ?? (overrides.enabled === true ? { 'type-gate': { enabled: true } } : {}),
+    },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    metrics: { counter: vi.fn() },
+    registerHook: vi.fn(() => vi.fn()),
+  };
+}
+
+type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
+
+function getHook(api: MockApi): (input: unknown) => HookResult {
+  const call = api.registerHook.mock.calls[0];
+  if (!call) throw new Error('hook not registered');
+  return (call as unknown[])[2] as (input: unknown) => HookResult;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(execFileSync).mockReset();
+});
+
+afterEach(async () => {
+  const api = makeApi();
+  await typeGatePlugin.teardown?.(api as never);
+});
+
+describe('type-gate plugin', () => {
+  it('registers type_gate_status and a PostToolUse write|edit hook', async () => {
+    const api = makeApi();
+    typeGatePlugin.setup(api as never);
+    expect(api.tools.register).toHaveBeenCalledTimes(1);
+    const [event, matcher] = api.registerHook.mock.calls[0]!;
+    expect(event).toBe('PostToolUse');
+    expect(matcher).toBe('write|edit');
+  });
+
+  it('skips non-source files by extension when enabled', async () => {
+    const api = makeApi({ enabled: true });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'README.md' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(result).toBeUndefined();
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('passes silently when type check has no errors', async () => {
+    vi.mocked(execFileSync).mockReturnValue('');
+    const api = makeApi({ enabled: true });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(result).toBeUndefined();
+    expect(execFileSync).toHaveBeenCalled();
+  });
+
+  it('warn severity injects additionalContext on type errors', async () => {
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw Object.assign(new Error('tsc failed'), {
+        stdout: 'src/foo.ts(1,1): error TS1234: test error',
+      });
+    });
+    const api = makeApi({ enabled: true });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(result?.additionalContext).toContain('error TS1234');
+  });
+
+  it('block severity returns a block decision on type errors', async () => {
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw Object.assign(new Error('tsc failed'), {
+        stdout: 'src/foo.ts(1,1): error TS1234: test error',
+      });
+    });
+    const api = makeApi({ extensions: { 'type-gate': { enabled: true, failSeverity: 'block' } } });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(result?.decision).toBe('block');
+  });
+
+  it('does not run by default', async () => {
+    const api = makeApi();
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(result).toBeUndefined();
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('enabled:false disables the hook', async () => {
+    const api = makeApi({ extensions: { 'type-gate': { enabled: false } } });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(result).toBeUndefined();
+  });
+
+  it('teardown zeros state and logs', async () => {
+    const api = makeApi();
+    typeGatePlugin.setup(api as never);
+    typeGatePlugin.teardown!(api as never);
+    const health = (await typeGatePlugin.health!()) as { counters: Record<string, number> };
+    expect(health.counters['runs']).toBe(0);
+    expect(api.log.info).toHaveBeenCalledWith('type-gate: teardown complete', expect.any(Object));
+  });
+});

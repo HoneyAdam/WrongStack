@@ -11,6 +11,7 @@
  * PR 14 of Issue #30: extracted from `webui-server.ts`.
  */
 import type { IncomingMessage } from 'node:http';
+import type { Message, Usage } from '@wrongstack/core';
 import type {
   AutoPhaseWebSocketHandler,
   SddBoardWebSocketHandler,
@@ -27,6 +28,8 @@ export interface ConnectedClient {
   ws: WebSocket;
   sessionId: string | null;
 }
+
+const REPLAY_MESSAGE_CAP = 2_000;
 
 export interface ConnectionHandlerDeps {
   host: string;
@@ -52,6 +55,12 @@ export interface ConnectionHandlerDeps {
     overrides?: Record<string, unknown>,
     needsSetup?: boolean,
   ) => Promise<Record<string, unknown>>;
+  /**
+   * Load the visible chat transcript for a reconnecting browser tab. This
+   * should read the session log when available; `context.messages` is only a
+   * fallback because it is the model working set and can be compacted.
+   */
+  loadReplay?: (() => Promise<{ messages: Message[]; usage?: Usage | undefined } | null>) | undefined;
   needsSetup: boolean;
 }
 
@@ -175,9 +184,29 @@ export function createConnectionHandler(
     // the token here would re-introduce the C-598 query-string
     // exposure class.
     const base = await deps.buildSessionStartPayload({}, deps.needsSetup);
+    const payload = { ...base };
+    try {
+      const replay = await deps.loadReplay?.();
+      if (replay?.messages && replay.messages.length > 0) {
+        payload['replayMessages'] =
+          replay.messages.length > REPLAY_MESSAGE_CAP
+            ? replay.messages.slice(-REPLAY_MESSAGE_CAP)
+            : replay.messages;
+      }
+      const usage = replay?.usage;
+      if (
+        usage &&
+        usage.input + usage.output + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0
+      ) {
+        payload['replayUsage'] = usage;
+      }
+    } catch {
+      // Best-effort. The frontend can still use localStorage if the replay
+      // load races a writer or the store is unavailable.
+    }
     deps.send(ws, {
       type: 'session.start',
-      payload: { ...base },
+      payload,
     });
   };
 }

@@ -38,6 +38,13 @@ describe('streamBoxRows (constant-height tool stream)', () => {
     expect(content.text.length).toBeLessThanOrEqual(40);
     expect(content.text.endsWith('…')).toBe(true);
   });
+
+  it('supports the write-create 3-line scrolling preview', () => {
+    const rows = streamBoxRows('one\ntwo\nthree\nfour', 3, 100);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ italic: true });
+    expect(rows.map((r) => r.text)).toEqual(['  … 1 more line above', 'three', 'four']);
+  });
 });
 
 describe('assistantTailRows (constant-height assistant tail)', () => {

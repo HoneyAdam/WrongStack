@@ -1,0 +1,259 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs', () => ({
+  readdirSync: vi.fn(),
+  readFileSync: vi.fn(),
+  statSync: vi.fn(),
+}));
+
+const { readdirSync, readFileSync, statSync } = await import('node:fs');
+const plugin = (await import('../src/semantic-search-indexer')).default;
+
+interface MockApi {
+  tools: { register: ReturnType<typeof vi.fn> };
+  config: { extensions: Record<string, unknown> };
+  log: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+  metrics: {
+    counter: ReturnType<typeof vi.fn>;
+  };
+}
+
+interface TreeEntry {
+  type: 'dir';
+  entries?: string[];
+}
+
+interface FileEntry {
+  type: 'file';
+  content: string;
+  size?: number;
+}
+
+type Tree = Record<string, TreeEntry | FileEntry>;
+
+function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): MockApi {
+  return {
+    tools: { register: vi.fn() },
+    config: { extensions: overrides.extensions ?? {} },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    metrics: { counter: vi.fn() },
+  };
+}
+
+function getTool(api: MockApi, name: string): (input: unknown) => Promise<unknown> {
+  const call = api.tools.register.mock.calls.find((c) => (c[0] as { name: string }).name === name);
+  if (!call) throw new Error(`tool ${name} not registered`);
+  return (call[0] as { execute: (input: unknown) => Promise<unknown> }).execute;
+}
+
+function createDirent(name: string, kind: 'dir' | 'file') {
+  return {
+    name,
+    isDirectory: () => kind === 'dir',
+    isFile: () => kind === 'file',
+    isSymbolicLink: () => false,
+    isBlockDevice: () => false,
+    isCharacterDevice: () => false,
+    isFIFO: () => false,
+    isSocket: () => false,
+  };
+}
+
+function mockTree(tree: Tree) {
+  vi.mocked(readdirSync).mockImplementation((path) => {
+    const entry = tree[path as string];
+    if (!entry || entry.type !== 'dir') {
+      const err = new Error(`ENOTDIR ${path}`) as Error & { code: string };
+      err.code = 'ENOTDIR';
+      throw err;
+    }
+    const names = entry.entries ?? [];
+    return names.map((name) => {
+      const childPath = `${path}/${name}`;
+      const child = tree[childPath];
+      const kind = child?.type === 'dir' ? 'dir' : 'file';
+      return createDirent(name, kind);
+    });
+  });
+
+  vi.mocked(statSync).mockImplementation((path) => {
+    const entry = tree[path as string];
+    if (!entry) {
+      const err = new Error(`ENOENT ${path}`) as Error & { code: string };
+      err.code = 'ENOENT';
+      throw err;
+    }
+    const size = entry.type === 'file' ? entry.size ?? entry.content.length : 0;
+    return {
+      isFile: () => entry.type === 'file',
+      isDirectory: () => entry.type === 'dir',
+      size,
+    } as unknown as ReturnType<typeof statSync>;
+  });
+
+  vi.mocked(readFileSync).mockImplementation((path) => {
+    const entry = tree[path as string];
+    if (!entry || entry.type !== 'file') {
+      const err = new Error(`EISDIR ${path}`) as Error & { code: string };
+      err.code = 'EISDIR';
+      throw err;
+    }
+    return entry.content;
+  });
+}
+
+describe('semantic-search-indexer plugin', () => {
+  let cwdSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/project');
+    vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    const api = makeApi();
+    await plugin.teardown?.(api as never);
+    cwdSpy.mockRestore();
+  });
+
+  it('registers semantic_search and semantic_index_status tools', () => {
+    const api = makeApi();
+    plugin.setup(api as never);
+    const names = api.tools.register.mock.calls.map((c) => (c[0] as { name: string }).name);
+    expect(names).toContain('semantic_search');
+    expect(names).toContain('semantic_index_status');
+    expect(api.tools.register).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns ranked results with matched lines for a basic query', async () => {
+    mockTree({
+      '/project': { type: 'dir', entries: ['src'] },
+      '/project/src': { type: 'dir', entries: ['auth.ts', 'utils.ts'] },
+      '/project/src/auth.ts': { type: 'file', content: 'export function login() {}\nconst auth = true;\n' },
+      '/project/src/utils.ts': { type: 'file', content: 'export function helper() {}\n' },
+    });
+
+    const api = makeApi();
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const result = (await search({ query: 'auth' })) as {
+      ok: boolean;
+      totalResults: number;
+      results: Array<{ path: string; score: number; matchedLines: Array<{ lineNumber: number; text: string }> }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.totalResults).toBe(1);
+    expect(result.results[0]?.path).toBe('src/auth.ts');
+    expect(result.results[0]?.score).toBeGreaterThan(0);
+    expect(result.results[0]?.matchedLines).toEqual([{ lineNumber: 2, text: 'const auth = true;' }]);
+  });
+
+  it('ranks files by term frequency', async () => {
+    mockTree({
+      '/project': { type: 'dir', entries: ['src'] },
+      '/project/src': { type: 'dir', entries: ['helpers.ts', 'utils.ts'] },
+      '/project/src/helpers.ts': { type: 'file', content: 'function helper() {}\nfunction helper() {}\n' },
+      '/project/src/utils.ts': { type: 'file', content: 'function helper() {}\n' },
+    });
+
+    const api = makeApi();
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const result = (await search({ query: 'helper', limit: 1 })) as {
+      ok: boolean;
+      results: Array<{ path: string; score: number }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.path).toBe('src/helpers.ts');
+    expect(result.results[0]?.score).toBe(2);
+  });
+
+  it('respects the path input and excludes configured patterns', async () => {
+    mockTree({
+      '/project': { type: 'dir', entries: ['src', 'dist'] },
+      '/project/src': { type: 'dir', entries: ['auth.ts'] },
+      '/project/src/auth.ts': { type: 'file', content: 'const auth = true;\n' },
+      '/project/dist': { type: 'dir', entries: ['auth.js'] },
+      '/project/dist/auth.js': { type: 'file', content: 'const auth = true;\n' },
+    });
+
+    const api = makeApi();
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const result = (await search({ query: 'auth', path: 'src' })) as {
+      ok: boolean;
+      results: Array<{ path: string }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.results.map((r) => r.path)).toEqual(['src/auth.ts']);
+  });
+
+  it('semantic_index_status reports index counters', async () => {
+    mockTree({
+      '/project': { type: 'dir', entries: ['src'] },
+      '/project/src': { type: 'dir', entries: ['auth.ts'] },
+      '/project/src/auth.ts': { type: 'file', content: 'const auth = true;\n' },
+    });
+
+    const api = makeApi();
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const status = getTool(api, 'semantic_index_status');
+
+    await search({ query: 'auth' });
+    const result = (await status({})) as {
+      ok: boolean;
+      fileCount: number;
+      termCount: number;
+      counters: { queries: number; reindexes: number };
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.fileCount).toBe(1);
+    expect(result.termCount).toBeGreaterThan(0);
+    expect(result.counters.queries).toBe(1);
+    expect(result.counters.reindexes).toBe(1);
+  });
+
+  it('returns an error when disabled', async () => {
+    const api = makeApi({ extensions: { 'semantic-search-indexer': { enabled: false } } });
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const result = (await search({ query: 'auth' })) as { ok: boolean; error: string };
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('disabled');
+  });
+
+  it('returns an error for paths outside the project', async () => {
+    const api = makeApi();
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const result = (await search({ query: 'auth', path: '/etc' })) as { ok: boolean; error: string };
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('outside project root');
+  });
+
+  it('teardown zeros state and logs', async () => {
+    const api = makeApi();
+    plugin.setup(api as never);
+    await plugin.teardown?.(api as never);
+    const health = (await plugin.health!()) as { counters: Record<string, number> };
+
+    expect(health.counters['fileCount']).toBe(0);
+    expect(health.counters['termCount']).toBe(0);
+    expect(api.log.info).toHaveBeenCalledWith(
+      'semantic-search-indexer: teardown complete',
+      expect.any(Object),
+    );
+  });
+});

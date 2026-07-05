@@ -30,9 +30,9 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
 
 type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
 
-function getHook(api: MockApi): (input: unknown) => HookResult {
-  const call = api.registerHook.mock.calls[0];
-  if (!call) throw new Error('hook not registered');
+function getHook(api: MockApi, event = 'PreToolUse'): (input: unknown) => HookResult {
+  const call = api.registerHook.mock.calls.find(([hookEvent]: unknown[]) => hookEvent === event);
+  if (!call) throw new Error(`${event} hook not registered`);
   return (call as unknown[])[2] as (input: unknown) => HookResult;
 }
 
@@ -51,13 +51,16 @@ beforeEach(() => {
 });
 
 describe('loop-breaker plugin', () => {
-  it('registers loop_breaker_status and a PreToolUse * hook', () => {
+  it('registers loop_breaker_status and PreToolUse/PostToolUse * hooks', () => {
     const api = makeApi();
     loopBreakerPlugin.setup(api as never);
     expect(api.tools.register).toHaveBeenCalledTimes(1);
-    const [event, matcher] = api.registerHook.mock.calls[0]!;
-    expect(event).toBe('PreToolUse');
-    expect(matcher).toBe('*');
+    expect(api.registerHook.mock.calls).toEqual(
+      expect.arrayContaining([
+        ['PreToolUse', '*', expect.any(Function)],
+        ['PostToolUse', '*', expect.any(Function)],
+      ]),
+    );
   });
 
   it('does not react to distinct calls', () => {
@@ -127,6 +130,61 @@ describe('loop-breaker plugin', () => {
     hook(a);
     const result = hook(b);
     expect(result?.additionalContext).toContain('A-B-A-B');
+  });
+
+  it('blocks after the configured step budget', () => {
+    const api = makeApi({ extensions: { 'loop-breaker': { maxSteps: 3, blockAfter: 99 } } });
+    loopBreakerPlugin.setup(api as never);
+    const hook = getHook(api);
+    expect(hook({ toolName: 'read', toolInput: { path: '/a' } })).toBeUndefined();
+    expect(hook({ toolName: 'read', toolInput: { path: '/b' } })).toBeUndefined();
+    expect(hook({ toolName: 'read', toolInput: { path: '/c' } })).toBeUndefined();
+    const block = hook({ toolName: 'read', toolInput: { path: '/d' } });
+    expect(block?.decision).toBe('block');
+    expect(block?.reason).toContain('step budget exceeded');
+  });
+
+  it('warns on repeated errors and blocks the next step at the threshold', () => {
+    const api = makeApi({
+      extensions: {
+        'loop-breaker': { repeatedErrorWarnAfter: 2, repeatedErrorBlockAfter: 3, blockAfter: 99 },
+      },
+    });
+    loopBreakerPlugin.setup(api as never);
+    const preHook = getHook(api);
+    const postHook = getHook(api, 'PostToolUse');
+    const failed = {
+      toolName: 'exec',
+      toolResult: { isError: true, content: 'Error: boom at file.ts:123:4\nstack line' },
+    };
+    expect(postHook(failed)).toBeUndefined();
+    const warn = postHook(failed);
+    expect(warn?.additionalContext).toContain('same error repeated 2x');
+    postHook(failed);
+    const block = preHook({ toolName: 'read', toolInput: { path: '/next' } });
+    expect(block?.decision).toBe('block');
+    expect(block?.reason).toContain('same tool error repeated 3 times');
+  });
+
+  it('warns when mutating steps stop changing the git diff and blocks the next step', () => {
+    const api = makeApi({
+      extensions: { 'loop-breaker': { noDiffWarnAfter: 1, noDiffBlockAfter: 2, blockAfter: 99 } },
+    });
+    loopBreakerPlugin.setup(api as never);
+    const preHook = getHook(api);
+    const postHook = getHook(api, 'PostToolUse');
+    const okEdit = {
+      toolName: 'edit',
+      cwd: process.cwd(),
+      toolResult: { isError: false, content: 'ok' },
+    };
+    expect(postHook(okEdit)).toBeUndefined();
+    const warn = postHook(okEdit);
+    expect(warn?.additionalContext).toContain('no diff has changed for 1 mutating step');
+    postHook(okEdit);
+    const block = preHook({ toolName: 'read', toolInput: { path: '/next' } });
+    expect(block?.decision).toBe('block');
+    expect(block?.reason).toContain('no diff was produced');
   });
 
   it('respects ignoreTools', () => {

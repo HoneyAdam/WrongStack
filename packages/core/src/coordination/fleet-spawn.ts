@@ -14,22 +14,22 @@
  *   - `terminateAll` — stop every subagent
  *   - `remove`       — drop a subagent from internal indexes
  */
-import { InMemoryAgentBridge } from './agent-bridge.js';
-import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
-import { resolveModelMatrix } from './model-matrix.js';
-import {
-  FleetSpawnBudgetError,
-  FleetCostCapError,
-  FleetContextOverflowError,
-} from './director/director-errors.js';
+
 import type { DirectorStateCheckpoint } from '../storage/director-state.js';
 import type { SubagentConfig, TaskResult, TaskSpec } from '../types/multi-agent.js';
-import type { FleetBus } from './fleet-bus.js';
-import type { FleetManager } from './fleet-manager.js';
-import type { FleetUsageAggregator } from './fleet-bus.js';
+import { InMemoryAgentBridge } from './agent-bridge.js';
+import {
+  FleetContextOverflowError,
+  FleetCostCapError,
+  FleetSpawnBudgetError,
+} from './director/director-errors.js';
 import type { ModelMatrixSource } from './director.js';
-import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
+import type { FleetBus, FleetUsageAggregator } from './fleet-bus.js';
+import type { FleetManager } from './fleet-manager.js';
 import type { InMemoryBridgeTransport } from './in-memory-transport.js';
+import { resolveModelMatrixResolution, roleNeedsIndependentReviewModel } from './model-matrix.js';
+import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
+import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 
 /**
  * Narrow interface the helpers in this file need from the Director.
@@ -65,7 +65,10 @@ export interface DirectorFleetHost {
   readonly manifestEntries: Map<string, unknown>;
   readonly completed: Map<string, TaskResult>;
   readonly subagentBridges: Map<string, InMemoryAgentBridge>;
-  readonly taskWaiters: Map<string, { promise: Promise<TaskResult>; resolve: (r: TaskResult) => void }>;
+  readonly taskWaiters: Map<
+    string,
+    { promise: Promise<TaskResult>; resolve: (r: TaskResult) => void }
+  >;
   readonly subagentMeta: Map<string, { provider?: string | undefined; model?: string | undefined }>;
   readonly taskDescriptions: Map<string, string>;
   readonly taskOwners: Map<string, string>;
@@ -117,7 +120,11 @@ export async function spawn(
   // itself all reflect the matched model. Explicit per-spawn models win.
   if (!config.model && host.modelMatrix) {
     const matrix = typeof host.modelMatrix === 'function' ? host.modelMatrix() : host.modelMatrix;
-    const entry = resolveModelMatrix(matrix, config.role);
+    const resolution = resolveModelMatrixResolution(matrix, config.role);
+    const entry =
+      resolution?.source === 'default' && roleNeedsIndependentReviewModel(config.role)
+        ? undefined
+        : resolution?.entry;
     if (entry?.model) {
       config.model = entry.model;
       if (entry.provider) config.provider = entry.provider;
@@ -331,10 +338,7 @@ export async function assign(
 }
 
 /** Await a set of tasks by id, preserving input order. */
-export function awaitTasks(
-  host: DirectorFleetHost,
-  taskIds: string[],
-): Promise<TaskResult[]> {
+export function awaitTasks(host: DirectorFleetHost, taskIds: string[]): Promise<TaskResult[]> {
   return Promise.all(
     taskIds.map((id) => {
       const cached = host.completed.get(id);
@@ -365,10 +369,7 @@ export function terminateAll(host: DirectorFleetHost): Promise<void> {
  * Drop a subagent from the director's local indexes after the coordinator
  * has already torn it down. Idempotent.
  */
-export async function remove(
-  host: DirectorFleetHost,
-  subagentId: string,
-): Promise<void> {
+export async function remove(host: DirectorFleetHost, subagentId: string): Promise<void> {
   await host.coordinator.remove(subagentId);
 
   // Clean up the bridge so it stops consuming resources.

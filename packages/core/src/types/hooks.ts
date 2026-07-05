@@ -63,6 +63,13 @@ export interface HookOutcome {
    * (SessionStart).
    */
   additionalContext?: string | undefined;
+  /**
+   * Where the additionalContext should appear. `inline` (default) appends it
+   * to the tool_result / user message content so it renders as part of that
+   * block. `separate` appends it as a new user message, keeping plugin notices
+   * visually separated from the actual tool output.
+   */
+  contextAs?: 'inline' | 'separate' | undefined;
 }
 
 /** An in-process hook function (registered via the plugin API). */

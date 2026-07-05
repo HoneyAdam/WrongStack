@@ -4,10 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  type RunResult,
-  WorktreeManager,
   assertSafePath,
   parseConflictPaths,
+  type RunResult,
+  WorktreeManager,
 } from '../../src/worktree/worktree-manager.js';
 
 /** Records every git invocation and returns scripted results. */
@@ -78,8 +78,9 @@ describe('WorktreeManager (stubbed git)', () => {
     const h = await wm.allocate('p1', { slugHint: 'x' });
     expect(h.status).toBe('active');
     expect(events.map((e) => e.name)).toContain('worktree.allocated');
-    expect(events.find((e) => e.name === 'worktree.allocated')?.payload.sessionId)
-      .toBe('2026-06-29/sess_worktree');
+    expect(events.find((e) => e.name === 'worktree.allocated')?.payload.sessionId).toBe(
+      '2026-06-29/sess_worktree',
+    );
   });
 
   it('marks failed (and emits) when `worktree add` fails', async () => {
@@ -205,7 +206,12 @@ describe('WorktreeManager (stubbed git)', () => {
       if (args[0] === 'worktree' && args[1] === 'list') {
         return {
           code: 0,
-          stdout: [`worktree ${path.resolve('/proj')}`, '', `worktree ${path.join(root, 'a-111111')}`, ''].join('\n'),
+          stdout: [
+            `worktree ${path.resolve('/proj')}`,
+            '',
+            `worktree ${path.join(root, 'a-111111')}`,
+            '',
+          ].join('\n'),
           stderr: '',
         };
       }
@@ -269,7 +275,9 @@ describe('WorktreeManager (stubbed git)', () => {
     ]);
     expect(res.branches).toEqual(['wstack/ap/a-111111', 'wstack/ap/ghost-222222']);
     // Read-only: never removes/prunes.
-    expect(calls.some((c) => c.args[1] === 'remove' || c.args[1] === 'prune' || c.args[1] === '-D')).toBe(false);
+    expect(
+      calls.some((c) => c.args[1] === 'remove' || c.args[1] === 'prune' || c.args[1] === '-D'),
+    ).toBe(false);
   });
 
   it('removeOne() force-removes a managed worktree + its branch, refuses paths outside root', async () => {
@@ -291,7 +299,9 @@ describe('WorktreeManager (stubbed git)', () => {
 
   it('mergeBranch() squash-merges + commits on success', async () => {
     const { calls, run } = stubRunner((args) =>
-      args[0] === 'rev-parse' ? { code: 0, stdout: 'main\n', stderr: '' } : { code: 0, stdout: '', stderr: '' },
+      args[0] === 'rev-parse'
+        ? { code: 0, stdout: 'main\n', stderr: '' }
+        : { code: 0, stdout: '', stderr: '' },
     );
     const wm = new WorktreeManager({ projectRoot: '/proj', run });
     const res = await wm.mergeBranch('wstack/ap/s1', 'main');
@@ -302,12 +312,34 @@ describe('WorktreeManager (stubbed git)', () => {
 
   it('mergeBranch() refuses on a dirty base tree (no merge attempted)', async () => {
     const { calls, run } = stubRunner((args) =>
-      args[0] === 'status' ? { code: 0, stdout: ' M f.ts\n', stderr: '' } : { code: 0, stdout: '', stderr: '' },
+      args[0] === 'status'
+        ? { code: 0, stdout: ' M f.ts\n', stderr: '' }
+        : { code: 0, stdout: '', stderr: '' },
     );
     const wm = new WorktreeManager({ projectRoot: '/proj', run });
     const res = await wm.mergeBranch('wstack/ap/s1', 'main');
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/uncommitted/i);
+    expect(calls.some((c) => c.args[0] === 'merge')).toBe(false);
+  });
+
+  it('merge() refuses on a dirty base tree before checkout or squash merge', async () => {
+    const events: string[] = [];
+    const fakeBus = { emit: (name: string) => events.push(name) } as any;
+    const { calls, run } = stubRunner((args) => {
+      if (args[0] === 'rev-parse') return { code: 0, stdout: 'main\n', stderr: '' };
+      if (args[0] === 'status') return { code: 0, stdout: ' M f.ts\n', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const wm = new WorktreeManager({ projectRoot: '/proj', events: fakeBus, run });
+    const h = await wm.allocate('p', { slugHint: 'dirty' });
+    const res = await wm.merge(h, { squash: true });
+
+    expect(res.ok).toBe(false);
+    expect(res.stderr).toMatch(/uncommitted/i);
+    expect(h.status).toBe('failed');
+    expect(events).toContain('worktree.failed');
+    expect(calls.some((c) => c.args[0] === 'checkout')).toBe(false);
     expect(calls.some((c) => c.args[0] === 'merge')).toBe(false);
   });
 
@@ -398,7 +430,11 @@ describe('WorktreeManager (stubbed git)', () => {
   it('revertCommits() with no shas is a no-op success', async () => {
     const { run } = stubRunner();
     const wm = new WorktreeManager({ projectRoot: '/proj', run });
-    expect(await wm.revertCommits('main', [])).toEqual({ ok: true, reverted: 0, reason: 'nothing to revert' });
+    expect(await wm.revertCommits('main', [])).toEqual({
+      ok: true,
+      reverted: 0,
+      reason: 'nothing to revert',
+    });
   });
 });
 
@@ -543,7 +579,10 @@ describe.skipIf(!gitAvailable)('WorktreeManager (real repo)', () => {
       await fs.writeFile(path.join(h.dir, 'seed.txt'), 'line1\nWORKTREE\nline3\n');
       await wm.commitAll(h, 'edit on branch');
       await fs.writeFile(path.join(base, 'seed.txt'), 'line1\nBASE\nline3\n');
-      spawnSync('git', ['-C', base, 'commit', '-aqm', 'edit on base'], { stdio: 'ignore', env: GIT_ENV });
+      spawnSync('git', ['-C', base, 'commit', '-aqm', 'edit on base'], {
+        stdio: 'ignore',
+        env: GIT_ENV,
+      });
 
       // Capture the base tip BEFORE the merge (the revert target).
       const preSha = await wm.baseHead(h);
@@ -559,12 +598,18 @@ describe.skipIf(!gitAvailable)('WorktreeManager (real repo)', () => {
       expect(m.ok).toBe(true);
       expect(m.resolved).toBe(true);
       // The squash-resolution commit advanced base.
-      const after = spawnSync('git', ['-C', base, 'log', '-1', '--pretty=%H'], { encoding: 'utf8', env: GIT_ENV });
+      const after = spawnSync('git', ['-C', base, 'log', '-1', '--pretty=%H'], {
+        encoding: 'utf8',
+        env: GIT_ENV,
+      });
       expect(after.stdout.trim()).not.toBe(preSha);
 
       // Revert undoes it: base tip + tree are back to the pre-merge state.
       expect(await wm.revertBaseTo(h, preSha!)).toBe(true);
-      const reverted = spawnSync('git', ['-C', base, 'log', '-1', '--pretty=%H'], { encoding: 'utf8', env: GIT_ENV });
+      const reverted = spawnSync('git', ['-C', base, 'log', '-1', '--pretty=%H'], {
+        encoding: 'utf8',
+        env: GIT_ENV,
+      });
       expect(reverted.stdout.trim()).toBe(preSha);
       const onBase = await fs.readFile(path.join(base, 'seed.txt'), 'utf8');
       expect(onBase.replace(/\r/g, '')).toBe('line1\nBASE\nline3\n');

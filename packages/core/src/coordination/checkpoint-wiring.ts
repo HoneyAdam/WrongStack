@@ -18,8 +18,7 @@
  */
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { DirectorStateCheckpoint } from '../storage/director-state.js';
-import type { DirectorStateSnapshot } from '../storage/director-state.js';
+import type { DirectorStateCheckpoint, DirectorStateSnapshot } from '../storage/director-state.js';
 import type { TaskResult } from '../types/multi-agent.js';
 import type { SessionWriter } from '../types/session.js';
 import { atomicWrite } from '../utils/atomic-write.js';
@@ -73,16 +72,12 @@ export function scheduleManifest(host: DirectorCheckpointHost): NodeJS.Timeout |
   if (!host.manifestPath) return null;
   if (host.manifestDebounceMs === 0) {
     // 0 means instant flush — write synchronously, no timer.
-    void writeManifest(host).catch((err) =>
-      host.logShutdownError('manifest_write_debounced', err),
-    );
+    void writeManifest(host).catch((err) => host.logShutdownError('manifest_write_debounced', err));
     return null;
   }
   if (host.manifestDebounceMs < 0) return null;
   return setTimeout(() => {
-    void writeManifest(host).catch((err) =>
-      host.logShutdownError('manifest_write_debounced', err),
-    );
+    void writeManifest(host).catch((err) => host.logShutdownError('manifest_write_debounced', err));
   }, host.manifestDebounceMs);
 }
 
@@ -92,13 +87,12 @@ export function scheduleManifest(host: DirectorCheckpointHost): NodeJS.Timeout |
  * assigned tasks — paired with per-subagent JSONLs, this is enough to
  * replay an entire director run.
  */
-export async function writeManifest(
-  host: DirectorCheckpointHost,
-): Promise<string | null> {
+export async function writeManifest(host: DirectorCheckpointHost): Promise<string | null> {
   if (!host.manifestPath) return null;
   // Local narrow types to avoid pulling in the full Director shape.
   type ManifestEntry = {
     taskIds: string[];
+    worktrees?: Record<string, unknown> | undefined;
     [k: string]: unknown;
   };
   const manifest = {
@@ -113,6 +107,7 @@ export async function writeManifest(
         // success/failure state.
         results: entry.taskIds.map((tid) => {
           const r = host.completed.get(tid);
+          const worktree = entry.worktrees?.[tid];
           return r
             ? {
                 taskId: tid,
@@ -120,8 +115,9 @@ export async function writeManifest(
                 iterations: r.iterations,
                 toolCalls: r.toolCalls,
                 durationMs: r.durationMs,
+                ...(worktree ? { worktree } : {}),
               }
-            : { taskId: tid, status: 'pending' as const };
+            : { taskId: tid, status: 'pending' as const, ...(worktree ? { worktree } : {}) };
         }),
       };
     }),
@@ -145,9 +141,7 @@ export function setCheckpointState(
  * resuming — if another director process is alive, this returns
  * false and the caller should not proceed with the resume.
  */
-export async function acquireCheckpointLock(
-  host: DirectorCheckpointHost,
-): Promise<boolean> {
+export async function acquireCheckpointLock(host: DirectorCheckpointHost): Promise<boolean> {
   return host.stateCheckpoint ? host.stateCheckpoint.acquireLock() : true;
 }
 

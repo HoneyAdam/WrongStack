@@ -212,6 +212,21 @@ export {
   previousInputWordStart,
 } from './input-editing.js';
 
+function contentBlocksText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(
+      (block): block is { type: string; text: string } =>
+        !!block &&
+        typeof block === 'object' &&
+        (block as { type?: unknown }).type === 'text' &&
+        typeof (block as { text?: unknown }).text === 'string',
+    )
+    .map((block) => block.text)
+    .join('');
+}
+
 /**
  * Convert restored session messages into TUI history entries so a resumed
  * session renders its prior conversation visually, not just in the LLM context.
@@ -270,13 +285,7 @@ export function rehydrateHistory(
   const fallback: ToolEntry[] = [];
 
   let nextId = startId;
-  const textOf = (msg: Message): string => {
-    if (typeof msg.content === 'string') return msg.content;
-    return msg.content
-      .filter((b) => b.type === 'text')
-      .map((b) => (b as { text: string }).text)
-      .join('');
-  };
+  const textOf = (msg: Message): string => contentBlocksText(msg.content);
   const toolEntryFor = (tc: NonNullable<typeof toolCalls>[number]): ToolEntry => ({
     id: nextId++,
     kind: 'tool',
@@ -3928,9 +3937,10 @@ export function App({
     // entry. The next iteration's deltas start a fresh buffer. `runBlocks`
     // becomes purely the loop driver — it no longer adds the assistant entry,
     // since the per-iteration flushes have already done so.
-    const offProvResp = events.on('provider.response', () => {
+    const offProvResp = events.on('provider.response', (e) => {
       const text = streamingTextRef.current;
       const segments = streamSegmentsRef.current;
+      const fallbackText = contentBlocksText(e.content);
       streamingTextRef.current = '';
       streamSegmentsRef.current = [];
       pendingDeltaRef.current = '';
@@ -3954,6 +3964,8 @@ export function App({
       // (legacy path / segments not populated), still commit as assistant.
       if (segments.length === 0 && text.trim()) {
         dispatch({ type: 'addEntry', entry: { kind: 'assistant', text } });
+      } else if (segments.length === 0 && fallbackText.trim()) {
+        dispatch({ type: 'addEntry', entry: { kind: 'assistant', text: fallbackText } });
       }
     });
     const offConfirmNeeded = events.on('tool.confirm_needed', (e) => {

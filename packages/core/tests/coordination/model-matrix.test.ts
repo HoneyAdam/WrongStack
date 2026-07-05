@@ -1,19 +1,22 @@
-import { describe, expect, it } from 'vitest';
-import { AGENTS_BY_PHASE, AGENT_CATALOG } from '../../src/coordination/agents/index.js';
-import { agentPrompt } from '../../src/coordination/agents/agent-prompts.js';
-import { TECHSTACK_AGENTS } from '../../src/coordination/agents/phase3-techstack.js';
-import {
-  MATRIX_PHASE_KEYS,
-  isValidMatrixKey,
-  matrixKeyKind,
-  phaseForRole,
-  resolveModelMatrix,
-  resolveModelTargetFromEntry,
-} from '../../src/coordination/model-matrix.js';
-import type { ModelMatrixEntry } from '../../src/types/config.js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { agentPrompt } from '../../src/coordination/agents/agent-prompts.js';
+import { AGENT_CATALOG, AGENTS_BY_PHASE } from '../../src/coordination/agents/index.js';
+import { TECHSTACK_AGENTS } from '../../src/coordination/agents/phase3-techstack.js';
+import {
+  isValidMatrixKey,
+  MATRIX_PHASE_KEYS,
+  matrixKeyKind,
+  phaseForRole,
+  resolveImplementationModelTarget,
+  resolveModelMatrix,
+  resolveModelTargetFromEntry,
+  resolveSubagentModelTarget,
+  roleNeedsIndependentReviewModel,
+} from '../../src/coordination/model-matrix.js';
+import type { ModelMatrixEntry } from '../../src/types/config.js';
 
 // Pick a real role + its phase from the catalog so the test stays valid as
 // the catalog evolves (no hardcoded role names to drift out of sync).
@@ -66,6 +69,13 @@ describe('resolveModelMatrix', () => {
       resolveModelMatrix({ [samplePhase]: entry('p') }, 'totally-unknown-role'),
     ).toBeUndefined();
   });
+
+  it('includes the generic quality-gate roles in their phases', () => {
+    expect(phaseForRole('verifier')).toBe('verify');
+    expect(phaseForRole('reviewer')).toBe('review');
+    expect(roleNeedsIndependentReviewModel('reviewer')).toBe(true);
+    expect(roleNeedsIndependentReviewModel('verifier')).toBe(false);
+  });
 });
 
 describe('resolveModelTargetFromEntry', () => {
@@ -75,6 +85,76 @@ describe('resolveModelTargetFromEntry', () => {
       { modelRuntime: { reasoning: { effort: 'low' } } },
     );
     expect(target).toEqual({ modelRuntime: { reasoning: { effort: 'low' } } });
+  });
+});
+
+describe('resolveSubagentModelTarget', () => {
+  const baseConfig = {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    providers: {
+      anthropic: {
+        type: 'anthropic',
+        apiKey: 'sk-ant',
+        models: ['claude-sonnet-4-6', 'claude-opus-4-8'],
+      },
+      openai: {
+        type: 'openai',
+        apiKey: 'sk-oai',
+        models: ['gpt-5'],
+      },
+    },
+  } as never;
+
+  it('preserves an exact /setmodel reviewer route', () => {
+    const target = resolveSubagentModelTarget(
+      {
+        ...baseConfig,
+        modelMatrix: { reviewer: { provider: 'anthropic', model: 'claude-sonnet-4-6' } },
+      } as never,
+      'reviewer',
+    );
+    expect(target).toMatchObject({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      source: 'matrix',
+      matrixSource: 'role',
+    });
+  });
+
+  it('diversifies reviewer away from the implementation lane when only the default route matches', () => {
+    const target = resolveSubagentModelTarget(
+      {
+        ...baseConfig,
+        modelMatrix: { '*': { provider: 'anthropic', model: 'claude-sonnet-4-6' } },
+      } as never,
+      'reviewer',
+    );
+    expect(target?.source).toBe('diversity');
+    expect(target?.provider).toBe('openai');
+    expect(target?.model).toBe('gpt-5');
+  });
+
+  it('uses the executor matrix as the implementation lane reference', () => {
+    const target = resolveSubagentModelTarget(
+      {
+        ...baseConfig,
+        modelMatrix: {
+          executor: { provider: 'openai', model: 'gpt-5' },
+          '*': { provider: 'openai', model: 'gpt-5' },
+        },
+      } as never,
+      'reviewer',
+    );
+    expect(
+      resolveImplementationModelTarget({
+        ...baseConfig,
+        modelMatrix: { executor: { provider: 'openai', model: 'gpt-5' } },
+      } as never),
+    ).toEqual({ provider: 'openai', model: 'gpt-5' });
+    expect(target?.source).toBe('diversity');
+    expect(target?.provider).toBe('anthropic');
+    expect(target?.model).not.toBe('gpt-5');
   });
 });
 

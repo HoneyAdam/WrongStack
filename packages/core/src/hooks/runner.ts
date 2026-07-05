@@ -86,7 +86,7 @@ export class HookRunner {
     toolInput: unknown,
     result: { content: string; isError: boolean },
     env: HookRunEnv,
-  ): Promise<{ additionalContext?: string | undefined }> {
+  ): Promise<{ additionalContext?: string | undefined; contextAs?: 'inline' | 'separate' }> {
     const payload: HookInput = {
       event: 'PostToolUse',
       toolName,
@@ -94,7 +94,19 @@ export class HookRunner {
       toolResult: result,
       ...this.base(env),
     };
-    return { additionalContext: await this.collectContext('PostToolUse', toolName, payload) };
+    const entries = this.matching('PostToolUse', toolName);
+    if (entries.length === 0) return {};
+    const results = await Promise.allSettled(entries.map((entry) => this.invoke(entry, payload)));
+    const parts: string[] = [];
+    let separate = false;
+    for (const result of results) {
+      if (result.status !== 'fulfilled' || !result.value?.additionalContext) continue;
+      parts.push(result.value.additionalContext);
+      if (result.value.contextAs === 'separate') separate = true;
+    }
+    return parts.length
+      ? { additionalContext: parts.join('\n'), contextAs: separate ? 'separate' : 'inline' }
+      : {};
   }
 
   async userPromptSubmit(prompt: string, env: HookRunEnv): Promise<PromptResult> {

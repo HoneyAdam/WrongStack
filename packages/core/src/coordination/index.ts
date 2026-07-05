@@ -133,6 +133,7 @@ export {
   makeFleetTool as makeFleetUsageTool,
   makeFleetTool as makeFleetSessionTool,
   makeFleetTool as makeFleetHealthTool,
+  makeQualityGateTool,
   makeRollUpTool,
   makeSpawnTool,
   makeTerminateAllTool,
@@ -175,11 +176,6 @@ export {
   FleetManager,
   type FleetManagerOptions,
 } from './fleet-manager.js';
-export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
-export type { ICoordinator } from './icoordinator.js';
-export type { IFleetManager } from './ifleet-manager.js';
-export { LargeAnswerStore } from './large-answer-store.js';
-export { type MailToolsOptions, makeMailInboxTool, makeMailSendTool } from './mail-tools.js';
 export { type FleetStatusToolOptions, makeFleetStatusTool } from './fleet-status-tool.js';
 export {
   FleetSupervisor,
@@ -190,6 +186,11 @@ export {
   type SupervisedSubagent,
   type SupervisorLogEntry,
 } from './fleet-supervisor.js';
+export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
+export type { ICoordinator } from './icoordinator.js';
+export type { IFleetManager } from './ifleet-manager.js';
+export { LargeAnswerStore } from './large-answer-store.js';
+export { type MailToolsOptions, makeMailInboxTool, makeMailSendTool } from './mail-tools.js';
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './mailbox.js';
 export type {
@@ -247,6 +248,25 @@ export type {
   RegisteredAgent,
 } from './mailbox-types.js';
 export { normalizeRecipient } from './mailbox-types.js';
+export {
+  isValidMatrixKey,
+  MATRIX_PHASE_KEYS,
+  type MatrixKeyKind,
+  type ModelMatrixResolution,
+  type ModelMatrixResolutionSource,
+  type ModelReference,
+  matrixKeyKind,
+  phaseForRole,
+  type ResolvedModelTarget,
+  type ResolvedSubagentModelTarget,
+  resolveImplementationModelTarget,
+  resolveModelMatrix,
+  resolveModelMatrixResolution,
+  resolveModelTargetFromEntry,
+  resolveSubagentModelTarget,
+  roleNeedsIndependentReviewModel,
+  sameModelReference,
+} from './model-matrix.js';
 export {
   DefaultMultiAgentCoordinator,
   type MultiAgentCoordinatorOptions,
@@ -317,6 +337,16 @@ export {
    * are accessible from one import path. */
   TIMEOUT_PREEMPT_FRACTION,
 } from './subagent-budget.js';
+export {
+  type FleetWorktreePolicy,
+  resolveSubagentWorktreeDecision,
+  subagentNeedsWorktree,
+  WorktreeIntegrationError,
+  type WorktreeIsolationDecision,
+  type WorktreeTaskRunnerOptions,
+  type WorktreeTaskStateUpdate,
+  wrapSubagentRunnerWithWorktrees,
+} from './worktree-task-runner.js';
 
 // ── Autonomous coordination layer ──────────────────────────────────────────
 

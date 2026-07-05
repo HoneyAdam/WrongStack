@@ -21,8 +21,19 @@ function erroringChild(): EventEmitter & { unref: () => unknown } {
   return c;
 }
 
+function controllableChild(): EventEmitter & { kill: ReturnType<typeof vi.fn>; unref: ReturnType<typeof vi.fn> } {
+  const c = new EventEmitter() as EventEmitter & {
+    kill: ReturnType<typeof vi.fn>;
+    unref: ReturnType<typeof vi.fn>;
+  };
+  c.kill = vi.fn();
+  c.unref = vi.fn();
+  return c;
+}
+
 describe('killWin32Tree async-error safety (#99)', () => {
   afterEach(() => {
+    vi.useRealTimers();
     spawnMock.mockReset();
   });
 
@@ -53,5 +64,32 @@ describe('killWin32Tree async-error safety (#99)', () => {
       throw new Error('sync spawn failure');
     });
     expect(killWin32Tree(1234)).toBe(false);
+  });
+
+  it('runs fallback only after taskkill settles', () => {
+    const child = controllableChild();
+    const onSettled = vi.fn();
+    spawnMock.mockReturnValue(child);
+
+    expect(killWin32Tree(1234, { timeoutMs: 1000, onSettled })).toBe(true);
+    expect(onSettled).not.toHaveBeenCalled();
+
+    child.emit('close', 0);
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('runs fallback after taskkill timeout when taskkill never settles', () => {
+    vi.useFakeTimers();
+    const child = controllableChild();
+    const onSettled = vi.fn();
+    spawnMock.mockReturnValue(child);
+
+    expect(killWin32Tree(1234, { timeoutMs: 50, onSettled })).toBe(true);
+    vi.advanceTimersByTime(50);
+
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledTimes(1);
   });
 });

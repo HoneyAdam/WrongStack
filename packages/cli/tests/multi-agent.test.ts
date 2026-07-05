@@ -563,6 +563,7 @@ describe('MultiAgentHost', () => {
         'collab_debug',
         'fleet',
         'fleet_emit',
+        'quality_gate',
         'roll_up',
         'spawn_subagent',
         'terminate_all',
@@ -649,6 +650,7 @@ describe('MultiAgentHost', () => {
           'collab_debug',
           'fleet',
           'fleet_emit',
+          'quality_gate',
           'roll_up',
           'spawn_subagent',
           'terminate_all',
@@ -826,6 +828,32 @@ describe('MultiAgentHost.makeSubagentFactory', () => {
     const names = agent.ctx.tools.map((t) => t.name).sort();
     expect(names).toEqual(['grep', 'read']);
     expect(names).not.toContain('bash');
+    await dispose?.();
+  });
+
+  it('keeps unscoped developer tools but hides recursive orchestration controls', async () => {
+    const deps = depsWithTools();
+    for (const name of [
+      'delegate',
+      'spawn_subagent',
+      'assign_task',
+      'await_tasks',
+      'fleet_emit',
+      'work_complete',
+    ]) {
+      deps.toolRegistry.register(fakeTool(name));
+    }
+    const host = new MultiAgentHost(deps);
+    const { agent, dispose } = await host.makeSubagentFactory(config)({
+      id: 'full-slot',
+      name: 'full',
+      role: 'general',
+    });
+    const names = agent.ctx.tools.map((t) => t.name).sort();
+    expect(names).toEqual(['bash', 'grep', 'read']);
+    expect(names).not.toContain('delegate');
+    expect(names).not.toContain('spawn_subagent');
+    expect(names).not.toContain('fleet_emit');
     await dispose?.();
   });
 

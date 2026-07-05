@@ -354,6 +354,27 @@ function joinArgBuffer(buf: StreamingArgBuffer): string {
   return buf.chunks.length === 1 ? (buf.chunks[0] ?? '') : buf.chunks.join('');
 }
 
+/**
+ * Join the text of a Responses `message` item's `content` array. The backend
+ * echoes assistant prose as `content: [{ type: 'output_text', text }, ...]`
+ * (and refusals as `{ type: 'refusal', refusal }`). Returns the concatenated
+ * text, or '' for any non-message / malformed shape.
+ */
+function extractOutputText(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  let out = '';
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue;
+    const p = part as { type?: unknown; text?: unknown; refusal?: unknown };
+    if ((p.type === 'output_text' || p.type === 'text') && typeof p.text === 'string') {
+      out += p.text;
+    } else if (p.type === 'refusal' && typeof p.refusal === 'string') {
+      out += p.refusal;
+    }
+  }
+  return out;
+}
+
 async function* parseCodexResponsesStream(
   body: ReadableStream<Uint8Array> | NodeJS.ReadableStream | null,
   fallbackModel: string,
@@ -367,6 +388,22 @@ async function* parseCodexResponsesStream(
   // Currently-streaming function call (Responses streams one item at a time).
   let toolCallId: string | undefined;
   let toolArgBuf: StreamingArgBuffer = { chunks: [], length: 0 };
+
+  // Assistant-text recovery. The ChatGPT Responses backend does not always
+  // stream a message's text as `output_text.delta` chunks — reasoning turns
+  // (gpt-5-codex) frequently deliver the full text only in the terminal
+  // `response.output_text.done` (`text`) or the message `output_item.done`
+  // (`content[].text`) events. We count how many text chars we have already
+  // emitted for the current message item; the terminal events then emit ONLY
+  // the un-streamed remainder, so a fully-streamed message adds nothing and a
+  // never-streamed one is recovered in full — no duplication either way.
+  let msgTextStreamed = 0;
+  const flushRemainingText = (full: string): StreamEvent | undefined => {
+    if (full.length <= msgTextStreamed) return undefined;
+    const remainder = full.slice(msgTextStreamed);
+    msgTextStreamed = full.length;
+    return { type: 'text_delta', text: remainder };
+  };
 
   const ensureStart = (): StreamEvent | undefined => {
     if (started) return undefined;
@@ -407,7 +444,14 @@ async function* parseCodexResponsesStream(
         const s = ensureStart();
         if (s) yield s;
         const item = evt['item'] as
-          | { type?: string; id?: string; call_id?: string; name?: string; arguments?: string }
+          | {
+              type?: string;
+              id?: string;
+              call_id?: string;
+              name?: string;
+              arguments?: string;
+              content?: unknown;
+            }
           | undefined;
         if (!item) break;
         if (item.type === 'reasoning') {
@@ -421,15 +465,35 @@ async function* parseCodexResponsesStream(
           for (const partial of toolArgBuf.chunks) {
             yield { type: 'tool_use_input_delta', id: toolCallId, partial };
           }
+        } else if (item.type === 'message') {
+          // A fresh message item begins — reset the per-message text counter so
+          // its terminal events emit only its own un-streamed text. Some backends
+          // inline the full text on `added` (no deltas at all); recover it now.
+          msgTextStreamed = 0;
+          const prefilled = extractOutputText(item.content);
+          const ev0 = flushRemainingText(prefilled);
+          if (ev0) yield ev0;
         }
-        // item.type === 'message' → text flows via output_text.delta
         break;
       }
 
       case 'response.output_text.delta':
       case 'response.refusal.delta': {
         const delta = typeof evt['delta'] === 'string' ? (evt['delta'] as string) : '';
-        if (delta) yield { type: 'text_delta', text: delta };
+        if (delta) {
+          msgTextStreamed += delta.length;
+          yield { type: 'text_delta', text: delta };
+        }
+        break;
+      }
+
+      case 'response.output_text.done': {
+        // Terminal text event carrying the full message text. Emit only the
+        // remainder we have not already streamed (nothing when deltas covered
+        // it; the whole text when the backend skipped deltas entirely).
+        const full = typeof evt['text'] === 'string' ? (evt['text'] as string) : '';
+        const ev1 = flushRemainingText(full);
+        if (ev1) yield ev1;
         break;
       }
 
@@ -461,7 +525,14 @@ async function* parseCodexResponsesStream(
 
       case 'response.output_item.done': {
         const item = evt['item'] as
-          | { type?: string; id?: string; call_id?: string; name?: string; arguments?: string }
+          | {
+              type?: string;
+              id?: string;
+              call_id?: string;
+              name?: string;
+              arguments?: string;
+              content?: unknown;
+            }
           | undefined;
         if (!item) break;
         if (item.type === 'reasoning') {
@@ -472,6 +543,14 @@ async function* parseCodexResponsesStream(
           yield { type: 'tool_use_stop', id, input: parseToolInput(raw || '{}') };
           toolCallId = undefined;
           toolArgBuf = { chunks: [], length: 0 };
+        } else if (item.type === 'message') {
+          // Final safety net: recover any message text the backend delivered
+          // only in the completed item's `content` (no deltas, no
+          // output_text.done). flushRemainingText dedupes against what we
+          // already streamed, so this is a no-op on the normal delta path.
+          const full = extractOutputText(item.content);
+          const ev2 = flushRemainingText(full);
+          if (ev2) yield ev2;
         }
         break;
       }

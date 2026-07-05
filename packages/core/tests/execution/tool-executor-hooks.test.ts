@@ -122,4 +122,29 @@ describe('ToolExecutor — PostToolUse hooks', () => {
     expect(result.content).toContain('done');
     expect(result.content).toContain('lint: ok');
   });
+
+  it('appends separate additionalContext as a new user message', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess('PostToolUse', '*', () => ({
+      additionalContext: 'plugin notice',
+      contextAs: 'separate',
+    }));
+    const appendMessage = vi.fn();
+    const ctx = { ...makeCtx(), state: { appendMessage } } as never;
+    const ex = makeExecutor(
+      [tool('bash', vi.fn().mockResolvedValue('done'))],
+      new HookRunner({ registry: reg }),
+    );
+
+    const out = await ex.executeBatch([use('bash')], ctx, 'sequential');
+    const result = out.outputs[0]!.result as ToolResultBlock;
+    expect(result.content).toBe('done');
+    expect(result.content).not.toContain('plugin notice');
+    expect(appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: [{ type: 'text', text: 'plugin notice' }],
+      }),
+    );
+  });
 });

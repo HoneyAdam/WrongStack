@@ -183,6 +183,107 @@ describe('OpenAICodexProvider stream parsing', () => {
       input: { city: 'NYC' },
     });
   });
+
+  it('recovers message text delivered only in output_text.done (no deltas)', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
+      '',
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"m1","role":"assistant"}}',
+      '',
+      'data: {"type":"response.output_text.done","text":"Done — no deltas here."}',
+      '',
+      'data: {"type":"response.output_item.done","item":{"type":"message","id":"m1"}}',
+      '',
+      'data: {"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":3,"output_tokens":6}}}',
+      '',
+    ].join('\n');
+
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    const res = await p.complete(baseReq, { signal: new AbortController().signal });
+
+    expect(res.content).toEqual([{ type: 'text', text: 'Done — no deltas here.' }]);
+    expect(res.stopReason).toBe('end_turn');
+  });
+
+  it('recovers message text delivered only in the output_item.done content array', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
+      '',
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"m1","role":"assistant"}}',
+      '',
+      'data: {"type":"response.output_item.done","item":{"type":"message","id":"m1","content":[{"type":"output_text","text":"Only in the item."}]}}',
+      '',
+      'data: {"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":3,"output_tokens":4}}}',
+      '',
+    ].join('\n');
+
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    const res = await p.complete(baseReq, { signal: new AbortController().signal });
+
+    expect(res.content).toEqual([{ type: 'text', text: 'Only in the item.' }]);
+  });
+
+  it('does not duplicate text when deltas AND terminal events both carry it', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
+      '',
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"m1","role":"assistant"}}',
+      '',
+      'data: {"type":"response.output_text.delta","delta":"Hello"}',
+      '',
+      'data: {"type":"response.output_text.delta","delta":" world"}',
+      '',
+      'data: {"type":"response.output_text.done","text":"Hello world"}',
+      '',
+      'data: {"type":"response.output_item.done","item":{"type":"message","id":"m1","content":[{"type":"output_text","text":"Hello world"}]}}',
+      '',
+      'data: {"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":3,"output_tokens":2}}}',
+      '',
+    ].join('\n');
+
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    const res = await p.complete(baseReq, { signal: new AbortController().signal });
+
+    expect(res.content).toEqual([{ type: 'text', text: 'Hello world' }]);
+  });
+
+  it('recovers partial-delta text via the terminal remainder (deltas cut short)', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
+      '',
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"m1","role":"assistant"}}',
+      '',
+      'data: {"type":"response.output_text.delta","delta":"Hel"}',
+      '',
+      'data: {"type":"response.output_text.done","text":"Hello"}',
+      '',
+      'data: {"type":"response.output_item.done","item":{"type":"message","id":"m1"}}',
+      '',
+      'data: {"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}',
+      '',
+    ].join('\n');
+
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    const res = await p.complete(baseReq, { signal: new AbortController().signal });
+
+    expect(res.content).toEqual([{ type: 'text', text: 'Hello' }]);
+  });
 });
 
 describe('OpenAICodexProvider token refresh', () => {

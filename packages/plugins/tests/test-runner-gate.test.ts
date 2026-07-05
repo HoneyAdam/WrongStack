@@ -70,10 +70,14 @@ interface MockApi {
   session: { append: ReturnType<typeof vi.fn> };
 }
 
-function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): MockApi {
+function makeApi(overrides: { extensions?: Record<string, unknown>; enabled?: boolean } = {}): MockApi {
   return {
     tools: { register: vi.fn() },
-    config: { extensions: overrides.extensions ?? {} },
+    config: {
+      extensions:
+        overrides.extensions ??
+        (overrides.enabled === true ? { 'test-runner-gate': { enabled: true } } : {}),
+    },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() },
     registerHook: vi.fn(() => vi.fn()),
@@ -113,7 +117,7 @@ describe('test-runner-gate plugin', () => {
 
 describe('hook behavior', () => {
   it('injects failure context when tests fail', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const result = hook({
@@ -127,7 +131,7 @@ describe('hook behavior', () => {
   });
 
   it('stays silent when tool errored', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     expect(
@@ -153,7 +157,7 @@ describe('hook behavior', () => {
   });
 
   it('stays silent when path is missing', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     expect(
@@ -166,7 +170,7 @@ describe('hook behavior', () => {
   });
 
   it('skips test files themselves', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     expect(
@@ -195,7 +199,7 @@ describe('pass injection', () => {
       return '';
     });
 
-    const api = makeApi({ extensions: { 'test-runner-gate': { injectOnPass: true } } });
+    const api = makeApi({ extensions: { 'test-runner-gate': { enabled: true, injectOnPass: true } } });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const result = hook({
@@ -240,7 +244,7 @@ describe('pass injection', () => {
       return '';
     });
 
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const result = hook({
@@ -277,7 +281,7 @@ describe('status tool', () => {
     const api = makeApi();
     testRunnerGatePlugin.setup(api as never);
     const status = await getStatusTool(api).execute({});
-    expect(status.enabled).toBe(true);
+    expect(status.enabled).toBe(false);
     expect(status.command).toBe('npx vitest run');
     expect(status.counters.invocations).toBe(0);
   });
@@ -295,7 +299,7 @@ describe('teardown + H1 pattern', () => {
   });
 
   it('zeros counters on teardown', async () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     hook({
@@ -400,7 +404,7 @@ describe('runner detection + config', () => {
       return '';
     });
 
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const result = hook({
@@ -439,7 +443,7 @@ describe('runner detection + config', () => {
 
 describe('sandbox + custom-command allowlist', () => {
   it('skips the hook when the source path is outside the project root', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const outside = process.platform === 'win32' ? 'C:\\Windows\\System32\\evil.ts' : '/etc/passwd';
@@ -459,7 +463,7 @@ describe('sandbox + custom-command allowlist', () => {
   });
 
   it('skips the hook when the source path traverses out of the project root', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const result = hook({
@@ -471,7 +475,7 @@ describe('sandbox + custom-command allowlist', () => {
   });
 
   it('rejects a custom command whose first token is not on the allowlist', () => {
-    const api = makeApi({ extensions: { 'test-runner-gate': { command: 'curl http://evil' } } });
+    const api = makeApi({ extensions: { 'test-runner-gate': { enabled: true, command: 'curl http://evil' } } });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     // Expect the hook to run a normal write (resolves a test file) but the
@@ -491,7 +495,7 @@ describe('sandbox + custom-command allowlist', () => {
 
   it('accepts a custom command whose first token is on the allowlist', () => {
     const api = makeApi({
-      extensions: { 'test-runner-gate': { command: 'pnpm vitest run' } },
+      extensions: { 'test-runner-gate': { enabled: true, command: 'pnpm vitest run' } },
     });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
@@ -540,7 +544,7 @@ describe('extension filter + content-hash cache', () => {
   }
 
   it('skips non-TS files via the extension filter (no execFileSync)', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const before = vitestCallsCount();
@@ -556,7 +560,7 @@ describe('extension filter + content-hash cache', () => {
   });
 
   it('skips .md and .lock files via the extension filter', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const before = vitestCallsCount();
@@ -574,7 +578,7 @@ describe('extension filter + content-hash cache', () => {
   });
 
   it('does NOT short-circuit .ts files through the extension filter', () => {
-    const api = makeApi();
+    const api = makeApi({ enabled: true });
     testRunnerGatePlugin.setup(api as never);
     const hook = getHook(api);
     const before = vitestCallsCount();

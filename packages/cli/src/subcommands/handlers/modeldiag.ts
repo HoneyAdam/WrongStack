@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import { color, type ModelMatrixEntry, type ProviderConfig } from '@wrongstack/core';
+import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import type { SubcommandHandler } from '../index.js';
-import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**
  * `wrongstack modeldiag` — read-only diagnostics: key check, capability scan,
@@ -209,11 +209,13 @@ const ROLE_CATEGORY: Record<string, string> = {
   planner: 'planning',
   architect: 'planning',
   'refactor-planner': 'planning',
+  verifier: 'testing',
   test: 'testing',
   e2e: 'testing',
   document: 'docs',
   simplifier: 'docs',
   'code-reviewer': 'review',
+  reviewer: 'review',
   critic: 'review',
   executor: 'coding',
   refactor: 'refactoring',
@@ -614,8 +616,10 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
         'planner',
         'architect',
         'refactor-planner',
+        'verifier',
         'test',
         'document',
+        'reviewer',
         'code-reviewer',
         'executor',
         'debugger',
@@ -647,7 +651,10 @@ export const modeldiagCmd: SubcommandHandler = async (args, deps) => {
         );
         writeLine(`  ${' '.repeat(22)}  ${bar}  ${color.dim(cat)}`);
 
-        if (ranked.length > 1 && (ranked[1]?.score ?? Number.NEGATIVE_INFINITY) >= best.score - 15) {
+        if (
+          ranked.length > 1 &&
+          (ranked[1]?.score ?? Number.NEGATIVE_INFINITY) >= best.score - 15
+        ) {
           for (const alt of ranked.slice(1)) {
             const af = alt.profile ? ` (${alt.profile.family})` : '';
             writeLine(

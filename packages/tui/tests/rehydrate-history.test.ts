@@ -45,6 +45,20 @@ function assistantWithToolUses(
   };
 }
 
+/** A tool-calling assistant turn with NO prose — the common real case. */
+function assistantToolOnly(toolUseIds: string[]): Message {
+  return {
+    role: 'assistant',
+    content: toolUseIds.map((id) => ({
+      type: 'tool_use' as const,
+      id,
+      name: 'bash',
+      input: { cmd: `echo ${id}` },
+    })),
+    ts: '2026-06-26T10:00:02.000Z',
+  };
+}
+
 function toolCall(id: string, name = 'bash'): ToolCall {
   return { id, name, durationMs: 12, ok: true, outputBytes: 64, outputLines: 1 };
 }
@@ -170,6 +184,59 @@ describe('rehydrateHistory — timeline interleaving', () => {
     // Order: user(text), assistant+tool_use, [skipped tool_result user msg],
     // assistant. The tool entry sits next to its triggering assistant.
     expect(kinds(entries)).toEqual(['user', 'assistant', 'tool', 'assistant']);
+  });
+
+  it('interleaves tool entries for a text-LESS tool-calling turn (regression)', () => {
+    // The bug: an assistant turn with tool_use but no prose was skipped
+    // wholesale by an `if (!text) continue` guard, so its tool_use blocks were
+    // never matched and every tool fell into the end-of-timeline fallback —
+    // rendering as "all assistant messages, then all tool calls" on resume.
+    const messages: Message[] = [
+      userMsg('do three things'),
+      assistantText('starting'),
+      assistantToolOnly(['tu_1']), // no prose — model just calls the tool
+      assistantToolOnly(['tu_2', 'tu_3']),
+      assistantText('all done'),
+    ];
+    const toolCalls: ToolCall[] = [
+      toolCall('tu_1'),
+      toolCall('tu_2'),
+      toolCall('tu_3'),
+    ];
+
+    const entries = rehydrateHistory(messages, 1, toolCalls);
+
+    // Tools sit next to the (text-less) turns that issued them — NOT dumped
+    // at the end. No fallback entries.
+    expect(kinds(entries)).toEqual([
+      'user',
+      'assistant', // "starting"
+      'tool', // tu_1
+      'tool', // tu_2
+      'tool', // tu_3
+      'assistant', // "all done"
+    ]);
+  });
+
+  it('emits tool entries even when NO assistant turn has any prose', () => {
+    // Pure tool-calling session (common with codex/reasoning models): every
+    // assistant turn is text-less. All tools must still interleave in order,
+    // none in the fallback bucket.
+    const messages: Message[] = [
+      userMsg('go'),
+      assistantToolOnly(['tu_1']),
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok', is_error: false }],
+        ts: '2026-06-26T10:00:03.000Z',
+      },
+      assistantToolOnly(['tu_2']),
+    ];
+    const toolCalls: ToolCall[] = [toolCall('tu_1'), toolCall('tu_2')];
+
+    const entries = rehydrateHistory(messages, 1, toolCalls);
+
+    expect(kinds(entries)).toEqual(['user', 'tool', 'tool']);
   });
 
   it('handles the empty case without crashing', () => {

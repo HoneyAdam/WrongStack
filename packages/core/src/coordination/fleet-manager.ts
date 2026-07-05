@@ -1,16 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { atomicWrite } from '../utils/atomic-write.js';
-import { toErrorMessage } from '../utils/error.js';
-import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
+import { DirectorStateCheckpoint } from '../storage/director-state.js';
 import type { SubagentConfig } from '../types/multi-agent.js';
 import type { SessionWriter } from '../types/session.js';
-import { DirectorStateCheckpoint } from '../storage/director-state.js';
-import { FleetBus, FleetUsageAggregator } from './fleet-bus.js';
+import { atomicWrite } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import type { FleetUsage } from './fleet-bus.js';
+import { FleetBus, FleetUsageAggregator } from './fleet-bus.js';
 import type { IFleetManager } from './ifleet-manager.js';
 import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
+import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
+import type { WorktreeTaskStateUpdate } from './worktree-task-runner.js';
 
 /** Options for constructing a FleetManager. */
 export interface FleetManagerOptions {
@@ -89,14 +90,33 @@ export class FleetManager implements IFleetManager {
   private readonly maxFleetCostUsd: number;
   private readonly manifestEntries = new Map<
     string,
-    { subagentId: string; name: string; role?: string | undefined; provider?: string | undefined; model?: string | undefined; taskIds: string[] }
+    {
+      subagentId: string;
+      name: string;
+      role?: string | undefined;
+      provider?: string | undefined;
+      model?: string | undefined;
+      taskIds: string[];
+      worktrees?: Record<string, WorktreeTaskStateUpdate> | undefined;
+    }
   >();
   /** Pending tasks with their descriptions — populated by `addPendingTask`
    *  and cleared by `removePendingTask`. Replaces the host-side `pending`
    *  Map so task descriptions live in one place (FleetManager). */
   private readonly pendingTasks = new Map<string, { subagentId: string; description: string }>();
-  private readonly subagentMeta = new Map<string, { provider?: string | undefined; model?: string | undefined }>();
-  private readonly priceLookups = new Map<string, { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined }>();
+  private readonly subagentMeta = new Map<
+    string,
+    { provider?: string | undefined; model?: string | undefined }
+  >();
+  private readonly priceLookups = new Map<
+    string,
+    {
+      input?: number | undefined;
+      output?: number | undefined;
+      cacheRead?: number | undefined;
+      cacheWrite?: number | undefined;
+    }
+  >();
   /** Tracks which nickname keys are already assigned — prevents collisions. */
   private readonly _usedNicknames = new Set<string>();
   /** The coordinator (wired via setCoordinator by Director after construction). */
@@ -165,7 +185,11 @@ export class FleetManager implements IFleetManager {
     return this.usage.snapshot();
   }
 
-  getSubagentMeta(id: string): { provider?: string | undefined; model?: string | undefined; name?: string | undefined } | undefined {
+  getSubagentMeta(
+    id: string,
+  ):
+    | { provider?: string | undefined; model?: string | undefined; name?: string | undefined }
+    | undefined {
     const meta = this.subagentMeta.get(id);
     const manifest = this.manifestEntries.get(id);
     if (!meta && !manifest) return undefined;
@@ -181,7 +205,11 @@ export class FleetManager implements IFleetManager {
    * which cap was exceeded. Does NOT throw — the caller decides
    * how to surface the rejection.
    */
-  canSpawn(_config: SubagentConfig): { kind: 'max_spawns' | 'max_spawn_depth' | 'max_cost_usd' | 'max_context_load'; limit: number; observed: number } | null {
+  canSpawn(_config: SubagentConfig): {
+    kind: 'max_spawns' | 'max_spawn_depth' | 'max_cost_usd' | 'max_context_load';
+    limit: number;
+    observed: number;
+  } | null {
     if (this.spawnDepth >= this.maxSpawnDepth) {
       return { kind: 'max_spawn_depth', limit: this.maxSpawnDepth, observed: this.spawnDepth };
     }
@@ -215,8 +243,7 @@ export class FleetManager implements IFleetManager {
   }
 
   private resolveMaxContext(): number {
-    const resolved =
-      typeof this.maxContext === 'function' ? this.maxContext() : this.maxContext;
+    const resolved = typeof this.maxContext === 'function' ? this.maxContext() : this.maxContext;
     return resolved && resolved > 0 ? resolved : 128_000;
   }
 
@@ -233,9 +260,7 @@ export class FleetManager implements IFleetManager {
    * `coordinator.spawn()` returns with the real subagentId. This is because
    * the subagentId is not known until after the coordinator creates the subagent.
    */
-  assignNicknameAndRecord(
-    config: SubagentConfig,
-  ): string {
+  assignNicknameAndRecord(config: SubagentConfig): string {
     const role = config.role ?? 'subagent';
     const { key, display } = assignNickname(role, this._usedNicknames);
     // Mark the canonical pool key used so the same name is never reused.
@@ -266,7 +291,12 @@ export class FleetManager implements IFleetManager {
   recordSpawn(
     subagentId: string,
     config: SubagentConfig,
-    priceLookup?: { input?: number | undefined; output?: number | undefined; cacheRead?: number | undefined; cacheWrite?: number | undefined },
+    priceLookup?: {
+      input?: number | undefined;
+      output?: number | undefined;
+      cacheRead?: number | undefined;
+      cacheWrite?: number | undefined;
+    },
   ): void {
     this.spawnCount += 1;
     this.subagentMeta.set(subagentId, {
@@ -285,14 +315,17 @@ export class FleetManager implements IFleetManager {
       taskIds: [],
     });
     // State checkpoint: persist the spawn even before any task is assigned
-    this.stateCheckpoint?.recordSpawn({
-      id: subagentId,
-      name: config.name,
-      role: config.role,
-      provider: config.provider,
-      model: config.model,
-      spawnedAt: new Date().toISOString(),
-    }, this.spawnCount);
+    this.stateCheckpoint?.recordSpawn(
+      {
+        id: subagentId,
+        name: config.name,
+        role: config.role,
+        provider: config.provider,
+        model: config.model,
+        spawnedAt: new Date().toISOString(),
+      },
+      this.spawnCount,
+    );
     void this.appendSessionEvent({
       type: 'agent_spawned',
       ts: new Date().toISOString(),
@@ -325,6 +358,7 @@ export class FleetManager implements IFleetManager {
         provider: entry.provider,
         model: entry.model,
         taskIds: entry.taskIds,
+        worktrees: entry.worktrees,
       })),
       usage: this.usage.snapshot(),
     };
@@ -342,6 +376,15 @@ export class FleetManager implements IFleetManager {
     if (entry) entry.taskIds.push(taskId);
   }
 
+  recordTaskWorktree(update: WorktreeTaskStateUpdate): void {
+    const entry = this.manifestEntries.get(update.subagentId);
+    if (entry) {
+      entry.worktrees = { ...(entry.worktrees ?? {}), [update.taskId]: update };
+    }
+    this.stateCheckpoint?.recordTaskWorktree(update.taskId, update);
+    this.scheduleManifest();
+  }
+
   /**
    * Debounced manifest write. Call after any state mutation
    * (spawn, assign, complete) so a burst collapses into one write.
@@ -354,10 +397,7 @@ export class FleetManager implements IFleetManager {
       // 0 means instant flush — write synchronously, no timer.
       void this.writeManifest().catch((err) => {
         const detail = toErrorMessage(err);
-        process.emitWarning(
-          `FleetManager manifest write failed: ${detail}`,
-          'FleetManagerWarning',
-        );
+        process.emitWarning(`FleetManager manifest write failed: ${detail}`, 'FleetManagerWarning');
       });
       return;
     }
@@ -371,10 +411,7 @@ export class FleetManager implements IFleetManager {
         // sessions dir would otherwise leave fleet state un-persisted with
         // no signal until shutdown).
         const detail = toErrorMessage(err);
-        process.emitWarning(
-          `FleetManager manifest write failed: ${detail}`,
-          'FleetManagerWarning',
-        );
+        process.emitWarning(`FleetManager manifest write failed: ${detail}`, 'FleetManagerWarning');
       });
     }, this.manifestDebounceMs);
   }
@@ -388,10 +425,7 @@ export class FleetManager implements IFleetManager {
     this.clearManifestTimer();
     await this.writeManifest().catch((err) => {
       const detail = toErrorMessage(err);
-      process.emitWarning(
-        `FleetManager manifest write failed: ${detail}`,
-        'FleetManagerWarning',
-      );
+      process.emitWarning(`FleetManager manifest write failed: ${detail}`, 'FleetManagerWarning');
     });
   }
 
@@ -435,13 +469,23 @@ export class FleetManager implements IFleetManager {
   } {
     if (!this.coordinator) {
       return {
-        total: 0, running: 0, idle: 0, stopped: 0,
-        inFlight: 0, pending: 0, completed: 0,
+        total: 0,
+        running: 0,
+        idle: 0,
+        stopped: 0,
+        inFlight: 0,
+        pending: 0,
+        completed: 0,
         subagentStatuses: [],
       };
     }
     const stats = this.coordinator.getStats();
-    const subagentStatuses: { subagentId: string; taskId: string; status: string; assigned: boolean }[] = [];
+    const subagentStatuses: {
+      subagentId: string;
+      taskId: string;
+      status: string;
+      assigned: boolean;
+    }[] = [];
     for (const [subagentId, s] of this.coordinator['subagents']) {
       subagentStatuses.push({
         subagentId,

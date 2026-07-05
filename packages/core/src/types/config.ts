@@ -826,6 +826,33 @@ export interface FleetConfig {
         globalPerMinuteCap?: number | undefined;
       }
     | undefined;
+  /**
+   * Per-subagent git-worktree isolation for Director fleets. The default is
+   * `auto`: mutating/build-capable subagents run in isolated checkouts and are
+   * squash-merged back on success; read-only review agents usually stay on the
+   * shared checkout. Set `enabled:false` or `mode:'off'` when a workflow cannot
+   * use worktrees.
+   */
+  worktrees?:
+    | {
+        /** Kill switch. Default true. */
+        enabled?: boolean | undefined;
+        /**
+         * `auto` (default): isolate only side-effectful subagents.
+         * `required`: side-effectful subagents must get a worktree or fail.
+         * `off`: never allocate worktrees.
+         */
+        mode?: 'auto' | 'required' | 'off' | undefined;
+        /**
+         * Merge successful task branches back into the base checkout. Default
+         * true. When false, successful worktrees are committed and kept for
+         * manual `/worktree merge`.
+         */
+        autoMerge?: boolean | undefined;
+        /** Keep failed/timeout worktrees when they contain changes. Default true. */
+        keepFailed?: boolean | undefined;
+      }
+    | undefined;
   /** Brain-gated fleet supervisor (rebalance/steer/spawn-helper). */
   supervisor?: FleetSupervisorConfig | undefined;
 }

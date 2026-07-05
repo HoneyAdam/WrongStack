@@ -1,7 +1,7 @@
 {
   "name": "@wrongstack/plugins",
   "version": "0.281.4",
-  "description": "Official WrongStack plugin collection — auto-doc, git-autocommit, shell-check, cost-tracker, file-watcher, cron, template-engine, semver-bump, secret-scanner, todo-tracker, token-budget, lint-gate, branch-guard, diff-summary, commit-validator, format-on-save, test-runner-gate, import-organizer, todo-listener, session-recap, spec-linker, loop-breaker, path-guard, context-pins, checkpoint, error-lens, dep-guard, config-validator, notify-hub, changelog-writer, injection-shield, llm-cache, model-router, prompt-firewall, auto-escalate, token-throttle",
+  "description": "Official WrongStack plugin collection — 62 focused, single-purpose plugins for code quality, security, observability, planning, and agent coordination",
   "license": "MIT",
   "author": "ECOSTACK TECHNOLOGY OÜ",
   "type": "module",
@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./agent-handoff": {
+      "types": "./dist/agent-handoff.d.ts",
+      "import": "./dist/agent-handoff.js"
     },
     "./auto-doc": {
       "types": "./dist/auto-doc.d.ts",
@@ -136,6 +140,10 @@
       "types": "./dist/injection-shield.d.ts",
       "import": "./dist/injection-shield.js"
     },
+    "./knowledge-graph": {
+      "types": "./dist/knowledge-graph.d.ts",
+      "import": "./dist/knowledge-graph.js"
+    },
     "./llm-cache": {
       "types": "./dist/llm-cache.d.ts",
       "import": "./dist/llm-cache.js"
@@ -148,6 +156,10 @@
       "types": "./dist/prompt-firewall.d.ts",
       "import": "./dist/prompt-firewall.js"
     },
+    "./pr-drafter": {
+      "types": "./dist/pr-drafter.d.ts",
+      "import": "./dist/pr-drafter.js"
+    },
     "./auto-escalate": {
       "types": "./dist/auto-escalate.d.ts",
       "import": "./dist/auto-escalate.js"
@@ -156,9 +168,101 @@
       "types": "./dist/token-throttle.d.ts",
       "import": "./dist/token-throttle.js"
     },
+    "./test-coverage-gate": {
+      "types": "./dist/test-coverage-gate.d.ts",
+      "import": "./dist/test-coverage-gate.js"
+    },
+    "./type-gate": {
+      "types": "./dist/type-gate.d.ts",
+      "import": "./dist/type-gate.js"
+    },
     "./plugin-stack-observer": {
       "types": "./dist/plugin-stack-observer.d.ts",
       "import": "./dist/plugin-stack-observer.js"
+    },
+    "./accessibility-auditor": {
+      "types": "./dist/accessibility-auditor.d.ts",
+      "import": "./dist/accessibility-auditor.js"
+    },
+    "./api-compatibility-gate": {
+      "types": "./dist/api-compatibility-gate.d.ts",
+      "import": "./dist/api-compatibility-gate.js"
+    },
+    "./auto-i18n-extractor": {
+      "types": "./dist/auto-i18n-extractor.d.ts",
+      "import": "./dist/auto-i18n-extractor.js"
+    },
+    "./dead-code-detector": {
+      "types": "./dist/dead-code-detector.d.ts",
+      "import": "./dist/dead-code-detector.js"
+    },
+    "./dependency-vulnerability-gate": {
+      "types": "./dist/dependency-vulnerability-gate.d.ts",
+      "import": "./dist/dependency-vulnerability-gate.js"
+    },
+    "./doc-sync-guard": {
+      "types": "./dist/doc-sync-guard.d.ts",
+      "import": "./dist/doc-sync-guard.js"
+    },
+    "./license-audit-gate": {
+      "types": "./dist/license-audit-gate.d.ts",
+      "import": "./dist/license-audit-gate.js"
+    },
+    "./migration-planner": {
+      "types": "./dist/migration-planner.d.ts",
+      "import": "./dist/migration-planner.js"
+    },
+    "./performance-regression-gate": {
+      "types": "./dist/performance-regression-gate.d.ts",
+      "import": "./dist/performance-regression-gate.js"
+    },
+    "./schema-evolution-guard": {
+      "types": "./dist/schema-evolution-guard.d.ts",
+      "import": "./dist/schema-evolution-guard.js"
+    },
+    "./security-hotspot-scanner": {
+      "types": "./dist/security-hotspot-scanner.d.ts",
+      "import": "./dist/security-hotspot-scanner.js"
+    },
+    "./semantic-search-indexer": {
+      "types": "./dist/semantic-search-indexer.d.ts",
+      "import": "./dist/semantic-search-indexer.js"
+    },
+    "./test-flake-detector": {
+      "types": "./dist/test-flake-detector.d.ts",
+      "import": "./dist/test-flake-detector.js"
+    },
+    "./code-metrics": {
+      "types": "./dist/code-metrics.d.ts",
+      "import": "./dist/code-metrics.js"
+    },
+    "./duplicate-code-detector": {
+      "types": "./dist/duplicate-code-detector.d.ts",
+      "import": "./dist/duplicate-code-detector.js"
+    },
+    "./feature-flag-tracker": {
+      "types": "./dist/feature-flag-tracker.d.ts",
+      "import": "./dist/feature-flag-tracker.js"
+    },
+    "./interface-contract-guard": {
+      "types": "./dist/interface-contract-guard.d.ts",
+      "import": "./dist/interface-contract-guard.js"
+    },
+    "./refactor-suggester": {
+      "types": "./dist/refactor-suggester.d.ts",
+      "import": "./dist/refactor-suggester.js"
+    },
+    "./release-notes-generator": {
+      "types": "./dist/release-notes-generator.d.ts",
+      "import": "./dist/release-notes-generator.js"
+    },
+    "./smart-rename": {
+      "types": "./dist/smart-rename.d.ts",
+      "import": "./dist/smart-rename.js"
+    },
+    "./test-generator": {
+      "types": "./dist/test-generator.d.ts",
+      "import": "./dist/test-generator.js"
     }
   },
   "files": [

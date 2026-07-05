@@ -1,8 +1,37 @@
-import { type AgentDefinition, HEAVY_BUDGET, MEDIUM_BUDGET, TOOLS } from './types.js';
 import { agentPrompt } from './agent-prompts.js';
+import { type AgentDefinition, HEAVY_BUDGET, MEDIUM_BUDGET, TOOLS } from './types.js';
 
 /** Phase 4 · Verify — prove the code works under normal, end-to-end, and adverse conditions. */
 export const VERIFY_AGENTS: AgentDefinition[] = [
+  {
+    config: {
+      id: 'verifier',
+      name: 'Verifier',
+      role: 'verifier',
+      tools: [...TOOLS.inspect, 'bash', 'exec', 'lint', 'typecheck', 'test', 'git'],
+      prompt: agentPrompt('verifier'),
+    },
+    budget: HEAVY_BUDGET,
+    capability: {
+      phase: 'verify',
+      summary:
+        'Independent verification gate: runs the relevant checks until they pass or returns exact failures that need another implementation pass.',
+      keywords: [
+        'verify',
+        'verification',
+        'quality gate',
+        'prove it works',
+        'run checks',
+        'run tests until pass',
+        'test pass',
+        'green build',
+        'typecheck',
+        'lint',
+        'regression check',
+        'acceptance gate',
+      ],
+    },
+  },
   {
     config: {
       id: 'test',
@@ -14,7 +43,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: HEAVY_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Unit + integration testing: writes meaningful tests covering golden path and edge cases, runs the suite.',
+      summary:
+        'Unit + integration testing: writes meaningful tests covering golden path and edge cases, runs the suite.',
       keywords: [
         'test',
         'unit test',
@@ -54,7 +84,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: HEAVY_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'End-to-end testing: drives full user journeys across UI/CLI/API boundaries with reproducible failures.',
+      summary:
+        'End-to-end testing: drives full user journeys across UI/CLI/API boundaries with reproducible failures.',
       keywords: [
         'e2e',
         'end to end',
@@ -103,7 +134,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: MEDIUM_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Browser automation: opens pages, clicks, types, screenshots, extracts data via Playwright headless Chromium.',
+      summary:
+        'Browser automation: opens pages, clicks, types, screenshots, extracts data via Playwright headless Chromium.',
       keywords: [
         'browser',
         'screenshot',
@@ -134,7 +166,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: MEDIUM_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Performance analysis: benchmarks/profiles to find the real bottleneck, optimizes, proves speedup with numbers.',
+      summary:
+        'Performance analysis: benchmarks/profiles to find the real bottleneck, optimizes, proves speedup with numbers.',
       keywords: [
         'performance',
         'slow',
@@ -161,7 +194,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: MEDIUM_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Resilience testing via fault injection: breaks network/disk/timing to find ungraceful failures and recovery gaps.',
+      summary:
+        'Resilience testing via fault injection: breaks network/disk/timing to find ungraceful failures and recovery gaps.',
       keywords: [
         'chaos',
         'resilience',
@@ -187,7 +221,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: HEAVY_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Security scanner: detects hardcoded secrets, injection vectors, insecure patterns, and supply-chain risks with remediation.',
+      summary:
+        'Security scanner: detects hardcoded secrets, injection vectors, insecure patterns, and supply-chain risks with remediation.',
       keywords: [
         'security',
         'scan',
@@ -218,7 +253,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: HEAVY_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Bug hunter: scans source code for bugs, anti-patterns, and code smells, producing a file:line-ranked hit list with fixes.',
+      summary:
+        'Bug hunter: scans source code for bugs, anti-patterns, and code smells, producing a file:line-ranked hit list with fixes.',
       keywords: [
         'bug',
         'hunt',
@@ -247,7 +283,8 @@ export const VERIFY_AGENTS: AgentDefinition[] = [
     budget: MEDIUM_BUDGET,
     capability: {
       phase: 'verify',
-      summary: 'Audit log analyzer: parses session JSONL, detects failure patterns, tool anomalies, and cost trends with structured reports.',
+      summary:
+        'Audit log analyzer: parses session JSONL, detects failure patterns, tool anomalies, and cost trends with structured reports.',
       keywords: [
         'audit',
         'log',

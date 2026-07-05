@@ -60,6 +60,18 @@ export interface SubagentConfig {
    */
   cwd?: string | undefined;
 
+  /**
+   * Git-worktree isolation override for this subagent.
+   *
+   * - `undefined` / `'auto'`: follow the fleet policy. Mutating/build-capable
+   *   agents get isolated worktrees; read-only review agents can stay on the
+   *   shared checkout.
+   * - `true` / `'required'`: require an isolated worktree. If allocation fails,
+   *   the task fails instead of falling back to the shared cwd.
+   * - `false` / `'off'`: never allocate a worktree for this subagent.
+   */
+  worktree?: boolean | 'auto' | 'required' | 'off' | undefined;
+
   // --- Director orchestration extensions ---
 
   /**

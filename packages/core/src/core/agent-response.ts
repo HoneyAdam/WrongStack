@@ -69,6 +69,7 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
       sessionId: a.ctx.session.id,
       ctx: a.ctx,
       model: req.model,
+      content: res.content,
       usage: res.usage,
       stopReason: res.stopReason,
     });

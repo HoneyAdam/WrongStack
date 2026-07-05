@@ -292,7 +292,16 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   events.on('provider.response', (e) => {
-    broadcast(clients, { type: 'provider.response', payload: sessionPayload({ sessionId: e.sessionId, usage: e.usage, stopReason: e.stopReason, messageId: 'current' }) });
+    broadcast(clients, {
+      type: 'provider.response',
+      payload: sessionPayload({
+        sessionId: e.sessionId,
+        content: e.content,
+        usage: e.usage,
+        stopReason: e.stopReason,
+        messageId: 'current',
+      }),
+    });
   });
 
   events.on('ctx.pct', (e) => {

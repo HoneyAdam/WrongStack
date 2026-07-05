@@ -85,6 +85,23 @@ describe('Director model matrix', () => {
     expect(spawned.current).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5' });
   });
 
+  it('honors an exact reviewer route so /setmodel set reviewer works', async () => {
+    const d = makeDirector({ reviewer: { provider: 'openai', model: 'gpt-5' } });
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: 'Reviewer', role: 'reviewer' });
+    expect(spawned.current).toEqual({ provider: 'openai', model: 'gpt-5' });
+  });
+
+  it('does not pre-apply the wildcard route to reviewer so the factory can diversify it', async () => {
+    const d = makeDirector({ '*': { provider: 'anthropic', model: 'claude-sonnet-4-6' } });
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: 'Reviewer', role: 'reviewer' });
+    expect(spawned.current?.model).toBeUndefined();
+    expect(spawned.current?.provider).toBeUndefined();
+  });
+
   it('leaves model unset when no matrix entry matches', async () => {
     const d = makeDirector({ 'some-other-role': { model: 'x' } });
     director = d;
