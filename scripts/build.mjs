@@ -25,6 +25,32 @@ const workspaceGlobs = [
   ['website', false],
 ];
 
+function parseArgs(argv) {
+  const targets = [];
+  let skipIfWorkspaceBuild = false;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--skip-if-workspace-build') {
+      skipIfWorkspaceBuild = true;
+      continue;
+    }
+    if (arg === '--target' || arg === '-t') {
+      const next = argv[i + 1];
+      if (!next) {
+        throw new Error(`${arg} requires a package name or workspace path`);
+      }
+      targets.push(next);
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown build option: ${arg}`);
+    }
+    targets.push(arg);
+  }
+  return { targets, skipIfWorkspaceBuild };
+}
+
 function discoverPackages() {
   const found = [];
   for (const [dir] of workspaceGlobs) {
@@ -83,6 +109,32 @@ function topoSort(metas) {
   return ordered;
 }
 
+function selectBuildSet(ordered, targets) {
+  if (targets.length === 0) return ordered;
+  const byName = new Map(ordered.map((m) => [m.name, m]));
+  const byDir = new Map(ordered.map((m) => [m.dir.replaceAll('\\', '/'), m]));
+  const selected = new Set();
+  const visit = (m) => {
+    if (selected.has(m.name)) return;
+    for (const depName of m.deps) {
+      const dep = byName.get(depName);
+      if (dep) visit(dep);
+    }
+    selected.add(m.name);
+  };
+
+  for (const target of targets) {
+    const normalized = target.replaceAll('\\', '/');
+    const meta = byName.get(target) ?? byDir.get(normalized);
+    if (!meta) {
+      throw new Error(`Unknown build target: ${target}`);
+    }
+    visit(meta);
+  }
+
+  return ordered.filter((m) => selected.has(m.name));
+}
+
 function runBuild(pkgDir, script) {
   // Cross-platform: cmd.exe on Windows (ComSpec), POSIX sh elsewhere.
   // pnpm 11.5.2 + cmd.exe strips the script-shell config that lets `npm
@@ -109,6 +161,7 @@ function runBuild(pkgDir, script) {
     PATH: envPath,
     Path: envPath,
     NODE_OPTIONS: '--max-old-space-size=4096',
+    WRONGSTACK_WORKSPACE_BUILD: '1',
   };
   const result = spawnSync(shell, shellArgs, {
     cwd: join(root, pkgDir),
@@ -121,13 +174,32 @@ function runBuild(pkgDir, script) {
   }
 }
 
+let args;
+try {
+  args = parseArgs(process.argv.slice(2));
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
+
+if (args.skipIfWorkspaceBuild && process.env.WRONGSTACK_WORKSPACE_BUILD === '1') {
+  console.log('Workspace build already handles dependency order; skipping nested target build.');
+  process.exit(0);
+}
+
 const pkgs = discoverPackages();
 if (pkgs.length === 0) {
   console.error('No workspace packages found.');
   process.exit(1);
 }
 
-const ordered = topoSort(pkgs.map(readPkgMeta));
+let ordered;
+try {
+  ordered = selectBuildSet(topoSort(pkgs.map(readPkgMeta)), args.targets);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
 for (const { dir, build } of ordered) {
   if (!build) {

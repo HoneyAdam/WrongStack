@@ -30,7 +30,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm --filter @wrongstack/webui build && tsup && vite build",
+    "build": "node ../../scripts/build.mjs --target @wrongstack/webui --skip-if-workspace-build && tsup && vite build",
     "dev": "pnpm run build && electron .",
     "start": "electron .",
     "test": "vitest run --config vitest.config.ts",
