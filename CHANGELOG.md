@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.282.0] — 2026-07-06
+
+> The **fleet awareness, HQ control plane, Desktop, skills, and 36-plugin**
+> release. Adds Brain-gated fleet supervision, peer visibility between agents,
+> a cross-machine HQ command center with persisted telemetry and token-scoped
+> control, skill-registry search/authoring improvements, first-class Desktop
+> documentation, and the official plugin catalog expansion from 21 to 36.
+> All workspace packages and the website are aligned to `0.282.0`.
+
 ### Added — Fleet supervision + peer awareness
 
 - **Early-finisher awaits** — `await_tasks` gains `mode: "all" | "any"` (+
@@ -33,6 +44,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `currentTask`, so cross-process peers see live task info.
 - **Config** — new top-level `fleet` key (`pulse`, `statusBroadcasts`,
   `supervisor`), deny-listed for repo-committed in-project config.
+
+### Added — HQ Command Center control plane
+
+- **Project-independent HQ server** (`wstack --hq` / `wstack hq`) now acts as
+  the deliberate cross-machine command center for WrongStack. REPL, TUI,
+  CLI-hosted WebUI, and standalone WebUI clients publish versioned telemetry
+  over `/ws/client`; browsers subscribe to `hq.snapshot`, `hq.event`, and
+  `hq.alert` frames over `/ws/browser`.
+- **Telemetry bridges** forward session snapshots/transcripts, agent status,
+  fleet snapshots, Brain decisions/interventions, worktree lifecycle events,
+  tool start/complete events, and token/cost usage into HQ without coupling the
+  dashboard to in-process objects.
+- **Token-scoped control plane** adds browser → server → client command queues
+  for `steer`, `abort`, `spawn`, `broadcast`, and gated `run-command`. Browser
+  tokens need `control.enqueue`; clients must advertise `control.receive`; and
+  `run-command` remains behind the client-side operator opt-in
+  (`--hq-allow-exec`) and routes as a leader steer so the agent permission
+  policy still applies.
+- **Persistence + alerts** — HQ now survives restart with `events.jsonl`,
+  `snapshot.json`, and `timeseries.jsonl`, exposes event/trend/alert APIs, and
+  evaluates fleet-cost, stale-machine, high-concurrency, and failure-spike
+  alert rules.
+
+### Changed — Cross-surface coordination and session safety
+
+- **Canonical project identity** — every surface now derives the project slug
+  from the same `projectSlug()` helper and touches the shared
+  `~/.wrongstack/projects.json` manifest, keeping REPL/TUI/WebUI/Desktop/HQ
+  views on one coordination plane.
+- **GlobalMailbox identity model** — agents register as session-unique
+  `<base>@<session-tag>` identities while bare aliases (for example `leader`)
+  fan out to all live matching agents. Mail send/ack share one lock so a
+  concurrent append cannot erase read receipts.
+- **Session registry safety** — live sessions from every surface are published
+  through `SessionRegistry`, and session deletion now refuses to remove a run
+  still referenced by `active.json` or held by another live process. Optional
+  session names persist through CLI/WebUI rename flows and listings prefer the
+  user label when present.
 
 ### Added — Skill system (registry search, authoring toolkit, private repos)
 
@@ -128,14 +177,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed — Documentation
 
-- **Root README now documents all four user-facing surfaces** — plain REPL,
-  Ink/React TUI, standalone/embedded WebUI, and the Electron Desktop shell.
+- **Root README now documents all four user-facing surfaces plus HQ** — plain
+  REPL, Ink/React TUI, standalone/embedded WebUI, the Electron Desktop shell,
+  and the cross-machine HQ command center.
 - **README package and command maps updated** — `@wrongstack/desktop`,
   `@wrongstack/acp`, `@wrongstack/bench`, and `@wrongstack/webui-hq` are listed
   in the package table; `wrongstack webui`, `wrongstack desktop`, and
   `wrongstack hq` are listed as subcommands; `--webui`, `--desktop`, `--hq`,
+  `--host`, `--port`, `--strict-port`, `--data-dir`, `--hq-allow-exec`,
   `--no-interactive`, `--open`, `--mouse`, `--eternal`, and `--skip-index` are
-  included in the flag table.
+  included in the flag table; `/hq` and `/supervisor` are now covered in the
+  slash-command table.
+- **README HQ coverage added** — documents the cross-machine HQ surface,
+  auto-discovery, token scopes, telemetry streams, persisted event/snapshot/
+  timeseries storage, alerting, and guarded command routing.
 - **README `/auth` coverage refreshed** — documents the TUI interactive auth
   panel, `/auth login` OAuth shortcut, and the REPL's non-blocking credential
   dashboard fallback.
@@ -143,8 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stale 10-plugin table with the current catalog-backed list, documents the
   opt-in deep provider-wrapper plugins, and calls out retired plugin names
   (`web-search`, `json-path`) with their built-in tool replacements.
-- **README observability count corrected** from 28 typed events to 53 typed
-  events, matching the current kernel event map categories.
+- **README observability count corrected** from 53 typed events to 97 typed
+  events, matching the current kernel `EventMap`.
 - **README bundled-skill count corrected** from 22 to 23 and now includes the
   `plugin-author` bundled skill.
 

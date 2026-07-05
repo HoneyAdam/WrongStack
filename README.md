@@ -4,7 +4,7 @@
 
 ### _Built on the wrong stack. Shipped anyway._
 
-**An AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — across a terminal REPL, a full-screen TUI, a browser UI, and an Electron desktop shell, while you keep your hand on every permission.**
+**An AI coding agent that reads your code, edits files, runs commands, and reasons through bugs — across a terminal REPL, a full-screen TUI, a browser UI, an Electron desktop shell, and a cross-machine HQ command center, while you keep your hand on every permission.**
 
 [![npm](https://img.shields.io/npm/v/wrongstack?style=flat-square&color=0b7285&label=npm)](https://www.npmjs.com/package/wrongstack)
 [![downloads](https://img.shields.io/npm/dm/wrongstack?style=flat-square&color=0b7285)](https://www.npmjs.com/package/wrongstack)
@@ -27,6 +27,7 @@ WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **mu
 
 - 🧠 **Four surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), and **WrongStack Desktop** (`--desktop` / `wstack desktop`).
 - 🤖 **A fleet, not a lone agent** — a 47-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
+- 🛰️ **HQ for the whole room** — `wstack --hq` aggregates live sessions, agents, fleets, mailbox state, cost, tools, Brain decisions, and worktrees across machines, then can steer or stop connected clients through their own guardrails.
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
 - ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
 - 🔌 **~140 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~125 OpenAI-compatible endpoints, catalog refreshed from models.dev at boot.
@@ -56,7 +57,7 @@ After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an a
 
 ## Features
 
-### Four interactive surfaces
+### Interactive surfaces + HQ
 
 **Plain REPL** (default): readline-based, multiline heredoc, slash commands, streaming text. Works everywhere a terminal works.
 
@@ -102,6 +103,20 @@ wrongstack --webui
 wrongstack --desktop
 wstack desktop
 wrongstack-desktop
+```
+
+**HQ Command Center** (`--hq` / `wstack hq`): a project-independent HTTP+WebSocket dashboard on `127.0.0.1:3499` that aggregates every connected REPL, TUI, CLI-hosted WebUI, and standalone WebUI. It is the one deliberate cross-machine surface in WrongStack; the normal WebUI, mailbox server, and MCP server stay loopback-first.
+
+- Same-machine clients auto-discover `~/.wrongstack/hq/runtime.json` and the first client token from `auth.json`, even if HQ starts after them or restarts on a new port
+- Browser and client tokens are separate, capability-scoped, and stored in `~/.wrongstack/hq/auth.json`
+- Live HQ views include sessions, transcripts, agents, fleet snapshots, mailbox rollups, Brain events, worktrees, tool events, cost trends, and active alerts
+- Control commands queue through `/api/command`: `steer`, `abort`, `spawn`, `broadcast`, and gated `run-command` (routed as a steer behind `--hq-allow-exec`, so the agent permission policy still applies)
+- Persistence survives restart through `events.jsonl`, `snapshot.json`, and `timeseries.jsonl`
+
+```bash
+wstack --hq --open
+wstack hq token create "browser"
+wstack hq token create --client "build-box"
 ```
 
 ### 36 built-in tools
@@ -196,6 +211,8 @@ BEGIN.]
 Architecture: Host EventBus (always-on bridge) → Leader Agent (Director) + FleetBus (director-only fan-in) → `DefaultMultiAgentCoordinator` → `AgentSubagentRunner` per task (fresh Agent + Context + EventBus, full isolation) → per-subagent JSONL transcripts on disk.
 
 **47-agent roster + smart dispatcher.** The Director draws from a 47-role agent catalog; a smart dispatcher routes each task to the best-matching role instead of spawning generic clones. The TUI fleet monitor (**Ctrl+F**) shows per-subagent status and a fleet-wide token gauge, and auto-extended budgets surface as a `⚡ extended ×N` badge across all fleet UIs. Spawned subagents take a memorable scientist nickname (Turing, Shannon, Gauss, …) so you can track them across the fleet at a glance.
+
+**Fleet supervision + peer awareness.** `await_tasks` can wait in `all` or `any` mode, so the Director can process early finishers while slower siblings keep working. A Brain-gated `FleetSupervisor` watches for pinned-task starvation, overloaded workers, deep backlogs, stuck agents, and failure streaks; it can retarget pending work, spawn helpers, steer workers, or notify the leader. Agents also see each other mid-run through the `[FLEET PULSE]` context digest, the read-only `fleet_status` tool, and rate-capped status broadcasts in the project mailbox.
 
 **Collaborative debugging.** `Director.spawnCollab()` runs **BugHunter, RefactorPlanner, and Critic in parallel on one shared, immutable file snapshot**. Findings flow through the FleetBus as structured events (`bug.found → refactor.plan → critic.evaluation`); the Director routes each output to its dependents through a shared scratchpad — so agents build on each other's conclusions without exchanging full transcripts — and returns a single structured `CollabDebugReport`. Subagents signal upward with the `fleet_emit` tool.
 
@@ -387,7 +404,7 @@ When the active model lacks native vision, WrongStack writes clipboard images to
 
 ### Session persistence + resume
 
-Every run writes a `<id>.jsonl` append-only event log under `~/.wrongstack/projects/<sha256>/sessions/`. On close, a tiny `<id>.summary.json` manifest is written alongside — now analytics-grade: title, model, provider, tokenTotal, `endedAt`, `iterationCount`, `toolCallCount`, `toolErrorCount`, `fileChangeCount`, `compactionCount`, a per-tool `toolBreakdown`, and an `outcome` (`completed` / `error` / `timeout` / `aborted`). `wrongstack sessions` lists hundreds of past runs without re-parsing each JSONL (O(N) stats, not O(N) full parses). `session_resumed` marker written on resume. Orphan `tool_result` events (missing matching `tool_use`) emit `session.damaged` event so the session can be flagged for repair. Housekeeping: `/prune` deletes stale sessions (and their summary / plan / todos sidecars) by age, and `/prune --rebuild-index` rebuilds the session index from disk.
+Every run writes a `<id>.jsonl` append-only event log under `~/.wrongstack/projects/<sha256>/sessions/`. On close, a tiny `<id>.summary.json` manifest is written alongside — now analytics-grade: title, optional user `name`, model, provider, tokenTotal, `endedAt`, `iterationCount`, `toolCallCount`, `toolErrorCount`, `fileChangeCount`, `compactionCount`, a per-tool `toolBreakdown`, and an `outcome` (`completed` / `error` / `timeout` / `aborted`). `wrongstack sessions` lists hundreds of past runs without re-parsing each JSONL (O(N) stats, not O(N) full parses). `session_resumed` marker written on resume. Orphan `tool_result` events (missing matching `tool_use`) emit `session.damaged` event so the session can be flagged for repair. Renames persist through `/sessions rename` and the WebUI sidebar; deletes refuse to remove sessions still referenced by `active.json` or another live surface in the shared `SessionRegistry`. Housekeeping: `/prune` deletes stale sessions (and their summary / plan / todos sidecars) by age, and `/prune --rebuild-index` rebuilds the session index from disk.
 
 ### Encrypted secrets
 
@@ -410,14 +427,15 @@ await modeTool.execute({ action: 'set', mode: 'code-reviewer' });
 
 Switch how aggressively the session trims history: `balanced` (default), `frugal` (most token-friendly), `deep` (preserves more recent turns), `archival` (steady decision-preserving compaction). Use `/context mode` to list policies and switch at runtime. `repair` to fix damaged tool-call adjacency.
 
-### Observability — 53 typed events
+### Observability — 97 typed events
 
-`EventBus` carries events across Session, Iteration, Provider, Tool, Token/compaction, Subagent lifecycle, MCP, and Error categories. Subscribe with `events.on(name, fn)` or `events.once(name, fn)`; listeners that throw are caught and logged, never re-thrown.
+`EventBus` carries events across Brain, Session, Agent, Iteration, Provider, Tool, Storage, Delegation, Context, Token/budget, Compaction, Subagent, Fleet Supervisor, SDD, MCP, Worktree, Memory, and Client categories. Subscribe with `events.on(name, fn)` or `events.once(name, fn)`; listeners that throw are caught and logged, never re-thrown.
 
-Four-layer observability:
+Five-layer observability:
 - **Human view (TUI)**: LiveActivityStrip (top-4), FleetPanel, lifecycle chips on failures
 - **Host EventBus** (always-on): lifecycle + per-tool bridge
 - **FleetBus** (director-only): full per-subagent event stream — `tool.*`, `iteration.*`, `provider.{text,thinking}_*`, `compaction.*`, `token.*`
+- **HQ bridge** (optional): session, transcript, fleet, Brain, worktree, tool, and cost telemetry over `/ws/client`
 - **Per-subagent JSONL on disk**: `/fleet log <id>` summarises, `/fleet log <id> raw` dumps full transcript
 
 ### Security
@@ -467,11 +485,13 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current package line: 0.280.1.** Highlights include the Electron Desktop
-surface (`wrongstack --desktop`, `wstack desktop`, `wrongstack-desktop`), the
-interactive in-session `/auth` panel, skill registry search/install authoring
-improvements, the 36-plugin official suite, and package coverage for ACP, bench,
-WebUI HQ, and Desktop alongside the CLI/TUI/WebUI stack.
+**Current package line: 0.282.0.** Highlights include fleet supervision and
+peer awareness, the cross-machine HQ command center with token-scoped control
+and persisted telemetry, the Electron Desktop surface (`wrongstack --desktop`,
+`wstack desktop`, `wrongstack-desktop`), the interactive in-session `/auth`
+panel, skill registry search/install authoring improvements, the 36-plugin
+official suite, and package coverage for ACP, bench, WebUI HQ, and Desktop
+alongside the CLI/TUI/WebUI stack.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 
@@ -546,6 +566,11 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --webui              Serve the browser UI + WS bridge for this project
 --desktop            Open WrongStack Desktop (requires @wrongstack/desktop)
 --hq                 Start the project-independent HQ command center
+--host <addr>        HQ bind host (default 127.0.0.1; use 0.0.0.0 for LAN)
+--port <n>           HQ bind port (default 3499)
+--strict-port        HQ: fail if the requested port is busy
+--data-dir <path>    HQ data directory (auth.json, events, snapshot, trends)
+--hq-allow-exec      Allow HQ run-command requests to route to the leader as steer
 --open               Open the browser for --webui / --hq
 --no-interactive     Skip interactive provider/model setup; require saved config
 --no-banner          Suppress the startup banner
@@ -566,11 +591,11 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 
 ## Slash commands
 
-**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/codebase-reindex` `/dev` `/diag` `/doctor` `/stats` `/tools` `/tool` `/plugin` `/mcp` `/auth` `/memory` `/todos` `/tasks` `/mode` `/mouse` `/yolo` `/autonomy` `/interrupt` `/btw` `/next` `/enhance` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/save` `/load` `/prune` `/exit`
+**Core** (both the plain REPL and the TUI): `/init` `/help` `/clear` `/compact` `/context` `/codebase-reindex` `/dev` `/diag` `/doctor` `/stats` `/tools` `/tool` `/plugin` `/mcp` `/auth` `/hq` `/memory` `/todos` `/tasks` `/mode` `/mouse` `/yolo` `/autonomy` `/interrupt` `/btw` `/next` `/enhance` `/fix` `/autophase` `/worktree` `/settings` `/sdd` `/save` `/load` `/prune` `/exit`
 
 Every built-in command is tagged with a category (`Run` · `Session` · `Inspect` · `Agent` · `Config` · `App`); the TUI slash picker groups matches under category headers, and the WebUI surfaces 55 commands in its slash list.
 
-**Multi-agent:** `/spawn` `/fleet` `/agents` `/shadow` `/goal` `/director` `/collab` `/setmodel` `/models` `/fallback`
+**Multi-agent:** `/spawn` `/fleet` `/agents` `/shadow` `/supervisor` `/goal` `/director` `/collab` `/setmodel` `/models` `/fallback`
 
 **TUI-only** (need `--tui`): `/model` (provider → model picker) · `/steer` (mid-flight redirect — the plain REPL uses **Esc** instead) · `/queue`
 
@@ -586,6 +611,7 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | `/director` | Promote session to Director mode at runtime (must be before any subagent spawns) |
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|journal\|spawn\|terminate` | Inspect and control the subagent fleet. `log <id>` summarises; `log <id> raw` dumps full JSONL |
 | `/agents` | Print fleet roster (running, idle, completed) with kind chips for failures |
+| `/supervisor [status\|on\|off\|log [n]]` | Inspect or toggle the Brain-gated fleet supervisor. It starts with the Director fleet when a Brain is available and can rebalance pending tasks, spawn helpers, steer workers, or notify the leader |
 | `/steer <text>` | _(TUI; in the plain REPL use **Esc**)_ Mid-flight redirect — aborts iteration, terminates fleet, drops queue, prepends STEERING preamble |
 | `/goal <text>` | Lock in a goal — auto-refines it into deliverables, persists to `~/.wrongstack/projects/<hash>/goal.json`, tracks progress/trends, and injects the full-autonomy preamble. Subcommands: `/goal` (status + journal), `/goal refine`, `/goal clear`, `/goal pause`, `/goal resume`, `/goal journal [N]` |
 | `/tasks add\|start\|done\|fail\|status\|depends\|assign\|promote\|clear` | Structured task management between `/plan` and `/todos`: dependencies, types, priorities, estimates, agent assignment, and promote-to-todos flow |
@@ -599,6 +625,7 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | `/setmodel <key> <provider/model>` | Set per-role or per-phase model in the model matrix (e.g. `/setmodel security-scanner openai/gpt-4o`). Also supports `resolve <role>` and `doctor` for matrix diagnostics |
 | `/fallback` | View or edit the rate-limit fallback chain. On a `429`/`529`/`5xx` after retries, the agent rotates to the next model in the chain instead of failing; each hop prints `↻ switched to <provider/model>` |
 | `/auth [login\|status <provider>\|open\|help]` | In-session credential manager. In TUI, opens the interactive key/OAuth panel (`/auth login` jumps to OAuth); in REPL, shows a non-blocking provider/key dashboard and points to `wstack auth` for edits |
+| `/hq [status\|set <url> [token]\|token <token>\|on\|off\|clear]` | Configure this client’s HQ telemetry connection. Local `wstack --hq` is auto-discovered through `~/.wrongstack/hq/runtime.json`; remote HQs use URL + client token |
 | `/image` or `/paste-image` | Attach clipboard PNG. TUI also `Alt+V` |
 | `/context mode <policy>` | Switch context-window mode: `balanced`, `frugal`, `deep`, `archival`. `repair` fixes damaged tool-call adjacency |
 | `/plugin install\|disable\|enable\|remove\|official [name]` | Manage plugins. `install` adds bundled package to config (no npm). Restart to load/unload |
@@ -639,6 +666,7 @@ wrongstack auth list|status|remove <id>  # Inspect or remove saved credentials
 wrongstack webui          # Serve the browser UI (alias: --webui)
 wrongstack desktop        # Open WrongStack Desktop (alias: --desktop)
 wrongstack hq             # Start HQ command center (alias: --hq)
+wrongstack hq token create|list|revoke [--client]  # Manage browser/client HQ tokens
 wrongstack sessions       # List saved sessions for this project
 wrongstack resume <id>    # Continue a saved session
 wrongstack replay <id>    # Inspect a recorded replay log (see --replay)
