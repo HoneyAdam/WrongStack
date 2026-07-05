@@ -298,10 +298,10 @@ const plugin: Plugin = {
       cwd?: string,
     ): Promise<Record<string, unknown>> {
       const safeCwd = resolveProjectRoot(cwd);
-      if (!safeCwd && !dryRun) {
+      if (!safeCwd) {
         return { ok: false, error: 'cwd must stay within the current project directory' };
       }
-      cwd = safeCwd ?? cwd;
+      cwd = safeCwd;
       // Get current version
       const pkg = getPackageJson(cwd);
       if (!pkg) {
