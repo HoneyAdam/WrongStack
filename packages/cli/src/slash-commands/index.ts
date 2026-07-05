@@ -67,6 +67,7 @@ export interface SlashCommandContext {
     opts?: {
       provider?: string | undefined;
       model?: string | undefined;
+      fallbackModels?: string[] | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
       /** Explicit capability allowlist for the subagent's auto-approve policy.
@@ -89,6 +90,7 @@ export interface SlashCommandContext {
     opts?: {
       provider?: string | undefined;
       model?: string | undefined;
+      fallbackModels?: string[] | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
       /** Explicit capability allowlist for the subagent's auto-approve policy.
@@ -234,23 +236,29 @@ export interface SlashCommandContext {
    * no coordinator is active. Terminals are treated as eligible workers — an
    * open terminal session is sufficient; no subagent needs to be spawned.
    */
-  onCoordinatorTasks?: (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>) | undefined;
+  onCoordinatorTasks?:
+    | (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>)
+    | undefined;
   /**
    * Claim a coordinator task from the terminal. On success returns the task
    * description so the caller can inject it as the next agent prompt.
    * Returns null when no coordinator is active, or an error message string.
    */
-  onCoordinatorClaim?: ((taskId: string) => Promise<string | null | { description: string }>) | undefined;
+  onCoordinatorClaim?:
+    | ((taskId: string) => Promise<string | null | { description: string }>)
+    | undefined;
   /** Mark a claimed task as completed. Returns null on success or an error message. */
   onCoordinatorComplete?: ((taskId: string, result?: string) => Promise<string | null>) | undefined;
   /** Mark a claimed task as failed. Returns null on success or an error message. */
   onCoordinatorFail?: ((taskId: string, error: string) => Promise<string | null>) | undefined;
   /** Get coordinator stats for status display. Returns null when no coordinator is active. */
-  onCoordinatorStatus?: (() => Promise<{
-    goals: { total: number; done: number; pending: number; failed: number };
-    dag: { running: number; ready: number; done: number; failed: number };
-    auction: { pending: number; inProgress: number };
-  } | null>) | undefined;
+  onCoordinatorStatus?:
+    | (() => Promise<{
+        goals: { total: number; done: number; pending: number; failed: number };
+        dag: { running: number; ready: number; done: number; failed: number };
+        auction: { pending: number; inProgress: number };
+      } | null>)
+    | undefined;
   /**
    * Mutable holder for coordinator callbacks. Set by execution.ts when the
    * coordinator is created; read by slash commands. Mirrors the
@@ -259,15 +267,28 @@ export interface SlashCommandContext {
   coordinatorController?: {
     onCoordinatorStart?: ((goal?: string) => void) | undefined;
     onCoordinatorStop?: (() => void) | undefined;
-    onCoordinatorTasks?: (() => Promise<Array<{ id: string; title: string; priority: string; tags: string[] }> | null>) | undefined;
-    onCoordinatorClaim?: ((taskId: string) => Promise<string | null | { description: string }>) | undefined;
-    onCoordinatorComplete?: ((taskId: string, result?: string) => Promise<string | null>) | undefined;
+    onCoordinatorTasks?:
+      | (() => Promise<Array<{
+          id: string;
+          title: string;
+          priority: string;
+          tags: string[];
+        }> | null>)
+      | undefined;
+    onCoordinatorClaim?:
+      | ((taskId: string) => Promise<string | null | { description: string }>)
+      | undefined;
+    onCoordinatorComplete?:
+      | ((taskId: string, result?: string) => Promise<string | null>)
+      | undefined;
     onCoordinatorFail?: ((taskId: string, error: string) => Promise<string | null>) | undefined;
-    onCoordinatorStatus?: (() => Promise<{
-      goals: { total: number; done: number; pending: number; failed: number };
-      dag: { running: number; ready: number; done: number; failed: number };
-      auction: { pending: number; inProgress: number };
-    } | null>) | undefined;
+    onCoordinatorStatus?:
+      | (() => Promise<{
+          goals: { total: number; done: number; pending: number; failed: number };
+          dag: { running: number; ready: number; done: number; failed: number };
+          auction: { pending: number; inProgress: number };
+        } | null>)
+      | undefined;
   };
   /**
    * Ask the user a yes/no question on the REPL. Returns `true`/`false` for
@@ -312,7 +333,9 @@ export interface SlashCommandContext {
    * Atomically updates the in-memory hidden items list AND persists to
    * ~/.wrongstack/statusline.json. Used by the TUI's statusline picker.
    */
-  saveStatuslineHiddenItems?: (items: import('./statusline.js').StatuslineConfigKey[]) => Promise<void>;
+  saveStatuslineHiddenItems?: (
+    items: import('./statusline.js').StatuslineConfigKey[],
+  ) => Promise<void>;
   /**
    * Controller for the agents monitor overlay. The TUI installs the actual
    * setter on mount via a shared controller; before that, calls are buffered
@@ -349,7 +372,9 @@ export interface SlashCommandContext {
    * Split a task in the active SDD run into sub-tasks (refused while it runs).
    * Returns the new leaf ids, or null when there is no active run / unknown task.
    */
-  onSddSplitTask?: ((taskId: string, subtasks: Array<{ title: string; description: string }>) => string[] | null) | undefined;
+  onSddSplitTask?:
+    | ((taskId: string, subtasks: Array<{ title: string; description: string }>) => string[] | null)
+    | undefined;
   /**
    * Remove the git worktrees + branches an SDD run created. Uses the live run
    * when one is active (after a stop), else sweeps the project's leftovers from
@@ -391,6 +416,13 @@ export interface SlashCommandContext {
   onAutoPhasePause?: (() => void) | undefined;
   onAutoPhaseResume?: (() => void) | undefined;
   onAutoPhaseStop?: (() => void) | undefined;
+  /**
+   * Resume a persisted PhaseGraph. The host creates a new orchestrator for
+   * the loaded graph and starts executing pending tasks.
+   */
+  onAutoPhaseResumeFromGraph?:
+    | ((graph: import('@wrongstack/core').PhaseGraph) => Promise<void>)
+    | undefined;
   /** Live, read-only view of the running AutoPhase (null when idle). */
   getAutoPhaseRunner?: () => {
     graph: import('@wrongstack/core').PhaseGraph;
@@ -456,26 +488,31 @@ export interface SlashCommandContext {
    * agent is spawned; cleared when the shadow agent terminates. Used by
    * /shadow start to reject spawn attempts when one is already running.
    */
-  shadowController?: {
-    /** id of the currently active Shadow Agent subagent, or null if none */
-    activeId: string | null;
-    /** Register a new shadow agent id. Throws if one is already active. */
-    register(id: string): void;
-    /** Clear the active shadow agent id (called on termination). */
-    clear(): void;
-    /** Read per-session defaults used by the next /shadow start. */
-    getDefaults?: (() => { intervalMs?: number; provider?: string; model?: string }) | undefined;
-    /** Update per-session defaults used by the next /shadow start. */
-    setDefaults?:
-      | ((defaults: { intervalMs?: number; provider?: string; model?: string }) => void)
-      | undefined;
-  } | undefined;
+  shadowController?:
+    | {
+        /** id of the currently active Shadow Agent subagent, or null if none */
+        activeId: string | null;
+        /** Register a new shadow agent id. Throws if one is already active. */
+        register(id: string): void;
+        /** Clear the active shadow agent id (called on termination). */
+        clear(): void;
+        /** Read per-session defaults used by the next /shadow start. */
+        getDefaults?:
+          | (() => { intervalMs?: number; provider?: string; model?: string })
+          | undefined;
+        /** Update per-session defaults used by the next /shadow start. */
+        setDefaults?:
+          | ((defaults: { intervalMs?: number; provider?: string; model?: string }) => void)
+          | undefined;
+      }
+    | undefined;
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)
 export type { ProjectFacts } from './helpers.js';
 export { detectProjectFacts, renderAgentsTemplate } from './helpers.js';
 
+import { buildAcpCommand } from './acp.js';
 import { buildAuthCommand } from './auth.js';
 import { buildAutonomyCommand } from './autonomy.js';
 import { buildAutoPhaseCommand } from './autophase.js';
@@ -486,27 +523,28 @@ import { buildCodebaseReindexCommand } from './codebase-reindex.js';
 import { buildCollabCommand } from './collab.js';
 import { buildCompactCommand } from './compact.js';
 import { buildContextCommand } from './context.js';
+import { buildCoordinatorCommand } from './coordinator.js';
 import { buildDelegateCommand } from './delegate.js';
+import { buildDesignCommand } from './design.js';
 import { buildDevCommand } from './dev.js';
 import { buildDiagCommand, buildStatsCommand } from './diag-stats.js';
 import { buildDoctorCommand } from './doctor.js';
 import { buildEnhanceCommand } from './enhance.js';
 import { buildEnsembleCommand } from './ensemble.js';
-import { buildAcpCommand } from './acp.js';
+import { buildFKeyAliasCommands, buildFKeysCommand } from './f-keys.js';
 import { buildFallbackCommand } from './fallback.js';
 import { buildFixCommand } from './fix.js';
 import { buildFleetCommand } from './fleet.js';
-import { buildFKeysCommand, buildFKeyAliasCommands } from './f-keys.js';
 import { buildGoalCommand } from './goal.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
 import { buildInterruptCommand } from './interrupt.js';
+import { buildKanbanCommand } from './kanban.js';
 import { buildMailboxCommand } from './mailbox.js';
 import { buildMailboxDemoCommand } from './mailbox-demo.js';
 import { buildMailboxServeCommand } from './mailbox-serve.js';
 import { buildMcpSlashCommand } from './mcp.js';
 import { buildMemoryCommand } from './memory.js';
-import { buildDesignCommand } from './design.js';
 import { buildModeCommand } from './mode.js';
 import { buildModelCapsCommand } from './modelcaps.js';
 import { buildModelsCommand } from './models.js';
@@ -517,32 +555,31 @@ import { buildSddCommand } from './sdd.js';
 import { buildExitCommand, buildLoadCommand, buildSaveCommand } from './session.js';
 import { buildSetModelCommand } from './setmodel.js';
 import { buildSuggestCommand } from './suggest.js';
-import { buildCoordinatorCommand } from './coordinator.js';
 
 // modeldiag is now a CLI subcommand (wstack modeldiag), not a slash command.
 
+import { buildAgentsCommand } from './agents.js';
+import { buildAuditCommand } from './audit.js';
+import { buildHqCommand } from './hq.js';
 import { buildMouseCommand } from './mouse.js';
 import { buildProjectCommand } from './project.js';
 import { buildReviewCommand } from './review.js';
 import { buildSecurityCommand } from './security.js';
 import { buildSettingsCommand } from './settings.js';
-import { buildHqCommand } from './hq.js';
-import { buildAgentsCommand } from './agents.js';
+import { buildShadowCommand } from './shadow.js';
 import { buildDirectorCommand, buildSpawnCommand } from './spawn-agents.js';
 import { buildStatuslineCommand } from './statusline.js';
+import { buildSupervisorCommand } from './supervisor.js';
 import { buildTasksCommand } from './tasks.js';
 import { buildTechStackCommand } from './techstack.js';
-import { buildTelegramSetupCommand } from './telegram-setup.js';
 import { buildTelegramSettingsCommand } from './telegram-settings.js';
+import { buildTelegramSetupCommand } from './telegram-setup.js';
 import { buildTodosCommand } from './todos.js';
 import { buildToolCommand } from './tool.js';
 import { buildToolsCommand } from './tools.js';
 import { buildWorkingDirCommand } from './working-dir.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildYoloCommand } from './yolo.js';
-import { buildShadowCommand } from './shadow.js';
-import { buildSupervisorCommand } from './supervisor.js';
-import { buildAuditCommand } from './audit.js';
 
 export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashCommand[] {
   return [
@@ -550,6 +587,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildInitCommand(opts),
     buildClearCommand(opts),
     buildInterruptCommand(opts),
+    buildKanbanCommand(opts),
     buildCompactCommand(opts),
     buildContextCommand(opts),
     buildDelegateCommand(opts),

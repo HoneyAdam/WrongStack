@@ -22,6 +22,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { i18n, installDesktopHostLocaleBridge, useAppTranslation } from '../../src/i18n';
+import { handlePrefsUpdated } from '../../src/hooks/ws-handlers/misc-handlers';
 import { useLocalPrefs } from '../../src/stores/local-prefs';
 import settings_en from '../../src/i18n/locales/en/settings.json';
 import settings_tr from '../../src/i18n/locales/tr/settings.json';
@@ -198,7 +199,6 @@ describe('locale switching applies instantly', () => {
     // server broadcasts prefs.updated; the client reconciles via
     // handlePrefsUpdated → useLocalPrefs → the i18n subscribe. This exercises
     // that exact path (the same-server live propagation, no restart).
-    const { handlePrefsUpdated } = await import('../../src/hooks/ws-handlers/misc-handlers');
     render(<SettingsProbe />);
     expect(screen.getByTestId('settings-probe').textContent).toBe('Settings');
 

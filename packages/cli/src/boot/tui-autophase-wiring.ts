@@ -9,45 +9,26 @@
  * Returns a subscribe function (called by runTui) and a cleanup function
  * (called on TUI teardown).
  */
+import { PHASE_EVENT_NAMES } from '@wrongstack/core';
 import type { EventBus } from '@wrongstack/core';
 
 /**
  * The full set of events forwarded from the EventBus to the TUI's
- * AutoPhase/Coordinator/Worktree/Countdown monitors. Order does not
- * matter — each gets its own listener.
+ * AutoPhase/Coordinator/Worktree/Countdown monitors.
+ *
+ * Imported from `@wrongstack/core`'s `PHASE_EVENT_NAMES` const array so the
+ * compiler catches drift when events are added or renamed.
  */
 const AUTO_PHASE_EVENTS: readonly string[] = [
-  'phase.started',
-  'phase.completed',
-  'phase.failed',
-  'phase.statusChange',
-  'phase.taskStarted',
-  'phase.taskCompleted',
-  'phase.taskFailed',
-  'phase.taskRetrying',
-  'phase.taskAssigned',
-  'phase.taskAdded',
-  'phase.taskMoved',
-  'phase.verifying',
-  'phase.verifyFailed',
-  'phase.repairing',
-  'phase.conflictResolving',
-  'phase.conflictResolved',
-  'autonomous.tick',
-  'graph.completed',
-  'graph.failed',
-  'agent.assigned',
-  'agent.released',
-  // Live multi-agent SDD board snapshot → TUI board overlay (Ctrl+B).
+  ...PHASE_EVENT_NAMES,
+  // Extra events not in PhaseEventMap (sourced from other subsystems)
   'sdd.board.snapshot',
-  // Git-worktree isolation lifecycle → TUI worktree panel/monitor.
   'worktree.allocated',
   'worktree.committed',
   'worktree.merged',
   'worktree.conflict',
   'worktree.released',
   'worktree.failed',
-  // Auto-proceed countdown tick events
   'countdown.tick',
 ];
 

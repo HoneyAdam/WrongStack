@@ -53,6 +53,7 @@ export type {
   PhaseSort,
   PhaseTemplate,
 } from './types.js';
+export { PHASE_EVENT_NAMES } from './types.js';
 
 export { PhaseStore, type PhaseStoreOptions } from './phase-store.js';
 export {

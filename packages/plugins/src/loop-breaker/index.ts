@@ -22,7 +22,7 @@
  * ```jsonc
  * {
  *   "enabled": true,
- *   "mode": "block",        // "block" | "warn"
+ *   "mode": "warn",         // "warn" | "block"
  *   "warnAfter": 3,                // consecutive identical calls before warning
  *   "blockAfter": 5,               // consecutive identical calls before blocking
  *   "oscillationWindow": 8,        // recent-call window for A-B-A-B detection
@@ -126,7 +126,7 @@ interface LoopBreakerConfig {
 
 const DEFAULTS: LoopBreakerConfig = {
   enabled: true,
-  mode: 'block',
+  mode: 'warn',
   warnAfter: 3,
   blockAfter: 5,
   oscillationWindow: 8,
@@ -285,8 +285,8 @@ const plugin: Plugin = {
       enabled: { type: 'boolean', default: true, description: 'Master switch.' },
       mode: {
         type: 'string',
-        enum: ['block', 'warn'],
-        default: 'block',
+        enum: ['warn', 'block'],
+        default: 'warn',
         description: 'block = refuse the repeated call; warn = only inject context.',
       },
       warnAfter: {

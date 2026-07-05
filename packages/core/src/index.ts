@@ -10,6 +10,7 @@ export {
   CheckpointManager,
   type CheckpointManagerOptions,
   createAutoPhaseFromTaskGraph,
+  PHASE_EVENT_NAMES,
   type PhaseEventMap,
   type PhaseEventName,
   type PhaseExecutionContext,
@@ -412,6 +413,7 @@ export {
   shellHooksEqual,
 } from './hooks/index.js';
 export * from './hq/index.js';
+export * from './kanban/index.js';
 export * from './kernel/index.js';
 export { attachMailboxChecker } from './mailbox-attach.js';
 export {

@@ -167,6 +167,16 @@ export interface RunTuiOptions {
   /** Live getter for the agent mode label so the status bar updates after /mode. */
   getModeLabel?: (() => string) | undefined;
   /**
+   * Get all available agent modes with their names, descriptions, and the
+   * currently active mode id. Used by the `/mode` picker in the TUI.
+   */
+  getModes?: (() => Promise<{
+    modes: import('@wrongstack/core').Mode[];
+    activeId: string | null;
+  }>) | undefined;
+  /** Switch to a different agent mode by id (e.g. "teach", "brief"). */
+  switchMode?: ((modeId: string) => Promise<string | null>) | undefined;
+  /**
    * Called ONCE on mount by the App to install its debug-stream telemetry
    * callback. The CLI wires this to setDebugStreamCallback() from
    * @wrongstack/providers. On App unmount, the default stderr callback
@@ -1027,6 +1037,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           tokenSavingMode: opts.tokenSavingMode,
           toolCount: opts.toolCount,
           getModeLabel: opts.getModeLabel,
+          getModes: opts.getModes,
+          switchMode: opts.switchMode,
           registerDebugStreamCallback: opts.registerDebugStreamCallback,
           restoreDebugStreamCallback: opts.restoreDebugStreamCallback,
           restoredMessages: opts.restoredMessages,

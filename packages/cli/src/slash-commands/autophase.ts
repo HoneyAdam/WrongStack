@@ -158,7 +158,9 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         case 'load': {
-          const title = rest.join(' ').trim();
+          const parts = rest.join(' ').trim();
+          const resumeFlag = parts.startsWith('--resume');
+          const title = resumeFlag ? parts.replace(/^--resume\s*/, '').trim() : parts;
           const graphs = await store.list();
           if (graphs.length === 0) return { message: '❌ No saved projects.' };
           const entry = title
@@ -167,6 +169,27 @@ export function buildAutoPhaseCommand(opts: SlashCommandContext): SlashCommand {
           if (!entry) return { message: `❌ No saved project matching "${title}".` };
           const graph = await store.load(entry.id);
           if (!graph) return { message: `❌ Could not load project "${entry.title}".` };
+
+          if (resumeFlag) {
+            if (!opts.onAutoPhaseResumeFromGraph) {
+              return {
+                message: [
+                  `📂 Loaded with --resume: **${graph.title}**`,
+                  '⚠️ AutoPhase resume requires a running CLI host with `onAutoPhaseResumeFromGraph` configured.',
+                  '',
+                  formatPhaseList(graph),
+                ].join('\n'),
+              };
+            }
+            await opts.onAutoPhaseResumeFromGraph(graph);
+            return {
+              message: [
+                `▶ Resumed: **${graph.title}**`,
+                formatPhaseList(graph),
+              ].join('\n'),
+            };
+          }
+
           return {
             message: [`📂 Loaded (display only): **${graph.title}**`, formatPhaseList(graph)].join(
               '\n',

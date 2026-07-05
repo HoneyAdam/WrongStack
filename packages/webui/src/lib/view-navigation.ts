@@ -10,15 +10,9 @@ export type PanelMainView =
   | 'sessions'
   | 'design-gallery';
 
-export type MainView = 'autophase' | 'specs' | 'sddboard' | 'sddwizard' | 'settings';
+export type MainView = 'autophase' | 'specs' | 'kanban' | 'sddboard' | 'sddwizard' | 'settings';
 
-export type AppView =
-  | PanelMainView
-  | MainView
-  | 'setup'
-  | 'debug'
-  | 'refresh-debug'
-  | 'analytics';
+export type AppView = PanelMainView | MainView | 'setup' | 'debug' | 'refresh-debug' | 'analytics';
 
 export const PANEL_VIEW_BY_ACTIVITY: Record<Activity, PanelMainView> = {
   chat: 'chat',

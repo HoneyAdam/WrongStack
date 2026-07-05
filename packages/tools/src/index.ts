@@ -1,115 +1,126 @@
-export { readTool } from './read.js';
-export { writeTool } from './write.js';
-export { editTool } from './edit.js';
-export { replaceTool } from './replace.js';
-export { globTool } from './glob.js';
-export { grepTool } from './grep.js';
-export { bashTool } from './bash.js';
+export { type DangerAssessment, type DangerLevel, detectDanger } from './_danger-detect.js';
 export {
-  resolveSessionShell,
+  type EnsureSessionShellOptions,
   ensureSessionShell,
   normalizeShell,
   type ResolveSessionShellDeps,
-  type EnsureSessionShellOptions,
+  resolveSessionShell,
 } from './_session-shell.js';
 export type { BashShell } from './_shell-pick.js';
-export { execTool } from './exec.js';
-export {
-  configureExecPolicy,
-  resetExecPolicy,
-  isExecCommandAllowed,
-  getExecAllowlist,
-  configureDangerBypass,
-  resetDangerBypass,
-  getDangerBypass,
-} from './exec.js';
-export { detectDanger, type DangerLevel, type DangerAssessment } from './_danger-detect.js';
-export { fetchTool } from './fetch.js';
-export { searchTool } from './search.js';
-export { todoTool } from './todo.js';
-export { planTool } from './plan.js';
-export { gitTool } from './git.js';
-export { patchTool } from './patch.js';
-export { jsonTool } from './json.js';
-export { diffTool } from './diff.js';
-export { treeTool } from './tree.js';
-export { lintTool } from './lint.js';
-export { formatTool } from './format.js';
-export { typecheckTool } from './typecheck.js';
-export { testTool } from './test.js';
-export { installTool } from './install.js';
 export { auditTool } from './audit.js';
-export { outdatedTool } from './outdated.js';
-export { logsTool } from './logs.js';
-export { documentTool } from './document.js';
-export { scaffoldTool } from './scaffold.js';
-export { designTool } from './design.js';
-export { toolSearchTool } from './tool-search.js';
-export { toolUseTool } from './tool-use.js';
+export { bashTool } from './bash.js';
 export { batchToolUseTool } from './batch-tool-use.js';
-export { toolHelpTool } from './tool-help.js';
-export { rememberTool, forgetTool, searchMemoryTool, relatedMemoryTool } from './memory.js';
-export { makeSkillTool } from './skill.js';
-export { createModeTool } from './mode.js';
-export { getProcessRegistry, _resetProcessRegistry, type ProcessRegistryImpl, type KillOpts, type RegistryStats, type TrackedProcess, type BreakerCountdown } from './process-registry.js';
-export { CircuitBreaker, type CircuitBreakerSnapshot, type CircuitBreakerConfig } from './circuit-breaker.js';
+// builtinTools moved to './builtin.ts' so consumers that only need a subset of
+// tools don't transitively import all 30. Use `@wrongstack/tools/builtin`.
+export { builtinTools, OPTIONAL_TOOLS, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from './builtin.js';
 export {
-  getPersistentProcessRegistry,
-  resetPersistentProcessRegistry,
-  type PersistentProcessEntry,
-  type PersistentRegistryData,
-} from './process-registry-persistent.js';
+  CircuitBreaker,
+  type CircuitBreakerConfig,
+  type CircuitBreakerSnapshot,
+} from './circuit-breaker.js';
+export type { CircuitSnapshot, CircuitState } from './codebase-index/index.js';
+export {
+  CircuitOpenError,
+  cancelPendingReindexes,
+  codebaseIndexStats,
+  codebaseIndexTool,
+  codebaseSearchTool,
+  codebaseStatsTool,
+  enqueueReindex,
+  getIndexState,
+  IndexCircuitBreaker,
+  IndexTimeoutError,
+  indexCircuitBreaker,
+  isIndexableFile,
+  isIndexing,
+  isIndexReady,
+  onIndexStateChange,
+  resetIndexCircuitBreaker,
+  runStartupIndex,
+  searchCodebaseIndex,
+  shutdownCodebaseIndexHost,
+} from './codebase-index/index.js';
+export { designTool } from './design.js';
+export { diffTool } from './diff.js';
+export { documentTool } from './document.js';
+export { editTool } from './edit.js';
+export {
+  configureDangerBypass,
+  configureExecPolicy,
+  execTool,
+  getDangerBypass,
+  getExecAllowlist,
+  isExecCommandAllowed,
+  resetDangerBypass,
+  resetExecPolicy,
+} from './exec.js';
+export { fetchTool } from './fetch.js';
+export { formatTool } from './format.js';
+export { gitTool } from './git.js';
+export { globTool } from './glob.js';
+export { grepTool } from './grep.js';
+export { installTool } from './install.js';
+export { jsonTool } from './json.js';
+export { kanbanTool } from './kanban.js';
+export { lintTool } from './lint.js';
+export { logsTool } from './logs.js';
+export { forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool } from './memory.js';
+export { createModeTool } from './mode.js';
+export { outdatedTool } from './outdated.js';
+export { builtinToolsPack } from './pack.js';
+export { patchTool } from './patch.js';
+export { planTool } from './plan.js';
 export {
   getProcessGuardian,
+  type ProcessGuardianConfig,
   startProcessGuardian,
   stopProcessGuardian,
-  type ProcessGuardianConfig,
 } from './process-guardian.js';
+export {
+  _resetProcessRegistry,
+  type BreakerCountdown,
+  getProcessRegistry,
+  type KillOpts,
+  type ProcessRegistryImpl,
+  type RegistryStats,
+  type TrackedProcess,
+} from './process-registry.js';
+export {
+  getPersistentProcessRegistry,
+  type PersistentProcessEntry,
+  type PersistentRegistryData,
+  resetPersistentProcessRegistry,
+} from './process-registry-persistent.js';
 export {
   createGlobalPsSlashCommand,
   formatGlobalStatus,
   formatInstanceList,
   formatInstanceSummary,
-  listInstances,
-  getInstanceCount,
   type GlobalProcessStatus,
+  getInstanceCount,
   type InstanceInfo,
   type InstanceListOptions,
+  listInstances,
 } from './ps-slash.js';
-export {
-  codebaseIndexTool,
-  codebaseSearchTool,
-  codebaseStatsTool,
-  runStartupIndex,
-  enqueueReindex,
-  isIndexableFile,
-  cancelPendingReindexes,
-  isIndexReady,
-  isIndexing,
-  getIndexState,
-  onIndexStateChange,
-  searchCodebaseIndex,
-  codebaseIndexStats,
-  shutdownCodebaseIndexHost,
-  IndexCircuitBreaker,
-  indexCircuitBreaker,
-  resetIndexCircuitBreaker,
-  CircuitOpenError,
-  IndexTimeoutError,
-} from './codebase-index/index.js';
-export type { CircuitState, CircuitSnapshot } from './codebase-index/index.js';
-
-// builtinTools moved to './builtin.ts' so consumers that only need a subset of
-// tools don't transitively import all 30. Use `@wrongstack/tools/builtin`.
-export { builtinTools, OPTIONAL_TOOLS, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from './builtin.js';
-export { builtinToolsPack } from './pack.js';
-
+export { readTool } from './read.js';
+export { replaceTool } from './replace.js';
+export { scaffoldTool } from './scaffold.js';
+export { searchTool } from './search.js';
+export { makeSkillTool } from './skill.js';
+export { testTool } from './test.js';
+export { todoTool } from './todo.js';
+export { toolHelpTool } from './tool-help.js';
 // Tool icon mapping — shared across all UIs (WebUI, TUI, REPL)
 export {
-  TOOL_ICON_MAP,
+  FALLBACK_ICON,
   getToolIcon,
   TOOL_ICON_CONFIG,
-  FALLBACK_ICON,
-  type ToolIconId,
+  TOOL_ICON_MAP,
   type ToolIconConfig,
+  type ToolIconId,
 } from './tool-icon-map.js';
+export { toolSearchTool } from './tool-search.js';
+export { toolUseTool } from './tool-use.js';
+export { treeTool } from './tree.js';
+export { typecheckTool } from './typecheck.js';
+export { writeTool } from './write.js';

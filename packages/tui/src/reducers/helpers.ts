@@ -1,5 +1,5 @@
-import type { ProjectPickerItem } from '../components/project-picker.js';
 import type { State } from '../app-state.js';
+import type { ProjectPickerItem } from '../components/project-picker.js';
 
 // ── Panel helpers ──────────────────────────────────────────────────────────
 
@@ -13,6 +13,7 @@ type PanelResetState = Pick<
   | 'processListOpen'
   | 'auditPanelOpen'
   | 'planPanelOpen'
+  | 'kanbanPanelOpen'
   | 'goalPanelOpen'
   | 'sessionsPanelOpen'
   | 'settingsPicker'
@@ -37,6 +38,7 @@ export function closePanels(state: State): PanelResetState {
     processListOpen: false,
     auditPanelOpen: false,
     planPanelOpen: false,
+    kanbanPanelOpen: false,
     goalPanelOpen: false,
     sessionsPanelOpen: false,
     settingsPicker: { ...state.settingsPicker, open: false },

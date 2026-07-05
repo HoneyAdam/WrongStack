@@ -30,7 +30,12 @@ interface MockApi {
 function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): MockApi {
   return {
     tools: { register: vi.fn() },
-    config: { extensions: overrides.extensions ?? {} },
+    config: {
+      extensions: {
+        'api-compatibility-gate': { enabled: true },
+        ...(overrides.extensions ?? {}),
+      },
+    },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn() },
     registerHook: vi.fn(() => vi.fn()),

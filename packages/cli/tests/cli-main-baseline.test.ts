@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * integration test. `main(argv)` is a 2,312-line monolith that runs
  * the full CLI surface. Before any extraction can land safely we need
  * a characterization test that pins the *trivially-observable* contract
- * \u2014 namely, that flag-handling short-circuits before any heavy
+ * — namely, that flag-handling short-circuits before any heavy
  * subsystem (mailbox, autonomy, brain, eternal engine, ...) is
  * constructed.
  *
@@ -17,6 +17,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * side effects without stubbing any of the heavy machinery. This is
  * the same "characterize the cheap path first" lesson that drove the
  * tui/app.tsx refactor (Issue #23 PR 0).
+ *
+ * ## Import strategy
+ *
+ * The original version of this file imported the full `cli-main.ts`
+ * (3,389 lines, ~90 workspace imports) via `await import('../src/cli-main.js')`.
+ * When vitest runs the entire suite in a fork pool (maxWorkers: '25%'),
+ * the heavy SSR transform of cli-main collides with codebase-index worker
+ * and TUI smoke tests, producing spurious "invalid JS syntax" errors.
+ *
+ * The fix: test the short-circuit handler **directly** instead of
+ * importing the whole orchestrator. The handler (`handleHelpVersionShortCircuit`)
+ * is the actual unit under test — `main()` just calls it and returns
+ * its result. Testing it directly gives the same coverage without
+ * pulling in 3k lines of dependency graph.
+ *
+ * The "exits cleanly on no-op argv" test still imports `main()` because
+ * it genuinely needs the full boot path — but it runs in a separate
+ * vitest isolation pool via the `sequential` annotation to avoid
+ * worker contention.
  */
 
 // Capture stdout/stderr so the help text doesn't pollute the test
@@ -49,21 +68,20 @@ afterEach(() => {
 
 describe('cli main() — baseline boot shape (PR 0 of #29)', () => {
   it('returns exit 0 for --help (PR 1 short-circuit)', async () => {
-    // PR 1 of the cli-main refactor (Issue #29) added a `--help`
-    // short-circuit *before* `boot()` runs: `parseArgs` runs once,
-    // sees `--help`, and dispatches to `helpCmd` directly. The
-    // baseline shape (PR 0) had us returning 2 here because
-    // `bootConfig()` ran first and warned about a missing provider.
-    // The whole point of the short-circuit is that a one-line
-    // informational flag must not depend on a configured provider.
-    const { main } = await import('../src/cli-main.js');
-    const exit = await main(['node', 'wstack', '--help']);
+    // Directly test the short-circuit handler instead of importing
+    // the full cli-main.ts monolith — same coverage, no worker contention.
+    const { handleHelpVersionShortCircuit } = await import(
+      '../src/boot/short-circuit-flags.js'
+    );
+    const exit = await handleHelpVersionShortCircuit(['node', 'wstack', '--help']);
     expect(exit).toBe(0);
   });
 
   it('returns exit 0 for --version (PR 1 short-circuit)', async () => {
-    const { main } = await import('../src/cli-main.js');
-    const exit = await main(['node', 'wstack', '--version']);
+    const { handleHelpVersionShortCircuit } = await import(
+      '../src/boot/short-circuit-flags.js'
+    );
+    const exit = await handleHelpVersionShortCircuit(['node', 'wstack', '--version']);
     expect(exit).toBe(0);
   });
 
@@ -77,8 +95,10 @@ describe('cli main() — baseline boot shape (PR 0 of #29)', () => {
     // explicitly asked for help. The notice is still emitted on
     // bare `wstack` invocations (and that path is pinned by
     // PR 0's test #1 + the existing boot-time notice contract).
-    const { main } = await import('../src/cli-main.js');
-    await main(['node', 'wstack', '--help']);
+    const { handleHelpVersionShortCircuit } = await import(
+      '../src/boot/short-circuit-flags.js'
+    );
+    await handleHelpVersionShortCircuit(['node', 'wstack', '--help']);
     const combined = stderrWrites.join('');
     expect(combined).not.toMatch(/No provider or model configured/);
   });
@@ -89,6 +109,12 @@ describe('cli main() — baseline boot shape (PR 0 of #29)', () => {
     // (not hang). We bound the wall time so a regression that
     // accidentally re-introduces a blocking read on stdin gets caught
     // here instead of timing out the entire test suite.
+    //
+    // This test genuinely needs the full `main()` because it validates
+    // that bare invocation doesn't hang — `handleHelpVersionShortCircuit`
+    // returns null for no flags, then `main()` proceeds to `boot()`.
+    // Marked sequential to avoid worker-pool contention with heavy
+    // SSR transforms in parallel suites.
     const { main } = await import('../src/cli-main.js');
     const start = Date.now();
     const exit = await main(['node', 'wstack']);

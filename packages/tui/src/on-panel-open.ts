@@ -24,11 +24,13 @@ export type PanelAction =
   | 'statuslineOpen'
   | 'authOpen'
   | 'authOauthOpen'
+  | 'modePickerOpen'
   | 'toggleMonitor'
   | 'toggleAuditPanel'
   | 'toggleAgentsMonitor'
   | 'toggleWorktreeMonitor'
   | 'togglePlanPanel'
+  | 'toggleKanbanPanel'
   | 'toggleTodosMonitor'
   | 'toggleQueuePanel'
   | 'toggleProcessList'
@@ -54,6 +56,11 @@ export interface PanelOpenDeps {
    * its plain-text output. Optional so older hosts keep working.
    */
   openAuthPanel?: ((view?: 'list' | 'oauth') => boolean) | undefined;
+  /**
+   * Async opener for the mode picker (`/mode`). Fetches all modes + active
+   * mode from the host and dispatches modePickerOpen with the populated list.
+   */
+  openModePicker?: (() => void | Promise<unknown>) | undefined;
 }
 
 /**
@@ -89,6 +96,13 @@ export function createPanelOpenDispatcher(deps: PanelOpenDeps): (action: string)
         // existing callback which knows how to compute it.
         openStatuslinePicker();
         return true;
+      case 'modePickerOpen':
+        // Async — fetches modes from the host, then dispatches open.
+        if (deps.openModePicker) {
+          void deps.openModePicker();
+          return true;
+        }
+        return false;
       case 'toggleMonitor':
         dispatch({ type: 'toggleMonitor' });
         return true;
@@ -102,6 +116,7 @@ export function createPanelOpenDispatcher(deps: PanelOpenDeps): (action: string)
       case 'toggleAgentsMonitor':
       case 'toggleWorktreeMonitor':
       case 'togglePlanPanel':
+      case 'toggleKanbanPanel':
       case 'toggleTodosMonitor':
       case 'toggleQueuePanel':
       case 'toggleProcessList':

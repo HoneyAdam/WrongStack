@@ -1525,6 +1525,7 @@ export class MultiAgentHost {
     opts?: {
       provider?: string | undefined;
       model?: string | undefined;
+      fallbackModels?: string[] | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
       allowedCapabilities?: readonly string[] | undefined;
@@ -1548,6 +1549,7 @@ export class MultiAgentHost {
       role: isShadowSpawn ? 'shadow-agent' : 'general',
       provider: opts?.provider,
       model: opts?.model,
+      fallbackModels: opts?.fallbackModels,
       tools: opts?.tools,
       allowedCapabilities: opts?.allowedCapabilities,
     };
@@ -1588,6 +1590,7 @@ export class MultiAgentHost {
     opts?: {
       provider?: string | undefined;
       model?: string | undefined;
+      fallbackModels?: string[] | undefined;
       tools?: string[] | undefined;
       name?: string | undefined;
       allowedCapabilities?: readonly string[] | undefined;

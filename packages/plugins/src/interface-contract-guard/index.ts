@@ -70,7 +70,7 @@ interface InterfaceContractGuardConfig {
 }
 
 const DEFAULTS: InterfaceContractGuardConfig = {
-  enabled: true,
+  enabled: false,
   extensions: ['.ts', '.tsx'],
   maxFindings: 50,
 };

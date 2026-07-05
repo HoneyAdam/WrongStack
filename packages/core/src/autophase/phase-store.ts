@@ -8,7 +8,12 @@ export interface PhaseStoreOptions {
   baseDir: string;
 }
 
+/** Current schema version for SerializedPhaseGraph. Increment on breaking changes. */
+const PHASE_STORE_VERSION = 1;
+
 interface SerializedPhaseGraph {
+  /** Schema version for forward-compatibility. Missing/0 means pre-v1. */
+  version: number;
   id: string;
   title: string;
   description: string;
@@ -151,6 +156,7 @@ export class PhaseStore {
 
   private serializeGraph(graph: PhaseGraph): SerializedPhaseGraph {
     return {
+      version: PHASE_STORE_VERSION,
       id: graph.id,
       title: graph.title,
       description: graph.description,
@@ -208,6 +214,15 @@ export class PhaseStore {
   }
 
   private deserializeGraph(serialized: SerializedPhaseGraph): PhaseGraph {
+    // Validate schema version for forward-compatibility.
+    const fileVersion = serialized.version ?? 0;
+    if (fileVersion > PHASE_STORE_VERSION) {
+      throw new Error(
+        `Cannot load phase graph: file version ${fileVersion} is newer than ` +
+        `supported version ${PHASE_STORE_VERSION}. Upgrade WrongStack to load this file.`,
+      );
+    }
+    // Future: add per-version migration logic here when fileVersion < PHASE_STORE_VERSION.
     const phases = new Map<string, PhaseNode>();
     for (const sp of serialized.phases) {
       phases.set(sp.id, this.deserializePhase(sp));

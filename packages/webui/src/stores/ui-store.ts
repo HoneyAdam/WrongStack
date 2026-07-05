@@ -51,6 +51,7 @@ const VIEWS = [
   'settings',
   'autophase',
   'specs',
+  'kanban',
   'sddboard',
   'sddwizard',
   'files',
@@ -101,6 +102,7 @@ interface UIState {
     | 'settings'
     | 'autophase'
     | 'specs'
+    | 'kanban'
     | 'sddboard'
     | 'sddwizard'
     | 'files'
@@ -543,8 +545,6 @@ export const useUIStore = create<UIState>()(
   ),
 );
 
-export function resetUiNavigationToHome(
-  options: { sidebarOpen?: boolean | undefined } = {},
-): void {
+export function resetUiNavigationToHome(options: { sidebarOpen?: boolean | undefined } = {}): void {
   useUIStore.setState(homeNavigationStatePatch(options));
 }

@@ -76,7 +76,13 @@ function clientHandledTypes(): Set<string> {
     'pong',
   ]);
   for (const m of handlerMap.matchAll(/^\s*'([a-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  for (const m of handlerMap.matchAll(/^\s*([a-z][a-z0-9_]*)\s*:\s*\(/gm)) {
+    types.add(m[1] as string);
+  }
   for (const m of subHandlers.matchAll(/^\s*'([a-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  for (const m of subHandlers.matchAll(/^\s*([a-z][a-z0-9_]*)\s*:\s*\(/gm)) {
+    types.add(m[1] as string);
+  }
   for (const m of all.matchAll(/\.on\??\.?\(\s*'([^']+)'/g)) types.add(m[1] as string);
   return types;
 }

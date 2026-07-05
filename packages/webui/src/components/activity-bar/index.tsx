@@ -1,12 +1,39 @@
+import {
+  Activity as ActivityIconSvg,
+  Bot,
+  Building2,
+  Clock,
+  Columns3,
+  Command,
+  FileText,
+  FolderOpen,
+  GitBranch,
+  GitCompare,
+  Keyboard,
+  LayoutGrid,
+  Mail,
+  MessageSquare,
+  Monitor,
+  Moon,
+  MoreHorizontal,
+  Palette,
+  Rocket,
+  Settings as SettingsIcon,
+  Sparkles,
+  Sun,
+  Wand2,
+  Zap,
+} from 'lucide-react';
+import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import type { MainView } from '@/lib/view-navigation';
 import {
   openMainView,
   openPanel,
   shortcutLabelForActivity,
   showPanel,
 } from '@/lib/view-navigation';
-import type { MainView } from '@/lib/view-navigation';
 import {
   type Activity,
   selectUnreadCount,
@@ -16,32 +43,6 @@ import {
   useSessionStore,
   useUIStore,
 } from '@/stores';
-import {
-  Bot,
-  Clock,
-  Command,
-  FileText,
-  GitBranch,
-  GitCompare,
-  FolderOpen,
-  Keyboard,
-  Mail,
-  MessageSquare,
-  Monitor,
-  Moon,
-  MoreHorizontal,
-  Rocket,
-  Settings as SettingsIcon,
-  Sparkles,
-  Sun,
-  Zap,
-  LayoutGrid,
-  Activity as ActivityIconSvg,
-  Building2,
-  Wand2,
-  Palette,
-} from 'lucide-react';
-import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../ThemeProvider';
 import {
   DropdownMenu,
@@ -91,6 +92,7 @@ const PANELS: PanelDef[] = [
 const VIEWS: ViewDef[] = [
   { id: 'sddwizard', icon: <Wand2 size={16} />, label: 'New SDD Project' },
   { id: 'specs', icon: <FileText size={16} />, label: 'Specs' },
+  { id: 'kanban', icon: <Columns3 size={16} />, label: 'Kanban' },
   { id: 'sddboard', icon: <ActivityIconSvg size={16} />, label: 'Live Board' },
   { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },

@@ -18,16 +18,9 @@
  */
 import path from 'node:path';
 import type { WebSocket } from 'ws';
-
-import type { AllRoutes, WebuiCallbacks, WebuiDeps, WebuiMutableState } from './routes.js';
-import type { ConnectedClient, WSClientMessage } from './types.js';
-
 import { handleAutoPhaseRoute } from './autophase-routes.js';
 import { handleBrainRoute } from './brain-routes.js';
-import {
-  createToolLspCompletionSource,
-  handleCompletionRequest,
-} from './completion-handlers.js';
+import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
 import {
   handleDesignList,
   handleDesignMaterialize,
@@ -48,21 +41,15 @@ import {
   type WorklistContext,
   type WorklistMessage,
 } from './handlers/index.js';
+import { handleKanbanRoute } from './kanban-routes.js';
 import { handleMailboxRoute } from './mailbox-routes.js';
 import { handleMcpRoute } from './mcp-routes.js';
-import {
-  handleMemoryForget,
-  handleMemoryList,
-  handleMemoryRemember,
-} from './memory-handlers.js';
+import { handleMemoryForget, handleMemoryList, handleMemoryRemember } from './memory-handlers.js';
 import { handleModeRoute } from './mode-routes.js';
-import { handlePrefsRoute } from './prefs-routes.js';
+import { resolveProviderModelMetadata } from './model-catalog.js';
 import type { ConfirmDecision, PendingConfirm } from './pending-confirms.js';
-import {
-  handleProcessKill,
-  handleProcessKillAll,
-  handleProcessList,
-} from './process-handlers.js';
+import { handlePrefsRoute } from './prefs-routes.js';
+import { handleProcessKill, handleProcessKillAll, handleProcessList } from './process-handlers.js';
 import { handleProjectRoute } from './project-routes.js';
 import {
   handlePromptsContent,
@@ -74,6 +61,11 @@ import {
   handlePromptsUsed,
 } from './prompts-handlers.js';
 import { handleProviderRoute } from './provider-routes.js';
+import type { AllRoutes, WebuiCallbacks, WebuiDeps, WebuiMutableState } from './routes.js';
+import { handleSddBoardRoute } from './sdd-board-routes.js';
+import { handleSddWizardRoute } from './sdd-wizard-routes.js';
+import { handleSessionRoute } from './session-routes.js';
+import { handleShellGitRoute } from './shell-git-routes.js';
 import {
   handleSkillsContent,
   handleSkillsCreate,
@@ -84,12 +76,8 @@ import {
   handleSkillsUninstall,
   handleSkillsUpdate,
 } from './skills-handlers.js';
-import { handleSddBoardRoute } from './sdd-board-routes.js';
-import { handleSddWizardRoute } from './sdd-wizard-routes.js';
-import { handleSessionRoute } from './session-routes.js';
-import { handleShellGitRoute } from './shell-git-routes.js';
 import { handleSpecsRoute } from './specs-routes.js';
-import { resolveProviderModelMetadata } from './model-catalog.js';
+import type { ConnectedClient, WSClientMessage } from './types.js';
 import { computeUsageCost, getCostRates } from './usage-cost.js';
 import { validateAutonomySwitchPayload } from './ws-payload-validation.js';
 import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
@@ -157,7 +145,9 @@ export function createMessageDispatcher(
 
   function messageSessionId(msg: WSClientMessage): string | undefined {
     const payload = msg.payload;
-    return payload && typeof payload === 'object' && typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+    return payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { sessionId?: unknown }).sessionId === 'string'
       ? (payload as { sessionId: string }).sessionId
       : undefined;
   }
@@ -202,6 +192,7 @@ export function createMessageDispatcher(
     if (await handleSpecsRoute(ws, msg, routes.specsRoutes)) return;
     if (await handleSddBoardRoute(ws, msg, routes.sddBoardRoutes)) return;
     if (await handleSddWizardRoute(ws, msg, routes.sddWizardRoutes)) return;
+    if (await handleKanbanRoute(ws, msg, { projectRoot: state.getProjectRoot() })) return;
     if (
       msg.type.startsWith('worktree.') &&
       (await deps.worktreeHandler.handleMessage(
@@ -220,7 +211,10 @@ export function createMessageDispatcher(
       case 'collab.resume':
       case 'collab.grant_control':
       case 'collab.inject_tool': {
-        deps.collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown | undefined });
+        deps.collabHandler.handleMessage(
+          ws,
+          msg as { type: string; payload?: unknown | undefined },
+        );
         return;
       }
       // Integrated terminal — interactive pty transport, bypasses the agent loop.
@@ -261,7 +255,10 @@ export function createMessageDispatcher(
             typeof deps.context.meta['maxIterations'] === 'number'
               ? deps.context.meta['maxIterations']
               : undefined;
-          const result = await deps.agent.run(content, { signal: thisRun.signal, maxIterations: maxIt });
+          const result = await deps.agent.run(content, {
+            signal: thisRun.signal,
+            maxIterations: maxIt,
+          });
           send(ws, {
             type: 'run.result',
             payload: sessionPayload({
@@ -297,9 +294,8 @@ export function createMessageDispatcher(
 
       case 'tool.confirm_result': {
         if (!ensureCurrentSession(ws, msg, 'tool.confirm_result')) return;
-        const { id, decision } = (
-          msg as { payload: { id: string; decision: ConfirmDecision } }
-        ).payload;
+        const { id, decision } = (msg as { payload: { id: string; decision: ConfirmDecision } })
+          .payload;
         const confirm = pendingConfirms.get(id);
         if (confirm) {
           pendingConfirms.delete(id);
@@ -418,22 +414,43 @@ export function createMessageDispatcher(
 
       // Design Studio — shared handlers (design-handlers.ts).
       case 'design.list':
-        await handleDesignList(ws, { projectRoot: state.getProjectRoot(), agentMeta: deps.context });
+        await handleDesignList(ws, {
+          projectRoot: state.getProjectRoot(),
+          agentMeta: deps.context,
+        });
         break;
       case 'design.use':
-        await handleDesignUse(ws, { projectRoot: state.getProjectRoot(), agentMeta: deps.context }, msg);
+        await handleDesignUse(
+          ws,
+          { projectRoot: state.getProjectRoot(), agentMeta: deps.context },
+          msg,
+        );
         break;
       case 'design.state':
-        await handleDesignState(ws, { projectRoot: state.getProjectRoot(), agentMeta: deps.context });
+        await handleDesignState(ws, {
+          projectRoot: state.getProjectRoot(),
+          agentMeta: deps.context,
+        });
         break;
       case 'design.set':
-        await handleDesignSet(ws, { projectRoot: state.getProjectRoot(), agentMeta: deps.context }, msg);
+        await handleDesignSet(
+          ws,
+          { projectRoot: state.getProjectRoot(), agentMeta: deps.context },
+          msg,
+        );
         break;
       case 'design.materialize':
-        await handleDesignMaterialize(ws, { projectRoot: state.getProjectRoot(), agentMeta: deps.context }, msg);
+        await handleDesignMaterialize(
+          ws,
+          { projectRoot: state.getProjectRoot(), agentMeta: deps.context },
+          msg,
+        );
         break;
       case 'design.verify':
-        await handleDesignVerify(ws, { projectRoot: state.getProjectRoot(), agentMeta: deps.context });
+        await handleDesignVerify(ws, {
+          projectRoot: state.getProjectRoot(),
+          agentMeta: deps.context,
+        });
         break;
 
       case 'diag.get': {

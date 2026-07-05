@@ -73,8 +73,9 @@ import {
   handleSkillsUpdate,
 } from '@wrongstack/webui/server';
 import type { WebSocket } from 'ws';
-import { consoleLogger } from './logger-shim.js';
+import type { CliWebUIOptions, WSClientMessage, WSServerMessage } from '../webui-server.js';
 import type { ConnectedClient } from './connection-handler.js';
+import { consoleLogger } from './logger-shim.js';
 import type {
   AgentConfigContext,
   BrainHandlerContext,
@@ -109,9 +110,9 @@ import {
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,
-  handleModeSwitch,
   handleModelRefine,
   handleModelSwitch,
+  handleModeSwitch,
   handleModesList,
   handleOAuthCancel,
   handleOAuthCode,
@@ -133,10 +134,10 @@ import {
   handleProviderModels,
   handleProviderProbe,
   handleProviderRemove,
-  handleProviderUndoClear,
-  handleProviderUpdate,
   handleProvidersList,
   handleProvidersSaved,
+  handleProviderUndoClear,
+  handleProviderUpdate,
   handleSessionCheckpoints,
   handleSessionDelete,
   handleSessionNew,
@@ -147,19 +148,23 @@ import {
   handleSessionsList,
   handleSkillsList,
   handleStatsGet,
-  handleTaskUpdate,
   handleTasksGet,
-  handleTodoUpdate,
+  handleTaskUpdate,
   handleTodosClear,
   handleTodosGet,
   handleTodosRemove,
+  handleTodoUpdate,
   handleToolConfirmResult,
   handleToolsList,
   handleUserMessage,
   handleWorkingDirSet,
 } from './ws-handlers/index.js';
-import { handleMailboxAgents, handleMailboxClear, handleMailboxMessages, handleMailboxPurge } from './ws-handlers/mailbox.js';
-import type { CliWebUIOptions, WSClientMessage, WSServerMessage } from '../webui-server.js';
+import {
+  handleMailboxAgents,
+  handleMailboxClear,
+  handleMailboxMessages,
+  handleMailboxPurge,
+} from './ws-handlers/mailbox.js';
 
 export interface MessageRouterDeps {
   opts: CliWebUIOptions;
@@ -264,7 +269,9 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
 
   const requestedSessionId = (msg: WSClientMessage): string | undefined => {
     const payload = msg.payload;
-    return payload && typeof payload === 'object' && typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+    return payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { sessionId?: unknown }).sessionId === 'string'
       ? (payload as { sessionId: string }).sessionId
       : undefined;
   };
@@ -304,11 +311,17 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         (msg as { payload?: { sessionId?: string } }).payload?.sessionId,
       ),
     abort: (msg, ws) =>
-      handleAbort(connectionCtx, ws, (msg as { payload?: { sessionId?: string } }).payload?.sessionId),
+      handleAbort(
+        connectionCtx,
+        ws,
+        (msg as { payload?: { sessionId?: string } }).payload?.sessionId,
+      ),
     ping: (_msg, ws) => handlePing(connectionCtx, ws),
     'tool.confirm_result': (msg, _ws) => {
       const { id, decision } = (
-        msg as { payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny'; sessionId?: string } }
+        msg as {
+          payload: { id: string; decision: 'yes' | 'no' | 'always' | 'deny'; sessionId?: string };
+        }
       ).payload;
       handleToolConfirmResult(
         connectionCtx,
@@ -770,7 +783,24 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         msg as { type: string; payload?: Record<string, unknown> },
       );
     } else if (msgType.startsWith('worktree.')) {
-      await worktreeHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
+      await worktreeHandler.handleMessage(
+        msg as { type: string; payload?: Record<string, unknown> },
+      );
+    } else if (msgType.startsWith('kanban.')) {
+      const { handleKanbanMessage } = await import('./ws-handlers/kanban.js');
+      type KContext = import('./ws-handlers/kanban.js').KanbanContext;
+      const kanbanCtx: KContext = {
+        send,
+        broadcast: deps.wsCommon?.broadcast ?? (() => {}),
+        log: (msg: string) => consoleLogger.info(msg),
+        projectRoot: deps.opts.projectRoot ?? '',
+        ...(deps.opts.onKanbanDispatch ? { dispatchTask: deps.opts.onKanbanDispatch } : {}),
+      };
+      await handleKanbanMessage(
+        kanbanCtx,
+        ws,
+        msg as { type: string; payload?: Record<string, unknown> },
+      );
     } else {
       console.debug(`[WebUI] Unhandled message type: ${msgType}`);
     }

@@ -1141,6 +1141,7 @@ function visualEdit(toolName: string, text: string, ok: boolean): ToolVisualLine
 }
 
 function visualRead(text: string): ToolVisualLine[] | undefined {
+  const header = parseHeaderLine(text);
   const lines = bodyLines(text);
   const numbered = lines
     .map((line) => line.match(/^\s*(\d+)→(.*)$/))
@@ -1150,29 +1151,23 @@ function visualRead(text: string): ToolVisualLine[] | undefined {
     return first ? [{ kind: 'meta', text: first }] : undefined;
   }
 
-  // First 10 lines always shown in full
-  const rows: ToolVisualLine[] = numbered.slice(0, 10).map((match) => ({
-    kind: 'code',
-    lineNo: match[1],
-    text: match[2] ?? '',
-  }));
-
-  // From the 11th line onward, show up to 5 more lines
-  if (numbered.length > 10) {
-    const extra: ToolVisualLine[] = numbered.slice(10, 15).map((match) => ({
-      kind: 'code' as const,
-      lineNo: match[1],
-      text: match[2] ?? '',
-    }));
-    rows.push(...extra);
-
-    // Remaining lines beyond 15 get a count summary
-    if (numbered.length > 15) {
-      rows.push({ kind: 'meta', text: `more ${numbered.length - 15} line(s)` });
-    }
+  const first = Number.parseInt(numbered[0]?.[1] ?? '', 10);
+  const last = Number.parseInt(numbered[numbered.length - 1]?.[1] ?? '', 10);
+  const total = numberFromParsedField(header.fields, 'total_lines');
+  const parts: string[] = [];
+  if (Number.isFinite(first) && Number.isFinite(last)) {
+    parts.push(first === last ? `L${first}` : `L${first}–${last}`);
   }
-
-  return rows;
+  const contiguous = Number.isFinite(first) && Number.isFinite(last)
+    ? numbered.length === last - first + 1
+    : true;
+  parts.push(
+    `${numbered.length} line${numbered.length === 1 ? '' : 's'}${contiguous ? '' : ' (gaps)'}`,
+  );
+  if (total !== undefined && total !== numbered.length) parts.push(`${total} total`);
+  if (header.fields['truncated'] === 'true') parts.push('truncated');
+  if (header.fields['cached'] === 'true') parts.push('cached');
+  return [{ kind: 'meta', text: parts.join(' · ') }];
 }
 
 function visualSearch(toolName: string, text: string): ToolVisualLine[] | undefined {

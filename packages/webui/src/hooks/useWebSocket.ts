@@ -1,8 +1,8 @@
-import { installFaviconVisibilityReset } from '@/lib/favicon';
-import { getWSClient } from '@/lib/ws-client';
-import type { WrongStackWebSocketClient } from '@/lib/ws-client';
-import { useConfigStore, useHistoryStore, useUIStore } from '@/stores';
 import { useCallback, useEffect } from 'react';
+import { installFaviconVisibilityReset } from '@/lib/favicon';
+import type { WrongStackWebSocketClient } from '@/lib/ws-client';
+import { getWSClient } from '@/lib/ws-client';
+import { useConfigStore, useHistoryStore, useUIStore } from '@/stores';
 import { WS_HANDLERS } from './ws-handlers.js';
 
 /**
@@ -24,9 +24,12 @@ import { WS_HANDLERS } from './ws-handlers.js';
 function installHandlers(ws: WrongStackWebSocketClient): () => void {
   const offs: Array<() => void> = [];
   for (const [type, handler] of Object.entries(WS_HANDLERS)) {
+    if (!handler) continue;
     offs.push(ws.on(type, handler));
   }
-  return () => { for (const off of offs) off(); };
+  return () => {
+    for (const off of offs) off();
+  };
 }
 
 /**
@@ -66,12 +69,14 @@ export function useWebSocketBootstrap(): void {
       })
       .catch((err) => {
         if (cancelled) return;
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'webui.ws_connection_failed',
-          message: err instanceof Error ? err.message : String(err),
-          timestamp: new Date().toISOString(),
-        }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'webui.ws_connection_failed',
+            message: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
       });
 
     const off = installHandlers(ws);
@@ -181,22 +186,40 @@ export function useWebSocket() {
   const switchMode = useCallback((id: string) => client.switchMode(id), [client]);
   const listContextModes = useCallback(() => client.listContextModes(), [client]);
   const switchContextMode = useCallback((id: string) => client.switchContextMode(id), [client]);
-  const createContextMode = useCallback((mode: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number }) => client.createContextMode(mode), [client]);
-  const updateContextMode = useCallback((id: string, patch: { name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined }) => client.updateContextMode(id, patch), [client]);
+  const createContextMode = useCallback(
+    (mode: {
+      id: string;
+      name: string;
+      description: string;
+      thresholds: { warn: number; soft: number; hard: number };
+      preserveK: number;
+      eliseThreshold: number;
+    }) => client.createContextMode(mode),
+    [client],
+  );
+  const updateContextMode = useCallback(
+    (
+      id: string,
+      patch: {
+        name?: string | undefined;
+        description?: string | undefined;
+        thresholds?:
+          | { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined }
+          | undefined;
+        preserveK?: number | undefined;
+        eliseThreshold?: number | undefined;
+      },
+    ) => client.updateContextMode(id, patch),
+    [client],
+  );
   const deleteContextMode = useCallback((id: string) => client.deleteContextMode(id), [client]);
   const repairContext = useCallback(() => client.repairContext(), [client]);
 
   // Model refine
-  const refineModel = useCallback(
-    (text: string) => client.refineModel(text),
-    [client],
-  );
+  const refineModel = useCallback((text: string) => client.refineModel(text), [client]);
 
   // Autonomy / Preferences
-  const switchAutonomy = useCallback(
-    (mode: string) => client.switchAutonomy(mode),
-    [client],
-  );
+  const switchAutonomy = useCallback((mode: string) => client.switchAutonomy(mode), [client]);
   const updatePrefs = useCallback(
     (prefs: Record<string, unknown>) => client.updatePrefs(prefs),
     [client],
@@ -204,31 +227,75 @@ export function useWebSocket() {
 
   // AutoPhase
   const toggleAutoPhaseAutonomous = useCallback(
-    (autonomous: boolean) => { client.send({ type: 'autophase.toggleAutonomous', payload: { autonomous } }); },
+    (autonomous: boolean) => {
+      client.send({ type: 'autophase.toggleAutonomous', payload: { autonomous } });
+    },
     [client],
   );
   const startAutoPhase = useCallback(
-    (title: string, phases?: unknown[] | undefined, autonomous = true) => { client.send({ type: 'autophase.start', payload: { title, phases, autonomous } }); },
+    (title: string, phases?: unknown[] | undefined, autonomous = true) => {
+      client.send({ type: 'autophase.start', payload: { title, phases, autonomous } });
+    },
     [client],
   );
-  const pauseAutoPhase = useCallback(() => { client.send({ type: 'autophase.pause', payload: {} }); }, [client]);
-  const resumeAutoPhase = useCallback(() => { client.send({ type: 'autophase.resume', payload: {} }); }, [client]);
-  const stopAutoPhase = useCallback(() => { client.send({ type: 'autophase.stop', payload: {} }); }, [client]);
+  const pauseAutoPhase = useCallback(() => {
+    client.send({ type: 'autophase.pause', payload: {} });
+  }, [client]);
+  const resumeAutoPhase = useCallback(() => {
+    client.send({ type: 'autophase.resume', payload: {} });
+  }, [client]);
+  const stopAutoPhase = useCallback(() => {
+    client.send({ type: 'autophase.stop', payload: {} });
+  }, [client]);
   const selectAutoPhase = useCallback(
-    (phaseId: string) => { client.send({ type: 'autophase.selectPhase', payload: { phaseId } }); },
+    (phaseId: string) => {
+      client.send({ type: 'autophase.selectPhase', payload: { phaseId } });
+    },
     [client],
   );
 
   return {
-    client, sendMessage, sendAbort, sendConfirm, switchModel,
-    listProviders, listProviderModels, listSavedProviders,
-    addKey, updateKey, deleteKey, setActiveKey, addProvider, removeProvider,
-    listSessions, deleteSession, renameSession, resumeSession, saveSession,
-    listTools, listMemory, listSkills, getDiag, getStats, getPlan,
-    listModes, switchMode, listContextModes, switchContextMode,
-    createContextMode, updateContextMode, deleteContextMode, repairContext,
-    toggleAutoPhaseAutonomous, startAutoPhase, pauseAutoPhase, resumeAutoPhase, stopAutoPhase, selectAutoPhase,
-    switchAutonomy, updatePrefs,
+    client,
+    sendMessage,
+    sendAbort,
+    sendConfirm,
+    switchModel,
+    listProviders,
+    listProviderModels,
+    listSavedProviders,
+    addKey,
+    updateKey,
+    deleteKey,
+    setActiveKey,
+    addProvider,
+    removeProvider,
+    listSessions,
+    deleteSession,
+    renameSession,
+    resumeSession,
+    saveSession,
+    listTools,
+    listMemory,
+    listSkills,
+    getDiag,
+    getStats,
+    getPlan,
+    listModes,
+    switchMode,
+    listContextModes,
+    switchContextMode,
+    createContextMode,
+    updateContextMode,
+    deleteContextMode,
+    repairContext,
+    toggleAutoPhaseAutonomous,
+    startAutoPhase,
+    pauseAutoPhase,
+    resumeAutoPhase,
+    stopAutoPhase,
+    selectAutoPhase,
+    switchAutonomy,
+    updatePrefs,
     refineModel,
   };
 }

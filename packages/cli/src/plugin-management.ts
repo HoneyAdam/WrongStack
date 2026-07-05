@@ -96,15 +96,15 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'auto-i18n-extractor',
     risk: 'low',
-    summary: 'Finds hardcoded user-facing UI strings and suggests i18n keys.',
-    defaultState: 'active',
+    summary: 'Finds hardcoded user-facing UI strings and suggests i18n keys when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
     name: 'accessibility-auditor',
     risk: 'medium',
-    summary: 'Scans UI files for common accessibility issues.',
-    defaultState: 'active',
+    summary: 'Scans UI files for common accessibility issues when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -257,8 +257,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'doc-sync-guard',
     risk: 'low',
-    summary: 'Warns when docs drift from recently changed public source files.',
-    defaultState: 'active',
+    summary: 'Warns when docs drift from recently changed public source files when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -327,8 +327,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'api-compatibility-gate',
     risk: 'medium',
-    summary: 'Warns when public entry-point exports are removed.',
-    defaultState: 'active',
+    summary: 'Warns when public entry-point exports are removed when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -467,8 +467,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'code-metrics',
     risk: 'low',
-    summary: 'Computes LOC, comment ratio, function count, and approximate cyclomatic complexity.',
-    defaultState: 'active',
+    summary: 'Computes LOC, comment ratio, function count, and approximate cyclomatic complexity on demand or when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -481,15 +481,15 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'feature-flag-tracker',
     risk: 'low',
-    summary: 'Scans source files for feature-flag usage and reports flag inventory.',
-    defaultState: 'active',
+    summary: 'Scans source files for feature-flag usage and reports flag inventory on demand or when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
     name: 'interface-contract-guard',
     risk: 'medium',
-    summary: 'Warns when TypeScript interfaces change or lack implementers.',
-    defaultState: 'active',
+    summary: 'Warns when TypeScript interfaces change or lack implementers when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {

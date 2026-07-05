@@ -71,7 +71,7 @@ interface CodeMetricsConfig {
 }
 
 const DEFAULTS: CodeMetricsConfig = {
-  enabled: true,
+  enabled: false,
   extensions: ['.ts', '.tsx', '.js', '.jsx'],
   maxFiles: 50,
 };

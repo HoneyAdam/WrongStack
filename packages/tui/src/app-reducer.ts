@@ -1,12 +1,19 @@
 import { expectDefined } from '@wrongstack/core';
+import type { Action, QueueItem, State } from './app-state.js';
+import {
+  AUTH_PANEL_INITIAL,
+  type AuthPanelState,
+  authMoveSelected,
+  authPanelRows,
+} from './components/auth-panel-model.js';
 // Reducer — pure state transformation. Types are in app-state.ts.
 // This file has NO React or Ink dependencies.
 import type { HistoryEntry } from './components/history.js';
 import { filterPromptPicker } from './components/prompt-picker.js';
-import type { WorktreeRow } from './components/worktree-panel.js';
-import { STATUSLINE_FIELD_COUNT, type ChipMeta } from './components/statusline-picker.js';
-
+import { nextSendModeIndex, SEND_MODE_OPTIONS } from './components/send-mode-picker.js';
+import type { AnimationStyleChoice } from './components/settings-picker.js';
 import {
+  ANIMATION_STYLE_CHOICES,
   AUDIT_LEVELS,
   AUTO_PROCEED_MAX_PRESETS,
   CACHE_TTLS,
@@ -28,31 +35,19 @@ import {
   THINKING_WORD_FIELD,
   THINKING_WORD_PRESETS,
   TOKEN_SAVING_TIERS,
-  ANIMATION_STYLE_CHOICES,
 } from './components/settings-picker.js';
-import type { AnimationStyleChoice } from './components/settings-picker.js';
-import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinking-word.js';
-import {
-  AUTH_PANEL_INITIAL,
-  authMoveSelected,
-  authPanelRows,
-  type AuthPanelState,
-} from './components/auth-panel-model.js';
-import type { Action, QueueItem, State } from './app-state.js';
-import { SEND_MODE_OPTIONS, nextSendModeIndex } from './components/send-mode-picker.js';
+import { type ChipMeta, STATUSLINE_FIELD_COUNT } from './components/statusline-picker.js';
+import type { WorktreeRow } from './components/worktree-panel.js';
+import { reduceFleetState } from './reducers/fleet.js';
 
 import {
   closePanels,
-  pruneToolInput,
   firstSelectable,
-  skipDivider,
   MAX_TOOL_STREAM_RETAINED_CHARS,
+  pruneToolInput,
+  skipDivider,
 } from './reducers/helpers.js';
-import { reduceFleetState } from './reducers/fleet.js';
-
-// Re-export extracted functions for backward compatibility.
-// Tests may import directly from app-reducer.js rather than reducers/helpers.js.
-export { pruneToolInput, firstSelectable, skipDivider } from './reducers/helpers.js';
+import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './thinking-word.js';
 
 // Re-export types from app-state.ts for backward compatibility.
 export type {
@@ -66,6 +61,9 @@ export type {
   SlashCommandMatch,
   State,
 } from './app-state.js';
+// Re-export extracted functions for backward compatibility.
+// Tests may import directly from app-reducer.js rather than reducers/helpers.js.
+export { firstSelectable, pruneToolInput, skipDivider } from './reducers/helpers.js';
 
 /** Keep the auth-panel cursor inside the current view's row list. */
 function clampAuthSelected(panel: AuthPanelState): number {
@@ -489,6 +487,31 @@ export function reducer(state: State, action: Action): State {
       return {
         ...state,
         autonomyPicker: { ...state.autonomyPicker, hint: action.text },
+      };
+    case 'modePickerOpen':
+      return {
+        ...state,
+        ...closePanels(state),
+        modePicker: { open: true, modes: action.modes, selected: 0, hint: undefined },
+      };
+    case 'modePickerClose':
+      return {
+        ...state,
+        modePicker: { open: false, modes: [], selected: 0 },
+      };
+    case 'modePickerMove': {
+      const n = state.modePicker.modes.length;
+      if (n === 0) return state;
+      const next = (state.modePicker.selected + action.delta + n) % n;
+      return {
+        ...state,
+        modePicker: { ...state.modePicker, selected: next },
+      };
+    }
+    case 'modePickerHint':
+      return {
+        ...state,
+        modePicker: { ...state.modePicker, hint: action.text },
       };
     case 'designPickerOpen':
       return {
@@ -1590,6 +1613,12 @@ export function reducer(state: State, action: Action): State {
       return opening
         ? { ...state, ...closePanels(state), planPanelOpen: true }
         : { ...state, planPanelOpen: false };
+    }
+    case 'toggleKanbanPanel': {
+      const opening = !state.kanbanPanelOpen;
+      return opening
+        ? { ...state, ...closePanels(state), kanbanPanelOpen: true }
+        : { ...state, kanbanPanelOpen: false };
     }
     case 'toggleGoalPanel': {
       const opening = !state.goalPanelOpen;

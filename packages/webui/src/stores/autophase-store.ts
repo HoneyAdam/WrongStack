@@ -49,6 +49,8 @@ interface AutoPhaseState {
     progress?: AutoPhaseState['progress'] | undefined;
   }) => void;
   clear: () => void;
+  /** Request state from server on mount. */
+  hydrateFromServer: (send: (msg: unknown) => void) => void;
 }
 
 export const useAutoPhaseStore = create<AutoPhaseState>()((set) => ({
@@ -92,4 +94,12 @@ export const useAutoPhaseStore = create<AutoPhaseState>()((set) => ({
       graphs: [],
       progress: null,
     }),
+  /**
+   * Request state hydration from the server. Call on mount to populate
+   * store from persisted disk state before live WS events arrive.
+   */
+  hydrateFromServer: (send: (msg: unknown) => void) => {
+    send({ type: 'autophase.list' });
+    send({ type: 'autophase.state' });
+  },
 }));

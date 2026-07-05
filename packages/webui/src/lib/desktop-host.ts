@@ -18,6 +18,7 @@ export const DESKTOP_COMMAND_VIEWS = new Set([
   'settings',
   'autophase',
   'specs',
+  'kanban',
   'sddboard',
   'sddwizard',
   'files',

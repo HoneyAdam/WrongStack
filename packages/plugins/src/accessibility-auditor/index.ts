@@ -86,7 +86,7 @@ interface AccessibilityAuditorConfig {
 }
 
 const DEFAULTS: AccessibilityAuditorConfig = {
-  enabled: true,
+  enabled: false,
   includeExtensions: ['.tsx', '.jsx', '.html', '.vue'],
   maxFindings: 50,
   severity: 'warn',

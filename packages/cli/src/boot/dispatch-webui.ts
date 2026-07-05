@@ -14,7 +14,19 @@
  * inline — they are too deeply coupled to local mutable state for a
  * single-PR extraction.
  */
-import type { Agent, BrainArbiter, Config, EventBus, JournalEntry, MemoryStore, ModeStore, ModelsRegistry, SessionStore, SessionWriter, SkillLoader } from '@wrongstack/core';
+import type {
+  Agent,
+  BrainArbiter,
+  Config,
+  EventBus,
+  JournalEntry,
+  MemoryStore,
+  ModelsRegistry,
+  ModeStore,
+  SessionStore,
+  SessionWriter,
+  SkillLoader,
+} from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import type { TerminalRenderer } from '../renderer.js';
@@ -33,8 +45,10 @@ export interface WebUIDispatchContext {
   mcpRegistry: MCPRegistry;
   brain: BrainArbiter | undefined;
   brainSettings: { maxAutoRisk: import('@wrongstack/core').BrainAutoRisk } | undefined;
-  getBrainLog: (() => Array<{ at: number; kind: string; question: string; outcome: string }>) | undefined;
-  subscribeEternalIteration: (((fn: (entry: JournalEntry) => void) => () => void) | undefined);
+  getBrainLog:
+    | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
+    | undefined;
+  subscribeEternalIteration: ((fn: (entry: JournalEntry) => void) => () => void) | undefined;
   sessionStore: SessionStore | undefined;
   memoryStore: MemoryStore | undefined;
   skillLoader: SkillLoader | undefined;
@@ -45,13 +59,35 @@ export interface WebUIDispatchContext {
   renderer: TerminalRenderer;
   onAutonomy: ((mode: AutonomyMode) => void) | undefined;
   applyLiveSettings?: ((settings: { yolo?: boolean }) => void) | undefined;
-  onModelContextResolved?: ((providerId: string, modelId: string, maxContext: number) => void) | undefined;
+  onModelContextResolved?:
+    | ((providerId: string, modelId: string, maxContext: number) => void)
+    | undefined;
   activeRecoveryLock: {
     clear: () => Promise<void>;
     write: (sessionId: string) => Promise<void>;
   };
   /** Per-task agent factory for the SDD wizard's multi-agent run. */
   sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
+  onKanbanDispatch?:
+    | ((
+        description: string,
+        opts?: {
+          provider?: string | undefined;
+          model?: string | undefined;
+          fallbackModels?: string[] | undefined;
+          tools?: string[] | undefined;
+          name?: string | undefined;
+          allowedCapabilities?: readonly string[] | undefined;
+          onDone?:
+            | ((result: {
+                status: 'completed' | 'failed';
+                result?: string | undefined;
+                error?: string | undefined;
+              }) => void | Promise<void>)
+            | undefined;
+        },
+      ) => Promise<string>)
+    | undefined;
 }
 
 /**
@@ -88,6 +124,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     onModelContextResolved,
     activeRecoveryLock,
     sddSubagentFactory,
+    onKanbanDispatch,
   } = ctx;
 
   // Route permission confirmations to the browser (tool.confirm_needed
@@ -151,9 +188,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
       process.env['WS_HOST'] ??
       '127.0.0.1';
     webuiHttpPort = parsePort(
-      flagValue(['webui-port', 'http-port']) ??
-        process.env['WEBUI_PORT'] ??
-        process.env['PORT'],
+      flagValue(['webui-port', 'http-port']) ?? process.env['WEBUI_PORT'] ?? process.env['PORT'],
       3456,
       '--webui-port',
     );
@@ -167,8 +202,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     webuiPublicUrl =
       flagValue(['webui-public-url', 'public-url']) ?? process.env['WEBUI_PUBLIC_URL'];
     webuiPublicWsUrl =
-      flagValue(['webui-public-ws-url', 'public-ws-url']) ??
-      process.env['WEBUI_PUBLIC_WS_URL'];
+      flagValue(['webui-public-ws-url', 'public-ws-url']) ?? process.env['WEBUI_PUBLIC_WS_URL'];
     webuiRequireToken =
       flagBoolean(['webui-require-token', 'require-token']) ?? envFlag('WEBUI_REQUIRE_TOKEN');
   } catch (err) {
@@ -217,19 +251,14 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     modeId,
     needsSetup,
     sddSubagentFactory,
+    onKanbanDispatch,
     // Print the "open this" banner only once the server is actually
     // listening, using the RESOLVED ports. Requested ports auto-advance past
     // busy ports inside runWebUI, so a banner printed up-front lies whenever
     // 3456/3457 are taken (a second instance, leftover sockets).
     onListening: ({ url }) => {
-      renderer.writeInfo(
-        color.green(
-          `  ✦ WebUI running → ${color.bold(url)}`,
-        ),
-      );
-      renderer.writeInfo(
-        color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'),
-      );
+      renderer.writeInfo(color.green(`  ✦ WebUI running → ${color.bold(url)}`));
+      renderer.writeInfo(color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'));
     },
     // Make autonomy.switch from the browser flip the CLI's real
     // autonomy mode — context.meta alone never reaches the run loop.

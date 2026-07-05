@@ -1,5 +1,6 @@
-import { Box, Text } from '../ink.js';
 import type React from 'react';
+import { Box, Text } from '../ink.js';
+import { colorForFamily, UI_COLORS } from './provider-colors.js';
 
 export interface ProviderOption {
   id: string;
@@ -32,8 +33,14 @@ function getVisibleWindow(selected: number, total: number): { start: number; end
   const half = Math.floor(MAX_VISIBLE / 2);
   let start = selected - half;
   let end = start + MAX_VISIBLE;
-  if (start < 0) { start = 0; end = Math.min(total, MAX_VISIBLE); }
-  if (end > total) { end = total; start = Math.max(0, end - MAX_VISIBLE); }
+  if (start < 0) {
+    start = 0;
+    end = Math.min(total, MAX_VISIBLE);
+  }
+  if (end > total) {
+    end = total;
+    start = Math.max(0, end - MAX_VISIBLE);
+  }
   return { start, end };
 }
 
@@ -55,27 +62,42 @@ export function ModelPicker({
 }: ModelPickerProps): React.ReactElement {
   if (step === 'provider') {
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-        <Text color="cyan" bold>
+      <Box flexDirection="column" borderStyle="round" borderColor={UI_COLORS.border} paddingX={1}>
+        <Text color={UI_COLORS.title} bold>
           {'━━ Switch model — Step 1/2: Pick provider ━━'}
         </Text>
         <Text dimColor>↑/↓ navigate · Enter select · Esc cancel · Ctrl+C exit</Text>
         {providerOptions.length === 0 ? (
           <Text dimColor>(no providers with keys — add one via `wstack auth`)</Text>
         ) : (
-          providerOptions.map((p, i) => (
-            <Text key={p.id} inverse={i === selected} {...(i === selected ? { color: 'cyan' } : {})}>
-              {i === selected ? '› ' : '  '}
-              <Text bold>{p.id.padEnd(28)}</Text>
-              <Text dimColor> [{p.family}]</Text>
-              <Text dimColor>
-                {' '}
-                {p.models.length} model{p.models.length === 1 ? '' : 's'}
-              </Text>
-            </Text>
-          ))
+          <Box flexDirection="column" minHeight={providerOptions.length}>
+            {providerOptions.map((p, i) => {
+              const isSelected = i === selected;
+              const famColor = colorForFamily(p.family);
+              return (
+                <Text
+                  key={p.id}
+                  inverse={isSelected}
+                  {...(isSelected ? { color: UI_COLORS.focused } : {})}
+                >
+                  {isSelected ? '› ' : '  '}
+                  <Text bold color={isSelected ? undefined : famColor}>
+                    {p.id.padEnd(28)}
+                  </Text>
+                  <Text color={isSelected ? undefined : famColor} dimColor={!isSelected}>
+                    {' '}
+                    [{p.family}]
+                  </Text>
+                  <Text dimColor>
+                    {' '}
+                    {p.models.length} model{p.models.length === 1 ? '' : 's'}
+                  </Text>
+                </Text>
+              );
+            })}
+          </Box>
         )}
-        {hint ? <Text color="yellow">{hint}</Text> : null}
+        {hint ? <Text color={UI_COLORS.hint}>{hint}</Text> : null}
       </Box>
     );
   }
@@ -92,40 +114,45 @@ export function ModelPicker({
       : '';
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text color="cyan" bold>
+    <Box flexDirection="column" borderStyle="round" borderColor={UI_COLORS.border} paddingX={1}>
+      <Text color={UI_COLORS.title} bold>
         {'━━ Switch model — Step 2/2: Pick model '}({pickedProviderId}
         {searchHint}){' ━━'}
       </Text>
       <Text dimColor>↑/↓ navigate · Enter select · Esc back · Ctrl+C exit · type to filter</Text>
       {total === 0 ? (
         <Text dimColor>
-          {searchQuery ? `(no models match "${searchQuery}")` : '(no models known for this provider)'}
+          {searchQuery
+            ? `(no models match "${searchQuery}")`
+            : '(no models known for this provider)'}
         </Text>
       ) : (
-        <>
-          {start > 0 && (
-            <Text dimColor>▲ {start} above</Text>
-          )}
+        <Box flexDirection="column" minHeight={MAX_VISIBLE + 2}>
+          {start > 0 && <Text dimColor>▲ {start} above</Text>}
           {visibleItems.map((id, vi) => {
             const absoluteIndex = start + vi;
+            const isSelected = absoluteIndex === selected;
             return (
               <Text
                 key={id}
-                inverse={absoluteIndex === selected}
-                {...(absoluteIndex === selected ? { color: 'cyan' } : {})}
+                inverse={isSelected}
+                {...(isSelected ? { color: UI_COLORS.selectedModel } : {})}
               >
-                {absoluteIndex === selected ? '› ' : '  '}
+                {isSelected ? '› ' : '  '}
                 {id}
               </Text>
             );
           })}
-          {end < total && (
-            <Text dimColor>▼ {total - end} below</Text>
+          {/* Pad remaining slots so old longer list never leaves ghost text */}
+          {Array.from({ length: MAX_VISIBLE - visibleItems.length }).map(
+            (_, i) => (
+              <Text key={`pad-${i}`}> </Text>
+            ),
           )}
-        </>
+          {end < total && <Text dimColor>▼ {total - end} below</Text>}
+        </Box>
       )}
-      {hint ? <Text color="yellow">{hint}</Text> : null}
+      {hint ? <Text color={UI_COLORS.hint}>{hint}</Text> : null}
     </Box>
   );
 }

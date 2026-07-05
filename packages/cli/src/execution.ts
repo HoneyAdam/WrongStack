@@ -30,6 +30,8 @@
  * receive `TuiRuntimeState` as a parameter, and add a thin reference
  * in the `runTui()` options literal below. Do NOT grow this file.
  */
+
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
   type Agent,
@@ -59,6 +61,7 @@ import {
   setQueuedMessagesSnapshot,
   type TokenCounter,
   type TokenSavingTier,
+  WIDE_SUBAGENT_CAPABILITIES,
   type WstackPaths,
 } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
@@ -66,7 +69,6 @@ import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
 import { runWebUIDispatch } from './boot/dispatch-webui.js';
-import type { StatuslineConfigKey } from './slash-commands/statusline.js';
 import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
 import {
@@ -98,6 +100,7 @@ import { resolveActiveApiKey } from './provider-config-utils.js';
 import type { TerminalRenderer } from './renderer.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
 import type { SessionStats } from './session-stats.js';
+import type { StatuslineConfigKey } from './slash-commands/statusline.js';
 import { setSuggestions } from './slash-commands/suggestion-store.js';
 import { CLI_VERSION } from './version.js';
 
@@ -151,14 +154,7 @@ export interface LiveSettingsInput {
   /** Single word shown in the TUI rainbow working-state chip. */
   thinkingWord?: string | undefined;
   /** Animation style for the TUI working-state chip. */
-  animationStyle?:
-    | 'rainbow'
-    | 'wave'
-    | 'pulse'
-    | 'dots'
-    | 'breathe'
-    | 'cycle'
-    | undefined;
+  animationStyle?: 'rainbow' | 'wave' | 'pulse' | 'dots' | 'breathe' | 'cycle' | undefined;
   /** Provider-runtime reasoning mode. */
   reasoningMode?: 'auto' | 'on' | 'off' | undefined;
   /** Provider-runtime reasoning effort. */
@@ -1079,6 +1075,22 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             const metaMode = context.meta?.['mode'];
             return typeof metaMode === 'string' ? metaMode : (modeId ?? 'default');
           },
+          getModes: modeStore
+            ? async () => {
+                const [modes, active] = await Promise.all([
+                  modeStore.listModes(),
+                  modeStore.getActiveMode(),
+                ]);
+                return { modes, activeId: active?.id ?? null };
+              }
+            : undefined,
+          switchMode: modeStore
+            ? async (id: string) => {
+                await modeStore.setActiveMode(id);
+                const active = await modeStore.getActiveMode();
+                return active?.name ?? null;
+              }
+            : undefined,
           registerDebugStreamCallback,
           restoreDebugStreamCallback,
           restoredMessages,
@@ -1155,6 +1167,63 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         activeRecoveryLock,
         onModelContextResolved,
         sddSubagentFactory,
+        ...(sddSubagentFactory
+          ? {
+              onKanbanDispatch: async (description, spawnOpts) => {
+                const subagentId = `kanban-${randomUUID().slice(0, 8)}`;
+                const taskId = randomUUID();
+                const name = spawnOpts?.name ?? 'kanban-agent';
+                void (async () => {
+                  const built = await sddSubagentFactory({
+                    id: subagentId,
+                    name,
+                    role: 'kanban-agent',
+                    prompt: description,
+                    allowedCapabilities:
+                      spawnOpts?.allowedCapabilities ?? WIDE_SUBAGENT_CAPABILITIES,
+                    ...(spawnOpts?.provider ? { provider: spawnOpts.provider } : {}),
+                    ...(spawnOpts?.model ? { model: spawnOpts.model } : {}),
+                    ...(spawnOpts?.fallbackModels
+                      ? { fallbackModels: spawnOpts.fallbackModels }
+                      : {}),
+                    ...(spawnOpts?.tools ? { tools: spawnOpts.tools } : {}),
+                  });
+                  try {
+                    const result = await built.agent.run(description);
+                    await spawnOpts?.onDone?.({
+                      status: result.status === 'done' ? 'completed' : 'failed',
+                      result: result.finalText,
+                      ...('error' in result && result.error?.message
+                        ? { error: result.error.message }
+                        : {}),
+                    });
+                  } catch (err) {
+                    await spawnOpts?.onDone?.({
+                      status: 'failed',
+                      error: err instanceof Error ? err.message : String(err),
+                    });
+                    throw err;
+                  } finally {
+                    await built.dispose?.();
+                  }
+                })().catch((err) => {
+                  events.emit('error', {
+                    err: err instanceof Error ? err : new Error(String(err)),
+                    phase: 'kanban.dispatch',
+                  });
+                });
+                const tags: string[] = [];
+                if (spawnOpts?.provider) tags.push(spawnOpts.provider);
+                if (spawnOpts?.model) tags.push(spawnOpts.model);
+                if (spawnOpts?.fallbackModels?.length) {
+                  tags.push(`fallback=${spawnOpts.fallbackModels.join(',')}`);
+                }
+                if (spawnOpts?.name) tags.push(`"${spawnOpts.name}"`);
+                const tag = tags.length > 0 ? ` (${tags.join(' / ')})` : '';
+                return `Spawned subagent ${subagentId}${tag} for task ${taskId}.`;
+              },
+            }
+          : {}),
       });
     } else {
       code = await runRepl({

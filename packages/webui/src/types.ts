@@ -1,5 +1,4 @@
-
-import type { Usage } from '@wrongstack/core';
+import type { KanbanBoard, KanbanBoardSummary, KanbanTask, Usage } from '@wrongstack/core';
 
 // Event types for WebSocket communication
 export interface WSMessage {
@@ -617,7 +616,12 @@ export interface WSStatsGet {
     sessionId: string;
     provider: string;
     model: string;
-    usage: { input: number; output: number; cacheRead?: number | undefined; cacheWrite?: number | undefined };
+    usage: {
+      input: number;
+      output: number;
+      cacheRead?: number | undefined;
+      cacheWrite?: number | undefined;
+    };
     cache: { readTokens: number; writeTokens: number; hitRatio: number } | null;
     cost: number;
     messages: number;
@@ -757,7 +761,13 @@ export interface WSAuthOAuthStatus {
   type: 'auth.oauth.status';
   payload: {
     kind: OAuthKind;
-    phase: 'awaiting_browser' | 'awaiting_code' | 'exchanging' | 'fetching_models' | 'success' | 'error';
+    phase:
+      | 'awaiting_browser'
+      | 'awaiting_code'
+      | 'exchanging'
+      | 'fetching_models'
+      | 'success'
+      | 'error';
     providerId?: string | undefined;
     authorizeUrl?: string | undefined;
     verificationUri?: string | undefined;
@@ -913,10 +923,32 @@ export interface WSAgentStatusChanged {
   payload: SessionScopedPayload & {
     subagentId: string;
     agentName: string;
-    status: 'spawned' | 'running' | 'completed' | 'failed' | 'timeout' | 'stopped' | 'budget_exhausted';
+    status:
+      | 'spawned'
+      | 'running'
+      | 'completed'
+      | 'failed'
+      | 'timeout'
+      | 'stopped'
+      | 'budget_exhausted';
     ts: string;
     summary?: string | undefined;
     task?: string | undefined;
+  };
+}
+
+export interface WSKanbanResult {
+  type: `kanban.${string}`;
+  payload: {
+    success: boolean;
+    data?:
+      | KanbanBoard
+      | KanbanBoardSummary[]
+      | KanbanTask
+      | KanbanTask[]
+      | Record<string, unknown>
+      | null;
+    error?: string | undefined;
   };
 }
 
@@ -929,14 +961,7 @@ export interface WorktreeHandleView {
   dir?: string | undefined;
   branch: string;
   baseBranch: string;
-  status:
-    | 'allocating'
-    | 'active'
-    | 'committing'
-    | 'merging'
-    | 'merged'
-    | 'needs-review'
-    | 'failed';
+  status: 'allocating' | 'active' | 'committing' | 'merging' | 'merged' | 'needs-review' | 'failed';
   insertions: number;
   deletions: number;
   files: number;
@@ -1031,6 +1056,7 @@ export type WSClientMessage =
   | { type: 'autophase.clear'; payload?: Record<string, never> }
   | { type: 'autophase.revert'; payload?: Record<string, never> }
   | { type: 'autophase.status'; payload?: Record<string, never> }
+  | { type: 'autophase.state'; payload?: Record<string, never> }
   | { type: 'autophase.save'; payload?: Record<string, never> }
   | { type: 'autophase.list'; payload?: Record<string, never> }
   | { type: 'autophase.load'; payload: { graphId: string } }
@@ -1073,15 +1099,28 @@ export type WSClientMessage =
     }
   | {
       type: 'sdd.board.set_task_model';
-      payload: { taskId: string; model?: string | undefined; provider?: string | undefined; runId?: string | undefined };
+      payload: {
+        taskId: string;
+        model?: string | undefined;
+        provider?: string | undefined;
+        runId?: string | undefined;
+      };
     }
   | {
       type: 'sdd.board.set_task_fallbacks';
-      payload: { taskId: string; fallbackModels?: string[] | undefined; runId?: string | undefined };
+      payload: {
+        taskId: string;
+        fallbackModels?: string[] | undefined;
+        runId?: string | undefined;
+      };
     }
   | {
       type: 'sdd.board.set_task_verification';
-      payload: { taskId: string; verificationCommand?: string | undefined; runId?: string | undefined };
+      payload: {
+        taskId: string;
+        verificationCommand?: string | undefined;
+        runId?: string | undefined;
+      };
     }
   | { type: 'sdd.board.cancel_task'; payload: { taskId: string; runId?: string | undefined } }
   | { type: 'sdd.board.delete_task'; payload: { taskId: string; runId?: string | undefined } }
@@ -1131,8 +1170,30 @@ export type WSClientMessage =
   | { type: 'context.debug'; payload?: SessionScopedPayload }
   | { type: 'context.modes.list'; payload?: SessionScopedPayload }
   | { type: 'context.mode.switch'; payload: { id: string } & SessionScopedPayload }
-  | { type: 'context.mode.create'; payload: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number } & SessionScopedPayload }
-  | { type: 'context.mode.update'; payload: { id: string; name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined } & SessionScopedPayload }
+  | {
+      type: 'context.mode.create';
+      payload: {
+        id: string;
+        name: string;
+        description: string;
+        thresholds: { warn: number; soft: number; hard: number };
+        preserveK: number;
+        eliseThreshold: number;
+      } & SessionScopedPayload;
+    }
+  | {
+      type: 'context.mode.update';
+      payload: {
+        id: string;
+        name?: string | undefined;
+        description?: string | undefined;
+        thresholds?:
+          | { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined }
+          | undefined;
+        preserveK?: number | undefined;
+        eliseThreshold?: number | undefined;
+      } & SessionScopedPayload;
+    }
   | { type: 'context.mode.delete'; payload: { id: string } & SessionScopedPayload }
   | WSModelSwitch
   | { type: 'providers.list' }
@@ -1144,7 +1205,12 @@ export type WSClientMessage =
   | { type: 'key.set_active'; payload: { providerId: string; label: string } }
   | {
       type: 'provider.add';
-      payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined };
+      payload: {
+        id: string;
+        family: string;
+        baseUrl?: string | undefined;
+        apiKey?: string | undefined;
+      };
     }
   | { type: 'provider.remove'; payload: { providerId: string } }
   | { type: 'provider.clear_models'; payload: { providerId: string } }
@@ -1170,7 +1236,10 @@ export type WSClientMessage =
   | { type: 'skills.list' }
   | { type: 'skills.content'; payload: { name: string; source: string } }
   | { type: 'prompts.list' }
-  | { type: 'prompts.search'; payload: { query?: string | undefined; category?: string | undefined } }
+  | {
+      type: 'prompts.search';
+      payload: { query?: string | undefined; category?: string | undefined };
+    }
   | { type: 'prompts.content'; payload: { slug: string } }
   | { type: 'prompts.favorite'; payload: { slug: string; favorite: boolean } }
   | { type: 'prompts.used'; payload: { slug: string } }
@@ -1202,19 +1271,39 @@ export type WSClientMessage =
   | { type: 'session.rename'; payload: { id: string; name: string } }
   | { type: 'modes.list' }
   | { type: 'mode.switch'; payload: { id: string } }
-  | { type: 'files.list'; payload: { query?: string | undefined; limit?: number | undefined; path?: string | undefined } }
+  | {
+      type: 'files.list';
+      payload: {
+        query?: string | undefined;
+        limit?: number | undefined;
+        path?: string | undefined;
+      };
+    }
   | { type: 'files.tree'; payload: { path?: string | undefined } | Record<string, never> }
   | { type: 'files.read'; payload: { filePath: string } }
   | { type: 'files.write'; payload: { filePath: string; content: string } }
   | WSCompletionRequest
   | { type: 'todos.get'; payload?: SessionScopedPayload }
   | { type: 'todos.clear'; payload?: SessionScopedPayload }
-  | { type: 'todos.remove'; payload: { id?: string | undefined; index?: number | undefined } & SessionScopedPayload }
-  | { type: 'todo.update'; payload: { id: string; status?: 'pending' | 'in_progress' | 'completed' | undefined; activeForm?: string | undefined } & SessionScopedPayload }
+  | {
+      type: 'todos.remove';
+      payload: { id?: string | undefined; index?: number | undefined } & SessionScopedPayload;
+    }
+  | {
+      type: 'todo.update';
+      payload: {
+        id: string;
+        status?: 'pending' | 'in_progress' | 'completed' | undefined;
+        activeForm?: string | undefined;
+      } & SessionScopedPayload;
+    }
   | { type: 'tasks.get'; payload?: SessionScopedPayload }
   | { type: 'task.update'; payload: { id: string; status: string } & SessionScopedPayload }
   | { type: 'plan.get'; payload?: SessionScopedPayload }
-  | { type: 'plan.item.update'; payload: { target: string; status: 'open' | 'in_progress' | 'done' } & SessionScopedPayload }
+  | {
+      type: 'plan.item.update';
+      payload: { target: string; status: 'open' | 'in_progress' | 'done' } & SessionScopedPayload;
+    }
   | { type: 'ping' }
   | { type: 'process.list' }
   | { type: 'process.kill'; payload: { pid: number } }
@@ -1239,10 +1328,24 @@ export type WSClientMessage =
   | WSCollabResume
   | WSCollabGrantControl
   | WSCollabInjectTool
-  | { type: 'mailbox.messages'; payload: { limit?: number | undefined; agentId?: string | undefined; unreadOnly?: boolean | undefined; incompleteOnly?: boolean | undefined } }
-  | { type: 'mailbox.agents'; payload: { onlineOnly?: boolean | undefined } | Record<string, never> }
+  | {
+      type: 'mailbox.messages';
+      payload: {
+        limit?: number | undefined;
+        agentId?: string | undefined;
+        unreadOnly?: boolean | undefined;
+        incompleteOnly?: boolean | undefined;
+      };
+    }
+  | {
+      type: 'mailbox.agents';
+      payload: { onlineOnly?: boolean | undefined } | Record<string, never>;
+    }
   | { type: 'mailbox.clear' }
-  | { type: 'mailbox.purge'; payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } | undefined }
+  | {
+      type: 'mailbox.purge';
+      payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } | undefined;
+    }
   | { type: 'brain.status' }
   | { type: 'brain.risk'; payload: { level: string } }
   | { type: 'brain.ask'; payload: { question: string } }
@@ -1252,14 +1355,21 @@ export type WSClientMessage =
   | { type: 'skills.install'; payload: { ref: string; global?: boolean } }
   | { type: 'skills.uninstall'; payload: { name: string; global?: boolean } }
   | { type: 'skills.update'; payload: { name?: string; global?: boolean } }
-  | { type: 'skills.create'; payload: { name: string; description: string; scope: 'project' | 'global' } }
+  | {
+      type: 'skills.create';
+      payload: { name: string; description: string; scope: 'project' | 'global' };
+    }
   | { type: 'skills.export'; payload?: Record<string, unknown> }
   | { type: 'skills.edit'; payload: { name: string; body: string } }
   // ── Design Studio client messages ────────────────────────────────────────────
   | { type: 'design.list' }
   | {
       type: 'design.use';
-      payload: { kit: string; stack?: string | undefined; overrides?: Record<string, string> | undefined };
+      payload: {
+        kit: string;
+        stack?: string | undefined;
+        overrides?: Record<string, string> | undefined;
+      };
     }
   | { type: 'design.state' }
   | { type: 'design.set'; payload: { overrides: Record<string, string> } }
@@ -1270,9 +1380,33 @@ export type WSClientMessage =
   | { type: 'design.verify' }
   // ── MCP client messages (requests to server) ─────────────────────────────────
   | { type: 'mcp.list' }
-  | { type: 'mcp.add'; payload: { name: string; transport: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[] } }
+  | {
+      type: 'mcp.add';
+      payload: {
+        name: string;
+        transport: string;
+        description?: string;
+        enabled?: boolean;
+        command?: string;
+        args?: string[];
+        env?: Record<string, string>;
+        allowedTools?: string[];
+      };
+    }
   | { type: 'mcp.remove'; payload: { name: string } }
-  | { type: 'mcp.update'; payload: { name: string; transport?: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[] } }
+  | {
+      type: 'mcp.update';
+      payload: {
+        name: string;
+        transport?: string;
+        description?: string;
+        enabled?: boolean;
+        command?: string;
+        args?: string[];
+        env?: Record<string, string>;
+        allowedTools?: string[];
+      };
+    }
   | { type: 'mcp.wake'; payload: { name: string } }
   | { type: 'mcp.sleep'; payload: { name: string } }
   | { type: 'mcp.discover'; payload: { name: string } }
@@ -1280,10 +1414,14 @@ export type WSClientMessage =
   | { type: 'mcp.disable'; payload: { name: string } }
   | { type: 'mcp.restart'; payload: { name: string } }
   // ── Integrated terminal (node-pty) client messages ───────────────────────────
-  | { type: 'terminal.create'; payload: { id: string; cols?: number | undefined; rows?: number | undefined } }
+  | {
+      type: 'terminal.create';
+      payload: { id: string; cols?: number | undefined; rows?: number | undefined };
+    }
   | { type: 'terminal.input'; payload: { id: string; data: string } }
   | { type: 'terminal.resize'; payload: { id: string; cols: number; rows: number } }
   | { type: 'terminal.close'; payload: { id: string } }
+  | { type: `kanban.${string}`; payload?: Record<string, unknown> | undefined }
   // ── Misc client messages ─────────────────────────────────────────────────────
   | { type: 'plan.template_use'; payload: { template: string } }
   | { type: 'webui.shutdown' };
@@ -1349,8 +1487,14 @@ export type WSServerMessage =
   | WSAuthOAuthStatus
   | WSFilesList
   | { type: 'files.tree'; payload: { root: string; tree: unknown[]; error?: string | undefined } }
-  | { type: 'files.read'; payload: { filePath: string; content: string; error?: string | undefined } }
-  | { type: 'files.written'; payload: { filePath: string; success: boolean; error?: string | undefined } }
+  | {
+      type: 'files.read';
+      payload: { filePath: string; content: string; error?: string | undefined };
+    }
+  | {
+      type: 'files.written';
+      payload: { filePath: string; success: boolean; error?: string | undefined };
+    }
   | WSCompletionResult
   | WSTodosUpdated
   | WSTodosCleared
@@ -1383,7 +1527,11 @@ export type WSServerMessage =
   | WSEternalIteration
   | WSAgentTimelineMessage
   | WSAgentStatusChanged
-  | { type: 'subagent.event'; payload: SessionScopedPayload & Record<string, unknown> & { kind: string } }
+  | WSKanbanResult
+  | {
+      type: 'subagent.event';
+      payload: SessionScopedPayload & Record<string, unknown> & { kind: string };
+    }
   | WSWorktreeState
   | WSWorktreeEvent
   | WSWorktreeOrphans
@@ -1399,7 +1547,19 @@ export type WSServerMessage =
   | WSCollabPauseGranted
   | WSCollabPauseReleased
   | WSCollabInjectionGranted
-  | { type: 'session.checkpoints'; payload: { checkpoints: Array<{ index: number; iteration: number; timestamp: string; label: string; messageCount: number; tokens: number }> } }
+  | {
+      type: 'session.checkpoints';
+      payload: {
+        checkpoints: Array<{
+          index: number;
+          iteration: number;
+          timestamp: string;
+          label: string;
+          messageCount: number;
+          tokens: number;
+        }>;
+      };
+    }
   | { type: 'goal.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
   | { type: 'client.status_update'; payload: Record<string, unknown> }
@@ -1407,43 +1567,252 @@ export type WSServerMessage =
   | { type: 'mailbox.event'; payload: Record<string, unknown> & { event: string } }
   | { type: 'mailbox.received'; payload: Record<string, unknown> }
   | { type: 'mailbox.agent_registered'; payload: Record<string, unknown> }
-  | { type: 'process.list'; payload: { processes: Array<{ pid: number; command: string; tool: string; startedAt: number; status: 'running' | 'exited' | 'killed'; protected?: boolean | undefined }> } }
+  | {
+      type: 'process.list';
+      payload: {
+        processes: Array<{
+          pid: number;
+          command: string;
+          tool: string;
+          startedAt: number;
+          status: 'running' | 'exited' | 'killed';
+          protected?: boolean | undefined;
+        }>;
+      };
+    }
   | WSSideEffects
-  | { type: 'git.info'; payload: { branch: string; added: number; deleted: number; untracked: number; behind: number; ahead: number } }
-  | { type: 'git.changes'; payload: { files: Array<{ path: string; status: string; added: number; deleted: number; staged: boolean }>; error?: string | undefined } }
-  | { type: 'git.diff'; payload: { path: string; oldText?: string | undefined; newText?: string | undefined; binary?: boolean | undefined; tooLarge?: boolean | undefined; error?: string | undefined } }
-  | { type: 'projects.list'; payload: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string | undefined }> } }
-  | { type: 'projects.added'; payload: { name: string; root: string; slug: string; message: string } }
+  | {
+      type: 'git.info';
+      payload: {
+        branch: string;
+        added: number;
+        deleted: number;
+        untracked: number;
+        behind: number;
+        ahead: number;
+      };
+    }
+  | {
+      type: 'git.changes';
+      payload: {
+        files: Array<{
+          path: string;
+          status: string;
+          added: number;
+          deleted: number;
+          staged: boolean;
+        }>;
+        error?: string | undefined;
+      };
+    }
+  | {
+      type: 'git.diff';
+      payload: {
+        path: string;
+        oldText?: string | undefined;
+        newText?: string | undefined;
+        binary?: boolean | undefined;
+        tooLarge?: boolean | undefined;
+        error?: string | undefined;
+      };
+    }
+  | {
+      type: 'projects.list';
+      payload: {
+        projects: Array<{
+          name: string;
+          root: string;
+          slug: string;
+          lastSeen?: string | undefined;
+        }>;
+      };
+    }
+  | {
+      type: 'projects.added';
+      payload: { name: string; root: string; slug: string; message: string };
+    }
   | { type: 'projects.selected'; payload: { root: string; name: string; message: string } }
   | { type: 'working_dir.changed'; payload: { cwd: string; projectRoot: string } }
-  | { type: 'brain.status'; payload: { maxAutoRisk: string; log: Array<{ at: number; kind: string; question: string; outcome: string }> } }
-  | { type: 'brain.answer'; payload: SessionScopedPayload & { question: string; decision: { type: string; optionId?: string | undefined; text?: string | undefined; rationale?: string | undefined; reason?: string | undefined; prompt?: string | undefined } } }
-  | { type: 'brain.event'; payload: SessionScopedPayload & Record<string, unknown> & { event: string } }
+  | {
+      type: 'brain.status';
+      payload: {
+        maxAutoRisk: string;
+        log: Array<{ at: number; kind: string; question: string; outcome: string }>;
+      };
+    }
+  | {
+      type: 'brain.answer';
+      payload: SessionScopedPayload & {
+        question: string;
+        decision: {
+          type: string;
+          optionId?: string | undefined;
+          text?: string | undefined;
+          rationale?: string | undefined;
+          reason?: string | undefined;
+          prompt?: string | undefined;
+        };
+      };
+    }
+  | {
+      type: 'brain.event';
+      payload: SessionScopedPayload & Record<string, unknown> & { event: string };
+    }
   | { type: 'session.damaged'; payload: { sessionId: string; detail: string } }
-  | { type: 'session.rewound'; payload: SessionScopedPayload & { toPromptIndex: number; revertedFiles: string[]; removedEvents: number } }
-  | { type: 'checkpoint.written'; payload: SessionScopedPayload & { promptIndex: number; promptPreview: string; ts: string; fileCount: number } }
+  | {
+      type: 'session.rewound';
+      payload: SessionScopedPayload & {
+        toPromptIndex: number;
+        revertedFiles: string[];
+        removedEvents: number;
+      };
+    }
+  | {
+      type: 'checkpoint.written';
+      payload: SessionScopedPayload & {
+        promptIndex: number;
+        promptPreview: string;
+        ts: string;
+        fileCount: number;
+      };
+    }
   | { type: 'in_flight.started'; payload: SessionScopedPayload & { context: string; ts: string } }
-  | { type: 'in_flight.ended'; payload: SessionScopedPayload & { reason: 'clean' | 'aborted' | 'recovered'; ts: string } }
-  | { type: 'model.refine_result'; payload: { refined: string; english: string; error?: string | undefined } }
+  | {
+      type: 'in_flight.ended';
+      payload: SessionScopedPayload & { reason: 'clean' | 'aborted' | 'recovered'; ts: string };
+    }
+  | {
+      type: 'model.refine_result';
+      payload: { refined: string; english: string; error?: string | undefined };
+    }
   // ── Coordinator / autonomous fleet events ──────────────────────────────
-  | { type: 'coordinator.status'; payload: { status: 'idle' | 'running' | 'draining' | 'stopped'; mode?: string; subagentCount?: number; taskQueue?: { pending: number; running: number; completed: number; failed: number } } }
-  | { type: 'coordinator.stats'; payload: SessionScopedPayload & { total: number; running: number; idle: number; stopped: number; inFlight: number; pending: number; completed: number; subagentStatuses?: Array<{ id: string; name: string; status: string; currentTask?: string }> } }
-  | { type: 'fleet.concurrency_update'; payload: SessionScopedPayload & { fleetConcurrency: number; fleetConcurrencyMax: number } }
-  | { type: 'budget.threshold_reached'; payload: SessionScopedPayload & { subagentId: string; taskId?: string; ts: number; kind: string; used: number; limit: number; timeoutMs: number } }
-  | { type: 'budget.decision'; payload: { subagentId: string; kind: string; decision: 'extend' | 'deny'; extended?: { timeoutMs?: number; maxIterations?: number; maxToolCalls?: number } } }
-  | { type: 'subagent.budget_extended'; payload: { subagentId: string; kind: string; extendedMs?: number; extendedTo?: number } }
-  | { type: 'consensus.vote_initiated'; payload: { changeId: string; title: string; eligible: Array<{ agentId: string; agentName: string }> } }
-  | { type: 'consensus.vote_cast'; payload: { changeId: string; voterId: string; value: 'approve' | 'reject' | 'abstain' } }
-  | { type: 'consensus.vote_resolved'; payload: { changeId: string; result: 'approved' | 'rejected' | 'vetoed' | 'quorum_not_met'; approveCount: number; rejectCount: number } }
+  | {
+      type: 'coordinator.status';
+      payload: {
+        status: 'idle' | 'running' | 'draining' | 'stopped';
+        mode?: string;
+        subagentCount?: number;
+        taskQueue?: { pending: number; running: number; completed: number; failed: number };
+      };
+    }
+  | {
+      type: 'coordinator.stats';
+      payload: SessionScopedPayload & {
+        total: number;
+        running: number;
+        idle: number;
+        stopped: number;
+        inFlight: number;
+        pending: number;
+        completed: number;
+        subagentStatuses?: Array<{
+          id: string;
+          name: string;
+          status: string;
+          currentTask?: string;
+        }>;
+      };
+    }
+  | {
+      type: 'fleet.concurrency_update';
+      payload: SessionScopedPayload & { fleetConcurrency: number; fleetConcurrencyMax: number };
+    }
+  | {
+      type: 'budget.threshold_reached';
+      payload: SessionScopedPayload & {
+        subagentId: string;
+        taskId?: string;
+        ts: number;
+        kind: string;
+        used: number;
+        limit: number;
+        timeoutMs: number;
+      };
+    }
+  | {
+      type: 'budget.decision';
+      payload: {
+        subagentId: string;
+        kind: string;
+        decision: 'extend' | 'deny';
+        extended?: { timeoutMs?: number; maxIterations?: number; maxToolCalls?: number };
+      };
+    }
+  | {
+      type: 'subagent.budget_extended';
+      payload: { subagentId: string; kind: string; extendedMs?: number; extendedTo?: number };
+    }
+  | {
+      type: 'consensus.vote_initiated';
+      payload: {
+        changeId: string;
+        title: string;
+        eligible: Array<{ agentId: string; agentName: string }>;
+      };
+    }
+  | {
+      type: 'consensus.vote_cast';
+      payload: { changeId: string; voterId: string; value: 'approve' | 'reject' | 'abstain' };
+    }
+  | {
+      type: 'consensus.vote_resolved';
+      payload: {
+        changeId: string;
+        result: 'approved' | 'rejected' | 'vetoed' | 'quorum_not_met';
+        approveCount: number;
+        rejectCount: number;
+      };
+    }
   | { type: 'task.pending'; payload: { taskId: string; description: string; priority?: number } }
   | { type: 'task.started'; payload: { taskId: string; subagentId: string } }
-  | { type: 'task.completed'; payload: { taskId: string; subagentId: string; status: string; durationMs: number } }
+  | {
+      type: 'task.completed';
+      payload: { taskId: string; subagentId: string; status: string; durationMs: number };
+    }
   | { type: 'task.failed'; payload: { taskId: string; subagentId: string; error: string } }
   // ── MCP server events ───────────────────────────────────────────────────────
-  | { type: 'mcp.list'; payload: { servers: Array<{ name: string; transport: string; status: string; enabled: boolean; description?: string; tools?: string[]; error?: string; pid?: number }> } }
-  | { type: 'mcp.server.added'; payload: { server: { name: string; transport: string; status: string; enabled: boolean; description?: string; tools?: string[] } } }
+  | {
+      type: 'mcp.list';
+      payload: {
+        servers: Array<{
+          name: string;
+          transport: string;
+          status: string;
+          enabled: boolean;
+          description?: string;
+          tools?: string[];
+          error?: string;
+          pid?: number;
+        }>;
+      };
+    }
+  | {
+      type: 'mcp.server.added';
+      payload: {
+        server: {
+          name: string;
+          transport: string;
+          status: string;
+          enabled: boolean;
+          description?: string;
+          tools?: string[];
+        };
+      };
+    }
   | { type: 'mcp.server.removed'; payload: { name: string } }
-  | { type: 'mcp.server.updated'; payload: { server: { name: string; transport: string; status: string; enabled: boolean; description?: string; tools?: string[] } } }
+  | {
+      type: 'mcp.server.updated';
+      payload: {
+        server: {
+          name: string;
+          transport: string;
+          status: string;
+          enabled: boolean;
+          description?: string;
+          tools?: string[];
+        };
+      };
+    }
   | { type: 'mcp.server.discovered'; payload: { name: string; tools: string[] } }
   | { type: 'mcp.server.sleeping'; payload: { name: string } }
   | { type: 'mcp.server.waking'; payload: { name: string } }
@@ -1456,7 +1825,10 @@ export type WSServerMessage =
   | { type: 'mailbox.purged'; payload: Record<string, unknown> & { error?: string | undefined } }
   // ── Integrated terminal (node-pty) server events ──────────────────────────────
   | { type: 'terminal.output'; payload: { id: string; data: string } }
-  | { type: 'terminal.exit'; payload: { id: string; exitCode: number; signal?: number | undefined } };
+  | {
+      type: 'terminal.exit';
+      payload: { id: string; exitCode: number; signal?: number | undefined };
+    };
 
 // Helper to broadcast to all clients
 export type BroadcastFn = (msg: WSServerMessage) => void;

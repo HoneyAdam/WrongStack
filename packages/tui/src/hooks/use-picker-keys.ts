@@ -269,6 +269,35 @@ export function usePickerKeys(
         return true;
       }
 
+      // ── Mode picker (agent modes: teach/brief/code-reviewer/etc.) ───────
+      if (state.modePicker.open) {
+        if (key.escape) {
+          dispatch({ type: 'modePickerClose' });
+          return true;
+        }
+        if (key.mouse?.kind === 'wheel') {
+          dispatch({ type: 'modePickerMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
+          return true;
+        }
+        if (key.upArrow) {
+          dispatch({ type: 'modePickerMove', delta: -1 });
+          return true;
+        }
+        if (key.downArrow) {
+          dispatch({ type: 'modePickerMove', delta: 1 });
+          return true;
+        }
+        if (isEnter) {
+          if (debouncedEnter(host)) return true;
+          const opt = state.modePicker.modes[state.modePicker.selected];
+          if (!opt) return true;
+          dispatch({ type: 'modePickerClose' });
+          host.submit?.(`/mode ${opt.id}`);
+          return true;
+        }
+        return true;
+      }
+
       // ── Autonomy picker ───────────────────────────────────────
       if (state.autonomyPicker.open) {
         if (key.escape) {

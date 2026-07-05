@@ -81,7 +81,7 @@ interface ApiCompatibilityGateConfig {
 }
 
 const DEFAULTS: ApiCompatibilityGateConfig = {
-  enabled: true,
+  enabled: false,
   severity: 'warn',
   entryPointPatterns: ['**/index.ts', '**/index.js', '**/src/index.ts', 'src/index.ts'],
   trackGitHistory: true,

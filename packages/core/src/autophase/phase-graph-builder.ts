@@ -116,7 +116,8 @@ export class PhaseGraphBuilder {
 
   /**
    * Create phases from an existing TaskGraph.
-   * Groups tasks into phases by priority and type.
+   * Groups tasks into phases using topological sort so dependencies
+   * stay in the same phase wherever possible.
    */
   static fromTaskGraph(
     taskGraph: TaskGraph,
@@ -128,19 +129,76 @@ export class PhaseGraphBuilder {
     const tasksPerPhase = options.tasksPerPhase ?? 5;
     const nodes = Array.from(taskGraph.nodes.values());
 
-    // Sort tasks: critical first, then dependency order.
-    const sorted = [...nodes].sort((a, b) => {
-      const prioOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-      return (prioOrder[a.priority] ?? 4) - (prioOrder[b.priority] ?? 4);
-    });
-
-    // Group tasks.
-    const groups: typeof sorted[] = [];
-    for (let i = 0; i < sorted.length; i += tasksPerPhase) {
-      groups.push(sorted.slice(i, i + tasksPerPhase));
+    // Build adjacency: for each node, which nodes depend on it.
+    const dependents = new Map<string, string[]>();
+    for (const edge of taskGraph.edges) {
+      const list = dependents.get(edge.from) ?? [];
+      list.push(edge.to);
+      dependents.set(edge.from, list);
     }
 
-    const phaseTemplates: PhaseTemplate[] = groups.map((group, idx) => {
+    // Topological sort (Kahn's algorithm) — tasks that are depended-on come first.
+    const inDegree = new Map<string, number>();
+    for (const node of nodes) inDegree.set(node.id, 0);
+    for (const edge of taskGraph.edges) {
+      inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
+    }
+
+    const queue: string[] = [];
+    for (const [id, degree] of inDegree) {
+      if (degree === 0) queue.push(id);
+    }
+
+    const topoSorted: string[] = [];
+    while (queue.length > 0) {
+      // Prioritize by critical → high → medium → low within the same level.
+      queue.sort((a, b) => {
+        const na = taskGraph.nodes.get(a);
+        const nb = taskGraph.nodes.get(b);
+        const prioOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+        return ((na && prioOrder[na.priority]) ?? 4) - ((nb && prioOrder[nb.priority]) ?? 4);
+      });
+      const id = queue.shift()!;
+      topoSorted.push(id);
+      for (const depId of dependents.get(id) ?? []) {
+        const deg = (inDegree.get(depId) ?? 1) - 1;
+        inDegree.set(depId, deg);
+        if (deg === 0) queue.push(depId);
+      }
+    }
+
+    // Group topologically-sorted nodes into phases, keeping dependent
+    // tasks close together.
+    const groups: string[][] = [];
+    let currentGroup: string[] = [];
+    const assigned = new Set<string>();
+
+    for (const id of topoSorted) {
+      if (assigned.has(id)) continue;
+      assigned.add(id);
+      currentGroup.push(id);
+
+      // Collect any direct dependents of this task into the same phase
+      // as long as we haven't exceeded the size limit.
+      const deps = dependents.get(id) ?? [];
+      for (const depId of deps) {
+        if (!assigned.has(depId) && currentGroup.length < tasksPerPhase) {
+          assigned.add(depId);
+          currentGroup.push(depId);
+        }
+      }
+
+      if (currentGroup.length >= tasksPerPhase) {
+        groups.push(currentGroup);
+        currentGroup = [];
+      }
+    }
+    if (currentGroup.length > 0) groups.push(currentGroup);
+
+    const phaseTemplates: PhaseTemplate[] = groups.map((groupIds, idx) => {
+      const group = groupIds
+        .map((id) => taskGraph.nodes.get(id))
+        .filter((n): n is NonNullable<typeof n> => n != null);
       const hasCritical = group.some((t) => t.priority === 'critical');
       const totalHours = group.reduce((sum, t) => sum + (t.estimateHours ?? 2), 0);
 

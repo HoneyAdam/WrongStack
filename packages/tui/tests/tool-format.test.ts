@@ -1189,16 +1189,13 @@ describe('extractMultiFileDiffs', () => {
 });
 
 describe('formatToolVisualOutput', () => {
-  it('renders read serializer output as numbered code rows', () => {
+  it('renders read serializer output as a compact summary row', () => {
     const out = formatToolVisualOutput(
       'read',
       ['read: src/a.ts (total_lines=3)', '1→const a = 1;', '2→const b = 2;'].join('\n'),
       true,
     );
-    expect(out).toEqual([
-      { kind: 'code', lineNo: '1', text: 'const a = 1;' },
-      { kind: 'code', lineNo: '2', text: 'const b = 2;' },
-    ]);
+    expect(out).toEqual([{ kind: 'meta', text: 'L1–2 · 2 lines · 3 total' }]);
   });
 
   it('renders grep grouped serializer output with file and match rows', () => {

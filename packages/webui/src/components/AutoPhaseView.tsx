@@ -34,9 +34,10 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
   const lastError = useAutoPhaseStore((s) => s.lastError);
   const graphs = useAutoPhaseStore((s) => s.graphs);
 
-  // Pull the list of persisted boards for this project on mount.
+  // Pull the list of persisted boards and current state for this project on mount.
   useEffect(() => {
     client?.send?.({ type: 'autophase.list' });
+    client?.send?.({ type: 'autophase.state' });
   }, [client]);
 
   const worktrees = useWorktreeStore((s) => s.worktrees);

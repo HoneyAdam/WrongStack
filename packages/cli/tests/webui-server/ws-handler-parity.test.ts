@@ -40,6 +40,7 @@ const standalonePaths = [
   path.join(repoRoot, 'packages/webui/src/server/mode-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/shell-git-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/mailbox-routes.ts'),
+  path.join(repoRoot, 'packages/webui/src/server/kanban-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/brain-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/autophase-routes.ts'),
   path.join(repoRoot, 'packages/webui/src/server/specs-routes.ts'),
@@ -174,9 +175,15 @@ describe('WebUI WS-handler parity (embedded vs standalone)', () => {
   it('handles an identical set of WS message types in both servers', () => {
     const embedded = caseLabels(embeddedPaths);
     const standalone = caseLabels(standalonePaths);
+    const embeddedPrefixes = delegatedPrefixes(embeddedPaths);
+    const standalonePrefixes = delegatedPrefixes(standalonePaths);
 
-    const onlyEmbedded = [...embedded].filter((t) => !NON_WS_CASE_LABELS.has(t) && !standalone.has(t)).sort();
-    const onlyStandalone = [...standalone].filter((t) => !NON_WS_CASE_LABELS.has(t) && !embedded.has(t)).sort();
+    const onlyEmbedded = [...embedded]
+      .filter((t) => !NON_WS_CASE_LABELS.has(t) && !isHandled(t, standalone, standalonePrefixes))
+      .sort();
+    const onlyStandalone = [...standalone]
+      .filter((t) => !NON_WS_CASE_LABELS.has(t) && !isHandled(t, embedded, embeddedPrefixes))
+      .sort();
 
     // If this fails, a message handler was added to one server but not the
     // other. Add the matching `case` to the other server (or, for messages

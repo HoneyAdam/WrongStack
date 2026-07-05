@@ -70,30 +70,33 @@ import {
   watchProviderConfig,
   wstackGlobalRoot,
 } from '@wrongstack/core';
-import { makeProviderFromConfig } from '@wrongstack/providers';
-import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { SkillInstaller } from '@wrongstack/core/skills';
+import { toErrorMessage } from '@wrongstack/core/utils/error';
 import type { MCPRegistry } from '@wrongstack/mcp';
+import { makeProviderFromConfig } from '@wrongstack/providers';
 import {
   AutoPhaseWebSocketHandler,
-  SpecsWebSocketHandler,
-  SddBoardWebSocketHandler,
-  SddWizardWebSocketHandler,
   buildSddWizardDeps,
+  buildWebUIAccessUrl,
   type CustomModeStore,
   createCustomModeStore,
-  findFreePort,
-  resolveAuthToken,
-  buildWebUIAccessUrl,
-  envFlag,
-  type SkillsContext,
-  type PromptsContext,
   type DesignContext,
+  envFlag,
+  findFreePort,
+  type PromptsContext,
+  resolveAuthToken,
+  SddBoardWebSocketHandler,
+  SddWizardWebSocketHandler,
+  type SkillsContext,
+  SpecsWebSocketHandler,
   WorktreeWebSocketHandler,
 } from '@wrongstack/webui/server';
 import { WebSocket, WebSocketServer } from 'ws';
-// PR 8 of Issue #30: extracted to `./webui-server/prefs-seeding.js`.
-import { createPrefsSeeding, seedConfigToMeta } from './webui-server/prefs-seeding.js';
+import { createWebuiClientRegistration } from './webui-server/client-registration.js';
+import {
+  type ConnectedClient,
+  createConnectionHandler,
+} from './webui-server/connection-handler.js';
 import {
   announceWebuiReady,
   createWebuiShutdown,
@@ -105,21 +108,21 @@ import {
 // directly, so we adapt that to the Logger interface expected by the handler.
 // PR 1 of Issue #30: extracted to `./webui-server/logger-shim.js`.
 import { consoleLogger } from './webui-server/logger-shim.js';
-import { createProviderConfigStore, getVault } from './webui-server/provider-config.js';
-import { createWebuiClientRegistration } from './webui-server/client-registration.js';
-import { createSessionStartPayloadBuilder } from './webui-server/session-start-payload.js';
-import { createStreamCoalescer } from './webui-server/stream-coalescer.js';
-import { createSetupEvents } from './webui-server/setup-events.js';
-import { startSessionStatusPoll } from './webui-server/session-status-poll.js';
-import { createConnectionHandler, type ConnectedClient } from './webui-server/connection-handler.js';
 import { createMessageRouter } from './webui-server/message-router.js';
+// PR 8 of Issue #30: extracted to `./webui-server/prefs-seeding.js`.
+import { createPrefsSeeding, seedConfigToMeta } from './webui-server/prefs-seeding.js';
+import { createProviderConfigStore, getVault } from './webui-server/provider-config.js';
+import { createSessionStartPayloadBuilder } from './webui-server/session-start-payload.js';
+import { startSessionStatusPoll } from './webui-server/session-status-poll.js';
+import { createSetupEvents } from './webui-server/setup-events.js';
 import { startStaticServe } from './webui-server/static-serve.js';
+import { createStreamCoalescer } from './webui-server/stream-coalescer.js';
 import {
   type AgentConfigContext,
   type BrainHandlerContext,
+  broadcastSaved,
   type ConnectionContext,
   type ContextHandlerContext,
-  broadcastSaved,
   type IntrospectionContext,
   type MailboxContext,
   type PendingConfirm,
@@ -265,6 +268,27 @@ export interface CliWebUIOptions {
   onAutonomySwitch?: ((mode: string) => void) | undefined;
   /** Forward browser YOLO changes to the host's live permission policy. */
   onYoloSwitch?: ((enabled: boolean) => void) | undefined;
+  /** Optional kanban task dispatch hook, backed by the CLI multi-agent host. */
+  onKanbanDispatch?:
+    | ((
+        description: string,
+        opts?: {
+          provider?: string | undefined;
+          model?: string | undefined;
+          fallbackModels?: string[] | undefined;
+          tools?: string[] | undefined;
+          name?: string | undefined;
+          allowedCapabilities?: readonly string[] | undefined;
+          onDone?:
+            | ((result: {
+                status: 'completed' | 'failed';
+                result?: string | undefined;
+                error?: string | undefined;
+              }) => void | Promise<void>)
+            | undefined;
+        },
+      ) => Promise<string>)
+    | undefined;
 }
 
 // ConnectedClient is defined in ./webui-server/connection-handler.ts (PR 14
@@ -288,7 +312,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     wsPort = await findFreePort(host, requestedWsPort, { exclude: new Set([httpPort]) });
   }
   const port = wsPort; // existing WS code below refers to `port`
-  const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : wstackGlobalRoot();
+  const globalRoot = opts.globalConfigPath
+    ? path.dirname(opts.globalConfigPath)
+    : wstackGlobalRoot();
   // Per-connection message rate limit. OFF by default — this is a local,
   // single-user tool and the limit (which counted pings/list calls too) was
   // tripping during normal use. Opt back in by setting WEBUI_RATE_LIMIT to a
@@ -495,9 +521,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const eventUnsubscribers: Array<() => void> = [];
 
   const currentSessionId = (): string => opts.agent.ctx.session?.id ?? opts.session.id;
-  const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => {
+  const sessionPayload = <T extends Record<string, unknown>>(
+    payload: T,
+  ): T & { sessionId: string } => {
     const provided = payload['sessionId'];
-    const sessionId = typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId();
+    const sessionId =
+      typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId();
     return { ...payload, sessionId };
   };
 

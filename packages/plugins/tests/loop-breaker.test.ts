@@ -73,7 +73,7 @@ describe('loop-breaker plugin', () => {
   });
 
   it('warns after warnAfter identical calls, blocks after blockAfter', () => {
-    const api = makeApi();
+    const api = makeApi({ extensions: { 'loop-breaker': { mode: 'block' } } });
     loopBreakerPlugin.setup(api as never);
     const hook = getHook(api);
     const call = { toolName: 'bash', toolInput: { command: 'npm test' } };
@@ -208,7 +208,7 @@ describe('loop-breaker plugin', () => {
   });
 
   it('status tool reports counters', async () => {
-    const api = makeApi();
+    const api = makeApi({ extensions: { 'loop-breaker': { mode: 'block' } } });
     loopBreakerPlugin.setup(api as never);
     const hook = getHook(api);
     const call = { toolName: 'bash', toolInput: { command: 'x' } };

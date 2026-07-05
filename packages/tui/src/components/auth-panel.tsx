@@ -7,6 +7,13 @@ import {
   authPanelRows,
   authSelectedProvider,
 } from './auth-panel-model.js';
+import {
+  badgeForKind,
+  colorForFamily,
+  dimColorForFamily,
+  OAUTH_KIND_COLORS,
+  UI_COLORS,
+} from './provider-colors.js';
 
 export interface AuthPanelProps {
   panel: AuthPanelState;
@@ -49,7 +56,7 @@ function keySummary(keyRow: AuthKeyRow): string {
 
 function renderRow(row: AuthPanelRow, focused: boolean, i: number): React.ReactElement {
   const marker = focused ? '›' : ' ';
-  const color = focused ? 'cyan' : undefined;
+  const rowColor = focused ? UI_COLORS.focused : undefined;
   switch (row.kind) {
     case 'provider': {
       const p = row.provider;
@@ -59,58 +66,89 @@ function renderRow(row: AuthPanelRow, focused: boolean, i: number): React.ReactE
           : p.keys.length === 1
             ? `1 key ${p.keys[0]?.masked ?? ''}`
             : `${p.keys.length} keys`;
+      const famColor = colorForFamily(p.family);
       return (
-        <Text key={`p-${p.id}`} color={color} wrap="truncate-end">
-          {marker} {p.id.padEnd(22)} <Text dimColor>{(p.family ?? '—').padEnd(18)}</Text>{' '}
-          <Text color={p.keys.length > 0 ? 'green' : 'yellow'}>{keys}</Text>
+        <Text key={`p-${p.id}`} color={rowColor} wrap="truncate-end">
+          {marker}{' '}
+          <Text bold color={focused ? undefined : famColor}>
+            {p.id.padEnd(22)}
+          </Text>{' '}
+          <Text color={focused ? undefined : dimColorForFamily(p.family)}>
+            {(p.family ?? '—').padEnd(18)}
+          </Text>{' '}
+          <Text color={p.keys.length > 0 ? UI_COLORS.active : UI_COLORS.warning}>{keys}</Text>
         </Text>
       );
     }
     case 'list-action':
       return (
-        <Text key={`a-${row.action}`} color={color} wrap="truncate-end">
+        <Text key={`a-${row.action}`} color={rowColor} wrap="truncate-end">
           {marker} {LIST_ACTION_LABEL[row.action]}
         </Text>
       );
     case 'key': {
       const k = row.keyRow;
+      const badge = badgeForKind(k.authMethod);
       return (
-        <Text key={`k-${k.label}`} color={color} wrap="truncate-end">
-          {marker} <Text color={k.active ? 'green' : 'gray'}>{k.active ? '●' : '○'}</Text>{' '}
-          {k.label.padEnd(20)} <Text dimColor>{keySummary(k)}</Text>
+        <Text key={`k-${k.label}`} color={rowColor} wrap="truncate-end">
+          {marker}{' '}
+          <Text color={k.active ? UI_COLORS.active : UI_COLORS.inactive}>
+            {k.active ? '●' : '○'}
+          </Text>{' '}
+          {k.label.padEnd(20)}{' '}
+          {badge ? <Text color={badge.color}>{badge.label.padEnd(8)}</Text> : null}
+          <Text dimColor>{keySummary(k)}</Text>
         </Text>
       );
     }
     case 'provider-action':
       return (
-        <Text key={`pa-${row.action}`} color={color} wrap="truncate-end">
+        <Text key={`pa-${row.action}`} color={rowColor} wrap="truncate-end">
           {marker} {PROVIDER_ACTION_LABEL[row.action]}
         </Text>
       );
     case 'catalog-entry': {
       const c = row.entry;
+      const famColor = colorForFamily(c.family);
       return (
-        <Text key={`c-${c.id}`} color={color} wrap="truncate-end">
-          {marker} <Text color={c.saved ? 'green' : 'gray'}>{c.saved ? '◉' : '○'}</Text>{' '}
-          {c.id.padEnd(24)} <Text dimColor>{c.family.padEnd(20)}</Text>
-          <Text dimColor>{c.name !== c.id ? c.name : ''}</Text>
+        <Text key={`c-${c.id}`} color={rowColor} wrap="truncate-end">
+          {marker}{' '}
+          <Text color={c.saved ? UI_COLORS.active : UI_COLORS.inactive}>{c.saved ? '◉' : '○'}</Text>{' '}
+          <Text bold color={focused ? undefined : famColor}>
+            {c.id.padEnd(24)}
+          </Text>{' '}
+          <Text color={focused ? undefined : dimColorForFamily(c.family)}>
+            {c.family.padEnd(20)}
+          </Text>
+          <Text dimColor>{c.envVars.length > 0 ? c.envVars.join(', ') : ''}</Text>
         </Text>
       );
     }
     case 'local-preset': {
       const p = row.preset;
       return (
-        <Text key={`l-${p.id}`} color={color} wrap="truncate-end">
-          {marker} {p.label.padEnd(12)} <Text dimColor>{p.defaultBaseUrl.padEnd(28)}</Text>{' '}
-          <Text dimColor>{p.noAuth ? 'no auth' : 'optional key'}</Text>
+        <Text key={`l-${p.id}`} color={rowColor} wrap="truncate-end">
+          {marker}{' '}
+          <Text bold color={focused ? undefined : '#fab387'}>
+            {p.label.padEnd(12)}
+          </Text>{' '}
+          <Text dimColor>{p.defaultBaseUrl.padEnd(28)}</Text>{' '}
+          <Text color={p.noAuth ? UI_COLORS.inactive : UI_COLORS.active}>
+            {p.noAuth ? 'no auth' : 'optional key'}
+          </Text>
         </Text>
       );
     }
     case 'oauth-option': {
       const o = OAUTH_LABEL[row.oauth] ?? { title: row.oauth, detail: '' };
+      const kindColor = OAUTH_KIND_COLORS[row.oauth] ?? UI_COLORS.focused;
       return (
-        <Text key={`o-${row.oauth}`} color={color} wrap="truncate-end">
-          {marker} {o.title.padEnd(20)} <Text dimColor>{o.detail}</Text>
+        <Text key={`o-${row.oauth}`} color={rowColor} wrap="truncate-end">
+          {marker}{' '}
+          <Text bold color={focused ? undefined : kindColor}>
+            {o.title.padEnd(20)}
+          </Text>{' '}
+          <Text dimColor>{o.detail}</Text>
         </Text>
       );
     }
@@ -174,8 +212,8 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
   const logWindow = panel.log.slice(-Math.max(6, maxVisible));
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={UI_COLORS.border} paddingX={1}>
+      <Text bold color={UI_COLORS.title}>
         {viewTitle(panel)}
       </Text>
       <Text dimColor>{viewLegend(panel)}</Text>
@@ -196,10 +234,10 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
 
       {panel.view === 'oauth' ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="yellow" wrap="truncate-end">
+          <Text color={UI_COLORS.warning} wrap="truncate-end">
             ⚠ Subscription tokens used outside official clients may violate provider Terms —
           </Text>
-          <Text color="yellow" wrap="truncate-end">
+          <Text color={UI_COLORS.warning} wrap="truncate-end">
             your account could be rate-limited or banned. An API key is the sanctioned path.
           </Text>
         </Box>
@@ -210,7 +248,7 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
           <Text>
             <Text dimColor>filter: </Text>
             {panel.filter.length > 0 ? panel.filter : <Text dimColor>(type to search)</Text>}
-            <Text color="cyan">▏</Text>
+            <Text color={UI_COLORS.focused}>▏</Text>
           </Text>
         </Box>
       ) : null}
@@ -222,77 +260,58 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
             <Text
               key={line}
               wrap="truncate-end"
-              color={line.startsWith('✗') ? 'red' : line.startsWith('✓') ? 'green' : undefined}
+              color={
+                line.startsWith('✗')
+                  ? UI_COLORS.error
+                  : line.startsWith('✓')
+                    ? UI_COLORS.active
+                    : undefined
+              }
               dimColor={!line.startsWith('✗') && !line.startsWith('✓')}
             >
               {line}
             </Text>
           ))}
           {panel.flowDone ? (
-            <Text color={panel.flowOk ? 'green' : 'red'}>
+            <Text color={panel.flowOk ? UI_COLORS.active : UI_COLORS.error}>
               {panel.flowOk ? '✓ Done.' : '✗ Not completed.'}{' '}
               <Text dimColor>Press Enter or Esc to go back.</Text>
             </Text>
-          ) : panel.input ? null : (
-            <Text dimColor>… working (Esc to cancel)</Text>
-          )}
-        </Box>
-      ) : (
-        <Box marginTop={1} flexDirection="column">
-          {total === 0 ? (
-            <Text dimColor>
-              {panel.busy
-                ? 'Loading…'
-                : panel.view === 'catalog'
-                  ? 'No catalog entries match.'
-                  : 'Nothing here yet.'}
-            </Text>
-          ) : (
-            <>
-              {above > 0 ? <Text dimColor>{`  ↑ ${above} more`}</Text> : null}
-              {allRows
-                .slice(windowStart, windowEnd)
-                .map((row, i) => renderRow(row, windowStart + i === panel.selected, i))}
-              {below > 0 ? <Text dimColor>{`  ↓ ${below} more`}</Text> : null}
-            </>
-          )}
-        </Box>
-      )}
-
-      {panel.input ? (
-        <Box
-          flexDirection="column"
-          marginTop={1}
-          borderStyle="round"
-          borderColor="yellow"
-          paddingX={1}
-        >
-          <Text color="yellow" wrap="truncate-end">
-            ? {panel.input.label}
-          </Text>
-          <Text>
-            {panel.input.masked ? '•'.repeat(panel.input.draft.length) : panel.input.draft}
-            <Text color="cyan">▏</Text>
-            {panel.input.masked ? <Text dimColor> (hidden — paste OK)</Text> : null}
-          </Text>
+          ) : panel.input ? (
+            <Box>
+              <Text>{panel.input.label}</Text>
+              <Text color={UI_COLORS.hint}>
+                {panel.input.masked ? '•'.repeat(panel.input.draft.length) : panel.input.draft}
+              </Text>
+              <Text color={UI_COLORS.focused}>▏</Text>
+            </Box>
+          ) : null}
         </Box>
       ) : null}
 
-      {panel.confirm ? (
-        <Box marginTop={1}>
-          <Text color="yellow" wrap="truncate-end">
-            ? {panel.confirm.question} <Text dimColor>[y/N]</Text>
+      <Box flexDirection="column" minHeight={maxVisible}>
+        {above > 0 ? (
+          <Text dimColor>
+            {'\u25b2'} {above} above
           </Text>
-        </Box>
-      ) : null}
-
-      {panel.hint ? (
-        <Box marginTop={1}>
-          <Text dimColor wrap="truncate-end">
-            {panel.hint}
+        ) : null}
+        {allRows.slice(windowStart, windowEnd).map((row, ri) => (
+          <Box key={`row-${windowStart + ri}`} marginLeft={0}>
+            {renderRow(row, windowStart + ri === panel.selected, windowStart + ri)}
+          </Box>
+        ))}
+        {/* Pad trailing slots to prevent ghost text from a longer previous list */}
+        {Array.from({ length: maxVisible - (windowEnd - windowStart) }).map((_, i) => (
+          <Box key={`pad-${i}`}>
+            <Text> </Text>
+          </Box>
+        ))}
+        {below > 0 ? (
+          <Text dimColor>
+            {'\u25bc'} {below} below
           </Text>
-        </Box>
-      ) : null}
+        ) : null}
+      </Box>
     </Box>
   );
 }

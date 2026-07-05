@@ -2,7 +2,11 @@ import type { Tool } from '@wrongstack/core';
 import { auditTool } from './audit.js';
 import { bashTool } from './bash.js';
 import { batchToolUseTool } from './batch-tool-use.js';
-import { codebaseIndexTool, codebaseSearchTool, codebaseStatsTool } from './codebase-index/index.js';
+import {
+  codebaseIndexTool,
+  codebaseSearchTool,
+  codebaseStatsTool,
+} from './codebase-index/index.js';
 import { designTool } from './design.js';
 import { diffTool } from './diff.js';
 import { documentTool } from './document.js';
@@ -15,6 +19,7 @@ import { globTool } from './glob.js';
 import { grepTool } from './grep.js';
 import { installTool } from './install.js';
 import { jsonTool } from './json.js';
+import { kanbanTool } from './kanban.js';
 import { lintTool } from './lint.js';
 import { logsTool } from './logs.js';
 import { outdatedTool } from './outdated.js';
@@ -107,6 +112,7 @@ export const TIER2_TOOLS: Tool[] = [
   testTool,
   todoTool,
   planTool,
+  kanbanTool,
   taskTool,
   installTool,
   auditTool,
@@ -150,6 +156,7 @@ export const builtinTools: Tool[] = [
   searchTool,
   todoTool,
   planTool,
+  kanbanTool,
   taskTool,
   gitTool,
   patchTool,

@@ -7,9 +7,21 @@ import type {
   SddBoardSnapshot,
   TokenSavingTier,
 } from '@wrongstack/core';
+import type {
+  AuthCatalogRow,
+  AuthConfirmAction,
+  AuthLocalPresetRow,
+  AuthPanelState,
+  AuthPanelView,
+  AuthProviderRow,
+} from './components/auth-panel-model.js';
 import type { AutonomyOption } from './components/autonomy-picker.js';
 import type { HistoryEntry } from './components/history.js';
 import type { ProviderOption } from './components/model-picker.js';
+import type { PluginPickerItem } from './components/plugin-picker.js';
+import type { ProjectPickerItem } from './components/project-picker.js';
+import type { PromptPickEntry } from './components/prompt-picker.js';
+import type { SendMode } from './components/send-mode-picker.js';
 import type {
   AuditLevel,
   CacheTtl,
@@ -22,18 +34,6 @@ import type {
   StatuslineMode,
 } from './components/settings-picker.js';
 import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
-import type { ProjectPickerItem } from './components/project-picker.js';
-import type { PluginPickerItem } from './components/plugin-picker.js';
-import type {
-  AuthCatalogRow,
-  AuthConfirmAction,
-  AuthLocalPresetRow,
-  AuthPanelState,
-  AuthPanelView,
-  AuthProviderRow,
-} from './components/auth-panel-model.js';
-import type { PromptPickEntry } from './components/prompt-picker.js';
-import type { SendMode } from './components/send-mode-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
 
 export interface QueueItem {
@@ -269,6 +269,13 @@ export type State = {
   autonomyPicker: {
     open: boolean;
     options: AutonomyOption[];
+    selected: number;
+    hint?: string | undefined;
+  };
+  /** Agent mode picker — opened by `/mode`. Selects teach/brief/code-reviewer/etc. */
+  modePicker: {
+    open: boolean;
+    modes: import('./components/mode-picker.js').ModeOption[];
     selected: number;
     hint?: string | undefined;
   };
@@ -548,6 +555,8 @@ export type State = {
   auditPanelOpen: boolean;
   /** When true, the plan panel is shown (F5). */
   planPanelOpen: boolean;
+  /** When true, the project kanban panel is shown. */
+  kanbanPanelOpen: boolean;
   /** When true, the goal panel is shown (F9). */
   goalPanelOpen: boolean;
   /** When true, the sessions panel is shown (F10). */
@@ -852,6 +861,13 @@ export type Action =
   | { type: 'autonomyPickerClose' }
   | { type: 'autonomyPickerMove'; delta: number }
   | { type: 'autonomyPickerHint'; text?: string | undefined }
+  | {
+      type: 'modePickerOpen';
+      modes: import('./components/mode-picker.js').ModeOption[];
+    }
+  | { type: 'modePickerClose' }
+  | { type: 'modePickerMove'; delta: number }
+  | { type: 'modePickerHint'; text?: string | undefined }
   | { type: 'designPickerOpen'; kits: DesignKitEntry[] }
   | { type: 'designPickerClose' }
   | { type: 'designPickerMove'; delta: number }
@@ -1229,6 +1245,7 @@ export type Action =
   | { type: 'toggleAuditPanel' }
   /** Toggle the plan panel (F5). */
   | { type: 'togglePlanPanel' }
+  | { type: 'toggleKanbanPanel' }
   | { type: 'toggleGoalPanel' }
   | { type: 'toggleSessionsPanel' }
   | {

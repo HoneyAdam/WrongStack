@@ -123,6 +123,13 @@ export interface PhaseEventMap {
     attempt: number;
     maxRetries: number;
   };
+  /** A task timed out — exceeded `taskTimeoutMs`. */
+  'phase.taskTimedOut': {
+    phaseId: string;
+    taskId: string;
+    taskTitle: string;
+    timeoutMs: number;
+  };
   'phase.allTasksDone': { phaseId: string; completed: number; failed: number };
   'phase.verifying': { phaseId: string; name: string; attempt: number };
   'phase.verifyFailed': { phaseId: string; name: string; attempt: number; error?: string | undefined };
@@ -148,6 +155,37 @@ export interface PhaseEventMap {
 }
 
 export type PhaseEventName = keyof PhaseEventMap;
+
+/**
+ * All phase event names as a const array. Consumers (TUI, WebUI) should
+ * import this rather than hardcoding string literals, so the compiler
+ * catches drift when events are added or renamed.
+ */
+export const PHASE_EVENT_NAMES: readonly PhaseEventName[] = [
+  'phase.statusChange',
+  'phase.started',
+  'phase.completed',
+  'phase.failed',
+  'phase.taskStarted',
+  'phase.taskCompleted',
+  'phase.taskFailed',
+  'phase.taskRetrying',
+  'phase.taskTimedOut',
+  'phase.allTasksDone',
+  'phase.verifying',
+  'phase.verifyFailed',
+  'phase.repairing',
+  'phase.conflictResolving',
+  'phase.conflictResolved',
+  'phase.taskMoved',
+  'phase.taskAssigned',
+  'phase.taskAdded',
+  'graph.completed',
+  'graph.failed',
+  'autonomous.tick',
+  'agent.assigned',
+  'agent.released',
+];
 
 // ─── Phase Execution Context ────────────────────────────────────────────────
 
@@ -235,6 +273,12 @@ export interface AutoPhaseOptions {
   phaseDelayMs?: number | undefined;
   /** Stop when a phase fails. */
   stopOnFailure?: boolean | undefined;
+  /**
+   * Per-task timeout in milliseconds. A single task exceeding this
+   * is marked failed and `phase.taskTimedOut` is emitted.
+   * Defaults to 600_000 (10 min). Set to 0 to disable.
+   */
+  taskTimeoutMs?: number | undefined;
   /** Event bus */
   events?: import('../kernel/events.js').EventBus | undefined;
   /**

@@ -85,6 +85,12 @@ export function buildModeCommand(
       const active = await modeStore.getActiveMode();
 
       if (!args.trim()) {
+        // TUI mode: open the inline mode picker through the panel bridge.
+        if (opts.onPanelOpen?.current) {
+          const opened = opts.onPanelOpen.current('modePickerOpen');
+          if (opened) return { message: '' };
+        }
+
         // Interactive picker when no args
         if (opts.inputReader) {
           const selected = await runModePicker(modeStore, opts.inputReader);

@@ -29,6 +29,7 @@ type NormalizedAutoPhaseOptions = Omit<
   | 'autonomous'
   | 'phaseDelayMs'
   | 'stopOnFailure'
+  | 'taskTimeoutMs'
   | 'events'
   | 'worktrees'
 > & {
@@ -39,6 +40,7 @@ type NormalizedAutoPhaseOptions = Omit<
   autonomous: boolean;
   phaseDelayMs: number;
   stopOnFailure: boolean;
+  taskTimeoutMs: number;
   events: EventBus;
 };
 
@@ -86,6 +88,7 @@ export class PhaseOrchestrator {
       autonomous: opts.autonomous ?? true,
       phaseDelayMs: opts.phaseDelayMs ?? 0,
       stopOnFailure: opts.stopOnFailure ?? false,
+      taskTimeoutMs: opts.taskTimeoutMs ?? 600_000,
       events: this.events,
     };
   }
@@ -656,7 +659,36 @@ export class PhaseOrchestrator {
       agentName: task.assignee,
     });
     const handle = this.phaseWorktrees.get(phase.id);
-    return this.ctx.executeTask(task, phase.id, { cwd: handle?.dir, branch: handle?.branch });
+    const taskPromise = this.ctx.executeTask(task, phase.id, {
+      cwd: handle?.dir,
+      branch: handle?.branch,
+    });
+    // Apply per-task timeout when configured (taskTimeoutMs > 0).
+    if (this.opts.taskTimeoutMs > 0) {
+      const timeoutMs = this.opts.taskTimeoutMs;
+      const timedOut = Symbol('timed_out');
+      const result = await Promise.race([
+        taskPromise,
+        new Promise<typeof timedOut>((resolve) => {
+          const timer = setTimeout(() => resolve(timedOut), timeoutMs);
+          // Let the timer be freed if the task finishes first.
+          taskPromise.then(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
+        }),
+      ]);
+      if (result === timedOut) {
+        this.emit('phase.taskTimedOut', {
+          phaseId: phase.id,
+          taskId: task.id,
+          taskTitle: task.title,
+          timeoutMs,
+        });
+        throw new Error(
+          `Task "${task.title}" (${task.id}) exceeded timeout of ${timeoutMs} ms`,
+        );
+      }
+      return result;
+    }
+    return taskPromise;
   }
 
   private markTaskCompleted(phase: PhaseNode, task: TaskNode): void {
@@ -865,7 +897,7 @@ export class PhaseOrchestrator {
       completed,
       failed,
       skipped,
-      percentComplete: totalPhases > 0 ? Math.round((done / totalPhases) * 100) : 0,
+      percentComplete: totalPhases > 0 ? Math.min(100, Math.round((done / totalPhases) * 100)) : 0,
       totalTasks,
       completedTasks,
       failedTasks,
@@ -930,6 +962,25 @@ export class PhaseOrchestrator {
 
     const node = from.taskGraph.nodes.get(taskId);
     if (!node) return false;
+
+    // Promote any task that depends on the moved task to a root node so it
+    // doesn't stall as an orphaned blocked task in the source phase.
+    const dependents = from.taskGraph.edges
+      .filter((e) => e.from === taskId)
+      .map((e) => e.to);
+    for (const depId of dependents) {
+      const depNode = from.taskGraph.nodes.get(depId);
+      if (depNode) {
+        depNode.parentId = undefined;
+        depNode.children = undefined;
+      }
+      from.taskGraph.edges = from.taskGraph.edges.filter(
+        (e) => !(e.from === taskId && e.to === depId),
+      );
+      if (!from.taskGraph.rootNodes.includes(depId)) {
+        from.taskGraph.rootNodes.push(depId);
+      }
+    }
 
     // Detach from the source graph (nodes, rootNodes, touching edges).
     from.taskGraph.nodes.delete(taskId);

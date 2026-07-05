@@ -15,30 +15,30 @@
  * Using a common set of identifiers ensures consistency across all surfaces.
  */
 export type ToolIconId =
-  | 'file'           // read, write — document/file operations
-  | 'edit'           // edit, patch — modifying files
-  | 'search'         // grep, search — searching content
-  | 'folder'         // glob — file discovery
-  | 'terminal'       // bash, exec — shell commands
-  | 'web'            // fetch — HTTP requests
-  | 'git'            // git — version control
-  | 'tree'           // tree — directory structure
-  | 'code'           // lint, format, typecheck — code quality
-  | 'test'           // test — testing
-  | 'package'        // install, audit, outdated — package management
-  | 'document'       // document — documentation
-  | 'scaffold'       // scaffold — project generation
-  | 'todo'           // todo — task tracking
-  | 'plan'           // plan — planning
-  | 'task'           // task — structured work items
-  | 'meta'           // tool-use, batch-tool-use, tool-search, tool-help — meta tools
-  | 'index'          // codebase-index, codebase-search, codebase-stats — code indexing
-  | 'json'           // json — JSON operations
-  | 'diff'           // diff — comparing changes
-  | 'logs'           // logs — log viewing
-  | 'settings'       // set-working-dir — configuration
-  | 'brain'          // AI/agent reasoning
-  | 'fallback';      // unknown tool — fallback icon
+  | 'file' // read, write — document/file operations
+  | 'edit' // edit, patch — modifying files
+  | 'search' // grep, search — searching content
+  | 'folder' // glob — file discovery
+  | 'terminal' // bash, exec — shell commands
+  | 'web' // fetch — HTTP requests
+  | 'git' // git — version control
+  | 'tree' // tree — directory structure
+  | 'code' // lint, format, typecheck — code quality
+  | 'test' // test — testing
+  | 'package' // install, audit, outdated — package management
+  | 'document' // document — documentation
+  | 'scaffold' // scaffold — project generation
+  | 'todo' // todo — task tracking
+  | 'plan' // plan — planning
+  | 'task' // task — structured work items
+  | 'meta' // tool-use, batch-tool-use, tool-search, tool-help — meta tools
+  | 'index' // codebase-index, codebase-search, codebase-stats — code indexing
+  | 'json' // json — JSON operations
+  | 'diff' // diff — comparing changes
+  | 'logs' // logs — log viewing
+  | 'settings' // set-working-dir — configuration
+  | 'brain' // AI/agent reasoning
+  | 'fallback'; // unknown tool — fallback icon
 
 /**
  * Canonical mapping of WrongStack tool names to icon identifiers.
@@ -122,6 +122,8 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   // Structured tasks
   task: 'task',
   tasks: 'task',
+  kanban: 'task',
+  board: 'task',
 
   // Meta/tools
   'tool-use': 'meta',
@@ -137,9 +139,9 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   'codebase-index': 'index',
   'codebase-search': 'index',
   'codebase-stats': 'index',
-  'codebase_index': 'index',
-  'codebase_search': 'index',
-  'codebase_stats': 'index',
+  codebase_index: 'index',
+  codebase_search: 'index',
+  codebase_stats: 'index',
 
   // Data
   json: 'json',
@@ -190,30 +192,30 @@ export interface ToolIconConfig {
  * but uses these canonical color values.
  */
 export const TOOL_ICON_CONFIG: Record<ToolIconId, ToolIconConfig> = {
-  file:        { icon: 'file',        color: '#6366f1' }, // indigo
-  edit:        { icon: 'edit',        color: '#f59e0b' }, // amber
-  search:      { icon: 'search',      color: '#10b981' }, // emerald
-  folder:      { icon: 'folder',      color: '#8b5cf6' }, // violet
-  terminal:    { icon: 'terminal',    color: '#fb923c' }, // orange
-  web:         { icon: 'web',         color: '#06b6d4' }, // cyan
-  git:         { icon: 'git',         color: '#f97316' }, // orange
-  tree:        { icon: 'tree',        color: '#22c55e' }, // green
-  code:        { icon: 'code',        color: '#3b82f6' }, // blue
-  test:        { icon: 'test',        color: '#84cc16' }, // lime
-  package:     { icon: 'package',     color: '#ec4899' }, // pink
-  document:    { icon: 'document',    color: '#14b8a6' }, // teal
-  scaffold:     { icon: 'scaffold',     color: '#f43f5e' }, // rose
-  todo:        { icon: 'todo',        color: '#a855f7' }, // purple
-  plan:        { icon: 'plan',        color: '#7c3aed' }, // violet-dark
-  task:        { icon: 'task',        color: '#db2777' }, // pink-dark
-  meta:        { icon: 'meta',        color: '#6b7280' }, // gray
-  index:       { icon: 'index',       color: '#0ea5e9' }, // sky
-  json:        { icon: 'json',        color: '#fbbf24' }, // yellow
-  diff:        { icon: 'diff',        color: '#a3e635' }, // lime-light
-  logs:        { icon: 'logs',        color: '#78716c' }, // stone
-  settings:    { icon: 'settings',    color: '#64748b' }, // slate
-  brain:       { icon: 'brain',       color: '#d946ef' }, // fuchsia
-  fallback:    { icon: 'fallback',    color: '#9ca3af' }, // gray-light
+  file: { icon: 'file', color: '#6366f1' }, // indigo
+  edit: { icon: 'edit', color: '#f59e0b' }, // amber
+  search: { icon: 'search', color: '#10b981' }, // emerald
+  folder: { icon: 'folder', color: '#8b5cf6' }, // violet
+  terminal: { icon: 'terminal', color: '#fb923c' }, // orange
+  web: { icon: 'web', color: '#06b6d4' }, // cyan
+  git: { icon: 'git', color: '#f97316' }, // orange
+  tree: { icon: 'tree', color: '#22c55e' }, // green
+  code: { icon: 'code', color: '#3b82f6' }, // blue
+  test: { icon: 'test', color: '#84cc16' }, // lime
+  package: { icon: 'package', color: '#ec4899' }, // pink
+  document: { icon: 'document', color: '#14b8a6' }, // teal
+  scaffold: { icon: 'scaffold', color: '#f43f5e' }, // rose
+  todo: { icon: 'todo', color: '#a855f7' }, // purple
+  plan: { icon: 'plan', color: '#7c3aed' }, // violet-dark
+  task: { icon: 'task', color: '#db2777' }, // pink-dark
+  meta: { icon: 'meta', color: '#6b7280' }, // gray
+  index: { icon: 'index', color: '#0ea5e9' }, // sky
+  json: { icon: 'json', color: '#fbbf24' }, // yellow
+  diff: { icon: 'diff', color: '#a3e635' }, // lime-light
+  logs: { icon: 'logs', color: '#78716c' }, // stone
+  settings: { icon: 'settings', color: '#64748b' }, // slate
+  brain: { icon: 'brain', color: '#d946ef' }, // fuchsia
+  fallback: { icon: 'fallback', color: '#9ca3af' }, // gray-light
 };
 
 /**

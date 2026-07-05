@@ -13,7 +13,6 @@ import { isDesktopShell } from '@/lib/desktop-shell';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useLocalPrefs } from '@/stores/local-prefs';
 import {
   type DockSection,
   resetUiNavigationToHome,
@@ -23,6 +22,9 @@ import {
   useSessionStore,
   useUIStore,
 } from '@/stores';
+import { useLocalPrefs } from '@/stores/local-prefs';
+import { AgentsMonitor } from './components/AgentsMonitor';
+import { ActivityBar, PANEL_ORDER } from './components/activity-bar';
 import {
   ACTIVITY_SHORTCUT_BY_KEY,
   navigateToView,
@@ -31,8 +33,6 @@ import {
   pairedViewForActivity,
   showPanel,
 } from './components/activity-bar/nav';
-import { ActivityBar, PANEL_ORDER } from './components/activity-bar';
-import { AgentsMonitor } from './components/AgentsMonitor';
 import { ChangesView } from './components/ChangesView';
 import { ChatView } from './components/ChatView';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
@@ -48,7 +48,7 @@ import { SetupScreen } from './components/SetupScreen';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { toast, Toaster } from './components/Toaster';
+import { Toaster, toast } from './components/Toaster';
 import { WorkspaceDock } from './components/WorkspaceDock';
 
 // ── Lazy-loaded views ──────────────────────────────────────────────────────
@@ -73,6 +73,9 @@ const DesignGalleryView = lazy(() =>
 const MailboxDetailView = lazy(() =>
   import('./components/MailboxDetailView').then((m) => ({ default: m.MailboxDetailView })),
 );
+const KanbanView = lazy(() =>
+  import('./components/KanbanView').then((m) => ({ default: m.KanbanView })),
+);
 const OfficeMapPanel = lazy(() =>
   import('./components/OfficeMapPanel').then((m) => ({ default: m.OfficeMapPanel })),
 );
@@ -88,14 +91,18 @@ const RefreshDebugView = lazy(() =>
 const SddBoardView = lazy(() =>
   import('./components/SddBoardView').then((m) => ({ default: m.SddBoardView })),
 );
-const SddWizard = lazy(() => import('./components/SddWizard').then((m) => ({ default: m.SddWizard })));
+const SddWizard = lazy(() =>
+  import('./components/SddWizard').then((m) => ({ default: m.SddWizard })),
+);
 const SessionsDashboard = lazy(() =>
   import('./components/SessionsDashboard').then((m) => ({ default: m.SessionsDashboard })),
 );
 const SkillDetailView = lazy(() =>
   import('./components/SkillDetailView').then((m) => ({ default: m.SkillDetailView })),
 );
-const SpecsView = lazy(() => import('./components/SpecsView').then((m) => ({ default: m.SpecsView })));
+const SpecsView = lazy(() =>
+  import('./components/SpecsView').then((m) => ({ default: m.SpecsView })),
+);
 const TerminalPanel = lazy(() =>
   import('./components/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
 );
@@ -865,6 +872,15 @@ function AppInner() {
             </Suspense>
           </ErrorBoundary>
         )}
+        {currentView === 'kanban' && (
+          <ErrorBoundary level="panel" name="Kanban">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <KanbanView onClose={() => showPanel('chat')} />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
+        )}
         {currentView === 'sddboard' && (
           <ErrorBoundary level="panel" name="SDD Board">
             <Suspense fallback={<PanelSuspense />}>
@@ -1025,7 +1041,10 @@ function AppInner() {
       {processMonitorOpen && (
         <ErrorBoundary level="panel" name="Process Monitor">
           <Suspense fallback={null}>
-            <ProcessMonitor open={processMonitorOpen} onClose={() => setProcessMonitorOpen(false)} />
+            <ProcessMonitor
+              open={processMonitorOpen}
+              onClose={() => setProcessMonitorOpen(false)}
+            />
           </Suspense>
         </ErrorBoundary>
       )}

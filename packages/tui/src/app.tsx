@@ -27,8 +27,8 @@ import {
   expectDefined,
   formatTodosList,
   getDesignKitLoader,
-  InputBuilder,
   INPUT_HISTORY_DEFAULT_MAX,
+  InputBuilder,
   InputHistoryStore,
   isDesignStack,
   loadActiveKit,
@@ -69,8 +69,11 @@ import {
 } from './app-reducer.js';
 import { AgentsMonitor } from './components/agents-monitor.js';
 import { AuditPanel } from './components/audit-panel.js';
+import { AuthPanel } from './components/auth-panel.js';
+import { AUTH_PANEL_INITIAL, type AuthPanelHost } from './components/auth-panel-model.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
+import { ModePicker, toModeOptions } from './components/mode-picker.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
 import { CoordinatorPanel } from './components/coordinator-panel.js';
@@ -85,6 +88,7 @@ import { GoalPanel } from './components/goal-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
 import { Input, type KeyEvent } from './components/input.js';
+import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
@@ -135,8 +139,6 @@ import {
 import { TodosMonitor } from './components/todos-monitor.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
-import { AuthPanel } from './components/auth-panel.js';
-import { AUTH_PANEL_INITIAL, type AuthPanelHost } from './components/auth-panel-model.js';
 import { actionForFKeyPanel } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { startHeapWatchdog } from './heap-watchdog.js';
@@ -161,12 +163,12 @@ import {
 } from './input-tokens.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
+import { createPanelOpenDispatcher } from './on-panel-open.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from './thinking-word.js';
-import { createPanelOpenDispatcher } from './on-panel-open.js';
 
 export {
   type Action,
@@ -204,6 +206,7 @@ import {
   nextInputWordStart,
   previousInputWordStart,
 } from './input-editing.js';
+
 export {
   deleteWordBackward,
   deleteWordForward,
@@ -436,6 +439,17 @@ export interface AppProps {
   getAutonomy?: (() => 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') | undefined;
   /** Query the live agent mode label for the status bar (e.g. "teach"). */
   getModeLabel?: (() => string) | undefined;
+  /**
+   * Get all available agent modes (teach/brief/code-reviewer/etc.) with
+   * their names, descriptions, and the currently active one. Used by the
+   * `/mode` picker to populate the interactive selection list.
+   */
+  getModes?: (() => Promise<{
+    modes: import('@wrongstack/core').Mode[];
+    activeId: string | null;
+  }>) | undefined;
+  /** Switch to a different agent mode by id (e.g. "teach", "brief"). */
+  switchMode?: ((modeId: string) => Promise<string | null>) | undefined;
   /**
    * Access the eternal-autonomy engine. When autonomy mode goes to
    * 'eternal' the TUI drives `runOneIteration()` from a post-slash hook
@@ -1011,6 +1025,7 @@ export function App({
   sessionsDir,
   modeLabel,
   getModeLabel,
+  getModes,
   registerDebugStreamCallback,
   restoreDebugStreamCallback,
   restoredToolCalls,
@@ -1253,6 +1268,7 @@ export function App({
       searchQuery: '',
     },
     autonomyPicker: { open: false, options: [], selected: 0 },
+    modePicker: { open: false, modes: [], selected: 0 },
     designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
     promptPicker: {
       open: false,
@@ -1356,6 +1372,7 @@ export function App({
     processListOpen: false,
     auditPanelOpen: false,
     planPanelOpen: false,
+    kanbanPanelOpen: false,
     goalPanelOpen: false,
     sessionsPanelOpen: false,
     sessionsPanel: { sessions: [], busy: false, selected: -1 },
@@ -1492,6 +1509,15 @@ export function App({
     ];
     dispatch({ type: 'promptPickerOpen', all: entries, categories: cats, recentSlugs });
   };
+
+  // Mode picker opener: fetches all modes + active mode from the host and
+  // dispatches the open action so the redux-driven ModePicker renders.
+  const openModePicker = useCallback(async (): Promise<void> => {
+    if (!getModes) return;
+    const result = await getModes();
+    const options = toModeOptions(result.modes, result.activeId);
+    dispatch({ type: 'modePickerOpen', modes: options });
+  }, [getModes]);
 
   // Sync picker toggles instantly to the status bar — when the user toggles an
   // item in the statusline picker, the reducer updates
@@ -1741,6 +1767,7 @@ export function App({
   const pickerOverlayOpen =
     state.modelPicker.open ||
     state.autonomyPicker.open ||
+    state.modePicker.open ||
     state.designPicker.open ||
     state.settingsPicker.open ||
     state.projectPicker.open ||
@@ -2537,6 +2564,8 @@ export function App({
     todos: boolean;
     queue: boolean;
     processList: boolean;
+    planPanel: boolean;
+    kanbanPanel: boolean;
     goalPanel: boolean;
     sessionsPanel: boolean;
     coordinator: boolean;
@@ -2562,6 +2591,8 @@ export function App({
         todos: stateRef.current.todosMonitorOpen,
         queue: stateRef.current.queuePanelOpen,
         processList: stateRef.current.processListOpen,
+        planPanel: stateRef.current.planPanelOpen,
+        kanbanPanel: stateRef.current.kanbanPanelOpen,
         goalPanel: stateRef.current.goalPanelOpen,
         sessionsPanel: stateRef.current.sessionsPanelOpen,
         coordinator: stateRef.current.coordinator.monitorOpen,
@@ -2586,6 +2617,7 @@ export function App({
       if (stateRef.current.queuePanelOpen) dispatch({ type: 'toggleQueuePanel' });
       if (stateRef.current.processListOpen) dispatch({ type: 'toggleProcessList' });
       if (stateRef.current.planPanelOpen) dispatch({ type: 'togglePlanPanel' });
+      if (stateRef.current.kanbanPanelOpen) dispatch({ type: 'toggleKanbanPanel' });
       if (stateRef.current.goalPanelOpen) dispatch({ type: 'toggleGoalPanel' });
       if (stateRef.current.sessionsPanelOpen) dispatch({ type: 'toggleSessionsPanel' });
 
@@ -2656,6 +2688,8 @@ export function App({
         if (prev.todos) dispatch({ type: 'toggleTodosMonitor' });
         if (prev.queue) dispatch({ type: 'toggleQueuePanel' });
         if (prev.processList) dispatch({ type: 'toggleProcessList' });
+        if (prev.planPanel) dispatch({ type: 'togglePlanPanel' });
+        if (prev.kanbanPanel) dispatch({ type: 'toggleKanbanPanel' });
         if (prev.goalPanel) dispatch({ type: 'toggleGoalPanel' });
         if (prev.sessionsPanel) dispatch({ type: 'toggleSessionsPanel' });
         if (prev.coordinator) dispatch({ type: 'toggleCoordinatorMonitor' });
@@ -2952,6 +2986,7 @@ export function App({
       openProjectPicker,
       openStatuslinePicker,
       openAuthPanel: authPanelController.openAuthPanel,
+      openModePicker,
     });
     onPanelOpen.current = dispatcher;
     return () => {
@@ -2963,6 +2998,7 @@ export function App({
     openProjectPicker,
     openStatuslinePicker,
     authPanelController.openAuthPanel,
+    openModePicker,
   ]);
   // Keep the F10 sessions panel live: refresh every 5s while open
   useEffect(() => {
@@ -6735,6 +6771,7 @@ export function App({
     (state.autoPhase?.monitorOpen ?? false) ||
     state.worktreeMonitorOpen ||
     state.planPanelOpen ||
+    state.kanbanPanelOpen ||
     state.todosMonitorOpen ||
     state.queuePanelOpen ||
     state.processListOpen ||
@@ -6835,6 +6872,13 @@ export function App({
               options={state.autonomyPicker.options}
               selected={state.autonomyPicker.selected}
               hint={state.autonomyPicker.hint}
+            />
+          ) : null}
+          {state.modePicker.open ? (
+            <ModePicker
+              modes={state.modePicker.modes}
+              selected={state.modePicker.selected}
+              hint={state.modePicker.hint}
             />
           ) : null}
           {state.designPicker.open ? (
@@ -7138,9 +7182,7 @@ export function App({
                 // ←/→ selection synchronously (saveSettings → configStore is
                 // async, so liveAnimationStyle lags a keystroke). When closed,
                 // use the persisted value from getSettings().
-                state.settingsPicker.open
-                  ? state.settingsPicker.animationStyle
-                  : liveAnimationStyle
+                state.settingsPicker.open ? state.settingsPicker.animationStyle : liveAnimationStyle
               }
               tokenCounter={tokenCounter}
               hint={renderRunningTools(state.runningTools) || state.hint}
@@ -7243,6 +7285,11 @@ export function App({
                 projectRoot={agent.ctx.projectRoot}
                 sessionId={agent.ctx.session?.id ?? null}
                 onClose={() => dispatch({ type: 'togglePlanPanel' })}
+              />
+            ) : state.kanbanPanelOpen ? (
+              <KanbanPanel
+                projectRoot={agent.ctx.projectRoot}
+                onClose={() => dispatch({ type: 'toggleKanbanPanel' })}
               />
             ) : state.queuePanelOpen ? (
               <QueuePanel items={state.queue} />

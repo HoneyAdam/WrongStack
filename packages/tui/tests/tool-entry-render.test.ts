@@ -132,9 +132,28 @@ describe('<Entry /> tool rendering', () => {
     expect(frame).toContain('11 bytes');
   });
 
-  it('does not render the diff body in simple result-render mode for edit', () => {
+  it('renders read output as one compact line without numbered file preview', () => {
     const frame = renderEntry({
       id: 6,
+      kind: 'tool',
+      name: 'read',
+      durationMs: 9,
+      ok: true,
+      input: { path: 'src/a.ts' },
+      output: ['read: src/a.ts (total_lines=3)', '1→const a = 1;', '2→const b = 2;'].join('\n'),
+      outputLines: 2,
+    });
+
+    expect(frame).toContain('read');
+    expect(frame).toContain('src/a.ts');
+    expect(frame).toContain('L1–2 · 2 lines · 3 total');
+    expect(frame).not.toContain('const a = 1;');
+    expect(frame).not.toContain('const b = 2;');
+  });
+
+  it('does not render the diff body in simple result-render mode for edit', () => {
+    const frame = renderEntry({
+      id: 7,
       kind: 'tool',
       name: 'edit',
       durationMs: 12,

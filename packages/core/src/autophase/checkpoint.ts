@@ -17,6 +17,8 @@ export interface Checkpoint {
 export interface CheckpointManagerOptions {
   store: PhaseStore;
   maxCheckpoints?: number | undefined;
+  /** Max age in ms before a checkpoint is eligible for TTL-based pruning. Default: 7 days. */
+  maxCheckpointAgeMs?: number | undefined;
   baseDir?: string | undefined;
 }
 
@@ -42,12 +44,14 @@ interface SerializedCheckpoint {
 export class CheckpointManager {
   private store: PhaseStore;
   private maxCheckpoints: number;
+  private maxCheckpointAgeMs: number;
   private checkpoints = new Map<string, Checkpoint>();
   private baseDir: string;
 
   constructor(opts: CheckpointManagerOptions) {
     this.store = opts.store;
     this.maxCheckpoints = opts.maxCheckpoints ?? 10;
+    this.maxCheckpointAgeMs = opts.maxCheckpointAgeMs ?? 7 * 24 * 60 * 60 * 1000; // 7 days
     this.baseDir = opts.baseDir ?? path.join(opts.store.baseDir, '.checkpoints');
     // Directory creation is lazy — happens on first save
   }
@@ -240,12 +244,25 @@ export class CheckpointManager {
   }
 
   private async pruneCheckpoints(graphId: string): Promise<void> {
+    const now = Date.now();
     const graphCheckpoints = Array.from(this.checkpoints.values())
       .filter((checkpoint) => checkpoint.graphId === graphId)
       .sort((a, b) => a.timestamp - b.timestamp);
 
-    while (graphCheckpoints.length > this.maxCheckpoints) {
-      const oldest = graphCheckpoints.shift();
+    // TTL-based pruning: evict checkpoints older than maxCheckpointAgeMs.
+    for (const cp of graphCheckpoints) {
+      if (now - cp.timestamp > this.maxCheckpointAgeMs) {
+        this.checkpoints.delete(cp.id);
+        await this.deleteFromDisk(cp.id);
+      }
+    }
+
+    // Count-based pruning: keep only the newest maxCheckpoints.
+    const remaining = Array.from(this.checkpoints.values())
+      .filter((checkpoint) => checkpoint.graphId === graphId)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    while (remaining.length > this.maxCheckpoints) {
+      const oldest = remaining.shift();
       if (oldest) {
         this.checkpoints.delete(oldest.id);
         await this.deleteFromDisk(oldest.id);

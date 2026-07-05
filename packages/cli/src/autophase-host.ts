@@ -29,9 +29,10 @@ async function pathExists(p: string): Promise<boolean> {
     return false;
   }
 }
+
 import {
-  assignNickname,
   AutoPhasePlanner,
+  assignNickname,
   type BrainArbiter,
   buildChildEnv,
   type Config,
@@ -54,6 +55,7 @@ function resolveTaskConcurrency(): number {
   if (!Number.isFinite(raw)) return DEFAULT_TASK_CONCURRENCY;
   return Math.min(8, Math.max(1, raw));
 }
+
 import type { MultiAgentHost } from './multi-agent.js';
 
 /** Default parallel-phase concurrency once worktree isolation is available. */
@@ -299,6 +301,12 @@ export interface AutoPhaseHostHooks {
   }) => Promise<AutoPhaseStartResult>;
   onAutoPhasePause: () => void;
   onAutoPhaseResume: () => void;
+  /**
+   * Resume a persisted PhaseGraph. The graph must already have been loaded
+   * from the PhaseStore. Creates a fresh orchestrator and starts executing
+   * pending tasks.
+   */
+  onAutoPhaseResumeFromGraph: (graph: PhaseGraph) => Promise<AutoPhaseStartResult>;
   onAutoPhaseStop: () => void;
   getAutoPhaseRunner: () => AutoPhaseRunnerView | null;
   /** Interactive board: move a task to another phase. */
@@ -308,7 +316,12 @@ export interface AutoPhaseHostHooks {
   /** Interactive board: add a new task to a phase. Returns the new task id. */
   onAutoPhaseAddTask: (
     phaseId: string,
-    spec: { title: string; description?: string; type?: TaskNode['type']; priority?: TaskNode['priority'] },
+    spec: {
+      title: string;
+      description?: string;
+      type?: TaskNode['type'];
+      priority?: TaskNode['priority'];
+    },
   ) => string | null;
   /** Interactive board: requeue a task to pending so it (re)runs. */
   onAutoPhaseRetryTask: (taskId: string) => boolean;
@@ -673,6 +686,145 @@ export function createAutoPhaseHost(deps: AutoPhaseHostDeps): AutoPhaseHostHooks
 
     onAutoPhaseResume() {
       active?.orchestrator.resume();
+    },
+
+    onAutoPhaseResumeFromGraph: async (graph: PhaseGraph): Promise<AutoPhaseStartResult> => {
+      if (active?.orchestrator.isRunning()) {
+        return {
+          ok: false,
+          error: 'An AutoPhase run is already in progress. Use /autophase stop first.',
+        };
+      }
+      const abort = new AbortController();
+      const usedNicknames = new Set<string>();
+      const log = deps.log ?? (() => {});
+      const title = graph.title;
+      log('🔄 Resuming: ' + title);
+      const worktreesEnabled =
+        deps.worktrees !== false && process.env['WRONGSTACK_AUTOPHASE_WORKTREES'] !== '0';
+      let worktrees;
+      if (worktreesEnabled && (await isGitRepo(deps.projectRoot))) {
+        worktrees = new WorktreeManager({
+          projectRoot: deps.projectRoot,
+          events: deps.events,
+          sessionId: deps.getSessionId,
+        });
+      }
+      const verifyEnabled = process.env['WRONGSTACK_AUTOPHASE_VERIFY'] !== '0';
+      const resolveEnabled = !!worktrees && process.env['WRONGSTACK_AUTOPHASE_RESOLVE'] !== '0';
+      const orchestrator = new PhaseOrchestrator({
+        graph,
+        ctx: {
+          executeTask: async (task, phaseId, env) => {
+            const phase = graph.phases.get(phaseId);
+            const phaseName = phase?.name ?? phaseId;
+            let agentName = task.assignee;
+            if (!agentName) {
+              const nick = assignNickname('executor', usedNicknames);
+              usedNicknames.add(nick.key);
+              agentName = nick.display.replace(/\s*\([^)]*\)\s*$/, '');
+              active?.orchestrator.setTaskAssignee(task.id, undefined, agentName);
+            }
+            return runOnce(
+              buildTaskPrompt(task, phaseName, title),
+              'autophase-' + agentName.slice(0, 48),
+              abort.signal,
+              env?.cwd,
+            );
+          },
+          verifyPhase: verifyEnabled
+            ? async (_phase, env) => runVerify(env?.cwd ?? deps.projectRoot)
+            : undefined,
+          repairPhase: verifyEnabled
+            ? async (phase, failure, attempt, env) => {
+                log(
+                  '🔧 Repairing ' +
+                    phase.name +
+                    ' (attempt ' +
+                    attempt +
+                    ') after verify failure...',
+                );
+                await runOnce(
+                  buildRepairPrompt(phase.name, failure, title),
+                  'autophase-repair-' + phase.name.slice(0, 48),
+                  abort.signal,
+                  env?.cwd,
+                );
+              }
+            : undefined,
+          resolveConflict: resolveEnabled
+            ? async (_phase, info) => {
+                log('🔀 Resolving merge conflict in ' + info.conflictFiles.length + ' file(s)...');
+                try {
+                  await runOnce(
+                    buildConflictPrompt(info.conflictFiles, title),
+                    'autophase-conflict',
+                    abort.signal,
+                    info.cwd,
+                  );
+                  return true;
+                } catch {
+                  return false;
+                }
+              }
+            : undefined,
+          brain: deps.brain,
+          onPhaseComplete: (phase) => {
+            log('✅ Phase completed: ' + phase.name);
+            void persist(graph);
+          },
+          onPhaseFail: (phase, error) => {
+            log('❌ Phase failed: ' + phase.name + ' - ' + error.message);
+            void persist(graph);
+          },
+        },
+        events: deps.events,
+        worktrees,
+        autonomous: true,
+        maxConcurrentPhases: worktrees
+          ? (deps.maxConcurrentPhases ?? WORKTREE_PHASE_CONCURRENCY)
+          : 1,
+        maxConcurrentTasks: resolveTaskConcurrency(),
+      });
+      const busOn = deps.events as unknown as {
+        on(event: string, handler: (payload: unknown) => void): void;
+        off(event: string, handler: (payload: unknown) => void): void;
+      };
+      const onUntyped = (event: string, handler: (payload: unknown) => void): void =>
+        busOn.on(event, handler);
+      const offUntyped = (event: string, handler: (payload: unknown) => void): void =>
+        busOn.off(event, handler);
+      const finalizeActiveRun = () => {
+        if (active?.graph.id !== graph.id) return;
+        active.unsubscribe();
+        active = null;
+      };
+      const onDone = () => {
+        log('🎉 AutoPhase complete: ' + title);
+        void persist(graph);
+        finalizeActiveRun();
+      };
+      const onFailed = () => {
+        void persist(graph);
+        finalizeActiveRun();
+      };
+      onUntyped('graph.completed', onDone);
+      onUntyped('graph.failed', onFailed);
+      const unsubscribe = () => {
+        offUntyped('graph.completed', onDone);
+        offUntyped('graph.failed', onFailed);
+      };
+      active = { graph, orchestrator, abort, unsubscribe };
+      void orchestrator.start().catch((err) => {
+        log(
+          '❌ AutoPhase orchestrator error: ' + (err instanceof Error ? err.message : String(err)),
+        );
+        if (active?.graph.id === graph.id) {
+          active.unsubscribe();
+          active = null;
+        }
+      });
+      return { ok: true, graph };
     },
 
     onAutoPhaseStop() {
