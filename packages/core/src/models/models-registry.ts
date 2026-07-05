@@ -85,6 +85,7 @@ const FAMILY_BY_NPM: Record<string, WireFamily> = {
   '@ai-sdk/gateway': 'openai-compatible',
   '@aihubmix/ai-sdk-provider': 'openai-compatible',
   'venice-ai-sdk-provider': 'openai-compatible',
+  '@ai-sdk/deepseek': 'openai-compatible',
   '@ai-sdk/google': 'google',
 };
 
@@ -209,9 +210,9 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       if (overlayAvailable) {
         // eslint-disable-next-line no-console -- one-line operator warning
         console.warn(
-          `ModelsRegistry: models.dev unavailable (${
-            toErrorMessage(err)
-          }); serving curated overlay only.`,
+          `ModelsRegistry: models.dev unavailable (${toErrorMessage(
+            err,
+          )}); serving curated overlay only.`,
         );
         return {};
       }
@@ -282,9 +283,9 @@ export class DefaultModelsRegistry implements ModelsRegistry {
     return this.overlayPayload;
   }
 
-  private async loadOverlayFromUrl(opts: { force?: boolean | undefined }): Promise<
-    ModelsDevPayload | undefined
-  > {
+  private async loadOverlayFromUrl(opts: {
+    force?: boolean | undefined;
+  }): Promise<ModelsDevPayload | undefined> {
     if (!this.overlayUrl || !this.overlayCacheFile) return undefined;
     if (!opts.force) {
       const cached = await this.readCacheAt(this.overlayCacheFile);
@@ -295,11 +296,12 @@ export class DefaultModelsRegistry implements ModelsRegistry {
         method: 'GET',
         headers: { accept: 'application/json' },
       });
-      if (!res.ok) throw new FetchError({
-        message: `HTTP ${res.status}`,
-        status: res.status,
-        context: { url: this.url, op: 'refreshModels' },
-      });
+      if (!res.ok)
+        throw new FetchError({
+          message: `HTTP ${res.status}`,
+          status: res.status,
+          context: { url: this.url, op: 'refreshModels' },
+        });
       const json = (await res.json()) as ModelsDevPayload;
       const envelope: CacheEnvelope = {
         fetchedAt: new Date().toISOString(),
