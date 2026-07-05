@@ -174,7 +174,8 @@ function shouldBlock(op: 'commit' | 'push' | 'merge', cfg: BranchGuardConfig): b
 const plugin: Plugin = {
   name: 'branch-guard',
   version: '0.1.0',
-  description: 'Pre-tool hook that blocks commits, pushes, and merges to protected branches (default: main, master)',
+  description:
+    'Pre-tool hook that blocks commits, pushes, and merges to protected branches (default: main, master)',
   apiVersion: API_VERSION,
   capabilities: { tools: true, hooks: true },
   defaultConfig: { ...DEFAULTS },
@@ -193,9 +194,21 @@ const plugin: Plugin = {
         default: 'block',
         description: '"block" refuses the call; "warn" injects context but lets it through.',
       },
-      blockCommit: { type: 'boolean', default: true, description: 'Block commits on protected branches.' },
-      blockPush: { type: 'boolean', default: true, description: 'Block pushes from protected branches.' },
-      blockMerge: { type: 'boolean', default: true, description: 'Block merges into protected branches.' },
+      blockCommit: {
+        type: 'boolean',
+        default: true,
+        description: 'Block commits on protected branches.',
+      },
+      blockPush: {
+        type: 'boolean',
+        default: true,
+        description: 'Block pushes from protected branches.',
+      },
+      blockMerge: {
+        type: 'boolean',
+        default: true,
+        description: 'Block merges into protected branches.',
+      },
     },
   },
 
@@ -214,7 +227,11 @@ const plugin: Plugin = {
     const hook = (input: {
       toolName?: string | undefined;
       toolInput?: unknown;
-    }): { decision?: 'block' | 'allow' | undefined; reason?: string; additionalContext?: string } | void => {
+    }): {
+      decision?: 'block' | 'allow' | undefined;
+      reason?: string;
+      additionalContext?: string;
+    } | void => {
       const toolName = input.toolName ?? '';
       const inp = (input.toolInput ?? {}) as Record<string, unknown>;
       state.invocationCount += 1;
@@ -223,6 +240,10 @@ const plugin: Plugin = {
       let gitOp: GitCommandMatch | null = null;
 
       if (toolName === 'git_autocommit') {
+        // Dry-run is a preview and does not mutate git history, so it should
+        // remain available on protected branches as the safe way to inspect
+        // exactly what would be committed before switching branches.
+        if (inp['dry_run'] === true) return;
         // The git-autocommit plugin's tool is a direct commit.
         gitOp = { type: 'commit', snippet: 'git_autocommit' };
       } else if (toolName === 'bash') {
@@ -241,12 +262,21 @@ const plugin: Plugin = {
 
       // Protected branch + blocked operation → act.
       const when = new Date().toISOString();
-      const opVerb = gitOp.type === 'commit' ? 'committing to' : gitOp.type === 'push' ? 'pushing from' : 'merging into';
+      const opVerb =
+        gitOp.type === 'commit'
+          ? 'committing to'
+          : gitOp.type === 'push'
+            ? 'pushing from'
+            : 'merging into';
 
       // Check for uncommitted changes so we can suggest stash.
       const hasUncommitted = detectUncommittedChanges(cwd);
 
-      // Build a helpful suggestion: stash + branch + commit + pop.
+      // Build a helpful suggestion: stash + branch + retry the same operation.
+      // For git_autocommit, keep the final step at the tool level so agents do
+      // not fall back to raw `git commit` and bypass scoped staging safeguards.
+      const retryStep =
+        toolName === 'git_autocommit' ? 'retry git_autocommit' : `git ${gitOp.type} ...`;
       const suggestionParts: string[] = [];
       if (hasUncommitted) {
         suggestionParts.push('git stash');
@@ -255,7 +285,7 @@ const plugin: Plugin = {
       if (hasUncommitted) {
         suggestionParts.push('git stash pop');
       }
-      suggestionParts.push(`git ${gitOp.type} ...`);
+      suggestionParts.push(retryStep);
       const suggestion = suggestionParts.join(' → ');
 
       const reason =

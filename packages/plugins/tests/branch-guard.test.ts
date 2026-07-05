@@ -18,8 +18,16 @@ const branchGuardPlugin = (await import('../src/branch-guard')).default;
 interface MockApi {
   tools: { register: ReturnType<typeof vi.fn> };
   config: { extensions: Record<string, unknown> };
-  log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
-  metrics: { counter: ReturnType<typeof vi.fn>; histogram: ReturnType<typeof vi.fn>; gauge: ReturnType<typeof vi.fn> };
+  log: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+  metrics: {
+    counter: ReturnType<typeof vi.fn>;
+    histogram: ReturnType<typeof vi.fn>;
+    gauge: ReturnType<typeof vi.fn>;
+  };
   registerHook: ReturnType<typeof vi.fn>;
   onEvent: ReturnType<typeof vi.fn>;
   emitCustom: ReturnType<typeof vi.fn>;
@@ -39,16 +47,20 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
   };
 }
 
-function getHook(api: MockApi): (input: unknown) => { decision?: string; reason?: string; additionalContext?: string } | void {
+function getHook(
+  api: MockApi,
+): (input: unknown) => { decision?: string; reason?: string; additionalContext?: string } | void {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
   return (call as unknown[])[2] as ReturnType<typeof getHook>;
 }
 
 function getStatusTool(api: MockApi): { execute: (input: unknown) => Promise<unknown> } {
-  const call = api.tools.register.mock.calls.find(([t]: unknown[]) => (t as { name: string }).name === 'branch_guard_status');
+  const call = api.tools.register.mock.calls.find(
+    ([t]: unknown[]) => (t as { name: string }).name === 'branch_guard_status',
+  );
   if (!call) throw new Error('branch_guard_status not registered');
-  return (call[0] as { execute: (input: unknown) => Promise<unknown> });
+  return call[0] as { execute: (input: unknown) => Promise<unknown> };
 }
 
 /** Set the mock to return a specific branch name. */
@@ -126,6 +138,14 @@ describe('hook behavior — git commit on protected branch', () => {
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('commit');
     expect(result?.reason).toContain('protected');
+    expect(result?.reason).toContain('retry git_autocommit');
+  });
+
+  it('allows git_autocommit dry_run on main because it does not commit', () => {
+    const api = makeApi();
+    branchGuardPlugin.setup(api as never);
+    const hook = getHook(api);
+    expect(hook({ toolName: 'git_autocommit', toolInput: { dry_run: true } })).toBeUndefined();
   });
 });
 
@@ -177,7 +197,9 @@ describe('hook behavior — custom protected branches', () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    expect(hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } })).toBeUndefined();
+    expect(
+      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+    ).toBeUndefined();
   });
 });
 
@@ -186,7 +208,9 @@ describe('hook behavior — selective blocking', () => {
     const api = makeApi({ extensions: { 'branch-guard': { blockCommit: false } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    expect(hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } })).toBeUndefined();
+    expect(
+      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+    ).toBeUndefined();
   });
 
   it('still blocks push when blockCommit=false', () => {
@@ -214,7 +238,10 @@ describe('teardown + H1 pattern', () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     expect(() => branchGuardPlugin.teardown!(api as never)).not.toThrow();
-    expect(api.log.info).toHaveBeenCalledWith('branch-guard: teardown complete', expect.any(Object));
+    expect(api.log.info).toHaveBeenCalledWith(
+      'branch-guard: teardown complete',
+      expect.any(Object),
+    );
   });
 
   it('zeros counters on teardown', async () => {
