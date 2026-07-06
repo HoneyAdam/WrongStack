@@ -44,7 +44,11 @@ export function safeOpenExternal(target: string): void {
     return;
   }
   if (OPEN_EXTERNAL_ALLOWED_PROTOCOLS.has(protocol)) {
-    void import('electron').then(({ shell }) => shell.openExternal(target));
+    void import('electron')
+      .then(({ shell }) => shell.openExternal(target))
+      .catch(() => {
+        /* safeOpenExternal is best-effort */
+      });
   }
 }
 
