@@ -63,6 +63,18 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Flag distributive-conditional Omit<>/Pick<> usages for review.
+      # Advisory (the script exits 0); running it in CI surfaces the report
+      # in the logs on every PR without blocking.
+      - name: Lint distributive types
+        run: pnpm lint:distributive
+
+      # Syntax-check the shell scripts (bash -n). Runs under the default
+      # GitHub Actions bash shell, which is available on both ubuntu-latest
+      # and windows-latest (Git Bash), so this is cross-platform safe.
+      - name: Lint shell scripts
+        run: pnpm lint:scripts
+
       # Block ad-hoc console.warn/error string-literal logging. The project
       # convention is structured JSON logging —
       # console.(warn|error)(JSON.stringify({ level, event, message, timestamp })).
