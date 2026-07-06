@@ -18,6 +18,11 @@ export default defineConfig({
       '@wrongstack/core': path.resolve(__dirname, './packages/core/src'),
     },
   },
+  // Exclude typescript from SSR transform to prevent "invalid JS syntax" errors
+  // when vite tries to process the bundled typescript.js file.
+  ssr: {
+    external: ['typescript', 'typescript/lib/typescript'],
+  },
   test: {
     globals: false,
     environment: 'node',
