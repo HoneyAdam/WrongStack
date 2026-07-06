@@ -133,6 +133,7 @@ export {
   makeFleetTool as makeFleetUsageTool,
   makeFleetTool as makeFleetSessionTool,
   makeFleetTool as makeFleetHealthTool,
+  makeKanbanQueueTool,
   makeQualityGateTool,
   makeRollUpTool,
   makeSpawnTool,

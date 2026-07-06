@@ -40,6 +40,8 @@ export type KanbanAgentRunStatus =
   | 'failed'
   | 'cancelled';
 
+export type KanbanGoalMetricStatus = 'pending' | 'met' | 'missed' | 'waived';
+
 export interface KanbanAgentAssignment {
   agentId?: string | undefined;
   name?: string | undefined;
@@ -82,6 +84,32 @@ export interface KanbanNote {
   createdAt: string;
 }
 
+export interface KanbanGoalMetric {
+  id: string;
+  name: string;
+  status: KanbanGoalMetricStatus;
+  target?: string | number | undefined;
+  current?: string | number | undefined;
+  unit?: string | undefined;
+  notes?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
+export interface KanbanTaskChainRef {
+  chainId: string;
+  order: number;
+  previousTaskId?: string | undefined;
+  nextTaskId?: string | undefined;
+}
+
+export interface KanbanTaskOrigin {
+  system: string;
+  graphId?: string | undefined;
+  phaseId?: string | undefined;
+  taskId?: string | undefined;
+  specId?: string | undefined;
+}
+
 export interface KanbanTask {
   id: string;
   title: string;
@@ -94,7 +122,14 @@ export interface KanbanTask {
   assignee?: string | undefined;
   assignment?: KanbanAgentAssignment | undefined;
   dependsOn?: string[] | undefined;
+  chain?: KanbanTaskChainRef | undefined;
+  parentTaskId?: string | undefined;
+  childTaskIds?: string[] | undefined;
+  mergedIntoTaskId?: string | undefined;
+  mergedFromTaskIds?: string[] | undefined;
+  origin?: KanbanTaskOrigin | undefined;
   successCriteria?: KanbanCheck[] | undefined;
+  goalMetrics?: KanbanGoalMetric[] | undefined;
   labels?: string[] | undefined;
   createdAt: string;
   updatedAt: string;
@@ -208,9 +243,17 @@ export interface CreateKanbanTaskInput {
   assignee?: string | undefined;
   assignment?: KanbanAgentAssignment | undefined;
   dependsOn?: string[] | undefined;
+  chain?: KanbanTaskChainRef | undefined;
+  parentTaskId?: string | undefined;
+  childTaskIds?: string[] | undefined;
+  mergedIntoTaskId?: string | undefined;
+  mergedFromTaskIds?: string[] | undefined;
+  origin?: KanbanTaskOrigin | undefined;
   labels?: string[] | undefined;
   estimatedHours?: number | undefined;
+  actualHours?: number | undefined;
   successCriteria?: KanbanCheck[] | undefined;
+  goalMetrics?: KanbanGoalMetric[] | undefined;
   links?: KanbanLink[] | undefined;
   notes?: KanbanNote[] | undefined;
 }
@@ -226,10 +269,17 @@ export interface UpdateKanbanTaskInput {
   assignee?: string | null | undefined;
   assignment?: KanbanAgentAssignment | null | undefined;
   dependsOn?: string[] | undefined;
+  chain?: KanbanTaskChainRef | null | undefined;
+  parentTaskId?: string | null | undefined;
+  childTaskIds?: string[] | undefined;
+  mergedIntoTaskId?: string | null | undefined;
+  mergedFromTaskIds?: string[] | undefined;
+  origin?: KanbanTaskOrigin | null | undefined;
   labels?: string[] | undefined;
   estimatedHours?: number | undefined;
   actualHours?: number | undefined;
   successCriteria?: KanbanCheck[] | undefined;
+  goalMetrics?: KanbanGoalMetric[] | undefined;
   links?: KanbanLink[] | undefined;
 }
 
@@ -254,6 +304,67 @@ export interface AssignKanbanTaskInput {
   status?: KanbanAgentRunStatus | undefined;
 }
 
+export interface SplitKanbanTaskInput {
+  titles: string[];
+  columnId?: string | undefined;
+  inheritAssignment?: boolean | undefined;
+  inheritLabels?: boolean | undefined;
+  inheritSuccessCriteria?: boolean | undefined;
+  inheritGoalMetrics?: boolean | undefined;
+  inheritDependencies?: boolean | undefined;
+  chainChildren?: boolean | undefined;
+  rewireDependents?: boolean | undefined;
+}
+
+export interface MergeKanbanTasksInput {
+  taskIds: string[];
+  title: string;
+  description?: string | undefined;
+  targetColumnId?: string | undefined;
+  preserveAssignment?: boolean | undefined;
+  closeSourceTasks?: boolean | undefined;
+}
+
+export interface SetKanbanTaskChainInput {
+  taskIds: string[];
+  chainId?: string | undefined;
+  enforceDependencies?: boolean | undefined;
+}
+
+export interface AddKanbanGoalMetricInput {
+  name: string;
+  status?: KanbanGoalMetricStatus | undefined;
+  target?: string | number | undefined;
+  current?: string | number | undefined;
+  unit?: string | undefined;
+  notes?: string | undefined;
+}
+
+export type UpdateKanbanGoalMetricInput = Partial<Omit<KanbanGoalMetric, 'id'>>;
+
+export interface ClaimKanbanTaskInput extends AssignKanbanTaskInput {
+  boardId?: string | undefined;
+  taskId?: string | undefined;
+}
+
+export interface ReleaseKanbanTaskClaimInput {
+  status?: 'pending' | 'ready' | 'blocked' | undefined;
+  reason?: string | undefined;
+  clearAssignee?: boolean | undefined;
+}
+
+export interface KanbanOrchestrationSnapshot {
+  generatedAt: string;
+  boards: KanbanBoardSummary[];
+  ready: KanbanSearchResult[];
+  queued: KanbanSearchResult[];
+  running: KanbanSearchResult[];
+  blocked: KanbanSearchResult[];
+  review: KanbanSearchResult[];
+  failed: KanbanSearchResult[];
+  completed: KanbanSearchResult[];
+}
+
 export interface KanbanGenerationInput {
   description: string;
   context?: string | undefined;
@@ -269,6 +380,8 @@ export interface KanbanSearchInput {
   status?: KanbanTaskStatus | undefined;
   priority?: KanbanTaskPriority | undefined;
   label?: string | undefined;
+  readyOnly?: boolean | undefined;
+  chainId?: string | undefined;
 }
 
 export interface KanbanSearchResult {

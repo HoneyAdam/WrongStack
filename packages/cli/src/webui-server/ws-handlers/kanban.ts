@@ -19,26 +19,41 @@
 
 import {
   addColumn,
+  addGoalMetricToTask,
   addTask,
   assignTask,
+  claimReadyTask,
   copyTaskToBoard,
   createBoard,
+  deserializeTaskGraph,
   duplicateBoard,
+  exportBoardToTaskGraph,
   generateBoardFromDescription,
   getBoard,
+  getKanbanOrchestrationSnapshot,
   getTask,
+  getTaskChain,
   type KanbanColumn,
   type KanbanTask,
   type KanbanTaskPriority,
   type KanbanTaskStatus,
+  listReadyTasks,
   listBoards,
+  mergeTasks,
   moveTask,
   parseLinesIntoTasks,
   removeBoard,
   removeColumn,
   removeTask,
+  releaseTaskClaim,
+  type SerializableTaskGraph,
+  serializeTaskGraph,
+  setTaskChain,
+  splitTask,
+  syncBoardFromTaskGraph,
   transferTaskToBoard,
   updateBoard as updateBoardManager,
+  updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
 } from '@wrongstack/core';
@@ -192,8 +207,9 @@ export async function handleKanbanMessage(
           fail(ctx, ws, type, 'boardId required');
           return;
         }
-        const removed = await removeBoard(projectRoot, id);
-        ok(ctx, ws, 'kanban.delete', { removed });
+        const board = await getBoard(projectRoot, id);
+        const removed = board ? await removeBoard(projectRoot, board.id) : false;
+        ok(ctx, ws, 'kanban.delete', { removed, boardId: board?.id ?? id });
         return;
       }
 
@@ -221,6 +237,104 @@ export async function handleKanbanMessage(
         return;
       }
 
+      // ── Ready tasks ──
+      case 'kanban.task.ready': {
+        const tasks = await listReadyTasks(projectRoot, {
+          ...(payload?.boardId ? { boardId: payload.boardId as string } : {}),
+          ...(payload?.query ? { query: payload.query as string } : {}),
+          ...(payload?.assignedAgent ? { assignedAgent: payload.assignedAgent as string } : {}),
+          ...(payload?.priority ? { priority: payload.priority as KanbanTaskPriority } : {}),
+          ...(payload?.label ? { label: payload.label as string } : {}),
+          ...(payload?.chainId ? { chainId: payload.chainId as string } : {}),
+          ...(typeof payload?.limit === 'number' ? { limit: payload.limit } : {}),
+        });
+        ok(ctx, ws, type, tasks);
+        return;
+      }
+
+      case 'kanban.snapshot': {
+        const snapshot = await getKanbanOrchestrationSnapshot(projectRoot, {
+          ...(payload?.boardId ? { boardId: payload.boardId as string } : {}),
+          ...(payload?.query ? { query: payload.query as string } : {}),
+          ...(payload?.assignedAgent ? { assignedAgent: payload.assignedAgent as string } : {}),
+          ...(payload?.priority ? { priority: payload.priority as KanbanTaskPriority } : {}),
+          ...(payload?.status ? { status: payload.status as KanbanTaskStatus } : {}),
+          ...(payload?.label ? { label: payload.label as string } : {}),
+          ...(payload?.chainId ? { chainId: payload.chainId as string } : {}),
+        });
+        ok(ctx, ws, type, snapshot);
+        return;
+      }
+
+      case 'kanban.taskgraph.export': {
+        const boardId = payload?.boardId as string | undefined;
+        if (!boardId) {
+          fail(ctx, ws, type, 'boardId required');
+          return;
+        }
+        const exported = await exportBoardToTaskGraph(projectRoot, boardId, {
+          ...(payload?.graphId ? { graphId: payload.graphId as string } : {}),
+          ...(payload?.specId ? { specId: payload.specId as string } : {}),
+          ...(payload?.title ? { title: payload.title as string } : {}),
+          ...(typeof payload?.preserveOriginTaskIds === 'boolean'
+            ? { preserveOriginTaskIds: payload.preserveOriginTaskIds }
+            : {}),
+          ...(typeof payload?.includeArchived === 'boolean'
+            ? { includeArchived: payload.includeArchived }
+            : {}),
+        });
+        if (!exported) {
+          fail(ctx, ws, type, `Board not found: ${boardId}`);
+          return;
+        }
+        ok(ctx, ws, type, {
+          board: exported.board,
+          taskGraph: serializeTaskGraph(exported.graph),
+        });
+        return;
+      }
+
+      case 'kanban.taskgraph.sync': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskGraph = payload?.taskGraph as SerializableTaskGraph | undefined;
+        if (!boardId || !taskGraph) {
+          fail(ctx, ws, type, 'boardId and taskGraph required');
+          return;
+        }
+        const result = await syncBoardFromTaskGraph(
+          projectRoot,
+          boardId,
+          deserializeTaskGraph(taskGraph),
+          {
+            ...(payload?.title ? { title: payload.title as string } : {}),
+            ...(payload?.description ? { description: payload.description as string } : {}),
+            ...(payload?.tags ? { tags: payload.tags as string[] } : {}),
+            ...(payload?.generatedBy ? { generatedBy: payload.generatedBy as string } : {}),
+            ...(payload?.sourceSystem ? { sourceSystem: payload.sourceSystem as string } : {}),
+            ...(payload?.phaseId ? { phaseId: payload.phaseId as string } : {}),
+            ...(typeof payload?.includeCompletedTasks === 'boolean'
+              ? { includeCompletedTasks: payload.includeCompletedTasks }
+              : {}),
+            ...(typeof payload?.archiveMissingTasks === 'boolean'
+              ? { archiveMissingTasks: payload.archiveMissingTasks }
+              : {}),
+            ...(typeof payload?.preserveManualDependencies === 'boolean'
+              ? { preserveManualDependencies: payload.preserveManualDependencies }
+              : {}),
+          },
+        );
+        result
+          ? ok(ctx, ws, type, {
+              board: result.board,
+              taskIdMap: Object.fromEntries(result.taskIdMap),
+              createdTaskIds: result.createdTaskIds,
+              updatedTaskIds: result.updatedTaskIds,
+              archivedTaskIds: result.archivedTaskIds,
+            })
+          : fail(ctx, ws, type, `Board not found: ${boardId}`);
+        return;
+      }
+
       // ── Task add ──
       case 'kanban.task.add': {
         const boardId = payload?.boardId as string | undefined;
@@ -243,6 +357,85 @@ export async function handleKanbanMessage(
           return;
         }
         ok(ctx, ws, 'kanban.task.add', result.task);
+        return;
+      }
+
+      // ── Task split ──
+      case 'kanban.task.split': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        const childTitles = payload?.childTitles as string[] | undefined;
+        if (!boardId || !taskId || !childTitles?.length) {
+          fail(ctx, ws, type, 'boardId, taskId, and childTitles required');
+          return;
+        }
+        const result = await splitTask(projectRoot, boardId, taskId, {
+          titles: childTitles,
+          ...(payload?.targetColumnId ? { columnId: payload.targetColumnId as string } : {}),
+          ...(typeof payload?.inheritAssignment === 'boolean'
+            ? { inheritAssignment: payload.inheritAssignment }
+            : {}),
+          ...(typeof payload?.inheritLabels === 'boolean'
+            ? { inheritLabels: payload.inheritLabels }
+            : {}),
+          ...(typeof payload?.inheritSuccessCriteria === 'boolean'
+            ? { inheritSuccessCriteria: payload.inheritSuccessCriteria }
+            : {}),
+          ...(typeof payload?.inheritGoalMetrics === 'boolean'
+            ? { inheritGoalMetrics: payload.inheritGoalMetrics }
+            : {}),
+          ...(typeof payload?.inheritDependencies === 'boolean'
+            ? { inheritDependencies: payload.inheritDependencies }
+            : {}),
+          ...(typeof payload?.chainChildren === 'boolean'
+            ? { chainChildren: payload.chainChildren }
+            : {}),
+          ...(typeof payload?.rewireDependents === 'boolean'
+            ? { rewireDependents: payload.rewireDependents }
+            : {}),
+        });
+        if (!result) {
+          fail(ctx, ws, type, 'Board or task not found');
+          return;
+        }
+        ok(ctx, ws, type, {
+          board: result.board,
+          parent: result.parent,
+          children: result.children,
+        });
+        return;
+      }
+
+      // ── Task merge ──
+      case 'kanban.task.merge': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskIds = payload?.taskIds as string[] | undefined;
+        const title = payload?.title as string | undefined;
+        if (!boardId || !taskIds?.length || !title) {
+          fail(ctx, ws, type, 'boardId, taskIds, and title required');
+          return;
+        }
+        const result = await mergeTasks(projectRoot, boardId, {
+          taskIds,
+          title,
+          ...(payload?.description ? { description: payload.description as string } : {}),
+          ...(payload?.targetColumnId ? { targetColumnId: payload.targetColumnId as string } : {}),
+          ...(typeof payload?.preserveAssignment === 'boolean'
+            ? { preserveAssignment: payload.preserveAssignment }
+            : {}),
+          ...(typeof payload?.closeSourceTasks === 'boolean'
+            ? { closeSourceTasks: payload.closeSourceTasks }
+            : {}),
+        });
+        if (!result) {
+          fail(ctx, ws, type, 'Board or task not found');
+          return;
+        }
+        ok(ctx, ws, type, {
+          board: result.board,
+          task: result.task,
+          sourceTasks: result.sourceTasks,
+        });
         return;
       }
 
@@ -335,6 +528,152 @@ export async function handleKanbanMessage(
           return;
         }
         ok(ctx, ws, type, result.targetBoard);
+        return;
+      }
+
+      // ── Task chain ──
+      case 'kanban.task.chain': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskIds = payload?.taskIds as string[] | undefined;
+        if (!boardId || !taskIds?.length) {
+          fail(ctx, ws, type, 'boardId and taskIds required');
+          return;
+        }
+        const result = await setTaskChain(projectRoot, boardId, {
+          taskIds,
+          ...(payload?.chainId ? { chainId: payload.chainId as string } : {}),
+          ...(typeof payload?.enforceDependencies === 'boolean'
+            ? { enforceDependencies: payload.enforceDependencies }
+            : {}),
+        });
+        if (!result) {
+          fail(ctx, ws, type, 'Board or task not found');
+          return;
+        }
+        ok(ctx, ws, type, {
+          board: result.board,
+          chainId: result.chainId,
+          tasks: result.tasks,
+        });
+        return;
+      }
+
+      case 'kanban.task.chain.get': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskOrChainId =
+          (payload?.taskId as string | undefined) ?? (payload?.chainId as string | undefined);
+        if (!boardId || !taskOrChainId) {
+          fail(ctx, ws, type, 'boardId and taskId or chainId required');
+          return;
+        }
+        const result = await getTaskChain(projectRoot, boardId, taskOrChainId);
+        if (!result) {
+          fail(ctx, ws, type, 'Chain not found');
+          return;
+        }
+        ok(ctx, ws, type, {
+          board: result.board,
+          chainId: result.chainId,
+          tasks: result.tasks,
+        });
+        return;
+      }
+
+      // ── Task claim/release ──
+      case 'kanban.task.claim': {
+        const result = await claimReadyTask(projectRoot, {
+          ...(payload?.boardId ? { boardId: payload.boardId as string } : {}),
+          ...(payload?.taskId ? { taskId: payload.taskId as string } : {}),
+          ...(payload?.agentId ? { agentId: payload.agentId as string } : {}),
+          ...(payload?.name ? { name: payload.name as string } : {}),
+          ...(payload?.role ? { role: payload.role as string } : {}),
+          ...(payload?.provider ? { provider: payload.provider as string } : {}),
+          ...(payload?.model ? { model: payload.model as string } : {}),
+          ...(payload?.fallbackProfile
+            ? { fallbackProfile: payload.fallbackProfile as string }
+            : {}),
+          ...(payload?.fallbackModels
+            ? { fallbackModels: payload.fallbackModels as string[] }
+            : {}),
+          ...(payload?.tools ? { tools: payload.tools as string[] } : {}),
+          ...(payload?.allowedCapabilities
+            ? { allowedCapabilities: payload.allowedCapabilities as string[] }
+            : {}),
+          ...(payload?.assignee ? { assignee: payload.assignee as string } : {}),
+          status:
+            (payload?.assignmentStatus as 'assigned' | 'queued' | 'running' | undefined) ??
+            'queued',
+        });
+        result
+          ? ok(ctx, ws, type, { board: result.board, task: result.task })
+          : fail(ctx, ws, type, 'No ready kanban task matched the claim');
+        return;
+      }
+
+      case 'kanban.task.release': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        if (!boardId || !taskId) {
+          fail(ctx, ws, type, 'boardId and taskId required');
+          return;
+        }
+        const board = await releaseTaskClaim(projectRoot, boardId, taskId, {
+          ...(payload?.status ? { status: payload.status as 'pending' | 'ready' | 'blocked' } : {}),
+          ...(payload?.reason ? { reason: payload.reason as string } : {}),
+          ...(typeof payload?.clearAssignee === 'boolean'
+            ? { clearAssignee: payload.clearAssignee }
+            : {}),
+        });
+        board ? ok(ctx, ws, type, board) : fail(ctx, ws, type, 'Board or task not found');
+        return;
+      }
+
+      // ── Goal metrics ──
+      case 'kanban.task.metric.add': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        const name = payload?.name as string | undefined;
+        if (!boardId || !taskId || !name) {
+          fail(ctx, ws, type, 'boardId, taskId, and name required');
+          return;
+        }
+        const board = await addGoalMetricToTask(projectRoot, boardId, taskId, {
+          name,
+          ...(payload?.status
+            ? { status: payload.status as 'pending' | 'met' | 'missed' | 'waived' }
+            : {}),
+          ...(payload?.target !== undefined ? { target: payload.target as string | number } : {}),
+          ...(payload?.current !== undefined
+            ? { current: payload.current as string | number }
+            : {}),
+          ...(payload?.unit ? { unit: payload.unit as string } : {}),
+          ...(payload?.notes ? { notes: payload.notes as string } : {}),
+        });
+        board ? ok(ctx, ws, type, board) : fail(ctx, ws, type, 'Board or task not found');
+        return;
+      }
+
+      case 'kanban.task.metric.update': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        const metricId = payload?.metricId as string | undefined;
+        if (!boardId || !taskId || !metricId) {
+          fail(ctx, ws, type, 'boardId, taskId, and metricId required');
+          return;
+        }
+        const board = await updateGoalMetricOnTask(projectRoot, boardId, taskId, metricId, {
+          ...(payload?.name ? { name: payload.name as string } : {}),
+          ...(payload?.status
+            ? { status: payload.status as 'pending' | 'met' | 'missed' | 'waived' }
+            : {}),
+          ...(payload?.target !== undefined ? { target: payload.target as string | number } : {}),
+          ...(payload?.current !== undefined
+            ? { current: payload.current as string | number }
+            : {}),
+          ...(payload?.unit ? { unit: payload.unit as string } : {}),
+          ...(payload?.notes ? { notes: payload.notes as string } : {}),
+        });
+        board ? ok(ctx, ws, type, board) : fail(ctx, ws, type, 'Metric not found');
         return;
       }
 
@@ -434,7 +773,7 @@ export async function handleKanbanMessage(
                 completed?.tasks.find((candidate) => candidate.id === task.id) ?? task;
               ctx.broadcast({
                 type: 'kanban.task.update',
-                payload: { success: true, data: completedTask },
+                payload: { success: true, data: { boardId: board.id, task: completedTask } },
               });
               ctx.broadcast({
                 type: 'kanban.list',
@@ -450,6 +789,7 @@ export async function handleKanbanMessage(
             lastResult: summary,
           });
           ok(ctx, ws, 'kanban.task.dispatch', {
+            boardId: board.id,
             task: updated?.tasks.find((candidate) => candidate.id === task.id) ?? task,
             summary,
           });
@@ -473,12 +813,22 @@ export async function handleKanbanMessage(
           fail(ctx, ws, type, 'boardId and taskId required');
           return;
         }
+        const task = await getTask(projectRoot, rmBoardId, rmTaskId);
+        if (!task) {
+          fail(ctx, ws, type, 'Board or task not found');
+          return;
+        }
         const board = await removeTask(projectRoot, rmBoardId, rmTaskId);
         if (!board) {
           fail(ctx, ws, type, 'Board or task not found');
           return;
         }
-        ok(ctx, ws, 'kanban.task.remove', { removed: true });
+        ok(ctx, ws, 'kanban.task.remove', {
+          removed: true,
+          boardId: board.id,
+          taskId: task.id,
+          board,
+        });
         return;
       }
 
@@ -536,7 +886,12 @@ export async function handleKanbanMessage(
           fail(ctx, ws, type, `Column not found: ${rmColId}`);
           return;
         }
-        ok(ctx, ws, 'kanban.column.remove', { removed: true });
+        ok(ctx, ws, 'kanban.column.remove', {
+          removed: true,
+          boardId: updated.id,
+          columnId: rmColId,
+          board: updated,
+        });
         return;
       }
 
@@ -560,6 +915,22 @@ function buildKanbanAgentPrompt(
     .filter((dep): dep is KanbanTask => Boolean(dep))
     .map((dep) => `- ${dep.title} [${dep.status}] (${dep.id})`);
   const checks = task.successCriteria?.map((check) => `- ${check.description}`).join('\n');
+  const metrics = task.goalMetrics
+    ?.map(
+      (metric) =>
+        `- ${metric.name}: ${metric.current ?? 'n/a'}${metric.target !== undefined ? ` / ${metric.target}` : ''}${metric.unit ? ` ${metric.unit}` : ''} [${metric.status}]`,
+    )
+    .join('\n');
+  const chain = task.chain
+    ? [
+        `chainId: ${task.chain.chainId}`,
+        `order: ${task.chain.order}`,
+        task.chain.previousTaskId ? `previous: ${task.chain.previousTaskId}` : '',
+        task.chain.nextTaskId ? `next: ${task.chain.nextTaskId}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
   const routing = [
     assignment?.role ? `role: ${assignment.role}` : '',
     assignment?.provider ? `provider: ${assignment.provider}` : '',
@@ -578,8 +949,10 @@ function buildKanbanAgentPrompt(
     `Priority: ${task.priority}`,
     task.description ? `Description:\n${task.description}` : '',
     routing.length ? `Routing hints:\n${routing.join('\n')}` : '',
+    chain ? `Task chain:\n${chain}` : '',
     dependencies.length ? `Dependencies:\n${dependencies.join('\n')}` : '',
     checks ? `Success criteria:\n${checks}` : '',
+    metrics ? `Goal metrics:\n${metrics}` : '',
     task.labels?.length ? `Labels: ${task.labels.join(', ')}` : '',
     '',
     'Work the task end-to-end. Use the kanban tool, not direct file edits, to update this task.',

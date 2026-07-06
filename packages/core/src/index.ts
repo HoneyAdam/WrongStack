@@ -113,6 +113,7 @@ export {
   makeCollabDebugTool,
   makeFleetEmitTool,
   makeFleetTool,
+  makeKanbanQueueTool,
   makeQualityGateTool,
   makeRollUpTool,
   makeSpawnTool,

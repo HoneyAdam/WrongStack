@@ -1,4 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import {
+  claimReadyTask,
+  listReadyTasks,
+  updateTaskAssignment,
+  type KanbanBoard,
+  type KanbanTask,
+} from '../kanban/index.js';
 import { ToolCapabilities } from '../security/capabilities.js';
 import type { SubagentConfig, TaskResult, TaskSpec } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
@@ -750,6 +757,396 @@ export function makeAssignTool(director: Director): Tool {
       return { taskId, subagentId: i.subagentId };
     },
   };
+}
+
+interface KanbanQueueInput {
+  action?: 'dispatch_ready' | undefined;
+  boardId?: string | undefined;
+  taskId?: string | undefined;
+  query?: string | undefined;
+  maxTasks?: number | undefined;
+  awaitCompletion?: boolean | undefined;
+  timeoutMs?: number | undefined;
+  maxToolCalls?: number | undefined;
+  agentId?: string | undefined;
+  name?: string | undefined;
+  role?: string | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
+  fallbackModels?: string[] | undefined;
+  tools?: string[] | undefined;
+  allowedCapabilities?: string[] | undefined;
+  worktree?: SubagentConfig['worktree'] | undefined;
+}
+
+export function makeKanbanQueueTool(
+  director: Director,
+  roster?: Record<string, SubagentConfig>,
+): Tool {
+  return {
+    name: 'kanban_queue',
+    description:
+      'Claim dependency-ready Kanban tasks and dispatch them into the Director fleet. Preserves per-task provider/model/role/tool routing metadata, assigns each claimed task to a spawned subagent, and can await results while writing completion back to Kanban.',
+    usageHint:
+      'Use action:"dispatch_ready" with optional boardId/taskId/maxTasks. Set awaitCompletion:true when you want this call to update Kanban to completed/failed before returning; otherwise use await_tasks and kanban mark_assignment later.',
+    permission: 'auto',
+    mutating: true,
+    capabilities: [ToolCapabilities.SUBAGENT_SPAWN, ToolCapabilities.FS_WRITE],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['dispatch_ready'] },
+        boardId: { type: 'string', description: 'Optional board id/prefix to claim from.' },
+        taskId: { type: 'string', description: 'Optional exact task id/prefix to claim.' },
+        query: { type: 'string', description: 'Optional natural-language filter for ready tasks.' },
+        maxTasks: {
+          type: 'number',
+          minimum: 1,
+          maximum: 20,
+          description: 'Maximum number of ready tasks to claim and dispatch. Default 1.',
+        },
+        awaitCompletion: {
+          type: 'boolean',
+          description:
+            'When true, waits for assigned fleet task results and writes completed/failed back to Kanban.',
+        },
+        timeoutMs: {
+          type: 'number',
+          minimum: 1,
+          description: 'Optional per-assigned-task timeout in ms.',
+        },
+        maxToolCalls: {
+          type: 'number',
+          minimum: 1,
+          description: 'Optional per-assigned-task tool-call cap.',
+        },
+        agentId: { type: 'string' },
+        name: { type: 'string' },
+        role: { type: 'string' },
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        fallbackModels: { type: 'array', items: { type: 'string' } },
+        tools: { type: 'array', items: { type: 'string' } },
+        allowedCapabilities: { type: 'array', items: { type: 'string' } },
+        worktree: {
+          anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['auto', 'required', 'off'] }],
+        },
+      },
+    } satisfies JSONSchema,
+    async execute(input: unknown, ctx) {
+      const i = normalizeKanbanQueueInput(input);
+      const rawAction = (input as { action?: unknown } | null | undefined)?.action;
+      if (rawAction !== undefined && rawAction !== 'dispatch_ready') {
+        return { error: `Unknown kanban_queue action: ${String(rawAction)}` };
+      }
+      const projectRoot = ctx.projectRoot;
+      if (!projectRoot) return { error: 'kanban_queue requires ctx.projectRoot.' };
+      const maxTasks = Math.max(1, Math.min(20, Math.floor(i.maxTasks ?? 1)));
+      const candidateTaskIds =
+        i.taskId !== undefined
+          ? [i.taskId]
+          : i.query
+            ? (
+                await listReadyTasks(projectRoot, {
+                  ...(i.boardId !== undefined ? { boardId: i.boardId } : {}),
+                })
+              )
+                .filter((candidate) => matchesKanbanQueueQuery(candidate.task, i.query ?? ''))
+                .slice(0, maxTasks)
+                .map((candidate) => candidate.task.id)
+            : undefined;
+      const dispatches: Array<{
+        boardId: string;
+        taskId: string;
+        title: string;
+        subagentId: string;
+        runTaskId: string;
+        provider?: string | undefined;
+        model?: string | undefined;
+      }> = [];
+      const errors: Array<{ taskId?: string | undefined; error: string }> = [];
+      const resultFailures: Array<{
+        taskId: string;
+        runTaskId: string;
+        status: TaskResult['status'];
+        error: string;
+      }> = [];
+
+      for (let index = 0; index < maxTasks; index++) {
+        const candidateTaskId = candidateTaskIds?.[index];
+        if (candidateTaskIds && !candidateTaskId) break;
+        const claim = await claimReadyTask(projectRoot, {
+          ...(i.boardId !== undefined ? { boardId: i.boardId } : {}),
+          ...(candidateTaskId !== undefined ? { taskId: candidateTaskId } : {}),
+          ...(i.agentId !== undefined ? { agentId: i.agentId } : {}),
+          ...(i.name !== undefined ? { name: i.name } : {}),
+          ...(i.role !== undefined ? { role: i.role } : {}),
+          ...(i.provider !== undefined ? { provider: i.provider } : {}),
+          ...(i.model !== undefined ? { model: i.model } : {}),
+          ...(i.fallbackModels !== undefined ? { fallbackModels: i.fallbackModels } : {}),
+          ...(i.tools !== undefined ? { tools: i.tools } : {}),
+          ...(i.allowedCapabilities !== undefined
+            ? { allowedCapabilities: i.allowedCapabilities }
+            : {}),
+          status: 'queued',
+        });
+        if (!claim) {
+          if (candidateTaskIds) continue;
+          break;
+        }
+        let subagentId: string | undefined;
+        let runTaskId: string | undefined;
+        try {
+          const config = buildKanbanSubagentConfig(claim.task, i, roster);
+          subagentId = await director.spawn(config);
+          runTaskId = await director.assign({
+            id: randomUUID(),
+            subagentId,
+            description: buildKanbanFleetTaskPrompt(claim.board, claim.task),
+            ...(i.maxToolCalls !== undefined ? { maxToolCalls: i.maxToolCalls } : {}),
+            ...(i.timeoutMs !== undefined ? { timeoutMs: i.timeoutMs } : {}),
+            context: {
+              kanban: {
+                boardId: claim.board.id,
+                taskId: claim.task.id,
+                origin: claim.task.origin,
+              },
+            },
+          });
+          await updateTaskAssignment(projectRoot, claim.board.id, claim.task.id, {
+            ...(claim.task.assignment ?? {}),
+            status: 'running',
+            subagentId,
+            runTaskId,
+          });
+          dispatches.push({
+            boardId: claim.board.id,
+            taskId: claim.task.id,
+            title: claim.task.title,
+            subagentId,
+            runTaskId,
+            ...(config.provider !== undefined ? { provider: config.provider } : {}),
+            ...(config.model !== undefined ? { model: config.model } : {}),
+          });
+        } catch (err) {
+          let message = toErrorMessage(err);
+          if (subagentId && !runTaskId) {
+            try {
+              await director.terminate(subagentId);
+            } catch (cleanupErr) {
+              message = `${message}; cleanup failed for spawned subagent ${subagentId}: ${toErrorMessage(cleanupErr)}`;
+            }
+          }
+          await updateTaskAssignment(projectRoot, claim.board.id, claim.task.id, {
+            ...(claim.task.assignment ?? {}),
+            status: 'failed',
+            ...(subagentId !== undefined ? { subagentId } : {}),
+            ...(runTaskId !== undefined ? { runTaskId } : {}),
+            error: message,
+          });
+          errors.push({ taskId: claim.task.id, error: message });
+        }
+      }
+
+      let results: TaskResult[] | undefined;
+      if (i.awaitCompletion && dispatches.length > 0) {
+        results = await director.awaitTasks(dispatches.map((dispatch) => dispatch.runTaskId));
+        for (const result of results) {
+          const dispatch = dispatches.find((candidate) => candidate.runTaskId === result.taskId);
+          if (!dispatch) continue;
+          await updateTaskAssignment(projectRoot, dispatch.boardId, dispatch.taskId, {
+            status: result.status === 'success' ? 'completed' : 'failed',
+            subagentId: result.subagentId,
+            runTaskId: result.taskId,
+            ...(result.status === 'success'
+              ? { lastResult: resultToText(result) }
+              : { error: resultErrorText(result) }),
+          });
+          if (result.status !== 'success') {
+            resultFailures.push({
+              taskId: dispatch.taskId,
+              runTaskId: result.taskId,
+              status: result.status,
+              error: resultErrorText(result),
+            });
+          }
+        }
+      }
+
+      return {
+        ok: errors.length === 0 && resultFailures.length === 0,
+        dispatched: dispatches,
+        count: dispatches.length,
+        ...(results !== undefined ? { results } : {}),
+        ...(errors.length > 0 ? { errors } : {}),
+        ...(resultFailures.length > 0 ? { resultFailures } : {}),
+        message:
+          dispatches.length > 0
+            ? `Dispatched ${dispatches.length} kanban task(s).`
+            : 'No ready kanban task matched.',
+      };
+    },
+  };
+}
+
+function normalizeKanbanQueueInput(input: unknown): KanbanQueueInput {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  return {
+    action: raw.action === 'dispatch_ready' ? 'dispatch_ready' : undefined,
+    boardId: typeof raw.boardId === 'string' ? raw.boardId : undefined,
+    taskId: typeof raw.taskId === 'string' ? raw.taskId : undefined,
+    query: typeof raw.query === 'string' ? raw.query : undefined,
+    maxTasks: typeof raw.maxTasks === 'number' ? raw.maxTasks : undefined,
+    awaitCompletion: typeof raw.awaitCompletion === 'boolean' ? raw.awaitCompletion : undefined,
+    timeoutMs: typeof raw.timeoutMs === 'number' ? raw.timeoutMs : undefined,
+    maxToolCalls: typeof raw.maxToolCalls === 'number' ? raw.maxToolCalls : undefined,
+    agentId: typeof raw.agentId === 'string' ? raw.agentId : undefined,
+    name: typeof raw.name === 'string' ? raw.name : undefined,
+    role: typeof raw.role === 'string' ? raw.role : undefined,
+    provider: typeof raw.provider === 'string' ? raw.provider : undefined,
+    model: typeof raw.model === 'string' ? raw.model : undefined,
+    fallbackModels: stringArray(raw.fallbackModels),
+    tools: stringArray(raw.tools),
+    allowedCapabilities: stringArray(raw.allowedCapabilities),
+    worktree: normalizeWorktreeOverride(raw.worktree),
+  };
+}
+
+function buildKanbanSubagentConfig(
+  task: KanbanTask,
+  input: KanbanQueueInput,
+  roster: Record<string, SubagentConfig> | undefined,
+): SubagentConfig {
+  const assignment = task.assignment;
+  const role = input.role ?? assignment?.role;
+  const base =
+    role && roster?.[role] ? instantiateRosterConfig(role, roster[role] ?? {}) : undefined;
+  const tools = input.tools ?? assignment?.tools ?? base?.tools;
+  const name =
+    input.name ??
+    assignment?.name ??
+    input.agentId ??
+    assignment?.agentId ??
+    task.assignedAgent ??
+    role ??
+    'kanban-agent';
+  return {
+    ...(base ?? { name }),
+    name: base?.name ?? name,
+    ...(role !== undefined ? { role } : {}),
+    ...((input.provider ?? assignment?.provider)
+      ? { provider: input.provider ?? assignment?.provider }
+      : {}),
+    ...((input.model ?? assignment?.model) ? { model: input.model ?? assignment?.model } : {}),
+    ...((input.fallbackModels ?? assignment?.fallbackModels)
+      ? { fallbackModels: input.fallbackModels ?? assignment?.fallbackModels }
+      : {}),
+    ...(tools ? { tools: ensureKanbanTool(tools) } : {}),
+    ...((input.allowedCapabilities ?? assignment?.allowedCapabilities)
+      ? { allowedCapabilities: input.allowedCapabilities ?? assignment?.allowedCapabilities }
+      : {}),
+    ...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
+  };
+}
+
+function ensureKanbanTool(tools: readonly string[]): string[] {
+  return tools.includes('kanban') ? [...tools] : [...tools, 'kanban'];
+}
+
+function matchesKanbanQueueQuery(task: KanbanTask, query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    task.title,
+    task.description,
+    task.assignedAgent,
+    task.assignee,
+    task.origin?.system,
+    task.origin?.graphId,
+    task.origin?.phaseId,
+    ...(task.labels ?? []),
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(normalized));
+}
+
+function buildKanbanFleetTaskPrompt(board: KanbanBoard, task: KanbanTask): string {
+  const dependencyLines = (task.dependsOn ?? [])
+    .map((depId) => board.tasks.find((candidate) => candidate.id === depId))
+    .filter((dep): dep is KanbanTask => Boolean(dep))
+    .map((dep) => `- ${dep.title} [${dep.status}] (${dep.id})`);
+  const checks = task.successCriteria?.map((check) => `- ${check.description}`).join('\n');
+  const metrics = task.goalMetrics
+    ?.map(
+      (metric) =>
+        `- ${metric.name}: ${metric.current ?? 'n/a'}${metric.target !== undefined ? ` / ${metric.target}` : ''}${metric.unit ? ` ${metric.unit}` : ''} [${metric.status}]`,
+    )
+    .join('\n');
+  const chain = task.chain
+    ? [
+        `chainId: ${task.chain.chainId}`,
+        `order: ${task.chain.order}`,
+        task.chain.previousTaskId ? `previous: ${task.chain.previousTaskId}` : '',
+        task.chain.nextTaskId ? `next: ${task.chain.nextTaskId}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
+  const routing = [
+    task.assignment?.role ? `role: ${task.assignment.role}` : '',
+    task.assignment?.provider ? `provider: ${task.assignment.provider}` : '',
+    task.assignment?.model ? `model: ${task.assignment.model}` : '',
+    task.assignment?.fallbackProfile ? `fallbackProfile: ${task.assignment.fallbackProfile}` : '',
+    task.assignment?.fallbackModels?.length
+      ? `fallbackModels: ${task.assignment.fallbackModels.join(', ')}`
+      : '',
+  ].filter(Boolean);
+  const origin = task.origin
+    ? [
+        `system: ${task.origin.system}`,
+        task.origin.graphId ? `graphId: ${task.origin.graphId}` : '',
+        task.origin.phaseId ? `phaseId: ${task.origin.phaseId}` : '',
+        task.origin.taskId ? `sourceTaskId: ${task.origin.taskId}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
+  return [
+    'You are processing a claimed WrongStack Kanban task.',
+    '',
+    `Board: ${board.title} (${board.id})`,
+    `Task: ${task.title} (${task.id})`,
+    `Status: ${task.status}`,
+    `Priority: ${task.priority}`,
+    task.description ? `Description:\n${task.description}` : '',
+    origin ? `Origin:\n${origin}` : '',
+    routing.length ? `Routing hints:\n${routing.join('\n')}` : '',
+    chain ? `Task chain:\n${chain}` : '',
+    dependencyLines.length ? `Dependencies:\n${dependencyLines.join('\n')}` : '',
+    checks ? `Success criteria:\n${checks}` : '',
+    metrics ? `Goal metrics:\n${metrics}` : '',
+    task.labels?.length ? `Labels: ${task.labels.join(', ')}` : '',
+    '',
+    'Work this task end-to-end. If scope is too broad or too small, use the kanban tool to split_task or merge_tasks instead of losing traceability.',
+    `When you start or finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "running", "completed", or "failed". Include lastResult or error when you finish.`,
+    'When finished, report what changed, what you verified, and any remaining blockers.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function resultToText(result: TaskResult): string {
+  if (typeof result.result === 'string') return result.result;
+  if (result.result === undefined) return '';
+  try {
+    return JSON.stringify(result.result);
+  } catch {
+    return String(result.result);
+  }
+}
+
+function resultErrorText(result: TaskResult): string {
+  return result.error ? `${result.error.kind}: ${result.error.message}` : result.status;
 }
 
 export function makeAwaitTasksTool(director: Director): Tool {

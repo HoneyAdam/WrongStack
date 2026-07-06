@@ -18,7 +18,7 @@ export interface TaskNode {
   children?: string[] | undefined;
   createdAt: number;
   updatedAt: number;
-  startedAt?: number | undefined;   // set when status → in_progress
+  startedAt?: number | undefined; // set when status → in_progress
   completedAt?: number | undefined;
   metadata?: Record<string, unknown>;
 }
@@ -179,4 +179,39 @@ export function topologicalSort(graph: TaskGraph): string[] {
   }
 
   return result;
+}
+
+export type SerializableTaskGraphNodes =
+  | TaskNode[]
+  | Array<[string, TaskNode]>
+  | Record<string, TaskNode>;
+
+export type SerializableTaskGraph = Omit<TaskGraph, 'nodes'> & {
+  nodes: SerializableTaskGraphNodes;
+};
+
+export type SerializedTaskGraph = Omit<TaskGraph, 'nodes'> & {
+  nodes: TaskNode[];
+};
+
+export function serializeTaskGraph(graph: TaskGraph): SerializedTaskGraph {
+  return {
+    ...graph,
+    nodes: Array.from(graph.nodes.values()),
+  };
+}
+
+export function deserializeTaskGraph(input: SerializableTaskGraph): TaskGraph {
+  const nodes = new Map<string, TaskNode>();
+  if (Array.isArray(input.nodes)) {
+    for (const entry of input.nodes) {
+      if (Array.isArray(entry)) nodes.set(entry[0], { ...entry[1], id: entry[1].id || entry[0] });
+      else nodes.set(entry.id, entry);
+    }
+  } else {
+    for (const [id, node] of Object.entries(input.nodes)) {
+      nodes.set(id, { ...node, id: node.id || id });
+    }
+  }
+  return { ...input, nodes };
 }

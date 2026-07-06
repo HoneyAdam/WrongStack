@@ -4,6 +4,7 @@ import type {
   KanbanAgentRunStatus,
   KanbanBoard,
   KanbanBoardSummary,
+  KanbanOrchestrationSnapshot,
   KanbanSearchResult,
   KanbanTask,
   KanbanTaskPriority,
@@ -14,31 +15,46 @@ import {
   addCheckToTask,
   addColumn,
   addDependency,
+  addGoalMetricToTask,
   addLinkToTask,
   addNoteToTask,
   addTask,
   assignTask,
+  claimReadyTask,
   copyTaskToBoard,
   createBoard,
+  deserializeTaskGraph,
   duplicateBoard,
   exportBoardAsMarkdown,
+  exportBoardToTaskGraph,
   generateBoardFromDescription,
   getBoard,
+  getKanbanOrchestrationSnapshot,
   getTask,
+  getTaskChain,
+  listReadyTasks,
   listBoards,
+  mergeTasks,
   moveTask,
   parseLinesIntoTasks,
   removeBoard,
   removeColumn,
   removeTask,
+  releaseTaskClaim,
   searchKanban,
+  serializeTaskGraph,
+  setTaskChain,
+  splitTask,
+  syncBoardFromTaskGraph,
   transferTaskToBoard,
   updateBoard,
   updateCheckOnTask,
   updateColumn,
+  updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
 } from '@wrongstack/core';
+import type { SerializableTaskGraph, SerializedTaskGraph } from '@wrongstack/core';
 
 type KanbanAction =
   | 'list_boards'
@@ -49,20 +65,32 @@ type KanbanAction =
   | 'delete_board'
   | 'generate_board'
   | 'export_markdown'
+  | 'export_task_graph'
+  | 'sync_task_graph'
   | 'search_tasks'
+  | 'ready_tasks'
+  | 'snapshot'
   | 'add_column'
   | 'update_column'
   | 'delete_column'
   | 'add_task'
+  | 'split_task'
+  | 'merge_tasks'
   | 'copy_task'
   | 'transfer_task'
   | 'get_task'
   | 'update_task'
   | 'move_task'
   | 'delete_task'
+  | 'set_chain'
+  | 'get_chain'
+  | 'claim_task'
+  | 'release_task'
   | 'assign_task'
   | 'mark_assignment'
   | 'add_dependency'
+  | 'add_goal_metric'
+  | 'update_goal_metric'
   | 'add_check'
   | 'update_check'
   | 'add_note'
@@ -74,6 +102,8 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   taskId?: string | undefined;
   columnId?: string | undefined;
   targetBoardId?: string | undefined;
+  taskIds?: string[] | undefined;
+  chainId?: string | undefined;
   title?: string | undefined;
   description?: string | undefined;
   tags?: string[] | undefined;
@@ -84,7 +114,25 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   targetColumnId?: string | undefined;
   moveTasksToColumnId?: string | undefined;
   query?: string | undefined;
+  limit?: number | undefined;
   dependencyTaskId?: string | undefined;
+  enforceDependencies?: boolean | undefined;
+  childTitles?: string[] | undefined;
+  inheritAssignment?: boolean | undefined;
+  inheritLabels?: boolean | undefined;
+  inheritSuccessCriteria?: boolean | undefined;
+  inheritGoalMetrics?: boolean | undefined;
+  inheritDependencies?: boolean | undefined;
+  chainChildren?: boolean | undefined;
+  rewireDependents?: boolean | undefined;
+  closeSourceTasks?: boolean | undefined;
+  metricId?: string | undefined;
+  metricName?: string | undefined;
+  metricTarget?: string | number | undefined;
+  metricCurrent?: string | number | undefined;
+  metricUnit?: string | undefined;
+  metricStatus?: 'pending' | 'met' | 'missed' | 'waived' | undefined;
+  metricNotes?: string | undefined;
   checkId?: string | undefined;
   checkDescription?: string | undefined;
   checkStatus?: 'pending' | 'passed' | 'failed' | 'skipped' | undefined;
@@ -105,6 +153,18 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   lastResult?: string | undefined;
   error?: string | undefined;
   assignmentStatus?: KanbanAgentRunStatus | undefined;
+  releaseStatus?: 'pending' | 'ready' | 'blocked' | undefined;
+  releaseReason?: string | undefined;
+  clearAssignee?: boolean | undefined;
+  taskGraph?: unknown;
+  graphId?: string | undefined;
+  specId?: string | undefined;
+  sourceSystem?: string | undefined;
+  phaseId?: string | undefined;
+  preserveOriginTaskIds?: boolean | undefined;
+  includeArchived?: boolean | undefined;
+  archiveMissingTasks?: boolean | undefined;
+  preserveManualDependencies?: boolean | undefined;
 }
 
 interface KanbanToolOutput {
@@ -114,6 +174,10 @@ interface KanbanToolOutput {
   boards?: KanbanBoardSummary[] | undefined;
   task?: KanbanTask | undefined;
   tasks?: KanbanSearchResult[] | undefined;
+  children?: KanbanTask[] | undefined;
+  chain?: KanbanTask[] | undefined;
+  snapshot?: KanbanOrchestrationSnapshot | undefined;
+  taskGraph?: SerializedTaskGraph | undefined;
   markdown?: string | undefined;
 }
 
@@ -121,9 +185,9 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
   name: 'kanban',
   category: 'Project',
   description:
-    'Manage project-scoped multi-kanban boards stored under .wrongstack/kanbans. Supports board/task/column CRUD, search, assignment metadata, provider/model/fallback routing hints, success checks, notes, links, and run status updates.',
+    'Manage project-scoped multi-kanban boards stored under .wrongstack/kanbans. Supports board/task/column CRUD, ready-task queues, dependency chains, split/merge, assignment metadata, provider/model/fallback routing hints, goal metrics, success checks, notes, links, and run status updates.',
   usageHint:
-    'Use this for durable project kanban state. Assign tasks with provider/model/fallback hints before spawning agents; after a subagent starts or finishes, call mark_assignment to record subagentId/runTaskId/status/result.',
+    'Use this for durable project kanban state. Agents should call snapshot/ready_tasks, then claim_task before working. Use set_chain for ordered work, split_task/merge_tasks when task scope changes, assign_task with provider/model/fallback hints before spawning, mark_assignment when starting or finishing, and release_task if the claim cannot be worked.',
   permission: 'confirm',
   mutating: true,
   capabilities: ['fs.write'],
@@ -143,20 +207,32 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           'delete_board',
           'generate_board',
           'export_markdown',
+          'export_task_graph',
+          'sync_task_graph',
           'search_tasks',
+          'ready_tasks',
+          'snapshot',
           'add_column',
           'update_column',
           'delete_column',
           'add_task',
+          'split_task',
+          'merge_tasks',
           'copy_task',
           'transfer_task',
           'get_task',
           'update_task',
           'move_task',
           'delete_task',
+          'set_chain',
+          'get_chain',
+          'claim_task',
+          'release_task',
           'assign_task',
           'mark_assignment',
           'add_dependency',
+          'add_goal_metric',
+          'update_goal_metric',
           'add_check',
           'update_check',
           'add_note',
@@ -165,6 +241,8 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       },
       boardId: { type: 'string' },
       taskId: { type: 'string' },
+      taskIds: { type: 'array', items: { type: 'string' } },
+      chainId: { type: 'string' },
       columnId: { type: 'string' },
       targetBoardId: { type: 'string' },
       targetColumnId: { type: 'string' },
@@ -188,6 +266,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       },
       order: { type: 'number' },
       query: { type: 'string' },
+      limit: { type: 'number' },
       agentId: { type: 'string' },
       name: { type: 'string' },
       role: { type: 'string' },
@@ -205,7 +284,36 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
         type: 'string',
         enum: ['assigned', 'queued', 'running', 'completed', 'failed', 'cancelled'],
       },
+      releaseStatus: { type: 'string', enum: ['pending', 'ready', 'blocked'] },
+      releaseReason: { type: 'string' },
+      clearAssignee: { type: 'boolean' },
+      taskGraph: { type: 'object' },
+      graphId: { type: 'string' },
+      specId: { type: 'string' },
+      sourceSystem: { type: 'string' },
+      phaseId: { type: 'string' },
+      preserveOriginTaskIds: { type: 'boolean' },
+      includeArchived: { type: 'boolean' },
+      archiveMissingTasks: { type: 'boolean' },
+      preserveManualDependencies: { type: 'boolean' },
       dependencyTaskId: { type: 'string' },
+      enforceDependencies: { type: 'boolean' },
+      childTitles: { type: 'array', items: { type: 'string' } },
+      inheritAssignment: { type: 'boolean' },
+      inheritLabels: { type: 'boolean' },
+      inheritSuccessCriteria: { type: 'boolean' },
+      inheritGoalMetrics: { type: 'boolean' },
+      inheritDependencies: { type: 'boolean' },
+      chainChildren: { type: 'boolean' },
+      rewireDependents: { type: 'boolean' },
+      closeSourceTasks: { type: 'boolean' },
+      metricId: { type: 'string' },
+      metricName: { type: 'string' },
+      metricTarget: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+      metricCurrent: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+      metricUnit: { type: 'string' },
+      metricStatus: { type: 'string', enum: ['pending', 'met', 'missed', 'waived'] },
+      metricNotes: { type: 'string' },
       checkId: { type: 'string' },
       checkDescription: { type: 'string' },
       checkStatus: { type: 'string', enum: ['pending', 'passed', 'failed', 'skipped'] },
@@ -232,290 +340,534 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
     const projectRoot = ctx.projectRoot;
     if (!projectRoot) return fail('No project root is available.');
 
-    switch (input.action) {
-      case 'list_boards': {
-        const boards = await listBoards(projectRoot);
-        return { ok: true, message: `${boards.length} board(s).`, boards };
-      }
-      case 'get_board': {
-        const board = await requireBoard(projectRoot, input.boardId);
-        return board ? okBoard(board) : fail('Board not found.');
-      }
-      case 'create_board': {
-        if (!input.title) return fail('create_board requires title.');
-        const board = await createBoard(projectRoot, {
-          title: input.title,
-          ...(input.description !== undefined ? { description: input.description } : {}),
-          ...(input.tags !== undefined ? { tags: input.tags } : {}),
-          ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
-        });
-        return { ok: true, message: `Board created: ${board.title}`, board };
-      }
-      case 'update_board': {
-        if (!input.boardId) return fail('update_board requires boardId.');
-        const board = await updateBoard(projectRoot, input.boardId, {
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.description !== undefined ? { description: input.description } : {}),
-          ...(input.tags !== undefined ? { tags: input.tags } : {}),
-        });
-        return board ? okBoard(board, 'Board updated.') : fail('Board not found.');
-      }
-      case 'duplicate_board': {
-        if (!input.boardId) return fail('duplicate_board requires boardId.');
-        const board = await duplicateBoard(projectRoot, input.boardId, {
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
-          ...(input.includeTasks !== undefined ? { includeTasks: input.includeTasks } : {}),
-          ...(input.includeCompletedTasks !== undefined
-            ? { includeCompletedTasks: input.includeCompletedTasks }
-            : {}),
-          ...(input.preserveAssignment !== undefined
-            ? { preserveAssignment: input.preserveAssignment }
-            : {}),
-        });
-        return board ? okBoard(board, 'Board duplicated.') : fail('Board not found.');
-      }
-      case 'delete_board': {
-        if (!input.boardId) return fail('delete_board requires boardId.');
-        const removed = await removeBoard(projectRoot, input.boardId);
-        return { ok: removed, message: removed ? 'Board deleted.' : 'Board not found.' };
-      }
-      case 'generate_board': {
-        if (!input.description) return fail('generate_board requires description.');
-        const boardInput = generateBoardFromDescription({
-          description: input.description,
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.context !== undefined ? { context: input.context } : {}),
-          ...(input.columns !== undefined ? { columns: input.columns } : {}),
-        });
-        const board = await createBoard(projectRoot, boardInput);
-        for (const taskInput of parseLinesIntoTasks(
-          input.description,
-          board.columns[0]?.id ?? 'backlog',
-        )) {
-          await addTask(projectRoot, board.id, taskInput);
+    try {
+      switch (input.action) {
+        case 'list_boards': {
+          const boards = await listBoards(projectRoot);
+          return { ok: true, message: `${boards.length} board(s).`, boards };
         }
-        return okBoard((await getBoard(projectRoot, board.id)) ?? board, 'Board generated.');
-      }
-      case 'export_markdown': {
-        const board = await requireBoard(projectRoot, input.boardId);
-        if (!board) return fail('Board not found.');
-        return {
-          ok: true,
-          message: 'Board exported.',
-          board,
-          markdown: exportBoardAsMarkdown(board),
-        };
-      }
-      case 'search_tasks': {
-        const tasks = await searchKanban(projectRoot, {
-          query: input.query,
-          boardId: input.boardId,
-          assignedAgent: input.agentId,
-          status: input.status,
-          priority: input.priority,
-          label: input.labels?.[0],
-        });
-        return { ok: true, message: `${tasks.length} task(s) matched.`, tasks };
-      }
-      case 'add_column': {
-        if (!input.boardId || !input.title) return fail('add_column requires boardId and title.');
-        const result = await addColumn(projectRoot, input.boardId, {
-          title: input.title,
-          ...(input.description !== undefined ? { description: input.description } : {}),
-        });
-        return result ? okBoard(result.board, 'Column added.') : fail('Board not found.');
-      }
-      case 'update_column': {
-        if (!input.boardId || !input.columnId)
-          return fail('update_column requires boardId and columnId.');
-        const board = await updateColumn(projectRoot, input.boardId, input.columnId, {
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.description !== undefined ? { description: input.description } : {}),
-          ...(input.order !== undefined ? { order: input.order } : {}),
-        });
-        return board ? okBoard(board, 'Column updated.') : fail('Column not found.');
-      }
-      case 'delete_column': {
-        if (!input.boardId || !input.columnId)
-          return fail('delete_column requires boardId and columnId.');
-        const board = await removeColumn(projectRoot, input.boardId, input.columnId, {
-          moveTasksToColumnId: input.moveTasksToColumnId,
-        });
-        return board ? okBoard(board, 'Column deleted.') : fail('Column not found.');
-      }
-      case 'add_task': {
-        if (!input.boardId || !input.title) return fail('add_task requires boardId and title.');
-        const result = await addTask(projectRoot, input.boardId, taskInput(input));
-        return result ? okTask(result.board, result.task, 'Task added.') : fail('Board not found.');
-      }
-      case 'copy_task': {
-        if (!input.boardId || !input.taskId || !input.targetBoardId) {
-          return fail('copy_task requires boardId, taskId, and targetBoardId.');
+        case 'get_board': {
+          const board = await requireBoard(projectRoot, input.boardId);
+          return board ? okBoard(board) : fail('Board not found.');
         }
-        const result = await copyTaskToBoard(
-          projectRoot,
-          input.boardId,
-          input.taskId,
-          input.targetBoardId,
-          {
-            ...(input.targetColumnId !== undefined ? { targetColumnId: input.targetColumnId } : {}),
-            ...(input.order !== undefined ? { targetOrder: input.order } : {}),
+        case 'create_board': {
+          if (!input.title) return fail('create_board requires title.');
+          const board = await createBoard(projectRoot, {
+            title: input.title,
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.tags !== undefined ? { tags: input.tags } : {}),
+            ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
+          });
+          return { ok: true, message: `Board created: ${board.title}`, board };
+        }
+        case 'update_board': {
+          if (!input.boardId) return fail('update_board requires boardId.');
+          const board = await updateBoard(projectRoot, input.boardId, {
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.tags !== undefined ? { tags: input.tags } : {}),
+          });
+          return board ? okBoard(board, 'Board updated.') : fail('Board not found.');
+        }
+        case 'duplicate_board': {
+          if (!input.boardId) return fail('duplicate_board requires boardId.');
+          const board = await duplicateBoard(projectRoot, input.boardId, {
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
+            ...(input.includeTasks !== undefined ? { includeTasks: input.includeTasks } : {}),
+            ...(input.includeCompletedTasks !== undefined
+              ? { includeCompletedTasks: input.includeCompletedTasks }
+              : {}),
             ...(input.preserveAssignment !== undefined
               ? { preserveAssignment: input.preserveAssignment }
               : {}),
-            ...(input.preserveDependencies !== undefined
-              ? { preserveDependencies: input.preserveDependencies }
-              : {}),
-          },
-        );
-        return result
-          ? okTask(result.targetBoard, result.task, 'Task copied to target board.')
-          : fail('Board or task not found.');
-      }
-      case 'transfer_task': {
-        if (!input.boardId || !input.taskId || !input.targetBoardId) {
-          return fail('transfer_task requires boardId, taskId, and targetBoardId.');
+          });
+          return board ? okBoard(board, 'Board duplicated.') : fail('Board not found.');
         }
-        const result = await transferTaskToBoard(
-          projectRoot,
-          input.boardId,
-          input.taskId,
-          input.targetBoardId,
-          {
+        case 'delete_board': {
+          if (!input.boardId) return fail('delete_board requires boardId.');
+          const removed = await removeBoard(projectRoot, input.boardId);
+          return { ok: removed, message: removed ? 'Board deleted.' : 'Board not found.' };
+        }
+        case 'generate_board': {
+          if (!input.description) return fail('generate_board requires description.');
+          const boardInput = generateBoardFromDescription({
+            description: input.description,
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.context !== undefined ? { context: input.context } : {}),
+            ...(input.columns !== undefined ? { columns: input.columns } : {}),
+          });
+          const board = await createBoard(projectRoot, boardInput);
+          for (const taskInput of parseLinesIntoTasks(
+            input.description,
+            board.columns[0]?.id ?? 'backlog',
+          )) {
+            await addTask(projectRoot, board.id, taskInput);
+          }
+          return okBoard((await getBoard(projectRoot, board.id)) ?? board, 'Board generated.');
+        }
+        case 'export_markdown': {
+          const board = await requireBoard(projectRoot, input.boardId);
+          if (!board) return fail('Board not found.');
+          return {
+            ok: true,
+            message: 'Board exported.',
+            board,
+            markdown: exportBoardAsMarkdown(board),
+          };
+        }
+        case 'export_task_graph': {
+          if (!input.boardId) return fail('export_task_graph requires boardId.');
+          const exported = await exportBoardToTaskGraph(projectRoot, input.boardId, {
+            ...(input.graphId !== undefined ? { graphId: input.graphId } : {}),
+            ...(input.specId !== undefined ? { specId: input.specId } : {}),
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.preserveOriginTaskIds !== undefined
+              ? { preserveOriginTaskIds: input.preserveOriginTaskIds }
+              : {}),
+            ...(input.includeArchived !== undefined
+              ? { includeArchived: input.includeArchived }
+              : {}),
+          });
+          if (!exported) return fail('Board not found.');
+          return {
+            ok: true,
+            message: `Task graph exported with ${exported.graph.nodes.size} node(s).`,
+            board: exported.board,
+            taskGraph: serializeTaskGraph(exported.graph),
+          };
+        }
+        case 'sync_task_graph': {
+          if (!input.boardId || !input.taskGraph) {
+            return fail('sync_task_graph requires boardId and taskGraph.');
+          }
+          const graph = deserializeTaskGraph(input.taskGraph as SerializableTaskGraph);
+          const result = await syncBoardFromTaskGraph(projectRoot, input.boardId, graph, {
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.tags !== undefined ? { tags: input.tags } : {}),
+            ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
+            ...(input.sourceSystem !== undefined ? { sourceSystem: input.sourceSystem } : {}),
+            ...(input.phaseId !== undefined ? { phaseId: input.phaseId } : {}),
+            ...(input.includeCompletedTasks !== undefined
+              ? { includeCompletedTasks: input.includeCompletedTasks }
+              : {}),
+            ...(input.archiveMissingTasks !== undefined
+              ? { archiveMissingTasks: input.archiveMissingTasks }
+              : {}),
+            ...(input.preserveManualDependencies !== undefined
+              ? { preserveManualDependencies: input.preserveManualDependencies }
+              : {}),
+          });
+          return result
+            ? {
+                ok: true,
+                message: `Task graph synced: ${result.createdTaskIds.length} created, ${result.updatedTaskIds.length} updated, ${result.archivedTaskIds.length} archived.`,
+                board: result.board,
+              }
+            : fail('Board not found.');
+        }
+        case 'search_tasks': {
+          const tasks = await searchKanban(projectRoot, {
+            query: input.query,
+            boardId: input.boardId,
+            assignedAgent: input.agentId,
+            status: input.status,
+            priority: input.priority,
+            label: input.labels?.[0],
+            chainId: input.chainId,
+          });
+          return { ok: true, message: `${tasks.length} task(s) matched.`, tasks };
+        }
+        case 'ready_tasks': {
+          const tasks = await listReadyTasks(projectRoot, {
+            query: input.query,
+            boardId: input.boardId,
+            assignedAgent: input.agentId,
+            priority: input.priority,
+            label: input.labels?.[0],
+            chainId: input.chainId,
+            limit: input.limit,
+          });
+          return { ok: true, message: `${tasks.length} ready task(s).`, tasks };
+        }
+        case 'snapshot': {
+          const snapshot = await getKanbanOrchestrationSnapshot(projectRoot, {
+            query: input.query,
+            boardId: input.boardId,
+            assignedAgent: input.agentId,
+            status: input.status,
+            priority: input.priority,
+            label: input.labels?.[0],
+            chainId: input.chainId,
+          });
+          return {
+            ok: true,
+            message: `${snapshot.ready.length} ready, ${snapshot.running.length} running, ${snapshot.blocked.length} blocked.`,
+            snapshot,
+          };
+        }
+        case 'add_column': {
+          if (!input.boardId || !input.title) return fail('add_column requires boardId and title.');
+          const result = await addColumn(projectRoot, input.boardId, {
+            title: input.title,
+            ...(input.description !== undefined ? { description: input.description } : {}),
+          });
+          return result ? okBoard(result.board, 'Column added.') : fail('Board not found.');
+        }
+        case 'update_column': {
+          if (!input.boardId || !input.columnId)
+            return fail('update_column requires boardId and columnId.');
+          const board = await updateColumn(projectRoot, input.boardId, input.columnId, {
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.order !== undefined ? { order: input.order } : {}),
+          });
+          return board ? okBoard(board, 'Column updated.') : fail('Column not found.');
+        }
+        case 'delete_column': {
+          if (!input.boardId || !input.columnId)
+            return fail('delete_column requires boardId and columnId.');
+          const board = await removeColumn(projectRoot, input.boardId, input.columnId, {
+            moveTasksToColumnId: input.moveTasksToColumnId,
+          });
+          return board ? okBoard(board, 'Column deleted.') : fail('Column not found.');
+        }
+        case 'add_task': {
+          if (!input.boardId || !input.title) return fail('add_task requires boardId and title.');
+          const result = await addTask(projectRoot, input.boardId, taskInput(input));
+          return result
+            ? okTask(result.board, result.task, 'Task added.')
+            : fail('Board not found.');
+        }
+        case 'split_task': {
+          if (!input.boardId || !input.taskId || !input.childTitles?.length) {
+            return fail('split_task requires boardId, taskId, and childTitles.');
+          }
+          const result = await splitTask(projectRoot, input.boardId, input.taskId, {
+            titles: input.childTitles,
+            ...(input.targetColumnId !== undefined ? { columnId: input.targetColumnId } : {}),
+            ...(input.inheritAssignment !== undefined
+              ? { inheritAssignment: input.inheritAssignment }
+              : {}),
+            ...(input.inheritLabels !== undefined ? { inheritLabels: input.inheritLabels } : {}),
+            ...(input.inheritSuccessCriteria !== undefined
+              ? { inheritSuccessCriteria: input.inheritSuccessCriteria }
+              : {}),
+            ...(input.inheritGoalMetrics !== undefined
+              ? { inheritGoalMetrics: input.inheritGoalMetrics }
+              : {}),
+            ...(input.inheritDependencies !== undefined
+              ? { inheritDependencies: input.inheritDependencies }
+              : {}),
+            ...(input.chainChildren !== undefined ? { chainChildren: input.chainChildren } : {}),
+            ...(input.rewireDependents !== undefined
+              ? { rewireDependents: input.rewireDependents }
+              : {}),
+          });
+          return result
+            ? {
+                ok: true,
+                message: `${result.children.length} child task(s) created.`,
+                board: result.board,
+                task: result.parent,
+                children: result.children,
+              }
+            : fail('Task not found.');
+        }
+        case 'merge_tasks': {
+          if (!input.boardId || !input.taskIds?.length || !input.title) {
+            return fail('merge_tasks requires boardId, taskIds, and title.');
+          }
+          const result = await mergeTasks(projectRoot, input.boardId, {
+            taskIds: input.taskIds,
+            title: input.title,
+            ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.targetColumnId !== undefined ? { targetColumnId: input.targetColumnId } : {}),
-            ...(input.order !== undefined ? { targetOrder: input.order } : {}),
             ...(input.preserveAssignment !== undefined
               ? { preserveAssignment: input.preserveAssignment }
               : {}),
-            ...(input.preserveDependencies !== undefined
-              ? { preserveDependencies: input.preserveDependencies }
+            ...(input.closeSourceTasks !== undefined
+              ? { closeSourceTasks: input.closeSourceTasks }
               : {}),
-          },
-        );
-        return result
-          ? okTask(result.targetBoard, result.task, 'Task transferred to target board.')
-          : fail('Board or task not found.');
-      }
-      case 'get_task': {
-        if (!input.boardId || !input.taskId) return fail('get_task requires boardId and taskId.');
-        const task = await getTask(projectRoot, input.boardId, input.taskId);
-        return task ? { ok: true, message: 'Task loaded.', task } : fail('Task not found.');
-      }
-      case 'update_task': {
-        if (!input.boardId || !input.taskId)
-          return fail('update_task requires boardId and taskId.');
-        const board = await updateTask(projectRoot, input.boardId, input.taskId, taskPatch(input));
-        return board ? okBoard(board, 'Task updated.') : fail('Task not found.');
-      }
-      case 'move_task': {
-        if (!input.boardId || !input.taskId || !input.targetColumnId) {
-          return fail('move_task requires boardId, taskId, and targetColumnId.');
+          });
+          return result
+            ? okTask(result.board, result.task, 'Tasks merged.')
+            : fail('Board or task not found.');
         }
-        const board = await moveTask(
-          projectRoot,
-          input.boardId,
-          input.taskId,
-          input.targetColumnId,
-          input.order,
-        );
-        return board ? okBoard(board, 'Task moved.') : fail('Move failed.');
-      }
-      case 'delete_task': {
-        if (!input.boardId || !input.taskId)
-          return fail('delete_task requires boardId and taskId.');
-        const board = await removeTask(projectRoot, input.boardId, input.taskId);
-        return board ? okBoard(board, 'Task deleted.') : fail('Task not found.');
-      }
-      case 'assign_task': {
-        if (!input.boardId || !input.taskId)
-          return fail('assign_task requires boardId and taskId.');
-        const board = await assignTask(
-          projectRoot,
-          input.boardId,
-          input.taskId,
-          assignmentInput(input),
-        );
-        return board ? okBoard(board, 'Task assigned.') : fail('Task not found.');
-      }
-      case 'mark_assignment': {
-        if (!input.boardId || !input.taskId)
-          return fail('mark_assignment requires boardId and taskId.');
-        const assignmentStatus =
-          input.assignmentStatus ??
-          (input.status === 'completed' ? 'completed' : input.error ? 'failed' : undefined);
-        const board = await updateTaskAssignment(projectRoot, input.boardId, input.taskId, {
-          ...(assignmentStatus !== undefined ? { status: assignmentStatus } : {}),
-          ...(input.subagentId !== undefined ? { subagentId: input.subagentId } : {}),
-          ...(input.runTaskId !== undefined ? { runTaskId: input.runTaskId } : {}),
-          ...(input.lastResult !== undefined ? { lastResult: input.lastResult } : {}),
-          ...(input.error !== undefined ? { error: input.error } : {}),
-          ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
-        });
-        return board ? okBoard(board, 'Assignment updated.') : fail('Task not found.');
-      }
-      case 'add_dependency': {
-        if (!input.boardId || !input.taskId || !input.dependencyTaskId) {
-          return fail('add_dependency requires boardId, taskId, and dependencyTaskId.');
+        case 'copy_task': {
+          if (!input.boardId || !input.taskId || !input.targetBoardId) {
+            return fail('copy_task requires boardId, taskId, and targetBoardId.');
+          }
+          const result = await copyTaskToBoard(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            input.targetBoardId,
+            {
+              ...(input.targetColumnId !== undefined
+                ? { targetColumnId: input.targetColumnId }
+                : {}),
+              ...(input.order !== undefined ? { targetOrder: input.order } : {}),
+              ...(input.preserveAssignment !== undefined
+                ? { preserveAssignment: input.preserveAssignment }
+                : {}),
+              ...(input.preserveDependencies !== undefined
+                ? { preserveDependencies: input.preserveDependencies }
+                : {}),
+            },
+          );
+          return result
+            ? okTask(result.targetBoard, result.task, 'Task copied to target board.')
+            : fail('Board or task not found.');
         }
-        const board = await addDependency(
-          projectRoot,
-          input.boardId,
-          input.taskId,
-          input.dependencyTaskId,
-        );
-        return board ? okBoard(board, 'Dependency added.') : fail('Task not found.');
-      }
-      case 'add_check': {
-        if (!input.boardId || !input.taskId || !input.checkDescription) {
-          return fail('add_check requires boardId, taskId, and checkDescription.');
+        case 'transfer_task': {
+          if (!input.boardId || !input.taskId || !input.targetBoardId) {
+            return fail('transfer_task requires boardId, taskId, and targetBoardId.');
+          }
+          const result = await transferTaskToBoard(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            input.targetBoardId,
+            {
+              ...(input.targetColumnId !== undefined
+                ? { targetColumnId: input.targetColumnId }
+                : {}),
+              ...(input.order !== undefined ? { targetOrder: input.order } : {}),
+              ...(input.preserveAssignment !== undefined
+                ? { preserveAssignment: input.preserveAssignment }
+                : {}),
+              ...(input.preserveDependencies !== undefined
+                ? { preserveDependencies: input.preserveDependencies }
+                : {}),
+            },
+          );
+          return result
+            ? okTask(result.targetBoard, result.task, 'Task transferred to target board.')
+            : fail('Board or task not found.');
         }
-        const board = await addCheckToTask(projectRoot, input.boardId, input.taskId, {
-          description: input.checkDescription,
-          type: 'manual',
-          status: input.checkStatus,
-        });
-        return board ? okBoard(board, 'Check added.') : fail('Task not found.');
-      }
-      case 'update_check': {
-        if (!input.boardId || !input.taskId || !input.checkId) {
-          return fail('update_check requires boardId, taskId, and checkId.');
+        case 'get_task': {
+          if (!input.boardId || !input.taskId) return fail('get_task requires boardId and taskId.');
+          const task = await getTask(projectRoot, input.boardId, input.taskId);
+          return task ? { ok: true, message: 'Task loaded.', task } : fail('Task not found.');
         }
-        const board = await updateCheckOnTask(
-          projectRoot,
-          input.boardId,
-          input.taskId,
-          input.checkId,
-          {
-            ...(input.checkDescription !== undefined
-              ? { description: input.checkDescription }
+        case 'update_task': {
+          if (!input.boardId || !input.taskId)
+            return fail('update_task requires boardId and taskId.');
+          const board = await updateTask(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            taskPatch(input),
+          );
+          return board ? okBoard(board, 'Task updated.') : fail('Task not found.');
+        }
+        case 'move_task': {
+          if (!input.boardId || !input.taskId || !input.targetColumnId) {
+            return fail('move_task requires boardId, taskId, and targetColumnId.');
+          }
+          const board = await moveTask(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            input.targetColumnId,
+            input.order,
+          );
+          return board ? okBoard(board, 'Task moved.') : fail('Move failed.');
+        }
+        case 'delete_task': {
+          if (!input.boardId || !input.taskId)
+            return fail('delete_task requires boardId and taskId.');
+          const board = await removeTask(projectRoot, input.boardId, input.taskId);
+          return board ? okBoard(board, 'Task deleted.') : fail('Task not found.');
+        }
+        case 'set_chain': {
+          if (!input.boardId || !input.taskIds?.length) {
+            return fail('set_chain requires boardId and taskIds.');
+          }
+          const result = await setTaskChain(projectRoot, input.boardId, {
+            taskIds: input.taskIds,
+            ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
+            ...(input.enforceDependencies !== undefined
+              ? { enforceDependencies: input.enforceDependencies }
               : {}),
-            ...(input.checkStatus !== undefined ? { status: input.checkStatus } : {}),
-          },
-        );
-        return board ? okBoard(board, 'Check updated.') : fail('Check not found.');
+          });
+          return result
+            ? {
+                ok: true,
+                message: `Chain set: ${result.chainId}`,
+                board: result.board,
+                chain: result.tasks,
+              }
+            : fail('Board or task not found.');
+        }
+        case 'get_chain': {
+          if (!input.boardId || !(input.taskId || input.chainId)) {
+            return fail('get_chain requires boardId and taskId or chainId.');
+          }
+          const result = await getTaskChain(
+            projectRoot,
+            input.boardId,
+            input.taskId ?? input.chainId ?? '',
+          );
+          return result
+            ? {
+                ok: true,
+                message: `Chain loaded: ${result.chainId}`,
+                board: result.board,
+                chain: result.tasks,
+              }
+            : fail('Chain not found.');
+        }
+        case 'claim_task': {
+          const result = await claimReadyTask(projectRoot, {
+            ...(input.boardId !== undefined ? { boardId: input.boardId } : {}),
+            ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+            ...assignmentInput(input),
+            status: input.assignmentStatus ?? 'queued',
+          });
+          return result
+            ? okTask(result.board, result.task, 'Task claimed.')
+            : fail('No ready kanban task matched the claim.');
+        }
+        case 'release_task': {
+          if (!input.boardId || !input.taskId) {
+            return fail('release_task requires boardId and taskId.');
+          }
+          const board = await releaseTaskClaim(projectRoot, input.boardId, input.taskId, {
+            ...(input.releaseStatus !== undefined ? { status: input.releaseStatus } : {}),
+            ...(input.releaseReason !== undefined ? { reason: input.releaseReason } : {}),
+            ...(input.clearAssignee !== undefined ? { clearAssignee: input.clearAssignee } : {}),
+          });
+          return board ? okBoard(board, 'Task claim released.') : fail('Task not found.');
+        }
+        case 'assign_task': {
+          if (!input.boardId || !input.taskId)
+            return fail('assign_task requires boardId and taskId.');
+          const board = await assignTask(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            assignmentInput(input),
+          );
+          return board ? okBoard(board, 'Task assigned.') : fail('Task not found.');
+        }
+        case 'mark_assignment': {
+          if (!input.boardId || !input.taskId)
+            return fail('mark_assignment requires boardId and taskId.');
+          const assignmentStatus =
+            input.assignmentStatus ??
+            (input.status === 'completed' ? 'completed' : input.error ? 'failed' : undefined);
+          const board = await updateTaskAssignment(projectRoot, input.boardId, input.taskId, {
+            ...(assignmentStatus !== undefined ? { status: assignmentStatus } : {}),
+            ...(input.subagentId !== undefined ? { subagentId: input.subagentId } : {}),
+            ...(input.runTaskId !== undefined ? { runTaskId: input.runTaskId } : {}),
+            ...(input.lastResult !== undefined ? { lastResult: input.lastResult } : {}),
+            ...(input.error !== undefined ? { error: input.error } : {}),
+            ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
+          });
+          return board ? okBoard(board, 'Assignment updated.') : fail('Task not found.');
+        }
+        case 'add_dependency': {
+          if (!input.boardId || !input.taskId || !input.dependencyTaskId) {
+            return fail('add_dependency requires boardId, taskId, and dependencyTaskId.');
+          }
+          const board = await addDependency(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            input.dependencyTaskId,
+          );
+          return board ? okBoard(board, 'Dependency added.') : fail('Task not found.');
+        }
+        case 'add_goal_metric': {
+          if (!input.boardId || !input.taskId || !input.metricName) {
+            return fail('add_goal_metric requires boardId, taskId, and metricName.');
+          }
+          const board = await addGoalMetricToTask(projectRoot, input.boardId, input.taskId, {
+            name: input.metricName,
+            ...(input.metricStatus !== undefined ? { status: input.metricStatus } : {}),
+            ...(input.metricTarget !== undefined ? { target: input.metricTarget } : {}),
+            ...(input.metricCurrent !== undefined ? { current: input.metricCurrent } : {}),
+            ...(input.metricUnit !== undefined ? { unit: input.metricUnit } : {}),
+            ...(input.metricNotes !== undefined ? { notes: input.metricNotes } : {}),
+          });
+          return board ? okBoard(board, 'Goal metric added.') : fail('Task not found.');
+        }
+        case 'update_goal_metric': {
+          if (!input.boardId || !input.taskId || !input.metricId) {
+            return fail('update_goal_metric requires boardId, taskId, and metricId.');
+          }
+          const board = await updateGoalMetricOnTask(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            input.metricId,
+            {
+              ...(input.metricName !== undefined ? { name: input.metricName } : {}),
+              ...(input.metricStatus !== undefined ? { status: input.metricStatus } : {}),
+              ...(input.metricTarget !== undefined ? { target: input.metricTarget } : {}),
+              ...(input.metricCurrent !== undefined ? { current: input.metricCurrent } : {}),
+              ...(input.metricUnit !== undefined ? { unit: input.metricUnit } : {}),
+              ...(input.metricNotes !== undefined ? { notes: input.metricNotes } : {}),
+            },
+          );
+          return board ? okBoard(board, 'Goal metric updated.') : fail('Metric not found.');
+        }
+        case 'add_check': {
+          if (!input.boardId || !input.taskId || !input.checkDescription) {
+            return fail('add_check requires boardId, taskId, and checkDescription.');
+          }
+          const board = await addCheckToTask(projectRoot, input.boardId, input.taskId, {
+            description: input.checkDescription,
+            type: 'manual',
+            status: input.checkStatus,
+          });
+          return board ? okBoard(board, 'Check added.') : fail('Task not found.');
+        }
+        case 'update_check': {
+          if (!input.boardId || !input.taskId || !input.checkId) {
+            return fail('update_check requires boardId, taskId, and checkId.');
+          }
+          const board = await updateCheckOnTask(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            input.checkId,
+            {
+              ...(input.checkDescription !== undefined
+                ? { description: input.checkDescription }
+                : {}),
+              ...(input.checkStatus !== undefined ? { status: input.checkStatus } : {}),
+            },
+          );
+          return board ? okBoard(board, 'Check updated.') : fail('Check not found.');
+        }
+        case 'add_note': {
+          if (!input.boardId || !input.taskId || !input.note)
+            return fail('add_note requires boardId, taskId, and note.');
+          const board = await addNoteToTask(projectRoot, input.boardId, input.taskId, {
+            author: input.author ?? 'agent',
+            content: input.note,
+          });
+          return board ? okBoard(board, 'Note added.') : fail('Task not found.');
+        }
+        case 'add_link': {
+          if (!input.boardId || !input.taskId || !input.url)
+            return fail('add_link requires boardId, taskId, and url.');
+          const board = await addLinkToTask(projectRoot, input.boardId, input.taskId, {
+            url: input.url,
+            type: input.linkType ?? 'url',
+            ...(input.linkTitle !== undefined ? { title: input.linkTitle } : {}),
+          });
+          return board ? okBoard(board, 'Link added.') : fail('Task not found.');
+        }
+        default:
+          return fail(`Unknown kanban action: ${(input as { action: string }).action}`);
       }
-      case 'add_note': {
-        if (!input.boardId || !input.taskId || !input.note)
-          return fail('add_note requires boardId, taskId, and note.');
-        const board = await addNoteToTask(projectRoot, input.boardId, input.taskId, {
-          author: input.author ?? 'agent',
-          content: input.note,
-        });
-        return board ? okBoard(board, 'Note added.') : fail('Task not found.');
-      }
-      case 'add_link': {
-        if (!input.boardId || !input.taskId || !input.url)
-          return fail('add_link requires boardId, taskId, and url.');
-        const board = await addLinkToTask(projectRoot, input.boardId, input.taskId, {
-          url: input.url,
-          type: input.linkType ?? 'url',
-          ...(input.linkTitle !== undefined ? { title: input.linkTitle } : {}),
-        });
-        return board ? okBoard(board, 'Link added.') : fail('Task not found.');
-      }
-      default:
-        return fail(`Unknown kanban action: ${(input as { action: string }).action}`);
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
     }
   },
 };
@@ -540,6 +892,7 @@ async function requireBoard(
 }
 
 function taskInput(input: KanbanToolInput) {
+  const assignment = hasAssignmentInput(input) ? assignmentForTaskCreate(input) : undefined;
   return {
     title: input.title ?? '',
     columnId: input.columnId,
@@ -547,10 +900,14 @@ function taskInput(input: KanbanToolInput) {
     priority: input.priority,
     status: input.status,
     labels: input.labels,
-    assignedAgent: input.agentId,
-    ...(input.agentId || input.provider || input.model
-      ? { assignment: assignmentForTaskCreate(input) }
+    ...((assignment?.agentId ?? assignment?.role ?? assignment?.name)
+      ? { assignedAgent: assignment.agentId ?? assignment.role ?? assignment.name }
       : {}),
+    ...((input.assignee ?? assignment?.name ?? assignment?.agentId)
+      ? { assignee: input.assignee ?? assignment?.name ?? assignment?.agentId }
+      : {}),
+    ...(input.dependencyTaskId !== undefined ? { dependsOn: [input.dependencyTaskId] } : {}),
+    ...(assignment ? { assignment } : {}),
   };
 }
 
@@ -564,6 +921,7 @@ function taskPatch(input: KanbanToolInput) {
     status: input.status,
     labels: input.labels,
     assignedAgent: input.agentId,
+    ...(input.dependencyTaskId !== undefined ? { dependsOn: [input.dependencyTaskId] } : {}),
   };
 }
 
@@ -580,6 +938,22 @@ function assignmentInput(input: KanbanToolInput): AssignKanbanTaskInput {
     allowedCapabilities: input.allowedCapabilities,
     assignee: input.assignee,
   };
+}
+
+function hasAssignmentInput(input: KanbanToolInput): boolean {
+  return (
+    input.agentId !== undefined ||
+    input.name !== undefined ||
+    input.role !== undefined ||
+    input.provider !== undefined ||
+    input.model !== undefined ||
+    input.fallbackProfile !== undefined ||
+    input.fallbackModels !== undefined ||
+    input.tools !== undefined ||
+    input.allowedCapabilities !== undefined ||
+    input.assignee !== undefined ||
+    input.assignmentStatus !== undefined
+  );
 }
 
 function assignmentForTaskCreate(input: KanbanToolInput): KanbanAgentAssignment {

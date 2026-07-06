@@ -47,6 +47,7 @@ import {
   makeCollabDebugTool,
   makeFleetEmitTool,
   makeFleetTool,
+  makeKanbanQueueTool,
   makeQualityGateTool,
   makeRollUpTool,
   makeSpawnTool,
@@ -2010,6 +2011,7 @@ export class Director implements ICoordinator {
     const t: Tool[] = [
       makeSpawnTool(this, effectiveRoster),
       makeAssignTool(this),
+      makeKanbanQueueTool(this, effectiveRoster),
       makeAwaitTasksTool(this),
       makeAskTool(this),
       makeAskResultTool(this),

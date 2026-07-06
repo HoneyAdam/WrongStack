@@ -2,31 +2,45 @@ import {
   addCheckToTask,
   addColumn,
   addDependency,
+  addGoalMetricToTask,
   addNoteToTask,
   addTask,
   areDependenciesMet,
   assignTask,
+  claimReadyTask,
   color,
   copyTaskToBoard,
   createBoard,
+  createBoardFromTaskGraph,
   duplicateBoard,
   exportBoardAsMarkdown,
+  exportBoardToTaskGraph,
   findBlockedTasks,
   generateBoardFromDescription,
   getBoard,
+  getKanbanOrchestrationSnapshot,
   getTask,
+  getTaskChain,
   type KanbanBoard,
   type KanbanBoardSummary,
   type KanbanTask,
+  listReadyTasks,
   listBoards,
+  mergeTasks,
   moveTask,
   parseLinesIntoTasks,
   removeBoard,
   removeColumn,
   removeTask,
+  releaseTaskClaim,
+  setTaskChain,
+  splitTask,
+  syncBoardFromTaskGraph,
+  TaskGraphStore,
   type SlashCommand,
   transferTaskToBoard,
   updateBoard as updateBoardManager,
+  updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
 } from '@wrongstack/core';
@@ -123,15 +137,16 @@ function formatBoardDetail(board: KanbanBoard): string {
     } else {
       for (const task of colTasks) {
         const depMarker = task.dependsOn?.length ? DIM(` ⛓️${task.dependsOn.length}`) : '';
+        const chainMarker = task.chain ? DIM(` #${task.chain.order + 1}`) : '';
         const agentMarker = task.assignedAgent ? DIM(` 👤${task.assignedAgent}`) : '';
         if (task.status === 'completed') {
-          lines.push(`   ✅ ${task.title}${agentMarker}${depMarker}`);
+          lines.push(`   ✅ ${task.title}${agentMarker}${depMarker}${chainMarker}`);
         } else if (task.status === 'blocked') {
-          lines.push(`   🚫 ${task.title}${agentMarker}${depMarker}`);
+          lines.push(`   🚫 ${task.title}${agentMarker}${depMarker}${chainMarker}`);
         } else if (task.status === 'in_progress') {
-          lines.push(`   🔄 ${task.title}${agentMarker}${depMarker}`);
+          lines.push(`   🔄 ${task.title}${agentMarker}${depMarker}${chainMarker}`);
         } else {
-          lines.push(`   ○ ${task.title}${agentMarker}${depMarker}`);
+          lines.push(`   ○ ${task.title}${agentMarker}${depMarker}${chainMarker}`);
         }
         lines.push(
           `      ${DIM(task.id.slice(0, 8))} ${fmtPriority(task.priority)} ${fmtStatus(task.status)}`,
@@ -157,6 +172,21 @@ function formatTaskDetail(board: KanbanBoard, task: KanbanTask): string {
 
   if (task.assignedAgent) lines.push(`  ${LABEL('Agent')}:    ${task.assignedAgent}`);
   if (task.assignee) lines.push(`  ${LABEL('Assignee')}: ${task.assignee}`);
+
+  if (task.chain) {
+    lines.push(`  ${LABEL('Chain')}:   ${task.chain.chainId} #${task.chain.order + 1}`);
+    if (task.chain.previousTaskId)
+      lines.push(`  ${LABEL('Prev')}:    ${task.chain.previousTaskId}`);
+    if (task.chain.nextTaskId) lines.push(`  ${LABEL('Next')}:    ${task.chain.nextTaskId}`);
+  }
+
+  if (task.parentTaskId) lines.push(`  ${LABEL('Parent')}:  ${task.parentTaskId}`);
+  if (task.childTaskIds?.length)
+    lines.push(`  ${LABEL('Children')}: ${task.childTaskIds.join(', ')}`);
+  if (task.mergedIntoTaskId) lines.push(`  ${LABEL('Merged into')}: ${task.mergedIntoTaskId}`);
+  if (task.mergedFromTaskIds?.length) {
+    lines.push(`  ${LABEL('Merged from')}: ${task.mergedFromTaskIds.join(', ')}`);
+  }
 
   if (task.dependsOn?.length) {
     const depNames = task.dependsOn
@@ -193,6 +223,19 @@ function formatTaskDetail(board: KanbanBoard, task: KanbanTask): string {
         lines.push(
           `       by ${check.checkedBy} ${check.checkedAt ? fmtAge(check.checkedAt) : ''}`,
         );
+    }
+  }
+
+  if (task.goalMetrics?.length) {
+    lines.push('');
+    lines.push(HEADING('  Goal Metrics:'));
+    for (const metric of task.goalMetrics) {
+      const target =
+        metric.target !== undefined
+          ? ` / ${metric.target}${metric.unit ? ` ${metric.unit}` : ''}`
+          : '';
+      lines.push(`   ${metric.name}: ${metric.current ?? '—'}${target} ${DIM(metric.status)}`);
+      if (metric.notes) lines.push(`      ${DIM(metric.notes)}`);
     }
   }
 
@@ -250,6 +293,61 @@ function formatDependencyChain(board: KanbanBoard, taskId: string, depth = 0): s
   return lines.join('\n');
 }
 
+function formatReadyTasks(results: Array<{ board: KanbanBoardSummary; task: KanbanTask }>): string {
+  if (!results.length) return DIM('No ready kanban tasks.');
+  const lines = [HEADING(`Ready Tasks (${results.length})`), ''];
+  for (const result of results) {
+    const task = result.task;
+    const routing =
+      task.assignment?.provider || task.assignment?.model
+        ? ` ${DIM(`[${[task.assignment?.provider, task.assignment?.model].filter(Boolean).join('/')}]`)}`
+        : '';
+    const chain = task.chain ? ` ${DIM(`#${task.chain.order + 1}`)}` : '';
+    lines.push(
+      `  ${LABEL(result.board.id.slice(0, 8))}:${DIM(task.id.slice(0, 8))} ${task.title}${routing}${chain}`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function formatKanbanSnapshot(
+  snapshot: Awaited<ReturnType<typeof getKanbanOrchestrationSnapshot>>,
+): string {
+  const lines = [
+    HEADING('Kanban Snapshot'),
+    '',
+    `  ${LABEL('Boards')}:    ${snapshot.boards.length}`,
+    `  ${LABEL('Ready')}:     ${snapshot.ready.length}`,
+    `  ${LABEL('Queued')}:    ${snapshot.queued.length}`,
+    `  ${LABEL('Running')}:   ${snapshot.running.length}`,
+    `  ${LABEL('Blocked')}:   ${snapshot.blocked.length}`,
+    `  ${LABEL('Review')}:    ${snapshot.review.length}`,
+    `  ${LABEL('Failed')}:    ${snapshot.failed.length}`,
+    `  ${LABEL('Completed')}: ${snapshot.completed.length}`,
+  ];
+  if (snapshot.ready.length) {
+    lines.push('', HEADING('Next Ready:'));
+    for (const result of snapshot.ready.slice(0, 8)) {
+      lines.push(
+        `  ${result.board.id.slice(0, 8)}:${result.task.id.slice(0, 8)} ${result.task.title}`,
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatTaskChain(tasks: KanbanTask[]): string {
+  if (!tasks.length) return DIM('No tasks in chain.');
+  return [
+    HEADING(`Task Chain (${tasks[0]?.chain?.chainId ?? 'unknown'})`),
+    '',
+    ...tasks.map((task, index) => {
+      const dep = task.dependsOn?.includes(tasks[index - 1]?.id ?? '') ? DIM(' dep') : '';
+      return `  ${index + 1}. ${task.title} ${DIM(task.id.slice(0, 8))} ${fmtStatus(task.status)}${dep}`;
+    }),
+  ].join('\n');
+}
+
 // ── Command builder ─────────────────────────────────────────────────────
 
 export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
@@ -269,14 +367,21 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
       '  /kanban show <boardId>         Show board details (columns + tasks)',
       '  /kanban delete <boardId>       Delete a board',
       '  /kanban rename <boardId> <t>   Rename a board',
+      '  /kanban snapshot [boardId]     Show agent queue snapshot',
       '',
       '  /kanban task add <boardId> <title>          Add a task to board',
       '  /kanban task <boardId>                     List tasks on a board',
+      '  /kanban task ready [boardId]               List dependency-ready tasks',
+      '  /kanban task claim [boardId] <agent>       Atomically claim next ready task',
+      '  /kanban task release <boardId> <taskId>    Release a queued/running claim',
       '  /kanban task show <boardId> <taskId>       Show task details',
       '  /kanban task move <boardId> <taskId> <col>  Move task to column',
       '  /kanban task done <boardId> <taskId>        Mark task completed',
       '  /kanban task block <boardId> <taskId>       Mark task blocked',
       '  /kanban task remove <boardId> <taskId>      Delete a task',
+      '  /kanban task split <boardId> <taskId> <a> | <b>  Split task into children',
+      '  /kanban task merge <boardId> <taskA,taskB> <title> Merge tasks',
+      '  /kanban task chain <boardId> <taskA> <taskB> [...] Ordered task chain',
       '  /kanban task copy <fromBoard> <taskId> <toBoard> [columnId]',
       '  /kanban task transfer <fromBoard> <taskId> <toBoard> [columnId]',
       '',
@@ -284,6 +389,8 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
       '  /kanban task assign <boardId> <taskId> <agent> [--provider=p --model=m --fallback=f]',
       '  /kanban task dispatch <boardId> <taskId> [--provider=p --model=m --name=n]',
       '  /kanban task depend <boardId> <taskId> <depId>  Add dependency',
+      '  /kanban task metric add <boardId> <taskId> <name> [target] [unit]',
+      '  /kanban task metric set <boardId> <taskId> <metricId> <current> [met|missed|waived|pending]',
       '  /kanban task note <boardId> <taskId> <text>      Add task note',
       '',
       '  /kanban task check add <boardId> <taskId> <desc>  Add success check',
@@ -293,6 +400,9 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
       '',
       '  /kanban generate <description>     Auto-generate board from text',
       '  /kanban export <boardId>           Export board as markdown',
+      '  /kanban graph export <boardId> [graphId]  Save board as SDD TaskGraph',
+      '  /kanban graph import <graphId>           Create board from SDD TaskGraph',
+      '  /kanban graph sync <boardId> <graphId>   Sync board from SDD TaskGraph',
       '  /kanban deps <boardId> <taskId>    Show dependency chain',
     ].join('\n'),
     async run(args: string) {
@@ -387,12 +497,25 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
         };
       }
 
+      // ── snapshot ───────────────────────────────────────────────────
+      if (cmd === 'snapshot' || cmd === 'queue') {
+        const snapshot = await getKanbanOrchestrationSnapshot(projectRoot, {
+          ...(rest[0] ? { boardId: rest[0] } : {}),
+        });
+        return { message: formatKanbanSnapshot(snapshot) };
+      }
+
       // ── export ─────────────────────────────────────────────────────
       if (cmd === 'export') {
         if (!rest[0]) return { message: color.red('Usage: /kanban export <boardId>') };
         const board = await getBoard(projectRoot, rest[0]!);
         if (!board) return { message: color.red(`Board not found: ${rest[0]}`) };
         return { message: exportBoardAsMarkdown(board) };
+      }
+
+      // ── graph bridge ───────────────────────────────────────────────
+      if (cmd === 'graph' || cmd === 'taskgraph') {
+        return handleGraphSubcommand(opts, projectRoot, rest, showHelp);
       }
 
       // ── deps / dependency chain ────────────────────────────────────
@@ -424,7 +547,9 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
             'delete',
             'rename',
             'generate',
+            'snapshot',
             'export',
+            'graph',
             'deps',
             'task',
             'column',
@@ -434,6 +559,72 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
       };
     },
   };
+}
+
+// ── TaskGraph bridge subcommand handler ─────────────────────────────────
+
+async function handleGraphSubcommand(
+  opts: SlashCommandContext,
+  projectRoot: string,
+  args: string[],
+  showHelp: () => { message: string },
+) {
+  const [sub, first, second] = args;
+  if (!sub) return showHelp();
+  if (!opts.paths?.projectTaskGraphs) {
+    return { message: color.red('TaskGraph store path is not available in this session.') };
+  }
+  const store = new TaskGraphStore({ baseDir: opts.paths.projectTaskGraphs });
+
+  if (sub === 'export') {
+    const boardId = first;
+    const graphId = second;
+    if (!boardId) {
+      return { message: color.red('Usage: /kanban graph export <boardId> [graphId]') };
+    }
+    const exported = await exportBoardToTaskGraph(projectRoot, boardId, {
+      ...(graphId ? { graphId } : {}),
+    });
+    if (!exported) return { message: color.red(`Board not found: ${boardId}`) };
+    await store.save(exported.graph);
+    return {
+      message: `${color.green('✅ TaskGraph exported:')} ${exported.graph.id}\n  ${exported.graph.nodes.size} node(s) saved from ${exported.board.title}`,
+    };
+  }
+
+  if (sub === 'import') {
+    const graphId = first;
+    if (!graphId) return { message: color.red('Usage: /kanban graph import <graphId>') };
+    const graph = await store.load(graphId);
+    if (!graph) return { message: color.red(`TaskGraph not found: ${graphId}`) };
+    const imported = await createBoardFromTaskGraph(projectRoot, graph, {
+      sourceSystem: 'sdd',
+      includeCompletedTasks: true,
+    });
+    return {
+      message: `${color.green('✅ Kanban board imported:')} ${imported.board.title}\n  ${color.dim(imported.board.id)} · ${imported.board.tasks.length} task(s)`,
+    };
+  }
+
+  if (sub === 'sync') {
+    const boardId = first;
+    const graphId = second;
+    if (!boardId || !graphId) {
+      return { message: color.red('Usage: /kanban graph sync <boardId> <graphId>') };
+    }
+    const graph = await store.load(graphId);
+    if (!graph) return { message: color.red(`TaskGraph not found: ${graphId}`) };
+    const result = await syncBoardFromTaskGraph(projectRoot, boardId, graph, {
+      sourceSystem: 'sdd',
+      includeCompletedTasks: true,
+    });
+    if (!result) return { message: color.red(`Board not found: ${boardId}`) };
+    return {
+      message: `${color.green('✅ Kanban board synced:')} ${result.board.title}\n  ${result.createdTaskIds.length} created · ${result.updatedTaskIds.length} updated · ${result.archivedTaskIds.length} archived`,
+    };
+  }
+
+  return { message: color.red('Usage: /kanban graph export|import|sync ...') };
 }
 
 // ── Task subcommand handler ─────────────────────────────────────────────
@@ -446,9 +637,36 @@ async function handleTaskSubcommand(
 ) {
   const [sub, boardId, ...rest] = args;
 
-  if (!sub || !boardId) {
+  if (!sub) {
     return showHelp();
   }
+
+  if (sub === 'ready') {
+    const results = await listReadyTasks(projectRoot, {
+      ...(boardId ? { boardId } : {}),
+      limit: 50,
+    });
+    return { message: formatReadyTasks(results) };
+  }
+
+  if (sub === 'claim') {
+    const scopedBoardId = rest.length > 0 ? boardId : undefined;
+    const agentId = rest.length > 0 ? rest[0] : boardId;
+    if (!agentId) {
+      return { message: color.red('Usage: /kanban task claim [boardId] <agentId>') };
+    }
+    const result = await claimReadyTask(projectRoot, {
+      ...(scopedBoardId ? { boardId: scopedBoardId } : {}),
+      agentId,
+      status: 'queued',
+    });
+    if (!result) return { message: color.yellow('No ready kanban task matched the claim.') };
+    return {
+      message: `${color.green('✅ Task claimed:')} ${result.task.title}\n  ${color.dim(`${result.board.id}:${result.task.id}`)}`,
+    };
+  }
+
+  if (!boardId) return showHelp();
 
   // ── List tasks on a board ──────────────────────────────────────────
   if (sub === 'list' || sub === 'ls' || sub === '') {
@@ -527,6 +745,92 @@ async function handleTaskSubcommand(
     const updated = await removeTask(projectRoot, boardId, taskId);
     if (!updated) return { message: color.red('Task not found') };
     return { message: color.green('✅ Task removed.') };
+  }
+
+  if (sub === 'release') {
+    const taskId = rest[0];
+    if (!taskId) return { message: color.red('Usage: /kanban task release <boardId> <taskId>') };
+    const updated = await releaseTaskClaim(projectRoot, boardId, taskId, {
+      reason: rest.slice(1).join(' ') || 'released from slash command',
+    });
+    if (!updated) return { message: color.red('Task not found') };
+    return { message: color.green('✅ Task claim released.') };
+  }
+
+  // ── Split task into children ───────────────────────────────────────
+  if (sub === 'split') {
+    const taskId = rest[0];
+    const titleText = rest.slice(1).join(' ');
+    const titles = titleText
+      .split('|')
+      .map((title) => title.trim())
+      .filter(Boolean);
+    if (!taskId || titles.length === 0) {
+      return {
+        message: color.red(
+          'Usage: /kanban task split <boardId> <taskId> <child title> | <child title>',
+        ),
+      };
+    }
+    const result = await splitTask(projectRoot, boardId, taskId, {
+      titles,
+      chainChildren: true,
+      rewireDependents: true,
+    });
+    if (!result) return { message: color.red('Board or task not found') };
+    return {
+      message: `${color.green('✅ Task split into children:')}\n${result.children
+        .map((task, index) => `  ${index + 1}. ${task.title} ${color.dim(task.id.slice(0, 8))}`)
+        .join('\n')}`,
+    };
+  }
+
+  // ── Merge tasks ────────────────────────────────────────────────────
+  if (sub === 'merge') {
+    const taskIds = splitCsv(rest[0] ?? '');
+    const title = rest.slice(1).join(' ');
+    if (taskIds.length < 2 || !title) {
+      return {
+        message: color.red('Usage: /kanban task merge <boardId> <taskA,taskB> <merged title>'),
+      };
+    }
+    const result = await mergeTasks(projectRoot, boardId, {
+      taskIds,
+      title,
+      closeSourceTasks: true,
+    });
+    if (!result) return { message: color.red('Board or task not found') };
+    return {
+      message: `${color.green('✅ Tasks merged:')} ${result.task.title}\n  ${color.dim(result.task.id)}`,
+    };
+  }
+
+  // ── Ordered chain ──────────────────────────────────────────────────
+  if (sub === 'chain') {
+    const chainSub = rest[0];
+    if (chainSub === 'show') {
+      const taskOrChainId = rest[1];
+      if (!taskOrChainId) {
+        return { message: color.red('Usage: /kanban task chain <boardId> show <taskId|chainId>') };
+      }
+      const result = await getTaskChain(projectRoot, boardId, taskOrChainId);
+      if (!result) return { message: color.red('Chain not found') };
+      return { message: formatTaskChain(result.tasks) };
+    }
+    const taskIds = rest;
+    if (taskIds.length < 2) {
+      return {
+        message: color.red('Usage: /kanban task chain <boardId> <taskA> <taskB> [...]'),
+      };
+    }
+    const result = await setTaskChain(projectRoot, boardId, {
+      taskIds,
+      enforceDependencies: true,
+    });
+    if (!result) return { message: color.red('Board or task not found') };
+    return {
+      message: `${color.green('✅ Chain set:')} ${result.chainId}\n${formatTaskChain(result.tasks)}`,
+    };
   }
 
   // ── Copy/transfer task across kanban boards ───────────────────────
@@ -687,6 +991,56 @@ async function handleTaskSubcommand(
     return { message: color.green(`✅ Dependency added: ${task.title} → ${depId}`) };
   }
 
+  // ── Goal metric ────────────────────────────────────────────────────
+  if (sub === 'metric') {
+    const metricSub = rest[0];
+    const taskId = rest[1];
+    if (metricSub === 'add') {
+      const name = rest[2];
+      const target = rest[3];
+      const unit = rest[4];
+      if (!taskId || !name) {
+        return {
+          message: color.red(
+            'Usage: /kanban task metric add <boardId> <taskId> <name> [target] [unit]',
+          ),
+        };
+      }
+      const updated = await addGoalMetricToTask(projectRoot, boardId, taskId, {
+        name,
+        ...(target !== undefined ? { target } : {}),
+        ...(unit !== undefined ? { unit } : {}),
+      });
+      if (!updated) return { message: color.red('Task not found') };
+      return { message: color.green(`✅ Metric added: ${name}`) };
+    }
+    if (metricSub === 'set' || metricSub === 'update') {
+      const metricId = rest[2];
+      const current = rest[3];
+      const status = rest[4];
+      const validStatuses = ['pending', 'met', 'missed', 'waived'];
+      if (!taskId || !metricId || current === undefined) {
+        return {
+          message: color.red(
+            'Usage: /kanban task metric set <boardId> <taskId> <metricId> <current> [met|missed|waived|pending]',
+          ),
+        };
+      }
+      if (status && !validStatuses.includes(status)) {
+        return { message: color.red(`Invalid metric status. Valid: ${validStatuses.join(', ')}`) };
+      }
+      const updated = await updateGoalMetricOnTask(projectRoot, boardId, taskId, metricId, {
+        current,
+        ...(status ? { status: status as 'pending' | 'met' | 'missed' | 'waived' } : {}),
+      });
+      if (!updated) return { message: color.red('Metric not found') };
+      return { message: color.green('✅ Metric updated.') };
+    }
+    return {
+      message: color.red('Usage: /kanban task metric add|set <boardId> <taskId> ...'),
+    };
+  }
+
   // ── Note ──────────────────────────────────────────────────────────
   if (sub === 'note') {
     const taskId = rest[0];
@@ -831,6 +1185,22 @@ function buildKanbanAgentPrompt(
     .filter((dep): dep is KanbanTask => Boolean(dep))
     .map((dep) => `- ${dep.title} [${dep.status}] (${dep.id})`);
   const checks = task.successCriteria?.map((check) => `- ${check.description}`).join('\n');
+  const metrics = task.goalMetrics
+    ?.map(
+      (metric) =>
+        `- ${metric.name}: ${metric.current ?? 'n/a'}${metric.target !== undefined ? ` / ${metric.target}` : ''}${metric.unit ? ` ${metric.unit}` : ''} [${metric.status}]`,
+    )
+    .join('\n');
+  const chain = task.chain
+    ? [
+        `chainId: ${task.chain.chainId}`,
+        `order: ${task.chain.order}`,
+        task.chain.previousTaskId ? `previous: ${task.chain.previousTaskId}` : '',
+        task.chain.nextTaskId ? `next: ${task.chain.nextTaskId}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
   const routing = [
     assignment?.role ? `role: ${assignment.role}` : '',
     assignment?.provider ? `provider: ${assignment.provider}` : '',
@@ -849,8 +1219,10 @@ function buildKanbanAgentPrompt(
     `Priority: ${task.priority}`,
     task.description ? `Description:\n${task.description}` : '',
     routing.length ? `Routing hints:\n${routing.join('\n')}` : '',
+    chain ? `Task chain:\n${chain}` : '',
     dependencyLines.length ? `Dependencies:\n${dependencyLines.join('\n')}` : '',
     checks ? `Success criteria:\n${checks}` : '',
+    metrics ? `Goal metrics:\n${metrics}` : '',
     task.labels?.length ? `Labels: ${task.labels.join(', ')}` : '',
     '',
     'Work the task end-to-end. Use the kanban tool, not direct file edits, to update this task.',

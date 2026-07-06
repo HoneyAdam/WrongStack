@@ -85,6 +85,7 @@ const DEFAULT_SUBAGENT_HIDDEN_TOOLS = new Set([
   'delegate',
   'spawn_subagent',
   'assign_task',
+  'kanban_queue',
   'await_tasks',
   'ask_subagent',
   'ask_result',

@@ -224,25 +224,33 @@ export async function listBoardSummaries(projectRoot: string): Promise<KanbanBoa
 
 function normalizeBoard(board: KanbanBoard): KanbanBoard {
   const now = new Date().toISOString();
-  return {
-    ...board,
-    version: board.version ?? CURRENT_KANBAN_VERSION,
-    createdAt: board.createdAt ?? now,
-    updatedAt: board.updatedAt ?? now,
-    columns: [...(board.columns?.length ? board.columns : DEFAULT_COLUMNS)].map(
-      (column, index) => ({
-        ...column,
-        order: column.order ?? index,
-      }),
-    ),
-    tasks: (board.tasks ?? []).map((task, index) => ({
+  const columns = [...(board.columns?.length ? board.columns : DEFAULT_COLUMNS)]
+    .map((column, index) => ({
+      ...column,
+      order: column.order ?? index,
+    }))
+    .sort((a, b) => a.order - b.order)
+    .map((column, index) => ({ ...column, order: index }));
+  const columnIds = new Set(columns.map((column) => column.id));
+  const fallbackColumnId = columns[0]?.id ?? 'backlog';
+  const tasks = normalizeTaskOrders(
+    (board.tasks ?? []).map((task, index) => ({
       ...task,
+      columnId: columnIds.has(task.columnId) ? task.columnId : fallbackColumnId,
       order: task.order ?? index,
       priority: task.priority ?? 'medium',
       status: task.status ?? 'pending',
       createdAt: task.createdAt ?? now,
       updatedAt: task.updatedAt ?? now,
     })),
+  );
+  return {
+    ...board,
+    version: board.version ?? CURRENT_KANBAN_VERSION,
+    createdAt: board.createdAt ?? now,
+    updatedAt: board.updatedAt ?? now,
+    columns,
+    tasks,
   };
 }
 
@@ -255,4 +263,21 @@ function latestActivity(board: KanbanBoard): string | undefined {
 
 async function writeBoardUnlocked(filePath: string, board: KanbanBoard): Promise<void> {
   await atomicWrite(filePath, `${JSON.stringify(board, null, 2)}\n`, { encoding: 'utf8' });
+}
+
+function normalizeTaskOrders(tasks: KanbanBoard['tasks']): KanbanBoard['tasks'] {
+  const byColumn = new Map<string, KanbanBoard['tasks']>();
+  for (const task of tasks) {
+    const columnTasks = byColumn.get(task.columnId) ?? [];
+    columnTasks.push(task);
+    byColumn.set(task.columnId, columnTasks);
+  }
+  for (const columnTasks of byColumn.values()) {
+    columnTasks
+      .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt))
+      .forEach((task, index) => {
+        task.order = index;
+      });
+  }
+  return tasks;
 }
