@@ -16,6 +16,7 @@ interface SavedProvider {
 interface CatalogModel {
   id: string;
   name: string;
+  description?: string | undefined;
   contextWindow?: number | undefined;
 }
 

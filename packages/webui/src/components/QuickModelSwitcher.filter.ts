@@ -12,6 +12,7 @@ export interface SavedProviderLite {
 export interface CatalogModelLite {
   id: string;
   name?: string | undefined;
+  description?: string | undefined;
   contextWindow?: number | undefined;
 }
 
@@ -19,6 +20,7 @@ export interface ModelCandidate {
   provider: string;
   model: string;
   modelName: string;
+  description?: string | undefined;
   contextWindow?: number | undefined;
   isCurrent: boolean;
 }
@@ -46,6 +48,7 @@ export function buildModelCandidates(
         provider: sp.id,
         model: m.id,
         modelName: m.name || m.id,
+        description: m.description,
         contextWindow: m.contextWindow,
         isCurrent: sp.id === currentProvider && m.id === currentModel,
       });
@@ -58,7 +61,8 @@ export function buildModelCandidates(
         (c) =>
           c.provider.toLowerCase().includes(q) ||
           c.model.toLowerCase().includes(q) ||
-          c.modelName.toLowerCase().includes(q),
+          c.modelName.toLowerCase().includes(q) ||
+          c.description?.toLowerCase().includes(q),
       )
     : list;
 

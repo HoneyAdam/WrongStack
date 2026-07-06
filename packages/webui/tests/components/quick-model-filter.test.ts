@@ -25,7 +25,12 @@ const saved: SavedProviderLite[] = [
 const models: Record<string, CatalogModelLite[]> = {
   anthropic: [
     { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', contextWindow: 200000 },
-    { id: 'anthropic-test-model', name: 'Anthropic Test Model', contextWindow: 200000 },
+    {
+      id: 'anthropic-test-model',
+      name: 'Anthropic Test Model',
+      description: 'Claude-compatible planner test model',
+      contextWindow: 200000,
+    },
   ],
   openai: [
     { id: 'gpt-5', name: 'GPT-5', contextWindow: 128000 },
@@ -96,7 +101,7 @@ describe('buildModelCandidates — filter (the user-reported bug surface)', () =
     expect(out[0]?.model).toBe('gemini-2-5-pro');
   });
 
-  it('filters case-insensitively on model display name', () => {
+  it('filters case-insensitively on model description', () => {
     const out = buildModelCandidates(saved, models, 'planner', undefined, undefined);
     expect(out).toHaveLength(1);
     expect(out[0]?.modelName).toBe('Anthropic Test Model');

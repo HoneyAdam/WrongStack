@@ -136,11 +136,11 @@ export function parseNextSteps(
  * as literal text in the fleet panel.
  */
 export function stripNextStepsBlock(text: string): string {
-  // Match <nextsteps>...</nextsteps> or <next_steps/> (self-closing)
-  // The block may span multiple lines.
+  // Match canonical <nextsteps>...</nextsteps> plus the legacy
+  // <next_steps> spelling that older persisted subagent output may contain.
   return text
-    .replace(/<next_steps\b[^>]*>[\s\S]*?<\/next_steps>/gi, '')
-    .replace(/<next_steps\b[^>]*\/?>/gi, '')
+    .replace(/<next_?steps\b[^>]*>[\s\S]*?<\/next_?steps>/gi, '')
+    .replace(/<next_?steps\b[^>]*\/?>/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
