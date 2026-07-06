@@ -1,3 +1,7 @@
+/**
+ * Desktop Agent Bridge - WebSocket communication with runtimes.
+ * Handles conversation management and WebSocket connections with automatic reconnection.
+ */
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
@@ -6,6 +10,10 @@ import type {
   DesktopConversationSnapshot,
   DesktopConversationStatus,
 } from '../shared/types.js';
+
+// ============================================================================
+// Types
+// ============================================================================
 
 interface ConversationInternal {
   runtimeId: string;
@@ -16,6 +24,10 @@ interface ConversationInternal {
   ws: WebSocket | null;
   connectPromise: Promise<void> | null;
   activeAssistantMessageId: string | null;
+  /** Reconnection state */
+  reconnectAttempt: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  reconnectUrl: string | null;
 }
 
 interface ServerMessage {
@@ -23,7 +35,29 @@ interface ServerMessage {
   payload?: Record<string, unknown> | undefined;
 }
 
+// ============================================================================
+// Configuration
+// ============================================================================
+
 const MAX_MESSAGES = 300;
+
+/** Reconnection configuration */
+const RECONNECT_CONFIG = {
+  /** Maximum number of reconnection attempts (0 = disabled) */
+  maxAttempts: 5,
+  /** Initial delay in ms before first reconnection */
+  initialDelayMs: 1000,
+  /** Maximum delay in ms between reconnection attempts */
+  maxDelayMs: 30000,
+  /** Multiplier for exponential backoff */
+  backoffMultiplier: 2,
+  /** Jitter factor (0-1) to add randomness to delays */
+  jitterFactor: 0.1,
+};
+
+// ============================================================================
+// Bridge Implementation
+// ============================================================================
 
 export class DesktopAgentBridge extends EventEmitter {
   private readonly conversations = new Map<string, ConversationInternal>();
@@ -32,27 +66,86 @@ export class DesktopAgentBridge extends EventEmitter {
     return publicConversation(this.getOrCreate(runtimeId));
   }
 
+  /**
+   * Get reconnection status for a runtime.
+   */
+  getReconnectStatus(runtimeId: string): { attempt: number; maxAttempts: number } | null {
+    const conversation = this.conversations.get(runtimeId);
+    if (!conversation) return null;
+    return {
+      attempt: conversation.reconnectAttempt,
+      maxAttempts: RECONNECT_CONFIG.maxAttempts,
+    };
+  }
+
+  /**
+   * Force reconnection for a runtime (resets reconnection state).
+   */
+  forceReconnect(runtimeId: string, wsUrl: string): void {
+    const conversation = this.getOrCreate(runtimeId);
+    this.cancelReconnect(conversation);
+    conversation.reconnectAttempt = 0;
+    void this.ensureConnected(runtimeId, wsUrl);
+  }
+
   async ensureConnected(runtimeId: string, wsUrl: string): Promise<DesktopConversationSnapshot> {
     const conversation = this.getOrCreate(runtimeId);
+    
+    // If already connected, return immediately
     if (conversation.ws?.readyState === WebSocket.OPEN) return publicConversation(conversation);
+    
+    // If currently connecting, wait for it
     if (conversation.connectPromise) {
       await conversation.connectPromise;
       return publicConversation(conversation);
     }
 
+    // If reconnecting in background, return current state
+    if (conversation.reconnectTimer) {
+      return publicConversation(conversation);
+    }
+
+    // Start fresh connection
+    conversation.reconnectUrl = wsUrl;
+    conversation.reconnectAttempt = 0;
+    return this.connect(runtimeId, wsUrl);
+  }
+
+  /**
+   * Internal connect method that actually establishes the WebSocket.
+   */
+  private async connect(runtimeId: string, wsUrl: string): Promise<DesktopConversationSnapshot> {
+    const conversation = this.getOrCreate(runtimeId);
+    
+    // Cancel any pending reconnect timer
+    this.cancelReconnect(conversation);
+
     conversation.status = 'connecting';
     conversation.error = undefined;
     this.emitChanged(conversation);
+    this.emitReconnectEvent(conversation, 'connecting');
 
-    conversation.connectPromise = new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
       conversation.ws = ws;
 
+      // Set connection timeout
+      const timeout = setTimeout(() => {
+        if (conversation.ws === ws) {
+          ws.close();
+          reject(new Error('Connection timeout'));
+        }
+      }, 10000);
+
       ws.once('open', () => {
+        clearTimeout(timeout);
         conversation.status = 'connected';
         conversation.error = undefined;
         conversation.connectPromise = null;
+        conversation.reconnectAttempt = 0;
+        conversation.reconnectUrl = null;
         this.emitChanged(conversation);
+        this.emitReconnectEvent(conversation, 'connected');
         resolve();
       });
 
@@ -61,6 +154,7 @@ export class DesktopAgentBridge extends EventEmitter {
       });
 
       ws.once('error', (err) => {
+        clearTimeout(timeout);
         conversation.status = 'error';
         conversation.error = err instanceof Error ? err.message : String(err);
         conversation.connectPromise = null;
@@ -68,22 +162,91 @@ export class DesktopAgentBridge extends EventEmitter {
           role: 'system',
           text: `Connection error: ${conversation.error}`,
         });
+        this.emitChanged(conversation);
+        this.emitReconnectEvent(conversation, 'error');
         reject(err);
       });
 
       ws.once('close', () => {
+        clearTimeout(timeout);
         if (conversation.ws === ws) conversation.ws = null;
         conversation.connectPromise = null;
+        
         if (conversation.status !== 'error') {
           conversation.status = 'disconnected';
         }
         conversation.activeAssistantMessageId = null;
         this.emitChanged(conversation);
+        
+        // Schedule reconnection if applicable
+        if (conversation.reconnectUrl && conversation.status === 'disconnected') {
+          this.scheduleReconnect(conversation);
+        }
       });
     });
+  }
 
-    await conversation.connectPromise;
-    return publicConversation(conversation);
+  /**
+   * Schedule a reconnection attempt with exponential backoff.
+   */
+  private scheduleReconnect(conversation: ConversationInternal): void {
+    // Check if reconnection is enabled and within limits
+    if (RECONNECT_CONFIG.maxAttempts === 0) return;
+    if (conversation.reconnectAttempt >= RECONNECT_CONFIG.maxAttempts) {
+      this.emitReconnectEvent(conversation, 'exhausted');
+      return;
+    }
+
+    // Calculate delay with exponential backoff and jitter
+    const baseDelay = Math.min(
+      RECONNECT_CONFIG.initialDelayMs *
+        Math.pow(RECONNECT_CONFIG.backoffMultiplier, conversation.reconnectAttempt),
+      RECONNECT_CONFIG.maxDelayMs,
+    );
+    
+    // Add jitter
+    const jitter = baseDelay * RECONNECT_CONFIG.jitterFactor * Math.random();
+    const delay = Math.floor(baseDelay + jitter);
+
+    conversation.reconnectAttempt++;
+    this.emitReconnectEvent(conversation, 'scheduled', { delay, attempt: conversation.reconnectAttempt });
+
+    conversation.reconnectTimer = setTimeout(() => {
+      conversation.reconnectTimer = null;
+      if (!conversation.reconnectUrl) return;
+      
+      // Check if still disconnected
+      if (conversation.ws?.readyState !== WebSocket.OPEN) {
+        void this.connect(conversation.runtimeId, conversation.reconnectUrl);
+      }
+    }, delay);
+  }
+
+  /**
+   * Cancel pending reconnection.
+   */
+  private cancelReconnect(conversation: ConversationInternal): void {
+    if (conversation.reconnectTimer) {
+      clearTimeout(conversation.reconnectTimer);
+      conversation.reconnectTimer = null;
+    }
+  }
+
+  /**
+   * Emit reconnection event for UI feedback.
+   */
+  private emitReconnectEvent(
+    conversation: ConversationInternal,
+    status: 'connecting' | 'connected' | 'error' | 'scheduled' | 'exhausted',
+    data?: { delay?: number; attempt?: number },
+  ): void {
+    this.emit('reconnect', {
+      runtimeId: conversation.runtimeId,
+      status,
+      attempt: conversation.reconnectAttempt,
+      maxAttempts: RECONNECT_CONFIG.maxAttempts,
+      ...data,
+    });
   }
 
   async sendMessage(
@@ -93,43 +256,60 @@ export class DesktopAgentBridge extends EventEmitter {
   ): Promise<DesktopConversationSnapshot> {
     const trimmed = content.trim();
     if (!trimmed) return this.snapshot(runtimeId);
-    await this.ensureConnected(runtimeId, wsUrl);
+    
+    // Reset reconnection state on manual action
     const conversation = this.getOrCreate(runtimeId);
-    this.appendMessage(conversation, {
+    conversation.reconnectAttempt = 0;
+    
+    await this.ensureConnected(runtimeId, wsUrl);
+    
+    // Refresh conversation after connect
+    const conv = this.getOrCreate(runtimeId);
+    this.appendMessage(conv, {
       id: `user_${randomUUID()}`,
       role: 'user',
       text: trimmed,
     });
-    conversation.status = 'running';
-    conversation.activeAssistantMessageId = null;
-    this.emitChanged(conversation);
-    this.send(conversation, {
+    conv.status = 'running';
+    conv.activeAssistantMessageId = null;
+    this.emitChanged(conv);
+    this.send(conv, {
       type: 'user_message',
       payload: {
         id: `msg_${Date.now()}_${randomUUID().slice(0, 8)}`,
         content: trimmed,
         timestamp: Date.now(),
-        ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}),
+        ...(conv.sessionId ? { sessionId: conv.sessionId } : {}),
       },
     });
-    return publicConversation(conversation);
+    return publicConversation(conv);
   }
 
   async abort(runtimeId: string, wsUrl: string): Promise<DesktopConversationSnapshot> {
-    await this.ensureConnected(runtimeId, wsUrl);
+    // Reset reconnection state on manual action
     const conversation = this.getOrCreate(runtimeId);
-    this.send(conversation, {
+    conversation.reconnectAttempt = 0;
+    
+    await this.ensureConnected(runtimeId, wsUrl);
+    const conv = this.getOrCreate(runtimeId);
+    this.send(conv, {
       type: 'abort',
-      payload: conversation.sessionId ? { sessionId: conversation.sessionId } : {},
+      payload: conv.sessionId ? { sessionId: conv.sessionId } : {},
     });
-    conversation.status = 'connected';
-    this.appendMessage(conversation, { role: 'system', text: 'Abort requested.' });
-    return publicConversation(conversation);
+    conv.status = 'connected';
+    this.appendMessage(conv, { role: 'system', text: 'Abort requested.' });
+    return publicConversation(conv);
   }
 
   close(runtimeId: string): void {
     const conversation = this.conversations.get(runtimeId);
     if (!conversation) return;
+    
+    // Cancel reconnection and clear state
+    this.cancelReconnect(conversation);
+    conversation.reconnectAttempt = 0;
+    conversation.reconnectUrl = null;
+    
     conversation.ws?.close();
     conversation.ws = null;
     conversation.connectPromise = null;
@@ -264,6 +444,9 @@ export class DesktopAgentBridge extends EventEmitter {
       ws: null,
       connectPromise: null,
       activeAssistantMessageId: null,
+      reconnectAttempt: 0,
+      reconnectTimer: null,
+      reconnectUrl: null,
     };
     this.conversations.set(runtimeId, conversation);
     return conversation;
@@ -273,6 +456,10 @@ export class DesktopAgentBridge extends EventEmitter {
     this.emit('changed', publicConversation(conversation));
   }
 }
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 function publicConversation(conversation: ConversationInternal): DesktopConversationSnapshot {
   return {
@@ -286,4 +473,16 @@ function publicConversation(conversation: ConversationInternal): DesktopConversa
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+// ============================================================================
+// Reconnect Event Type (for external consumers)
+// ============================================================================
+
+export interface DesktopBridgeReconnectEvent {
+  runtimeId: string;
+  status: 'connecting' | 'connected' | 'error' | 'scheduled' | 'exhausted';
+  attempt: number;
+  maxAttempts: number;
+  delay?: number;
 }
