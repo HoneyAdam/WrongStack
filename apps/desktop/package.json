@@ -41,7 +41,8 @@
     "@wrongstack/core": "workspace:*",
     "@wrongstack/webui": "workspace:*",
     "electron": "^43.0.0",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
