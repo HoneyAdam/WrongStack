@@ -5,7 +5,7 @@ import type React from 'react';
 import { Fragment, isValidElement } from 'react';
 import type { ChipMeta, StatuslineItem } from './statusline-picker.js';
 import type { StatuslineMode } from './settings-picker.js';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import type { GitInfo } from '../git-info.js';
@@ -649,6 +649,48 @@ export function StatusBar({
   }, [state]);
   const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx]);
 
+  // ── Todos auto-clear ─────────────────────────────────────────────────────
+  // When all todos are completed (no pending/in-progress), the todos chip
+  // auto-hides after TODOS_CLEAR_DELAY_MS so the status bar doesn't linger on
+  // stale info. New active todos before the timer fires cancel and reset.
+  const TODOS_CLEAR_DELAY_MS = 3000;
+  const [todosCleared, setTodosCleared] = useState(false);
+  const todosClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const hasActive = todos && (todos.pending > 0 || todos.inProgress > 0);
+
+    if (hasActive) {
+      // Cancel any pending clear — active todos means show the chip
+      if (todosClearTimerRef.current) {
+        clearTimeout(todosClearTimerRef.current);
+        todosClearTimerRef.current = null;
+      }
+      setTodosCleared(false);
+      return;
+    }
+
+    // All completed but no active items — start auto-clear countdown
+    if (todos && todos.completed > 0) {
+      if (!todosClearTimerRef.current) {
+        todosClearTimerRef.current = setTimeout(() => {
+          setTodosCleared(true);
+          todosClearTimerRef.current = null;
+        }, TODOS_CLEAR_DELAY_MS);
+      }
+      return () => {
+        if (todosClearTimerRef.current) {
+          clearTimeout(todosClearTimerRef.current);
+          todosClearTimerRef.current = null;
+        }
+      };
+    }
+
+    // No todos at all — nothing to clear
+    setTodosCleared(true);
+    return;
+  }, [todos]);
+
   // Animation style for the working/thinking chip. Defaults to `rainbow`
   // when omitted (legacy callers) so the chip still works. Special value
   // `'cycle'` rotates through wave → pulse → dots → breathe every
@@ -731,7 +773,7 @@ export function StatusBar({
       tasks.failed > 0);
   const hasThirdLine =
     (todos &&
-      (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) &&
+      (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared)) &&
       showChip('todos')) ||
     (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && showChip('plan')) ||
     (hasTaskActivity && showChip('tasks')) ||
@@ -1104,7 +1146,7 @@ export function StatusBar({
           {renderChipLine(
             [
               todos &&
-              (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0) &&
+              (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared)) &&
               showChip('todos') ? (
                 <Text>
                   <Text dimColor>todos </Text>
