@@ -64,7 +64,7 @@ export default defineConfig({
     // dir (WRONGSTACK_HOME) so tests never read the user's real config (live
     // Telegram tokens!) or leak fixture project dirs into the real home.
     setupFiles: ['./vitest.setup.ts'],
-    include: ['packages/**/tests/**/*.test.ts'],
+    include: ['packages/**/tests/**/*.test.ts', 'apps/**/tests/**/*.test.ts'],
     exclude: [
         '**/node_modules/**',
         '**/dist/**',

@@ -15,14 +15,15 @@ extract structured data from agent responses.
 
 ## Rules
 
-1. **Only the leader agent's final message SHOULD include `<next_steps>`** — subagents report findings only. If nothing is pending, omit the tag and say "No pending actions."
-2. **`<next_steps>` is for prompt options only** — every item must be something the user can type into the prompt and submit. If a step is a human-only action (e.g., "open DevTools", "check the browser console"), put it outside the tag as informational text instead.
-3. **Tags must be properly closed** — `<next_steps>...</next_steps>` with exact tag names.
-4. **No markdown inside tags** — plain text only, one item per line.
-5. **Items are prompt inputs** — not imperative instructions. Write what the user would type, not what they should do.
-6. **Items marked `auto="true"` must include input content** — the user can copy and submit it directly.
-7. **Keep concise** — max 5 items unless the task genuinely requires more.
-8. **Skip `<next_steps>` whenever the live `ctx.todos` list still has open items** — any `pending` or `in_progress` todo means the in-flight task list is not done, and surfacing new prompt options would race the todo loop (YOLO+auto could pick the top suggestion and pivot away from the unfinished work; `/next 1` would replace the next todo with an arbitrary prompt). Finish the todo list first, re-arm the tag on the turn where the last todo flips to `completed`. The runtime enforces the same gate, so emitting it mid-task is parsed-and-discarded — the rule exists to keep the output focused, not to override runtime behavior.
+1. **Only the leader agent's final message SHOULD include `<next_steps>`** — subagents report findings only. If nothing is pending, omit the tag entirely; do not append a loose "next steps" or goodwill-style follow-up line.
+2. **Any suggested next prompt MUST be inside `<next_steps>...</next_steps>`** — never emit parseable-looking prose such as "Next steps:", "next suggests", "Suggested next:", or "Let me know if you want..." when you intend `/next` to work.
+3. **`<next_steps>` is for prompt options only** — every item must be something the user can type into the prompt and submit. If a step is a human-only action (e.g., "open DevTools", "check the browser console"), put it outside the tag as informational text instead.
+4. **Tags must be properly closed** — `<next_steps>...</next_steps>` with exact tag names.
+5. **No markdown inside tags** — plain text only, one item per line.
+6. **Items are prompt inputs** — not imperative instructions. Write what the user would type, not what they should do.
+7. **Items marked `auto="true"` must include input content** — the user can copy and submit it directly.
+8. **Keep concise** — max 5 items unless the task genuinely requires more.
+9. **Skip `<next_steps>` whenever the live `ctx.todos` list still has open items** — any `pending` or `in_progress` todo means the in-flight task list is not done, and surfacing new prompt options would race the todo loop (YOLO+auto could pick the top suggestion and pivot away from the unfinished work; `/next 1` would replace the next todo with an arbitrary prompt). Finish the todo list first, re-arm the tag on the turn where the last todo flips to `completed`. The runtime enforces the same gate, so emitting it mid-task is parsed-and-discarded — the rule exists to keep the output focused, not to override runtime behavior.
 
 ## Output Format
 

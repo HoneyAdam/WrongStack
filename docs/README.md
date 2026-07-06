@@ -34,6 +34,7 @@ This is the on-ramp to the WrongStack documentation. If you're new to the projec
 | [agent-monitoring.md](agent-monitoring.md) | Agent monitoring system: FleetBus → AgentMonitorService → HQ browser + TUI timeline | Read when working on subagent visibility or HQ integration |
 | [mcp-server.md](mcp-server.md) | MCP server architecture: stdio / SSE / streamable-HTTP transports | Read when working on `packages/mcp/` |
 | [director-architecture.md](director-architecture.md) | Multi-agent Director orchestration: phase-based pipeline, brain handoff, autonomy levels | Read when working on `packages/core/src/coordination/` |
+| [kanban-architecture.md](kanban-architecture.md) | Project-scoped multi-kanban architecture: storage, queue semantics, TaskGraph bridge, and Director/fleet dispatch | Read when working on `packages/core/src/kanban/`, the `kanban` tool, or Kanban WebUI routes |
 | [todos_architecture.md](todos_architecture.md) | Todo/plan/queue storage architecture | Read when working on `packages/core/src/storage/` |
 | [goal-pause-resume-stage-reporting.md](goal-pause-resume-stage-reporting.md) | Goal-driven autonomous run lifecycle (pause / resume / stage reporting) | Read when working on `/goal` or `autonomous-runner` |
 | [collab-debug.md](collab-debug.md) | 3-agent parallel collab-debug flow (BugHunter + RefactorPlanner + Critic) | Read when working on `/collab debug` |
@@ -137,6 +138,7 @@ ADRs capture significant architectural decisions, the alternatives considered, a
 | [notes/refactor-2026-06-05.md](notes/refactor-2026-06-05.md) | Refactor notes (2026-06-05 snapshot) |
 | [notes/bugs.md](notes/bugs.md) | Bug notes (running log) |
 | [notes/EDITING.md](notes/EDITING.md) | Editing notes for docs/ |
+| [backlog/2026-07-architecture-review/README.md](backlog/2026-07-architecture-review/README.md) | 2026-07 architecture review backlog split into 17 issue files |
 | [issues/2026-06-13-cli-main-refactor.md](issues/2026-06-13-cli-main-refactor.md) | CLI main refactor issue notes |
 | [issues/2026-06-13-tui-app-refactor.md](issues/2026-06-13-tui-app-refactor.md) | TUI app refactor issue notes |
 | [issues/2026-06-13-tui-app-refactor-tasks.md](issues/2026-06-13-tui-app-refactor-tasks.md) | TUI app refactor task list |

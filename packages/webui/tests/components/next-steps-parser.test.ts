@@ -5,7 +5,7 @@ import {
 } from '../../src/components/NextStepsBar';
 
 /**
- * Tests for the `<next_steps>` / "💡 Next steps" block parser that the
+ * Tests for the canonical `<next_steps>` block parser that the
  * MessageBubble component uses to (1) extract clickable suggestion buttons
  * and (2) strip the raw block from the content fed to react-markdown.
  *
@@ -89,18 +89,16 @@ describe('parseNextSteps', () => {
       expect(stripped).toBe(content);
     });
 
-    it('accepts "## Next steps" markdown heading in permissive mode', () => {
-      // Permissive mode accepts more heading variants than strict mode
-      // (## Next steps, plain "Next steps", etc.) — useful for legacy
-      // session files and /suggest subagent output.
+    it('rejects markdown headings even when strict is false', () => {
       const content = `Some prose.
 
 ## Next steps
 1. Fix the bug
 2. Run tests`;
 
-      const { steps } = parseNextSteps(content, false);
-      expect(steps).toHaveLength(2);
+      const { steps, stripped } = parseNextSteps(content, false);
+      expect(steps).toEqual([]);
+      expect(stripped).toBe(content);
     });
 
     it('returns empty result for content without a block', () => {
@@ -111,8 +109,8 @@ describe('parseNextSteps', () => {
     });
   });
 
-  describe('legacy "💡 Next steps" format', () => {
-    it('still works for back-compat', () => {
+  describe('legacy loose next-step formats', () => {
+    it('are ignored so /next only activates for the tagged block', () => {
       const content = `All done.
 
 💡 Next steps
@@ -121,12 +119,8 @@ describe('parseNextSteps', () => {
 
       const { steps, stripped } = parseNextSteps(content);
 
-      expect(steps).toEqual([
-        { index: 1, text: 'Run pnpm test' },
-        { index: 2, text: 'Commit the changes' },
-      ]);
-      expect(stripped).not.toContain('💡');
-      expect(stripped).toContain('All done.');
+      expect(steps).toEqual([]);
+      expect(stripped).toBe(content);
     });
   });
 

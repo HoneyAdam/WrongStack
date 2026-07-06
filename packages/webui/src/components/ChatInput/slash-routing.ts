@@ -424,7 +424,8 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       }
       return true;
     }
-    case '/next': {
+    case '/next':
+    case '/enxt': {
       const narg = args.trim().toLowerCase();
       if (!narg || narg === 'list' || narg === 'ls' || narg === 'show') return handleNextList();
       if (narg === 'clear' || narg === 'reset') {

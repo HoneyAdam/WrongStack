@@ -377,7 +377,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Run tests\n2. Review diff\n',
+          finalText: '<next_steps>\n1. Run tests\n2. Review diff\n</next_steps>',
         }),
       );
       const agent = makeFakeAgent({ run });
@@ -417,7 +417,7 @@ describe('runRepl', () => {
 
     it('auto mode with validation=true proceeds after countdown', async () => {
       const finalTexts = [
-        '💡 Next steps\n1. Run pnpm test\n2. Commit changes\n',
+        '<next_steps>\n1. Run pnpm test\n2. Commit changes\n</next_steps>',
         '✅ Tests passed. Ready to commit.\n',
       ];
       let turn = 0;
@@ -464,7 +464,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Risky migration\n2. Safe lint\n',
+          finalText: '<next_steps>\n1. Risky migration\n2. Safe lint\n</next_steps>',
         }),
       );
       const agent = makeFakeAgent({ run });
@@ -506,7 +506,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Keep going\n',
+          finalText: '<next_steps>\n1. Keep going\n</next_steps>',
         }),
       );
       const agent = makeFakeAgent({ run });
@@ -544,7 +544,7 @@ describe('runRepl', () => {
 
     it('auto mode with no validator proceeds directly', async () => {
       const finalTexts = [
-        '💡 Next steps\n1. Clean up\n',
+        '<next_steps>\n1. Clean up\n</next_steps>',
         'Done cleaning.\n',
       ];
       let turn = 0;
@@ -588,8 +588,8 @@ describe('runRepl', () => {
 
     it('auto mode loops until no more suggestions', async () => {
       const finalTexts = [
-        '💡 Next steps\n1. Step one\n2. Step two\n',
-        '💡 Next steps\n1. Step two\n',
+        '<next_steps>\n1. Step one\n2. Step two\n</next_steps>',
+        '<next_steps>\n1. Step two\n</next_steps>',
         'No pending actions — everything is up to date.\n',
       ];
       let turn = 0;
@@ -736,7 +736,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Run tests\n2. Commit changes\n',
+          finalText: '<next_steps>\n1. Run tests\n2. Commit changes\n</next_steps>',
         }),
       );
       const agent = makeAgentWithTodos(run, [
@@ -774,7 +774,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Run tests\n2. Commit changes\n',
+          finalText: '<next_steps>\n1. Run tests\n2. Commit changes\n</next_steps>',
         }),
       );
       const agent = makeAgentWithTodos(run, []);
@@ -805,7 +805,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Open PR\n',
+          finalText: '<next_steps>\n1. Open PR\n</next_steps>',
         }),
       );
       const agent = makeAgentWithTodos(run, [

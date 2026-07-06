@@ -25,6 +25,7 @@ interface CronJob {
 interface CronState {
   jobs: Map<string, CronJob>;
   timers: Map<string, ReturnType<typeof setTimeout>>;
+  extensionUnregister: (() => void) | null;
   createdAt: string;
 }
 
@@ -43,6 +44,7 @@ interface CronState {
 const state: CronState = {
   jobs: new Map(),
   timers: new Map(),
+  extensionUnregister: null,
   createdAt: new Date().toISOString(),
 };
 
@@ -50,6 +52,22 @@ function formatNextRun(intervalMs: number): string {
   /* v8 ignore next -- callers always pass a clamped interval (>=1000); the NaN/<=0 → 60_000 fallback is defensive. */
   const ms = Number.isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
   return new Date(Date.now() + ms).toISOString();
+}
+
+function clearCronResources(): void {
+  for (const timer of state.timers.values()) {
+    clearTimeout(timer);
+  }
+  state.timers.clear();
+  state.jobs.clear();
+  if (state.extensionUnregister) {
+    try {
+      state.extensionUnregister();
+    } catch {
+      // best-effort — extension registry may already be gone during shutdown
+    }
+    state.extensionUnregister = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,8 +98,7 @@ const plugin: Plugin = {
     // Idempotent re-init: if the plugin is reloaded (e.g. via /plugin
     // reload), clear any previous timers/jobs first. The shared
     // `state` object lives at module scope so teardown can reach it.
-    state.jobs.clear();
-    state.timers.clear();
+    clearCronResources();
     state.createdAt = new Date().toISOString();
 
     const maxConcurrent = (api.config.extensions?.['cron'] as Record<string, unknown>)?.['maxConcurrentJobs'] as number ?? 5;
@@ -126,8 +143,9 @@ const plugin: Plugin = {
       state.jobs.delete(name);
     }
 
-    // Register a single extension covering before/after iteration hooks
-    api.extensions.register({
+    // Register a single extension covering before/after iteration hooks.
+    // Keep the disposer so reload/teardown cannot stack duplicate hooks.
+    state.extensionUnregister = api.extensions.register({
       name: 'cron-iteration-hooks',
       owner: 'cron',
       beforeIteration: async (_ctx, _idx) => {
@@ -302,16 +320,9 @@ const plugin: Plugin = {
   },
 
   teardown(api) {
-    // Clear every pending timer so the agent loop never invokes a
-    // callback against a torn-down plugin (H1 fix). The previous
-    // implementation tried to read state from `api._state` (which is
-    // never set) and fell through to an empty Map default — leaking
-    // all timers. The module-level `state` is the source of truth.
-    for (const timer of state.timers.values()) {
-      clearTimeout(timer);
-    }
-    state.timers.clear();
-    state.jobs.clear();
+    // Clear every pending timer and unregister the iteration extension so the
+    // agent loop never invokes callbacks against a torn-down plugin.
+    clearCronResources();
     api.log.info('cron plugin unloaded');
   },
 };

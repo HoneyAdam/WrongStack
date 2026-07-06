@@ -20,6 +20,7 @@ import type {
 import { join } from 'node:path';
 import { loadPlugins } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
+import { PLUGIN_AUDIT_ENTRIES } from '../plugin-management.js';
 import createApi from '../plugin-api-factory.js';
 import { patchConfig } from '../utils.js';
 
@@ -48,6 +49,17 @@ export const DEPRECATED_PLUGIN_NAMES: Record<string, string> = {
 // + string form, etc.). Cleared on process restart by design —
 // startup noise is fine, mid-session noise is not.
 const deprecatedWarningsEmitted = new Set<string>();
+
+const BUILTIN_PLUGIN_CONFIG_ALIASES: Record<string, string> = {
+  lsp: '@wrongstack/plug-lsp',
+  '@wrongstack/telegram': 'telegram',
+};
+
+export const BUILTIN_PLUGIN_CONFIG_NAMES = new Set<string>([
+  ...PLUGIN_AUDIT_ENTRIES.map((entry) => entry.name),
+  ...PLUGIN_AUDIT_ENTRIES.map((entry) => `@wrongstack/plugins/${entry.name}`),
+  ...Object.keys(BUILTIN_PLUGIN_CONFIG_ALIASES),
+]);
 
 /** Test helper: reset the dedupe set between test cases. */
 export function _resetDeprecatedWarningsForTests(): void {
@@ -88,6 +100,14 @@ export function pluginNameFromSpec(spec: string): string | null {
   const last = parts[parts.length - 1];
   if (!last) return null;
   return last.split('?')[0] ?? null;
+}
+
+export function builtinPluginNameFromSpec(spec: string): string | null {
+  if (BUILTIN_PLUGIN_CONFIG_ALIASES[spec]) return BUILTIN_PLUGIN_CONFIG_ALIASES[spec];
+  const bareName = pluginNameFromSpec(spec);
+  if (BUILTIN_PLUGIN_CONFIG_NAMES.has(spec)) return bareName ?? spec;
+  if (bareName && BUILTIN_PLUGIN_CONFIG_NAMES.has(bareName)) return bareName;
+  return null;
 }
 
 export interface PluginsWiringDeps {
@@ -309,13 +329,25 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
         (p): p is { name: string; enabled?: boolean | undefined } =>
           typeof p === 'object' && p.enabled === false,
       )
-      .map((p) => p.name),
+      .flatMap((p) => {
+        const builtinName = builtinPluginNameFromSpec(p.name);
+        return builtinName && builtinName !== p.name ? [p.name, builtinName] : [p.name];
+      }),
   );
   if (paths && config.features?.plugins !== false) {
     for (const factory of BUILTIN_PLUGIN_FACTORIES) {
       try {
         const plugin = await factory();
         if (!plugin) continue;
+        const auditEntry = PLUGIN_AUDIT_ENTRIES.find((entry) => entry.name === plugin.name);
+        const explicitlyEnabled = (config.plugins ?? []).some((entry) => {
+          const spec = typeof entry === 'string' ? entry : entry.name;
+          if (typeof entry === 'object' && entry.enabled === false) return false;
+          return (builtinPluginNameFromSpec(spec) ?? spec) === plugin.name;
+        });
+        if (auditEntry?.defaultState === 'inactive' && !explicitlyEnabled) {
+          continue;
+        }
         if (disabledBuiltins.has(plugin.name)) {
           log.info(`[setupPlugins] built-in plugin "${plugin.name}" disabled by config`);
           continue;
@@ -348,6 +380,9 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
       // only line of defense.
       const bareName = pluginNameFromSpec(spec);
       if (bareName && warnIfDeprecatedPluginName(bareName, log)) {
+        continue;
+      }
+      if (builtinPluginNameFromSpec(spec)) {
         continue;
       }
       try {

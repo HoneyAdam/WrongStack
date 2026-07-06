@@ -102,7 +102,7 @@ export const Entry = React.memo(function Entry({
   // panel rendering and the store write are gated below.
   const nextSteps = useMemo(() => {
     if (entry.kind !== 'assistant') return { steps: [] as ParsedNextStep[], stripped: '' };
-    // strict=true: accepts 💡 emoji heading OR <next_steps> XML tag
+    // strict=true retained for compatibility; parser accepts canonical <next_steps> only.
     return parseNextSteps(entry.text, true);
   }, [entry.kind, (entry as never as { text?: string }).text]);
 

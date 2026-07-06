@@ -249,6 +249,34 @@ describe('teardown + H1 pattern', () => {
     expect(health.counters.formatted).toBe(0);
   });
 
+  it('teardown unregisters both hook and import-organizer listener', () => {
+    const hookUnregister = vi.fn();
+    const patternUnregister = vi.fn();
+    const api = makeApi();
+    api.registerHook.mockReturnValueOnce(hookUnregister);
+    api.onPattern.mockReturnValueOnce(patternUnregister);
+
+    formatOnSavePlugin.setup(api as never);
+    formatOnSavePlugin.teardown!(api as never);
+
+    expect(hookUnregister).toHaveBeenCalledTimes(1);
+    expect(patternUnregister).toHaveBeenCalledTimes(1);
+  });
+
+  it('setup unregisters previous hook and listener before reinitializing', () => {
+    const hookUnregister = vi.fn();
+    const patternUnregister = vi.fn();
+    const api = makeApi();
+    api.registerHook.mockReturnValue(hookUnregister);
+    api.onPattern.mockReturnValue(patternUnregister);
+
+    formatOnSavePlugin.setup(api as never);
+    formatOnSavePlugin.setup(api as never);
+
+    expect(hookUnregister).toHaveBeenCalledTimes(1);
+    expect(patternUnregister).toHaveBeenCalledTimes(1);
+  });
+
   it('teardown is safe before setup (defensive)', () => {
     const api = makeApi();
     expect(() => formatOnSavePlugin.teardown!(api as never)).not.toThrow();

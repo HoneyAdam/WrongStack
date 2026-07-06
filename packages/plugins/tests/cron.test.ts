@@ -1,21 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import cronPlugin from '../src/cron';
 
-const mockApi = {
-  tools: {
-    register: vi.fn()
-  },
-  config: { extensions: {} },
-  extensions: {
-    register: vi.fn()
-  },
-  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  metrics: { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() },
-  events: {
-    emit: vi.fn(),
-    on: vi.fn()
-  }
-};
+function createMockApi() {
+  return {
+    tools: {
+      register: vi.fn(),
+    },
+    config: { extensions: {} },
+    extensions: {
+      register: vi.fn(() => vi.fn()),
+    },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    metrics: { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() },
+    events: {
+      emit: vi.fn(),
+      on: vi.fn(),
+    },
+    session: {
+      append: vi.fn(),
+    },
+  };
+}
+
+const mockApi = createMockApi();
 
 describe('cron plugin', () => {
   beforeEach(() => {
@@ -104,6 +111,41 @@ describe('cron plugin', () => {
 
   it('should have teardown function', () => {
     expect(cronPlugin.teardown).toBeDefined();
+  });
+
+  it('teardown unregisters the iteration extension', () => {
+    const api = createMockApi();
+    const unregister = vi.fn();
+    api.extensions.register.mockReturnValueOnce(unregister);
+
+    cronPlugin.setup(api as any);
+    cronPlugin.teardown?.(api as any);
+
+    expect(unregister).toHaveBeenCalledTimes(1);
+  });
+
+  it('setup clears previous timers and unregisters previous extension before reinitializing', async () => {
+    vi.useFakeTimers();
+    const api = createMockApi();
+    try {
+      const unregister = vi.fn();
+      api.extensions.register.mockReturnValue(unregister);
+
+      cronPlugin.setup(api as any);
+      const schedule = api.tools.register.mock.calls.find(
+        ([tool]: any[]) => tool.name === 'cron_schedule',
+      )?.[0];
+      await schedule.execute({ name: 'leaky', intervalMs: 1000, action: 'tick' });
+
+      cronPlugin.setup(api as any);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(api.events.emit).not.toHaveBeenCalledWith('cron:job_fired', expect.anything());
+      expect(unregister).toHaveBeenCalledTimes(1);
+    } finally {
+      cronPlugin.teardown?.(api as any);
+      vi.useRealTimers();
+    }
   });
 
   // Pure function tests — parseCronExpression and formatNextRun

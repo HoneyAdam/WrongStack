@@ -16,8 +16,8 @@ export interface ParseNextStepsResult {
   /** Matched steps with their original index and stripped text. */
   steps: NextStep[];
   /**
-   * The input content with the entire "💡 Next steps" / "<next_steps>" block
-   * removed. Used by MessageBubble to feed react-markdown content that
+   * The input content with the entire "<next_steps>" block removed.
+   * Used by MessageBubble to feed react-markdown content that
    * contains no raw suggestion tags.
    */
   stripped: string;
@@ -25,8 +25,8 @@ export interface ParseNextStepsResult {
 
 // ── Patterns ───────────────────────────────────────────────────────────────
 
-/** Matches the 💡 emoji heading OR <next_steps> opening tag. */
-const STRICT_HEADING_RE = /(?:💡\s*Next steps?|<next_steps>)\s*\n+/i;
+/** Matches the canonical <next_steps> opening tag. */
+const NEXT_STEPS_TAG_RE = /<next_steps>\s*\n+/i;
 
 /** Matches an item line: "1. text", "1) text", "- text", "* text". */
 /** Also captures optional auto="true" attribute at the end. */
@@ -37,23 +37,20 @@ const MAX_STEPS = 6;
 // ── Core parser ────────────────────────────────────────────────────────────
 
 /**
- * Parse a "<next_steps>" or "💡 Next steps" block from assistant output.
+ * Parse a canonical "<next_steps>" block from assistant output.
  *
  * Returns the parsed steps AND the content with the entire block stripped,
  * so the caller can render the body without leaking raw XML tags.
  *
  * @param content — raw assistant message text.
- * @param strict  — when true (default), only accept 💡 emoji heading or
- *                  <next_steps> XML tag. When false, also accept
- *                  "## Next steps" / "Next steps" plain headings.
+ * @param strict  — retained for compatibility; assistant output always requires
+ *                  the canonical <next_steps> XML tag.
  */
 export function parseNextSteps(
   content: string,
-  strict = true,
+  _strict = true,
 ): ParseNextStepsResult {
-  const headingMatch = strict
-    ? STRICT_HEADING_RE.exec(content)
-    : buildPermissiveHeadingRe().exec(content);
+  const headingMatch = NEXT_STEPS_TAG_RE.exec(content);
 
   if (!headingMatch) {
     return { steps: [], stripped: content };
@@ -113,12 +110,10 @@ export function parseNextSteps(
     return { steps: [], stripped: content };
   }
 
-  // When the heading was an XML `<next_steps>` tag, require a matching
-  // closing tag — the agent should always emit a balanced block, and we
-  // don't want to consume half of a malformed block that may belong to
-  // user prose. The legacy `💡 Next steps` heading has no closing tag, so
-  // we don't apply the guard there.
-  if (strict && /<next_steps>/i.test(headingMatch[0]!) && !afterHeading.includes('</next_steps>')) {
+  // Require a matching closing tag — the agent should always emit a balanced
+  // block, and we don't want to consume half of a malformed block that may
+  // belong to user prose.
+  if (!afterHeading.includes('</next_steps>')) {
     return { steps: [], stripped: content };
   }
 
@@ -132,20 +127,6 @@ export function parseNextSteps(
     .trim();
 
   return { steps, stripped };
-}
-
-const PERMISSIVE_HEADING_PATTERNS: Array<{ re: RegExp; label: string }> = [
-  { re: /💡\s*Next steps?\s*\n+/i, label: 'emoji' },
-  { re: /##?\s*Next steps?\s*\n+/i, label: 'markdown' },
-  { re: /\n{1,2}Next steps?\s*\n+/i, label: 'plain' },
-  { re: /<next_steps>\s*\n+/i, label: 'xml-tag' },
-];
-
-function buildPermissiveHeadingRe(): RegExp {
-  const variants = PERMISSIVE_HEADING_PATTERNS.map(
-    ({ re }) => `(?:${re.source})`,
-  ).join('|');
-  return new RegExp(variants, 'i');
 }
 
 /**

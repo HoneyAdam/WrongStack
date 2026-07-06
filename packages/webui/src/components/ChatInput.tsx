@@ -23,6 +23,7 @@ import { runChatSlashCommand } from './ChatInput/slash-routing.js';
 import { usePasteDrop } from './ChatInput/use-paste-drop.js';
 import { RefinePanel } from './RefinePanel.js';
 import { PromptLibraryModal } from './PromptLibraryModal.js';
+import { parseNextSteps } from './NextStepsBar.js';
 import { Button } from './ui/button';
 
 export function ChatInput({
@@ -147,18 +148,11 @@ export function ChatInput({
 
   // ── /next helpers ──────────────────────────────────────────────────
 
-  /** Regex matching "💡 Next steps" heading + numbered items. */
-  const NEXT_STEPS_RE = /💡\s*Next steps?\s*\n+((?:\d+\.\s+.+\n?)+)/i;
-
   function parseNextStepsFromContent(content: string): Array<{ index: number; text: string }> {
-    const match = NEXT_STEPS_RE.exec(content);
-    if (!match?.[1]) return [];
-    const steps: Array<{ index: number; text: string }> = [];
-    for (const line of match[1].split('\n').filter(Boolean)) {
-      const m = /^(\d+)\.\s+(.+)$/.exec(line.trim());
-      if (m) steps.push({ index: Number.parseInt(m[1]!, 10), text: m[2]!.trim() });
-    }
-    return steps.slice(0, 6);
+    return parseNextSteps(content).steps.map((step) => ({
+      index: step.index,
+      text: step.text,
+    }));
   }
 
   function parseNextStepsFromLastAssistant(): Array<{ index: number; text: string }> {
@@ -183,7 +177,7 @@ export function ChatInput({
     if (id) setLoading(true);
   }
 
-  /** Parse 💡 Next steps from the last assistant message and show them. */
+  /** Parse canonical <next_steps> from the last assistant message and show them. */
   function handleNextList(): true {
     const all = useChatStore.getState().messages;
     let lastAssistant = '';
@@ -209,7 +203,7 @@ export function ChatInput({
     return true;
   }
 
-  /** Parse 💡 Next steps and execute the selected item(s). */
+  /** Parse canonical <next_steps> and execute the selected item(s). */
   function handleNextSelect(input: string): true {
     const steps = parseNextStepsFromLastAssistant();
     if (steps.length === 0) {

@@ -457,19 +457,23 @@ export function DiffBlock({
   const stats = showStats ? formatDiffStats(added, removed) : null;
 
   // Row anatomy: box margin (2) + `   ` prefix (3) + line number + ` X `
-  // marker cell (3). Whatever remains is the per-segment wrap budget.
+  // marker cell (3). Keep one terminal column as a wrap guard when the width
+  // is known: writing a printable trailing-space background into the final
+  // column can leave some terminals in pending-wrap state, so the next reset /
+  // newline appears as a visual spill even though the measured string is
+  // exactly `contentWidth` wide.
+  const terminalWrapGuard = typeof contentWidth === 'number' ? 1 : 0;
   const bodyBudget =
     typeof contentWidth === 'number'
-      ? Math.max(16, contentWidth - (2 + 3 + gutterWidth + 3))
+      ? Math.max(16, contentWidth - (2 + 3 + gutterWidth + 3 + terminalWrapGuard))
       : DIFF_FALLBACK_WRAP_WIDTH;
-  // When the width is known, the add/del wash pads its body out to the full
+  // When the width is known, the add/del wash pads its body out to the guarded
   // `bodyBudget` with trailing spaces so the dark green/maroon background
-  // spans the whole line — right up to the content edge — instead of
-  // stopping at the end of the (often short) text. This is required because
-  // Ink only paints a background behind actual characters (a `<Text
-  // backgroundColor>` colours its trailing spaces; a `<Box backgroundColor>`
-  // does NOT fill the empty area), so the wash needs real padding chars to
-  // reach the edge. The approval-dialog path (no contentWidth) skips the
+  // spans almost the whole line without touching the terminal's last column.
+  // This is required because Ink only paints a background behind actual
+  // characters (a `<Text backgroundColor>` colours its trailing spaces; a
+  // `<Box backgroundColor>` does NOT fill the empty area), so the wash needs
+  // real padding chars. The approval-dialog path (no contentWidth) skips the
   // padding to avoid over-wide rows in the bordered confirm box.
   const hasWidth = typeof contentWidth === 'number';
   const padBody = (seg: Token[]): number => {

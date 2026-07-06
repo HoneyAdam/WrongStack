@@ -41,12 +41,28 @@ interface PluginStackObserverState {
   wraps: WrapEntry[];
   /** Times a system-prompt contributor emitted (for health()). */
   contributions: number;
+  /** Custom event listener handle for teardown/reload. */
+  patternUnregister: (() => void) | null;
 }
 
 const state: PluginStackObserverState = {
   wraps: [],
   contributions: 0,
+  patternUnregister: null,
 };
+
+function clearObserverState(): void {
+  if (state.patternUnregister) {
+    try {
+      state.patternUnregister();
+    } catch {
+      // best-effort
+    }
+    state.patternUnregister = null;
+  }
+  state.wraps = [];
+  state.contributions = 0;
+}
 
 const PLUGIN: Plugin = {
   name: 'plugin-stack-observer',
@@ -78,9 +94,9 @@ const PLUGIN: Plugin = {
   },
 
   setup(api) {
-    // Idempotent re-init (H1 pattern).
-    state.wraps = [];
-    state.contributions = 0;
+    // Idempotent re-init (H1 pattern): unregister old event listeners before
+    // clearing state so reload cannot leave stale callbacks attached.
+    clearObserverState();
 
     const cfg = readConfig(api.config.extensions?.['plugin-stack-observer']);
 
@@ -94,21 +110,24 @@ const PLUGIN: Plugin = {
     // onPattern because the event name is a custom event not in the
     // typed EventMap (the API doc explicitly recommends onPattern
     // for plugin-originated events).
-    api.onPattern('provider.wrap:loaded', (_eventName: string, payload: unknown) => {
-      const p = (payload ?? {}) as Partial<WrapEntry>;
-      if (typeof p.plugin !== 'string' || p.plugin.length === 0) return;
-      const wraps = Array.isArray(p.wraps)
-        ? p.wraps.filter((w): w is string => typeof w === 'string')
-        : [];
-      const kind = typeof p.kind === 'string' ? p.kind : 'unknown';
-      state.wraps.push({
-        plugin: p.plugin,
-        kind,
-        wraps,
-        loadedAt: Date.now(),
-      });
-      api.metrics.counter('wrap_loaded');
-    });
+    state.patternUnregister = api.onPattern(
+      'provider.wrap:loaded',
+      (_eventName: string, payload: unknown) => {
+        const p = (payload ?? {}) as Partial<WrapEntry>;
+        if (typeof p.plugin !== 'string' || p.plugin.length === 0) return;
+        const wraps = Array.isArray(p.wraps)
+          ? p.wraps.filter((w): w is string => typeof w === 'string')
+          : [];
+        const kind = typeof p.kind === 'string' ? p.kind : 'unknown';
+        state.wraps.push({
+          plugin: p.plugin,
+          kind,
+          wraps,
+          loadedAt: Date.now(),
+        });
+        api.metrics.counter('wrap_loaded');
+      },
+    );
 
     if (cfg.injectIntoSystemPrompt) {
       // Register a system-prompt contributor that returns a TextBlock
@@ -167,8 +186,7 @@ const PLUGIN: Plugin = {
       wrapCount: state.wraps.length,
       contributions: state.contributions,
     };
-    state.wraps = [];
-    state.contributions = 0;
+    clearObserverState();
     api.log.info('plugin-stack-observer: teardown complete', { final });
   },
 

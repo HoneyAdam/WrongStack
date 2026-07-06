@@ -23,6 +23,7 @@ import { clearSuggestions, getSuggestions } from './suggestion-store.js';
 export function buildNextCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'next',
+    aliases: ['enxt'],
     category: 'Agent',
     description: 'Show or select next-step suggestions. /next 1 to execute, /next list to view.',
     argsHint: '[on|off|toggle|list|clear|1 2 3...]',

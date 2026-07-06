@@ -71,6 +71,8 @@ const state = {
   coveredSkipCount: 0,
   /** Hook handle for teardown. */
   hookUnregister: null as null | (() => void),
+  /** Cross-plugin event listener handle for teardown. */
+  patternUnregister: null as null | (() => void),
   /** Last format result — surfaced by health() + status tool. */
   lastResult: null as null | {
     path: string;
@@ -143,6 +145,25 @@ function readConfig(raw: unknown): FormatOnSaveConfig {
  * path is still "recent" (TTL-controlled).
  */
 const recentlyCovered = new Map<string, number>();
+
+function clearRegistrations(): void {
+  if (state.hookUnregister) {
+    try {
+      state.hookUnregister();
+    } catch {
+      // best-effort
+    }
+    state.hookUnregister = null;
+  }
+  if (state.patternUnregister) {
+    try {
+      state.patternUnregister();
+    } catch {
+      // best-effort
+    }
+    state.patternUnregister = null;
+  }
+}
 
 /** Evict entries older than `ttlMs` from the recentlyCovered map. */
 function evictExpired(ttlMs: number): void {
@@ -276,13 +297,14 @@ const plugin: Plugin = {
   },
 
   setup(api) {
-    // Idempotent re-init (H1 pattern).
+    // Idempotent re-init (H1 pattern). Unregister old hooks/listeners before
+    // resetting counters so plugin reload cannot stack duplicate callbacks.
+    clearRegistrations();
     state.invocationCount = 0;
     state.formattedCount = 0;
     state.cleanCount = 0;
     state.errorCount = 0;
     state.coveredSkipCount = 0;
-    state.hookUnregister = null;
     state.lastResult = null;
     recentlyCovered.clear();
 
@@ -385,14 +407,17 @@ const plugin: Plugin = {
     // --write --unsafe` already formatted the file). The listener is
     // tied to the hook lifetime — calling unregister on teardown is
     // best-effort.
-    api.onPattern('import-organizer:done', (_eventName: string, payload: unknown) => {
-      // Custom plugin events don't show up in the typed EventMap,
-      // so we listen via onPattern (string-typed) instead of onEvent.
-      const p = (payload ?? {}) as { path?: unknown };
-      if (typeof p.path !== 'string' || p.path.length === 0) return;
-      recentlyCovered.set(p.path, Date.now());
-      api.metrics.counter('covered_notice');
-    });
+    state.patternUnregister = api.onPattern(
+      'import-organizer:done',
+      (_eventName: string, payload: unknown) => {
+        // Custom plugin events don't show up in the typed EventMap,
+        // so we listen via onPattern (string-typed) instead of onEvent.
+        const p = (payload ?? {}) as { path?: unknown };
+        if (typeof p.path !== 'string' || p.path.length === 0) return;
+        recentlyCovered.set(p.path, Date.now());
+        api.metrics.counter('covered_notice');
+      },
+    );
 
     // --- format_on_save_status tool ---
     api.tools.register({
@@ -431,14 +456,7 @@ const plugin: Plugin = {
   },
 
   teardown(api) {
-    if (state.hookUnregister) {
-      try {
-        state.hookUnregister();
-      } catch {
-        // best-effort
-      }
-      state.hookUnregister = null;
-    }
+    clearRegistrations();
     const final = {
       invocations: state.invocationCount,
       formatted: state.formattedCount,

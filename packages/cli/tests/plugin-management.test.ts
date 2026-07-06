@@ -43,7 +43,7 @@ describe('plugin management', () => {
     );
     expect(PLUGIN_AUDIT_ENTRIES).toContainEqual(
       expect.objectContaining({
-        name: 'format-on-save',
+        name: 'cost-tracker',
         canDisable: true,
         defaultState: 'active',
       }),
@@ -77,16 +77,16 @@ describe('plugin management', () => {
   it('toggles a default-active plugin off by writing a disabled override', async () => {
     await fs.writeFile(configPath, JSON.stringify({ features: { plugins: true } }));
 
-    const result = await runPluginManagementCommand(['toggle', 'format-on-save'], {
+    const result = await runPluginManagementCommand(['toggle', 'cost-tracker'], {
       config: config(),
       configPath,
     });
 
     expect(result.code).toBe(0);
-    expect(result.patch?.plugins).toEqual([{ name: 'format-on-save', enabled: false }]);
+    expect(result.patch?.plugins).toEqual([{ name: 'cost-tracker', enabled: false }]);
     expect(result.patch?.features).toMatchObject({ plugins: true });
     await expect(readConfig()).resolves.toMatchObject({
-      plugins: [{ name: 'format-on-save', enabled: false }],
+      plugins: [{ name: 'cost-tracker', enabled: false }],
       features: { plugins: true },
     });
   });
@@ -96,8 +96,43 @@ describe('plugin management', () => {
       configPath,
       JSON.stringify({
         features: { plugins: true },
-        plugins: [{ name: 'format-on-save', enabled: false }, 'cost-tracker'],
+        plugins: [{ name: 'cost-tracker', enabled: false }, 'agent-handoff'],
       }),
+    );
+
+    const result = await runPluginManagementCommand(['toggle', 'cost-tracker'], {
+      config: config(),
+      configPath,
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.patch?.plugins).toEqual(['agent-handoff']);
+    await expect(readConfig()).resolves.toMatchObject({
+      plugins: ['agent-handoff'],
+      features: { plugins: true },
+    });
+  });
+
+  it('toggles a default-inactive plugin on by writing an enabled entry', async () => {
+    await fs.writeFile(configPath, JSON.stringify({ features: { plugins: true } }));
+
+    const result = await runPluginManagementCommand(['toggle', 'format-on-save'], {
+      config: config(),
+      configPath,
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.patch?.plugins).toEqual(['format-on-save']);
+    await expect(readConfig()).resolves.toMatchObject({
+      plugins: ['format-on-save'],
+      features: { plugins: true },
+    });
+  });
+
+  it('toggles an enabled default-inactive plugin back off by removing the entry', async () => {
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({ features: { plugins: true }, plugins: ['format-on-save', 'agent-handoff'] }),
     );
 
     const result = await runPluginManagementCommand(['toggle', 'format-on-save'], {
@@ -106,9 +141,9 @@ describe('plugin management', () => {
     });
 
     expect(result.code).toBe(0);
-    expect(result.patch?.plugins).toEqual(['cost-tracker']);
+    expect(result.patch?.plugins).toEqual(['agent-handoff']);
     await expect(readConfig()).resolves.toMatchObject({
-      plugins: ['cost-tracker'],
+      plugins: ['agent-handoff'],
       features: { plugins: true },
     });
   });
@@ -304,9 +339,9 @@ describe('plugin management', () => {
     });
 
     expect(result.code).toBe(0);
-    expect(result.patch?.plugins).toEqual([{ name: 'telegram', enabled: false }]);
+    expect(result.patch?.plugins).toEqual([]);
     await expect(readConfig()).resolves.toMatchObject({
-      plugins: [{ name: 'telegram', enabled: false }],
+      plugins: [],
     });
   });
 });

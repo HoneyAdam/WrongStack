@@ -273,6 +273,12 @@ describe('runChatSlashCommand — /next', () => {
     expect(runChatSlashCommand(opts)).toBe(true);
     expect(opts.handleNextSelect).toHaveBeenCalledWith('1');
   });
+
+  it('/enxt typo alias delegates to /next behavior', () => {
+    const opts = makeOptions({ raw: '/enxt 1' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.handleNextSelect).toHaveBeenCalledWith('1');
+  });
 });
 
 describe('runChatSlashCommand — /f', () => {

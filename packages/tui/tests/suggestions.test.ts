@@ -5,7 +5,7 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
   it('returns no steps when there is no heading and no XML tag', () => {
     // Regression test: the legacy webui parser fell back to treating any
     // "1. foo" line in the message body as a step. The TUI's parser must
-    // not — a heading (emoji, markdown, plain, or <next_steps>) is required
+    // not — a canonical <next_steps> tag is required
     // before items are recognised.
     const text = [
       'Here is my plan:',
@@ -55,7 +55,7 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
     expect(stripped).toContain('Some postamble.');
   });
 
-  it('parses the 💡 emoji heading block', () => {
+  it('ignores legacy loose next-step headings', () => {
     const text = [
       'I did the thing.',
       '',
@@ -64,8 +64,8 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
       '2. Second',
     ].join('\n');
     const { stripped, texts } = parseNextSteps(text, true);
-    expect(texts).toEqual(['First', 'Second']);
-    expect(stripped).not.toContain('💡');
+    expect(texts).toEqual([]);
+    expect(stripped).toBe(text);
   });
 
   it('rejects the XML tag block when the closing tag is missing (strict mode)', () => {
@@ -137,22 +137,22 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
   });
 });
 
-describe('parseNextSteps (permissive mode — REPL store path)', () => {
-  it('accepts 💡, ##, plain "Next steps", and <next_steps> headings', () => {
-    // The plain "Next steps" heading requires a leading blank line per the
-    // permissive regex (\n{1,2}Next steps). The other three are accepted
-    // at any position.
-    const cases: Array<{ heading: string; prefix: string }> = [
-      { heading: '💡 Next steps', prefix: '' },
-      { heading: '## Next steps', prefix: '' },
-      { heading: 'Next steps', prefix: '\n' },
-      { heading: '<next_steps>', prefix: '' },
+describe('parseNextSteps (REPL store path)', () => {
+  it('requires the canonical XML block even when strict is false', () => {
+    const looseCases = [
+      '💡 Next steps\n1. First\n2. Second',
+      '## Next steps\n1. First\n2. Second',
+      '\nNext steps\n1. First\n2. Second',
+      'Next suggests\n1. First\n2. Second',
     ];
-    for (const { heading, prefix } of cases) {
-      const text = `${prefix}${heading}\n1. First\n2. Second`;
-      const { texts } = parseNextSteps(text, false);
-      expect(texts).toEqual(['First', 'Second']);
+    for (const text of looseCases) {
+      const { texts, stripped } = parseNextSteps(text, false);
+      expect(texts).toEqual([]);
+      expect(stripped).toBe(text);
     }
+
+    const { texts } = parseNextSteps('<next_steps>\n1. First\n2. Second\n</next_steps>', false);
+    expect(texts).toEqual(['First', 'Second']);
   });
 });
 

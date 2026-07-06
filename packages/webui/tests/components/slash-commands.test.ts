@@ -32,7 +32,7 @@ describe('SLASH_COMMANDS', () => {
     const names = new Set(SLASH_COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
     for (const command of [
       '/agents', '/compact!', '/enhance', '/load',
-      '/next', '/repair', '/resume', '/suggest',
+      '/next', '/enxt', '/repair', '/resume', '/suggest',
     ]) {
       expect(names.has(command)).toBe(true);
     }

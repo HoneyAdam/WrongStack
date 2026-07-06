@@ -36,7 +36,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/brain', category: 'Inspect', description: 'Brain status, risk ceiling (risk <level>), or decision support (ask <question>)' },
   { name: '/plan', category: 'Inspect', description: 'Strategic plan board: show, add, start, done, promote, clear' },
   { name: '/suggest', category: 'Inspect', aliases: ['/next-steps'], description: 'Ask the agent for concrete next steps' },
-  { name: '/next', category: 'Inspect', description: 'Show or run numbered next-step suggestions' },
+  { name: '/next', category: 'Inspect', aliases: ['/enxt'], description: 'Show or run numbered next-step suggestions' },
 
   // Agent / autonomy
   { name: '/review', category: 'Agent', aliases: ['/cr'], description: 'Ask the agent to review the pending changes (optional focus)' },

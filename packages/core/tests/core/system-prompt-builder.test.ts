@@ -38,6 +38,8 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(blocks[2]?.text).toContain('2026-05-13');
     expect(blocks[2]?.text).toContain(tmp);
     expect(blocks[3]?.text).toContain('<next_steps>');
+    expect(blocks[3]?.text).toContain('MUST be inside a `<next_steps>...</next_steps>` block');
+    expect(blocks[3]?.text).toContain('Never write loose endings');
   });
 
   it('loads system instructions from override files with project taking precedence', async () => {

@@ -48,8 +48,7 @@ import { CLI_VERSION } from './version.js';
 import { setAutoSuggestions } from './slash-commands/suggestion-store.js';
 
 /**
- * Extract "<next_steps>" or "💡 Next steps" suggestions from the agent's final output.
- * Delegated to parseNextSteps (permissive mode — accepts 💡, ##, plain, and <next_steps> headings).
+ * Extract canonical "<next_steps>" suggestions from the agent's final output.
  * Returns null when no suggestions are found.
  */
 /**
@@ -62,8 +61,8 @@ import { setAutoSuggestions } from './slash-commands/suggestion-store.js';
 const DEFAULT_MAX_CONSECUTIVE_AUTO_PROCEED = 50;
 
 /**
- * Extract "<next_steps>" or "💡 Next steps" suggestions from the agent's final output.
- * Delegated to parseNextSteps (permissive mode — accepts 💡, ##, plain, and <next_steps> headings).
+ * Extract canonical "<next_steps>" suggestions from the agent's final output.
+ * Loose "Next steps" prose is intentionally ignored; `/next` requires the tagged block.
  * Returns null when no suggestions are found.
  *
  * Gated on the live todo list: when the agent still has open todos
@@ -85,7 +84,7 @@ export function parseSuggestionsFromOutput(
     setAutoSuggestions([]);
     return null;
   }
-  const { texts, autoTexts } = parseNextSteps(finalText, false); // permissive: accept all heading variants
+  const { texts, autoTexts } = parseNextSteps(finalText, false); // assistant output: canonical <next_steps> only
   // Store auto suggestions in the shared store for YOLO+auto autonomy mode
   if (autoTexts.length > 0) {
     setAutoSuggestions(autoTexts);
@@ -98,7 +97,7 @@ export function parseSuggestionsFromOutput(
  * Used by YOLO+auto autonomy mode.
  */
 export function parseAutoSuggestionsFromOutput(finalText: string): string[] | null {
-  const { autoTexts } = parseNextSteps(finalText, false); // permissive: accept all heading variants
+  const { autoTexts } = parseNextSteps(finalText, false); // assistant output: canonical <next_steps> only
   return autoTexts.length > 0 ? autoTexts : null;
 }
 
@@ -962,7 +961,8 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
             // Suggest mode: ask the agent what to do next, show to user.
             const suggestPrompt =
               'Based on what you just did, suggest 3 concrete next steps. ' +
-              'Format: numbered list, one line each, no explanation. ' +
+              'If you include suggestions, wrap them in a balanced <next_steps>...</next_steps> block, ' +
+              'with one numbered prompt per line and no explanation. ' +
               'If there is nothing meaningful left, say "No further steps needed."';
             const suggestBlocks = [{ type: 'text' as const, text: suggestPrompt }];
             const suggestCtrl = new AbortController();

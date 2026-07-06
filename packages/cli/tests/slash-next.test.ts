@@ -20,6 +20,7 @@ describe('/next slash command', () => {
       const cmd = buildNextCommand(makeCtx());
       expect(cmd.name).toBe('next');
       expect(cmd.description).toMatch(/next-step suggestion/i);
+      expect(cmd.aliases).toContain('enxt');
       expect(cmd.help).toContain('/next on');
       expect(cmd.help).toContain('/next off');
       expect(cmd.help).toContain('/next toggle');

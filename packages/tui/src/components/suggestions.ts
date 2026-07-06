@@ -2,22 +2,20 @@
  * Unified next-steps suggestion parser.
  *
  * Three code paths feed into the suggestion store:
- *   1. TUI rendering  — entry.tsx parses "💡 Next steps" or "<next_steps>" from assistant output
- *   2. REPL store     — repl.ts parses "💡 Next steps" or "<next_steps>" from final agent output
+ *   1. TUI rendering  — entry.tsx parses only "<next_steps>" from assistant output
+ *   2. REPL store     — repl.ts parses only "<next_steps>" from final agent output
  *   3. /suggest output — suggest.ts parses LLM-generated numbered lists
  *
  * Heading mode (`requireHeading = true`):
- *   strict=true  — only 💡 emoji heading or <next_steps> tag (TUI rendering)
- *   strict=false — 💡, ##, plain "Next steps", or <next_steps> headings (REPL store)
+ *   Assistant-output paths accept only balanced <next_steps>...</next_steps> blocks.
+ *   Loose headings like "Next steps:" are intentionally ignored so `/next` only
+ *   activates for the canonical machine-readable format.
  *
  * Raw mode (`requireHeading = false`):
  *   Parses numbered/bullet items from anywhere in text (subagent /suggest output).
  *
- * Supported formats:
- *   💡 Next steps     (old emoji format)
- *   ## Next steps     (markdown heading)
- *   Next steps        (plain text)
- *   <next_steps>      (new XML tag format - preferred)
+ * Supported assistant-output format:
+ *   <next_steps>      (canonical XML tag format)
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -35,7 +33,7 @@ export interface ParseNextStepsResult {
   /** Flat string array — what gets stored in the suggestion store. */
   texts: string[];
   /**
-   * Content with the entire "💡 Next steps" or "<next_steps>" block removed.
+   * Content with the entire canonical "<next_steps>" block removed.
    * Used by entry.tsx to strip suggestions from the rendered message body.
    */
   stripped: string;
@@ -45,16 +43,8 @@ export interface ParseNextStepsResult {
 
 // ── Patterns ───────────────────────────────────────────────────────────────
 
-/** Matches the 💡 emoji heading OR <next_steps> tag before numbered items. */
-const STRICT_HEADING_RE = /(?:💡\s*Next steps?|<next_steps>)\s*\n+/i;
-
-/** Heading patterns tried in non-strict (permissive) mode. */
-const PERMISSIVE_HEADING_PATTERNS: Array<{ re: RegExp; label: string }> = [
-  { re: /💡\s*Next steps?\s*\n+/i, label: 'emoji' },
-  { re: /##?\s*Next steps?\s*\n+/i, label: 'markdown' },
-  { re: /\n{1,2}Next steps?\s*\n+/i, label: 'plain' },
-  { re: /<next_steps>\s*\n+/i, label: 'xml-tag' },
-];
+/** Matches the canonical <next_steps> tag before numbered items. */
+const NEXT_STEPS_TAG_RE = /<next_steps>\s*\n+/i;
 
 /** Matches an item line: "1. text", "1) text", "- text", "* text". */
 /** Also captures optional auto="true" attribute at the end. */
@@ -65,12 +55,11 @@ const MAX_STEPS = 6;
 // ── Core parser ─────────────────────────────────────────────────────────────
 
 /**
- * Parse "<next_steps>" or "💡 Next steps" blocks from assistant output (or raw numbered lines).
+ * Parse canonical "<next_steps>" blocks from assistant output (or raw numbered lines).
  *
  * @param content        — raw assistant message text or subagent output
- * @param strict        — when true, accepts 💡 emoji heading OR <next_steps> XML tag (TUI rendering).
- *                        when false, also accepts ## / plain "Next steps" headings (REPL store).
- * @param requireHeading — when true, a heading must precede the item list.
+ * @param strict         — retained for compatibility; assistant-output paths always require the canonical XML tag.
+ * @param requireHeading — when true, a canonical XML tag must precede the item list.
  *                        when false, numbered/bullet items are parsed from anywhere in text
  *                        (used by /suggest subagent output which has no heading).
  */
@@ -126,9 +115,8 @@ function parseRawNumbered(content: string): ParseNextStepsResult {
 }
 
 /** Parse a heading + item block (the main assistant-message path). */
-function parseWithHeading(content: string, strict: boolean): ParseNextStepsResult {
-  const headingRe = strict ? STRICT_HEADING_RE : buildPermissiveHeadingRe();
-  const headingMatch = headingRe.exec(content);
+function parseWithHeading(content: string, _strict: boolean): ParseNextStepsResult {
+  const headingMatch = NEXT_STEPS_TAG_RE.exec(content);
 
   if (!headingMatch) {
     return { steps: [], texts: [], stripped: content, autoTexts: [] };
@@ -170,23 +158,17 @@ function parseWithHeading(content: string, strict: boolean): ParseNextStepsResul
     return { steps: [], texts: [], stripped: content, autoTexts: [] };
   }
 
-  // In strict mode, if the heading was the <next_steps> XML form, require
-  // the closing tag — malformed XML should be rejected so the webui
-  // (which renders the same block) doesn't show raw text. The legacy 💡 /
-  // ## / plain "Next steps" form has no closing tag and is always accepted.
-  const headingWasXmlTag = headingMatch[0]!.startsWith('<');
-  if (strict && headingWasXmlTag && !afterHeading.includes('</next_steps>')) {
+  // Require a closing tag. Malformed XML is rejected so raw text remains
+  // visible instead of being partially consumed as automation input.
+  if (!afterHeading.includes('</next_steps>')) {
     return { steps: [], texts: [], stripped: content, autoTexts: [] };
   }
 
   const texts = steps.map((s) => s.text);
   const autoTexts = steps.filter((s) => s.auto).map((s) => s.text);
 
-  // Strip the entire heading + block from the content. The block to strip
-  // is everything from the heading's start to the end of the closing tag
-  // (or end of the last item, for the legacy 💡 / ## form). `blockEnd` is
-  // the LENGTH of that block, so `content.slice(blockStart + blockEnd)` is
-  // the rest of the content.
+  // Strip the entire XML block from the content. `blockEnd` is the LENGTH of
+  // that block, so `content.slice(blockStart + blockEnd)` is the rest of the content.
   const blockStart = headingMatch.index;
   const blockEnd = headingMatch[0]!.length + findBlockEnd(afterHeading, steps.length);
   const stripped =
@@ -197,18 +179,11 @@ function parseWithHeading(content: string, strict: boolean): ParseNextStepsResul
   return { steps, texts, stripped, autoTexts };
 }
 
-function buildPermissiveHeadingRe(): RegExp {
-  const variants = PERMISSIVE_HEADING_PATTERNS.map(({ re }) => `(?:${re.source})`).join('|');
-  return new RegExp(variants, 'i');
-}
-
 /**
  * Find the byte offset in `afterHeading` where the block ends.
  *
- * The block to strip is the items (one per line) plus the optional
- * `</next_steps>` closing tag (and the trailing newline after it). For the
- * legacy `💡` / `##` heading form, only the items are consumed. For the
- * `<next_steps>` form, the closing tag is consumed too.
+ * The block to strip is the items (one per line) plus the `</next_steps>`
+ * closing tag (and the trailing newline after it).
  *
  * Returns the byte offset of the first character AFTER the block. The
  * caller's `content.slice(0, blockStart) + content.slice(blockStart + offset)`
@@ -227,8 +202,8 @@ function findBlockEnd(afterHeading: string, stepCount: number): number {
     return end;
   }
 
-  // Legacy heading form (💡 / ## / plain "Next steps"): no closing tag.
-  // Consume `stepCount` item lines.
+  // Defensive fallback for malformed input that reached this helper without a
+  // closing tag. The caller rejects such input before using the stripped text.
   const lines = afterHeading.split('\n');
   let consumed = 0;
   let found = 0;

@@ -287,6 +287,22 @@ describe('<DiffBlock /> rendering', () => {
     expect(frame).toMatch(/17 -/);
   });
 
+  it('keeps washed diff rows below the terminal width to avoid pending-wrap spill', () => {
+    // Diff washes are painted with trailing spaces. If that padding reaches
+    // the final terminal cell, some terminals mark the row as pending-wrap;
+    // the reset/newline then appears as a one-column spill. The renderer
+    // therefore keeps one guarded column free when contentWidth is known.
+    const contentWidth = 60;
+    const body = 'x'.repeat(52);
+    const frame = renderDiffBlock([{ kind: 'add', text: `+${body}`, newLine: 1 }], {
+      useColor: true,
+      contentWidth,
+    });
+    for (const line of frame.split('\n').filter((line) => line.includes('x'))) {
+      expect(line.length).toBeLessThan(contentWidth);
+    }
+  });
+
   it('parseUnifiedDiff default cap is unbounded (Update tool renders every row)', () => {
     // The default Update tool path (extractDiffPreview → parseUnifiedDiff)
     // must surface every diff row, no matter how large, so a long edit is
