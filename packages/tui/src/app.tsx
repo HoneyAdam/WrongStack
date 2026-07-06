@@ -1133,7 +1133,14 @@ export function App({
   useEffect(() => {
     setStatuslineHiddenItems(hiddenItems);
     saveStatuslineHiddenItems(hiddenItems).catch?.((err: unknown) => {
-      console.error('[statusline] failed to persist hidden items:', err);
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'statusline.persist_hidden_failed',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
   }, [setStatuslineHiddenItems, saveStatuslineHiddenItems, hiddenItems]);
 

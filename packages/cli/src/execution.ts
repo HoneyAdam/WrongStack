@@ -922,7 +922,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
           onCoordinatorStart: (goal?: string) => {
             const coordinator = ensureAutonomousCoordinator();
             if (!coordinator) {
-              console.error('[coordinator] not ready — no director available');
+              console.error(
+                JSON.stringify({
+                  level: 'error',
+                  event: 'coordinator.not_ready',
+                  message: 'no director available',
+                  timestamp: new Date().toISOString(),
+                }),
+              );
               return;
             }
             if (state.coordinatorRun) return;
@@ -930,7 +937,14 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               .run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
               .then(() => undefined)
               .catch((err) => {
-                console.error('[coordinator] run() failed:', err);
+                console.error(
+                  JSON.stringify({
+                    level: 'error',
+                    event: 'coordinator.run_failed',
+                    message: err instanceof Error ? err.message : String(err),
+                    timestamp: new Date().toISOString(),
+                  }),
+                );
               })
               .finally(() => {
                 state.coordinatorRun = null;
