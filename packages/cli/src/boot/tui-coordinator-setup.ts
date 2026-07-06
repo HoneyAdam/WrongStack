@@ -162,7 +162,16 @@ export function setupAutonomousCoordinator(
         if (!coordinator) return;
         coordinator.run({ goal: goal ?? 'Improve the codebase', runUntilComplete: true })
           .then(() => undefined)
-          .catch((err: unknown) => console.error('[coordinator] run() failed:', err));
+          .catch((err: unknown) =>
+            console.error(
+              JSON.stringify({
+                level: 'error',
+                event: 'coordinator.run_failed',
+                message: err instanceof Error ? err.message : String(err),
+                timestamp: new Date().toISOString(),
+              }),
+            ),
+          );
       };
       coordinatorController['onCoordinatorStop'] = () => state.autonomousCoordinator?.stop();
       coordinatorController['onCoordinatorTasks'] = async () => {

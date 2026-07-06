@@ -156,7 +156,14 @@ export async function handleHqShortCircuit(
       try {
         await handle.close();
       } catch (err) {
-        console.error(`HQ server close error: ${String(err)}`);
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'hq.server_close_failed',
+            message: String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
       resolve();
     };

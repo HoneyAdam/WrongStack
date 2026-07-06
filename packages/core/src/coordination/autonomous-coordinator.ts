@@ -385,7 +385,15 @@ export class AutonomousCoordinator {
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    console.error(`[AutonomousCoordinator] stop signal received — shutting down (iteration ${this.iterationCount})`);
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        event: 'autonomous_coordinator.stop_signal',
+        message: 'stop signal received — shutting down',
+        iteration: this.iterationCount,
+        timestamp: new Date().toISOString(),
+      }),
+    );
   }
 
   /**

@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[ErrorBoundary]', error, info.componentStack);
+    console.error(error, info.componentStack);
     this.props.onError?.(error, info);
   }
 

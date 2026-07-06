@@ -134,7 +134,14 @@ export class LLMSelector implements MessageSelector {
         .trim();
     } catch (err) {
       if (err instanceof Error) {
-        console.warn('[LLMSelector] selector call failed, using recency fallback:', err.message);
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'llm_selector.call_failed',
+            message: `selector call failed, using recency fallback: ${err.message}`,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
       return this.fallbackSelect(messages, effectiveBudget);
     } finally {

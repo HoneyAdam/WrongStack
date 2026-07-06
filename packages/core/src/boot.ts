@@ -138,7 +138,15 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
       // --webui mode: boot without a configured provider. Patch in
       // defaults so the CLI proceeds to the webui server, which will
       // show the setup screen via needsSetup.
-      console.warn(`[${appLabel}] No provider configured — setup screen will be shown`);
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'boot.no_provider_configured',
+          app: appLabel,
+          message: 'No provider configured — setup screen will be shown',
+          timestamp: new Date().toISOString(),
+        }),
+      );
       const defaults = await configLoader.load({
         cliFlags: {
           ...flagsToConfigPatch(flags),

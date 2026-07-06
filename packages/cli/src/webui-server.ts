@@ -646,7 +646,17 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           );
         }
       },
-      { warn: (m) => console.warn(`[WebUI] Config watcher: ${m}`) },
+      {
+        warn: (m) =>
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'webui.config_watcher',
+              message: m,
+              timestamp: new Date().toISOString(),
+            }),
+          ),
+      },
     );
     credentialWatcherClose = watcher.close;
   }

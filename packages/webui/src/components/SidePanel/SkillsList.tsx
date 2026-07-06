@@ -164,7 +164,7 @@ export function SkillsList({ className }: { className?: string }) {
       const m = msg as { payload: { zipBase64: string; skillCount: number; error?: string } };
       setExportingAll(false);
       if (m.payload.error) {
-        console.error('[skills.export]', m.payload.error);
+        console.error(m.payload.error);
       } else {
         const binary = atob(m.payload.zipBase64);
         const bytes = new Uint8Array(binary.length);

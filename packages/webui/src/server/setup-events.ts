@@ -703,7 +703,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(statusFile, JSON.stringify(e, null, 2), 'utf-8');
       } catch (err) {
-        console.error('[setup-events] Failed to write status.json:', err);
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'setup_events.status_write_failed',
+            message: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
     }
   });
@@ -851,7 +858,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
           console.log(`[setup-events] Watching ${projectsDir} for status.json changes (hash-filtered, debounced)`);
         }
       } catch (err) {
-        console.error('[setup-events] Failed to start status file watcher:', err);
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'setup_events.status_watcher_start_failed',
+            message: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
     };
 

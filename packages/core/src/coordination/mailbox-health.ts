@@ -15,7 +15,7 @@
  *     mailbox,
  *     url: 'http://127.0.0.1:7788',
  *     probeIntervalMs: 15_000,
- *     onAlert: (event) => console.warn('mailbox bridge', event.kind),
+ *     onAlert: (event) => console.warn(event),
  *   });
  *   await watchdog.start();
  *   // ...later...

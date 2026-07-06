@@ -345,7 +345,14 @@ export class DirectorStateCheckpoint {
         mode: 0o600,
       });
     } catch (err) {
-      console.warn('[director-state] checkpoint write failed:', toErrorMessage(err));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'director_state.checkpoint_write_failed',
+          message: toErrorMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     } finally {
       this.writing = false;
       /* v8 ignore start -- concurrency-defensive: rewriteRequested is only set by an overlapping persist() */

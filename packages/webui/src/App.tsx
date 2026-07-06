@@ -436,7 +436,7 @@ function AppInner() {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         publishDesktopCommandAck(requestId, false, message);
-        console.error('Failed to handle desktop command:', err);
+        console.error(err);
       }
     };
 

@@ -1030,7 +1030,14 @@ export class ACPSession {
     // Anything else: log to stderr and ignore. Don't crash.
     if (msg.method) {
       // eslint-disable-next-line no-console
-      console.warn(`[acp-session] unhandled method: ${msg.method}`);
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'acp_session.unhandled_method',
+          method: msg.method,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
   }
 
