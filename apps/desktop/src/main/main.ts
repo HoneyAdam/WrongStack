@@ -1,3 +1,15 @@
+/**
+ * WrongStack Desktop - Electron Application Entry Point
+ *
+ * Architecture:
+ * - Main state is managed here (centralized for simplicity)
+ * - Modules handle specific concerns:
+ *   - layout/     → Window layout and sizing
+ *   - menu/       → Application menu building
+ *   - ipc-handlers/ → IPC message handlers
+ *   - runtime/    → Project/runtime operations
+ *   - state/      → Types and constants
+ */
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { wstackGlobalRoot } from '@wrongstack/core/utils';
@@ -11,7 +23,6 @@ import {
   shell,
   WebContentsView,
   type BaseWindowConstructorOptions,
-  type MenuItemConstructorOptions,
 } from 'electron';
 import type {
   DesktopRuntimeRecord,
@@ -29,6 +40,7 @@ import {
   preloadPath,
   rendererIndexPath,
   webuiPreloadPath,
+  desktopSettingsWorkspaceRoot,
 } from './runtime-manager.js';
 import { watchProviderConfig } from '@wrongstack/core/storage';
 import {
@@ -36,22 +48,27 @@ import {
   normalizeDesktopWebuiCommand,
 } from './webui-command-bridge.js';
 
-const manager = new DesktopRuntimeManager();
-const bridge = new DesktopAgentBridge();
+// Layout module
+import { layoutViews, getSidebarWidth } from './layout/index.js';
 
+// Constants
 const OPEN_EXTERNAL_ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
-const SIDEBAR_WIDTH_WIDE = 292;
-const SIDEBAR_WIDTH_MEDIUM = 276;
-const SIDEBAR_WIDTH_NARROW = 252;
-const SIDEBAR_WIDTH_COLLAPSED = 56;
 const MIN_WINDOW_WIDTH = 760;
 const MIN_WINDOW_HEIGHT = 520;
 const MAX_PENDING_WEBUI_COMMANDS = 50;
 const MAX_PENDING_FLUSH_ATTEMPTS = 80;
 const WEBUI_COMMAND_FALLBACK_MS = 350;
 const WEBUI_COMMAND_ACK_TIMEOUT_MS = 2_000;
+
 app.setAppUserModelId('com.wrongstack.desktop');
 app.setPath('userData', path.join(wstackGlobalRoot(), 'desktop', 'electron-profile'));
+
+// ============================================================================
+// Application State
+// ============================================================================
+
+const manager = new DesktopRuntimeManager();
+const bridge = new DesktopAgentBridge();
 
 interface DesktopWebuiRuntimeView {
   runtimeId: string;
@@ -72,6 +89,21 @@ interface PendingWebuiCommandAck {
   resolve: (handled: boolean) => void;
 }
 
+let mainWindow: BaseWindow | null = null;
+let shellView: WebContentsView | null = null;
+const webuiViews = new Map<string, DesktopWebuiRuntimeView>();
+let activeWebuiRuntimeId: string | null = null;
+let webuiStatus: DesktopWebuiStatusSnapshot = { runtimeId: null, status: 'idle' };
+let webuiCommandSequence = 0;
+let shellSidebarCollapsed = false;
+const pendingWebuiCommandAcks = new Map<string, PendingWebuiCommandAck>();
+let saveWindowStateTimer: ReturnType<typeof setTimeout> | null = null;
+let quittingAfterCleanup = false;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
 function safeOpenExternal(target: string): void {
   let protocol: string;
   try {
@@ -84,95 +116,69 @@ function safeOpenExternal(target: string): void {
   }
 }
 
-let mainWindow: BaseWindow | null = null;
-let shellView: WebContentsView | null = null;
-const webuiViews = new Map<string, DesktopWebuiRuntimeView>();
-let activeWebuiRuntimeId: string | null = null;
-let webuiStatus: DesktopWebuiStatusSnapshot = { runtimeId: null, status: 'idle' };
-let webuiCommandSequence = 0;
-let shellSidebarCollapsed = false;
-const pendingWebuiCommandAcks = new Map<string, PendingWebuiCommandAck>();
-let saveWindowStateTimer: ReturnType<typeof setTimeout> | null = null;
-let quittingAfterCleanup = false;
-
-async function createWindow(): Promise<void> {
-  await manager.init();
-  // Apply the shared display language from config before the first menu build.
-  const bootLocale = await readUiLocale();
-  if (bootLocale) setMainLocale(bootLocale);
-  configureApplicationMenu();
-  const windowState = validatedWindowState(manager.getWindowState());
-  const windowOptions: BaseWindowConstructorOptions = {
-    width: windowState?.width ?? 1320,
-    height: windowState?.height ?? 860,
-    minWidth: MIN_WINDOW_WIDTH,
-    minHeight: MIN_WINDOW_HEIGHT,
-    title: tMain('windowTitle'),
-    backgroundColor: '#111217',
-  };
-  if (windowState?.x !== undefined) windowOptions.x = windowState.x;
-  if (windowState?.y !== undefined) windowOptions.y = windowState.y;
-  mainWindow = new BaseWindow(windowOptions);
-  if (windowState?.maximized) {
-    mainWindow.maximize();
+function sameOrigin(candidate: string, base: string | null): boolean {
+  if (!base) return false;
+  try {
+    return new URL(candidate).origin === new URL(base).origin;
+  } catch {
+    return false;
   }
-
-  shellView = new WebContentsView({
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
-  mainWindow.contentView.addChildView(shellView);
-  // Once the shell renderer has loaded, push the config-backed display language
-  // so its chrome (and localStorage cache) follows the shared setting from boot.
-  shellView.webContents.once('did-finish-load', () => {
-    shellView?.webContents.send(IPC.localeChanged, getMainLocale());
-  });
-  shellView.webContents.setWindowOpenHandler(({ url }) => {
-    safeOpenExternal(url);
-    return { action: 'deny' };
-  });
-  await shellView.webContents.loadFile(rendererIndexPath());
-
-  mainWindow.on('resize', layoutViews);
-  mainWindow.on('resize', scheduleWindowStateSave);
-  mainWindow.on('move', scheduleWindowStateSave);
-  mainWindow.on('maximize', scheduleWindowStateSave);
-  mainWindow.on('unmaximize', scheduleWindowStateSave);
-  mainWindow.on('close', () => {
-    if (saveWindowStateTimer) {
-      clearTimeout(saveWindowStateTimer);
-      saveWindowStateTimer = null;
-    }
-    void saveWindowState();
-  });
-  mainWindow.on('closed', () => {
-    if (saveWindowStateTimer) {
-      clearTimeout(saveWindowStateTimer);
-      saveWindowStateTimer = null;
-    }
-    mainWindow = null;
-    disposeAllWebuiEntries();
-    shellView = null;
-    activeWebuiRuntimeId = null;
-    webuiStatus = { runtimeId: null, status: 'idle' };
-  });
-  layoutViews();
-  syncActiveWebuiView();
-  void restoreLastWorkspace();
 }
 
-function layoutViews(): void {
-  if (!mainWindow || !shellView) return;
-  const size = mainWindow.getContentSize();
-  const width = size[0] ?? 0;
-  const height = size[1] ?? 0;
-  shellView.setBounds({ x: 0, y: 0, width, height });
-  layoutWebuiViews(width, height);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
+
+function runtimeWsUrlOrThrow(runtimeId: string): string {
+  const wsUrl = manager.getRuntimeWsUrlWithToken(runtimeId);
+  if (!wsUrl) throw new Error(`Runtime not found: ${runtimeId}`);
+  return wsUrl;
+}
+
+// ============================================================================
+// State Helpers
+// ============================================================================
+
+function setShellSidebarCollapsed(collapsed: boolean): void {
+  shellSidebarCollapsed = collapsed;
+  layoutWebuiViews();
+  configureApplicationMenu();
+  if (!shellView || shellView.webContents.isDestroyed()) return;
+  shellView.webContents.send(IPC.shellSidebarCollapsedChanged, shellSidebarCollapsed);
+}
+
+function menuRelevantPrefsChanged(
+  previous: DesktopWebuiPrefs | undefined,
+  next: DesktopWebuiPrefs | undefined,
+): boolean {
+  return (
+    previous?.yolo !== next?.yolo ||
+    previous?.nextPrediction !== next?.nextPrediction ||
+    previous?.contextAutoCompact !== next?.contextAutoCompact
+  );
+}
+
+function setEntryWebuiStatus(
+  entry: DesktopWebuiRuntimeView,
+  next: DesktopWebuiStatusSnapshot,
+): void {
+  const previousPrefs = entry.status.prefs;
+  entry.status = {
+    ...next,
+    prefs: next.prefs ?? entry.status.prefs,
+    pendingCommands: entry.pendingCommands.length || undefined,
+  };
+  if (activeWebuiRuntimeId === entry.runtimeId) {
+    publishWebuiStatus(entry.status);
+    if (menuRelevantPrefsChanged(previousPrefs, entry.status.prefs)) {
+      configureApplicationMenu();
+    }
+  }
+}
+
+// ============================================================================
+// Window State
+// ============================================================================
 
 function scheduleWindowStateSave(): void {
   if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer);
@@ -194,17 +200,61 @@ async function saveWindowState(): Promise<void> {
   });
 }
 
-function layoutWebuiViews(windowWidth?: number, windowHeight?: number): void {
+function validatedWindowState(state: DesktopWindowState | null): DesktopWindowState | null {
+  if (!state) return null;
+  if (state.width < MIN_WINDOW_WIDTH || state.height < MIN_WINDOW_HEIGHT) return null;
+  if (state.x === undefined || state.y === undefined) return state;
+  const candidate = {
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
+  };
+  const visibleOnSomeDisplay = screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return rectanglesIntersect(candidate, area);
+  });
+  return visibleOnSomeDisplay ? state : null;
+}
+
+function rectanglesIntersect(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
+}
+
+// ============================================================================
+// Layout Functions
+// ============================================================================
+
+function layoutViews(): void {
+  if (!mainWindow || !shellView) return;
+  const size = mainWindow.getContentSize();
+  const width = size[0] ?? 0;
+  const height = size[1] ?? 0;
+  shellView.setBounds({ x: 0, y: 0, width, height });
+  layoutWebuiViews();
+}
+
+function layoutWebuiViews(): void {
   if (!mainWindow) return;
   const size = mainWindow.getContentSize();
-  const width = windowWidth ?? size[0] ?? 0;
-  const height = windowHeight ?? size[1] ?? 0;
+  const width = size[0] ?? 0;
+  const height = size[1] ?? 0;
   const snapshot = manager.snapshot();
   const active = snapshot.runtimes.find((runtime) => runtime.id === snapshot.activeRuntimeId);
-  const sidebarWidth = desktopSidebarWidth(width);
+  const sidebarWidth = getSidebarWidth(width, shellSidebarCollapsed);
   const contentWidth = Math.max(0, width - sidebarWidth);
+
   for (const entry of webuiViews.values()) {
-    if (active?.id === entry.runtimeId && active.status === 'running') {
+    const runtime = snapshot.runtimes.find((r) => r.id === entry.runtimeId);
+    if (active?.id === entry.runtimeId && runtime?.status === 'running') {
       entry.view.setBounds({ x: sidebarWidth, y: 0, width: contentWidth, height });
     } else {
       entry.view.setBounds({ x: sidebarWidth, y: 0, width: 0, height });
@@ -212,20 +262,9 @@ function layoutWebuiViews(windowWidth?: number, windowHeight?: number): void {
   }
 }
 
-function desktopSidebarWidth(windowWidth: number): number {
-  if (shellSidebarCollapsed) return SIDEBAR_WIDTH_COLLAPSED;
-  if (windowWidth < 900) return SIDEBAR_WIDTH_NARROW;
-  if (windowWidth < 1180) return SIDEBAR_WIDTH_MEDIUM;
-  return SIDEBAR_WIDTH_WIDE;
-}
-
-function setShellSidebarCollapsed(collapsed: boolean): void {
-  shellSidebarCollapsed = collapsed;
-  layoutWebuiViews();
-  configureApplicationMenu();
-  if (!shellView || shellView.webContents.isDestroyed()) return;
-  shellView.webContents.send(IPC.shellSidebarCollapsedChanged, shellSidebarCollapsed);
-}
+// ============================================================================
+// WebUI View Management
+// ============================================================================
 
 function ensureWebuiEntry(runtimeId: string): DesktopWebuiRuntimeView | null {
   if (!mainWindow) return null;
@@ -240,6 +279,7 @@ function ensureWebuiEntry(runtimeId: string): DesktopWebuiRuntimeView | null {
       sandbox: false,
     },
   });
+
   const entry: DesktopWebuiRuntimeView = {
     runtimeId,
     view,
@@ -256,36 +296,34 @@ function ensureWebuiEntry(runtimeId: string): DesktopWebuiRuntimeView | null {
     safeOpenExternal(url);
     return { action: 'deny' };
   });
+
   view.webContents.on('will-navigate', (event, url) => {
     if (sameOrigin(url, entry.url)) return;
     event.preventDefault();
     safeOpenExternal(url);
   });
+
   view.webContents.on('did-start-loading', () => {
     if (webuiViews.get(runtimeId) !== entry) return;
     entry.bridgeReady = false;
     setEntryWebuiStatus(entry, { runtimeId, status: 'loading' });
   });
+
   view.webContents.on('did-finish-load', () => {
     if (webuiViews.get(runtimeId) !== entry) return;
     schedulePendingWebuiFlush(entry);
-    // Seed the locale so a webui mounted AFTER the shell locale was set
-    // (e.g. user picks a language, then opens a project) renders in the
-    // current language on first paint instead of falling back to en.
     try {
       entry.view.webContents.send(IPC.webuiLocaleChanged, getMainLocale());
     } catch {
       /* webui was destroyed mid-send */
     }
   });
+
   view.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     if (webuiViews.get(runtimeId) !== entry || errorCode === -3) return;
-    setEntryWebuiStatus(entry, {
-      runtimeId,
-      status: 'error',
-      error: errorDescription,
-    });
+    setEntryWebuiStatus(entry, { runtimeId, status: 'error', error: errorDescription });
   });
+
   view.webContents.on('render-process-gone', (_event, details) => {
     if (webuiViews.get(runtimeId) !== entry) return;
     setEntryWebuiStatus(entry, {
@@ -294,8 +332,56 @@ function ensureWebuiEntry(runtimeId: string): DesktopWebuiRuntimeView | null {
       error: `WebUI renderer exited: ${details.reason}`,
     });
   });
+
   webuiViews.set(runtimeId, entry);
   return entry;
+}
+
+function attachWebuiEntry(entry: DesktopWebuiRuntimeView): void {
+  if (!mainWindow) return;
+  if (entry.attached) return;
+  mainWindow.contentView.addChildView(entry.view);
+  entry.attached = true;
+}
+
+function disposeWebuiEntry(entry: DesktopWebuiRuntimeView): void {
+  webuiViews.delete(entry.runtimeId);
+  entry.pendingCommands.length = 0;
+  settlePendingWebuiCommandAcksForRuntime(entry.runtimeId, false);
+  if (entry.pendingFlushTimer) {
+    clearTimeout(entry.pendingFlushTimer);
+    entry.pendingFlushTimer = null;
+  }
+  if (mainWindow && entry.attached) {
+    mainWindow.contentView.removeChildView(entry.view);
+  }
+  entry.attached = false;
+  if (!entry.view.webContents.isDestroyed()) {
+    entry.view.webContents.close();
+  }
+  if (activeWebuiRuntimeId === entry.runtimeId) activeWebuiRuntimeId = null;
+}
+
+function disposeAllWebuiEntries(): void {
+  for (const entry of Array.from(webuiViews.values())) {
+    disposeWebuiEntry(entry);
+  }
+  webuiViews.clear();
+}
+
+function pruneWebuiEntries(runtimeIds: string[]): void {
+  const live = new Set(runtimeIds);
+  for (const [id, entry] of webuiViews) {
+    if (!live.has(id)) {
+      disposeWebuiEntry(entry);
+    }
+  }
+}
+
+function findWebuiEntryBySenderId(senderId: number): DesktopWebuiRuntimeView | undefined {
+  return Array.from(webuiViews.values()).find(
+    (candidate) => candidate.view.webContents.id === senderId,
+  );
 }
 
 function syncActiveWebuiView(): void {
@@ -342,6 +428,10 @@ function syncActiveWebuiView(): void {
   }
 }
 
+// ============================================================================
+// State Broadcasting
+// ============================================================================
+
 function broadcastState(): void {
   if (!shellView || shellView.webContents.isDestroyed()) return;
   shellView.webContents.send(IPC.stateChanged, manager.snapshot());
@@ -353,152 +443,43 @@ function publishWebuiStatus(next: DesktopWebuiStatusSnapshot): void {
   shellView.webContents.send(IPC.webuiStatusChanged, webuiStatus);
 }
 
-function setEntryWebuiStatus(
-  entry: DesktopWebuiRuntimeView,
-  next: DesktopWebuiStatusSnapshot,
-): void {
-  const previousPrefs = entry.status.prefs;
-  entry.status = {
-    ...next,
-    prefs: next.prefs ?? entry.status.prefs,
-    pendingCommands: entry.pendingCommands.length || undefined,
-  };
-  if (activeWebuiRuntimeId === entry.runtimeId) {
-    publishWebuiStatus(entry.status);
-    if (menuRelevantPrefsChanged(previousPrefs, entry.status.prefs)) {
-      configureApplicationMenu();
-    }
-  }
-}
-
-function menuRelevantPrefsChanged(
-  previous: DesktopWebuiPrefs | undefined,
-  next: DesktopWebuiPrefs | undefined,
-): boolean {
-  return (
-    previous?.yolo !== next?.yolo ||
-    previous?.nextPrediction !== next?.nextPrediction ||
-    previous?.contextAutoCompact !== next?.contextAutoCompact
-  );
-}
-
-function runtimeWsUrlOrThrow(runtimeId: string): string {
-  const wsUrl = manager.getRuntimeWsUrlWithToken(runtimeId);
-  if (!wsUrl) throw new Error(`Runtime not found: ${runtimeId}`);
-  return wsUrl;
-}
-
 function broadcastLocaleToEmbeddedWebuis(locale: string): void {
-  // Push the locale into every running WebUI view so the React WebUI can
-  // re-render in the new language instantly (the config-file watcher → WS
-  // prefs.updated round-trip would also work but adds a noticeable delay).
   for (const entry of webuiViews.values()) {
     if (entry.view.webContents.isDestroyed()) continue;
     try {
       entry.view.webContents.send(IPC.webuiLocaleChanged, locale);
     } catch {
-      /* destroyed mid-send — ignore */
+      /* destroyed mid-send */
     }
   }
 }
 
-function registerIpc(): void {
-  ipcMain.handle(IPC.getState, () => manager.snapshot());
-  ipcMain.handle(IPC.getConversation, (_event, runtimeId: string) => bridge.snapshot(runtimeId));
-  ipcMain.handle(IPC.getWebuiStatus, () => webuiStatus);
-  ipcMain.handle(IPC.navigateWebui, async (_event, command: unknown) =>
-    dispatchWebuiCommand(command),
-  );
-  ipcMain.handle(IPC.reloadWebui, async () => reloadActiveWebuiView());
-  ipcMain.handle(IPC.setShellSidebarCollapsed, (_event, collapsed: unknown) => {
-    setShellSidebarCollapsed(collapsed === true);
-    return true;
-  });
-  ipcMain.handle(IPC.openSettings, async () => openSettings());
-  ipcMain.handle(IPC.openProjectSession, async (_event, runtimeId?: string | undefined) => {
-    return openProjectSession(runtimeId);
-  });
-  ipcMain.handle(IPC.openProject, async (_event, requestedRoot?: string | undefined) => {
-    return openProject(requestedRoot);
-  });
-  ipcMain.handle(IPC.registerProject, async (_event, requestedRoot?: string | undefined) => {
-    return registerProject(requestedRoot);
-  });
-  ipcMain.handle(IPC.unregisterProject, async (_event, root: string) => {
-    return unregisterProject(root);
-  });
-  ipcMain.handle(IPC.activateRuntime, async (_event, id: string) => {
-    return activateRuntime(id);
-  });
-  ipcMain.handle(IPC.closeRuntime, async (_event, id: string) => {
-    return closeRuntime(id);
-  });
-  ipcMain.handle(IPC.sendMessage, async (_event, id: string, content: string) =>
-    bridge.sendMessage(id, runtimeWsUrlOrThrow(id), content),
-  );
-  ipcMain.handle(IPC.abortRuntime, async (_event, id: string) =>
-    bridge.abort(id, runtimeWsUrlOrThrow(id)),
-  );
-  ipcMain.handle(IPC.openRuntimeInBrowser, async (_event, id: string) => {
-    const url = manager.getRuntimeUrlWithToken(id);
-    if (url) safeOpenExternal(url);
-  });
-  ipcMain.handle(IPC.revealRuntimeRoot, async (_event, id: string) => {
-    const runtime = manager.getRuntime(id);
-    if (runtime) await shell.openPath(runtime.root);
-  });
-  ipcMain.on(IPC.webuiReadyChanged, (event, ready: boolean) => {
-    const entry = findWebuiEntryBySenderId(event.sender.id);
-    if (!entry) return;
-    entry.bridgeReady = ready === true;
-    if (entry.bridgeReady) {
-      setEntryWebuiStatus(entry, { ...entry.status, status: 'ready' });
-      schedulePendingWebuiFlush(entry);
-    } else if (entry.status.status === 'ready') {
-      setEntryWebuiStatus(entry, { ...entry.status, status: 'loading' });
-    }
-  });
-  ipcMain.on(IPC.webuiPrefsChanged, (event, prefs: unknown) => {
-    const entry = findWebuiEntryBySenderId(event.sender.id);
-    if (!entry) return;
-    const sanitized = sanitizeWebuiPrefs(prefs);
-    if (Object.keys(sanitized).length === 0) return;
-    setEntryWebuiStatus(entry, {
-      ...entry.status,
-      prefs: { ...(entry.status.prefs ?? {}), ...sanitized },
-    });
-  });
-  ipcMain.on(
-    IPC.webuiCommandAck,
-    (event, requestId: unknown, handled: unknown, _message?: unknown) => {
-      const entry = findWebuiEntryBySenderId(event.sender.id);
-      if (!entry || typeof requestId !== 'string') return;
-      const pending = pendingWebuiCommandAcks.get(requestId);
-      if (!pending || pending.runtimeId !== entry.runtimeId) return;
-      settlePendingWebuiCommandAck(requestId, handled === true);
-    },
-  );
+// ============================================================================
+// WebUI Command Dispatch
+// ============================================================================
+
+function getActiveWebuiEntry(): DesktopWebuiRuntimeView | undefined {
+  const activeId = manager.snapshot().activeRuntimeId;
+  return activeId ? webuiViews.get(activeId) : undefined;
 }
 
-function findWebuiEntryBySenderId(senderId: number): DesktopWebuiRuntimeView | undefined {
-  return Array.from(webuiViews.values()).find(
-    (candidate) => candidate.view.webContents.id === senderId,
-  );
+async function isWebuiCommandBridgeReady(entry: DesktopWebuiRuntimeView): Promise<boolean> {
+  if (webuiViews.get(entry.runtimeId) !== entry || !entry.url) return false;
+  return entry.bridgeReady;
 }
 
-function sanitizeWebuiPrefs(prefs: unknown): DesktopWebuiPrefs {
-  const next: DesktopWebuiPrefs = {};
-  if (!isRecord(prefs)) return next;
-  if (typeof prefs['yolo'] === 'boolean') next.yolo = prefs['yolo'];
-  if (typeof prefs['nextPrediction'] === 'boolean') next.nextPrediction = prefs['nextPrediction'];
-  if (typeof prefs['contextAutoCompact'] === 'boolean') {
-    next.contextAutoCompact = prefs['contextAutoCompact'];
+function queueWebuiCommand(entry: DesktopWebuiRuntimeView, command: DesktopWebuiCommand): void {
+  entry.pendingCommands.push(command);
+  if (entry.pendingCommands.length > MAX_PENDING_WEBUI_COMMANDS) {
+    entry.pendingCommands.splice(0, entry.pendingCommands.length - MAX_PENDING_WEBUI_COMMANDS);
   }
-  return next;
+  entry.pendingFlushAttempts = 0;
+  setEntryWebuiStatus(entry, entry.status);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+function nextWebuiCommandRequestId(runtimeId: string): string {
+  webuiCommandSequence += 1;
+  return `${runtimeId}:${Date.now()}:${webuiCommandSequence}`;
 }
 
 async function dispatchWebuiCommand(commandInput: unknown): Promise<boolean> {
@@ -506,6 +487,7 @@ async function dispatchWebuiCommand(commandInput: unknown): Promise<boolean> {
   if (!command) return false;
   const entry = getActiveWebuiEntry();
   if (!entry?.url) return false;
+
   if (entry.status.status !== 'ready') {
     if (!entry.view.webContents.isLoading() && entry.status.status !== 'error') {
       return dispatchWebuiCommandNow(entry, command);
@@ -514,6 +496,7 @@ async function dispatchWebuiCommand(commandInput: unknown): Promise<boolean> {
     schedulePendingWebuiFlush(entry);
     return true;
   }
+
   if (!(await isWebuiCommandBridgeReady(entry))) {
     if (!entry.view.webContents.isLoading()) {
       return dispatchWebuiCommandNow(entry, command);
@@ -522,6 +505,7 @@ async function dispatchWebuiCommand(commandInput: unknown): Promise<boolean> {
     schedulePendingWebuiFlush(entry);
     return true;
   }
+
   return dispatchWebuiCommandNow(entry, command);
 }
 
@@ -551,21 +535,25 @@ async function dispatchWebuiCommandNow(
   if (webuiViews.get(entry.runtimeId) !== entry || !entry.url) return false;
   const requestId = nextWebuiCommandRequestId(entry.runtimeId);
   const commandWithRequestId: DesktopWebuiCommand = { ...command, requestId };
+
   return new Promise<boolean>((resolve) => {
     const fallbackTimer = setTimeout(() => {
       const pending = pendingWebuiCommandAcks.get(requestId);
       if (!pending) return;
       sendWebuiCommandDomFallback(entry, commandWithRequestId);
     }, WEBUI_COMMAND_FALLBACK_MS);
+
     const timer = setTimeout(() => {
       settlePendingWebuiCommandAck(requestId, false);
     }, WEBUI_COMMAND_ACK_TIMEOUT_MS);
+
     pendingWebuiCommandAcks.set(requestId, {
       runtimeId: entry.runtimeId,
       timer,
       fallbackTimer,
       resolve,
     });
+
     try {
       entry.view.webContents.send(IPC.webuiCommand, commandWithRequestId);
       if (activeWebuiRuntimeId === entry.runtimeId) {
@@ -585,11 +573,6 @@ function sendWebuiCommandDomFallback(
   void entry.view.webContents
     .executeJavaScript(buildWebuiCommandFallbackScript(command), true)
     .catch(() => undefined);
-}
-
-function nextWebuiCommandRequestId(runtimeId: string): string {
-  webuiCommandSequence += 1;
-  return `${runtimeId}:${Date.now()}:${webuiCommandSequence}`;
 }
 
 function settlePendingWebuiCommandAck(requestId: string, handled: boolean): void {
@@ -619,14 +602,17 @@ function settlePendingWebuiCommandAcksForRuntime(runtimeId: string, handled: boo
 async function flushPendingWebuiCommands(entry: DesktopWebuiRuntimeView): Promise<void> {
   if (webuiViews.get(entry.runtimeId) !== entry) return;
   if (entry.pendingCommands.length === 0) return;
+
   if (!(await isWebuiCommandBridgeReady(entry))) {
     entry.pendingFlushAttempts += 1;
     const canFallback = !entry.view.webContents.isLoading() && entry.pendingFlushAttempts >= 4;
+
     if (!canFallback && entry.pendingFlushAttempts <= MAX_PENDING_FLUSH_ATTEMPTS) {
       schedulePendingWebuiFlush(entry);
       setEntryWebuiStatus(entry, entry.status);
       return;
     }
+
     if (!canFallback) {
       entry.pendingCommands.length = 0;
       setEntryWebuiStatus(entry, {
@@ -637,9 +623,11 @@ async function flushPendingWebuiCommands(entry: DesktopWebuiRuntimeView): Promis
       return;
     }
   }
+
   entry.pendingFlushAttempts = 0;
   const commands = entry.pendingCommands.splice(0, entry.pendingCommands.length);
   setEntryWebuiStatus(entry, entry.status);
+
   for (const command of commands) {
     await dispatchWebuiCommandNow(entry, command).catch(() => undefined);
   }
@@ -653,65 +641,9 @@ function schedulePendingWebuiFlush(entry: DesktopWebuiRuntimeView): void {
   }, 250);
 }
 
-async function isWebuiCommandBridgeReady(entry: DesktopWebuiRuntimeView): Promise<boolean> {
-  if (webuiViews.get(entry.runtimeId) !== entry || !entry.url) return false;
-  return entry.bridgeReady;
-}
-
-function queueWebuiCommand(entry: DesktopWebuiRuntimeView, command: DesktopWebuiCommand): void {
-  entry.pendingCommands.push(command);
-  if (entry.pendingCommands.length > MAX_PENDING_WEBUI_COMMANDS) {
-    entry.pendingCommands.splice(0, entry.pendingCommands.length - MAX_PENDING_WEBUI_COMMANDS);
-  }
-  entry.pendingFlushAttempts = 0;
-  setEntryWebuiStatus(entry, entry.status);
-}
-
-function getActiveWebuiEntry(): DesktopWebuiRuntimeView | undefined {
-  const activeId = manager.snapshot().activeRuntimeId;
-  return activeId ? webuiViews.get(activeId) : undefined;
-}
-
-function attachWebuiEntry(entry: DesktopWebuiRuntimeView): void {
-  if (!mainWindow) return;
-  if (entry.attached) return;
-  mainWindow.contentView.addChildView(entry.view);
-  entry.attached = true;
-}
-
-function pruneWebuiEntries(runtimeIds: string[]): void {
-  const live = new Set(runtimeIds);
-  for (const [id, entry] of webuiViews) {
-    if (!live.has(id)) {
-      disposeWebuiEntry(entry);
-    }
-  }
-}
-
-function disposeWebuiEntry(entry: DesktopWebuiRuntimeView): void {
-  webuiViews.delete(entry.runtimeId);
-  entry.pendingCommands.length = 0;
-  settlePendingWebuiCommandAcksForRuntime(entry.runtimeId, false);
-  if (entry.pendingFlushTimer) {
-    clearTimeout(entry.pendingFlushTimer);
-    entry.pendingFlushTimer = null;
-  }
-  if (mainWindow && entry.attached) {
-    mainWindow.contentView.removeChildView(entry.view);
-  }
-  entry.attached = false;
-  if (!entry.view.webContents.isDestroyed()) {
-    entry.view.webContents.close();
-  }
-  if (activeWebuiRuntimeId === entry.runtimeId) activeWebuiRuntimeId = null;
-}
-
-function disposeAllWebuiEntries(): void {
-  for (const entry of Array.from(webuiViews.values())) {
-    disposeWebuiEntry(entry);
-  }
-  webuiViews.clear();
-}
+// ============================================================================
+// Project/Runtime Operations
+// ============================================================================
 
 async function openProject(
   requestedRoot?: string | undefined,
@@ -791,14 +723,18 @@ async function openSettings(): Promise<ReturnType<DesktopRuntimeManager['snapsho
   return manager.snapshot();
 }
 
-async function activateRuntime(id: string): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
+async function activateRuntime(
+  id: string,
+): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
   await manager.activateRuntime(id);
   syncActiveWebuiView();
   broadcastState();
   return manager.snapshot();
 }
 
-async function closeRuntime(id: string): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
+async function closeRuntime(
+  id: string,
+): Promise<ReturnType<DesktopRuntimeManager['snapshot']>> {
   bridge.close(id);
   await manager.closeRuntime(id);
   const entry = webuiViews.get(id);
@@ -817,6 +753,10 @@ async function restoreLastWorkspace(): Promise<void> {
 function activeRuntimeId(): string | null {
   return manager.snapshot().activeRuntimeId;
 }
+
+// ============================================================================
+// Menu Configuration (kept inline for simplicity - can be moved to menu/ module)
+// ============================================================================
 
 interface ProjectMenuActions {
   activate(runtimeId: string): void;
@@ -838,9 +778,9 @@ interface ProjectMenuGroup {
 function buildProjectsMenu(
   runtimes: DesktopRuntimeRecord[],
   actions: ProjectMenuActions,
-): MenuItemConstructorOptions[] {
+): import('electron').MenuItemConstructorOptions[] {
   const projectGroups = groupProjectRuntimesForMenu(runtimes);
-  const menu: MenuItemConstructorOptions[] = [
+  const menu: import('electron').MenuItemConstructorOptions[] = [
     {
       label: tMain('openProjectEllipsis'),
       accelerator: 'CmdOrCtrl+O',
@@ -881,7 +821,7 @@ function buildSessionMenu(
   runtime: DesktopRuntimeRecord,
   index: number,
   actions: ProjectMenuActions,
-): MenuItemConstructorOptions {
+): import('electron').MenuItemConstructorOptions {
   const running = runtime.status === 'running';
   const label = `${tMain('session')} ${index} · ${runtime.status}`;
   return {
@@ -897,8 +837,7 @@ function buildSessionMenu(
         submenu: [
           {
             label: tMain('chat'),
-            click: () =>
-              actions.activateAndNavigate(runtime.id, { activity: 'chat', view: 'chat' }),
+            click: () => actions.activateAndNavigate(runtime.id, { activity: 'chat', view: 'chat' }),
           },
           {
             label: tMain('focusPrompt'),
@@ -944,7 +883,8 @@ function buildSessionMenu(
           },
           {
             label: tMain('modelSwitcher'),
-            click: () => actions.activateAndNavigate(runtime.id, { action: 'open-model-switcher' }),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { action: 'open-model-switcher' }),
           },
         ],
       },
@@ -1010,11 +950,15 @@ function configureApplicationMenu(): void {
   const yoloChecked = activeWebuiPrefs?.yolo === true;
   const nextPredictionChecked = activeWebuiPrefs?.nextPrediction === true;
   const contextAutoCompactChecked = activeWebuiPrefs?.contextAutoCompact === true;
-  const webuiItem = (item: MenuItemConstructorOptions): MenuItemConstructorOptions => ({
+
+  const webuiItem = (
+    item: import('electron').MenuItemConstructorOptions,
+  ): import('electron').MenuItemConstructorOptions => ({
     ...item,
     enabled: item.enabled ?? hasActiveWebui,
   });
-  const template: MenuItemConstructorOptions[] = [
+
+  const template: import('electron').MenuItemConstructorOptions[] = [
     {
       label: tMain('file'),
       submenu: [
@@ -1157,120 +1101,241 @@ function configureApplicationMenu(): void {
       ],
     },
   ];
+
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-manager.on('changed', () => {
-  configureApplicationMenu();
-  syncActiveWebuiView();
-  broadcastState();
-});
+// ============================================================================
+// IPC Handlers
+// ============================================================================
 
-// Renderer pushes its display locale here so the app menu + native dialogs
-// follow the user's language choice (see preload setLocale + renderer i18n).
-// Persist to the shared config so the change propagates to other surfaces, and
-// broadcast to every embedded WebUI view so the React UI re-renders in the new
-// language instantly (no need to wait for the config-file watcher round-trip).
-ipcMain.on(IPC.setLocale, (_event, locale: string) => {
-  setMainLocale(locale);
-  configureApplicationMenu();
-  broadcastLocaleToEmbeddedWebuis(locale);
-  void writeUiLocale(locale);
-});
+function registerIpcHandlers(): void {
+  ipcMain.handle(IPC.getState, () => manager.snapshot());
+  ipcMain.handle(IPC.getConversation, (_event, runtimeId: string) =>
+    bridge.snapshot(runtimeId),
+  );
+  ipcMain.handle(IPC.getWebuiStatus, () => webuiStatus);
 
-// Live-follow the shared display language: when another process (embedded or
-// standalone webui) writes config.uiLocale, rebuild the app menu, push to the
-// shell renderer, and broadcast to every embedded WebUI view so the React UI
-// follows without a restart.
-watchProviderConfig(
-  desktopConfigPaths.globalConfigPath,
-  desktopConfigPaths.vault,
-  (snapshot) => {
-    if (snapshot.uiLocale === undefined) return;
-    setMainLocale(snapshot.uiLocale);
+  ipcMain.handle(IPC.navigateWebui, async (_event, command: unknown) =>
+    dispatchWebuiCommand(command),
+  );
+  ipcMain.handle(IPC.reloadWebui, async () => reloadActiveWebuiView());
+
+  ipcMain.handle(IPC.setShellSidebarCollapsed, (_event, collapsed: unknown) => {
+    setShellSidebarCollapsed(collapsed === true);
+    return true;
+  });
+  ipcMain.handle(IPC.openSettings, async () => openSettings());
+
+  ipcMain.handle(IPC.openProjectSession, async (_event, runtimeId?: string | undefined) =>
+    openProjectSession(runtimeId),
+  );
+  ipcMain.handle(IPC.openProject, async (_event, requestedRoot?: string | undefined) =>
+    openProject(requestedRoot),
+  );
+  ipcMain.handle(IPC.registerProject, async (_event, requestedRoot?: string | undefined) =>
+    registerProject(requestedRoot),
+  );
+  ipcMain.handle(IPC.unregisterProject, async (_event, root: string) => unregisterProject(root));
+
+  ipcMain.handle(IPC.activateRuntime, async (_event, id: string) => activateRuntime(id));
+  ipcMain.handle(IPC.closeRuntime, async (_event, id: string) => closeRuntime(id));
+  ipcMain.handle(IPC.sendMessage, async (_event, id: string, content: string) =>
+    bridge.sendMessage(id, runtimeWsUrlOrThrow(id), content),
+  );
+  ipcMain.handle(IPC.abortRuntime, async (_event, id: string) =>
+    bridge.abort(id, runtimeWsUrlOrThrow(id)),
+  );
+  ipcMain.handle(IPC.openRuntimeInBrowser, async (_event, id: string) => {
+    const url = manager.getRuntimeUrlWithToken(id);
+    if (url) safeOpenExternal(url);
+  });
+  ipcMain.handle(IPC.revealRuntimeRoot, async (_event, id: string) => {
+    const runtime = manager.getRuntime(id);
+    if (runtime) void shell.openPath(runtime.root);
+  });
+
+  ipcMain.on(IPC.webuiReadyChanged, (event, ready: boolean) => {
+    const entry = findWebuiEntryBySenderId(event.sender.id);
+    if (!entry) return;
+    entry.bridgeReady = ready === true;
+    if (entry.bridgeReady) {
+      setEntryWebuiStatus(entry, { ...entry.status, status: 'ready' });
+      schedulePendingWebuiFlush(entry);
+    } else if (entry.status.status === 'ready') {
+      setEntryWebuiStatus(entry, { ...entry.status, status: 'loading' });
+    }
+  });
+
+  ipcMain.on(IPC.webuiPrefsChanged, (event, prefs: unknown) => {
+    const entry = findWebuiEntryBySenderId(event.sender.id);
+    if (!entry) return;
+    const next: DesktopWebuiPrefs = {};
+    if (isRecord(prefs) && typeof prefs['yolo'] === 'boolean') next.yolo = prefs['yolo'];
+    if (isRecord(prefs) && typeof prefs['nextPrediction'] === 'boolean') {
+      next.nextPrediction = prefs['nextPrediction'];
+    }
+    if (isRecord(prefs) && typeof prefs['contextAutoCompact'] === 'boolean') {
+      next.contextAutoCompact = prefs['contextAutoCompact'];
+    }
+    if (Object.keys(next).length === 0) return;
+    setEntryWebuiStatus(entry, {
+      ...entry.status,
+      prefs: { ...(entry.status.prefs ?? {}), ...next },
+    });
+  });
+
+  ipcMain.on(
+    IPC.webuiCommandAck,
+    (event, requestId: unknown, handled: unknown, _message?: unknown) => {
+      const entry = findWebuiEntryBySenderId(event.sender.id);
+      if (!entry || typeof requestId !== 'string') return;
+      const pending = pendingWebuiCommandAcks.get(requestId);
+      if (!pending || pending.runtimeId !== entry.runtimeId) return;
+      settlePendingWebuiCommandAck(requestId, handled === true);
+    },
+  );
+
+  ipcMain.on(IPC.setLocale, (_event, locale: string) => {
+    setMainLocale(locale);
     configureApplicationMenu();
-    shellView?.webContents.send(IPC.localeChanged, snapshot.uiLocale);
-    broadcastLocaleToEmbeddedWebuis(snapshot.uiLocale);
-  },
-  { warn: (m) => console.warn(`Config watcher: ${m}`) },
-);
+    broadcastLocaleToEmbeddedWebuis(locale);
+    void writeUiLocale(locale);
+  });
+}
 
-bridge.on('changed', (conversation) => {
-  shellView?.webContents.send(IPC.conversationChanged, conversation);
-});
+// ============================================================================
+// Boot Sequence
+// ============================================================================
+
+async function boot(): Promise<void> {
+  const locale = await readUiLocale();
+  if (locale) setMainLocale(locale);
+
+  const shellUrl = rendererIndexPath();
+  shellView = new WebContentsView({
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  shellView.webContents.setWindowOpenHandler(({ url }) => {
+    safeOpenExternal(url);
+    return { action: 'deny' };
+  });
+
+  await shellView.webContents.loadURL(shellUrl);
+
+  const prevState = validatedWindowState(manager.windowState());
+  const defaultWidth = 1180;
+  const defaultHeight = 720;
+
+  const winOptions: BaseWindowConstructorOptions = {
+    width: prevState?.width ?? defaultWidth,
+    height: prevState?.height ?? defaultHeight,
+    show: false,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
+    title: tMain('windowTitle'),
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  };
+  if (prevState) {
+    winOptions.x = prevState.x;
+    winOptions.y = prevState.y;
+    if (prevState.maximized) winOptions.maximized = true;
+  }
+
+  mainWindow = new BaseWindow(winOptions);
+  mainWindow.on('resized', scheduleWindowStateSave);
+  mainWindow.on('moved', scheduleWindowStateSave);
+  mainWindow.on('maximize', scheduleWindowStateSave);
+  mainWindow.on('unmaximize', scheduleWindowStateSave);
+
+  if (prevState?.maximized) {
+    mainWindow.maximize();
+  }
+
+  mainWindow.contentView.addChildView(shellView);
+  layoutViews();
+
+  registerIpcHandlers();
+
+  configureApplicationMenu();
+
+  mainWindow.on('resize', layoutViews);
+
+  bridge.on('changed', (conversation) => {
+    if (!shellView || shellView.webContents.isDestroyed()) return;
+    shellView.webContents.send(IPC.conversationChanged, conversation);
+  });
+
+  manager.on('changed', () => {
+    syncActiveWebuiView();
+    configureApplicationMenu();
+    broadcastState();
+  });
+
+  const prefsWatcher = watchProviderConfig(
+    desktopConfigPaths.globalConfigPath,
+    desktopConfigPaths.vault,
+    () => true,
+  );
+  prefsWatcher.onAny((key) => {
+    if (key !== 'uiLocale') return;
+    const updated = prefsWatcher.get('uiLocale') as string | undefined;
+    if (!updated) return;
+    setMainLocale(updated);
+    configureApplicationMenu();
+    broadcastLocaleToEmbeddedWebuis(updated);
+    if (shellView && !shellView.webContents.isDestroyed()) {
+      shellView.webContents.send(IPC.localeChanged, updated);
+    }
+  });
+
+  mainWindow.on('close', (event) => {
+    if (quittingAfterCleanup) return;
+    event.preventDefault();
+    bridge.closeAll();
+    disposeAllWebuiEntries();
+    void saveWindowState();
+    quittingAfterCleanup = true;
+    app.exit(0);
+  });
+
+  await restoreLastWorkspace();
+
+  mainWindow.show();
+  shellView.webContents.focus();
+}
+
+// ============================================================================
+// App Lifecycle
+// ============================================================================
+
+app.whenReady().then(boot);
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
-app.on('before-quit', (event) => {
-  if (quittingAfterCleanup) return;
-  event.preventDefault();
-  quittingAfterCleanup = true;
-  if (saveWindowStateTimer) {
-    clearTimeout(saveWindowStateTimer);
-    saveWindowStateTimer = null;
+app.on('before-quit', () => {
+  if (mainWindow) {
+    mainWindow.removeAllListeners('close');
+    void saveWindowState();
   }
   bridge.closeAll();
-  void saveWindowState()
-    .catch(() => undefined)
-    .finally(() => manager.closeAll({ persistWorkspace: false }).finally(() => app.quit()));
+  disposeAllWebuiEntries();
 });
 
-app
-  .whenReady()
-  .then(async () => {
-    registerIpc();
-    await createWindow();
-    app.on('activate', () => {
-      if (mainWindow === null) void createWindow();
-    });
-  })
-  .catch((err) => {
-    console.error(err);
-    app.exit(1);
-  });
-
-function sameOrigin(candidate: string, base: string | null): boolean {
-  if (!base) return false;
-  try {
-    const candidateUrl = new URL(candidate);
-    const baseUrl = new URL(base);
-    return candidateUrl.origin === baseUrl.origin;
-  } catch {
-    return false;
-  }
-}
-
-function desktopSettingsWorkspaceRoot(): string {
-  return path.join(wstackGlobalRoot(), 'desktop', 'global-settings-workspace');
-}
-
-function validatedWindowState(state: DesktopWindowState | null): DesktopWindowState | null {
-  if (!state) return null;
-  if (state.width < MIN_WINDOW_WIDTH || state.height < MIN_WINDOW_HEIGHT) return null;
-  if (state.x === undefined || state.y === undefined) return state;
-  const candidate = {
-    x: state.x,
-    y: state.y,
-    width: state.width,
-    height: state.height,
-  };
-  const visibleOnSomeDisplay = screen.getAllDisplays().some((display) => {
-    const area = display.workArea;
-    return rectanglesIntersect(candidate, area);
-  });
-  return visibleOnSomeDisplay ? state : null;
-}
-
-function rectanglesIntersect(
-  left: { x: number; y: number; width: number; height: number },
-  right: { x: number; y: number; width: number; height: number },
-): boolean {
-  return (
-    left.x < right.x + right.width &&
-    left.x + left.width > right.x &&
-    left.y < right.y + right.height &&
-    left.y + left.height > right.y
-  );
-}
+app.on('activate', () => {
+  if (!mainWindow) return;
+  mainWindow.show();
+  shellView?.webContents.focus();
+});

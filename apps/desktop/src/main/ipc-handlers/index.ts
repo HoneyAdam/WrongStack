@@ -2,12 +2,10 @@
  * IPC handler registration.
  * Centralizes all IPC handler registration logic.
  */
-import { ipcMain } from 'electron';
+import { ipcMain, shell } from 'electron';
 import type { DesktopWebuiPrefs } from '../../shared/types.js';
 import { IPC } from '../ipc.js';
-import type { IpcHandlerContext } from '../state/types.js';
-
-export type { IpcHandlerContext } from '../state/types.js';
+import type { DesktopWebuiRuntimeView, IpcHandlerContext, PendingWebuiCommandAck } from '../state/types.js';
 
 /**
  * Register all IPC handlers.

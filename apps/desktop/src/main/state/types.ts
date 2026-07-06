@@ -15,6 +15,7 @@ import type {
 
 export interface DesktopWebuiRuntimeView {
   runtimeId: string;
+  view: import('electron').WebContentsView;
   url: string | null;
   status: DesktopWebuiStatusSnapshot;
   bridgeReady: boolean;
@@ -107,7 +108,7 @@ export interface II18n {
 }
 
 // ============================================================================
-// Event Handlers
+// Event Handlers & Context
 // ============================================================================
 
 export interface IpcHandlerContext {
@@ -126,4 +127,67 @@ export interface IpcHandlerContext {
   syncActiveWebuiView(): void;
   configureApplicationMenu(): void;
   broadcastLocaleToEmbeddedWebuis(locale: string): void;
+  dispatchWebuiCommand(command: unknown): Promise<boolean>;
+  reloadActiveWebuiView(): Promise<boolean>;
+  openProject(requestedRoot?: string): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  registerProject(requestedRoot?: string): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  unregisterProject(root: string): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  openProjectSession(runtimeId?: string): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  activateRuntime(id: string): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  closeRuntime(id: string): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  openSettings(): Promise<import('../../shared/types.js').DesktopStateSnapshot>;
+  sendMessage(id: string, wsUrl: string, content: string): Promise<import('../../shared/types.js').DesktopConversationSnapshot>;
+  abortRuntime(id: string, wsUrl: string): Promise<import('../../shared/types.js').DesktopConversationSnapshot>;
+  openExternal(url: string): void;
+  revealInExplorer(root: string): void;
+  findWebuiEntryBySenderId(senderId: number): DesktopWebuiRuntimeView | undefined;
+  getPendingWebuiCommandAcks(): Map<string, PendingWebuiCommandAck>;
+  settlePendingWebuiCommandAck(requestId: string, handled: boolean): void;
+  setEntryWebuiStatus(entry: DesktopWebuiRuntimeView, next: DesktopWebuiStatusSnapshot): void;
+  schedulePendingWebuiFlush(entry: DesktopWebuiRuntimeView): void;
+}
+
+// ============================================================================
+// Layout Context
+// ============================================================================
+
+export interface LayoutContext {
+  getMainWindow(): import('electron').BaseWindow | null;
+  getShellView(): import('electron').WebContentsView | null;
+  getRuntimeManager(): IRuntimeManager;
+  getShellSidebarCollapsed(): boolean;
+  getWebuiViews(): Map<string, DesktopWebuiRuntimeView>;
+}
+
+// ============================================================================
+// Menu Context
+// ============================================================================
+
+export interface MenuBuilderContext {
+  getSnapshot(): {
+    runtimes: DesktopRuntimeRecord[];
+    activeRuntimeId: string | null;
+  };
+  getActiveRuntime(): DesktopRuntimeRecord | undefined;
+  getActiveWebuiPrefs(): DesktopWebuiPrefs | undefined;
+  getShellSidebarCollapsed(): boolean;
+  t(key: string): string;
+  getRuntimeManager(): {
+    getRuntimeUrlWithToken(id: string): string | undefined;
+    getRuntime(id: string): DesktopRuntimeRecord | undefined;
+  };
+  getWebuiViews(): Map<string, { status: { prefs?: DesktopWebuiPrefs } }>;
+  dispatchWebuiCommand(command: DesktopWebuiCommand): Promise<boolean>;
+  reloadActiveWebuiView(): Promise<boolean>;
+  activateRuntime(id: string): Promise<void>;
+  openProject(): Promise<void>;
+  registerProject(): Promise<void>;
+  openSettings(): Promise<void>;
+  openProjectSession(runtimeId?: string): Promise<void>;
+  closeRuntime(id: string): Promise<void>;
+  unregisterProject(root: string): Promise<void>;
+  getActiveRuntimeId(): string | null;
+  setShellSidebarCollapsed(collapsed: boolean): void;
+  openExternal(url: string): void;
+  revealInExplorer(root: string): void;
 }
