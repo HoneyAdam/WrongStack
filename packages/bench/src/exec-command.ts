@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { treeKill } from './runner.js';
 
 export interface ExecResult {
   exitCode: number | null;
@@ -71,11 +72,11 @@ export function execCommand(opts: {
 
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        /* already gone */
-      }
+      // A naive child.kill() only signals the direct child — with shell:true
+      // that's the /bin/sh or cmd.exe wrapper, leaving the actual test process
+      // (npm/gradle/etc.) orphaned. treeKill tears down the whole process tree
+      // (taskkill /T on Windows, SIGTERM→SIGKILL on POSIX).
+      treeKill(child);
     }, opts.timeoutMs);
 
     child.stdout?.on('data', (d: Buffer) => {
