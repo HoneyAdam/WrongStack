@@ -3,7 +3,7 @@
  * Builds the complete application menu with all sections.
  */
 import { Menu } from 'electron';
-import type { DesktopRuntimeRecord, DesktopWebuiCommand, DesktopWebuiPrefs } from '../../shared/types.js';
+import type { DesktopWebuiCommand } from '../../shared/types.js';
 import type { MenuBuilderContext, ProjectMenuActions } from './types.js';
 import { buildProjectsMenu, normalizeMenuRoot } from './projects-menu.js';
 import { buildFileMenu, buildWorkspaceMenu, buildViewMenu } from './sections.js';
@@ -14,6 +14,7 @@ export * from './types.js';
 
 /**
  * Configure the complete application menu.
+ * This is the main entry point for building the menu.
  */
 export function configureApplicationMenu(ctx: MenuBuilderContext): void {
   const snapshot = ctx.getSnapshot();
@@ -44,16 +45,13 @@ export function configureApplicationMenu(ctx: MenuBuilderContext): void {
     },
     openBrowser: (runtimeId) => {
       const url = ctx.getRuntimeManager().getRuntimeUrlWithToken(runtimeId);
-      if (url) window?.open(url, '_blank');
+      if (url) ctx.openExternal(url);
     },
     reload: reloadRuntimeWebui,
     close: (runtimeId) => void ctx.closeRuntime(runtimeId),
     reveal: (runtimeId) => {
       const runtime = ctx.getRuntimeManager().getRuntime(runtimeId);
-      if (runtime) {
-        // Reveal in file explorer - will be handled by main process
-        console.log('Reveal:', runtime.root);
-      }
+      if (runtime) ctx.revealInExplorer(runtime.root);
     },
   };
 

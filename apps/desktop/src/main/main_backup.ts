@@ -51,10 +51,6 @@ import {
 // Layout module
 import { layoutViews, getSidebarWidth } from './layout/index.js';
 
-// Menu module
-import { configureApplicationMenu as buildMenu } from './menu/index.js';
-import type { MenuBuilderContext } from './menu/types.js';
-
 // Constants
 const OPEN_EXTERNAL_ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 const MIN_WINDOW_WIDTH = 760;
@@ -759,52 +755,354 @@ function activeRuntimeId(): string | null {
 }
 
 // ============================================================================
-// ============================================================================
-// Menu Configuration (delegated to menu/ module)
+// Menu Configuration (kept inline for simplicity - can be moved to menu/ module)
 // ============================================================================
 
-/**
- * Create the menu context for building the application menu.
- * This context is passed to the menu/ module's configureApplicationMenu.
- */
-function createMenuContext(): MenuBuilderContext {
+interface ProjectMenuActions {
+  activate(runtimeId: string): void;
+  activateAndNavigate(runtimeId: string, command: DesktopWebuiCommand): void;
+  newSession(runtimeId: string): void;
+  openBrowser(runtimeId: string): void;
+  reload(runtimeId: string): void;
+  close(runtimeId: string): void;
+  reveal(runtimeId: string): void;
+}
+
+interface ProjectMenuGroup {
+  key: string;
+  name: string;
+  root: string;
+  sessions: DesktopRuntimeRecord[];
+}
+
+function buildProjectsMenu(
+  runtimes: DesktopRuntimeRecord[],
+  actions: ProjectMenuActions,
+): import('electron').MenuItemConstructorOptions[] {
+  const projectGroups = groupProjectRuntimesForMenu(runtimes);
+  const menu: import('electron').MenuItemConstructorOptions[] = [
+    {
+      label: tMain('openProjectEllipsis'),
+      accelerator: 'CmdOrCtrl+O',
+      click: () => void openProject(),
+    },
+    { label: tMain('registerProjectEllipsis'), click: () => void registerProject() },
+    { type: 'separator' },
+  ];
+
+  if (projectGroups.length === 0) {
+    menu.push({ label: tMain('noOpenProjectSessions'), enabled: false });
+    return menu;
+  }
+
+  for (const group of projectGroups) {
+    menu.push({
+      label: group.name,
+      submenu: [
+        {
+          label: tMain('newSession'),
+          click: () => actions.newSession(group.sessions[0]?.id ?? ''),
+          enabled: Boolean(group.sessions[0]),
+        },
+        {
+          label: tMain('revealProjectFolder'),
+          click: () => actions.reveal(group.sessions[0]?.id ?? ''),
+          enabled: Boolean(group.sessions[0]),
+        },
+        { type: 'separator' },
+        ...group.sessions.map((runtime, index) => buildSessionMenu(runtime, index + 1, actions)),
+      ],
+    });
+  }
+  return menu;
+}
+
+function buildSessionMenu(
+  runtime: DesktopRuntimeRecord,
+  index: number,
+  actions: ProjectMenuActions,
+): import('electron').MenuItemConstructorOptions {
+  const running = runtime.status === 'running';
+  const label = `${tMain('session')} ${index} · ${runtime.status}`;
   return {
-    getSnapshot: () => manager.snapshot(),
-    getActiveRuntime: () => {
-      const snapshot = manager.snapshot();
-      return snapshot.runtimes.find((r) => r.id === snapshot.activeRuntimeId);
-    },
-    getActiveWebuiPrefs: () => {
-      const snapshot = manager.snapshot();
-      if (!snapshot.activeRuntimeId) return undefined;
-      return webuiViews.get(snapshot.activeRuntimeId)?.status.prefs;
-    },
-    getShellSidebarCollapsed: () => shellSidebarCollapsed,
-    t: tMain,
-    getRuntimeManager: () => manager,
-    getWebuiViews: () => webuiViews,
-    dispatchWebuiCommand,
-    reloadActiveWebuiView,
-    activateRuntime: async (id) => { await activateRuntime(id); },
-    openProject: async () => { await openProject(); },
-    registerProject: async () => { await registerProject(); },
-    openSettings: async () => { await openSettings(); },
-    openProjectSession: async (id) => { await openProjectSession(id); },
-    closeRuntime: async (id) => { await closeRuntime(id); },
-    unregisterProject: async (root) => { await unregisterProject(root); },
-    getActiveRuntimeId: () => activeWebuiRuntimeId,
-    setShellSidebarCollapsed: (collapsed) => { setShellSidebarCollapsed(collapsed); },
-    restoreLastWorkspace: async () => { await restoreLastWorkspace(); },
-    openExternal: (url) => { shell.openExternal(url); },
-    revealInExplorer: (root) => { void shell.openPath(root); },
+    label,
+    submenu: [
+      {
+        label: tMain('quickView'),
+        click: () => actions.activate(runtime.id),
+      },
+      {
+        label: 'WebUI',
+        enabled: running,
+        submenu: [
+          {
+            label: tMain('chat'),
+            click: () => actions.activateAndNavigate(runtime.id, { activity: 'chat', view: 'chat' }),
+          },
+          {
+            label: tMain('focusPrompt'),
+            click: () => actions.activateAndNavigate(runtime.id, { action: 'focus-chat' }),
+          },
+          {
+            label: tMain('terminal'),
+            click: () => actions.activateAndNavigate(runtime.id, { terminal: 'toggle' }),
+          },
+          {
+            label: tMain('newTerminal'),
+            click: () => actions.activateAndNavigate(runtime.id, { terminal: 'new' }),
+          },
+          { type: 'separator' },
+          {
+            label: tMain('files'),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'files', view: 'files' }),
+          },
+          {
+            label: tMain('changes'),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'changes', view: 'changes' }),
+          },
+          {
+            label: tMain('sessions'),
+            click: () => actions.activateAndNavigate(runtime.id, { view: 'sessions' }),
+          },
+          {
+            label: tMain('fleetHQ'),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { activity: 'officemap', view: 'officemap' }),
+          },
+          {
+            label: tMain('settings'),
+            click: () => actions.activateAndNavigate(runtime.id, { view: 'settings' }),
+          },
+          { type: 'separator' },
+          {
+            label: tMain('commandPalette'),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { action: 'open-command-palette' }),
+          },
+          {
+            label: tMain('modelSwitcher'),
+            click: () =>
+              actions.activateAndNavigate(runtime.id, { action: 'open-model-switcher' }),
+          },
+        ],
+      },
+      { type: 'separator' },
+      {
+        label: tMain('openInBrowser'),
+        enabled: running,
+        click: () => actions.openBrowser(runtime.id),
+      },
+      {
+        label: tMain('reloadWebui'),
+        enabled: running,
+        click: () => actions.reload(runtime.id),
+      },
+      {
+        label: tMain('closeSession'),
+        click: () => actions.close(runtime.id),
+      },
+    ],
   };
 }
 
-/**
- * Configure the application menu using the menu module.
- */
+function groupProjectRuntimesForMenu(runtimes: DesktopRuntimeRecord[]): ProjectMenuGroup[] {
+  const groups = new Map<string, ProjectMenuGroup>();
+  for (const runtime of runtimes) {
+    if (runtime.kind !== 'project') continue;
+    const key = normalizeMenuRoot(runtime.root);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.sessions.push(runtime);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      name: path.basename(runtime.root) || runtime.name,
+      root: runtime.root,
+      sessions: [runtime],
+    });
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizeMenuRoot(root: string): string {
+  return path.resolve(root).replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+}
+
 function configureApplicationMenu(): void {
-  buildMenu(createMenuContext());
+  const navigate = (command: DesktopWebuiCommand) => {
+    void dispatchWebuiCommand(command);
+  };
+  const activateAndNavigate = (runtimeId: string, command: DesktopWebuiCommand) => {
+    void activateRuntime(runtimeId).then(() => dispatchWebuiCommand(command));
+  };
+  const reloadRuntimeWebui = (runtimeId: string) => {
+    void activateRuntime(runtimeId).then(() => reloadActiveWebuiView());
+  };
+  const snapshot = manager.snapshot();
+  const active = snapshot.runtimes.find((runtime) => runtime.id === snapshot.activeRuntimeId);
+  const hasActiveRuntime = Boolean(active);
+  const hasActiveWebui = active?.status === 'running';
+  const hasActiveProjectWebui = hasActiveWebui && active?.kind === 'project';
+  const activeWebuiPrefs = active ? webuiViews.get(active.id)?.status.prefs : undefined;
+  const yoloChecked = activeWebuiPrefs?.yolo === true;
+  const nextPredictionChecked = activeWebuiPrefs?.nextPrediction === true;
+  const contextAutoCompactChecked = activeWebuiPrefs?.contextAutoCompact === true;
+
+  const webuiItem = (
+    item: import('electron').MenuItemConstructorOptions,
+  ): import('electron').MenuItemConstructorOptions => ({
+    ...item,
+    enabled: item.enabled ?? hasActiveWebui,
+  });
+
+  const template: import('electron').MenuItemConstructorOptions[] = [
+    {
+      label: tMain('file'),
+      submenu: [
+        {
+          label: tMain('openProjectEllipsis'),
+          accelerator: 'CmdOrCtrl+O',
+          click: () => void openProject(),
+        },
+        { label: tMain('registerProjectEllipsis'), click: () => void registerProject() },
+        {
+          label: tMain('removeActiveFromRegistry'),
+          enabled: hasActiveProjectWebui,
+          click: () => {
+            if (active?.kind === 'project') void unregisterProject(active.root);
+          },
+        },
+        { type: 'separator' },
+        {
+          label: tMain('newSessionForActive'),
+          accelerator: 'CmdOrCtrl+N',
+          enabled: hasActiveProjectWebui,
+          click: () => void openProjectSession(active?.id),
+        },
+        {
+          label: tMain('settings'),
+          accelerator: 'CmdOrCtrl+,',
+          click: () => {
+            if (hasActiveWebui) navigate({ view: 'settings' });
+            else void openSettings();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: tMain('closeActiveRuntime'),
+          accelerator: 'CmdOrCtrl+W',
+          enabled: hasActiveRuntime,
+          click: () => {
+            const id = activeRuntimeId();
+            if (id) void closeRuntime(id);
+          },
+        },
+        { type: 'separator' },
+        { role: process.platform === 'darwin' ? 'close' : 'quit' },
+      ],
+    },
+    {
+      label: tMain('projects'),
+      submenu: buildProjectsMenu(snapshot.runtimes, {
+        activate: (runtimeId) => void activateRuntime(runtimeId),
+        activateAndNavigate,
+        newSession: (runtimeId) => void openProjectSession(runtimeId),
+        openBrowser: (runtimeId) => {
+          const url = manager.getRuntimeUrlWithToken(runtimeId);
+          if (url) safeOpenExternal(url);
+        },
+        reload: reloadRuntimeWebui,
+        close: (runtimeId) => void closeRuntime(runtimeId),
+        reveal: (runtimeId) => {
+          const runtime = manager.getRuntime(runtimeId);
+          if (runtime) void shell.openPath(runtime.root);
+        },
+      }),
+    },
+    {
+      label: tMain('workspace'),
+      submenu: [
+        webuiItem({
+          label: tMain('openChat'),
+          accelerator: 'CmdOrCtrl+1',
+          click: () => navigate({ activity: 'chat', view: 'chat' }),
+        }),
+        webuiItem({
+          label: tMain('focusPrompt'),
+          accelerator: 'CmdOrCtrl+/',
+          click: () => navigate({ action: 'focus-chat' }),
+        }),
+        webuiItem({
+          label: tMain('toggleTerminal'),
+          accelerator: 'CmdOrCtrl+`',
+          click: () => navigate({ terminal: 'toggle' }),
+        }),
+        webuiItem({ label: tMain('newTerminal'), click: () => navigate({ terminal: 'new' }) }),
+        { type: 'separator' },
+        webuiItem({
+          label: tMain('commandPalette'),
+          accelerator: 'CmdOrCtrl+K',
+          click: () => navigate({ action: 'open-command-palette' }),
+        }),
+        webuiItem({
+          label: tMain('quickModelSwitcher'),
+          accelerator: 'CmdOrCtrl+M',
+          click: () => navigate({ action: 'open-model-switcher' }),
+        }),
+        webuiItem({
+          type: 'checkbox',
+          label: tMain('yoloMode'),
+          checked: yoloChecked,
+          accelerator: 'CmdOrCtrl+Shift+Y',
+          click: () => navigate({ pref: { key: 'yolo', toggle: true } }),
+        }),
+        webuiItem({
+          type: 'checkbox',
+          label: tMain('nextPrediction'),
+          checked: nextPredictionChecked,
+          click: () => navigate({ pref: { key: 'nextPrediction', toggle: true } }),
+        }),
+        webuiItem({
+          type: 'checkbox',
+          label: tMain('contextAutoCompact'),
+          checked: contextAutoCompactChecked,
+          click: () => navigate({ pref: { key: 'contextAutoCompact', toggle: true } }),
+        }),
+        { type: 'separator' },
+        webuiItem({
+          label: tMain('reloadActiveWebui'),
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => void reloadActiveWebuiView(),
+        }),
+      ],
+    },
+    {
+      label: tMain('view'),
+      submenu: [
+        {
+          type: 'checkbox',
+          label: tMain('compactDesktopSidebar'),
+          accelerator: 'CmdOrCtrl+B',
+          checked: shellSidebarCollapsed,
+          click: () => setShellSidebarCollapsed(!shellSidebarCollapsed),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // ============================================================================

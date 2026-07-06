@@ -55,6 +55,10 @@ export interface MenuBuilderContext {
   getActiveRuntimeId(): string | null;
   setShellSidebarCollapsed(collapsed: boolean): void;
   restoreLastWorkspace(): Promise<void>;
+  /** Open URL in external browser */
+  openExternal(url: string): void;
+  /** Reveal path in file explorer */
+  revealInExplorer(root: string): void;
 }
 
 // ============================================================================
