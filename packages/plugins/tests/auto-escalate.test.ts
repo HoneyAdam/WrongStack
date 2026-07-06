@@ -89,6 +89,15 @@ describe('auto-escalate plugin', () => {
     expect(typeof api._ext?.beforeRun).toBe('function');
   });
 
+  it('handles invalid regex patterns gracefully', () => {
+    const api = setup({
+      enabled: true,
+      escalation: ladder,
+      retryablePatterns: ['[valid', '(another', '[invalid'],
+    });
+    expect(api.extensions.register).toHaveBeenCalledTimes(1);
+  });
+
   it('escalates through the ladder on retryable errors, then defers', () => {
     const api = setup({ enabled: true, escalation: ladder });
     const err = new Error('Overloaded: 529');
