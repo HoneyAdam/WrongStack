@@ -42,7 +42,7 @@ export interface MenuBuilderContext {
     getRuntimeUrlWithToken(id: string): string | undefined;
     getRuntime(id: string): DesktopRuntimeRecord | undefined;
   };
-  getWebuiViews(): Map<string, { status: { prefs?: DesktopWebuiPrefs } }>;
+  getWebuiViews(): Map<string, { status: { prefs?: DesktopWebuiPrefs | undefined } }>;
   dispatchWebuiCommand(command: DesktopWebuiCommand): Promise<boolean>;
   reloadActiveWebuiView(): Promise<boolean>;
   activateRuntime(id: string): Promise<void>;

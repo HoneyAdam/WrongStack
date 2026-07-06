@@ -18,14 +18,12 @@ import {
   BaseWindow,
   dialog,
   ipcMain,
-  Menu,
   screen,
   shell,
   WebContentsView,
   type BaseWindowConstructorOptions,
 } from 'electron';
 import type {
-  DesktopRuntimeRecord,
   DesktopWebuiCommand,
   DesktopWebuiPrefs,
   DesktopWebuiStatusSnapshot,
@@ -49,7 +47,7 @@ import {
 } from './webui-command-bridge.js';
 
 // Layout module
-import { layoutViews, getSidebarWidth } from './layout/index.js';
+import { getSidebarWidth } from './layout/index.js';
 
 // Menu module
 import { configureApplicationMenu as buildMenu } from './menu/index.js';
@@ -754,10 +752,6 @@ async function restoreLastWorkspace(): Promise<void> {
   broadcastState();
 }
 
-function activeRuntimeId(): string | null {
-  return manager.snapshot().activeRuntimeId;
-}
-
 // ============================================================================
 // ============================================================================
 // Menu Configuration (delegated to menu/ module)
@@ -930,7 +924,7 @@ async function boot(): Promise<void> {
 
   await shellView.webContents.loadURL(shellUrl);
 
-  const prevState = validatedWindowState(manager.windowState());
+  const prevState = validatedWindowState(manager.getWindowState());
   const defaultWidth = 1180;
   const defaultHeight = 720;
 
@@ -941,17 +935,10 @@ async function boot(): Promise<void> {
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: tMain('windowTitle'),
-    webPreferences: {
-      preload: preloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
   };
   if (prevState) {
-    winOptions.x = prevState.x;
-    winOptions.y = prevState.y;
-    if (prevState.maximized) winOptions.maximized = true;
+    if (prevState.x !== undefined) winOptions.x = prevState.x;
+    if (prevState.y !== undefined) winOptions.y = prevState.y;
   }
 
   mainWindow = new BaseWindow(winOptions);
@@ -984,22 +971,22 @@ async function boot(): Promise<void> {
     broadcastState();
   });
 
-  const prefsWatcher = watchProviderConfig(
+  let lastWatchedLocale: string | undefined;
+  watchProviderConfig(
     desktopConfigPaths.globalConfigPath,
     desktopConfigPaths.vault,
-    () => true,
+    (snapshot) => {
+      const updated = snapshot.uiLocale;
+      if (!updated || updated === lastWatchedLocale) return;
+      lastWatchedLocale = updated;
+      setMainLocale(updated);
+      configureApplicationMenu();
+      broadcastLocaleToEmbeddedWebuis(updated);
+      if (shellView && !shellView.webContents.isDestroyed()) {
+        shellView.webContents.send(IPC.localeChanged, updated);
+      }
+    },
   );
-  prefsWatcher.onAny((key) => {
-    if (key !== 'uiLocale') return;
-    const updated = prefsWatcher.get('uiLocale') as string | undefined;
-    if (!updated) return;
-    setMainLocale(updated);
-    configureApplicationMenu();
-    broadcastLocaleToEmbeddedWebuis(updated);
-    if (shellView && !shellView.webContents.isDestroyed()) {
-      shellView.webContents.send(IPC.localeChanged, updated);
-    }
-  });
 
   mainWindow.on('close', (event) => {
     if (quittingAfterCleanup) return;

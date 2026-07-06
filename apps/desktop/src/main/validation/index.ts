@@ -71,7 +71,7 @@ export function validateOptional<T>(
  * Format Zod error into a human-readable string.
  */
 function formatZodError(error: ZodError): string {
-  return error.errors
+  return error.issues
     .map((e) => `${e.path.join('.')}: ${e.message}`)
     .join('; ');
 }

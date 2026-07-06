@@ -37,8 +37,8 @@ describe('normalizeMCPTools', () => {
       { name: 'test-tool' },
     ]);
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('test-tool');
-    expect(result[0].inputSchema).toEqual({ type: 'object', properties: {} });
+    expect(result[0]!.name).toBe('test-tool');
+    expect(result[0]!.inputSchema).toEqual({ type: 'object', properties: {} });
   });
 
   it('uses provided inputSchema when valid', () => {
@@ -46,21 +46,21 @@ describe('normalizeMCPTools', () => {
     const result = normalizeMCPTools([
       { name: 'valid-tool', inputSchema: schema },
     ]);
-    expect(result[0].inputSchema).toBe(schema);
+    expect(result[0]!.inputSchema).toBe(schema);
   });
 
   it('defaults to empty schema when inputSchema is an array', () => {
     const result = normalizeMCPTools([
       { name: 'bad-schema', inputSchema: ['not', 'an', 'object'] },
     ]);
-    expect(result[0].inputSchema).toEqual({ type: 'object', properties: {} });
+    expect(result[0]!.inputSchema).toEqual({ type: 'object', properties: {} });
   });
 
   it('includes description when present', () => {
     const result = normalizeMCPTools([
       { name: 'tool-with-desc', description: 'Does something' },
     ]);
-    expect(result[0].description).toBe('Does something');
+    expect(result[0]!.description).toBe('Does something');
   });
 
   it('omits description when not a string', () => {
@@ -68,8 +68,8 @@ describe('normalizeMCPTools', () => {
       { name: 'tool-bad-desc', description: 42 },
       { name: 'tool-no-desc' },
     ]);
-    expect(result[0].description).toBeUndefined();
-    expect(result[1].description).toBeUndefined();
+    expect(result[0]!.description).toBeUndefined();
+    expect(result[1]!.description).toBeUndefined();
   });
 
   it('normalizes multiple valid tools', () => {
@@ -78,7 +78,7 @@ describe('normalizeMCPTools', () => {
       { name: 'tool-b', inputSchema: { type: 'object', properties: { x: { type: 'number' } } } },
     ]);
     expect(result).toHaveLength(2);
-    expect(result[0].name).toBe('tool-a');
-    expect(result[1].name).toBe('tool-b');
+    expect(result[0]!.name).toBe('tool-a');
+    expect(result[1]!.name).toBe('tool-b');
   });
 });

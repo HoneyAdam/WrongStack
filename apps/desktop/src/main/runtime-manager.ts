@@ -814,3 +814,15 @@ export function preloadPath(): string {
 export function webuiPreloadPath(): string {
   return fileURLToPath(new URL('../preload/webui-preload.cjs', import.meta.url));
 }
+
+/**
+ * Filesystem root for the built-in "Global Settings" workspace.
+ *
+ * The desktop shell opens this directory as a `global-settings` runtime so the
+ * user can edit provider/config state without an actual project checkout. It
+ * lives under the WrongStack global root next to `desktop.json` and
+ * `projects.json`.
+ */
+export function desktopSettingsWorkspaceRoot(): string {
+  return path.join(wstackGlobalRoot(), 'settings');
+}

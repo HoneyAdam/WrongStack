@@ -2,10 +2,10 @@
  * WebUI command bridge.
  * Handles command dispatch, queuing, and ACK management.
  */
-import type { DesktopWebuiCommand, DesktopWebuiPrefs, DesktopWebuiStatusSnapshot } from '../../shared/types.js';
+import type { DesktopWebuiCommand, DesktopWebuiStatusSnapshot } from '../../shared/types.js';
 import type { DesktopWebuiRuntimeView, PendingWebuiCommandAck } from '../state/types.js';
 import { MAX_PENDING_WEBUI_COMMANDS, MAX_PENDING_FLUSH_ATTEMPTS, WEBUI_COMMAND_FALLBACK_MS, WEBUI_COMMAND_ACK_TIMEOUT_MS, PENDING_WEBUI_FLUSH_DELAY_MS } from '../state/constants.js';
-import { normalizeDesktopWebuiCommand } from './webui-command-bridge.js';
+import { buildWebuiCommandFallbackScript, normalizeDesktopWebuiCommand } from '../webui-command-bridge.js';
 
 export interface CommandBridgeContext {
   getWebuiViews(): Map<string, DesktopWebuiRuntimeView>;
@@ -234,7 +234,6 @@ function sendWebuiCommandDomFallback(
   command: DesktopWebuiCommand,
 ): void {
   if (ctx_get_webuiViews?.()?.get(entry.runtimeId) !== entry || entry.view.webContents.isDestroyed()) return;
-  const { buildWebuiCommandFallbackScript } = await import('./webui-command-bridge.js');
   void entry.view.webContents
     .executeJavaScript(buildWebuiCommandFallbackScript(command), true)
     .catch(() => undefined);

@@ -2,7 +2,6 @@
  * Projects menu builder.
  */
 import type { MenuItemConstructorOptions } from 'electron';
-import type * as Path from 'node:path';
 import type { DesktopRuntimeRecord } from '../../shared/types.js';
 import type { ProjectMenuActions, ProjectMenuGroup } from './types.js';
 

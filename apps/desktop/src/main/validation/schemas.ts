@@ -11,9 +11,6 @@ import { z } from 'zod';
 /** Valid runtime ID pattern: alphanumeric, dots, underscores, hyphens, 3-120 chars */
 const RUNTIME_ID_PATTERN = /^[a-zA-Z0-9._:-]{3,120}$/;
 
-/** Valid directory path (basic validation) */
-const PATH_PATTERN = /^[\w\\\/.:-]+$/;
-
 export const runtimeIdSchema = z.string().regex(RUNTIME_ID_PATTERN, 'Invalid runtime ID format');
 
 export const pathSchema = z.string().min(1).max(10000);

@@ -4,12 +4,7 @@
  */
 import type { BaseWindow, WebContentsView } from 'electron';
 import type { IRuntimeManager } from '../state/types.js';
-import {
-  SIDEBAR_WIDTH_WIDE,
-  SIDEBAR_WIDTH_MEDIUM,
-  SIDEBAR_WIDTH_NARROW,
-  SIDEBAR_WIDTH_COLLAPSED,
-} from '../state/constants.js';
+import { getSidebarWidth } from './sidebar.js';
 
 export { getSidebarWidth } from './sidebar.js';
 
@@ -64,16 +59,6 @@ export function layoutWebuiViews(
       entry.view.setBounds({ x: sidebarWidth, y: 0, width: 0, height });
     }
   }
-}
-
-/**
- * Calculate the sidebar width based on window width and collapse state.
- */
-export function getSidebarWidth(windowWidth: number, collapsed: boolean): number {
-  if (collapsed) return SIDEBAR_WIDTH_COLLAPSED;
-  if (windowWidth < 900) return SIDEBAR_WIDTH_NARROW;
-  if (windowWidth < 1180) return SIDEBAR_WIDTH_MEDIUM;
-  return SIDEBAR_WIDTH_WIDE;
 }
 
 /**

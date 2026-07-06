@@ -3,10 +3,8 @@
  * Handles project management, runtime lifecycle, and workspace operations.
  */
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import type { DesktopRuntimeRecord, DesktopWebuiCommand } from '../../shared/types.js';
+import type { DesktopWebuiCommand } from '../../shared/types.js';
 import type { IRuntimeManager, IAgentBridge } from '../state/types.js';
-import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { desktopSettingsWorkspaceRoot } from '../runtime-manager.js';
 
 export interface RuntimeOperationsContext {

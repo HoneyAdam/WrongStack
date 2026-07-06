@@ -2,8 +2,9 @@
  * WebUI view management.
  * Handles creation, lifecycle, and disposal of WebContentsView instances.
  */
-import type { BaseWindow, WebContentsView } from 'electron';
-import type { DesktopWebuiCommand, DesktopWebuiStatusSnapshot } from '../../shared/types.js';
+import { WebContentsView } from 'electron';
+import type { BaseWindow } from 'electron';
+import type { DesktopWebuiStatusSnapshot } from '../../shared/types.js';
 import type { DesktopWebuiRuntimeView } from '../state/types.js';
 import { webuiPreloadPath } from '../runtime-manager.js';
 import { OPEN_EXTERNAL_ALLOWED_PROTOCOLS } from '../state/constants.js';

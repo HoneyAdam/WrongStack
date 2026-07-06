@@ -2,10 +2,10 @@
  * IPC handler registration with validation.
  * Centralizes all IPC handler registration logic with Zod schema validation.
  */
-import { ipcMain, shell } from 'electron';
+import { ipcMain } from 'electron';
 import type { DesktopWebuiPrefs } from '../../shared/types.js';
 import { IPC } from '../ipc.js';
-import type { DesktopWebuiRuntimeView, IpcHandlerContext, PendingWebuiCommandAck } from '../state/types.js';
+import type { IpcHandlerContext } from '../state/types.js';
 import {
   validate,
   validateOrDefault,
@@ -14,7 +14,6 @@ import {
 import {
   runtimeIdSchema,
   pathSchema,
-  webuiPrefsChangedSchema,
   webuiCommandAckSchema,
   setLocaleSchema,
 } from '../validation/schemas.js';

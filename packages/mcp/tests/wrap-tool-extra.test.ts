@@ -3,7 +3,6 @@
  * and schema-based mutating detection.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { ToolCapabilities } from '@wrongstack/core';
 import type { MCPClient, MCPTool } from '../src/client.js';
 import { wrapMCPTool } from '../src/wrap-tool.js';
 

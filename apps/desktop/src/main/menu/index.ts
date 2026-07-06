@@ -5,7 +5,7 @@
 import { Menu } from 'electron';
 import type { DesktopWebuiCommand } from '../../shared/types.js';
 import type { MenuBuilderContext, ProjectMenuActions } from './types.js';
-import { buildProjectsMenu, normalizeMenuRoot } from './projects-menu.js';
+import { buildProjectsMenu } from './projects-menu.js';
 import { buildFileMenu, buildWorkspaceMenu, buildViewMenu } from './sections.js';
 
 export { buildProjectsMenu, normalizeMenuRoot, groupProjectRuntimesForMenu } from './projects-menu.js';

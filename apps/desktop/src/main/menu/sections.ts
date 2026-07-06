@@ -11,15 +11,7 @@ import type { MenuBuilderContext } from './types.js';
  */
 export function buildFileMenu(
   ctx: MenuBuilderContext,
-  actions: {
-    openProject: () => Promise<void>;
-    registerProject: () => Promise<void>;
-    openSettings: () => Promise<void>;
-    closeRuntime: (id: string) => Promise<void>;
-    getActiveRuntimeId: () => string | null;
-    unregisterProject: (root: string) => Promise<void>;
-    openProjectSession: (runtimeId?: string) => Promise<void>;
-  },
+  _actions: unknown,
   hasActiveRuntime: boolean,
   hasActiveProjectWebui: boolean,
   active: DesktopRuntimeRecord | undefined,

@@ -108,13 +108,14 @@ export class DesktopAgentBridge extends EventEmitter {
     // Start fresh connection
     conversation.reconnectUrl = wsUrl;
     conversation.reconnectAttempt = 0;
-    return this.connect(runtimeId, wsUrl);
+    await this.connect(runtimeId, wsUrl);
+    return publicConversation(conversation);
   }
 
   /**
    * Internal connect method that actually establishes the WebSocket.
    */
-  private async connect(runtimeId: string, wsUrl: string): Promise<DesktopConversationSnapshot> {
+  private async connect(runtimeId: string, wsUrl: string): Promise<void> {
     const conversation = this.getOrCreate(runtimeId);
     
     // Cancel any pending reconnect timer
