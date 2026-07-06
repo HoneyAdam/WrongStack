@@ -425,7 +425,15 @@ function syncActiveWebuiView(): void {
         status: 'error',
         error: err instanceof Error ? err.message : String(err),
       });
-      console.error('Failed to load desktop WebUI view:', err);
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'desktop.webui_view_load_failed',
+          runtimeId: active.id,
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
   }
 }
@@ -525,7 +533,15 @@ async function reloadActiveWebuiView(): Promise<boolean> {
         status: 'error',
         error: err instanceof Error ? err.message : String(err),
       });
-      console.error('Failed to reload desktop WebUI view:', err);
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'desktop.webui_view_reload_failed',
+          runtimeId: entry.runtimeId,
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
       return false;
     });
 }

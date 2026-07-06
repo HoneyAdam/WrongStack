@@ -90,7 +90,15 @@ export function createValidationLogger(prefix: string) {
       const key = `${prefix}:${error}`;
       if (!loggedErrors.has(key)) {
         loggedErrors.add(key);
-        console.warn(`[${prefix}] Validation error: ${error}`);
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'desktop.validation_error',
+            prefix,
+            message: error,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
     },
     reset(): void {
