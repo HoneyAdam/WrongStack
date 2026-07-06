@@ -955,9 +955,15 @@ export async function main(argv: string[]): Promise<number> {
     cacheDir: wpaths.cacheDir,
   });
   if (config.features.mcp) {
+    const presets = allServers();
     for (const cfg of Object.values(config.mcpServers ?? {})) {
+      // Merge stored config with built-in preset so new fields (e.g.
+      // `passthroughEnv`) added to presets after the config was last saved
+      // are picked up automatically without requiring a manual config update.
+      const preset = presets[cfg.name];
+      const merged = preset ? { ...preset, ...cfg } : cfg;
       try {
-        await mcpRegistry.start(cfg);
+        await mcpRegistry.start(merged);
       } catch (err) {
         logger.warn(`MCP server "${cfg.name}" failed to start`, err);
       }

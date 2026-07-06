@@ -34,6 +34,7 @@ export {
   bootConfig,
   flagsToConfigPatch,
 } from './boot.js';
+export { allServers } from './infrastructure/mcp-servers.js';
 export {
   type AgentFactory,
   type AgentFactoryResult,
