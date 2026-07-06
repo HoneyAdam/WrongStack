@@ -20,7 +20,7 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Bundled skills</h3>
-                <span className="font-mono text-xs text-faint">17</span>
+                <span className="font-mono text-xs text-faint">23</span>
               </header>
               <ul className="mt-5 grid gap-2 sm:grid-cols-2">
                 {skills.map((s) => (
@@ -41,7 +41,7 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Built-in tools</h3>
-                <span className="font-mono text-xs text-faint">37</span>
+                <span className="font-mono text-xs text-faint">38</span>
               </header>
               <div className="mt-5 space-y-3.5">
                 {toolGroups.map((g) => (
@@ -70,10 +70,11 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Provider families</h3>
-                <span className="font-mono text-xs text-faint">~110 providers</span>
+                <span className="font-mono text-xs text-faint">~140 providers</span>
               </header>
               <p className="mt-2 text-xs text-muted">
-                Catalog from models.dev — refreshed on boot, no hardcoded models, no hardcoded pricing.
+                Catalog from models.dev — refreshed on boot, no hardcoded models, no hardcoded
+                pricing.
               </p>
               <ul className="mt-4 space-y-2.5">
                 {providerFamilies.map((f) => (
@@ -103,7 +104,7 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Official plugins</h3>
-                <span className="font-mono text-xs text-faint">10</span>
+                <span className="font-mono text-xs text-faint">36</span>
               </header>
               <ul className="mt-5 divide-y divide-line">
                 {plugins.map((p) => (

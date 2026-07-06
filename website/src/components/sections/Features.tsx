@@ -1,7 +1,5 @@
 'use client';
 
-import { Reveal, SectionHeading } from '@/components/ui/reveal';
-import { SpotlightCard } from '@/components/ui/spotlight-card';
 import {
   Boxes,
   Infinity as InfinityIcon,
@@ -14,6 +12,8 @@ import {
   Workflow,
   Wrench,
 } from 'lucide-react';
+import { Reveal, SectionHeading } from '@/components/ui/reveal';
+import { SpotlightCard } from '@/components/ui/spotlight-card';
 
 const features = [
   {
@@ -36,9 +36,9 @@ const features = [
   },
   {
     icon: Wrench,
-    title: '37 built-in tools',
+    title: '38 built-in tools',
     tag: 'no plugin required',
-    body: 'Files, shell, web, git, lint/format/typecheck/test, package audits, a SQLite codebase index, and meta-tooling — all registered out of the box behind per-tool permissions.',
+    body: 'Files, shell, web, git, plans, kanban, design kits, lint/format/typecheck/test, package audits, a SQLite codebase index, and meta-tooling — all registered out of the box behind per-tool permissions.',
   },
   {
     icon: ShieldCheck,
@@ -48,7 +48,7 @@ const features = [
   },
   {
     icon: Boxes,
-    title: '~110 providers',
+    title: '~140 providers',
     tag: 'boot-refreshed catalog',
     body: 'Four wire families with real end-to-end streaming. The models.dev catalog refreshes before boot completes, then the TUI model picker and capability resolver use the fresh provider data.',
   },

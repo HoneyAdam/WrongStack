@@ -20,37 +20,52 @@ export const META = {
 } as const;
 
 export const heroStats = [
-  { value: '36', label: 'built-in tools' },
-  { value: '17', label: 'bundled skills' },
+  { value: '38', label: 'built-in tools' },
+  { value: '23', label: 'bundled skills' },
   { value: '~140', label: 'model providers' },
-  { value: '10', label: 'official plugins' },
+  { value: '36', label: 'official plugins' },
 ] as const;
 
-/** 17 bundled skills — README / bundled catalog canonical list. */
+/** 23 bundled skills — README / bundled catalog canonical list. */
 export const skills = [
   { name: 'api-design', description: 'REST conventions, pagination, auth, and error taxonomy' },
   { name: 'audit-log', description: 'Analyze session logs and event streams' },
   { name: 'bug-hunter', description: 'Systematic debugging and anti-pattern detection' },
+  { name: 'chimera', description: 'Post-session code quality review of changed files' },
   {
     name: 'docker-deploy',
     description: 'Container builds, non-root images, and deployment checks',
   },
   { name: 'git-flow', description: 'Branching strategy and commit conventions' },
+  {
+    name: 'mailbox-bridge',
+    description: 'Expose the shared project mailbox to external agents and scripts',
+  },
   { name: 'multi-agent', description: 'Coordinate parallel agent workflows' },
   { name: 'node-modern', description: 'Node.js 22+ patterns and best practices' },
   { name: 'observability', description: 'Structured logs, traces, metrics, and redaction' },
+  {
+    name: 'output-standards',
+    description: 'Output formatting standards and next-step conventions',
+  },
+  { name: 'plugin-author', description: 'Create, review, and refactor WrongStack plugins' },
   { name: 'prompt-engineering', description: 'Craft effective prompts for better results' },
   { name: 'react-modern', description: 'React 19+ patterns and hooks' },
   { name: 'refactor-planner', description: 'Plan and execute safe refactors' },
+  { name: 'research-web', description: 'Disciplined web research with source validation' },
   { name: 'sdd', description: 'Spec-Driven Development workflow' },
   { name: 'security-scanner', description: 'Find vulnerabilities before they ship' },
   { name: 'skill-creator', description: 'Build custom skills for specialized tasks' },
   { name: 'tech-stack', description: 'Validate package versions, reject dead/obsolete tech' },
   { name: 'testing', description: 'Vitest patterns, mocks, coverage, and test strategy' },
   { name: 'typescript-strict', description: 'Strict TypeScript for bulletproof code' },
+  {
+    name: 'wrongstack-mailbox',
+    description: 'External-facing mailbox client for cross-agent coordination',
+  },
 ] as const;
 
-/** The 37 built-in tools, grouped. */
+/** The 38 built-in tools from packages/tools/src/builtin.ts, grouped. */
 export const toolGroups = [
   {
     label: 'Files',
@@ -60,14 +75,13 @@ export const toolGroups = [
   { label: 'Web', tools: ['fetch', 'search'] },
   { label: 'Quality', tools: ['lint', 'format', 'typecheck', 'test'] },
   { label: 'Packages', tools: ['install', 'audit', 'outdated'] },
-  { label: 'Codegen', tools: ['document', 'scaffold'] },
+  { label: 'Codegen', tools: ['document', 'scaffold', 'design'] },
   { label: 'Data', tools: ['json', 'logs'] },
-  { label: 'Project', tools: ['git', 'todo', 'task', 'plan'] },
+  { label: 'Project', tools: ['git', 'todo', 'plan', 'kanban', 'task', 'set_working_dir'] },
   { label: 'Codebase index', tools: ['codebase-index', 'codebase-search', 'codebase-stats'] },
-  { label: 'Memory', tools: ['remember', 'forget'] },
   {
     label: 'Meta-tooling',
-    tools: ['tool_search', 'tool_use', 'batch_tool_use', 'tool_help', 'context_manager'],
+    tools: ['tool_search', 'tool_use', 'batch_tool_use', 'tool_help'],
   },
 ] as const;
 
@@ -193,18 +207,44 @@ export const packages = [
   '@wrongstack/acp',
 ] as const;
 
-/** 10 official plugins — README plugin table. */
+/** 36 official plugins — README plugin table. */
 export const plugins = [
   { name: 'auto-doc', note: 'JSDoc / TSDoc generation' },
   { name: 'git-autocommit', note: 'Conventional-commit messages' },
   { name: 'shell-check', note: 'ShellCheck wrapper' },
   { name: 'cost-tracker', note: 'Token + cost per model' },
   { name: 'file-watcher', note: 'Emits file-change events' },
-  { name: 'web-search', note: 'Cached search + URL→markdown' },
-  { name: 'json-path', note: 'JSONPath query & mutate' },
   { name: 'cron', note: 'Recurring actions via hooks' },
   { name: 'template-engine', note: '{{var}} / {{#if}} / {{#each}}' },
   { name: 'semver-bump', note: 'Commit-driven version bumps' },
+  { name: 'secret-scanner', note: 'Credential blocking, redaction, and warnings' },
+  { name: 'todo-tracker', note: 'Persistent project todo backlog' },
+  { name: 'token-budget', note: 'Warn or stop near token limits' },
+  { name: 'lint-gate', note: 'Runs linters before file edits land' },
+  { name: 'branch-guard', note: 'Blocks unsafe operations on protected branches' },
+  { name: 'diff-summary', note: 'Injects compact git diff context after edits' },
+  { name: 'commit-validator', note: 'Enforces conventional commit shape' },
+  { name: 'format-on-save', note: 'Runs formatter after write/edit' },
+  { name: 'test-runner-gate', note: 'Runs relevant tests after source edits' },
+  { name: 'import-organizer', note: 'Sorts imports and removes unused entries' },
+  { name: 'todo-listener', note: 'Broadcasts todo snapshots to the mailbox' },
+  { name: 'session-recap', note: 'Posts a session summary on stop' },
+  { name: 'spec-linker', note: 'Finds and fixes unlinked plugin references' },
+  { name: 'loop-breaker', note: 'Detects repeated tool-call loops' },
+  { name: 'path-guard', note: 'Blocks writes to protected paths' },
+  { name: 'context-pins', note: 'Pins facts across sessions and compaction' },
+  { name: 'checkpoint', note: 'Captures and restores file snapshots' },
+  { name: 'error-lens', note: 'Distills failed command output' },
+  { name: 'dep-guard', note: 'Supervises dependency installs' },
+  { name: 'config-validator', note: 'Validates JSON/YAML/TOML after edits' },
+  { name: 'notify-hub', note: 'Sends session and tool notifications' },
+  { name: 'changelog-writer', note: 'Writes Keep a Changelog entries' },
+  { name: 'injection-shield', note: 'Flags prompt-injection patterns' },
+  { name: 'llm-cache', note: 'Provider response cache' },
+  { name: 'model-router', note: 'Request-size and tool-aware routing' },
+  { name: 'prompt-firewall', note: 'Credential scanner on the provider wire' },
+  { name: 'auto-escalate', note: 'Retry ladder for transient failures' },
+  { name: 'token-throttle', note: 'Rolling tokens-per-minute throttle' },
 ] as const;
 
 /* =========================================================================
@@ -225,9 +265,33 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.282.1',
+    date: '2026-07-06',
+    latest: true,
+    tagline: 'WebUI polish and MCP preset/env fixes',
+    highlights: [
+      'WebUI QuickModelSwitcher now searches model descriptions in addition to provider id, model id, and display name',
+      'Legacy <next_steps> blocks are stripped from persisted subagent output alongside canonical <nextsteps> blocks',
+      'MCP passthroughEnv forwards only explicitly named parent env vars to official stdio MCP child processes',
+      'MCP configs saved by older versions merge with built-in presets at boot so new preset defaults are preserved',
+      'maxToolTimeoutMs is now passed to the tool executor in every CLI construction path',
+    ],
+  },
+  {
+    version: '0.282.0',
+    date: '2026-07-06',
+    tagline: 'Fleet awareness, HQ control plane, Desktop, skills, and 36 plugins',
+    highlights: [
+      'FleetSupervisor watches Director fleets through the Brain and can retarget pending work, spawn helpers, steer workers, or notify the leader',
+      'Peer awareness adds fleet-pulse digests, a fleet_status tool, and rate-capped status broadcasts through the project mailbox',
+      'HQ Command Center gains persisted telemetry, active alerts, token-scoped control, and cross-machine steering commands',
+      'Skill registry search, /skill-gen authoring tools, private GitHub installs, and the 23-skill bundled catalog are documented',
+      '@wrongstack/plugins expands to 36 official plugins alongside the 8 core first-party plugins',
+    ],
+  },
+  {
     version: '0.269.0',
     date: '2026-06-22',
-    latest: true,
     tagline: 'HQ command center runtime and discovery hardening',
     highlights: [
       'Runtime endpoint auto-discovery — HQ writes runtime.json after port selection so clients find HQ on custom/auto-advanced ports',

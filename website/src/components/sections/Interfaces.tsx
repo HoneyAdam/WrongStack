@@ -1,10 +1,10 @@
 'use client';
 
+import { Check, Globe, MonitorPlay, Terminal } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Reveal, SectionHeading } from '@/components/ui/reveal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Out, Prompt, TerminalFrame } from '@/components/ui/terminal';
-import { Check, Globe, MonitorPlay, Terminal } from 'lucide-react';
-import type { ReactNode } from 'react';
 
 type Surface = {
   id: string;
@@ -99,7 +99,7 @@ const surfaces: Surface[] = [
     features: [
       'Topbar: ctx% · tokens · cache hit · cost · iteration',
       'Tool bubbles stream live tool.progress',
-      'Ctrl+K palette · Ctrl+M model switcher · Ctrl+F search',
+      'Ctrl+K palette · Ctrl+M model switcher searches descriptions · Ctrl+F search',
       'Live TODO snapshot, pinned panel, history search',
       'AutoPhase phase/task view broadcasts during a run',
     ],

@@ -21,7 +21,7 @@ npm i -g wrongstack && wrongstack
 
 ---
 
-WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **36 built-in tools**, **23 skills**, **8 core first-party plugins** + **36 official plugins** in `@wrongstack/plugins`, and **~140 providers** pulled live from [models.dev](https://models.dev) — 138 with a built-in transport (8 `anthropic` / 3 `openai` / 126 `openai-compatible` / 1 `google`) plus 3 OAuth families (`anthropic-oauth`, `openai-codex`, `github-copilot`). No hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
+WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **38 built-in tools**, **23 skills**, **8 core first-party plugins** + **36 official plugins** in `@wrongstack/plugins`, and **~140 providers** pulled live from [models.dev](https://models.dev) — 138 with a built-in transport (8 `anthropic` / 3 `openai` / 126 `openai-compatible` / 1 `google`) plus 3 OAuth families (`anthropic-oauth`, `openai-codex`, `github-copilot`). No hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
 
 ### ✨ Why it slaps
 
@@ -79,7 +79,7 @@ After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an a
 - Sidebar: live TODO snapshot, Pinned panel, History with grouping + search
 - Operations panels: Goal, Process Monitor, Checkpoint Timeline, AutoPhase, phase agents, task board, and worktree lanes
 - Autonomy picker: switch `off` / `suggest` / `auto` / `eternal` / `eternal-parallel` from the UI
-- Overlays: `Ctrl+K` command palette, `Ctrl+M` model switcher, `Ctrl+F` chat search, `?` shortcuts
+- Overlays: `Ctrl+K` command palette, `Ctrl+M` model switcher with provider/model/name/description search, `Ctrl+F` chat search, `?` shortcuts
 - Slash commands with keyboard nav, day-separator dividers, dynamic tab title
 
 ```bash
@@ -119,7 +119,7 @@ wstack hq token create "browser"
 wstack hq token create --client "build-box"
 ```
 
-### 36 built-in tools
+### 38 built-in tools
 
 All tools are registered out of the box — no plugin required.
 
@@ -149,12 +149,14 @@ All tools are registered out of the box — no plugin required.
 | `logs` | Stream or fetch service log files |
 | `document` | Generate JSDoc/TSDoc comments |
 | `scaffold` | Generate boilerplate from templates |
+| `design` | Browse, materialize, and verify UI design kits |
 | `tool_search` / `tool_use` / `batch_tool_use` / `tool_help` | Meta-tooling for tool discovery and orchestration |
 | `todo` | Track multi-step tasks |
+| `plan` | Persist strategic plans and promote items into todos or tasks |
+| `kanban` | Manage project boards, task chains, dependencies, and assignment snapshots |
 | `git` | Common git operations |
 | `task` | Structured work items with dependencies, types, and priorities |
-| `context_manager` | Inspect / trim / compact the in-flight context window |
-| `remember` / `forget` | Persist notes across sessions (project- or user-scoped, gated by `features.memory`) |
+| `set_working_dir` | Change the session working directory inside the project root |
 | `codebase-index` | Build / update the SQLite symbol index (incremental; multi-language) |
 | `codebase-search` | BM25-ranked search over indexed symbol names, signatures, and doc comments |
 | `codebase-stats` | Summary of the current symbol index |
@@ -463,7 +465,7 @@ Five-layer observability:
 A lean operating mode that shrinks the per-request prompt without going fully
 offline. Three levers compound:
 
-- **Tier-1 tool belt** — the 90+ built-in tools collapse to **10 essentials**
+- **Tier-1 tool belt** — the full built-in tool surface collapses to **10 essentials**
   (`read`, `write`, `edit`, `bash`, `grep`, `glob`, `diff`, `patch`, `json`,
   `search`), trimming ~4000–6000 tokens of tool-definition overhead.
 - **Compact skills** — each in-scope skill renders only its *Overview + Rules*
@@ -479,19 +481,18 @@ saving indicator and the current registered-tool count.
 
 ### `--no-features` minimal kernel
 
-Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, ~1670 lines incl. events) + agent (525 lines) + 36 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
+Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, ~1670 lines incl. events) + agent (525 lines) + 38 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
 
 ---
 
 ## Recent changes
 
-**Current package line: 0.282.0.** Highlights include fleet supervision and
-peer awareness, the cross-machine HQ command center with token-scoped control
-and persisted telemetry, the Electron Desktop surface (`wrongstack --desktop`,
-`wstack desktop`, `wrongstack-desktop`), the interactive in-session `/auth`
-panel, skill registry search/install authoring improvements, the 36-plugin
-official suite, and package coverage for ACP, bench, WebUI HQ, and Desktop
-alongside the CLI/TUI/WebUI stack.
+**Current package line: 0.282.1.** Highlights include the 0.282.0 fleet
+awareness, HQ control plane, Desktop, skills, and 36-plugin release, plus patch
+fixes for max tool timeout wiring, MCP preset/env handling, and WebUI polish:
+legacy `<next_steps>` blocks are stripped from persisted subagent output and
+the `Ctrl+M` model switcher now searches model descriptions as well as ids and
+names.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 
@@ -738,7 +739,7 @@ Commit this file to share project conventions with the agent across all develope
 
 **2. Zero non-overridable behavior.** 16 services bound through `Container` (Logger, TokenCounter, SessionStore, MemoryStore, PermissionPolicy, Compactor, PathResolver, ConfigLoader, Renderer, InputReader, ErrorHandler, RetryPolicy, SkillLoader, SystemPromptBuilder, SecretScrubber, ModelsRegistry). 6 pipelines as middleware chains. Tools, providers, MCP servers, and slash commands all live in registries.
 
-**3. Standalone sufficiency.** Works with 36 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
+**3. Standalone sufficiency.** Works with 38 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
 
 **4. Layered, not monolithic.** `--no-features` flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. The minimal-viable WrongStack runs offline with no network calls at startup.
 
@@ -749,7 +750,7 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/core` | Kernel, agent, types, registries, plugin contract |
 | `@wrongstack/runtime` | Default runtime implementations, host composition helpers, extension pack contracts |
 | `@wrongstack/providers` | Anthropic/OpenAI/OpenAI-compatible/Google wire adapters + SSE |
-| `@wrongstack/tools` | 36 built-in tools (incl. SQLite codebase index) |
+| `@wrongstack/tools` | 38 built-in tools (incl. SQLite codebase index) |
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
 | `@wrongstack/acp` | Agent Client Protocol client + agent support |
 | `@wrongstack/bench` | Model-independent benchmark harness (Aider polyglot + SWE-bench Verified) |

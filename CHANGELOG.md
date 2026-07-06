@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- The configured max tool timeout is now passed to the tool executor in all CLI paths.
-- Tool calls now respect the
-
-
 _No unreleased changes yet._
+
+## [0.282.1] — 2026-07-06
+
+### Added
+- MCP server configs now support `passthroughEnv`, letting official stdio MCP
+  presets forward only explicitly named parent environment variables (for
+  example `GITHUB_TOKEN`, `BRAVE_SEARCH_API_KEY`, or provider-specific keys)
+  while keeping the default child-process environment scrubbed.
+
+### Fixed
+- The configured max tool timeout is now passed to the tool executor in every
+  CLI construction path, so long-running tools respect `maxToolTimeoutMs`
+  consistently.
+- MCP server config loaded at boot now merges with built-in presets before the
+  registry starts, preserving newer preset defaults such as `passthroughEnv`
+  for configs saved by older versions.
+- WebUI subagent output cleanup now strips both canonical `<nextsteps>` blocks
+  and legacy `<next_steps>` blocks, including persisted older output.
+- The WebUI `Ctrl+M` quick model switcher now filters by model description in
+  addition to provider id, model id, and display name.
 
 ## [0.282.0] — 2026-07-06
 
