@@ -32,7 +32,7 @@
  * @public
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
@@ -117,7 +117,7 @@ function readConfig(raw: unknown): ContextPinsConfig {
 function loadPins(filePath: string): { pins: Pin[]; nextId: number } {
   if (!filePath) return { pins: [], nextId: 1 };
   try {
-    const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as {
       pins?: unknown;
       nextId?: unknown;
     };
@@ -140,12 +140,14 @@ function loadPins(filePath: string): { pins: Pin[]; nextId: number } {
 function persistPins(filePath: string): boolean {
   if (!filePath) return true;
   try {
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, JSON.stringify({ pins: state.pins, nextId: state.nextId }, null, 2));
+    fs.mkdirSync(dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ pins: state.pins, nextId: state.nextId }, null, 2));
     return true;
   } catch {
+    /* v8 ignore start */
     state.persistErrors += 1;
     return false;
+    /* v8 ignore stop */
   }
 }
 
