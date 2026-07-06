@@ -59,10 +59,13 @@ export function feedPaste(accum: string | null, input: string): PasteFeedResult 
     // ANSI CSI sequence whose ESC was stripped by Ink. Guard against it
     // appearing as literal text in the input buffer.
     if (input.startsWith('[') && !input.startsWith(BEGIN) && !input.startsWith(END)) {
-      // Treat partial ANSI sequences (ESC stripped) as mid-paste content
-      // so [0m doesn't leak into the buffer as literal text.
+      // Treat partial ANSI sequences (ESC stripped) as leaked control
+      // fragments: swallow them so [0m doesn't leak into the buffer as
+      // literal text, BUT do not enter paste mode. Entering accumulation
+      // here would make the next ordinary keystrokes look like a continued
+      // bracketed paste until the idle flush fires.
       if (PARTIAL_ANSI_RE.test(input)) {
-        return { accum: '', complete: null };
+        return { accum: null, complete: null };
       }
       // Bare '[' is not a paste marker and not a known partial ANSI
       // sequence — let it through as ordinary input.

@@ -79,9 +79,11 @@ describe('feedPaste', () => {
     expect(res?.complete).toBe('topbottom');
   });
 
-  it('returns null for a bare partial ANSI CSI fragment starting with "["', () => {
-    // A bare "[0m" (ESC was stripped from "\x1b[0m") should be treated as
-    // mid-paste, not passed through as ordinary input.
-    expect(feedPaste(null, '[0m')).toEqual({ accum: '', complete: null });
+  it('swallows a bare partial ANSI CSI fragment without entering paste mode', () => {
+    // A bare "[0m" (ESC was stripped from "\x1b[0m") should not leak into the
+    // buffer, but it also must not start paste accumulation — otherwise the
+    // next normal keypress would get captured as a fake pasted block.
+    expect(feedPaste(null, '[0m')).toEqual({ accum: null, complete: null });
+    expect(feedPaste(null, 'a')).toBeNull();
   });
 });

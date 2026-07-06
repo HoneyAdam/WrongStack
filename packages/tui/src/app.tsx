@@ -1,5 +1,4 @@
 import * as fs from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type {
   Agent,
@@ -20,16 +19,12 @@ import {
   buildGoalPreamble,
   clearActiveKit,
   clearPersistedActiveKit,
-  DefaultPromptLoader,
-  DefaultSecretScrubber,
   DefaultSessionRewinder,
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
   getDesignKitLoader,
-  INPUT_HISTORY_DEFAULT_MAX,
   InputBuilder,
-  InputHistoryStore,
   isDesignStack,
   loadActiveKit,
   loadGoal,
@@ -70,10 +65,10 @@ import {
 import { AgentsMonitor } from './components/agents-monitor.js';
 import { AuditPanel } from './components/audit-panel.js';
 import { AuthPanel } from './components/auth-panel.js';
-import { AUTH_PANEL_INITIAL, type AuthPanelHost } from './components/auth-panel-model.js';
+import type { AuthPanelHost } from './components/auth-panel-model.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
-import { ModePicker, toModeOptions } from './components/mode-picker.js';
+import { ModePicker } from './components/mode-picker.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
 import { CoordinatorPanel } from './components/coordinator-panel.js';
@@ -98,11 +93,7 @@ import { PlanPanel } from './components/plan-panel.js';
 import { PluginPicker, type PluginPickerItem } from './components/plugin-picker.js';
 import { ProcessListMonitor } from './components/process-list.js';
 import { ProjectPicker } from './components/project-picker.js';
-import {
-  filterPromptPicker,
-  type PromptPickEntry,
-  PromptPicker,
-} from './components/prompt-picker.js';
+import { filterPromptPicker, PromptPicker } from './components/prompt-picker.js';
 import { QueuePanel } from './components/queue-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
@@ -116,7 +107,6 @@ import {
   resetSettingsFieldValue,
   resolveSettingsFieldValue,
   SettingsPicker,
-  type StatuslineMode,
   settingsPickerJumpByName,
   settingsPickerJumpNames,
   THINKING_WORD_FIELD,
@@ -130,17 +120,13 @@ import {
   statusBarModelSpan,
   statusBarTodosSpan,
 } from './components/status-bar.js';
-import {
-  isChipExpired,
-  STATUSLINE_ITEMS,
-  type StatuslineItem,
-  StatuslinePicker,
-} from './components/statusline-picker.js';
+import { STATUSLINE_ITEMS, type StatuslineItem, StatuslinePicker } from './components/statusline-picker.js';
 import { TodosMonitor } from './components/todos-monitor.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
 import { actionForFKeyPanel } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
+import { createInitialState, buildRestoredEntries } from './app-initial-state.js';
 import { startHeapWatchdog } from './heap-watchdog.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { useAuthPanel } from './hooks/use-auth-panel.js';
@@ -149,7 +135,13 @@ import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
 import { useFileSearch } from './hooks/use-file-search.js';
 import { usePasteHandling } from './hooks/use-paste-handling.js';
 import { usePickerKeys } from './hooks/use-picker-keys.js';
+import { useInputHistoryPersistence } from './hooks/use-input-history-persistence.js';
+import { useModePicker } from './hooks/use-mode-picker.js';
+import { usePromptPicker } from './hooks/use-prompt-picker.js';
 import { useQueueManager } from './hooks/use-queue-manager.js';
+import { useStatuslineHiddenSync } from './hooks/use-statusline-hidden-sync.js';
+import { useStreamChipExpiration } from './hooks/use-stream-chip-expiration.js';
+import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
@@ -164,6 +156,7 @@ import {
 import { createKillSlashCommand } from './kill-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
 import { createPanelOpenDispatcher } from './on-panel-open.js';
+import { shouldPushSubmittedHistory } from './submit-history.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
@@ -1152,9 +1145,6 @@ export function App({
   // Stream chip auto-expiration code lives after useReducer (see below).
 
   const projectRoot = agent.ctx.projectRoot;
-  // Lazily-built prompt loader for the TUI `/prompt` visual picker (declared
-  // here; the opener that uses `dispatch` lives after useReducer).
-  const promptLoaderRef = useRef<DefaultPromptLoader | null>(null);
   const promptUsageRef = useRef<PromptUsageStore | null>(null);
 
   // Read the single canonical goal.json — the per-project file under
@@ -1206,386 +1196,47 @@ export function App({
   // agent.ctx.messages is populated by setupSession → context.state.replaceMessages()
   // when wstack resume <id> is used. These messages only exist in the LLM context
   // by default; we convert them to visible history entries here.
-  // restoredToolCalls (from tool_call_end JSONL events) are appended as tool entries
-  // showing name, duration, and ok/error status.
-  const restoredEntries = (() => {
-    const msgs = agent.ctx.messages;
-    if (!msgs || msgs.length === 0) return [];
-    // Filter out system prompt messages (role === 'system') — the banner
-    // already shows the provider/model, and system prompts are not user-visible.
-    const visible = msgs.filter((m) => m.role !== 'system');
-    if (visible.length === 0) return [];
-    return rehydrateHistory(visible, /* startId */ 1, restoredToolCalls);
-  })();
-  const initialNextId = 1 + restoredEntries.length;
+  const restoredEntries = buildRestoredEntries(agent.ctx.messages, restoredToolCalls);
 
-  const [state, dispatch] = useReducer(reducer, {
-    entries: [
-      ...(banner
-        ? [
-            {
-              id: 0,
-              kind: 'banner' as const,
-              version: appVersion ?? 'dev',
-              provider: provider ?? 'agent',
-              model,
-              cwd: agent.ctx.cwd,
-              family,
-              keyTail,
-            },
-          ]
-        : []),
-      ...restoredEntries,
-    ],
-    historyGen: 0,
-    buffer: '',
-    cursor: 0,
-    streamingText: '',
-    toolStream: null,
-    status: 'idle' as const,
-    interrupts: 0,
-    steeringPending: false,
-    steerSnapshot: null,
-    hint: '',
-    brain: { state: 'idle' as const },
-    brainPrompt: null,
-    nextId: initialNextId,
-    picker: { open: false, query: '', matches: [], selected: 0 },
-    slashPicker: { open: false, query: '', matches: [], selected: 0 },
-    runningTools: new Map(),
-    queue: [],
-    nextQueueId: 1,
-    inputHistory: [],
-    historyIndex: 0,
-    historyDraft: '',
-    modelPicker: {
-      open: false,
-      step: 'provider' as const,
-      providerOptions: [],
-      modelOptions: [],
-      filteredOptions: [],
-      selected: 0,
-      searchQuery: '',
-    },
-    autonomyPicker: { open: false, options: [], selected: 0 },
-    modePicker: { open: false, modes: [], selected: 0 },
-    designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
-    promptPicker: {
-      open: false,
-      all: [],
-      categories: [],
-      recentSlugs: [],
-      catIndex: 0,
-      selected: 0,
-    },
-    resumePicker: {
-      open: false,
-      sessions: [],
-      selected: 0,
-      busy: false,
-      hint: undefined,
-      error: undefined,
-    },
-    settingsPicker: {
-      open: false,
-      field: 0,
-      lastSettingsField: 0,
-      filter: '',
-      mode: 'off',
-      delayMs: 0,
-      titleAnimation: true,
-      yolo: false,
-      streamFleet: true,
-      chime: false,
-      confirmExit: true,
-      nextPrediction: false,
-      featureMcp: true,
-      featurePlugins: true,
-      featureMemory: true,
-      featureSkills: true,
-      featureModelsRegistry: true,
-      tokenSavingTier: 'off' as TokenSavingTier,
-      allowOutsideProjectRoot: true,
-      contextAutoCompact: true,
-      contextStrategy: 'hybrid',
-      contextMode: 'balanced' as ContextMode,
-      maxConcurrent: 10,
-      logLevel: 'info',
-      auditLevel: 'standard',
-      indexOnStart: true,
-      multiDiffSummaryThreshold: 5,
-      maxIterations: 500,
-      autoProceedMaxIterations: 50,
-      enhanceDelayMs: 60_000,
-      enhanceEnabled: true,
-      enhanceLanguage: 'original',
-      debugStream: false,
-      statuslineMode: 'detailed' as StatuslineMode,
-      reasoningMode: 'auto' as 'auto',
-      reasoningEffort: 'high',
-      reasoningPreserve: false,
-      thinkingWord: 'thinking',
-      thinkingWordEditing: false,
-      thinkingWordDraft: '',
-      cacheTtl: 'default',
-      configScope: 'global',
-      animationStyle: 'rainbow',
-    },
-    statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
-    pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
-    authPanel: AUTH_PANEL_INITIAL,
-    projectPicker: {
-      open: false,
-      allItems: [],
-      items: [],
-      selected: 0,
-      filter: '',
-      hint: undefined,
-    },
-    fKeyPicker: { open: false, selected: 0 },
-    confirmQueue: [],
-    enhance: null,
-    enhanceEnabled,
-    enhanceBusy: false,
-    escConfirm: null,
-    sendModePicker: null,
-    contextChipVersion: 0,
-    fleet: {},
-    leader: {
-      iterations: 0,
-      toolCalls: 0,
-      recentTools: [],
-      currentTool: undefined,
-      startedAt: Date.now(),
-      lastEventAt: Date.now(),
-      iterating: false,
-    },
-    fleetCost: 0,
-    fleetTokens: { input: 0, output: 0 },
-    fleetConcurrency: 4,
-    streamFleet: true,
-    monitorOpen: false,
-    agentsMonitorOpen: initialAgentsMonitorOpen ?? false,
-    helpOpen: false,
-    todosMonitorOpen: false,
-    queuePanelOpen: false,
-    processListOpen: false,
-    auditPanelOpen: false,
-    planPanelOpen: false,
-    kanbanPanelOpen: false,
-    goalPanelOpen: false,
-    sessionsPanelOpen: false,
-    sessionsPanel: { sessions: [], busy: false, selected: -1 },
-    sessionResumeConfirm: null,
-    collabSession: null,
-    checkpoints: [],
-    rewindOverlay: null,
-    eternalStage: null,
-    goalSummary: null,
-    autoPhase: null,
-    sddBoard: null,
-    worktrees: {},
-    worktreeMonitorOpen: false,
-    coordinator: {
-      goals: [],
-      timeline: [],
-      knowledgeCount: 0,
-      monitorOpen: false,
-      healthy: false,
-    },
-    scrollOffset: 0,
-    totalLines: 0,
-    viewportRows: 0,
-    pendingNewLines: 0,
-    debugStreamStats: null,
-    countdown: null,
+  const [state, dispatch] = useReducer(
+    reducer,
+    createInitialState({
+      banner,
+      appVersion,
+      provider,
+      model,
+      cwd: agent.ctx.cwd,
+      family,
+      keyTail,
+      restoredEntries,
+      enhanceEnabled,
+      initialAgentsMonitorOpen,
+    }),
+  );
+
+  useInputHistoryPersistence({
+    projectRoot,
+    inputHistory: state.inputHistory,
+    dispatch,
   });
 
-  // Per-project TUI input history store. Lives at
-  // ~/.wrongstack/projects/<slug>/input-history.json. Secrets are scrubbed
-  // before they reach disk (see InputHistoryStore). Declared AFTER useReducer
-  // because the load effect dispatches `setInputHistory` and the save effect
-  // reads `state.inputHistory`.
-  const inputHistoryStore = useMemo(() => {
-    if (!projectRoot) return null;
-    const file = resolveWstackPaths({ projectRoot }).projectInputHistory;
-    return new InputHistoryStore(file, new DefaultSecretScrubber(), INPUT_HISTORY_DEFAULT_MAX);
-  }, [projectRoot]);
+  const { openPromptPicker } = usePromptPicker({ projectRoot, dispatch });
 
-  // Load persisted input history once on mount (before the user types).
-  // The loadedRef flips true when load resolves (success or failure), which
-  // gates the save effect below so the initial empty buffer can't overwrite
-  // the on-disk history before it has been read.
-  const inputHistoryLoadedRef = useRef(false);
-  const inputHistorySaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const inputHistoryLastSavedRef = useRef<string>('');
-  useEffect(() => {
-    if (!inputHistoryStore) return;
-    let cancelled = false;
-    inputHistoryStore
-      .load()
-      .then((entries) => {
-        if (cancelled) return;
-        inputHistoryLoadedRef.current = true;
-        // Seed the last-saved snapshot so the save effect doesn't immediately
-        // rewrite the file we just read.
-        inputHistoryLastSavedRef.current = JSON.stringify(entries);
-        if (entries.length === 0) return;
-        dispatch({ type: 'setInputHistory', entries });
-      })
-      .catch(() => {
-        if (!cancelled) inputHistoryLoadedRef.current = true;
-        // Best-effort: a failed load leaves the in-memory history empty,
-        // which is the same as a fresh project. No UI disruption.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [inputHistoryStore]);
+  const { openModePicker } = useModePicker({ dispatch, getModes });
 
-  // Persist input history to disk, debounced 200ms. Mirrors the todos-
-  // checkpoint pattern: many rapid historyPush events collapse into one
-  // write. Skipped until the load effect has resolved (loadedRef) and when
-  // the in-memory snapshot hasn't changed since the last write.
-  useEffect(() => {
-    if (!inputHistoryStore || !inputHistoryLoadedRef.current) return;
-    const snapshot = JSON.stringify(state.inputHistory);
-    if (snapshot === inputHistoryLastSavedRef.current) return;
-    if (inputHistorySaveTimerRef.current) clearTimeout(inputHistorySaveTimerRef.current);
-    inputHistorySaveTimerRef.current = setTimeout(() => {
-      inputHistoryLastSavedRef.current = snapshot;
-      inputHistoryStore.save(state.inputHistory).catch(() => {
-        // Best-effort persistence; a failed write does not disrupt the UI.
-        // The next change will retry.
-      });
-    }, 200);
-    return () => {
-      if (inputHistorySaveTimerRef.current) clearTimeout(inputHistorySaveTimerRef.current);
-    };
-  }, [state.inputHistory, inputHistoryStore]);
-
-  // Prompt library picker opener (declared after useReducer: it dispatches).
-  const getPromptLoader = (): DefaultPromptLoader | null => {
-    if (!promptLoaderRef.current && projectRoot) {
-      let bundledDir: string | undefined;
-      try {
-        const req = createRequire(import.meta.url);
-        bundledDir = path.join(
-          path.dirname(req.resolve('@wrongstack/core/package.json')),
-          'data',
-          'prompts',
-        );
-      } catch {
-        bundledDir = undefined;
-      }
-      const paths = resolveWstackPaths({ projectRoot });
-      promptLoaderRef.current = new DefaultPromptLoader({ paths, bundledDir });
-      promptUsageRef.current = new PromptUsageStore(paths.promptUsage);
-    }
-    return promptLoaderRef.current;
-  };
-  const openPromptPicker = async (): Promise<void> => {
-    const loader = getPromptLoader();
-    if (!loader) return;
-    loader.invalidateCache();
-    const all = await loader.list();
-    const entries: PromptPickEntry[] = all.map((e) => ({
-      slug: e.slug,
-      title: e.title,
-      description: e.description,
-      category: e.category,
-      source: e.source,
-      content: e.content,
-      favorite: e.favorite,
-    }));
-    const recentSlugs =
-      (await promptUsageRef.current?.recent(50).catch(() => []))?.map((r) => r.slug) ?? [];
-    const hasFavorites = entries.some((e) => e.favorite);
-    const cats = [
-      'all',
-      ...(recentSlugs.length > 0 ? ['🕘 recent'] : []),
-      ...(hasFavorites ? ['★ favorites'] : []),
-      ...Array.from(new Set(entries.map((e) => e.category))).sort(),
-    ];
-    dispatch({ type: 'promptPickerOpen', all: entries, categories: cats, recentSlugs });
-  };
-
-  // Mode picker opener: fetches all modes + active mode from the host and
-  // dispatches the open action so the redux-driven ModePicker renders.
-  const openModePicker = useCallback(async (): Promise<void> => {
-    if (!getModes) return;
-    const result = await getModes();
-    const options = toModeOptions(result.modes, result.activeId);
-    dispatch({ type: 'modePickerOpen', modes: options });
-  }, [getModes]);
-
-  // Sync picker toggles instantly to the status bar — when the user toggles an
-  // item in the statusline picker, the reducer updates
-  // state.statuslinePicker.hiddenItems. We mirror that change into the
-  // useStatuslineState hook so the StatusBar re-renders immediately.
-  // (Declared after useReducer: it reads `state`.)
-  useEffect(() => {
-    if (state.statuslinePicker.open) {
-      const pickerHidden = state.statuslinePicker.hiddenItems;
-      // Only sync if the lists differ (avoid infinite loops). Compare as plain
-      // Compare as plain strings to avoid order-only churn.
-      const currentHidden = new Set<string>(hiddenItems);
-      const pickerHiddenSet = new Set<string>(pickerHidden);
-      const differs =
-        currentHidden.size !== pickerHiddenSet.size ||
-        pickerHidden.some((item) => !currentHidden.has(item)) ||
-        hiddenItems.some((item) => !pickerHiddenSet.has(item));
-      if (differs) {
-        setHiddenItems([...pickerHidden] as typeof hiddenItems);
-      }
-    }
-  }, [
-    state.statuslinePicker.hiddenItems,
-    state.statuslinePicker.open,
-    setHiddenItems,
+  useStatuslineHiddenSync({
+    pickerOpen: state.statuslinePicker.open,
+    pickerHidden: state.statuslinePicker.hiddenItems,
     hiddenItems,
-  ]);
+    setHiddenItems: (items) => setHiddenItems(items as typeof hiddenItems),
+  });
 
-  // ── Stream chip auto-expiration ────────────────────────────────────────
-  // Show/hide stream chips (brain, mailbox, enhance, debug_stream) based on
-  // data availability. These chips auto-expire unless the user has toggled them on.
-  const prevBrainPromptRef = useRef(state.brainPrompt);
-  const prevEnhanceRef = useRef(state.enhance);
-
-  useEffect(() => {
-    // brain: show when prompt appears, expire when it clears
-    if (state.brainPrompt && !prevBrainPromptRef.current) {
-      dispatch({ type: 'statuslineChipShow', key: 'brain', expiresIn: 5 });
-    } else if (!state.brainPrompt && prevBrainPromptRef.current) {
-      if (state.statuslinePicker.visibleChips.some((c) => c.key === 'brain')) {
-        dispatch({ type: 'statuslineChipExpire', key: 'brain' });
-      }
-    }
-    prevBrainPromptRef.current = state.brainPrompt;
-
-    // enhance: show when enhance panel opens, expire when it closes
-    if (state.enhance && !prevEnhanceRef.current) {
-      dispatch({ type: 'statuslineChipShow', key: 'enhance', expiresIn: 5 });
-    } else if (!state.enhance && prevEnhanceRef.current) {
-      if (state.statuslinePicker.visibleChips.some((c) => c.key === 'enhance')) {
-        dispatch({ type: 'statuslineChipExpire', key: 'enhance' });
-      }
-    }
-    prevEnhanceRef.current = state.enhance;
-  }, [state.brainPrompt, state.enhance, state.statuslinePicker.visibleChips, dispatch]);
-
-  // Periodic expiration checker — runs every 30 s to remove chips whose
-  // time window has elapsed. Chips with no expiresIn are permanent.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const expired = state.statuslinePicker.visibleChips.filter((c) => isChipExpired(c, now));
-      for (const chip of expired) {
-        dispatch({ type: 'statuslineChipExpire', key: chip.key });
-      }
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [state.statuslinePicker.visibleChips, dispatch]);
+  useStreamChipExpiration({
+    brainPrompt: state.brainPrompt,
+    enhance: state.enhance,
+    visibleChips: state.statuslinePicker.visibleChips,
+    dispatch,
+  });
 
   // ── AutonomousCoordinator bridge ─────────────────────────────────────
   // Wire project-level coordinator events into the TUI reducer so the
@@ -1631,23 +1282,7 @@ export function App({
     return base && base !== path.sep ? base : undefined;
   }, [projectRoot]);
 
-  // Working directory chip — relative path within the project. Uses
-  // React state + subscription to ctx.onWorkingDirChanged() so it stays
-  // live when the agent or user changes directories mid-session.
-  const [workingDirChip, setWorkingDirChip] = React.useState<string | undefined>(() => {
-    const ctx = agent.ctx;
-    if (ctx.workingDir && ctx.workingDir !== projectRoot) {
-      return path.relative(projectRoot, ctx.workingDir) || '.';
-    }
-    return undefined;
-  });
-  React.useEffect(() => {
-    const ctx = agent.ctx;
-    return ctx.onWorkingDirChanged((newDir) => {
-      const rel = path.relative(projectRoot, newDir) || '.';
-      setWorkingDirChip(rel === '.' ? undefined : rel);
-    });
-  }, [agent.ctx, projectRoot]);
+  const workingDirChip = useWorkingDirChip(agent.ctx, projectRoot);
 
   // chime/confirmExit must reflect LIVE `/settings` changes, not just the boot
   // props. getSettings() reads the in-memory configStore, which saveSettings
@@ -6220,7 +5855,10 @@ export function App({
     // (no-op when already pinned or outside mouse mode).
     dispatch({ type: 'scrollToBottom' });
     const pushSubmittedHistory = () => {
-      if (trimmed) dispatch({ type: 'historyPush', text: trimmed });
+      const decision = shouldPushSubmittedHistory(trimmed);
+      if (decision.push) {
+        dispatch({ type: 'historyPush', text: decision.trimmed });
+      }
     };
     if (trimmed === '/image' || trimmed === '/paste-image') {
       pushSubmittedHistory();
