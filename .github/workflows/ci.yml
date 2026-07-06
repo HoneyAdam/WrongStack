@@ -63,5 +63,21 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Flag ad-hoc console.warn/error string-literal logging. The project
+      # convention is structured JSON logging —
+      # console.(warn|error)(JSON.stringify({ level, event, message, timestamp })).
+      # scripts/lint-console-logging.mjs --all scans every tracked TS file and
+      # exits non-zero on violations.
+      #
+      # TODO: flip continue-on-error to false (make this blocking) once the 3
+      # remaining pre-existing violations are cleared:
+      #   - packages/cli/src/execution.ts:925,933
+      #   - packages/tui/src/app.tsx:1136
+      # Until then this step reports violations without failing the build, so it
+      # gives visibility on PRs without keeping main permanently red.
+      - name: Lint console logging
+        continue-on-error: true
+        run: pnpm lint:console
+
       - name: Test
         run: pnpm test
