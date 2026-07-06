@@ -368,6 +368,17 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   }
 
   private isDestructiveYoloCall(tool: Tool, input: unknown, ctx: Context): boolean {
+    // 0. mcp_control is a multi-action tool: list/search/activate/deactivate
+    //     are read-only or ephemeral toggles and should bypass the YOLO
+    //     destructive gate. Only enable/disable/restart mutate config or
+    //     start external processes (npx -y <pkg>) and are truly destructive.
+    if (tool.name === 'mcp_control') {
+      const action = getInputString(input, 'action');
+      if (action === 'list' || action === 'search' || action === 'activate' || action === 'deactivate') {
+        return false;
+      }
+    }
+
     // 1. Capability-based check (preferred — works for all tools, not just hardcoded names)
     if (this.isDestructiveByCapability(tool)) {
       const caps = tool.capabilities ?? [];
