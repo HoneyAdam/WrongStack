@@ -15,15 +15,16 @@ Two invariants keep the report objective:
 
 1. **Deterministic grading.** Polyglot runs the exercise's hidden tests;
    SWE-bench runs `FAIL_TO_PASS` / `PASS_TO_PASS`. Exit code decides pass/fail.
-2. **Harness fingerprint.** Every report is stamped with
-   `sha256(cliVersion, toolNames, maxIterations, yolo, subsetId)`. Rows compare
-   only when the fingerprint matches; change the prompt/tools/version and old
-   numbers are marked stale.
+2. **Harness fingerprint.** Every report is stamped with a hash of the CLI
+   version, tool roster + tool manifest, iteration cap, yolo flag, task subset,
+   and any supplied prompt/config hashes. Rows compare only when the fingerprint
+   matches; change the prompt/tools/version and old numbers are marked stale.
 
 ## Suites
 
 | Suite | Standard | Grader | Status |
 |---|---|---|---|
+| `local` | Project-defined manifest tasks | command + file assertions in workdir | ✅ Docker-free, graded inline |
 | `polyglot` | Aider polyglot (225 Exercism exercises, 6 languages) | run hidden tests in workdir | ✅ Docker-free, graded inline |
 | `swebench` | SWE-bench Verified (fixed subset) | export predictions → official harness (inline Docker grading via injectable hook) | ✅ runs + exports; ⚙️ inline grading pluggable |
 
@@ -41,6 +42,7 @@ masquerade as failures.
 - **API keys in env** — providers read keys from the environment (e.g.
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`). The isolated
   `WRONGSTACK_HOME` carries no secrets.
+- **Local:** a `bench.local.json` manifest and one fixture directory per task.
 - **Polyglot:** a local checkout of the polyglot-benchmark repo plus the
   language toolchains you want to grade (Python+pytest, Node+npm, Go, Rust,
   …). Languages whose toolchain is missing are simply skipped at grade time.
@@ -75,6 +77,56 @@ wstack bench report ./bench-results/<timestamp>
 # List available suites + configured cells
 wstack bench list --models bench.config.json
 ```
+
+## Local manifest suite
+
+Use this for WrongStack-specific regression evals: tool behavior, prompt changes,
+permission policy, multi-file edits, or any task that can be graded by a command
+and/or simple file checks.
+
+```
+evals/
+  bench.local.json
+  fixtures/
+    add-banner/
+      README.md
+      package.json
+      test.mjs
+```
+
+```json
+{
+  "tasks": [
+    {
+      "id": "add-banner",
+      "prompt": "Update README.md so it starts with the product banner. Do not modify package.json.",
+      "templateDir": "./fixtures/add-banner",
+      "grader": {
+        "type": "command",
+        "command": "node",
+        "args": ["test.mjs"],
+        "shell": false
+      },
+      "assertions": [
+        { "type": "file_contains", "path": "README.md", "text": "# WrongStack" },
+        { "type": "file_not_contains", "path": "README.md", "text": "TODO" }
+      ]
+    }
+  ]
+}
+```
+
+Run it with:
+
+```bash
+wstack bench run --suite local --suite-dir ./evals --models bench.config.json
+# or point directly at a manifest
+wstack bench run --suite local --manifest ./evals/bench.local.json --models bench.config.json
+```
+
+Supported assertions: `file_exists`, `file_not_exists`, `file_contains`,
+`file_not_contains`. The local subset fingerprint includes task ids, prompts,
+grader/assertion definitions, excludes, and a hash of the copied fixture content.
 
 Artifacts per run (`bench-results/<timestamp>/`):
 
