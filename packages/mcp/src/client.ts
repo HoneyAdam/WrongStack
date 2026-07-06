@@ -17,6 +17,14 @@ export interface MCPClientOptions {
   headers?: Record<string, string> | undefined;
   startupTimeoutMs?: number | undefined;
   requestTimeoutMs?: number | undefined;
+  /**
+   * Allowlist of env var names to forward from the parent process (process.env)
+   * to the child. Values are resolved at spawn time and merged into `env`
+   * via the `extra` path of `buildChildEnv` (unfiltered). This is how built-in
+   * MCP server presets (GitHub, Slack, Brave Search, …) get their API tokens
+   * without storing them in config.json or being scrubbed by the secret filter.
+   */
+  passthroughEnv?: string[] | undefined;
 }
 
 export type ConnectionState =
@@ -176,9 +184,22 @@ export class MCPClient {
     // `shell:true` + an args array triggers. Server command+args come from
     // config (admin-controlled), not the model, so shell use is not an
     // injection vector here.
+    // Resolve passthroughEnv: forward explicitly-listed env var names from
+    // the parent process to the child. This lets MCP server presets (GitHub,
+    // Slack, Brave Search, …) get their API tokens without storing them in
+    // config.json or being scrubbed by buildChildEnv()'s secret filter.
+    const extraEnv: Record<string, string> = { ...this.opts.env };
+    if (this.opts.passthroughEnv) {
+      for (const name of this.opts.passthroughEnv) {
+        const val = process.env[name];
+        if (val !== undefined) {
+          extraEnv[name] = val;
+        }
+      }
+    }
     const isWin = process.platform === 'win32';
     const rawArgs = this.opts.args ?? [];
-    const spawnEnv = buildChildEnv({ extra: this.opts.env });
+    const spawnEnv = buildChildEnv({ extra: extraEnv });
     const stdio: ['pipe', 'pipe', 'pipe'] = ['pipe', 'pipe', 'pipe'];
     const child = isWin
       ? spawn([this.opts.command, ...rawArgs].map(quoteWindowsArg).join(' '), {

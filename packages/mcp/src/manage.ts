@@ -39,6 +39,8 @@ export interface McpServerInput {
   permission?: Permission | undefined;
   /** Lazy connect — spawn the process only on first tool call (see config). */
   lazy?: boolean | undefined;
+  /** Env var names to forward from parent process at spawn time. */
+  passthroughEnv?: string[] | undefined;
 }
 
 /** Projected view of one server, merging disk config with live registry state. */
@@ -167,6 +169,8 @@ function buildConfig(input: McpServerInput, base?: MCPServerConfig | undefined):
   if (enabled !== undefined) cfg.enabled = enabled;
   const lazy = input.lazy ?? base?.lazy;
   if (lazy !== undefined) cfg.lazy = lazy;
+  const passthroughEnv = input.passthroughEnv ?? base?.passthroughEnv;
+  if (passthroughEnv !== undefined) cfg.passthroughEnv = passthroughEnv;
   return cfg;
 }
 

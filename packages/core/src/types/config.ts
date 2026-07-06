@@ -494,6 +494,26 @@ export interface MCPServerConfig {
    * eager connect at boot.
    */
   lazy?: boolean | undefined;
+  /**
+   * Allowlist of environment variable names to forward from the parent process
+   * to this MCP server's child process. The values are resolved from
+   * `process.env` at spawn time, NOT stored in the config file.
+   *
+   * Why this exists: WrongStack's `buildChildEnv()` security filter scrubs
+   * env vars whose names look like secrets (TOKEN, SECRET, AUTH, KEY, ...)
+   * from all child processes — this prevents a compromised MCP server from
+   * exfiltrating provider API keys. But most MCP servers (GitHub, Slack,
+   * Brave Search, ...) need their own API tokens from the environment.
+   * `passthroughEnv` is the explicit bypass: only vars listed here survive
+   * the filter, and they go through the `extra` path (unfiltered merge).
+   *
+   * Built-in presets declare their required env vars here so they work
+   * out of the box when the user has the corresponding env vars exported
+   * in their shell. Users can also add entries for custom servers.
+   *
+   * Example: passthroughEnv: ['GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_TOKEN']
+   */
+  passthroughEnv?: string[] | undefined;
 }
 
 export interface LogConfig {

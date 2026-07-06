@@ -32,6 +32,7 @@ export const githubServer = (): MCPServerConfig => ({
   transport: 'stdio',
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-github'],
+  passthroughEnv: ['GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_TOKEN'],
   permission: 'confirm',
 });
 
@@ -58,6 +59,7 @@ export const braveSearchServer = (): MCPServerConfig => ({
   transport: 'stdio',
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-brave-search'],
+  passthroughEnv: ['BRAVE_SEARCH_API_KEY'],
   permission: 'confirm',
 });
 
@@ -84,6 +86,7 @@ export const everArtServer = (): MCPServerConfig => ({
   transport: 'stdio',
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-everart'],
+  passthroughEnv: ['EVERART_API_KEY'],
   permission: 'confirm',
 });
 
@@ -97,6 +100,7 @@ export const slackServer = (): MCPServerConfig => ({
   transport: 'stdio',
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-slack'],
+  passthroughEnv: ['SLACK_BOT_TOKEN', 'SLACK_TEAM_ID'],
   permission: 'confirm',
 });
 
@@ -110,6 +114,7 @@ export const awsServer = (): MCPServerConfig => ({
   transport: 'stdio',
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-aws'],
+  passthroughEnv: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION', 'AWS_SESSION_TOKEN'],
   permission: 'confirm',
 });
 
@@ -123,6 +128,7 @@ export const googleMapsServer = (): MCPServerConfig => ({
   transport: 'stdio',
   command: 'npx',
   args: ['-y', '@modelcontextprotocol/server-google-maps'],
+  passthroughEnv: ['GOOGLE_MAPS_API_KEY'],
   permission: 'confirm',
 });
 
@@ -146,6 +152,7 @@ export const zaiVisionServer = (): MCPServerConfig => ({
   command: 'npx',
   args: ['-y', '@z_ai/mcp-server@latest'],
   env: { Z_AI_MODE: 'ZAI' },
+  passthroughEnv: ['Z_AI_API_KEY'],
   allowedTools: [
     'image_analysis',
     'extract_text_from_screenshot',
@@ -189,6 +196,7 @@ export const miniMaxVisionServer = (): MCPServerConfig => ({
     MINIMAX_API_HOST: 'https://api.minimax.io',
     MINIMAX_API_RESOURCE_MODE: 'url',
   },
+  passthroughEnv: ['MINIMAX_API_KEY'],
   allowedTools: ['understand_image'],
   permission: 'auto',
 });
