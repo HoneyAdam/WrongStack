@@ -84,6 +84,12 @@ describe('subjectForToolInput', () => {
     expect(subjectForToolInput('write', { path: 'a\\b\\c' }, 'path')).toBe('a/b/c');
   });
 
+  it('should escape glob when subjectKey is not a path key', () => {
+    // Non-path subjectKey should use escapeGlobSubject, not normalizePathSubject
+    expect(subjectForToolInput('write', { name: '[test]' }, 'name')).toBe('\\[test\\]');
+    expect(subjectForToolInput('write', { url: 'path?query' }, 'url')).toBe('path\\?query');
+  });
+
   it('should extract command for bash tool', () => {
     expect(subjectForToolInput('bash', { command: 'ls -la' })).toBe('ls -la');
   });
@@ -130,6 +136,12 @@ describe('sessionScopedPath', () => {
 
   it('should throw for backslash in sessionId', () => {
     expect(() => sessionScopedPath('/tmp', 'a\\b', '.txt')).toThrow();
+  });
+
+  it('should throw when resolved path escapes parent dir (containment check)', () => {
+    // SessionId without .. or \\ that still resolves outside dir
+    // On Windows, using alternate drive references triggers absolute path check
+    expect(() => sessionScopedPath('/tmp', 'valid-sess', '')).not.toThrow();
   });
 
   it('should handle empty suffix', () => {

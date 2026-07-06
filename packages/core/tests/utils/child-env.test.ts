@@ -148,4 +148,29 @@ describe('buildChildEnv', () => {
     const result = buildChildEnv({});
     expect(result.PATH).toBe('/usr/bin');
   });
+
+  it('should detect SESSION vars as secrets', () => {
+    process.env = { TEST_SESSION: 'cookie-value' };
+    const result = buildChildEnv();
+    expect(result.TEST_SESSION).toBeUndefined();
+  });
+
+  it('should forward SESSION_ID vars', () => {
+    process.env = { WRONGSTACK_SESSION_ID: 'sess_abc' };
+    const result = buildChildEnv();
+    expect(result.WRONGSTACK_SESSION_ID).toBe('sess_abc');
+  });
+
+  it('should strip NODE_ENV when WRONGSTACK_NODE_ENV_DEFAULTED is set', () => {
+    process.env = { WRONGSTACK_NODE_ENV_DEFAULTED: '1', NODE_ENV: 'production', PATH: '/usr/bin' };
+    const result = buildChildEnv();
+    expect(result.NODE_ENV).toBeUndefined();
+    expect(result.WRONGSTACK_NODE_ENV_DEFAULTED).toBeUndefined();
+  });
+
+  it('should forward NODE_ENV when not defaulted', () => {
+    process.env = { NODE_ENV: 'test', PATH: '/usr/bin' };
+    const result = buildChildEnv();
+    expect(result.NODE_ENV).toBe('test');
+  });
 });
