@@ -48,7 +48,11 @@ beforeEach(() => { vi.clearAllMocks(); });
 describe('context-pins plugin - persist error', () => {
   it('handles write failure gracefully', async () => {
     mockWriteFileSync.mockImplementation(() => { throw new Error('mock error'); });
-    const api = makeApi();
+    // A non-empty filePath is required: with the default empty path the plugin
+    // is in-memory-only and persistPins() short-circuits to `true` before ever
+    // calling the (mocked, throwing) writeFileSync — so the error path is never
+    // exercised. The path never touches disk because writeFileSync is mocked.
+    const api = makeApi({ extensions: { 'context-pins': { filePath: 'pins.json' } } });
     contextPinsPlugin.setup(api as never);
     const add = getTool(api, 'pin_add');
     const result = await add.execute({ text: 'test pin' }) as Record<string, unknown>;
