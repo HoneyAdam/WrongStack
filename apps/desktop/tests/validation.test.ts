@@ -174,7 +174,14 @@ describe('createValidationLogger()', () => {
   it('should log validation errors', () => {
     const logger = createValidationLogger('test');
     logger.log('test error');
-    expect(console.warn).toHaveBeenCalledWith('[test] Validation error: test error');
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    const [payload] = warnSpy.mock.calls[0]!;
+    expect(JSON.parse(payload as string)).toMatchObject({
+      level: 'warn',
+      event: 'desktop.validation_error',
+      prefix: 'test',
+      message: 'test error',
+    });
   });
 
   it('should deduplicate repeated errors', () => {
