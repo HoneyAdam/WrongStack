@@ -187,13 +187,13 @@ describe('formatProbeResult', () => {
   it('returns a muted hint when no refresh has run', () => {
     const r = formatProbeResult(initialRefreshState());
     expect(r.tone).toBe('muted');
-    expect(r.text).toContain('Refresh from server');
+    expect(r.text).toContain('Saved model list shown');
   });
 
   it('returns "Probing…" while in-flight', () => {
     const r = formatProbeResult({ ...initialRefreshState(), inFlight: true });
     expect(r.tone).toBe('muted');
-    expect(r.text).toBe('Probing…');
+    expect(r.text).toBe('Checking model endpoint...');
   });
 
   it('formats ok with model count and elapsed ms', () => {
@@ -263,7 +263,7 @@ describe('formatProbeResult', () => {
       last: failedProbe('no_provider'),
     });
     expect(r.tone).toBe('error');
-    expect(r.text).toContain('no saved provider');
+    expect(r.text).toContain('Provider is no longer saved');
   });
 
   it('formats no_base_url as a warning', () => {
@@ -272,6 +272,6 @@ describe('formatProbeResult', () => {
       last: failedProbe('no_base_url'),
     });
     expect(r.tone).toBe('warning');
-    expect(r.text).toContain('no baseUrl');
+    expect(r.text).toContain('No model endpoint configured');
   });
 });

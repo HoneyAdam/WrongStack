@@ -317,7 +317,7 @@ describe('upsertEdge', () => {
 
   it('sets color from EDGE_COLORS by kind', () => {
     useVizStore.getState().upsertEdge({ id: 'e1', source: 'a', target: 'b', kind: 'provider:call', label: 'c' });
-    expect(useVizStore.getState().edges.get('e1')?.color).toBe('hsl(180, 80%, 55%)');
+    expect(useVizStore.getState().edges.get('e1')?.color).toBe('hsl(var(--info))');
   });
 
   it('uses partial color when provided', () => {
@@ -466,7 +466,7 @@ describe('wsToVizEvent', () => {
     expect(result?.source).toBe('provider');
     expect(result?.target).toBe('leader');
     expect(result?.magnitude).toBe(11);
-    expect(result?.color).toBe('hsl(180, 80%, 55%)');
+    expect(result?.color).toBe('hsl(var(--info))');
   });
 
   it('handles provider.response', () => {
@@ -482,7 +482,7 @@ describe('wsToVizEvent', () => {
     const result = wsToVizEvent('tool.started', { name: 'bash' });
     expect(result?.kind).toBe('tool:started');
     expect(result?.source).toBe('bash');
-    expect(result?.color).toBe('hsl(40, 90%, 55%)');
+    expect(result?.color).toBe('hsl(var(--warning))');
     expect(result?.flowGroup).toBe('tool:bash');
   });
 
@@ -490,14 +490,14 @@ describe('wsToVizEvent', () => {
     const result = wsToVizEvent('tool.executed', { name: 'read', ok: true, durationMs: 150 });
     expect(result?.kind).toBe('tool:executed');
     expect(result?.label).toBe('read ✓ (150ms)');
-    expect(result?.color).toBe('hsl(40, 90%, 55%)');
+    expect(result?.color).toBe('hsl(var(--warning))');
   });
 
   it('handles tool.executed with ok=false', () => {
     const result = wsToVizEvent('tool.executed', { name: 'read', ok: false, durationMs: 50 });
     expect(result?.kind).toBe('tool:executed');
     expect(result?.label).toBe('read ✗ (50ms)');
-    expect(result?.color).toBe('hsl(0, 80%, 55%)'); // error color
+    expect(result?.color).toBe('hsl(var(--destructive))'); // error color
   });
 
   it('handles subagent.event spawned', () => {
@@ -525,14 +525,14 @@ describe('wsToVizEvent', () => {
       kind: 'task_completed', subagentId: 'a1', name: 'Worker', status: 'success',
     });
     expect(result?.kind).toBe('agent:status');
-    expect(result?.color).toBe('hsl(140, 70%, 55%)'); // green
+    expect(result?.color).toBe('hsl(var(--success))'); // green
   });
 
   it('handles subagent.event task_completed failure', () => {
     const result = wsToVizEvent('subagent.event', {
       kind: 'task_completed', subagentId: 'a1', name: 'Worker', status: 'failed',
     });
-    expect(result?.color).toBe('hsl(0, 80%, 55%)'); // error
+    expect(result?.color).toBe('hsl(var(--destructive))'); // error
   });
 
   it('handles subagent.event ctx_pct', () => {
@@ -596,7 +596,7 @@ describe('wsToVizEvent', () => {
     const result = wsToVizEvent('error', { message: 'Connection failed', phase: 'network' });
     expect(result?.kind).toBe('error');
     expect(result?.label).toBe('Connection failed');
-    expect(result?.color).toBe('hsl(0, 80%, 55%)');
+    expect(result?.color).toBe('hsl(var(--destructive))');
   });
 
   it('handles context.compacted', () => {

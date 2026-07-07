@@ -135,22 +135,22 @@ describe('dashboard-primitives', () => {
 
   describe('statusColor', () => {
     it('returns green for active/running', () => {
-      expect(statusColor('active')).toBe('#22c55e');
-      expect(statusColor('running')).toBe('#22c55e');
+      expect(statusColor('active')).toBe('hsl(var(--success))');
+      expect(statusColor('running')).toBe('hsl(var(--success))');
     });
 
     it('returns blue for streaming', () => {
-      expect(statusColor('streaming')).toBe('#3b82f6');
+      expect(statusColor('streaming')).toBe('hsl(var(--primary))');
     });
 
     it('returns red for error/failed', () => {
-      expect(statusColor('error')).toBe('#ef4444');
-      expect(statusColor('failed')).toBe('#ef4444');
+      expect(statusColor('error')).toBe('hsl(var(--destructive))');
+      expect(statusColor('failed')).toBe('hsl(var(--destructive))');
     });
 
     it('returns gray for idle/unknown', () => {
-      expect(statusColor('idle')).toBe('#9ca3af');
-      expect(statusColor('unknown')).toBe('#9ca3af');
+      expect(statusColor('idle')).toBe('hsl(var(--muted-foreground))');
+      expect(statusColor('unknown')).toBe('hsl(var(--muted-foreground))');
     });
   });
 

@@ -291,7 +291,7 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
     // Cross-session bleed row must be green (bound = active).
     const bleedCard = screen.getByText(/No cross-session bleed/i).closest('div.rounded-lg');
     expect(bleedCard).toBeTruthy();
-    expect(bleedCard!.getAttribute('class') ?? '').toContain('border-green');
+    expect(bleedCard!.getAttribute('class') ?? '').toContain('border-success');
 
     // The persisted UI tiles must show 'sessions' + 'work'.
     expect(screen.getAllByText('sessions').length).toBeGreaterThan(0);
@@ -359,7 +359,7 @@ describe('F5 resilience — full round-trip via RefreshDebugView', () => {
     const bleed = screen.getByText(/No cross-session bleed/i).closest('div.rounded-lg');
     expect(bleed).toBeTruthy();
     const classes = bleed!.getAttribute('class') ?? '';
-    expect(classes).toContain('border-amber');
+    expect(classes).toContain('border-warning');
     // Body text must show the bound vs active mismatch.
     expect(bleed!.textContent ?? '').toMatch(/bound=sess-DIFFERENT/i);
   });

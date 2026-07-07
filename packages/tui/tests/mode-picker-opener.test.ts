@@ -15,12 +15,14 @@ describe('buildModePickerOptions', () => {
         id: 'default',
         name: 'Default',
         description: 'Balanced default mode',
+        family: 'balanced',
         isActive: false,
       },
       {
         id: 'review',
         name: 'Review',
         description: 'Review-oriented mode',
+        family: 'custom',
         isActive: true,
       },
     ]);
