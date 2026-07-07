@@ -9,6 +9,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes yet._
 
+## [0.283.0] — 2026-07-08
+
+> The **interactive surfaces and kanban reliability** release. TUI slash
+> commands now open first-class panels for MCP, tools, Brain, Shadow, Help, and
+> the remaining command-backed surfaces; WebUI gets a broad visual/i18n refresh
+> with persisted tool toggles; built-in modes split into lite/deep families;
+> context-window overrides are honored consistently; kanban orchestration gains
+> queue/recovery/cost guardrails; and mailbox, Telegram, fallback, and shell
+> confirmation paths are tightened. All workspace packages and the website are
+> aligned to `0.283.0`.
+
+### Added — interactive surfaces
+- **TUI slash-menu panels** — `/mcp`, `/tools`, `/brain`, `/shadow`, and
+  `/help` now open interactive Ink panels with reducer-backed keyboard flows
+  instead of dumping static command text.
+- **Remaining command-backed panel wiring** — `/agents`, `/coordinator`, and
+  `/goal` now route into their existing TUI surfaces where appropriate, keeping
+  the slash menu and monitor panels in sync.
+- **Continue/shell safety panels** — TUI history rehydration, continue-intent
+  detection, shell command warning UI, and reducer state make risky continue or
+  shell-confirm paths explicit and resumable.
+- **WebUI settings panels** — Brain, Shadow, and Tools settings are exposed in
+  the WebUI settings surface with matching i18n entries.
+
+### Added — kanban and benchmarks
+- **Kanban reliable queue groundwork** — queue health, recovery routing,
+  reliable-queue behavior, retry/cost handling, and Director integration now
+  have dedicated types, manager/storage support, tool surface updates, and
+  regression tests.
+- **Kanban orchestration docs** — the roadmap, orchestration contract, and
+  cost/director integration design now document the intended queue and
+  recovery behavior.
+- **Local manifest benchmark suite** — `@wrongstack/bench` adds local manifest
+  suite/grader support, richer fingerprint handling, and session-metric
+  updates for local benchmark runs.
+
+### Changed — modes and context
+- **Built-in modes split into lite/deep families** — token-saving variants
+  (`audit-lite`, `debug-lite`, `plan-lite`, `refactor-lite`, `research-lite`,
+  `review-lite`, `test-lite`) are now explicit mode definitions, and `/mode`
+  docs/tool output describe the new families.
+- **Context-window overrides honored consistently** — mode/context-window
+  overrides now flow through CLI execution, REPL, TUI settings, and mode
+  picker paths instead of being dropped in selected surfaces.
+- **Model fallback/tool menu polish** — fallback switching and tool-menu state
+  handling were tightened so provider/model changes and tool selections behave
+  consistently across surfaces.
+
+### Changed — WebUI polish
+- **Broad component refresh** — WebUI layout, settings, side panels, dashboards,
+  SDD/kanban views, message bubbles, welcome/setup screens, and activity bar
+  styling were refreshed together with English/Turkish i18n updates.
+- **Accent-color contract** — `packages/webui/src/lib/accent-colors.ts` now
+  centralizes accent color resolution and is locked by unit tests.
+- **Persisted tool toggles across surfaces** — tool enable/disable choices now
+  round-trip through CLI-hosted WebUI introspection, standalone WebUI message
+  handling, Desktop wiring, and the TUI tools picker.
+
+### Fixed
+- **Global mailbox read/write serialization** — mailbox reads now share the
+  same lock discipline as writes and capture post-write file stats inside the
+  lock, closing a race around concurrent mailbox access.
+- **Telegram command rename** — the Telegram plugin's generic `status` slash
+  command is now `telegram-health`, avoiding collisions with core status-like
+  surfaces.
+- **Tool package test resolution** — Vitest resolves the tools package from
+  source in the relevant test paths, avoiding stale built-artifact assumptions.
+- **Version line** — all workspace manifests, the HQ dashboard package, and
+  `website/` are aligned to `0.283.0`, with release snapshots updated.
+
 ## [0.282.1] — 2026-07-06
 
 ### Added
