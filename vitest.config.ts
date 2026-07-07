@@ -16,6 +16,9 @@ export default defineConfig({
       // The dist/ output is only needed for published consumers; local vitest
       // workers (fork pool) need to import from source directly.
       '@wrongstack/core': path.resolve(__dirname, './packages/core/src'),
+      // Same for @wrongstack/tools: CLI tests import wiring that reaches the
+      // tools package, and root Vitest must not require a prebuilt dist/.
+      '@wrongstack/tools': path.resolve(__dirname, './packages/tools/src'),
     },
   },
   // Exclude typescript from SSR transform to prevent "invalid JS syntax" errors
