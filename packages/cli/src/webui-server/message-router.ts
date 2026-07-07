@@ -148,6 +148,8 @@ import {
   handleSessionsList,
   handleSkillsList,
   handleStatsGet,
+  handleToolDisable,
+  handleToolEnable,
   handleTasksGet,
   handleTaskUpdate,
   handleTodosClear,
@@ -586,6 +588,8 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       });
     },
     'tools.list': (_msg, ws) => handleToolsList(introspectionCtx, ws),
+    'tool.disable': (msg, ws) => handleToolDisable(introspectionCtx, ws, msg.payload),
+    'tool.enable': (msg, ws) => handleToolEnable(introspectionCtx, ws, msg.payload),
 
     // ── Autonomy ──
     'autonomy.switch': (msg, ws) =>

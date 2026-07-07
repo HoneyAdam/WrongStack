@@ -23,7 +23,15 @@ export interface ToolsPickerProps {
 /**
  * Rows of terminal chrome around the visible item window.
  */
-const CHROME_ROWS = 17;
+const CHROME_ROWS = 15;
+
+function formatCount(noun: string, count: number): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+function toolActionLabel(enabled: boolean): string {
+  return enabled ? 'Enter disables this tool' : 'Enter re-enables this tool';
+}
 
 /** Colourise the tool enable/disabled status badge. */
 function statusBadge(enabled: boolean): React.ReactElement {
@@ -144,6 +152,9 @@ export function ToolsPicker({
   }
 
   const rows = buildRows(visibleItems);
+  const enabledCount = items.filter((item) => item.enabled).length;
+  const disabledCount = total - enabledCount;
+  const selectedItem = visibleItems[visibleSelected];
 
   // Window only when NOT filtered (in filter mode, no windowing — just slice)
   let displayRows: Row[];
@@ -178,8 +189,11 @@ export function ToolsPicker({
       </Text>
       <Text dimColor>
         {hasFilter
-          ? `Filter: /${filter} (${visibleItems.length} match${visibleItems.length === 1 ? '' : 'es'}) · Esc clear`
-          : '↑/↓ select · Enter/←/→ toggle · `/` to search · Esc close'}
+          ? `Filter: ${filter} (${visibleItems.length} match${visibleItems.length === 1 ? '' : 'es'}) · Backspace edit · Esc clear`
+          : `↑/↓ select · type to filter · Enter toggles · Esc close · ${formatCount('active', enabledCount)} / ${formatCount('disabled', disabledCount)}`}
+      </Text>
+      <Text dimColor>
+        Disabled tools stay listed here so you can select them and re-enable them later.
       </Text>
       <Box marginTop={1} flexDirection="column">
         {total === 0 ? (
@@ -233,6 +247,19 @@ export function ToolsPicker({
           </>
         )}
       </Box>
+      {selectedItem ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text>
+            <Text color={selectedItem.enabled ? 'green' : 'red'}>
+              {toolActionLabel(selectedItem.enabled)}
+            </Text>
+            <Text dimColor>{` · ${selectedItem.mutating ? 'Mutating' : 'Read-only'} · permission: ${selectedItem.permission} · descriptions: ${selectedItem.descMode}`}</Text>
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {selectedItem.description || 'No description provided.'}
+          </Text>
+        </Box>
+      ) : null}
       {hint ? (
         <Box marginTop={1}>
           <Text dimColor>{hint}</Text>

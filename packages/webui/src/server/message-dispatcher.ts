@@ -319,7 +319,8 @@ export function createMessageDispatcher(
 
       case 'tools.list': {
         // Full tool registry dump for the /tools inspect view.
-        const list = deps.toolRegistry.listWithOwner().map(({ tool, owner }) => {
+        const entries = [...deps.toolRegistry.listWithOwner(), ...deps.toolRegistry.listDisabled()];
+        const list = entries.map(({ tool, owner }) => {
           const schema =
             (tool as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
           const params = schema.properties ? Object.keys(schema.properties) : [];

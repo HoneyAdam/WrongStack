@@ -938,6 +938,9 @@ async function boot(): Promise<void> {
     return { action: 'deny' };
   });
 
+  // The shell preload can invoke desktop:* channels during renderer startup.
+  registerIpcHandlers();
+
   await shellView.webContents.loadURL(shellUrl);
 
   const prevState = validatedWindowState(manager.getWindowState());
@@ -969,8 +972,6 @@ async function boot(): Promise<void> {
 
   mainWindow.contentView.addChildView(shellView);
   layoutViews();
-
-  registerIpcHandlers();
 
   configureApplicationMenu();
 

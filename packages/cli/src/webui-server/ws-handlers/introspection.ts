@@ -1,17 +1,17 @@
-import type { Agent, ModelsRegistry, SkillLoader } from '@wrongstack/core';
+import type { Agent, ConfigStore, ModelsRegistry, SkillLoader } from '@wrongstack/core';
 import type { WebSocket } from 'ws';
 import { computeUsageCost, getCostRates } from '../cost-helpers.js';
 import type { WsCommon } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**
- * PR 5c of Issue #30: read-only introspection WebSocket handlers
- * (`skills.list`, `tools.list`, `diag.get`, `stats.get`).
+ * PR 5c of Issue #30: introspection WebSocket handlers
+ * (`skills.list`, `tools.list`, `tool.enable`, `tool.disable`, `diag.get`, `stats.get`).
  *
- * These four cases all snapshot live run state (the agent context, the
- * tool registry, the skill loader, token usage) and send it to the
- * browser — none mutate anything. Extracted from the runWebUI switch onto
- * an `IntrospectionContext`: a read-only view of the run.
+ * Most cases snapshot live run state (the agent context, the tool registry,
+ * the skill loader, token usage) and send it to the browser. Tool enable/disable
+ * is included here because it mutates the registry/config that tools.list
+ * introspects.
  */
 
 export interface IntrospectionContext extends WsCommon {
@@ -27,10 +27,55 @@ export interface IntrospectionContext extends WsCommon {
   sessionId: string;
   /** Epoch ms when the run started — stats.get reports elapsed time. */
   sessionStartedAt: number;
+  /** Config store used to persist tool enable/disable changes when available. */
+  configStore?: ConfigStore | undefined;
 }
 
 function currentSessionId(ctx: IntrospectionContext): string {
   return ctx.agent.ctx.session?.id ?? ctx.sessionId;
+}
+
+interface ToolLike {
+  name: string;
+  description?: string | undefined;
+  inputSchema?: { properties?: Record<string, unknown> } | undefined;
+  mutating?: boolean | undefined;
+  permission?: string | undefined;
+}
+
+interface ToolEntryLike {
+  tool: ToolLike;
+  owner: string;
+}
+
+function toolEntries(ctx: IntrospectionContext): ToolEntryLike[] {
+  const registry = ctx.agent.tools as unknown as {
+    list?: () => ToolLike[];
+    listWithOwner?: () => ToolEntryLike[];
+    listDisabled?: () => ToolEntryLike[];
+  };
+  if (typeof registry.listWithOwner === 'function') {
+    return [
+      ...registry.listWithOwner(),
+      ...(typeof registry.listDisabled === 'function' ? registry.listDisabled() : []),
+    ];
+  }
+  return (registry.list?.() ?? []).map((tool) => ({ tool, owner: 'core' }));
+}
+
+function persistDisabledTool(ctx: IntrospectionContext, name: string, disabled: boolean): void {
+  const configStore = ctx.configStore;
+  if (!configStore) return;
+  const currentTools = configStore.get().tools ?? {};
+  const disabledTools = new Set(currentTools.disabledTools ?? []);
+  if (disabled) disabledTools.add(name);
+  else disabledTools.delete(name);
+  configStore.update({ tools: { ...currentTools, disabledTools: Array.from(disabledTools) } });
+}
+
+function toolNameFromPayload(payload: unknown): string | undefined {
+  const name = (payload as { name?: unknown } | undefined)?.name;
+  return typeof name === 'string' && name.trim().length > 0 ? name.trim() : undefined;
 }
 
 export async function handleSkillsList(ctx: IntrospectionContext, ws: WebSocket): Promise<void> {
@@ -70,17 +115,52 @@ export async function handleSkillsList(ctx: IntrospectionContext, ws: WebSocket)
 }
 
 export function handleToolsList(ctx: IntrospectionContext, ws: WebSocket): void {
-  const list = ctx.agent.tools.list().map((t) => {
+  const registry = ctx.agent.tools as unknown as { isDisabled?: (name: string) => boolean };
+  const list = toolEntries(ctx).map(({ tool, owner }) => {
     const schema =
-      (t as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
+      (tool as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
     const params = schema.properties ? Object.keys(schema.properties) : [];
     return {
-      name: t.name,
-      description: (t as { description?: string | undefined }).description ?? '',
+      name: tool.name,
+      owner,
+      description: tool.description ?? '',
       params,
+      disabled: registry.isDisabled?.(tool.name) ?? false,
+      mutating: !!tool.mutating,
+      permission: tool.permission ?? 'auto',
     };
   });
   ctx.send(ws, { type: 'tools.list', payload: { tools: list } });
+}
+
+export function handleToolDisable(
+  ctx: IntrospectionContext,
+  ws: WebSocket,
+  payload: unknown,
+): void {
+  const name = toolNameFromPayload(payload);
+  if (!name) {
+    ctx.send(ws, { type: 'error', payload: { message: 'tool.disable requires a name' } });
+    return;
+  }
+  const ok = ctx.agent.tools.disable(name);
+  if (ok) persistDisabledTool(ctx, name, true);
+  ctx.send(ws, { type: 'tool.disabled', payload: { name, ok } });
+}
+
+export function handleToolEnable(
+  ctx: IntrospectionContext,
+  ws: WebSocket,
+  payload: unknown,
+): void {
+  const name = toolNameFromPayload(payload);
+  if (!name) {
+    ctx.send(ws, { type: 'error', payload: { message: 'tool.enable requires a name' } });
+    return;
+  }
+  const ok = ctx.agent.tools.enable(name);
+  if (ok) persistDisabledTool(ctx, name, false);
+  ctx.send(ws, { type: 'tool.enabled', payload: { name, ok } });
 }
 
 export function handleDiagGet(ctx: IntrospectionContext, ws: WebSocket): void {

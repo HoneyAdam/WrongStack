@@ -445,4 +445,10 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     'projects.selected': (_msg: WSServerMessage) => {
       // Legacy server response. Project switching/registering is no longer a WebUI surface.
     },
+    'tool.disabled': (_msg: WSServerMessage) => {
+      // SettingsPanel/ToolsSection listens on the raw message stream and refreshes tools.list.
+    },
+    'tool.enabled': (_msg: WSServerMessage) => {
+      // SettingsPanel/ToolsSection listens on the raw message stream and refreshes tools.list.
+    },
   };

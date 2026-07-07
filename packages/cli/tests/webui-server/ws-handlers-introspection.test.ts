@@ -5,6 +5,8 @@ import {
   handleDiagGet,
   handleSkillsList,
   handleStatsGet,
+  handleToolDisable,
+  handleToolEnable,
   handleToolsList,
 } from '../../src/webui-server/ws-handlers/index.js';
 import type { IntrospectionContext } from '../../src/webui-server/ws-handlers/introspection.js';
@@ -21,6 +23,28 @@ import type { IntrospectionContext } from '../../src/webui-server/ws-handlers/in
 const FAKE_WS = {} as WebSocket;
 
 function makeAgent(over: Record<string, unknown> = {}) {
+  const toolEntries = [
+    {
+      tool: {
+        name: 'read',
+        description: 'Read a file',
+        inputSchema: { properties: { path: {} } },
+        mutating: false,
+        permission: 'auto',
+      },
+      owner: 'core',
+    },
+    {
+      tool: {
+        name: 'bash',
+        description: 'Run a command',
+        inputSchema: {},
+        mutating: true,
+        permission: 'confirm',
+      },
+      owner: 'core',
+    },
+  ];
   const ctx = {
     provider: { id: 'anthropic' },
     model: 'claude-opus-4-8',
@@ -37,10 +61,12 @@ function makeAgent(over: Record<string, unknown> = {}) {
   return {
     ctx,
     tools: {
-      list: () => [
-        { name: 'read', description: 'Read a file', inputSchema: { properties: { path: {} } } },
-        { name: 'bash', description: 'Run a command' },
-      ],
+      list: () => toolEntries.map(({ tool }) => tool),
+      listWithOwner: () => toolEntries,
+      listDisabled: () => [],
+      isDisabled: () => false,
+      disable: () => false,
+      enable: () => false,
     },
   };
 }
@@ -74,9 +100,123 @@ describe('handleToolsList', () => {
     handleToolsList(ctx, FAKE_WS);
     const tools = payloadOf(sent, 'tools.list')?.tools as Array<Record<string, unknown>>;
     expect(tools).toEqual([
-      { name: 'read', description: 'Read a file', params: ['path'] },
-      { name: 'bash', description: 'Run a command', params: [] },
+      {
+        name: 'read',
+        owner: 'core',
+        description: 'Read a file',
+        params: ['path'],
+        disabled: false,
+        mutating: false,
+        permission: 'auto',
+      },
+      {
+        name: 'bash',
+        owner: 'core',
+        description: 'Run a command',
+        params: [],
+        disabled: false,
+        mutating: true,
+        permission: 'confirm',
+      },
     ]);
+  });
+
+  it('includes disabled tools so they can be re-enabled from settings', () => {
+    const read = {
+      tool: {
+        name: 'read',
+        description: 'Read a file',
+        inputSchema: { properties: { path: {} } },
+        mutating: false,
+        permission: 'auto',
+      },
+      owner: 'core',
+    };
+    const bash = {
+      tool: {
+        name: 'bash',
+        description: 'Run a command',
+        inputSchema: {},
+        mutating: true,
+        permission: 'confirm',
+      },
+      owner: 'core',
+    };
+    const { ctx, sent } = makeCtx({
+      agent: {
+        ...makeAgent(),
+        tools: {
+          list: () => [read.tool],
+          listWithOwner: () => [read],
+          listDisabled: () => [bash],
+          isDisabled: (name: string) => name === 'bash',
+          disable: () => false,
+          enable: () => false,
+        },
+      } as never,
+    });
+    handleToolsList(ctx, FAKE_WS);
+    const tools = payloadOf(sent, 'tools.list')?.tools as Array<Record<string, unknown>>;
+    expect(tools.map((t) => ({ name: t.name, disabled: t.disabled }))).toEqual([
+      { name: 'read', disabled: false },
+      { name: 'bash', disabled: true },
+    ]);
+  });
+});
+
+describe('handleToolDisable / handleToolEnable', () => {
+  it('toggles the registry and persists disabledTools', () => {
+    const disabled = new Set<string>();
+    let updated: unknown;
+    const tools = {
+      disable: (name: string) => {
+        if (name !== 'read' || disabled.has(name)) return false;
+        disabled.add(name);
+        return true;
+      },
+      enable: (name: string) => {
+        if (!disabled.has(name)) return false;
+        disabled.delete(name);
+        return true;
+      },
+      list: () => [],
+    };
+    const configStore = {
+      get: () => ({ tools: { disabledTools: [] } }),
+      update: (patch: unknown) => {
+        updated = patch;
+        return patch;
+      },
+    };
+    const { ctx, sent } = makeCtx({
+      agent: { ...makeAgent(), tools } as never,
+      configStore: configStore as never,
+    });
+
+    handleToolDisable(ctx, FAKE_WS, { name: 'read' });
+    expect(sent.at(-1)).toEqual({ type: 'tool.disabled', payload: { name: 'read', ok: true } });
+    expect(updated).toEqual({ tools: { disabledTools: ['read'] } });
+
+    const enableConfigStore = {
+      get: () => ({ tools: { disabledTools: ['read'] } }),
+      update: (patch: unknown) => {
+        updated = patch;
+        return patch;
+      },
+    };
+    ctx.configStore = enableConfigStore as never;
+    handleToolEnable(ctx, FAKE_WS, { name: 'read' });
+    expect(sent.at(-1)).toEqual({ type: 'tool.enabled', payload: { name: 'read', ok: true } });
+    expect(updated).toEqual({ tools: { disabledTools: [] } });
+  });
+
+  it('rejects missing names', () => {
+    const { ctx, sent } = makeCtx();
+    handleToolDisable(ctx, FAKE_WS, {});
+    expect(sent.at(-1)).toEqual({
+      type: 'error',
+      payload: { message: 'tool.disable requires a name' },
+    });
   });
 });
 

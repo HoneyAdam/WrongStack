@@ -88,6 +88,8 @@ export {
 } from './context.js';
 export {
   handleDiagGet,
+  handleToolDisable,
+  handleToolEnable,
   handleSkillsList,
   handleStatsGet,
   handleToolsList,

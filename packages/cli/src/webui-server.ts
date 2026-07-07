@@ -684,6 +684,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     projectRoot: opts.projectRoot,
     sessionId: opts.session.id,
     sessionStartedAt,
+    configStore: opts.agent.container?.safeResolve?.(TOKENS.ConfigStore),
     send,
     broadcast,
     log: (m) => console.log(m),
