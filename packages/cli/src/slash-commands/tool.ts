@@ -43,6 +43,7 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
     '  /tool <name> result simple|extend      Set ONLY the on-screen result mode',
     '  /tool disable <name>                   Hide a tool from the registry and system prompt',
     '  /tool enable <name>                    Restore a disabled tool',
+    '  /tool <name> disable|enable            Same as above, noun-first alias',
     '  /tool enable-all                       Restore all disabled tools',
     '',
     'Modes:',
@@ -400,6 +401,23 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
           const results: string[] = [];
           for (const t of targets) results.push(await cmdEnable(t));
           return { message: results.join('\n') };
+        } catch (err) {
+          return { message: `${color.red('Error')}: ${toErrorMessage(err)}` };
+        }
+      }
+
+      // `/tool <name> disable|enable` — noun-first alias for the documented
+      // verb-first form. This mirrors how people naturally read a specific
+      // tool row: "bash, disable it".
+      const action = parts[1]?.toLowerCase();
+      if (action === 'disable' || action === 'enable') {
+        if (parts.length > 2) {
+          return {
+            message: `${color.amber('Usage:')} /tool ${name} ${action}`,
+          };
+        }
+        try {
+          return { message: action === 'disable' ? await cmdDisable(name) : await cmdEnable(name) };
         } catch (err) {
           return { message: `${color.red('Error')}: ${toErrorMessage(err)}` };
         }

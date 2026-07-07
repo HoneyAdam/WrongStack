@@ -3840,11 +3840,23 @@ export function App({
     // Fallback hop — the chain rotated to a working model after the primary's
     // retries were exhausted. Surface which model is now answering.
     const offFallback = events.on('provider.fallback', (e) => {
+      const fallbackEvent = e as typeof e & {
+        contextWindowWarning?:
+          | { fromMaxContext: number; toMaxContext: number; currentTokens?: number | undefined }
+          | undefined;
+      };
+      const contextWarning = fallbackEvent.contextWindowWarning
+        ? `\n⚠ smaller context window: ${fallbackEvent.contextWindowWarning.fromMaxContext.toLocaleString('en-US')} → ${fallbackEvent.contextWindowWarning.toMaxContext.toLocaleString('en-US')} tokens${
+            fallbackEvent.contextWindowWarning.currentTokens
+              ? `; current request ≈ ${fallbackEvent.contextWindowWarning.currentTokens.toLocaleString('en-US')} tokens (${Math.round((fallbackEvent.contextWindowWarning.currentTokens / fallbackEvent.contextWindowWarning.toMaxContext) * 100)}% of new window)`
+              : ''
+          }`
+        : '';
       dispatch({
         type: 'addEntry',
         entry: {
           kind: 'warn',
-          text: `↻ rate-limited (${e.status}) — switched to ${e.to.providerId}/${e.to.model}`,
+          text: `↻ rate-limited (${e.status}) — switched to ${e.to.providerId}/${e.to.model}${contextWarning}`,
         },
       });
     });
@@ -4208,7 +4220,9 @@ export function App({
     setLiveProvider,
     setLiveModel,
     setActiveMaxContext,
-    agentCtxMaxContext: agent.ctx.provider.capabilities.maxContext,
+    getAgentCtxMaxContext: () => agent.ctx.provider.capabilities.maxContext,
+    activeMaxContext,
+    currentContextTokens,
     switchAutonomy,
     submit: (text) => submitRef.current(text),
     onPromptPickerEnter: () => {

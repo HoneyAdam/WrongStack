@@ -3077,6 +3077,23 @@ export async function main(argv: string[]): Promise<number> {
     };
   };
 
+  const getToolPickerItems = () => {
+    const rows = [...toolRegistry.listWithOwner(), ...toolRegistry.listDisabled()];
+    return rows.map(({ tool, owner }) => {
+      const descMode = getToolDescriptionMode(toolRegistry, tool.name);
+      return {
+        name: tool.name,
+        owner,
+        category: tool.category ?? 'Other',
+        enabled: !toolRegistry.isDisabled(tool.name),
+        mutating: tool.mutating,
+        permission: tool.permission,
+        descMode: descMode as 'extend' | 'simple',
+        description: tool.description,
+      };
+    });
+  };
+
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];
   return execute({
@@ -3188,22 +3205,7 @@ export async function main(argv: string[]): Promise<number> {
       const items = await listMcp(deps);
       return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: `Restarted "${name}".`, error: undefined };
     },
-    getToolsItems: () => {
-      const all = toolRegistry.listWithOwner().map(({ tool, owner }) => {
-        const descMode = getToolDescriptionMode(toolRegistry, tool.name);
-        return {
-          name: tool.name,
-          owner,
-          category: tool.category ?? 'Other',
-          enabled: !toolRegistry.isDisabled(tool.name),
-          mutating: tool.mutating,
-          permission: tool.permission,
-          descMode: descMode as 'extend' | 'simple',
-          description: tool.description,
-        };
-      });
-      return all;
-    },
+    getToolsItems: getToolPickerItems,
     onToolToggle: async (name: string) => {
       const disabled = new Set(config.tools?.disabledTools ?? []);
       const isCurrentlyDisabled = toolRegistry.isDisabled(name);
@@ -3217,18 +3219,8 @@ export async function main(argv: string[]): Promise<number> {
       const nextTools = { ...(config.tools ?? {}), disabledTools: Array.from(disabled) };
       config = patchConfig(config, { tools: nextTools });
       configStore.update({ tools: nextTools });
-      const items = toolRegistry.listWithOwner().map(({ tool, owner }) => ({
-        name: tool.name,
-        owner,
-        category: tool.category ?? 'Other',
-        enabled: !toolRegistry.isDisabled(tool.name),
-        mutating: tool.mutating,
-        permission: tool.permission,
-        descMode: getToolDescriptionMode(toolRegistry, tool.name) as 'extend' | 'simple',
-        description: tool.description,
-      }));
       return {
-        items,
+        items: getToolPickerItems(),
         message: isCurrentlyDisabled ? `Enabled "${name}".` : `Disabled "${name}".`,
         error: undefined,
       };

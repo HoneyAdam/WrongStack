@@ -25,20 +25,16 @@ export interface ToolsPickerProps {
  */
 const CHROME_ROWS = 15;
 
-function formatCount(noun: string, count: number): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
-
 function toolActionLabel(enabled: boolean): string {
-  return enabled ? 'Enter disables this tool' : 'Enter re-enables this tool';
+  return enabled ? 'Enter makes this tool passive' : 'Enter re-enables this tool';
 }
 
-/** Colourise the tool enable/disabled status badge. */
+/** Colourise the tool active/passive status badge. */
 function statusBadge(enabled: boolean): React.ReactElement {
   return enabled ? (
     <Text color="green">● active</Text>
   ) : (
-    <Text color="red">○ disabled</Text>
+    <Text color="red">○ passive</Text>
   );
 }
 
@@ -59,40 +55,75 @@ function displayCategory(cat: string | undefined | null): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1);
 }
 
-type Row =
-  | { type: 'header'; category: string }
-  | { type: 'item'; item: ToolPickerItem; index: number };
+type Row = { item: ToolPickerItem; index: number };
 
-/**
- * Build a flat row list with category headers interleaved. Category
- * order is the natural order of first appearance. "Other" sinks last.
- */
-function buildRows(items: ToolPickerItem[]): Row[] {
-  const rows: Row[] = [];
-  let lastCat = '';
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i] as ToolPickerItem;
-    const cat = displayCategory(item.category);
-    if (cat !== lastCat) {
-      lastCat = cat;
-      rows.push({ type: 'header', category: cat });
-    }
-    rows.push({ type: 'item', item, index: i });
+type ColumnWidths = {
+  name: number;
+  category: number;
+  owner: number;
+  permission: number;
+};
+
+const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
+  name: 28,
+  category: 16,
+  owner: 31,
+  permission: 8,
+};
+
+const MIN_COLUMN_WIDTHS: ColumnWidths = {
+  name: 22,
+  category: 13,
+  owner: 20,
+  permission: 7,
+};
+
+function shrinkColumn(widths: ColumnWidths, column: keyof ColumnWidths, overflow: number): number {
+  const room = widths[column] - MIN_COLUMN_WIDTHS[column];
+  const shrinkBy = Math.min(room, overflow);
+  widths[column] -= shrinkBy;
+  return overflow - shrinkBy;
+}
+
+function columnWidthsFor(columns: number): ColumnWidths {
+  const widths = { ...DEFAULT_COLUMN_WIDTHS };
+  const rowChromeWidth = 30;
+  const availableVariableWidth = Math.max(
+    Object.values(MIN_COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0),
+    columns - rowChromeWidth,
+  );
+  const desiredVariableWidth = Object.values(widths).reduce((sum, width) => sum + width, 0);
+  let overflow = desiredVariableWidth - availableVariableWidth;
+
+  for (const column of ['owner', 'category', 'name', 'permission'] as const) {
+    if (overflow <= 0) break;
+    overflow = shrinkColumn(widths, column, overflow);
   }
-  return rows;
+
+  return widths;
+}
+
+function fitCell(value: string, width: number): string {
+  if (width <= 0) return '';
+  if (value.length > width) {
+    return `${value.slice(0, Math.max(0, width - 1))}…`;
+  }
+  return value.padEnd(width);
 }
 
 /**
- * Window rows around the selected item so the list scrolls and never
- * loses its category context.
+ * Build one render row per tool. Category is displayed as row metadata,
+ * not as an inserted heading, so selection and scroll math stay aligned
+ * with the actual tool list.
  */
-function windowRows(
-  rows: Row[],
-  focus: number,
-  max: number,
-): { rows: Row[]; start: number; end: number; contextHeader: string | null } {
+function buildRows(items: ToolPickerItem[]): Row[] {
+  return items.map((item, index) => ({ item, index }));
+}
+
+/** Window rows around the selected item without inserting non-tool rows. */
+function windowRows(rows: Row[], focus: number, max: number): { rows: Row[]; start: number; end: number } {
   if (rows.length <= max) {
-    return { rows, start: 0, end: rows.length, contextHeader: null };
+    return { rows, start: 0, end: rows.length };
   }
   let start = focus - Math.floor(max / 2);
   if (start < 0) start = 0;
@@ -101,20 +132,7 @@ function windowRows(
     end = rows.length;
     start = end - max;
   }
-  let contextHeader: string | null = null;
-  if (start > 0) {
-    const first = rows[start];
-    if (first && first.type === 'item') {
-      for (let i = start - 1; i >= 0; i--) {
-        const r = rows[i];
-        if (r && r.type === 'header') {
-          contextHeader = r.category;
-          break;
-        }
-      }
-    }
-  }
-  return { rows: rows.slice(start, end), start, end, contextHeader };
+  return { rows: rows.slice(start, end), start, end };
 }
 
 export function ToolsPicker({
@@ -126,6 +144,8 @@ export function ToolsPicker({
 }: ToolsPickerProps): React.ReactElement {
   const { stdout } = useStdout();
   const termRows = stdout?.rows ?? 24;
+  const termColumns = stdout?.columns ?? 100;
+  const columnWidths = columnWidthsFor(termColumns);
 
   const maxVisible = Math.max(6, termRows - CHROME_ROWS);
   const total = items.length;
@@ -153,31 +173,21 @@ export function ToolsPicker({
 
   const rows = buildRows(visibleItems);
   const enabledCount = items.filter((item) => item.enabled).length;
-  const disabledCount = total - enabledCount;
+  const passiveCount = total - enabledCount;
   const selectedItem = visibleItems[visibleSelected];
 
   // Window only when NOT filtered (in filter mode, no windowing — just slice)
   let displayRows: Row[];
   let hiddenAbove = 0;
   let hiddenBelow = 0;
-  let contextHeader: string | null = null;
 
   if (filterActive) {
     displayRows = rows;
   } else {
-    // Find the selected row index in the flat rows array
-    const selectedRowIdx = rows.findIndex(
-      (r) => r.type === 'item' && r.index === visibleSelected,
-    );
-    const win = windowRows(
-      rows,
-      selectedRowIdx < 0 ? 0 : selectedRowIdx,
-      maxVisible,
-    );
+    const win = windowRows(rows, visibleSelected, maxVisible);
     displayRows = win.rows;
     hiddenAbove = win.start;
     hiddenBelow = rows.length - win.end;
-    contextHeader = win.contextHeader;
   }
 
   const hasFilter = filterActive;
@@ -190,10 +200,10 @@ export function ToolsPicker({
       <Text dimColor>
         {hasFilter
           ? `Filter: ${filter} (${visibleItems.length} match${visibleItems.length === 1 ? '' : 'es'}) · Backspace edit · Esc clear`
-          : `↑/↓ select · type to filter · Enter toggles · Esc close · ${formatCount('active', enabledCount)} / ${formatCount('disabled', disabledCount)}`}
+          : `↑/↓ select · type to filter · Enter toggles · Esc close · ${enabledCount} active / ${passiveCount} passive`}
       </Text>
       <Text dimColor>
-        Disabled tools stay listed here so you can select them and re-enable them later.
+        Passive tools stay listed for this session so you can select them and re-enable them later.
       </Text>
       <Box marginTop={1} flexDirection="column">
         {total === 0 ? (
@@ -205,20 +215,7 @@ export function ToolsPicker({
             {hiddenAbove > 0 && !hasFilter ? (
               <Text dimColor>{`  ↑ ${hiddenAbove} more`}</Text>
             ) : null}
-            {contextHeader && !hasFilter ? (
-              <Text bold color="yellow" dimColor>
-                {'  '}{contextHeader}
-              </Text>
-            ) : null}
-            {displayRows.map((row) => {
-              if (row.type === 'header') {
-                return (
-                  <Text key={`cat-${row.category}`} bold color="yellow" dimColor>
-                    {'  '}{row.category}
-                  </Text>
-                );
-              }
-              const { item, index } = row;
+            {displayRows.map(({ item, index }) => {
               const focused = index === visibleSelected;
               return (
                 <Text
@@ -229,11 +226,12 @@ export function ToolsPicker({
                 >
                   {focused ? '› ' : '  '}
                   {statusBadge(item.enabled)}{' '}
-                  <Text bold>{item.name.padEnd(20)}</Text>
+                  <Text bold>{fitCell(item.name, columnWidths.name)}</Text>{' '}
                   <Text dimColor>
-                    {`[${item.owner}]`.padEnd(22)}
+                    {fitCell(displayCategory(item.category), columnWidths.category)}{' '}
+                    {fitCell(`[${item.owner}]`, columnWidths.owner)}{' '}
                     {rwBadge(item.mutating)} {' '}
-                    {item.permission.padEnd(6)} {' '}
+                    {fitCell(item.permission, columnWidths.permission)}{' '}
                     <Text color={item.descMode === 'simple' ? 'yellow' : undefined}>
                       desc:{item.descMode}
                     </Text>

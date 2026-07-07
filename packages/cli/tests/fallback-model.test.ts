@@ -9,8 +9,13 @@ import {
 
 const logger = { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() } as never;
 
-function fakeProvider(id: string): Provider {
-  return { id, capabilities: {} as never, complete: vi.fn(), stream: vi.fn() } as Provider;
+function fakeProvider(id: string, maxContext?: number): Provider {
+  return {
+    id,
+    capabilities: { ...(maxContext ? { maxContext } : {}) } as never,
+    complete: vi.fn(),
+    stream: vi.fn(),
+  } as Provider;
 }
 
 function makeCtx(providerId: string, model: string) {
@@ -266,6 +271,73 @@ describe('createFallbackModelExtension', () => {
     await run;
 
     expect(order).toEqual(['inner-1', 'switch-start', 'switch-done', 'inner-2']);
+  });
+
+  it('tries a manually selected live config model before the configured fallback chain', async () => {
+    const events = new EventBus();
+    const fired: Array<{ to: { providerId: string; model: string } }> = [];
+    events.on('provider.fallback', (p) => fired.push(p as never));
+
+    let liveCfg = cfg({ provider: 'anthropic', model: 'opus', fallbackModels: ['haiku'] });
+    const buildProvider = vi.fn((id: string, _model?: string) => fakeProvider(id));
+    const ext = createFallbackModelExtension({
+      getConfig: () => liveCfg,
+      buildProvider,
+      events,
+      logger,
+    })!;
+
+    const ctx = makeCtx('anthropic', 'opus');
+    liveCfg = cfg({ provider: 'openai', model: 'gpt-x', fallbackModels: ['haiku'] });
+
+    let call = 0;
+    await ext.wrapProviderRunner!(
+      ctx,
+      { model: 'opus' } as never,
+      (async () => {
+        call++;
+        if (call === 1) throw overload('anthropic');
+        return { stopReason: 'end_turn', usage: { input: 0, output: 0 } } as never;
+      }) as never,
+    );
+
+    expect(buildProvider).toHaveBeenCalledWith('openai', 'gpt-x');
+    expect(ctx.provider.id).toBe('openai');
+    expect(ctx.model).toBe('gpt-x');
+    expect(fired[0]?.to).toEqual({ providerId: 'openai', model: 'gpt-x' });
+  });
+
+  it('emits a context-window warning when fallback moves to a smaller model window', async () => {
+    const events = new EventBus();
+    const fired: Array<{ contextWindowWarning?: { fromMaxContext: number; toMaxContext: number; currentTokens?: number } }> = [];
+    events.on('provider.fallback', (p) => fired.push(p as never));
+    const ext = createFallbackModelExtension({
+      getConfig: () => cfg({ fallbackModels: ['openai/gpt-small'] }),
+      buildProvider: (id: string) => fakeProvider(id, id === 'openai' ? 32_000 : 200_000),
+      events,
+      logger,
+    })!;
+
+    const ctx = makeCtx('anthropic', 'opus') as import('@wrongstack/core').Context;
+    ctx.provider = fakeProvider('anthropic', 200_000);
+    ctx.lastRequestTokens = 24_000;
+
+    let call = 0;
+    await ext.wrapProviderRunner!(
+      ctx,
+      { model: 'opus' } as never,
+      (async () => {
+        call++;
+        if (call === 1) throw overload('anthropic');
+        return { stopReason: 'end_turn', usage: { input: 0, output: 0 } } as never;
+      }) as never,
+    );
+
+    expect(fired[0]?.contextWindowWarning).toEqual({
+      fromMaxContext: 200_000,
+      toMaxContext: 32_000,
+      currentTokens: 24_000,
+    });
   });
 
   it('keeps the fallback during primary cooldown, then probes the primary', async () => {

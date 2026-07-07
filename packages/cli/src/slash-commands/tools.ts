@@ -21,7 +21,7 @@ export function buildToolsCommand(opts: SlashCommandContext): SlashCommand {
     async run(args) {
       const reg = opts.toolRegistry;
       const filter = args.trim().toLowerCase();
-      const allTools = reg.listWithOwner();
+      const allTools = [...reg.listWithOwner(), ...reg.listDisabled()];
       const all = filter
         ? allTools.filter(
             ({ tool, owner }) =>

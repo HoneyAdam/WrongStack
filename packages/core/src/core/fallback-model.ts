@@ -213,6 +213,43 @@ function sameTarget(
   return !!a && a.providerId === b.providerId && a.model === b.model;
 }
 
+function fallbackCandidates(config: Config, current: { providerId: string; model: string }): string[] {
+  const chain = effectiveFallbackChain(config);
+  const configuredPrimary = primaryTarget(config);
+  const manualTarget = sameTarget(configuredPrimary, current)
+    ? []
+    : [formatModelRef({ provider: configuredPrimary.providerId, model: configuredPrimary.model })];
+  const seen = new Set<string>();
+  return [...manualTarget, ...chain].filter((ref) => {
+    const normalized = normalizeModelRef(ref, config.provider);
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+const primaryTarget = (cfg: Config) => ({ providerId: cfg.provider, model: cfg.model });
+
+function maxContextOf(provider: Provider): number {
+  const max = provider.capabilities.maxContext;
+  return typeof max === 'number' && Number.isFinite(max) ? max : 0;
+}
+
+function contextWindowWarning(
+  currentProvider: Provider,
+  nextProvider: Provider,
+  currentTokens: unknown,
+): { fromMaxContext: number; toMaxContext: number; currentTokens?: number | undefined } | undefined {
+  const fromMaxContext = maxContextOf(currentProvider);
+  const toMaxContext = maxContextOf(nextProvider);
+  if (fromMaxContext <= 0 || toMaxContext <= 0 || toMaxContext >= fromMaxContext) return undefined;
+  return {
+    fromMaxContext,
+    toMaxContext,
+    ...(typeof currentTokens === 'number' && currentTokens > 0 ? { currentTokens } : {}),
+  };
+}
+
 /**
  * Build the cross-provider fallback extension. Always returns an extension —
  * the effective chain (`effectiveFallbackChain`) is recomputed every turn from
@@ -237,7 +274,6 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
   let primaryBlockedUntil = 0;
 
   const now = () => deps.now?.() ?? Date.now();
-  const primaryTarget = (cfg: Config) => ({ providerId: cfg.provider, model: cfg.model });
   const cooldownBase = () => Math.max(0, deps.primaryCooldownMs ?? DEFAULT_PRIMARY_COOLDOWN_MS);
   const cooldownMax = () => Math.max(cooldownBase(), deps.primaryCooldownMaxMs ?? DEFAULT_PRIMARY_COOLDOWN_MAX_MS);
   const primaryInCooldown = (cfg: Config) =>
@@ -301,7 +337,8 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
       } catch (firstErr) {
         let lastErr: unknown = firstErr;
         const cfg = deps.getConfig();
-        const chain = effectiveFallbackChain(cfg);
+        const current = { providerId: ctx.provider.id, model: ctx.model };
+        const chain = fallbackCandidates(cfg, current);
         if (shouldFallback(firstErr) !== null && ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
           markPrimaryFailure(cfg);
         }
@@ -337,6 +374,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           }
 
           const providerSwitched = nextProvider.id !== from.providerId;
+          const warning = contextWindowWarning(ctx.provider, nextProvider, ctx.lastRequestTokens);
           ctx.provider = nextProvider;
           ctx.model = parsed.model;
           request.model = parsed.model;
@@ -349,6 +387,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
             to: { providerId: nextProvider.id, model: parsed.model },
             status,
             providerSwitched,
+            ...(warning ? { contextWindowWarning: warning } : {}),
           });
 
           try {

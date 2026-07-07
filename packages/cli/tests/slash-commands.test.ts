@@ -49,15 +49,23 @@ function makeRig() {
   const renderer = new FakeRenderer();
   const tokenCounter = new DefaultTokenCounter();
   const compactor = new HybridCompactor({ preserveK: 5 });
+  const config = { tools: { disabledTools: [] as string[] } };
+  const configStore = {
+    get: vi.fn(() => config),
+    update: vi.fn((patch: { tools?: typeof config.tools }) => {
+      if (patch.tools) config.tools = patch.tools;
+    }),
+  };
   const cmds = buildBuiltinSlashCommands({
     registry,
     toolRegistry,
     compactor,
     tokenCounter,
     renderer: renderer as never as Parameters<typeof buildBuiltinSlashCommands>[0]['renderer'],
+    configStore,
   } as never as SlashCommandContext);
   for (const c of cmds) registry.register(c);
-  return { registry, renderer, toolRegistry, tokenCounter };
+  return { registry, renderer, toolRegistry, tokenCounter, configStore, config };
 }
 
 const fakeCtx = {
@@ -125,6 +133,54 @@ describe('built-in slash commands', () => {
     expect(renderer.output).toContain('echo');
     expect(renderer.output).toContain('description detail');
     expect(renderer.output).toContain('desc:extend');
+  });
+
+  it('/tool <name> disable|enable toggles a tool using noun-first aliases', async () => {
+    const { registry, toolRegistry, config } = makeRig();
+    toolRegistry.register({
+      name: 'echo',
+      description: 'echo',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    });
+
+    const disabled = await registry.dispatch('/tool echo disable', fakeCtx);
+    expect(disabled?.message).toContain('disabled');
+    expect(toolRegistry.get('echo')).toBeUndefined();
+    expect(toolRegistry.isDisabled('echo')).toBe(true);
+    expect(config.tools.disabledTools).toEqual(['echo']);
+
+    const enabled = await registry.dispatch('/tool echo enable', fakeCtx);
+    expect(enabled?.message).toContain('re-enabled');
+    expect(toolRegistry.get('echo')).toBeDefined();
+    expect(toolRegistry.isDisabled('echo')).toBe(false);
+    expect(config.tools.disabledTools).toEqual([]);
+  });
+
+  it('/tool disable|enable <name> toggles a tool using verb-first commands', async () => {
+    const { registry, toolRegistry, config } = makeRig();
+    toolRegistry.register({
+      name: 'echo',
+      description: 'echo',
+      inputSchema: { type: 'object' },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    });
+
+    await registry.dispatch('/tool disable echo', fakeCtx);
+    expect(toolRegistry.isDisabled('echo')).toBe(true);
+    expect(config.tools.disabledTools).toEqual(['echo']);
+
+    await registry.dispatch('/tool enable echo', fakeCtx);
+    expect(toolRegistry.isDisabled('echo')).toBe(false);
+    expect(config.tools.disabledTools).toEqual([]);
   });
 
   it('/exit signals exit', async () => {

@@ -31,7 +31,9 @@ export interface PickerKeysHost {
   setLiveProvider: ((v: string) => void) | undefined;
   setLiveModel: ((v: string) => void) | undefined;
   setActiveMaxContext: ((v: number | undefined) => void) | undefined;
-  agentCtxMaxContext: number;
+  getAgentCtxMaxContext: () => number;
+  activeMaxContext: number | undefined;
+  currentContextTokens: number;
 
   // `opt.mode` is an AutonomyStage, so accept that union (not bare string) to
   // match the app's `switchAutonomy`.
@@ -68,6 +70,7 @@ export interface PickerKeysHost {
 }
 
 const ENTER_DOUBLE_TAP_MS = 50;
+const formatTokens = (tokens: number): string => tokens.toLocaleString('en-US');
 
 function debouncedEnter(host: PickerKeysHost): boolean {
   const now = Date.now();
@@ -251,12 +254,24 @@ export function usePickerKeys(
                 dispatch({ type: 'modelPickerHint', text: err });
                 return;
               }
+              const previousMaxContext = host.activeMaxContext;
+              const nextMaxContext = host.getAgentCtxMaxContext();
               host.setLiveProvider?.(providerId);
               host.setLiveModel?.(modelId);
-              host.setActiveMaxContext?.(host.agentCtxMaxContext);
+              host.setActiveMaxContext?.(nextMaxContext);
+              const contextWarning =
+                previousMaxContext &&
+                nextMaxContext > 0 &&
+                nextMaxContext < previousMaxContext
+                  ? `\n⚠ smaller context window: ${formatTokens(previousMaxContext)} → ${formatTokens(nextMaxContext)} tokens${
+                      host.currentContextTokens > 0
+                        ? `; current request ≈ ${formatTokens(host.currentContextTokens)} tokens (${Math.round((host.currentContextTokens / nextMaxContext) * 100)}% of new window)`
+                        : ''
+                    }`
+                  : '';
               dispatch({
                 type: 'addEntry',
-                entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.` },
+                entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.${contextWarning}` },
               });
               dispatch({ type: 'modelPickerClose' });
             };

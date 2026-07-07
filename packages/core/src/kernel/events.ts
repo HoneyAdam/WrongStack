@@ -201,6 +201,13 @@ export interface EventMap {
     to: { providerId: string; model: string };
     status: number;
     providerSwitched: boolean;
+    contextWindowWarning?:
+      | {
+          fromMaxContext: number;
+          toMaxContext: number;
+          currentTokens?: number | undefined;
+        }
+      | undefined;
   };
   'tool.started': {
     sessionId?: string | undefined;

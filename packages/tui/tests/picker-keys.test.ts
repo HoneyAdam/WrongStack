@@ -93,7 +93,9 @@ function makeHost(state: State, overrides: Partial<PickerKeysHost> = {}): Picker
     setLiveProvider,
     setLiveModel,
     setActiveMaxContext,
-    agentCtxMaxContext: 200_000,
+    getAgentCtxMaxContext: () => 200_000,
+    activeMaxContext: 200_000,
+    currentContextTokens: 0,
     switchAutonomy: vi.fn(),
     submit,
     onAuthEnter: vi.fn(),
@@ -191,6 +193,38 @@ describe('usePickerKeys — model and mode flows', () => {
       entry: { kind: 'info', text: 'Switched to openai / gpt-4o.' },
     });
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerClose' });
+  });
+
+  it('warns when manual model selection reduces the context window', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['small'],
+          filteredOptions: ['small'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+        },
+      }),
+      {
+        getAgentCtxMaxContext: () => 32_000,
+        activeMaxContext: 200_000,
+        currentContextTokens: 24_000,
+      },
+    );
+
+    runPickerKey(host, '', key(), true);
+
+    expect(host.dispatch).toHaveBeenCalledWith({
+      type: 'addEntry',
+      entry: {
+        kind: 'info',
+        text: 'Switched to openai / small.\n⚠ smaller context window: 200,000 → 32,000 tokens; current request ≈ 24,000 tokens (75% of new window)',
+      },
+    });
   });
 
   it('closes the mode picker and submits /mode <id> on Enter', () => {
