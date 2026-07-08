@@ -105,3 +105,56 @@ describe('HQ dashboard document', () => {
     expect(script).toContain("searchParams.get('token')");
   });
 });
+
+/**
+ * Regression lock for the PromptDock subject-derivation fix (#235). The
+ * `effectiveSubject` expression in the served module script must map each
+ * send-type to the matching subject, so a steer never ships with a
+ * "queue"-flavored subject again.
+ *
+ * The dashboard JS can't run in jsdom, but the derivation is a pure nested
+ * ternary over `effectiveType`. We extract that exact expression from the
+ * served document and execute it in isolation against each type — this locks
+ * the *logic* (branch order, fallthrough), not just the presence of strings.
+ */
+describe('HQ PromptDock subject derivation (#235 regression)', () => {
+  /** Pull the `effectiveSubject = <ternary>;` RHS out of the served script. */
+  function extractSubjectFn(script: string): (effectiveType: string) => string {
+    const match = script.match(/var\s+effectiveSubject\s*=\s*([\s\S]*?);/);
+    if (match === null) {
+      throw new Error('effectiveSubject derivation not found in served dashboard script');
+    }
+    const expr = match[1];
+    // Evaluate the extracted RHS with `effectiveType` bound as the sole input.
+    // biome-ignore lint/security/noGlobalEval: executing an expression we just extracted from our own served asset, in-test only.
+    return new Function('effectiveType', `return (${expr});`) as (t: string) => string;
+  }
+
+  const cases: Array<[type: string, subject: string]> = [
+    ['steer', 'HQ steer'],
+    ['btw', 'HQ note'],
+    ['broadcast', 'HQ broadcast'],
+    ['queue', 'HQ prompt'],
+  ];
+
+  it.each(cases)('maps send-type %s to subject "%s"', async (type, subject) => {
+    handle = await startServer();
+    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
+    const dom = new JSDOM(html);
+    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
+    const subjectFor = extractSubjectFn(script);
+    expect(subjectFor(type)).toBe(subject);
+  });
+
+  it('falls through unknown send-types to the queue subject "HQ prompt"', async () => {
+    handle = await startServer();
+    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
+    const dom = new JSDOM(html);
+    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
+    const subjectFor = extractSubjectFn(script);
+    // Any type outside steer/btw/broadcast — including the literal 'queue' —
+    // must resolve to the fallthrough subject.
+    expect(subjectFor('queue')).toBe('HQ prompt');
+    expect(subjectFor('something-new')).toBe('HQ prompt');
+  });
+});

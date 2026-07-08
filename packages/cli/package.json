@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/cli",
-  "version": "0.283.0",
+  "version": "0.283.1",
   "license": "MIT",
   "description": "WrongStack CLI — terminal AI coding agent with provider catalog from models.dev. Provides `wrongstack` and `wstack` binaries.",
   "keywords": [
@@ -42,6 +42,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "pnpm --filter @wrongstack/tools run build && pnpm --filter @wrongstack/tui run build && tsc --noEmit",
+    "test:hqdash": "vitest run --config vitest.hqdash.config.ts",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
