@@ -68,9 +68,13 @@
     border-color: var(--line);
   }
   html {
+    max-width: 100%;
+    overflow-x: clip;
     scroll-behavior: smooth;
   }
   body {
+    max-width: 100%;
+    overflow-x: clip;
     background-color: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
@@ -306,6 +310,9 @@
 
 /* Edge-fade mask for tickers */
 .edge-fade {
+  max-width: 100%;
+  overflow: hidden;
+  contain: paint;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }

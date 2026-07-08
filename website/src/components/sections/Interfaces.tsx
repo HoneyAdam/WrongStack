@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Globe, MonitorPlay, Terminal } from 'lucide-react';
+import { Check, Globe, Laptop, MonitorPlay, Radio, Terminal } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Reveal, SectionHeading } from '@/components/ui/reveal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -121,6 +121,70 @@ const surfaces: Surface[] = [
       </div>
     ),
   },
+  {
+    id: 'desktop',
+    icon: Laptop,
+    label: 'Desktop',
+    badge: '@wrongstack/desktop',
+    blurb:
+      'An Electron shell for local, token-required WebUI runtimes with native project and session switching.',
+    features: [
+      'Recent project launcher from ~/.wrongstack/projects.json',
+      'Multiple concurrent sessions per project',
+      'Native menus for chat, files, changes, Fleet HQ, settings, and terminal',
+      'Window, sidebar, and workspace restoration',
+    ],
+    preview: (
+      <div className="space-y-1.5">
+        <Prompt>wstack desktop</Prompt>
+        <div className="space-y-0.5 pl-4 text-zinc-400">
+          <div>
+            <Out tone="green">▸ runtime</Out> local WebUI · token required
+          </div>
+          <div>
+            <Out tone="blue">▸ project</Out> restored from projects.json
+          </div>
+          <div className="text-zinc-500">native menus · sessions · terminal</div>
+        </div>
+        <Prompt>
+          <span className="caret" />
+        </Prompt>
+      </div>
+    ),
+  },
+  {
+    id: 'hq',
+    icon: Radio,
+    label: 'HQ',
+    badge: '--hq · port 3499',
+    blurb:
+      'A project-independent command center for watching and steering terminals, TUIs, WebUIs, fleets, mailboxes, cost, tools, Brain decisions, and worktrees across machines.',
+    features: [
+      'Live snapshots, transcripts, fleet state, cost trends, and alerts',
+      'Live Console: chat turns, tool cards, diffs, terminal output, JSON, todos',
+      'PromptDock sends Steer, BTW, or Queue prompts',
+      'Offline projects fall back to direct mailbox delivery',
+    ],
+    preview: (
+      <div className="space-y-1.5">
+        <Prompt>wstack --hq --open</Prompt>
+        <div className="space-y-0.5 pl-4 text-zinc-400">
+          <div>
+            <Out tone="green">▸ dashboard</Out> http://127.0.0.1:3499
+          </div>
+          <div>
+            <Out tone="purple">▸ PromptDock</Out> steer · btw · queue
+          </div>
+          <div>
+            <Out tone="blue">▸ mailbox</Out> offline delivery ready
+          </div>
+        </div>
+        <Prompt>
+          <span className="caret" />
+        </Prompt>
+      </div>
+    ),
+  },
 ];
 
 export function Interfaces() {
@@ -131,15 +195,15 @@ export function Interfaces() {
     >
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
-          eyebrow="Three surfaces"
+          eyebrow="Five surfaces"
           title="Same agent,"
-          highlight="three ways to drive it"
-          description="One core, three front ends. Start in the plain REPL, switch to the TUI for live telemetry, or open the web UI for the full picture."
+          highlight="five ways to drive it"
+          description="One core, five operating surfaces. Start in the plain REPL, switch to the TUI for live telemetry, open the WebUI or Desktop for richer project work, and use HQ when the whole room needs a command center."
         />
 
         <Reveal className="mt-14">
           <Tabs defaultValue="repl" className="w-full">
-            <TabsList className="mx-auto flex h-auto w-full max-w-md flex-wrap justify-center gap-1 p-1.5">
+            <TabsList className="mx-auto flex h-auto w-full max-w-2xl flex-wrap justify-center gap-1 p-1.5">
               {surfaces.map((s) => (
                 <TabsTrigger key={s.id} value={s.id} className="flex-1 gap-2 px-3 py-2">
                   <s.icon className="size-4" />

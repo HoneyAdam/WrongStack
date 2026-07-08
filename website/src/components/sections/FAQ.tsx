@@ -15,7 +15,7 @@ const faqs = [
   },
   {
     q: 'Which models and providers can it use?',
-    a: 'Around 110 providers across four wire families (anthropic, openai, openai-compatible, google). The catalog refreshes from models.dev before boot completes — there are no hardcoded model names and no hardcoded pricing. Switch provider or model at runtime with the TUI /model picker, type to search after selecting a provider, or inspect models with wstack models --search --page --per-page.',
+    a: 'Around 140 providers across four wire families (anthropic, openai, openai-compatible, google). The catalog refreshes from models.dev before boot completes — there are no hardcoded model names and no hardcoded pricing. Switch provider or model at runtime with the TUI /model picker, type to search after selecting a provider, or inspect models with wstack models --search --page --per-page.',
   },
   {
     q: 'Are my API keys safe?',
@@ -23,7 +23,7 @@ const faqs = [
   },
   {
     q: 'Do I have to use a GUI?',
-    a: 'No. The plain readline REPL is the default and works everywhere a terminal does. The Ink TUI (--tui) and the web UI (webui) are both opt-in — the REPL never pays their import cost.',
+    a: 'No. The plain readline REPL is the default and works everywhere a terminal does. The Ink TUI (--tui), WebUI (wstackui or --webui), Desktop (--desktop), and HQ (--hq) are all opt-in — the REPL never pays their import cost.',
   },
   {
     q: 'Can it run offline?',

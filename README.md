@@ -27,12 +27,12 @@ WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **mu
 
 - 🧠 **Four surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), and **WrongStack Desktop** (`--desktop` / `wstack desktop`).
 - 🤖 **A fleet, not a lone agent** — a 47-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
-- 🛰️ **HQ for the whole room** — `wstack --hq` aggregates live sessions, agents, fleets, mailbox state, cost, tools, Brain decisions, and worktrees across machines, then can steer or stop connected clients through their own guardrails.
+- 🛰️ **HQ for the whole room** — `wstack --hq` aggregates live sessions, agents, fleets, mailbox state, cost, tools, Brain decisions, and worktrees across machines, then can steer, send BTW notes, queue prompts, or stop connected clients through their own guardrails.
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
 - ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
 - 🔌 **~140 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~125 OpenAI-compatible endpoints, catalog refreshed from models.dev at boot.
 - 🔑 **Sign in with a subscription** — authenticate with a **ChatGPT (Codex)**, **Claude Pro/Max**, or **GitHub Copilot** subscription over OAuth, *alongside* (not instead of) API keys. See [`docs/oauth-signin.md`](docs/oauth-signin.md).
-- 🔎 **Fast model switching** — the TUI `/model` picker supports type-to-search filtering with scroll-window navigation, and `wstack models` supports search + pagination.
+- 🔎 **Fast model switching** — the startup provider/model picker and TUI `/model` support search + scroll-window navigation, the numbered fallback picker shares the responsive boxed look, and `wstack models` supports pagination.
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A compact kernel** — `Container · Pipeline · EventBus · RunController` (~1670 lines including the full event type catalog). Everything above it is swappable; `--no-features` boots it fully offline.
 
@@ -110,7 +110,9 @@ wrongstack-desktop
 - Same-machine clients auto-discover `~/.wrongstack/hq/runtime.json` and the first client token from `auth.json`, even if HQ starts after them or restarts on a new port
 - Browser and client tokens are separate, capability-scoped, and stored in `~/.wrongstack/hq/auth.json`
 - Live HQ views include sessions, transcripts, agents, fleet snapshots, mailbox rollups, Brain events, worktrees, tool events, cost trends, and active alerts
-- Control commands queue through `/api/command`: `steer`, `abort`, `spawn`, `broadcast`, and gated `run-command` (routed as a steer behind `--hq-allow-exec`, so the agent permission policy still applies)
+- Live Console renders selected sessions as chat turns with user/assistant bubbles, collapsible tool cards, diffs for edits/writes, terminal output, JSON/input views, and todo checklists
+- PromptDock can send `steer`, `btw`, or `queue` prompts. Online clients receive them through `/api/command`; offline projects fall back to direct mailbox delivery via `/api/mailbox-send`
+- Control commands queue through `/api/command`: `steer`, `btw`, `queue`, `abort`, `spawn`, `broadcast`, and gated `run-command` (routed as a steer behind `--hq-allow-exec`, so the agent permission policy still applies)
 - Persistence survives restart through `events.jsonl`, `snapshot.json`, and `timeseries.jsonl`
 
 ```bash
@@ -157,7 +159,7 @@ All tools are registered out of the box — no plugin required.
 | `git` | Common git operations |
 | `task` | Structured work items with dependencies, types, and priorities |
 | `set_working_dir` | Change the session working directory inside the project root |
-| `codebase-index` | Build / update the SQLite symbol index (incremental; multi-language) |
+| `codebase-index` | Build / update the SQLite symbol index (incremental; multi-language; prepared-statement cached for large writes) |
 | `codebase-search` | BM25-ranked search over indexed symbol names, signatures, and doc comments |
 | `codebase-stats` | Summary of the current symbol index |
 
@@ -537,14 +539,14 @@ Three ways to configure:
 
 1. **`wrongstack auth`** — interactive credential manager, saves encrypted credentials to `~/.wrongstack/config.json`
    - Shortcut: **`wstack auth login chatgpt`** starts the ChatGPT/Codex OAuth flow directly.
-2. **Automatic picker** — just run `wrongstack` with no config; saves after selection
+2. **Automatic picker** — just run `wrongstack` with no config; the responsive provider/model picker saves after selection
 3. **CLI flags** — `wrongstack --provider <id> --model <id>` — skips all interactivity
 
 Add a key later: `wrongstack auth groq` (prompts, encrypts, stores).
 
 ### Switching providers at runtime
 
-In the **TUI**, `/model` opens a two-step provider → model picker with **type-to-search filtering** in step 2 — no restart needed. After picking a provider, type printable characters to filter models live, use Backspace to edit the filter, and navigate long lists through a centered 10-row window with `▲ N above` / `▼ N below` indicators. In the plain REPL, relaunch with `--provider` / `--model`:
+In the **TUI**, `/model` opens a two-step provider → model picker with **type-to-search filtering** in step 2 — no restart needed. The first-run provider/model picker and numbered fallback picker use the same responsive boxed layout, so narrow terminals get a sane width instead of a fixed 74-column frame. After picking a provider, type printable characters to filter models live, use Backspace to edit the filter, and navigate long lists through a centered 10-row window with `▲ N above` / `▼ N below` indicators. In the plain REPL, relaunch with `--provider` / `--model`:
 
 ```bash
 wrongstack --provider openai --model gpt-5.5

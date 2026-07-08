@@ -293,9 +293,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '0.283.0',
+    version: '0.283.1',
     date: '2026-07-08',
     latest: true,
+    tagline: 'HQ prompt delivery, transcript rendering, and picker polish',
+    highlights: [
+      'HQ PromptDock can send steer, BTW, or queued prompts with subjects derived from the selected send type',
+      'Offline HQ prompt delivery falls back to /api/mailbox-send and writes directly to the project mailbox',
+      'HQ Live Console renders chat-style transcripts with collapsible tool cards, diffs, terminal output, JSON/input views, and todo checklists',
+      'Startup provider/model and numbered fallback pickers share a responsive boxed layout that adapts to terminal width',
+      'Codebase indexing caches prepared SQLite statements during large symbol writes',
+    ],
+  },
+  {
+    version: '0.283.0',
+    date: '2026-07-08',
     tagline: 'Interactive surfaces, kanban reliability, and WebUI polish',
     highlights: [
       'TUI slash commands now open first-class panels for MCP, tools, Brain, Shadow, Help, and command-backed surfaces',

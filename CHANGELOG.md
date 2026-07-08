@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes yet._
 
+## [0.283.1] — 2026-07-08
+
+> The **HQ prompt delivery and picker polish** patch. HQ PromptDock can now
+> choose whether an operator prompt is a steer, BTW note, or queued message, and
+> falls back to direct mailbox delivery when no client is connected; the HQ Live
+> Console renders richer chat/tool transcripts; terminal provider/model pickers
+> share the new responsive boxed UI; and the SQLite codebase indexer avoids
+> repeated statement preparation during large writes. All workspace packages and
+> the website are aligned to `0.283.1`.
+
+### Added — HQ command center
+- **PromptDock send types** — HQ prompts can be sent as `steer`, `btw`, or
+  `queue`, with the emitted subject derived from the selected type so a steer,
+  FYI note, or queued prompt cannot drift into the wrong subject label.
+- **Offline mailbox delivery** — the HQ dashboard falls back to
+  `POST /api/mailbox-send` when a target project has no connected client,
+  writing directly to the project mailbox through server-side session/project
+  resolution instead of requiring an online terminal.
+- **Richer Live Console transcript** — `@wrongstack/webui-hq` now renders
+  selected session transcripts as chat turns with user/assistant bubbles,
+  collapsible tool cards, diff views for edits/writes, terminal-style output,
+  pretty JSON/input views, and todo checklists.
+- **HQ dashboard regression coverage** — PromptDock subject derivation and the
+  transcript formatting/rendering helpers now have focused tests.
+
+### Changed
+- **Responsive terminal pickers** — the startup provider/model picker now uses
+  the refreshed boxed layout, adapts to terminal width, and the numbered
+  fallback picker uses the same visual treatment.
+- **Faster codebase indexing writes** — `IndexStore` caches prepared SQLite
+  statements during symbol writes to avoid repeated prepare/finalize overhead on
+  large indexing runs.
+
+### Fixed
+- **PromptDock subject/type mismatch** — the subject line now follows the send
+  type single source of truth, preventing stale queue-flavored subjects on
+  steer/BTW sends.
+- **CI lint blockers** — two Biome error-level violations were cleared so the
+  release gate stays green.
+
 ## [0.283.0] — 2026-07-08
 
 > The **interactive surfaces and kanban reliability** release. TUI slash
