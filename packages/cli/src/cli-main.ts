@@ -30,77 +30,38 @@ import {
   AgentError,
   allServers,
   attachDepWatcherBridge,
-  type BrainAutoRisk,
-  BrainDecisionQueue,
-  BrainMonitor,
   type Config,
   color,
-  createAutonomyBrain,
   type AuditLevel,
-  createDelegateTool,
-  createMcpControlTool,
-  createTieredBrainArbiter,
-  DefaultBrainArbiter,
-  type Director,
   EternalAutonomyEngine,
   expectDefined,
-  type FileAuthorTrackerOptions,
   FLEET_ROSTER,
   gatedEnhancerReasoning,
   GlobalMailbox,
-  HookRegistry,
-  HookRunner,
-  countShellHooks,
-  shellHooksEqual,
-  HumanEscalatingBrainArbiter,
   isStdinTTY,
   loadDirectorState,
   mailboxSessionTag,
-  ObservableBrainArbiter,
-  type PackageAuthorTrackerOptions,
   ParallelEternalEngine,
   type LogLevel,
-  SessionMemoryConsolidator,
   SddRunRegistry,
-  SlashCommandRegistry,
-  startSessionTelemetryBridge,
-  startFleetTelemetryBridge,
-  startBrainTelemetryBridge,
-  startWorktreeTelemetryBridge,
-  startToolTelemetryBridge,
-  startCostTelemetryBridge,
   type SystemPromptBuilder,
-  startPackageOutdatedWatcher,
-  startTechStackConsumer,
   TOKENS,
   ToolRegistry,
-  watchProviderConfig,
   writeErr,
   writeOut,
-  normalizeTokenSavingTier,
   getToolDescriptionMode,
 } from '@wrongstack/core';
 import { wireSessionEvents } from './session-event-wiring.js';
 import { initializeCli } from './cli-context.js';
-import { MCPRegistry } from '@wrongstack/mcp';
-import { sessionScopedPath } from '@wrongstack/core/utils';
-import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { createAuthPanelHost } from './auth-menu/panel-service.js';
 import { createAutoPhaseHost } from './autophase-host.js';
 import { registerBuiltinTools } from './boot/tool-registry.js';
 import { launchEternalFromFlag } from './cli-eternal-flag.js';
 import { promptRecovery } from './cli-recovery-prompt.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
-import { subscribeBrainDecisionLog } from './boot/brain-decision-log.js';
-import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from './context-limit.js';
+import { refreshRuntimeModelCatalog } from './context-limit.js';
 import { type ExecutionDeps, execute } from './execution.js';
-import { createFallbackModelExtension } from './fallback-model.js';
-import { createCliHqPublisher, startCliHqConnection } from './hq-publisher.js';
-import { createHqCommandDispatcher, type HqCommandController } from './hq-command-controller.js';
-import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from './hooks-wiring.js';
-import { MultiAgentHost } from './multi-agent.js';
-import { createAgentMonitorService } from '@wrongstack/core/coordination';
-import { makeConfirmAwaiter } from './permission-prompt.js';
+import { createCliHqPublisher } from './hq-publisher.js';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from './plugin-management.js';
 import { buildPickableProviders } from './provider-helpers.js';
 import { SessionStats } from './session-stats.js';
@@ -123,14 +84,18 @@ import { getSuggestions, setSuggestions } from './slash-commands/suggestion-stor
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { CLI_VERSION } from './version.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
+import { setupDepWatcherConsumers } from './wiring/dep-watcher.js';
+import { setupHqTelemetry } from './wiring/hq-telemetry.js';
+import { setupDirectorAndAutonomy } from './wiring/director-setup.js';
+import { setupLifecycleAndPlugins } from './wiring/lifecycle-plugins.js';
+import { setupBrainAndOrchestration } from './wiring/brain-and-orchestration.js';
+import { setupProviderRuntime } from './wiring/provider-runtime-setup.js';
 import { setupMetrics } from './wiring/metrics.js';
-import { createAgent, setupCompaction, setupPipelines } from './wiring/pipeline.js';
-import { installDesignStudio } from './wiring/design-studio.js';
+import { setupPipelines } from './wiring/pipeline.js';
 import {
   buildProviderForId as buildProviderForIdRuntime,
   resolveProviderCfg as resolveProviderCfgRuntime,
 } from './wiring/provider-runtime.js';
-import { setupPlugins } from './wiring/plugins.js';
 import { setupSession } from './wiring/session.js';
 import { resolveModeAndCapabilities } from './boot/system-prompt.js';
 import { wireEventWiring } from './boot/event-wiring.js';
@@ -498,248 +463,44 @@ export async function main(argv: string[]): Promise<number> {
     },
   });
 
-  // ── Lifecycle hooks ──────────────────────────────────────────────────────
-  // `--no-hooks` disables everything (shell + in-process). Otherwise shell
-  // hooks are loaded from `config.hooks`; plugins add in-process hooks via
-  // `api.registerHook`. The runner is wired into the tool executor
-  // (PreToolUse/PostToolUse), the userInput pipeline (UserPromptSubmit), and an
-  // agent extension (SessionStart/Stop, registered after the agent is built).
-  const hooksEnabled = flags['no-hooks'] !== true;
-  const hookRegistry = new HookRegistry();
-  if (hooksEnabled) hookRegistry.loadShellHooks(config.hooks);
-  container.bind(TOKENS.HookRegistry, () => hookRegistry);
-  const hookRunner = new HookRunner({
-    registry: hookRegistry,
+  // ── Lifecycle hooks → compaction → agent → MCP → plugins ─────────────
+  // Extracted to wiring/lifecycle-plugins.ts.
+  const {
+    autoCompactor,
+    effectiveMaxContextRef,
+    applyMaxContext,
+    refreshMaxContext,
+    agent,
+    mcpRegistry,
+    slashRegistry,
+    hqPublisherRef,
+    brainMailbox,
+  } = await setupLifecycleAndPlugins({
+    flags,
+    config,
+    container,
+    pipelines,
     logger,
-    allowShell: hooksEnabled,
-    sessionId: () => session.id,
-  });
-  if (hooksEnabled) {
-    pipelines.userInput.use(createUserPromptSubmitMiddleware(hookRunner));
-
-    // Hot-reload shell hooks when `config.hooks` changes at runtime
-    // (via `/config` slash command, programmatic `configStore.update`,
-    // or external file edits that the config store picks up). We compare
-    // shallowly per event — `ShellHook[]` is reference-stable and its
-    // fields (command, matcher, timeoutMs) are primitives, so a per-event
-    // array comparison is sufficient and avoids re-running on unrelated
-    // config changes (model, log level, etc.).
-    configStore.watch((next, prev) => {
-      if (!shellHooksEqual(next.hooks, prev.hooks)) {
-        try {
-          hookRegistry.replaceShellHooks(next.hooks);
-          logger.info(
-            `Shell hooks reloaded (${countShellHooks(next.hooks)} entries across ${
-              Object.keys(next.hooks ?? {}).length
-            } events)`,
-          );
-        } catch (err) {
-          // A failed reload must not crash the config watcher — keep the
-          // existing hook set in place and log so the operator can see it.
-          logger.warn(`Hook hot-reload failed: ${toErrorMessage(err)}`);
-        }
-      }
-    });
-  }
-
-  // Design Studio — per-turn UI-intent detection + kit-menu injection. Installed
-  // after the live Context + pipelines exist; the `design` tool itself ships in
-  // the builtin pack independently of this.
-  installDesignStudio({ pipelines, context });
-
-  const compactor = container.resolve(TOKENS.Compactor);
-  const compactionSetup = await setupCompaction({
-    compactor,
+    session,
     events,
     modelsRegistry,
     context,
-    config,
     provider,
-    pipelines,
-    fullConfig: config as never as Parameters<typeof setupCompaction>[0]['fullConfig'],
-    sessionBridge, // share the same bridge for consistent audit logging (compaction + errors + future)
-  });
-  let effectiveMaxContext = compactionSetup.effectiveMaxContext;
-  context.provider.capabilities.maxContext = effectiveMaxContext;
-  modelCapabilitiesRef.current =
-    effectiveMaxContext > 0
-      ? {
-          maxContextTokens: effectiveMaxContext,
-          supportsTools: !!context.provider.capabilities.tools,
-          supportsVision: !!context.provider.capabilities.vision,
-          supportsReasoning: !!context.provider.capabilities.reasoning,
-        }
-      : undefined;
-  const { autoCompactor } = compactionSetup;
-
-  // Refresh the active model's context denominator when provider/model changes.
-  // This feeds auto-compaction, the leader context chip, and Director spawn guards.
-  let maxContextRefreshSeq = 0;
-  const applyMaxContext = (
-    providerId: string,
-    modelId: string,
-    mc: number,
-    seq?: number | undefined,
-  ): void => {
-    if (seq !== undefined && seq !== maxContextRefreshSeq) return;
-    effectiveMaxContext = mc;
-    context.provider.capabilities.maxContext = effectiveMaxContext; // may be 0 (unknown)
-    modelCapabilitiesRef.current =
-      effectiveMaxContext > 0
-        ? {
-            maxContextTokens: effectiveMaxContext,
-            supportsTools: !!context.provider.capabilities.tools,
-            supportsVision: !!context.provider.capabilities.vision,
-            supportsReasoning: !!context.provider.capabilities.reasoning,
-          }
-        : undefined;
-    if (effectiveMaxContext > 0) {
-      context.meta['effectiveMaxContext'] = effectiveMaxContext;
-      autoCompactor?.setMaxContext(effectiveMaxContext);
-      autoCompactor?.setEnabled(config.context.autoCompact !== false);
-    } else {
-      delete context.meta['effectiveMaxContext'];
-      autoCompactor?.setEnabled(false);
-    }
-    events.emit('ctx.max_context', {
-      sessionId: context.session.id,
-      providerId,
-      modelId,
-      maxContext: effectiveMaxContext,
-    });
-    eventWiring.setEffectiveMaxContext(effectiveMaxContext);
-  };
-
-  const refreshMaxContext = async (
-    providerId: string,
-    modelId: string,
-    runtimeProviderConfig?: import('@wrongstack/core').ProviderConfig | undefined,
-  ) => {
-    const seq = ++maxContextRefreshSeq;
-    const resolveAndApply = async (): Promise<void> => {
-      const mc = await resolveRuntimeMaxContext({
-        modelsRegistry,
-        config,
-        provider: context.provider,
-        runtimeProviderConfig,
-        providerId,
-        modelId,
-      });
-      applyMaxContext(providerId, modelId, mc, seq);
-    };
-
-    // Apply the best-known cached value immediately, then refresh the catalog
-    // and re-apply. Model metadata (especially context windows) changes after
-    // release; model switches should converge to current catalog data without
-    // blocking the TUI picker or fallback path.
-    await resolveAndApply();
-    const refreshed = await refreshRuntimeModelCatalog({
-      modelsRegistry,
-      logger,
-      reason: `${providerId}/${modelId}`,
-    });
-    if (refreshed) await resolveAndApply();
-  };
-
-  const agent = createAgent({
-    container,
-    tools: toolRegistry,
-    providers: providerRegistry,
-    events,
-    pipelines,
-    context,
-    config,
-    confirmAwaiter: makeConfirmAwaiter(reader),
-    hookRunner,
-    fullConfig: config,
-    source: 'cli',
-  });
-
-  // SessionStart / Stop lifecycle hooks (PreToolUse/PostToolUse live in the
-  // tool executor; UserPromptSubmit in the userInput pipeline above).
-  if (hooksEnabled) {
-    agent.extensions.register(createLifecycleHooksExtension(hookRunner));
-  }
-
-  // MCP servers — lazy mode in token-saving mode (connect but don't register tools)
-  const mcpRegistry = new MCPRegistry({
-    toolRegistry,
-    events,
-    log: logger,
-    lazyMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
-    // Lazy-connect (per-server `lazy`) needs a manifest cache to register tools
-    // cold; idle auto-sleep uses the default timeout.
-    cacheDir: wpaths.cacheDir,
-  });
-  if (config.features.mcp) {
-    const presets = allServers();
-    for (const cfg of Object.values(config.mcpServers ?? {})) {
-      // Merge stored config with built-in preset so new fields (e.g.
-      // `passthroughEnv`) added to presets after the config was last saved
-      // are picked up automatically without requiring a manual config update.
-      const preset = presets[cfg.name];
-      const merged = preset ? { ...preset, ...cfg } : cfg;
-      try {
-        await mcpRegistry.start(merged);
-      } catch (err) {
-        logger.warn(`MCP server "${cfg.name}" failed to start`, err);
-      }
-    }
-  }
-
-  // Slash registry — created before plugins so plugins can register commands.
-  const slashRegistry = new SlashCommandRegistry();
-
-  // Project mailbox — created before setupPlugins so the new
-  // `api.mailbox` PluginAPI field is populated for plugins like
-  // `todo-listener` that publish cross-agent status updates.
-  // (Constructor is side-effect-free; the instance is harmless until
-  //  the first send/heartbeat call.)
-  const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, () => hqPublisher);
-
-  // Plugins — extracted to wiring/plugins.ts
-  await setupPlugins({
-    config,
-    container,
-    events,
-    pipelines,
+    modelCapabilitiesRef,
+    reader,
+    wpaths,
     toolRegistry,
     providerRegistry,
-    slashCommandRegistry: slashRegistry,
-    mcpRegistry,
-    log: logger,
-    agent: agent,
-    sessionWriter: context.session,
-    metricsSink,
-    modelsRegistry,
-    healthRegistry,
-    skillLoader: config.features.skills ? skillLoader : undefined,
-    promptLoader: config.features.prompts === false ? undefined : promptLoader,
     configStore,
+    sessionBridge,
+    eventWiring,
+    healthRegistry: healthRegistry as any,
+    skillLoader,
+    promptLoader,
     vault,
-    paths: {
-      globalRoot: wpaths.globalRoot,
-      globalConfig: wpaths.globalConfig,
-      globalSkills: wpaths.globalSkills,
-      globalPrompts: wpaths.globalPrompts,
-      globalMemory: wpaths.globalMemory,
-      historyFile: wpaths.historyFile,
-      syncConfig: wpaths.syncConfig,
-      projectDir: wpaths.projectDir,
-      projectGoal: wpaths.projectGoal,
-    },
-    hookRegistry,
-    mailbox: brainMailbox,
-    // api.llm — plugins get LLM access through the host's provider layer.
-    // Default = the session's live provider/model; a named override goes
-    // through buildProviderForId (same alias-safe path as /model switch).
-    // The model itself travels in each Request, so the factory ignores it.
-    llm: {
-      provider,
-      model: config.model,
-      createProvider: (name: string) =>
-        buildProviderForIdRuntime({ config, providerRegistry }, name),
-    },
+    metricsSink,
+    renderer,
+    buildProviderForIdRuntime,
   });
 
   // ── Dep-watcher bridge: wire file-watcher events into the mailbox ────
@@ -774,686 +535,134 @@ export async function main(argv: string[]): Promise<number> {
     teardownHandlers.push(depWatcherDispose);
   }
 
-  // Resolve a provider id (alias-resolved via `providers[id].type`) to the
-  // concrete provider id + the runtime ProviderConfig used to build it and to
-  // refresh the context-window denominator. Single source of truth so the
-  // `/model` switch and the fallback extension can't drift apart.
-  //
-  // The actual logic lives in `./wiring/provider-runtime.js` so it can be
-  // unit-tested directly without spinning up the full CLI. Bug-fix history:
-  // prior to this refactor, `resolveProviderCfg` collapsed `savedCfg.type`
-  // into the returned id, so `buildProviderForId('minimax-coding-plan')`
-  // (where the saved config has `type: 'anthropic'`) produced a Provider
-  // with `id === 'anthropic'` instead of the user's chosen id. The startup
-  // path in `wiring/provider.ts` already does the right thing; this
-  // runtime path now mirrors it.
-  const resolveProviderCfg = (providerId: string) => resolveProviderCfgRuntime(config, providerId);
-
-  // Construct a credential-resolved Provider for a provider id, WITHOUT
-  // persisting anything. Shared by the `/model` switch and the fallback
-  // extension. The returned Provider's `id` is always the user-visible
-  // `providerId`.
-  const buildProviderForId = (providerId: string): import('@wrongstack/core').Provider =>
-    buildProviderForIdRuntime({ config, providerRegistry }, providerId);
-
-  // Refresh the auto-compaction / context-chip denominator for a (provider,
-  // model) pair. Used by both the `/model` switch and the fallback extension so
-  // a switch to a smaller-window model recomputes thresholds.
-  const refreshMaxContextFor = async (providerId: string, modelId: string): Promise<void> => {
-    const { cfg } = resolveProviderCfg(providerId);
-    await refreshMaxContext(providerId, modelId, cfg);
-  };
-  const refreshRuntimeModelStateFor = async (
-    providerId: string,
-    modelId: string,
-  ): Promise<void> => {
-    await refreshMaxContextFor(providerId, modelId);
-    await refreshActiveReasoningConfig(providerId, modelId);
-  };
-
-  // Cross-provider fallback: switch to the next configured model when the
-  // primary is overloaded (429/529/5xx). Registered unconditionally — the
-  // effective chain (explicit `fallbackModels` or the smart default) is
-  // recomputed every turn, so a chain populated at runtime via `/fallback`
-  // takes effect without a restart. An empty chain makes it a no-op.
-  agent.extensions.register(
-    createFallbackModelExtension({
-      getConfig: () => config,
-      buildProvider: buildProviderForId,
-      onModelSwitch: refreshRuntimeModelStateFor,
-      events,
-      logger,
-    }),
-  );
-
-  // Session-end memory consolidation — extracts key learnings from the
-  // completed session and persists them as memory entries.
-  if (config.features.memory && config.features.memoryConsolidation !== false) {
-    agent.extensions.register(
-      new SessionMemoryConsolidator({
-        memoryStore,
-      }),
-    );
-  }
-
-  // Build provider+model switch as a single callback. The TUI picker
-  // calls this after the user confirms a (provider, model) pair; we
-  // construct a fresh Provider instance, swap it onto the live context,
-  // and rebuild the frozen config so other consumers see the new ids.
-  const switchProviderAndModel = async (
-    providerId: string,
-    modelId: string,
-  ): Promise<string | null> => {
-    try {
-      context.provider = buildProviderForId(providerId);
-      context.model = modelId;
-      config = patchConfig(config, { provider: providerId, model: modelId });
-      // L1-B: propagate the change to the ConfigStore so any subsystem
-      // that subscribed via .watch() re-renders. Crucially, /diag now
-      // reads the live provider via the store.
-      configStore.update({ provider: providerId, model: modelId });
-      // Refresh AutoCompactionMiddleware denominator for the new model's
-      // maxContext so threshold triggers (warn/soft/hard) use the correct denominator.
-      await refreshMaxContextFor(providerId, modelId);
-      // Re-resolve the new model's reasoning capability so the model-runtime
-      // middleware stops gating on a stale (or missing) profile. Without this,
-      // a switch to a model that isn't in the registry leaves the warning
-      // "reasoning capabilities are unknown" firing on every subsequent
-      // request until restart.
-      await refreshActiveReasoningConfig(providerId, modelId);
-      return null;
-    } catch (err) {
-      return err instanceof Error ? err.message : String(err);
-    }
-  };
-
-  // Hot-reload provider credentials: when `config.json`'s providers/apiKey/
-  // baseUrl slice changes on disk (from another terminal's `wstack auth`, a
-  // WebUI provider panel, or a manual edit), re-read it and rebuild the active
-  // provider live so a running session picks up the new key without restart.
-  // The watcher's own no-op guard suppresses self-induced writes (our `/model`
-  // switch, key edits in this same process), so there is no rebuild storm.
-  // Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1 (unreliable network FS).
-  if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
-    const credentialWatcher = watchProviderConfig(
-      wpaths.globalConfig,
-      vault,
-      (snapshot) => {
-        // Capture the active provider's resolved cfg before the merge so we
-        // only rebuild when *its* credentials actually changed.
-        const activeId = config.provider;
-        const before = JSON.stringify(resolveProviderCfg(activeId).cfg);
-        config = patchConfig(config, {
-          providers: snapshot.providers,
-          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
-          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
-        });
-        // Propagate to the ConfigStore so `.watch()` subscribers re-render.
-        configStore.update({
-          providers: snapshot.providers,
-          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
-          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
-        });
-        const after = JSON.stringify(resolveProviderCfg(activeId).cfg);
-        if (after === before) return; // active provider's creds unchanged
-        try {
-          context.provider = buildProviderForId(activeId);
-          logger.info(`Provider credentials reloaded from config.json (${activeId})`);
-        } catch (err) {
-          // Keep the existing provider on a bad rebuild (e.g. removed family).
-          logger.warn(`Credential hot-reload failed for ${activeId}: ${toErrorMessage(err)}`);
-        }
-      },
-      { warn: (msg) => logger.warn(`Config watcher: ${msg}`) },
-    );
-    teardownHandlers.push(() => credentialWatcher.close());
-  }
-
-  // L1-E: lazily-instantiated multi-agent host. Wired into /spawn and
-  // /agents slash commands; constructed on first invocation so users
-  // who never spawn subagents pay nothing.
-  //
-  // `--director` upgrades the host to Director mode — same external API,
-  // but task lifecycle flows through a `Director` so manifest writing
-  // works and the FleetBus is available for observability hooks. Manifest
-  // path defaults to `<projectSessions>/<date>/sess_<ULID>/fleet.json`; users can
-  // override via `WRONGSTACK_FLEET_MANIFEST` if they want a fixed path.
-  const directorMode = flags['director'] === true || typeof flags['resume'] === 'string';
-  // Concurrent subagent ceiling. Priority: CLI flag → env var → config → default (4).
-  // Caps how many delegated tasks the coordinator dispatches at once;
-  // extra tasks queue. Keeps the leader from spawning enough parallel
-  // subagents to trip provider rate limits. Persist a default in config.json
-  // via `maxConcurrent` or change live with /fleet concurrency <n>.
-  const maxConcurrentFromFlag =
-    typeof flags['max-concurrent'] === 'string'
-      ? Number.parseInt(flags['max-concurrent'], 10)
-      : undefined;
-  const maxConcurrentFromEnv =
-    typeof process.env['WRONGSTACK_MAX_CONCURRENT'] === 'string'
-      ? Number.parseInt(process.env['WRONGSTACK_MAX_CONCURRENT'], 10)
-      : undefined;
-  const maxConcurrentFromConfig =
-    typeof config.maxConcurrent === 'number' && config.maxConcurrent > 0
-      ? config.maxConcurrent
-      : undefined;
-  const maxConcurrent =
-    Number.isFinite(maxConcurrentFromFlag) && (maxConcurrentFromFlag as number) > 0
-      ? (maxConcurrentFromFlag as number)
-      : Number.isFinite(maxConcurrentFromEnv) && (maxConcurrentFromEnv as number) > 0
-        ? (maxConcurrentFromEnv as number)
-        : Number.isFinite(maxConcurrentFromConfig) && (maxConcurrentFromConfig as number) > 0
-          ? (maxConcurrentFromConfig as number)
-          : undefined;
-  let director: Director | null = null;
-  // Autonomy mode: 'off' (default), 'suggest' (show next steps), 'auto' (self-driving)
-  // Initial value can be pinned via the launch prompt (or `--autonomy <mode>`),
-  // which sets `flags['autonomy']` before we wire up. Keep the ref in sync
-  // so the autonomy prompt contributor sees the same value from turn 1.
-  let autonomyMode: import('./slash-commands/autonomy.js').AutonomyMode = (() => {
-    const v = flags['autonomy'];
-    if (v === 'auto' || v === 'suggest' || v === 'eternal' || v === 'eternal-parallel') return v;
-    // An explicit 'off' (e.g. --no-autonomy, or the non-interactive guard in
-    // boot.ts) is honored as a user/system opt-out. Only when the flag is
-    // genuinely unset do we fall back to the configured default mode (now
-    // 'auto'), so launches that don't pin a mode self-drive by default.
-    if (v === 'off') return 'off';
-    return (config.autonomy?.defaultMode ??
-      'off') as import('./slash-commands/autonomy.js').AutonomyMode;
-  })();
-  autonomyModeRef.current = autonomyMode;
-  // Next-task prediction toggle — persisted in config so it survives restarts.
-  // Read/written via `onNextPredict`, read by the REPL via `getNextPredict`.
-  let nextPredictEnabled = config.nextPrediction === true;
-  // Suggestion list for /next selection — ephemeral, cleared each cycle.
-  // Read/written via `onSuggestions`.
-  let currentSuggestions: string[] = [];
-  // Eternal-autonomy engine instance — lazy, created when /autonomy eternal is invoked.
-  // Lives at function scope so /autonomy stop and SIGINT handlers can reach it.
-  let eternalEngine: import('@wrongstack/core').EternalAutonomyEngine | null = null;
-  // Parallel-eternal engine instance — lazy, created when /autonomy parallel is invoked.
-  let parallelEngine: import('@wrongstack/core').ParallelEternalEngine | null = null;
-  // Listeners installed by the TUI / REPL to receive per-iteration events
-  // from the engine. We support a list (not a single callback) so both
-  // surfaces can subscribe without overwriting each other — TUI installs
-  // one on mount, but the underlying engine is owned at CLI scope.
-  const eternalListeners = new Set<(entry: import('@wrongstack/core').JournalEntry) => void>();
-  const broadcastEternalIteration = (entry: import('@wrongstack/core').JournalEntry): void => {
-    for (const fn of eternalListeners) {
-      try {
-        fn(entry);
-      } catch {
-        // listener failures must never break the engine — swallow
-      }
-    }
-  };
-  const stageListeners = new Set<(stage: AutonomyStage) => void>();
-  const broadcastAutonomyStage = (stage: AutonomyStage): void => {
-    for (const fn of stageListeners) {
-      try {
-        fn(stage);
-      } catch {
-        // listener failures must never break the engine — swallow
-      }
-    }
-  };
-  // Convention: director artifacts all live under the same fleet root —
-  //   <projectSessions>/<date>/sess_<ULID>/
-  //     ├─ fleet.json              (manifest)
-  //     ├─ shared/                 (cross-agent scratchpad)
-  //     └─ subagents/              (per-subagent JSONL transcripts)
-  // The user can override the manifest path with WRONGSTACK_FLEET_MANIFEST
-  // but the scratchpad + transcripts always sit relative to the session.
-  const fleetRoot = directorMode
-    ? sessionScopedPath(wpaths.projectSessions, session.id, '')
-    : undefined;
-  const manifestPath = directorMode
-    ? typeof process.env['WRONGSTACK_FLEET_MANIFEST'] === 'string'
-      ? process.env['WRONGSTACK_FLEET_MANIFEST']
-      : path.join(expectDefined(fleetRoot), 'fleet.json')
-    : undefined;
-  const sharedScratchpadPath = directorMode
-    ? path.join(expectDefined(fleetRoot), 'shared')
-    : undefined;
-  const subagentSessionsRoot = directorMode
-    ? path.join(expectDefined(fleetRoot), 'subagents')
-    : undefined;
-  // Live director state checkpoint — written incrementally to disk on
-  // every spawn/assign/complete event so a crashed director leaves a
-  // recoverable snapshot. Distinct from manifestPath (final record).
-  const stateCheckpointPath = directorMode
-    ? path.join(expectDefined(fleetRoot), 'director-state.json')
-    : undefined;
-  // Always derive a fleetRoot for runtime promotion — /director needs
-  // a base dir to write manifest + scratchpad + per-subagent JSONLs into.
-  const fleetRootForPromotion = sessionScopedPath(wpaths.projectSessions, session.id, '');
-
-  // ── Agent Monitor — subagent conversation tracking ─────────────────────
-  // Creates the AgentMonitorService that listens to FleetBus events and
-  // maintains per-subagent virtual chat history + JSONL transcripts.
-  // The transcripts dir sits alongside the director's subagent sessions.
-  const agentMonitor = createAgentMonitorService({
+  // ── Provider runtime helpers + fallback + switch + credential watcher ──
+  // Extracted to wiring/provider-runtime-setup.ts.
+  const {
+    buildProviderForId,
+    switchProviderAndModel,
+  } = setupProviderRuntime({
+    config,
+    onConfigUpdate: (newConfig) => { config = newConfig; },
+    configStore,
+    providerRegistry,
+    agent,
+    memoryStore,
+    refreshMaxContext,
+    refreshActiveReasoningConfig,
+    wpaths,
+    vault,
+    logger,
+    teardownHandlers,
+    context,
     events,
-    sessionId: session.id,
-    transcriptsDir: path.join(fleetRootForPromotion, 'subagents', 'transcripts'),
-    maxEntriesPerAgent: 500,
-    streamEnabled: false,
+    resolveProviderCfgRuntime,
+    buildProviderForIdRuntime,
   });
 
-  // ── Global Brain chain — policy → LLM → human ──────────────────────────
-  // Positioning: the Brain is the authority layer above the leader/director
-  // and below the human. One instance serves every consumer (director,
-  // autophase, eternal engine, BrainMonitor, /brain) via TOKENS.BrainArbiter.
-  //   1. DefaultBrainArbiter — deterministic policy (low-risk fast path)
-  //   2. createAutonomyBrain — LLM decision support within the live risk
-  //      ceiling (adjust at runtime with /brain risk <level>)
-  //   3. HumanEscalating + Observable — escalation prompt + UI events
-  const brainSettings: { maxAutoRisk: BrainAutoRisk } = {
-    maxAutoRisk: 'medium',
-  };
-  const brainQueue = new BrainDecisionQueue(events);
-  // Lazy wrapper so the LLM layer always sees the LIVE provider/model —
-  // `provider` and `config` are reassigned when the user switches models.
-  const autonomousBrain: import('@wrongstack/core').BrainArbiter = {
-    decide: (request) =>
-      createAutonomyBrain({
-        provider,
-        model: config.model,
-        maxAutoRisk: 'all', // the tiered ceiling gates risk — keep inner permissive
-      }).decide(request),
-  };
-  const brain = new ObservableBrainArbiter(
-    new HumanEscalatingBrainArbiter(
-      createTieredBrainArbiter({
-        policy: new DefaultBrainArbiter(),
-        autonomous: autonomousBrain,
-        getMaxAutoRisk: () => brainSettings.maxAutoRisk,
-      }),
-      brainQueue,
-    ),
+  // Director / autonomy mode, fleet paths, eternal-engine scaffolding,
+  // Agent Monitor — extracted to wiring/director-setup.ts.
+  let {
+    director,
+    directorMode,
+    maxConcurrent,
+    autonomyMode,
+    nextPredictEnabled,
+    currentSuggestions,
+    eternalEngine,
+    parallelEngine,
+    eternalListeners,
+    broadcastEternalIteration,
+    stageListeners,
+    broadcastAutonomyStage,
+    fleetRoot,
+    manifestPath,
+    sharedScratchpadPath,
+    subagentSessionsRoot,
+    stateCheckpointPath,
+    fleetRootForPromotion,
+    agentMonitor,
+  } = setupDirectorAndAutonomy({
+    flags,
+    config,
+    wpaths,
+    session,
     events,
-  );
-  container.bind(TOKENS.BrainArbiter, () => brain);
-
-  // Decision log for /brain status — last 20 decisions across all sources.
-  // Pulled out into a dedicated module as part of PR 8 / Stage 1 of the
-  // cli-main split refactor (see `next-1.md`). `brainLog` is captured by
-  // the closures produced later (see `getBrainLog: () => brainLog`).
-  const { brainLog, dispose: disposeBrainLog } = subscribeBrainDecisionLog(events);
-  teardownHandlers.push(disposeBrainLog);
-
-  // ── Brain self-activation — watch the bus, intervene via mailbox steer ──
-  // Tool-failure streaks and error storms engage the Brain proactively; a
-  // "steer" decision lands in THIS session's leader inbox and is injected
-  // before the agent's next step.
-  let hqPublisher: ReturnType<typeof createCliHqPublisher>;
-  let stopHqSessionBridge: (() => void) | undefined;
-  const stopHqAuxBridges: Array<() => void> = [];
-
-  // ── Phase 4 control plane — HQ command dispatch holder ──────────────────
-  // Mutable holder (mirrors the `interruptController` pattern): populated
-  // lazily as `director` comes online and `interruptController.abortLeader`
-  // is rebound by the REPL/TUI. The `onCommand` handler reads these at
-  // dispatch time so a command arriving before the director exists is
-  // cleanly rejected instead of crashing.
-  const hqCommandController: HqCommandController = {
-    steerMailbox: brainMailbox,
-    interruptLeader: () => false, // rebound when the REPL/TUI mounts
-    sessionTag: () => mailboxSessionTag(session.id),
-    allowRunCommand: () => flags['hq-allow-exec'] === true,
-  };
-  const hqOnCommand = createHqCommandDispatcher(hqCommandController);
-
-  const hqConnection = startCliHqConnection({
-    clientKind: tuiOwnsScreen ? 'tui' : 'cli',
-    projectRoot,
-    projectName: path.basename(projectRoot),
-    appConfig: config,
-    onCommand: hqOnCommand,
-    capabilities: ['telemetry.publish', 'mailbox.summary', 'fleet.summary', 'session.summary', 'control.receive'],
-    onConnect: (publisher) => {
-      hqPublisher = publisher;
-      stopHqSessionBridge?.();
-      stopHqSessionBridge = undefined;
-      // Drain any auxiliary bridges from a previous connection before
-      // re-establishing them, so a reconnect never double-subscribes.
-      for (const stop of stopHqAuxBridges) {
-        try {
-          stop();
-        } catch {
-          /* best-effort */
-        }
-      }
-      stopHqAuxBridges.length = 0;
-      try {
-        stopHqSessionBridge = startSessionTelemetryBridge({
-          publisher,
-          events,
-          sessionId: session.id,
-          projectRoot,
-          projectName: path.basename(projectRoot),
-          globalRoot: wpaths.globalRoot,
-          initialAgents: tracker?.getAgents(),
-          startedAt: new Date().toISOString(),
-        });
-      } catch {
-        // HQ session telemetry is optional.
-      }
-      // ── Auxiliary telemetry bridges — forward richer signals (fleet
-      // stats, brain decisions, worktree lifecycle, tool activity, cost)
-      // to HQ so the command center dashboard is fully populated. All are
-      // best-effort and never break the host on failure. The session id is
-      // the canonical runId (namespace-stable per session), used by the
-      // fleet bridge to identify this coordinator instance.
-      try {
-        stopHqAuxBridges.push(
-          startFleetTelemetryBridge({
-            events,
-            publisher,
-            runId: session.id,
-            sessionId: session.id,
-          }),
-        );
-      } catch {
-        /* optional */
-      }
-      try {
-        stopHqAuxBridges.push(
-          startBrainTelemetryBridge({ events, publisher, sessionId: session.id }),
-        );
-      } catch {
-        /* optional */
-      }
-      try {
-        stopHqAuxBridges.push(
-          startWorktreeTelemetryBridge({ events, publisher, sessionId: session.id }),
-        );
-      } catch {
-        /* optional */
-      }
-      try {
-        stopHqAuxBridges.push(
-          startToolTelemetryBridge({
-            events,
-            publisher,
-            projectRoot,
-            sessionId: session.id,
-          }),
-        );
-      } catch {
-        /* optional */
-      }
-      try {
-        stopHqAuxBridges.push(
-          startCostTelemetryBridge({ events, publisher, sessionId: session.id }),
-        );
-      } catch {
-        /* optional */
-      }
-    },
+    autonomyModeRef,
   });
-  hqPublisher = hqConnection.getPublisher();
-  teardownHandlers.push(() => stopHqSessionBridge?.());
-  teardownHandlers.push(() => {
-    for (const stop of stopHqAuxBridges) {
-      try {
-        stop();
-      } catch {
-        /* best-effort */
-      }
-    }
-  });
-  teardownHandlers.push(() => hqConnection.stop());
 
-  // ── Agent Monitor → HQ Bridge ───────────────────────────────────
-  // Forward agent.timeline.message and agent.status_changed events to
-  // the HQ publisher so the HQ browser dashboard sees real-time agent
-  // conversations.
-  if (agentMonitor) {
-    const offMsg = events.on('agent.timeline.message', (payload) => {
-      try {
-        hqPublisher?.publishEvent({
-          type: 'agent.message' as never,
-          payload,
-          timestamp: payload.ts,
-        });
-      } catch {
-        /* best-effort */
-      }
-    });
-    const offStatus = events.on('agent.status_changed', (payload) => {
-      try {
-        hqPublisher?.publishEvent({
-          type: 'agent.status' as never,
-          payload,
-          timestamp: payload.ts,
-        });
-      } catch {
-        /* best-effort */
-      }
-    });
-    teardownHandlers.push(() => {
-      offMsg();
-      offStatus();
-    });
-  }
-
-  // brainMailbox is created earlier (before setupPlugins) so the
-  // `api.mailbox` PluginAPI field is populated for plugins like
-  // `todo-listener`. Reuse the same instance here.
-  const brainMonitor = new BrainMonitor({
-    events,
+  // ── Global Brain chain → BrainMonitor → shadow → MultiAgentHost → tools ──
+  // Extracted to wiring/brain-and-orchestration.ts. NOTE: setupHqTelemetry()
+  // is called between brain chain and brain monitor — the extracted function
+  // handles both halves around that call.
+  const {
     brain,
-    sessionId: () => context.session?.id ?? session.id,
-    intervene: async ({ subject, body }) => {
-      const leaderUniqueId = `leader@${mailboxSessionTag(session.id)}`;
-      await brainMailbox.send({
-        from: `brain@${mailboxSessionTag(session.id)}`,
-        to: leaderUniqueId,
-        type: 'steer',
-        subject,
-        body,
-        priority: 'high',
-      });
-    },
+    brainLog,
+    brainSettings,
+    multiAgentHost,
+    shadowController,
+  } = setupBrainAndOrchestration({
+    events,
+    config,
+    container,
+    provider,
+    session,
+    context,
+    toolRegistry,
+    providerRegistry,
+    configStore,
+    modelsRegistry,
+    promptBuilder,
+    tokenCounter,
+    projectRoot,
+    cwd,
+    wpaths,
+    teardownHandlers,
+    mailboxSessionTag,
+    brainMailbox,
+    agentMonitor,
+    directorMode,
+    manifestPath,
+    sharedScratchpadPath,
+    subagentSessionsRoot,
+    stateCheckpointPath,
+    fleetRootForPromotion,
+    maxConcurrent,
+    effectiveMaxContextRef,
+    mcpRegistry,
+    sessResult,
   });
-  brainMonitor.start();
 
-  // ── AutonomousCoordinator is initialized inside execution.ts ──
-  // The execution phase owns its lifecycle (it has access to the Director and
-  // the LLM provider). See execution.ts:onDirectorReady.
+  // HQ command dispatch + telemetry bridges (WebSocket, session/fleet/brain/
+  // worktree/tool/cost telemetry, agent-monitor forwarding) — extracted to
+  // wiring/hq-telemetry.ts.
+  const { hqCommandController } = setupHqTelemetry({
+    events,
+    session,
+    config,
+    flags,
+    tuiOwnsScreen,
+    projectRoot,
+    globalRoot: wpaths.globalRoot,
+    tracker,
+    agentMonitor,
+    brainMailbox,
+    teardownHandlers,
+    mailboxSessionTag,
+    hqPublisherRef,
+  });
 
-  // Shadow controller — tracks the active shadow agent so /shadow commands can
-  // reject duplicate starts and stop the real background monitor.
-  let shadowDefaults: { intervalMs?: number; provider?: string; model?: string } = {};
-  const shadowController: NonNullable<
-    Parameters<typeof buildBuiltinSlashCommands>[0]['shadowController']
-  > = {
-    activeId: null,
-    register(id) {
-      this.activeId = id;
-    },
-    clear() {
-      this.activeId = null;
-    },
-    getDefaults() {
-      return { ...shadowDefaults };
-    },
-    setDefaults(defaults) {
-      shadowDefaults = { ...shadowDefaults, ...defaults };
-    },
-  };
-
-  const multiAgentHost = new MultiAgentHost(
-    {
-      container,
-      toolRegistry,
-      providerRegistry,
-      configStore,
-      modelsRegistry,
-      events,
-      systemPromptBuilder: promptBuilder,
-      session,
-      tokenCounter,
-      projectRoot,
-      cwd,
-      secretScrubber: container.resolve(TOKENS.SecretScrubber),
-    },
-    {
-      directorMode,
-      manifestPath,
-      sharedScratchpadPath,
-      sessionsRoot: subagentSessionsRoot,
-      directorRunId: session.id,
-      fleetRoot: fleetRootForPromotion,
-      stateCheckpointPath,
-      sessionWriter: session,
-      maxConcurrent,
-      getLeaderMaxContext: () => effectiveMaxContext,
-      brain,
-      agentMonitor,
-      traceId: sessResult.traceId,
-      onShadowAgentStarted: (subagentId) => shadowController.register(subagentId),
-      onShadowAgentStopped: (subagentId) => {
-        if (shadowController.activeId === subagentId) shadowController.clear();
-      },
-    },
-  );
-  // ALWAYS register the `delegate` tool, even in non-director mode. It
-  // auto-promotes the host to director mode on first call so the LLM
-  // never has to know upfront whether multi-agent is "on" — it just
-  // calls `delegate({ role, task })` when it judges a subtask warrants
-  // a dedicated subagent. The system-prompt builder picks up this tool
-  // and surfaces a "Delegation" section teaching the model when to use
-  // it; without that block, the tool sits idle.
-  toolRegistry.register(
-    createDelegateTool({
-      host: multiAgentHost,
-      roster: FLEET_ROSTER,
-      // Wire the per-subagent transcript location so the tool can
-      // extract partial output on timeout / budget exhaustion. Without
-      // this, a subagent that hit its iteration cap returns an empty
-      // result and the host LLM has no idea what work was done.
-      sessionsRoot: subagentSessionsRoot,
-      directorRunId: session.id,
-      // Host bus so `delegate` can emit start/finish events that the TUI,
-      // plain CLI, and Telegram bridge render as readable lines.
-      events,
-    }),
-  );
-
-  // `mcp_control` — LLM-driven MCP server lifecycle.
-  // The model uses this to autonomously enable/disable MCP servers
-  // without requiring a slash command or manual intervention.
-  toolRegistry.register(
-    createMcpControlTool({
-      getConfig: () => configStore.get(),
-      configPath: wpaths.globalConfig,
-      registry: mcpRegistry,
-    }),
-  );
-
-  // `mcp_use` — meta-tool for calling MCP tools in token-saving mode.
-  // Registers only when lazy mode is active so the model has a single
-  // call to invoke any MCP tool without the manual activate→use→deactivate
-  // dance. When lazy mode is off, MCP tools are always registered and
-  // the meta-tool is unnecessary.
-  if (config.features.tokenSavingMode) {
-    const { createMcpUseTool } = await import('@wrongstack/core');
-    toolRegistry.register(
-      createMcpUseTool({
-        registry: mcpRegistry,
-        toolRegistry,
-      }),
-    );
-  }
-
-  // ── Tech-stack mailbox consumer: auto-spawn agent on dep-watcher messages ──
-  // When dep-watcher posts assign messages to the mailbox, this consumer
-  // polls for them and spawns a tech-stack subagent to audit versions.
-  let techStackConsumerDispose: (() => void) | undefined;
-  if (dwCfg?.['enabled'] === true) {
-    try {
-      const projectDir = path.join(wpaths.globalRoot, 'projects', wpaths.projectSlug);
-      const tsMailbox = new GlobalMailbox(projectDir, events);
-      const fileAuthorOpts: FileAuthorTrackerOptions = {
-        storageDir: projectDir,
-        projectRoot,
-      };
-      techStackConsumerDispose = startTechStackConsumer({
-        mailbox: tsMailbox,
-        onSpawn: async (task, name) => {
-          return multiAgentHost.spawn(task, { name, tools: ['read', 'fetch', 'mailbox'] });
-        },
-        targetAgent: (dwCfg['targetAgent'] as string) ?? 'tech-stack',
-        consumerAgentId: 'tech-stack-consumer',
-        pollIntervalMs: (dwCfg['pollIntervalMs'] as number) ?? 5000,
-        fileAuthorOpts,
-        sessionId: session.id,
-        currentAgentId: 'leader',
-        currentAgentName: 'Leader',
-        onLog: (msg) => logger.debug(msg),
-        onError: (err) =>
-          logger.warn(
-            `Tech-stack consumer error: ${err instanceof Error ? err.message : String(err)}`,
-          ),
-      });
-      logger.info(
-        'Tech-stack mailbox consumer started — will auto-spawn agents on dependency changes',
-      );
-    } catch (err) {
-      logger.warn(`Failed to start tech-stack consumer: ${err}`);
-    }
-  }
-
-  // ── Package outdated watcher: notify original authors when packages are outdated ──
-  // When the tech-stack agent posts outdated-package results to the mailbox,
-  // this watcher looks up who originally added each package and notifies them.
-  let pkgOutdatedDispose: (() => void) | undefined;
-  if (dwCfg?.['enabled'] === true) {
-    try {
-      const projectDir = path.join(wpaths.globalRoot, 'projects', wpaths.projectSlug);
-      const pkgMailbox = new GlobalMailbox(projectDir, events);
-      const pkgTrackerOpts: Pick<PackageAuthorTrackerOptions, 'storageDir' | 'projectRoot'> = {
-        storageDir: projectDir,
-        projectRoot,
-      };
-      pkgOutdatedDispose = startPackageOutdatedWatcher({
-        mailbox: pkgMailbox,
-        packageTrackerOpts: pkgTrackerOpts,
-        pollIntervalMs: (dwCfg['pollIntervalMs'] as number) ?? 60 * 60 * 1000, // 1 hour default
-        watcherAgentId: 'pkg-outdated-watcher',
-        onNotify: async (msg) => {
-          await pkgMailbox.send({
-            from: msg.from,
-            to: msg.to,
-            type: 'note',
-            subject: msg.subject,
-            body: msg.body,
-            priority: msg.priority,
-          });
-        },
-        onLog: (m) => logger.debug(m),
-        onError: (err) =>
-          logger.warn(
-            `Pkg-outdated-watcher error: ${err instanceof Error ? err.message : String(err)}`,
-          ),
-      });
-      logger.info(
-        'Package outdated watcher started — will notify agents when their added packages are outdated',
-      );
-    } catch (err) {
-      logger.warn(`Failed to start package outdated watcher: ${err}`);
-    }
-  }
-
-  if (pkgOutdatedDispose) {
-    teardownHandlers.push(pkgOutdatedDispose);
-  }
-
-  // Clean up tech-stack consumer on teardown
-  if (techStackConsumerDispose) {
-    teardownHandlers.push(techStackConsumerDispose);
-  }
+  // Dep-watcher consumers (tech-stack + package-outdated) — extracted to wiring/dep-watcher.ts
+  setupDepWatcherConsumers({
+    dwCfg,
+    globalRoot: wpaths.globalRoot,
+    projectSlug: wpaths.projectSlug,
+    events,
+    multiAgentHost,
+    sessionId: session.id,
+    logger,
+    teardownHandlers,
+    projectRoot,
+  });
 
   if (directorMode) {
     // Eagerly build the director so its LLM-callable orchestration
@@ -2248,7 +1457,7 @@ export async function main(argv: string[]): Promise<number> {
     },
     onContextLimit: (tokens?: number) => {
       if (typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0) {
-        effectiveMaxContext = tokens;
+        effectiveMaxContextRef.current = tokens;
         context.provider.capabilities.maxContext = tokens;
         context.meta['effectiveMaxContext'] = tokens;
         autoCompactor?.setMaxContext(tokens);
@@ -2260,7 +1469,7 @@ export async function main(argv: string[]): Promise<number> {
         });
         eventWiring.setEffectiveMaxContext(tokens);
       }
-      return effectiveMaxContext;
+      return effectiveMaxContextRef.current;
     },
     onMcp: async (args) => {
       const parsed = parseMcpArgs(args);
@@ -2321,7 +1530,7 @@ export async function main(argv: string[]): Promise<number> {
             agent,
             projectRoot,
             compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
-            maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
+            maxContextTokens: effectiveMaxContextRef.current > 0 ? effectiveMaxContextRef.current : undefined,
             onIteration: broadcastEternalIteration,
             onStage: broadcastAutonomyStage,
             // Real per-role factory: each dispatched slot runs as a fresh,
@@ -2339,7 +1548,7 @@ export async function main(argv: string[]): Promise<number> {
             agent,
             projectRoot,
             compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
-            maxContextTokens: effectiveMaxContext > 0 ? effectiveMaxContext : undefined,
+            maxContextTokens: effectiveMaxContextRef.current > 0 ? effectiveMaxContextRef.current : undefined,
             onIteration: broadcastEternalIteration,
             onStage: broadcastAutonomyStage,
             brain,
@@ -2356,8 +1565,6 @@ export async function main(argv: string[]): Promise<number> {
     onExit: () => {
       for (const teardown of teardownHandlers) teardown();
       teardownHandlers.length = 0;
-      brainMonitor.stop();
-      brainQueue.dispose();
       void mcpRegistry.stopAll();
       multiAgentHost
         .dispose()
@@ -2728,7 +1935,7 @@ export async function main(argv: string[]): Promise<number> {
     container,
     renderer,
     broadcastEternalIteration,
-    effectiveMaxContext,
+    effectiveMaxContext: effectiveMaxContextRef.current,
     configRef,
     autonomyModeRef,
   });
@@ -2837,8 +2044,8 @@ export async function main(argv: string[]): Promise<number> {
     projectRoot,
     flags,
     positional,
-    effectiveMaxContext,
-    getEffectiveMaxContext: () => effectiveMaxContext,
+    effectiveMaxContext: effectiveMaxContextRef.current,
+    getEffectiveMaxContext: () => effectiveMaxContextRef.current,
     queueStore,
     context,
     stats,
@@ -2953,7 +2160,7 @@ export async function main(argv: string[]): Promise<number> {
     },
     onBrainRiskLevel: (level: 'off' | 'low' | 'medium' | 'high' | 'all') => {
       if (!brainSettings) return 'Brain settings not available.';
-      brainSettings.maxAutoRisk = level as BrainAutoRisk;
+      brainSettings.maxAutoRisk = level as import('@wrongstack/core').BrainAutoRisk;
       return undefined;
     },
     // Interactive /auth panel host — provider/key CRUD, catalog/local adds
