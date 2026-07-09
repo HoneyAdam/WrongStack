@@ -180,15 +180,37 @@ mcp imports are type-only, but `MCPRegistry` is the runtime exception).
 Cycle graph:
 
 ```
-core ←── mcp   (mcp uses core types/classes; pre-existing)
-  ↑       ↓
-  └───── (proposed) server code in core imports MCPRegistry at runtime
+   EXISTING (pre-PR-018b)              PROPOSED (would create the cycle)
+   ─────────────────────────            ─────────────────────────────
+   mcp  ───runtime───▶  core            mcp  ───runtime───▶  core
+                                                ▲
+                                                │ runtime
+                                                │
+                                          server code in core
+                                          (uses MCPRegistry at runtime)
 ```
 
-**Architectural rule violated**: `architecture-rules.md` says `infrastructure/`
-is layer 2 and "must not import from core/...". The server code crossing
-into `core` (currently layer 1) plus wanting to use `mcp` (a separate
-package) is the same violation in different vocabulary.
+**Reading the graph**: the existing `mcp → core` runtime edge is fine on its own. The proposed move of server code into `core` adds a **second** runtime edge from `core` back to `mcp` (via `MCPRegistry`). Together they form a cycle, which pnpm refuses.
+
+**Architectural concern (not a single rule violation, but two related ones)**:
+
+1. **Workspace cycle** (the actual blocker): `core` and `mcp` are both
+   peer workspace packages; pnpm forbids them from depending on each
+   other in a cycle. The cycle is created when server code that uses
+   `MCPRegistry` at runtime lives in `core` while `mcp` already depends
+   on `core`. (Note: 3 of the 4 server-side `mcp` imports are `import type`
+   — type-only imports don't create runtime edges in pnpm's algorithm,
+   which is why the cycle only manifests for the runtime `MCPRegistry`
+   import.)
+
+2. **`core` package character change**: today `@wrongstack/core` has
+   **zero runtime dependencies** (only `devDependencies` for
+   `@types/node`, `tsup`, `typescript`). Adding the server module adds
+   6 runtime deps (`ws`, `jszip`, `@wrongstack/mcp`, `@wrongstack/providers`,
+   `@wrongstack/runtime`, `@wrongstack/tools`). That makes `core` no
+   longer a leaf foundation; it becomes a peer package that happens to
+   be depended on by everyone else. This is a significant semantic
+   shift, regardless of the cycle.
 
 **Options (revised; see §5 Decision B for the record)**:
 
