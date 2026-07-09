@@ -109,6 +109,18 @@ export class Context implements RunEnv {
   writtenFiles = new Set<string>();
   fileMtimes = new Map<string, number>();
   /**
+   * sha-256 (hex) of file content at the last recorded read/write, when the
+   * recording tool had the content in hand. Used by `edit` as the authoritative
+   * staleness arbiter: mtime comparison has a 2 s tolerance window on Windows
+   * (FAT/NTFS granularity) during which an external modification is invisible,
+   * and conversely a bare `touch` bumps mtime without changing content. Hash
+   * equality resolves both cases exactly. Entries are dropped whenever a
+   * hash-less `recordRead` observes a *different* mtime (content may have
+   * changed under us — fall back to the mtime heuristic rather than trust a
+   * stale hash).
+   */
+  fileHashes = new Map<string, string>();
+  /**
    * Structured side-effect records accumulated during the current run
    * (P2 #5). Populated by `recordSideEffect()` — read by /diag for an
    * in-memory audit trail without parsing the JSONL file. Cleared by
@@ -251,8 +263,27 @@ export class Context implements RunEnv {
    *   approved the new content (P1 #1, before-release.md).
    *
    * `fileMtimes` is updated in both cases so mtime-based staleness checks work.
+   *
+   * `contentHash` (sha-256 hex of the exact content seen) is optional so
+   * existing callers keep working. When provided it is stored in `fileHashes`
+   * and becomes the authoritative staleness arbiter for later edits. When
+   * omitted, a previously stored hash survives only if the observed mtime is
+   * unchanged — a different mtime with no fresh hash means the content may
+   * have changed, so the stale hash is dropped and staleness checks fall back
+   * to mtime comparison.
    */
-  recordRead(absPath: string, mtimeMs: number, source: 'user' | 'write' = 'user'): void {
+  recordRead(
+    absPath: string,
+    mtimeMs: number,
+    source: 'user' | 'write' = 'user',
+    contentHash?: string,
+  ): void {
+    if (contentHash !== undefined) {
+      this.fileHashes.set(absPath, contentHash);
+    } else {
+      const prevMtime = this.fileMtimes.get(absPath);
+      if (prevMtime !== mtimeMs) this.fileHashes.delete(absPath);
+    }
     this.fileMtimes.set(absPath, mtimeMs);
     if (source === 'write') {
       this.writtenFiles.add(absPath);
@@ -268,6 +299,7 @@ export class Context implements RunEnv {
     this.readFiles.clear();
     this.writtenFiles.clear();
     this.fileMtimes.clear();
+    this.fileHashes.clear();
     this.sideEffects = [];
   }
 
@@ -311,6 +343,12 @@ export class Context implements RunEnv {
 
   lastReadMtime(absPath: string): number | undefined {
     return this.fileMtimes.get(absPath);
+  }
+
+  /** sha-256 (hex) of the content at the last recorded read/write, if the
+   *  recording tool supplied one. See `fileHashes` for drop semantics. */
+  lastReadHash(absPath: string): string | undefined {
+    return this.fileHashes.get(absPath);
   }
 
   /**

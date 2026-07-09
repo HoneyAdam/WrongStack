@@ -241,3 +241,42 @@ describe('Context.onWorkingDirChanged', () => {
     expect(secondCalled).toBe(true);
   });
 });
+
+describe('Context content-hash tracking', () => {
+  it('recordRead stores the content hash when provided', () => {
+    const ctx = mkContext();
+    ctx.recordRead('/a/b.ts', 100, 'user', 'hash-1');
+    expect(ctx.lastReadHash('/a/b.ts')).toBe('hash-1');
+    expect(ctx.lastReadHash('/missing')).toBeUndefined();
+  });
+
+  it('a hash-less recordRead with the same mtime keeps the stored hash', () => {
+    const ctx = mkContext();
+    ctx.recordRead('/a/b.ts', 100, 'user', 'hash-1');
+    ctx.recordRead('/a/b.ts', 100);
+    expect(ctx.lastReadHash('/a/b.ts')).toBe('hash-1');
+  });
+
+  it('a hash-less recordRead with a different mtime drops the stale hash', () => {
+    const ctx = mkContext();
+    ctx.recordRead('/a/b.ts', 100, 'user', 'hash-1');
+    ctx.recordRead('/a/b.ts', 200);
+    expect(ctx.lastReadHash('/a/b.ts')).toBeUndefined();
+    expect(ctx.lastReadMtime('/a/b.ts')).toBe(200);
+  });
+
+  it('write-tagged records also carry hashes', () => {
+    const ctx = mkContext();
+    ctx.recordRead('/a/b.ts', 100, 'write', 'hash-w');
+    expect(ctx.lastReadHash('/a/b.ts')).toBe('hash-w');
+    expect(ctx.hasRead('/a/b.ts')).toBe(false);
+    expect(ctx.hasWritten('/a/b.ts')).toBe(true);
+  });
+
+  it('clearFileTracking clears hashes', () => {
+    const ctx = mkContext();
+    ctx.recordRead('/a/b.ts', 100, 'user', 'hash-1');
+    ctx.clearFileTracking();
+    expect(ctx.lastReadHash('/a/b.ts')).toBeUndefined();
+  });
+});

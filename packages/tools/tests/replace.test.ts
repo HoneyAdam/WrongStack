@@ -195,3 +195,58 @@ describe('globNative walk exception paths', () => {
     expect(result.total_replacements).toBe(2);
   });
 });
+
+describe('replace change tracking', () => {
+  it('records mtime+hash (write-tagged) and a session file change on apply', async () => {
+    const filePath = path.join(tmpDir, 'tracked.txt');
+    await fs.writeFile(filePath, 'hello world', 'utf8');
+
+    const recorded: Array<{ path: string; source: string; hash?: string }> = [];
+    const changes: Array<{ path: string; action: string; before: unknown; after: unknown }> = [];
+    const ctx = {
+      cwd: tmpDir,
+      tools: [],
+      projectRoot: tmpDir,
+      recordRead(p: string, _m: number, source = 'user', hash?: string) {
+        recorded.push({ path: p, source, hash });
+      },
+      session: {
+        recordFileChange(c: { path: string; action: string; before: unknown; after: unknown }) {
+          changes.push(c);
+        },
+      },
+    } as any;
+
+    const result = await replaceTool.execute(
+      { pattern: 'hello', replacement: 'goodbye', files: filePath, dry_run: false },
+      ctx,
+    );
+    expect(result.files_modified).toBe(1);
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.source).toBe('write');
+    expect(recorded[0]?.hash).toMatch(/^[0-9a-f]{64}$/);
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe('modified');
+    expect(changes[0]?.before).toBe('hello world');
+    expect(changes[0]?.after).toBe('goodbye world');
+  });
+
+  it('dry_run records nothing', async () => {
+    const filePath = path.join(tmpDir, 'untracked.txt');
+    await fs.writeFile(filePath, 'hello world', 'utf8');
+    const recorded: unknown[] = [];
+    const ctx = {
+      cwd: tmpDir,
+      tools: [],
+      projectRoot: tmpDir,
+      recordRead(...args: unknown[]) {
+        recorded.push(args);
+      },
+      session: { recordFileChange: (c: unknown) => recorded.push(c) },
+    } as any;
+    await replaceTool.execute({ pattern: 'hello', replacement: 'goodbye', files: filePath }, ctx);
+    expect(recorded).toHaveLength(0);
+  });
+});

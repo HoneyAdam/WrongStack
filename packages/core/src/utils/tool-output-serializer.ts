@@ -212,18 +212,29 @@ function renderToolObject(toolName: string, obj: RecordValue, input: unknown): s
 
   if (typeof obj['diff'] === 'string') {
     const diff = obj['diff'];
+    // matched_by: 'exact' is the default and carries no information — only
+    // surface the field when a fallback tier actually fired.
+    const matchedBy =
+      typeof obj['matched_by'] === 'string' && obj['matched_by'] !== 'exact'
+        ? obj['matched_by']
+        : undefined;
+    const syntaxErrors = Array.isArray(obj['syntax_errors'])
+      ? obj['syntax_errors'].filter((e): e is string => typeof e === 'string')
+      : [];
     return joinSections([
       renderHeader(toolName, {
         path: obj['path'],
         replacements: obj['replacements'],
         bytes_written: obj['bytes_written'],
         created: obj['created'],
+        matched_by: matchedBy,
         note: obj['note'],
         files: Array.isArray(obj['files']) ? obj['files'].length : undefined,
         truncated: obj['truncated'],
         mode: obj['mode'],
       }),
       compactDiff(diff),
+      syntaxErrors.length > 0 ? `syntax_errors:\n${renderStringList(syntaxErrors)}` : undefined,
     ]);
   }
 

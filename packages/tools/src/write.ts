@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import { atomicWrite, ToolValidationError, unifiedDiff } from '@wrongstack/core';
 import type { Context, Tool } from '@wrongstack/core';
-import { safeResolveReal } from './_util.js';
+import { checkSyntax } from './_syntax-check.js';
+import { safeResolveReal, sha256hex } from './_util.js';
 
 interface WriteInput {
   path: string;
@@ -13,6 +14,12 @@ interface WriteOutput {
   bytes_written: number;
   created: boolean;
   diff?: string | undefined;
+  /**
+   * Parse errors found in the written content (TS/JS/JSON only). The file is
+   * on disk as written — fix these with a follow-up edit now.
+   */
+  syntax_errors?: string[] | undefined;
+  note?: string | undefined;
 }
 
 export const writeTool: Tool<WriteInput, WriteOutput> = {
@@ -104,7 +111,7 @@ async function prepareWrite(input: WriteInput, ctx: Context): Promise<PreparedWr
         // this internal read-for-diff does not widen the permission bypass
         // — the user never saw the old content (P1 #1).
         prev = await fs.readFile(absPath, 'utf8');
-        ctx.recordRead(absPath, stat.mtimeMs, 'write');
+        ctx.recordRead(absPath, stat.mtimeMs, 'write', sha256hex(prev));
       } else {
         prev = await fs.readFile(absPath, 'utf8');
       }
@@ -139,7 +146,7 @@ async function finishWrite(
   // Tag as 'write' so the permission bypass does not auto-approve a later
   // write to this path — the user approved THIS write, not future ones
   // (P1 #1).
-  ctx.recordRead(prepared.absPath, stat.mtimeMs, 'write');
+  ctx.recordRead(prepared.absPath, stat.mtimeMs, 'write', sha256hex(input.content));
 
   // Record for session rewind
   ctx.session.recordFileChange({
@@ -149,10 +156,26 @@ async function finishWrite(
     after: input.content,
   });
 
+  // Post-write syntax validation (TS/JS/JSON). The file stays on disk as
+  // written — errors come back in the same turn so the model fixes them
+  // before the user ever opens a broken file.
+  const syntax = await checkSyntax(
+    prepared.absPath,
+    input.content,
+    prepared.existed ? prepared.prev : undefined,
+  ).catch(() => undefined);
+  const hasSyntaxErrors = syntax !== undefined && syntax.errors.length > 0;
+
   return {
     path: prepared.absPath,
     bytes_written: Buffer.byteLength(input.content, 'utf8'),
     created: !prepared.existed,
     diff,
+    syntax_errors: hasSyntaxErrors ? syntax.errors : undefined,
+    note: hasSyntaxErrors
+      ? syntax.preExisting
+        ? 'Syntax check: the file still has parse errors (they pre-date this write) — see syntax_errors.'
+        : `Syntax check: the written content has ${syntax.errors.length} parse error(s) — fix them now, see syntax_errors.`
+      : undefined,
   };
 }

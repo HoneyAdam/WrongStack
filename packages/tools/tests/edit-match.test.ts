@@ -1,0 +1,137 @@
+import { describe, expect, it } from 'vitest';
+import {
+  adjustIndent,
+  findLadderMatches,
+  firstLineIndent,
+  nearestMatchHint,
+  similarity,
+} from '../src/_edit-match.js';
+
+describe('_edit-match', () => {
+  describe('findLadderMatches', () => {
+    it('prefers exact matches and reports every occurrence', () => {
+      const res = findLadderMatches('foo\nbar\nfoo\n', 'foo');
+      expect(res?.tier).toBe('exact');
+      expect(res?.matches).toHaveLength(2);
+      expect(res?.matches.map((m) => m.startLine)).toEqual([1, 3]);
+    });
+
+    it('exact matches support sub-line needles', () => {
+      const res = findLadderMatches('const foobar = 1;\n', 'foobar');
+      expect(res?.tier).toBe('exact');
+      expect(res?.matches[0]?.start).toBe(6);
+    });
+
+    it('falls back to trailing-whitespace matching', () => {
+      const res = findLadderMatches('const a = 1;\n', 'const a = 1;   ');
+      expect(res?.tier).toBe('trailing-whitespace');
+      expect(res?.matches).toHaveLength(1);
+      expect(res?.matches[0]).toMatchObject({ start: 0, end: 12, startLine: 1 });
+    });
+
+    it('falls back to indent-insensitive matching for long-enough needles', () => {
+      const res = findLadderMatches(
+        '    doThing(alpha, beta);\n    done();\n',
+        'doThing(alpha, beta);\ndone();',
+      );
+      expect(res?.tier).toBe('whitespace-normalized');
+      expect(res?.matches).toHaveLength(1);
+    });
+
+    it('refuses indent-insensitive matching for tiny needles', () => {
+      expect(findLadderMatches('if (x) {\n  y();\n}\n', '  }')).toBeUndefined();
+    });
+
+    it('fuzzy tier requires matching first/last anchors', () => {
+      const file = 'start() {\n  middle(1);\n  extra();\n}\n';
+      // Last line differs → no anchor → no fuzzy match.
+      expect(findLadderMatches(file, 'start() {\n  middle(2);\n  extra();\n};')).toBeUndefined();
+    });
+
+    it('fuzzy tier flags equally-scored candidates as ambiguous', () => {
+      const block = 'function a() {\n  return compute(1, 2, 3);\n}';
+      const res = findLadderMatches(
+        `${block}\n\n${block}\n`,
+        'function a() {\n  return compute(1, 2, 4);\n}',
+      );
+      expect(res?.tier).toBe('fuzzy');
+      expect(res?.ambiguous).toBe(true);
+      expect(res?.matches.length).toBe(2);
+    });
+
+    it('windows never overlap at line-based tiers', () => {
+      // Needle spans 2 lines; the file repeats the line 3 times — only one
+      // non-overlapping window pair should match, not two overlapping ones.
+      const res = findLadderMatches('x\nx\nx\n', 'x \nx ');
+      expect(res?.tier).toBe('trailing-whitespace');
+      expect(res?.matches).toHaveLength(1);
+    });
+  });
+
+  describe('adjustIndent', () => {
+    it('adds indentation when the file is deeper than the needle', () => {
+      const out = adjustIndent('if (a) {\n  b();\n}', '', '    ');
+      expect(out.adjusted).toBe(true);
+      expect(out.text).toBe('    if (a) {\n      b();\n    }');
+    });
+
+    it('removes indentation when the file is shallower than the needle', () => {
+      const out = adjustIndent('    if (a) {\n      b();\n    }', '    ', '  ');
+      expect(out.adjusted).toBe(true);
+      expect(out.text).toBe('  if (a) {\n    b();\n  }');
+    });
+
+    it('leaves empty lines alone when adding indent', () => {
+      const out = adjustIndent('a\n\nb', '', '  ');
+      expect(out.text).toBe('  a\n\n  b');
+    });
+
+    it('does not guess on tabs-vs-spaces mismatches', () => {
+      const out = adjustIndent('a', '\t', '  ');
+      expect(out.adjusted).toBe(false);
+      expect(out.text).toBe('a');
+    });
+  });
+
+  describe('similarity', () => {
+    it('is 1 for identical strings and 0-ish for disjoint ones', () => {
+      expect(similarity('abc', 'abc')).toBe(1);
+      expect(similarity('abc', 'xyz')).toBeLessThan(0.5);
+    });
+
+    it('scores single-char drift above the fuzzy threshold', () => {
+      expect(similarity('return compute(1, 2, 3);', 'return compute(1, 2, 4);')).toBeGreaterThan(
+        0.9,
+      );
+    });
+
+    it('quick-rejects large length gaps without full DP', () => {
+      expect(similarity('ab', 'ab'.repeat(50))).toBeLessThan(0.9);
+    });
+  });
+
+  describe('firstLineIndent', () => {
+    it('skips empty lines and reads the first real indent', () => {
+      expect(firstLineIndent('\n\n    code();')).toBe('    ');
+      expect(firstLineIndent('code();')).toBe('');
+      expect(firstLineIndent('')).toBe('');
+    });
+  });
+
+  describe('nearestMatchHint', () => {
+    it('locates the closest window and returns a snippet', () => {
+      const hint = nearestMatchHint(
+        'first\nsecond\nconst alpha = computeValue(input, options);\n',
+        'const alpha = computeValue(input, settings);',
+      );
+      expect(hint?.line).toBe(3);
+      expect(hint?.snippet).toContain('computeValue(input, options)');
+    });
+
+    it('returns undefined when nothing is close', () => {
+      expect(
+        nearestMatchHint('completely unrelated content\n', 'zzzz no match at all'),
+      ).toBeUndefined();
+    });
+  });
+});

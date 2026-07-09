@@ -18,6 +18,7 @@ export async function mkSandbox(): Promise<Sandbox> {
     projectRoot: dir,
     readFiles: new Set<string>(),
     fileMtimes: new Map<string, number>(),
+    fileHashes: new Map<string, string>(),
     writtenFiles: new Set<string>(),
     sideEffects: [],
     hasRead(p: string) {
@@ -29,7 +30,18 @@ export async function mkSandbox(): Promise<Sandbox> {
     lastReadMtime(p: string) {
       return this.fileMtimes.get(p);
     },
-    recordRead(p: string, m: number, source: 'user' | 'write' = 'user') {
+    lastReadHash(p: string) {
+      return (this as { fileHashes: Map<string, string> }).fileHashes.get(p);
+    },
+    recordRead(p: string, m: number, source: 'user' | 'write' = 'user', contentHash?: string) {
+      // Mirrors the real Context semantics: a hash-less record with a new
+      // mtime drops the stored hash (content may have changed under us).
+      const hashes = (this as { fileHashes: Map<string, string> }).fileHashes;
+      if (contentHash !== undefined) {
+        hashes.set(p, contentHash);
+      } else if (this.fileMtimes.get(p) !== m) {
+        hashes.delete(p);
+      }
       this.fileMtimes.set(p, m);
       if (source === 'write') {
         (this as { writtenFiles: Set<string> }).writtenFiles.add(p);
@@ -43,6 +55,7 @@ export async function mkSandbox(): Promise<Sandbox> {
     clearFileTracking() {
       this.readFiles.clear();
       this.fileMtimes.clear();
+      (this as { fileHashes: Map<string, string> }).fileHashes.clear();
       (this as { sideEffects: unknown[] }).sideEffects = [];
     },
     todos,

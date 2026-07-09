@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildChildEnv } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
-import { safeResolve } from './_util.js';
+import { safeResolve, sha256hex } from './_util.js';
 
 interface PatchInput {
   patch: string;
@@ -59,6 +59,7 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
     // the project root. This catches `../../../etc/passwd`-style escapes
     // before we hand the diff to GNU patch.
     const targets = extractDiffTargets(input.patch);
+    const resolvedTargets: string[] = [];
     for (const t of targets) {
       const stripped = stripPathComponents(t, strip);
       if (!stripped) continue;
@@ -72,6 +73,16 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
           dry_run: dryRun,
           message: `patch refused: target "${t}" resolves outside project root`,
         };
+      }
+      resolvedTargets.push(candidate);
+    }
+
+    // Snapshot target contents before applying so the change can be recorded
+    // for session rewind and stale-read tracking (same bookkeeping as `edit`).
+    const beforeContents = new Map<string, string | null>();
+    if (!dryRun) {
+      for (const target of resolvedTargets) {
+        beforeContents.set(target, await readTextForTracking(target));
       }
     }
 
@@ -101,6 +112,28 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
       }
 
       const patched = extractPatchedFiles(result.stdout);
+
+      // Record what actually changed: mtime + hash (tagged 'write' so the
+      // permission bypass does not widen) so a later `edit` doesn't trip the
+      // stale-read guard on our own write, plus the before/after pair for
+      // session rewind.
+      if (!dryRun) {
+        for (const target of resolvedTargets) {
+          const before = beforeContents.get(target) ?? null;
+          const after = await readTextForTracking(target);
+          if (after === null || after === before) continue;
+          const stat = await fs.stat(target).catch(() => null);
+          // Optional calls: embedders may hand in a duck-typed Context.
+          if (stat) ctx.recordRead?.(target, stat.mtimeMs, 'write', sha256hex(after));
+          ctx.session?.recordFileChange?.({
+            path: target,
+            action: before === null ? 'created' : 'modified',
+            before,
+            after,
+          });
+        }
+      }
+
       return {
         applied: patched.length,
         rejected: 0,
@@ -113,6 +146,21 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
     }
   },
 };
+
+/** Read a target file as UTF-8 for change tracking. Returns null when the
+ *  file is missing (new-file diff), binary, or too large to snapshot. */
+const MAX_TRACKING_BYTES = 5 * 1024 * 1024;
+async function readTextForTracking(absPath: string): Promise<string | null> {
+  try {
+    const stat = await fs.stat(absPath);
+    if (!stat.isFile() || stat.size > MAX_TRACKING_BYTES) return null;
+    const buf = await fs.readFile(absPath);
+    if (buf.includes(0)) return null; // binary
+    return buf.toString('utf8');
+  } catch {
+    return null;
+  }
+}
 
 /** Extract every `+++ <path>` target from a unified diff. */
 function extractDiffTargets(patch: string): string[] {

@@ -14,7 +14,7 @@ import {
 } from '@wrongstack/core';
 import type { Context, Tool } from '@wrongstack/core';
 import { compileUserRegex } from './_regex.js';
-import { isBinaryBuffer, safeResolve } from './_util.js';
+import { isBinaryBuffer, safeResolve, sha256hex } from './_util.js';
 interface ReplaceInput {
   pattern: string;
   replacement: string;
@@ -188,6 +188,21 @@ export const replaceTool: Tool<ReplaceInput, ReplaceOutput> = {
         // so atomicWrite's temp-and-rename can't be redirected through a
         // freshly-planted symlink at absPath.
         await atomicWrite(realPath, newContent, { mode: stat.mode & 0o777 });
+        // Same bookkeeping as `edit`: record the new mtime + hash (tagged
+        // 'write' so the permission bypass does not widen) so a later `edit`
+        // of this file doesn't trip the stale-read guard on our own write,
+        // and record the change for session rewind. Optional calls: embedders
+        // may hand in a duck-typed Context without these members.
+        const written = await fs.stat(realPath).catch(() => null);
+        if (written) {
+          ctx.recordRead?.(realPath, written.mtimeMs, 'write', sha256hex(newContent));
+        }
+        ctx.session?.recordFileChange?.({
+          path: realPath,
+          action: 'modified',
+          before: content,
+          after: newContent,
+        });
       }
 
       const diff =

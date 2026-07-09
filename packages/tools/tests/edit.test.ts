@@ -166,11 +166,42 @@ describe('edit tool', () => {
     ).rejects.toThrow(/does not exist/);
   });
 
-  it('flags external modification when mtime advances past tolerance', async () => {
+  it('flags external modification when the content changed since the read', async () => {
     const file = path.join(sb.dir, 'a.txt');
     await fs.writeFile(file, 'hello');
     await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
-    // Bump mtime well past either tolerance window (1 ms POSIX / 2 s Windows).
+    // Change the content behind the agent's back. The hash arbiter catches
+    // this even inside the mtime tolerance window (2 s on Windows).
+    await fs.writeFile(file, 'hello, changed');
+    await expect(
+      editTool.execute({ path: 'a.txt', old_string: 'hello', new_string: 'hi' }, sb.ctx, {
+        signal: newSignal(),
+      }),
+    ).rejects.toThrow(/modified externally/);
+  });
+
+  it('a content-preserving mtime bump (touch) does not block the edit', async () => {
+    const file = path.join(sb.dir, 'a.txt');
+    await fs.writeFile(file, 'hello');
+    await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
+    // mtime advances past tolerance but the content hash is unchanged —
+    // the model's picture of the file is still accurate, so editing is safe.
+    const future = new Date(Date.now() + 10_000);
+    await fs.utimes(file, future, future);
+    const out = await editTool.execute(
+      { path: 'a.txt', old_string: 'hello', new_string: 'hi' },
+      sb.ctx,
+      { signal: newSignal() },
+    );
+    expect(out.replacements).toBe(1);
+  });
+
+  it('falls back to the mtime check when no content hash was recorded', async () => {
+    const file = path.join(sb.dir, 'a.txt');
+    await fs.writeFile(file, 'hello');
+    // Simulate an older/duck-typed recordRead that stored only the mtime.
+    const stat = await fs.stat(file);
+    sb.ctx.recordRead(await fs.realpath(file), stat.mtimeMs);
     const future = new Date(Date.now() + 10_000);
     await fs.utimes(file, future, future);
     await expect(
@@ -269,6 +300,234 @@ describe('edit tool', () => {
           signal: newSignal(),
         }),
       ).rejects.toThrow(/no match/);
+    });
+  });
+
+  describe('matching ladder fallbacks', () => {
+    it('exact match reports matched_by: exact and no fallback note', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.txt'), 'hello world');
+      await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        { path: 'a.txt', old_string: 'hello', new_string: 'hi' },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.matched_by).toBe('exact');
+      expect(out.note).toBeUndefined();
+    });
+
+    it('trailing whitespace in old_string falls back to tier 2', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.txt'), 'const a = 1;\nconst b = 2;\n');
+      await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        // Model hallucinated trailing spaces after the semicolon.
+        { path: 'a.txt', old_string: 'const a = 1;   ', new_string: 'const a = 42;' },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.matched_by).toBe('trailing-whitespace');
+      expect(out.note).toMatch(/did not match exactly/);
+      expect(out.note).toMatch(/confidence: high/);
+      const content = await fs.readFile(path.join(sb.dir, 'a.txt'), 'utf8');
+      expect(content).toBe('const a = 42;\nconst b = 2;\n');
+    });
+
+    it('indentation drift falls back to tier 3 and re-indents the replacement', async () => {
+      const file = 'function f() {\n    if (cond) {\n        doThing();\n    }\n}\n';
+      await fs.writeFile(path.join(sb.dir, 'a.ts'), file);
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        {
+          path: 'a.ts',
+          // Model reproduced the block one indent level too shallow.
+          old_string: 'if (cond) {\n    doThing();\n}',
+          new_string: 'if (cond) {\n    doOther();\n}',
+        },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.matched_by).toBe('whitespace-normalized');
+      expect(out.note).toMatch(/re-indented/);
+      const content = await fs.readFile(path.join(sb.dir, 'a.ts'), 'utf8');
+      expect(content).toBe('function f() {\n    if (cond) {\n        doOther();\n    }\n}\n');
+    });
+
+    it('block-anchor fuzzy match repairs a slightly-wrong interior line', async () => {
+      const file =
+        'export function greet(name) {\n' +
+        "  const message = 'hello there, ' + name;\n" +
+        '  return message.toUpperCase();\n' +
+        '}\n';
+      await fs.writeFile(path.join(sb.dir, 'a.js'), file);
+      await readTool.execute({ path: 'a.js' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        {
+          path: 'a.js',
+          // Interior line hallucinated: "hello there," became "hello  there,".
+          old_string:
+            'export function greet(name) {\n' +
+            "  const message = 'hello  there, ' + name;\n" +
+            '  return message.toUpperCase();\n' +
+            '}',
+          new_string:
+            'export function greet(name) {\n' +
+            "  const message = 'hi, ' + name;\n" +
+            '  return message.toUpperCase();\n' +
+            '}',
+        },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.matched_by).toBe('fuzzy');
+      expect(out.note).toMatch(/confidence: low/);
+      expect(out.note).toMatch(/similarity/);
+      const content = await fs.readFile(path.join(sb.dir, 'a.js'), 'utf8');
+      expect(content).toContain("'hi, ' + name");
+    });
+
+    it('fuzzy match with two indistinguishable candidates is rejected', async () => {
+      const block = 'function a() {\n  return compute(1, 2, 3);\n}\n';
+      await fs.writeFile(path.join(sb.dir, 'a.js'), block + '\n' + block);
+      await readTool.execute({ path: 'a.js' }, sb.ctx, { signal: newSignal() });
+      await expect(
+        editTool.execute(
+          {
+            path: 'a.js',
+            // Interior differs slightly from BOTH copies → equal scores.
+            old_string: 'function a() {\n  return compute(1, 2, 4);\n}',
+            new_string: 'function a() {\n  return 0;\n}',
+          },
+          sb.ctx,
+          { signal: newSignal() },
+        ),
+      ).rejects.toThrow(/scored too close/);
+    });
+
+    it('replace_all is refused for indent-insensitive fallback matches', async () => {
+      await fs.writeFile(
+        path.join(sb.dir, 'a.ts'),
+        'function g() {\n    doThing(alpha, beta);\n    done();\n}\n',
+      );
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      await expect(
+        editTool.execute(
+          {
+            path: 'a.ts',
+            // Two-line needle at the wrong indent level: not a substring, so
+            // it can only match via the indent-insensitive tier.
+            old_string: 'doThing(alpha, beta);\ndone();',
+            new_string: 'doOther(alpha, beta);\ndone();',
+            replace_all: true,
+          },
+          sb.ctx,
+          { signal: newSignal() },
+        ),
+      ).rejects.toThrow(/replace_all requires an exact/);
+    });
+
+    it('replace_all works at the trailing-whitespace tier', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.txt'), 'foo bar\nkeep\nfoo bar\n');
+      await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        { path: 'a.txt', old_string: 'foo bar   ', new_string: 'baz', replace_all: true },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.matched_by).toBe('trailing-whitespace');
+      expect(out.replacements).toBe(2);
+      const content = await fs.readFile(path.join(sb.dir, 'a.txt'), 'utf8');
+      expect(content).toBe('baz\nkeep\nbaz\n');
+    });
+
+    it('ambiguous tier-2 match without replace_all reports lines and tier', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.txt'), 'same line\nother\nsame line\n');
+      await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
+      await expect(
+        editTool.execute({ path: 'a.txt', old_string: 'same line  ', new_string: 'x' }, sb.ctx, {
+          signal: newSignal(),
+        }),
+      ).rejects.toThrow(/matched 2 times .*lines: 1, 3.*whitespace/s);
+    });
+
+    it('too-short needles never fall through to indent-insensitive tiers', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.ts'), 'if (x) {\n  y();\n}\n');
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      await expect(
+        // "  }" would trim-match the closing brace — must NOT be allowed.
+        editTool.execute({ path: 'a.ts', old_string: '  }', new_string: '  };' }, sb.ctx, {
+          signal: newSignal(),
+        }),
+      ).rejects.toThrow(/no match/);
+    });
+
+    it('no-match error includes a snippet of the nearest candidate', async () => {
+      await fs.writeFile(
+        path.join(sb.dir, 'a.ts'),
+        'const alpha = computeValue(input, options);\n',
+      );
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      await expect(
+        editTool.execute(
+          {
+            path: 'a.ts',
+            old_string: 'const alpha = computeValue(input, settings);',
+            new_string: 'x',
+          },
+          sb.ctx,
+          { signal: newSignal() },
+        ),
+      ).rejects.toThrow(/Nearest match near line 1:[\s\S]*computeValue\(input, options\)/);
+    });
+  });
+
+  describe('post-edit syntax check', () => {
+    it('reports parse errors introduced by the edit on a .ts file', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.ts'), 'const x = 1;\n');
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        { path: 'a.ts', old_string: 'const x = 1;', new_string: 'const x = ;' },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.syntax_errors).toBeDefined();
+      expect(out.syntax_errors?.length).toBeGreaterThan(0);
+      expect(out.note).toMatch(/introduced .* parse error/);
+      // The edit is still applied — feedback, not rollback.
+      expect(await fs.readFile(path.join(sb.dir, 'a.ts'), 'utf8')).toBe('const x = ;\n');
+    });
+
+    it('clean edits carry no syntax_errors', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.ts'), 'const x = 1;\n');
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        { path: 'a.ts', old_string: 'const x = 1;', new_string: 'const x = 2;' },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.syntax_errors).toBeUndefined();
+    });
+
+    it('flags pre-existing parse errors as pre-existing', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.ts'), 'const broken = ;\nconst y = 1;\n');
+      await readTool.execute({ path: 'a.ts' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        { path: 'a.ts', old_string: 'const y = 1;', new_string: 'const y = 2;' },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.syntax_errors).toBeDefined();
+      expect(out.note).toMatch(/pre-date/);
+    });
+
+    it('non-code files are not syntax-checked', async () => {
+      await fs.writeFile(path.join(sb.dir, 'a.txt'), 'not { valid json or ts\n');
+      await readTool.execute({ path: 'a.txt' }, sb.ctx, { signal: newSignal() });
+      const out = await editTool.execute(
+        { path: 'a.txt', old_string: 'valid', new_string: 'VALID' },
+        sb.ctx,
+        { signal: newSignal() },
+      );
+      expect(out.syntax_errors).toBeUndefined();
     });
   });
 });

@@ -1,7 +1,17 @@
+import { createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as Core from '@wrongstack/core';
 import type { Context } from '@wrongstack/core';
+
+/**
+ * sha-256 hex of a UTF-8 string. Used by the file tools to record a content
+ * hash alongside the mtime in `ctx.recordRead` — the hash is the authoritative
+ * staleness arbiter for `edit` (mtime has a 2 s tolerance window on Windows).
+ */
+export function sha256hex(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
 /** Detected package manager for a project directory. */
 export type PackageManager = 'pnpm' | 'yarn' | 'npm';
 
