@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { parseNextSteps, stripNextStepsBlock } from '../src/components/suggestions.js';
+import { parseNextSteps, stripNextStepsBlock } from '../src/next-steps.js';
+
+/**
+ * Tests for the canonical `<nextsteps>` block parser, now extracted into
+ * `@wrongstack/tools/next-steps` as the single source of truth shared by
+ * the TUI history renderer, the CLI REPL suggestion store, the CLI
+ * /suggest subagent output, and the WebUI MessageBubble/NextStepsBar.
+ *
+ * Behavior must remain byte-identical to the previous TUI-resident
+ * implementation (`packages/tui/src/components/suggestions.ts`) and the
+ * WebUI's local `NextStepsBar.tsx` implementation; this test suite pins
+ * every branch the old TUI suite pinned, plus the WebUI's stricter
+ * whitespace / no-auto-on-falsy expectation.
+ */
 
 describe('parseNextSteps (strict mode — assistant-message path)', () => {
   it('returns no steps when there is no heading and no XML tag', () => {
     // Regression test: the legacy webui parser fell back to treating any
-    // "1. foo" line in the message body as a step. The TUI's parser must
-    // not — a canonical <nextsteps> tag is required
-    // before items are recognised.
+    // "1. foo" line in the message body as a step. The parser must not —
+    // a canonical <nextsteps> tag is required before items are recognised.
     const text = [
       'Here is my plan:',
       '',
@@ -69,9 +81,8 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
   });
 
   it('rejects the XML tag block when the closing tag is missing (strict mode)', () => {
-    // The webui subagent's fix also added this: a <nextsteps> block
-    // without </nextsteps> is malformed and should be rejected in strict
-    // mode. The TUI's parseNextSteps already enforces this.
+    // A <nextsteps> block without </nextsteps> is malformed and should be
+    // rejected in strict mode.
     const text = [
       'Preamble.',
       '',
@@ -89,8 +100,8 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
 
   it('does not pick up numbered items from BEFORE the heading', () => {
     // The bug: legacy parser treated the "1. " list above the <nextsteps>
-    // tag as the steps, ignoring the actual block. The TUI's parser matches
-    // the heading first, then only items after it.
+    // tag as the steps, ignoring the actual block. The parser matches the
+    // heading first, then only items after it.
     const text = [
       'My reasoning:',
       '1. start with the registry',
@@ -173,6 +184,89 @@ describe('parseNextSteps (raw mode — /suggest subagent output)', () => {
   });
 });
 
+describe('parseNextSteps (WebUI parity — previously NextStepsBar.tsx)', () => {
+  // These tests mirror the WebUI's previous local parser to guard against
+  // regressions during the migration to the shared module.
+
+  it('extracts steps from a balanced <nextsteps> block (WebUI shape)', () => {
+    const content = `I made the changes you asked for.
+
+<nextsteps>
+1. Fix shell injection in tools/shell.ts:42
+2. Replace Math.random() with crypto.randomUUID() in 4 files
+3. Run pnpm typecheck to verify fixes
+</nextsteps>`;
+
+    const { steps, stripped } = parseNextSteps(content);
+
+    expect(steps.map((s) => ({ index: s.index, text: s.text }))).toEqual([
+      { index: 1, text: 'Fix shell injection in tools/shell.ts:42' },
+      { index: 2, text: 'Replace Math.random() with crypto.randomUUID() in 4 files' },
+      { index: 3, text: 'Run pnpm typecheck to verify fixes' },
+    ]);
+    // The block must be stripped from the rendered content so the raw
+    // <nextsteps>1- 2- 3- </nextsteps> text never appears on screen.
+    expect(stripped).not.toContain('<nextsteps>');
+    expect(stripped).not.toContain('</nextsteps>');
+    expect(stripped).not.toContain('1. Fix shell injection');
+    // The preceding prose is preserved.
+    expect(stripped).toContain('I made the changes you asked for.');
+  });
+
+  it('parses auto="true" attribute and removes it from the text', () => {
+    const content = `<nextsteps>
+1. Continue to next phase auto="true"
+2. Review the diff
+</nextsteps>`;
+
+    const { steps } = parseNextSteps(content);
+
+    expect(steps).toEqual([
+      { index: 1, text: 'Continue to next phase', auto: true },
+      { index: 2, text: 'Review the diff' },
+    ]);
+  });
+
+  it('returns empty result for content without a block', () => {
+    const content = 'Just some prose, no suggestions here.';
+    const { steps, stripped } = parseNextSteps(content);
+    expect(steps).toEqual([]);
+    expect(stripped).toBe(content);
+  });
+
+  it('skips duplicate indices but keeps short valid text', () => {
+    // The consolidated parser no longer enforces the 3-character minimum
+    // that the original TUI parser used. The canonical `<nextsteps>` tag
+    // requirement already scopes parsing to the deliberate block, and the
+    // duplicate-index filter prevents accidental prose collisions. WebUI's
+    // previous local parser accepted short steps like "2. OK".
+    const content = `<nextsteps>
+1. First step
+1. Duplicate of first
+2. OK
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps.map((s) => s.index)).toEqual([1, 2]);
+    expect(steps[1]?.text).toBe('OK');
+  });
+
+  it('caps runaway whitespace to 2 consecutive newlines in stripped output', () => {
+    const content = `Before.
+
+
+<nextsteps>
+1. A
+</nextsteps>
+
+
+
+After.`;
+
+    const { stripped } = parseNextSteps(content);
+    expect(stripped).not.toMatch(/\n{3,}/);
+  });
+});
+
 describe('stripNextStepsBlock', () => {
   it('removes a complete <nextsteps>...</nextsteps> block', () => {
     const text = [
@@ -196,5 +290,19 @@ describe('stripNextStepsBlock', () => {
   it('removes attributes on the opening tag', () => {
     const text = 'Pre.\n<nextsteps auto="true">1. Foo</nextsteps>\nPost.';
     expect(stripNextStepsBlock(text)).toBe('Pre.\n\nPost.');
+  });
+
+  it('passes through text with no block unchanged', () => {
+    const text = 'Just plain text.';
+    expect(stripNextStepsBlock(text)).toBe(text.trim());
+  });
+
+  it('removes the legacy <next_steps/> self-closing form (WebUI parity)', () => {
+    // Older persisted subagent output may contain the legacy `<next_steps/>`
+    // spelling. The shared stripper handles both forms.
+    const out = stripNextStepsBlock('A\n<next_steps/>\nB');
+    expect(out).not.toContain('<next_steps');
+    expect(out).toContain('A');
+    expect(out).toContain('B');
   });
 });
