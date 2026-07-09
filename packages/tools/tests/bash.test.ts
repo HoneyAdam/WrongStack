@@ -287,8 +287,11 @@ describe('bashTool truncation', () => {
       const out = await bashTool.execute({ command: largeCmd, timeout_ms: 10000 }, sb.ctx, {
         signal: newSignal(),
       });
-      // Output should be truncated to MAX_OUTPUT
-      expect(out.output.length).toBeLessThanOrEqual(32_768 + 100); // Allow some tolerance
+      // Output should be truncated to MAX_OUTPUT. The implementation
+      // appends a small truncation marker + footer (~250B), so the budget
+      // is the cap plus that footer allowance. The previous tolerance
+      // (32_768 + 100) overflowed by ~188B under runner load (#249).
+      expect(out.output.length).toBeLessThanOrEqual(32_768 + 1_000);
     } finally {
       await sb.cleanup();
     }
