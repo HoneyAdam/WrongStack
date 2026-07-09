@@ -35,6 +35,7 @@ export interface ReadonlyConversationState {
 export class ConversationState {
   private readonly ctx: Context;
   private readonly listeners = new Set<StateChangeHandler>();
+  private _revision = 0;
 
   constructor(ctx: Context) {
     this.ctx = ctx;
@@ -50,6 +51,11 @@ export class ConversationState {
 
   get meta(): Readonly<Record<string, unknown>> {
     return this.ctx.meta;
+  }
+
+  /** Monotonic mutation counter for consumers that need to detect rewrites. */
+  get revision(): number {
+    return this._revision;
   }
 
   /**
@@ -207,6 +213,7 @@ export class ConversationState {
   }
 
   private emit(change: StateChange): void {
+    this._revision++;
     for (const h of this.listeners) {
       try {
         h(change, this);

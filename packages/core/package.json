@@ -83,10 +83,15 @@
   ],
   "wrongstackApiVersion": "0.1.10",
   "scripts": {
-    "build": "tsup",
+    "build": "pnpm clean && tsup",
     "build:prompts": "node scripts/build-prompts.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@wrongstack/kanban": "workspace:*",
+    "@wrongstack/sdd": "workspace:*",
+    "@wrongstack/security-scanner": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",

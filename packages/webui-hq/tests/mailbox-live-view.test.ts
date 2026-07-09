@@ -13,13 +13,13 @@
 // jsdom environment does not set it for us, so enable it here before the
 // React runtime is loaded.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 import type {
   HqEventEnvelope,
   HqMailboxEventPayload,
   HqMailboxMessageSummary,
 } from '@wrongstack/core';
-import { createElement, type ReactElement } from 'react';
-import { act } from 'react';
+import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LiveMailboxView } from '../src/views/mailbox-live-view.js';

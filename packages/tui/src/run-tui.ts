@@ -25,6 +25,7 @@ import {
   wstackGlobalRoot,
 } from '@wrongstack/core';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
+import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
 import { render } from 'ink';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
@@ -85,7 +86,7 @@ export interface RunTuiOptions {
    * Access the active SDD parallel run's control surface (or null). The TUI's
    * SIGINT handler uses it to stop a running `/sdd parallel` on the first Ctrl+C.
    */
-  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  getSddRun?: (() => SddRunControl | null) | undefined;
   /**
    * Apply a post-run SDD lifecycle op (clean / rollback / destroy) from the host.
    * Drives the board overlay keys c / z / x so they work after the run ends.
@@ -94,7 +95,7 @@ export interface RunTuiOptions {
     | ((
         op: 'cleanup_worktrees' | 'rollback' | 'destroy',
         opts?: { revertMerged?: boolean },
-      ) => Promise<import('@wrongstack/core').SddLifecycleResult>)
+      ) => Promise<SddLifecycleResult>)
     | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal engine.

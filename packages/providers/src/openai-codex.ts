@@ -23,6 +23,7 @@ import {
   FetchError,
   ParseError,
   ProviderError,
+  type ReasoningEffort,
   type Request,
   type StopReason,
   type StreamEvent,
@@ -30,7 +31,7 @@ import {
   type Usage,
 } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
-import { parseProviderHttpError } from './error-parse.js';
+import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { createSseLineFoldingTransform, parseSSE } from './sse.js';
@@ -151,9 +152,10 @@ export interface OpenAICodexProviderOptions {
   /**
    * Reasoning effort for the Codex (gpt-5.x) reasoning models. Sent as
    * `reasoning.effort` with `summary: 'auto'` so chain-of-thought streams back
-   * as thinking deltas. Default 'medium'. Set 'none' to omit reasoning entirely.
+   * as thinking deltas. Request-level reasoning settings override this default.
+   * Default 'medium'. Set 'none' to omit reasoning entirely.
    */
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | undefined;
+  reasoningEffort?: ReasoningEffort | undefined;
 }
 
 export class OpenAICodexProvider extends WireAdapter {
@@ -172,7 +174,7 @@ export class OpenAICodexProvider extends WireAdapter {
     CodexOAuthTokens,
     NonNullable<OpenAICodexProviderOptions['onRefresh']> extends (p: infer P) => void ? P : never
   >;
-  private readonly reasoningEffort: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+  private readonly reasoningEffort: ReasoningEffort;
 
   constructor(opts: OpenAICodexProviderOptions) {
     super(
@@ -293,8 +295,9 @@ export class OpenAICodexProvider extends WireAdapter {
     }
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
     if (req.topP !== undefined) body['top_p'] = req.topP;
-    if (this.reasoningEffort !== 'none') {
-      body['reasoning'] = { effort: this.reasoningEffort, summary: 'auto' };
+    const reasoningEffort = req.reasoning?.effort ?? this.reasoningEffort;
+    if (req.reasoning?.enabled !== false && reasoningEffort !== 'none') {
+      body['reasoning'] = { effort: reasoningEffort, summary: 'auto' };
     }
     return body;
   }
@@ -306,8 +309,12 @@ export class OpenAICodexProvider extends WireAdapter {
     return parseCodexResponsesStream(body, fallbackModel);
   }
 
-  protected override translateError(status: number, text: string): ProviderError {
-    return parseProviderHttpError(this.id, status, text);
+  protected override translateError(
+    status: number,
+    text: string,
+    headers?: HeadersLike,
+  ): ProviderError {
+    return parseProviderHttpError(this.id, status, text, headers);
   }
 }
 

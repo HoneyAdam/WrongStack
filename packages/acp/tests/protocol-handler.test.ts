@@ -147,6 +147,60 @@ describe('ACPProtocolHandler', () => {
     });
   });
 
+  describe('session/fork', () => {
+    it('creates a distinct session and seeds it with the source history', async () => {
+      const transport = fakeTransport();
+      const histories = new Map<string, Array<{ sessionUpdate: string; content: unknown }>>();
+      const seedFor = vi.fn((sessionId: string, history: Array<{ sessionUpdate: string; content: unknown }>) => {
+        histories.set(sessionId, history);
+      });
+      const save = vi.fn().mockResolvedValue(undefined);
+      const handler = new ACPProtocolHandler({
+        transport: transport as never as AgentServerTransport,
+        defaultCwd: '/test',
+        runTurn: PASSON_RUN_TURN,
+        replayFor: (sessionId) => histories.get(sessionId) ?? [],
+        seedFor,
+        store: { save, load: vi.fn().mockResolvedValue(null) },
+      });
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/source' } });
+      const sourceId = (transport.sent.at(-1) as { result?: { sessionId?: string } }).result?.sessionId!;
+      histories.set(sourceId, [
+        { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'hello' } },
+        { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'world' } },
+      ]);
+      transport.sent.length = 0;
+
+      await handler.handleMessage({
+        id: 3,
+        method: 'session/fork',
+        params: { sessionId: sourceId, cwd: '/fork' },
+      });
+
+      const result = (transport.sent.at(-1) as { result?: { sessionId?: string } }).result;
+      expect(result?.sessionId).toMatch(/^sess_/);
+      expect(result?.sessionId).not.toBe(sourceId);
+      expect(seedFor).toHaveBeenCalledWith(result?.sessionId, histories.get(sourceId));
+      expect(save).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: result?.sessionId, cwd: '/fork' }),
+        histories.get(sourceId),
+      );
+    });
+
+    it('rejects a missing fork source', async () => {
+      const { handler, transport } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      transport.sent.length = 0;
+      await handler.handleMessage({
+        id: 2,
+        method: 'session/fork',
+        params: { sessionId: 'missing' },
+      });
+      expect((transport.sent.at(-1) as { error?: { code?: number } }).error?.code).toBe(-32000);
+    });
+  });
+
   describe('session/load', () => {
     it('loads an existing session from memory', async () => {
       const { handler, transport } = makeHandler();

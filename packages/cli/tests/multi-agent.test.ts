@@ -554,6 +554,8 @@ describe('MultiAgentHost', () => {
       const host = new MultiAgentHost(makeDeps(), { directorMode: true });
       const director = await host.ensureDirector();
       expect(director).not.toBeNull();
+      expect(director!.maxSpawnDepth).toBe(2);
+      expect(director!.maxSpawns).toBe(64);
       const tools = director!.tools();
       expect(tools.map((t) => t.name).sort()).toEqual([
         'ask_result',
@@ -828,7 +830,7 @@ describe('MultiAgentHost.makeSubagentFactory', () => {
     const host = new MultiAgentHost(depsWithTools());
     const { agent, dispose } = await host.makeSubagentFactory(config)(slotCfg);
     const names = agent.ctx.tools.map((t) => t.name).sort();
-    expect(names).toEqual(['grep', 'read']);
+    expect(names).toEqual(['grep', 'read', 'submit_result']);
     expect(names).not.toContain('bash');
     await dispose?.();
   });
@@ -852,7 +854,7 @@ describe('MultiAgentHost.makeSubagentFactory', () => {
       role: 'general',
     });
     const names = agent.ctx.tools.map((t) => t.name).sort();
-    expect(names).toEqual(['bash', 'grep', 'read']);
+    expect(names).toEqual(['bash', 'grep', 'read', 'submit_result']);
     expect(names).not.toContain('delegate');
     expect(names).not.toContain('spawn_subagent');
     expect(names).not.toContain('fleet_emit');

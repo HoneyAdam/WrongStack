@@ -2,6 +2,23 @@ import type { SubagentBudget } from '../coordination/subagent-budget.js';
 import type { AgentBridge, BridgeMessage } from './agent-bridge.js';
 import type { ModelRuntimeConfig } from './config.js';
 
+/** Internal, non-user-authored budget/depth inheritance for nested directors. */
+export interface SubagentSpawnLineage {
+  parentDirectorId: string;
+  /** Depth of the spawned child; root Director is depth 0. */
+  spawnDepth: number;
+  /** Hard ceiling inherited by descendants. */
+  maxSpawnDepth: number;
+  fleetBudget: {
+    maxSpawns?: number | undefined;
+    remainingSpawns?: number | undefined;
+    maxTokens?: number | undefined;
+    remainingTokens?: number | undefined;
+    maxCostUsd?: number | undefined;
+    remainingCostUsd?: number | undefined;
+  };
+}
+
 export interface SubagentConfig {
   id?: string | undefined;
   name: string;
@@ -50,6 +67,12 @@ export interface SubagentConfig {
   allowedCapabilities?: readonly string[] | undefined;
   model?: string | undefined;
   priority?: number | undefined;
+
+  /**
+   * Director-authored recursion/budget inheritance. Director.spawn overwrites
+   * caller input so a model cannot forge a shallower depth or larger budget.
+   */
+  spawnLineage?: SubagentSpawnLineage | undefined;
 
   /**
    * Working directory for this subagent's tools. Defaults to the factory's
@@ -197,6 +220,32 @@ export interface SubagentError {
   cause?: { name: string; message: string; stack?: string | undefined } | undefined;
 }
 
+/**
+ * Bounded, best-effort work recovered before a non-successful task ended.
+ * This is deliberately separate from `result`: callers must not mistake an
+ * incomplete stream tail for a completed deliverable.
+ */
+export interface SubagentPartialResult {
+  /** Last useful assistant text observed, capped by the coordinator. */
+  text: string;
+  /** Where the snapshot came from. */
+  source: 'stream' | 'run_result' | 'runner';
+  capturedAt: number;
+}
+
+/**
+ * Compact machine-readable result submitted independently from the agent's
+ * human-facing final text. Additive and optional for legacy/custom runners.
+ */
+export interface SubagentStructuredReport {
+  summary: string;
+  findings: string[];
+  files_examined: string[];
+  /** 0.0 (uncertain) through 1.0 (fully verified). */
+  confidence: number;
+  suggested_next_steps: string[];
+}
+
 export interface TaskResult<T = unknown> {
   subagentId: string;
   taskId: string;
@@ -207,6 +256,10 @@ export interface TaskResult<T = unknown> {
    * Prefer reading `error.kind` over substring-matching `error.message`.
    */
   error?: SubagentError | undefined;
+  /** Verified control-plane report, when the subagent called submit_result. */
+  report?: SubagentStructuredReport | undefined;
+  /** Useful incomplete work captured before timeout/abort/failure. */
+  partial?: SubagentPartialResult | undefined;
   iterations: number;
   toolCalls: number;
   durationMs: number;
@@ -353,10 +406,13 @@ export interface SubagentRunContext {
   signal: AbortSignal;
   /** Null until `setSubagentBridge` is called for this subagent. */
   bridge: AgentBridge | null;
+  /** Publish a bounded in-memory snapshot that survives timeout races. */
+  reportProgress?: ((partial: SubagentPartialResult) => void) | undefined;
 }
 
 export interface SubagentRunOutcome {
   result?: unknown | undefined;
+  report?: SubagentStructuredReport | undefined;
   iterations: number;
   toolCalls: number;
 }

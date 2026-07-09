@@ -11,6 +11,14 @@ export interface SessionMetadata {
   endedAt?: string | undefined;
   /** Set when a session is closed with open tool calls — used to restore pending state on resume. */
   pendingToolUses?: string[] | undefined;
+  /** Parent journal metadata when this session was created by fork(). */
+  forkedFrom?: {
+    sessionId: string;
+    checkpointPromptIndex?: number | undefined;
+    checkpointHash: string;
+    workspace: 'shared-current';
+    workspaceCheckpointHash?: string | undefined;
+  } | undefined;
 }
 
 /**
@@ -19,8 +27,8 @@ export interface SessionMetadata {
  * ## Two-Tier Model (see Config.session.auditLevel)
  *
  * **Core Reconstruct Set** (always persisted, minimal & reliable):
- * - `session_start`, `session_resumed`, `user_input`, `llm_response`, `tool_result`
- * - `checkpoint`, `file_snapshot`, `rewound`
+ * - `session_start`, `session_resumed`, `session_forked`, `user_input`, `llm_response`, `tool_result`
+ * - `context_snapshot`, `checkpoint`, `file_snapshot`, `file_observation`, `rewound`
  * - `in_flight_start` / `in_flight_end`, `session_end`
  *
  * These events are **required** for correct resume, rewind, crash recovery
@@ -38,8 +46,9 @@ export interface SessionMetadata {
  * ## Guarantees
  * - All appends are best-effort. A failed write logs a throttled warning but
  *   never aborts the agent loop.
- * - Sensitive content in `user_input` and `llm_response` is passed through
- *   the configured SecretScrubber before being written or summarized.
+ * - Sensitive content in `user_input`, `llm_response`, and
+ *   `context_snapshot` is passed through the configured SecretScrubber before
+ *   being written or summarized.
  * - The log is append-only JSONL. Individual lines may be malformed after
  *   hard crashes; `DefaultSessionStore.load()` silently skips bad lines.
  *
@@ -52,6 +61,16 @@ export interface SessionMetadata {
 export type SessionEvent =
   | { type: 'session_start'; ts: string; id: string; model: string; provider: string }
   | { type: 'session_resumed'; ts: string; id: string; model: string; provider: string }
+  | {
+      type: 'session_forked';
+      ts: string;
+      parentSessionId: string;
+      parentCheckpointPromptIndex?: number | undefined;
+      parentCheckpointHash: string;
+      /** The child journal is isolated; filesystem state remains shared. */
+      workspace: 'shared-current';
+      workspaceCheckpointHash?: string | undefined;
+    }
   | { type: 'user_input'; ts: string; content: string | ContentBlock[] }
   | {
       type: 'llm_request';
@@ -72,6 +91,17 @@ export type SessionEvent =
     }
   | { type: 'tool_use'; ts: string; name: string; id: string; input: unknown }
   | { type: 'tool_result'; ts: string; id: string; content: unknown; isError: boolean }
+  | {
+      /**
+       * Exact post-rewrite conversation state. Replay replaces all messages
+       * reconstructed before this event, then continues applying later events.
+       * Currently emitted after compaction.
+       */
+      type: 'context_snapshot';
+      ts: string;
+      reason: 'compaction';
+      messages: Message[];
+    }
   | {
       type: 'compaction';
       ts: string;
@@ -161,8 +191,28 @@ export type SessionEvent =
       description: string;
       retryable: boolean;
     }
-  | { type: 'checkpoint'; ts: string; promptIndex: number; promptPreview: string }
+  | {
+      type: 'checkpoint';
+      ts: string;
+      promptIndex: number;
+      promptPreview: string;
+      /** Content-addressed Git HEAD + dirty/untracked workspace manifest. */
+      workspaceCheckpoint?: WorkspaceCheckpointRef | undefined;
+    }
   | { type: 'file_snapshot'; ts: string; promptIndex: number; files: FileSnapshot[] }
+  | {
+      /**
+       * Hash of a file version observed by a tool. The latest observation per
+       * path is revalidated when the session resumes so stale tool context is
+       * surfaced to the model before it continues.
+       */
+      type: 'file_observation';
+      ts: string;
+      path: string;
+      hash: string;
+      mtimeMs: number;
+      source: 'user' | 'write';
+    }
   | { type: 'rewound'; ts: string; toPromptIndex: number; revertedFiles: string[] }
   | {
       /**
@@ -171,9 +221,10 @@ export type SessionEvent =
        * Marks the start of "the process is currently working on this
        * point in the log". If the process exits cleanly, a matching
        * `in_flight_end` follows. If the process dies (crash, OOM,
-       * machine sleep, SIGKILL) the marker is the last event in the
-       * file — and `SessionRecovery.detectStale` flags the session
-       * as resumable.
+       * machine sleep, SIGKILL), ordinary request/response/tool events may
+       * follow the start marker but no later lifecycle boundary closes it.
+       * `SessionRecovery.detectStale` scans for that latest unmatched
+       * lifecycle boundary and flags the session as resumable.
        *
        * `context` is a free-form description of the current
        * operation (e.g. "iteration 14 / tool: read / id: tu-7") so
@@ -207,6 +258,44 @@ export type FileSnapshot = {
   before: string | null;
   after: string | null;
 };
+
+export interface WorkspaceCheckpointRef {
+  manifestHash: string;
+  baseHead: string;
+  entryCount: number;
+  unresolvedCount: number;
+  capturedAt: string;
+  /** Base Git tree plus every non-ignored changed/untracked path. */
+  coverage: 'git-head-plus-dirty';
+}
+
+export interface WorkspaceMaterializationResult {
+  targetRoot: string;
+  writtenFiles: string[];
+  deletedFiles: string[];
+  errors: string[];
+}
+
+export type ResumeFileStatus = 'modified' | 'deleted' | 'unreadable' | 'outside_project';
+
+export interface ResumeFileValidationEntry {
+  /** Absolute path recorded by the original tool observation. */
+  path: string;
+  /** Timestamp of the latest observation that was checked. */
+  observedAt: string;
+  status: ResumeFileStatus;
+  expectedHash: string;
+  actualHash?: string | undefined;
+  detail?: string | undefined;
+}
+
+export interface ResumeValidation {
+  checkedAt: string;
+  /** Number of distinct paths with a valid persisted observation. */
+  checkedFileCount: number;
+  /** Changed, missing, unreadable, or out-of-scope paths. */
+  staleFiles: ResumeFileValidationEntry[];
+}
 
 export interface SessionSummary {
   id: string;
@@ -257,11 +346,31 @@ export interface SessionData {
     outputTokens?: number | undefined;
     outputLines?: number | undefined;
   }>;
+  /** Present on resume when the store is configured with a project root. */
+  resumeValidation?: ResumeValidation | undefined;
 }
 
 export interface ResumedSession {
   writer: SessionWriter;
   data: SessionData;
+}
+
+export interface SessionForkOptions {
+  /** Omit to fork the latest persisted event boundary. */
+  checkpointPromptIndex?: number | undefined;
+}
+
+export interface ForkedSession {
+  id: string;
+  data: SessionData;
+  parentSessionId: string;
+  checkpointPromptIndex?: number | undefined;
+  /** SHA-256 of the exact parent event prefix used to create this branch. */
+  checkpointHash: string;
+  /** Session history is isolated, but both branches still see the same files. */
+  workspace: 'shared-current';
+  /** Available for checkpoint forks captured by workspace-CAS-aware writers. */
+  workspaceCheckpoint?: WorkspaceCheckpointRef | undefined;
 }
 
 export interface SessionStore {
@@ -274,6 +383,17 @@ export interface SessionStore {
    * `session_resumed` marker is appended for audit.
    */
   resume(id: string): Promise<ResumedSession>;
+  /**
+   * Create a non-destructive child journal from a persisted parent boundary.
+   * Parent file snapshots are intentionally not inherited as rewind authority;
+   * filesystem isolation is the caller's worktree/CAS responsibility.
+   */
+  fork?(id: string, opts?: SessionForkOptions): Promise<ForkedSession>;
+  /** Apply a captured workspace manifest to an already-isolated checkout. */
+  materializeWorkspaceCheckpoint?(
+    checkpoint: WorkspaceCheckpointRef,
+    targetRoot: string,
+  ): Promise<WorkspaceMaterializationResult>;
   list(limit?: number): Promise<SessionSummary[]>;
   /**
    * Set or clear a user-supplied name on a session. An empty/whitespace
@@ -359,7 +479,9 @@ export interface SessionWriter {
    * Flush any buffered events to disk immediately. Use after critical
    * events (user_input, llm_response) to ensure they survive a crash
    * or SIGKILL that would otherwise leave them in the in-memory buffer.
-   * Idempotent — safe to call even when the buffer is empty.
+   * Idempotent — safe to call even when the buffer is empty. File-backed
+   * writers reject on a failed disk append while retaining the batch for a
+   * later retry; callers may log/degrade without losing event chronology.
    */
   flush(): Promise<void>;
   /**
@@ -376,6 +498,17 @@ export interface SessionWriter {
    * Called by write/edit/delete tools to track pending changes.
    */
   recordFileChange(input: { path: string; action: 'created' | 'modified' | 'deleted'; before: string | null; after: string | null }): void;
+  /**
+   * Persist the hash of a file version observed by a tool. Optional for
+   * alternate/in-memory writers; file-backed writers use it for stale-file
+   * validation during resume.
+   */
+  recordFileObservation?(input: {
+    path: string;
+    hash: string;
+    mtimeMs: number;
+    source: 'user' | 'write';
+  }): void;
   /**
    * Record a structured side effect for audit (P2 #5). Implementations
    * append a `side_effect` event to the session JSONL. Best-effort —

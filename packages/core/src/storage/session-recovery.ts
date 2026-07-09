@@ -9,19 +9,15 @@ import { sessionScopedPath } from '../utils/session-scoped-path.js';
  * `SessionRecovery` is the read-side companion to the in-flight
  * marker mechanism. When the agent loop is running, it writes an
  * `in_flight_start` event at the current point in the log. On
- * clean shutdown, a matching `in_flight_end` follows. If the
- * process dies (crash, OOM, machine sleep, SIGKILL) the marker
- * is the last event in the file — and `detectStale` flags the
- * session as "incomplete, can be resumed".
+ * clean shutdown, a matching `in_flight_end` follows. Provider and
+ * tool events may legitimately appear after the start marker, so
+ * recovery finds the latest lifecycle boundary rather than assuming
+ * the marker is literally the last JSONL record.
  *
- * Phase 1 of this feature is **detection only**. The actual
- * re-execution of incomplete work is a follow-up: it requires
- * tracking pending tool calls, mid-stream LLM responses, and
- * uncommitted file changes — and re-running the agent loop from
- * the last `checkpoint` event. The detection layer is independent
- * and ships first because (a) it gives the user immediate
- * visibility into what died, and (b) it's the foundation for the
- * resume command and the CLI's "Incomplete sessions" surface.
+ * Detection is diagnostic only. Normal session resume reconstructs the
+ * conversation by replaying persisted JSONL events; it must not blindly
+ * re-execute tool calls after a crash. `recover()` exposes the tail after the
+ * last checkpoint so callers can explain which persisted work was in flight.
  *
  * Concurrency: pure read; no writes. Safe to call from multiple
  * processes simultaneously.
@@ -44,7 +40,7 @@ export interface RecoveryPlan {
   stale: boolean;
   /** The last `checkpoint` event before the un-replayed work, or null. */
   lastCheckpoint: SessionEvent | null;
-  /** All events after the last checkpoint (i.e. the work that needs re-execution). */
+  /** All persisted events after the last checkpoint (diagnostic in-flight tail). */
   pendingEvents: SessionEvent[];
   /** The dangling in_flight_start event, if any. */
   inFlightStart: SessionEvent | null;
@@ -54,29 +50,32 @@ export interface RecoveryPlan {
 
 /**
  * Result of `SessionRecovery.recover(sessionId)`. Distinct from
- * `StaleSession`: a session is "stale" if the last event is an
- * open marker, but a "recovery plan" can also be generated for
+ * `StaleSession`: a session is "stale" if its latest lifecycle
+ * boundary is an open marker, but a "recovery plan" can also be generated for
  * clean sessions whose last checkpoint is older than the
  * conversation history (e.g. a user-initiated "rewind to last
- * good state" flow). Phase 2 of idea #1: this returns the plan;
- * the actual kernel re-execution is a follow-up.
+ * good state" flow). This is a diagnostic plan, not authorization to replay
+ * external side effects.
  */
 export class SessionRecovery {
   /**
-   * Scan a session log and return a `StaleSession` if and only
-   * if the last event is an `in_flight_start` without a matching
-   * `in_flight_end`. Returns `null` when:
+   * Scan a session log and return a `StaleSession` if and only if the newest
+   * lifecycle boundary is an `in_flight_start` without a later
+   * `in_flight_end`/`session_end`. Ordinary provider/tool events after the
+   * marker do not make the session clean. Returns `null` when:
    *   - the log does not exist;
    *   - the log is empty;
-   *   - the last event is `in_flight_end` (clean shutdown);
-   *   - the last event is something else (e.g. an unannotated
-   *     legacy log without in-flight markers).
+   *   - the latest lifecycle boundary is `in_flight_end` or `session_end`;
+   *   - there is no lifecycle boundary (legacy/pre-marker log).
+   *
+   * The reverse scanner is chunked and line-aware. It can cross arbitrarily
+   * large JSONL records (for example a large tool result) without imposing a
+   * fixed tail-size correctness limit. Clean logs normally return after the
+   * first chunk; stale logs continue counting lines so `eventCount` remains
+   * the documented total rather than a tail-only approximation.
    */
   async detectStale(sessionId: string): Promise<StaleSession | null> {
     const fp = this.filePath(sessionId);
-    // Only read the last ~8KB — enough for several large events.
-    // This is O(1) I/O vs O(n) of reading the entire file.
-    const TAIL_SIZE = 8192;
     let stat;
     try {
       stat = await fs.stat(fp);
@@ -86,54 +85,29 @@ export class SessionRecovery {
       return null;
     }
     if (stat.size === 0) return null;
-    const position = Math.max(0, stat.size - TAIL_SIZE);
-    const buf = Buffer.alloc(TAIL_SIZE);
-    let fh;
+
     try {
-      fh = await fs.open(fp, 'r');
-      const { bytesRead } = await fh.read(buf, 0, TAIL_SIZE, position);
-      // Count total events for StaleSession.eventCount — requires full scan.
-      // For very large files this is a trade-off; count is informational.
-      let eventCount = 0;
-      const raw = buf.subarray(0, bytesRead).toString('utf8');
-      for (const line of raw.split('\n')) {
-        if (line.trim()) eventCount++;
-      }
-      // Find the last complete JSON line in the tail.
-      const lines = raw.split('\n').filter((l) => l.trim());
-      for (let i = lines.length - 1; i >= 0; i--) {
-        try {
-          const ev = JSON.parse(expectDefined(lines[i])) as SessionEvent;
-          if (ev.type === 'in_flight_start') {
-            return {
-              sessionId,
-              path: fp,
-              lastEventTs: ev.ts,
-              context: ev.context,
-              eventCount,
-            };
-          }
-          // Found a different last event — clean shutdown or legacy
-          return null;
-        } catch {
-          // Incomplete line (spans the read boundary) — skip
-        }
-      }
-      return null;
-      /* v8 ignore start -- defensive: tail open/read failure after a successful stat is rare */
+      const scan = await scanLatestLifecycleBoundary(fp, stat.size);
+      if (scan?.boundary.type !== 'in_flight_start') return null;
+      return {
+        sessionId,
+        path: fp,
+        lastEventTs: scan.boundary.ts,
+        context: scan.boundary.context,
+        eventCount: scan.eventCount,
+      };
+      /* v8 ignore start -- defensive: reverse scan failure after a successful stat is rare */
     } catch {
       return null;
-    } finally {
-      if (fh) await fh.close();
     }
     /* v8 ignore stop */
   }
 
   /**
    * Generate a recovery plan for a session. The plan describes
-   * "what would be re-executed" if the user chose to resume —
-   * everything after the last `checkpoint` event, plus the
-   * dangling in-flight marker if present.
+   * the persisted tail after the last checkpoint, plus the dangling in-flight
+   * marker if present. SessionStore.resume() independently reconstructs state
+   * from the journal and does not re-run these events as commands.
    *
    * Returns a non-null plan for ANY session that has at least
    * one event after a checkpoint (or, for legacy sessions, at
@@ -168,13 +142,13 @@ export class SessionRecovery {
         lastCheckpointIdx = i;
       }
     }
-    // Events after the last checkpoint = the work that needs re-execution.
+    // Events after the last checkpoint = the diagnostic in-flight tail.
     const pendingEvents =
       lastCheckpointIdx >= 0 ? events.slice(lastCheckpointIdx + 1) : events;
-    // The dangling in_flight_start, if the last event is one.
-    const lastEv = expectDefined(events[events.length - 1]);
-    const inFlightStart =
-      lastEv.type === 'in_flight_start' ? lastEv : null;
+    // The dangling in_flight_start, if it is the newest lifecycle boundary.
+    // Provider/tool events may follow the marker and are still pending work.
+    const latestBoundary = events.findLast(isLifecycleBoundary);
+    const inFlightStart = latestBoundary?.type === 'in_flight_start' ? latestBoundary : null;
     const context = inFlightStart && inFlightStart.type === 'in_flight_start'
       ? inFlightStart.context
       : null;
@@ -245,4 +219,88 @@ export class SessionRecovery {
   }
 
   constructor(private readonly dir: string) {}
+}
+
+type LifecycleBoundary = Extract<
+  SessionEvent,
+  { type: 'in_flight_start' | 'in_flight_end' | 'session_end' }
+>;
+
+function isLifecycleBoundary(event: SessionEvent): event is LifecycleBoundary {
+  return (
+    event.type === 'in_flight_start' ||
+    event.type === 'in_flight_end' ||
+    event.type === 'session_end'
+  );
+}
+
+function parseLifecycleBoundary(line: Buffer): LifecycleBoundary | null {
+  try {
+    const parsed = JSON.parse(line.toString('utf8')) as SessionEvent;
+    return isLifecycleBoundary(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasNonWhitespace(line: Buffer): boolean {
+  for (const byte of line) {
+    if (byte !== 0x09 && byte !== 0x0a && byte !== 0x0d && byte !== 0x20) return true;
+  }
+  return false;
+}
+
+/**
+ * Walk JSONL records newest-first without decoding partial UTF-8 chunks. A
+ * record split across chunks is retained as bytes and decoded only after its
+ * opening newline is found, so large/non-ASCII tool results cannot hide the
+ * lifecycle marker immediately before them.
+ */
+async function scanLatestLifecycleBoundary(
+  filePath: string,
+  size: number,
+): Promise<{ boundary: LifecycleBoundary; eventCount: number } | null> {
+  const CHUNK_SIZE = 64 * 1024;
+  const handle = await fs.open(filePath, 'r');
+  let position = size;
+  let laterLineFragment = Buffer.alloc(0);
+  let latestBoundary: LifecycleBoundary | null = null;
+  let eventCount = 0;
+
+  const observeLine = (line: Buffer): LifecycleBoundary | null => {
+    if (!hasNonWhitespace(line)) return null;
+    eventCount++;
+    return parseLifecycleBoundary(line);
+  };
+
+  try {
+    while (position > 0) {
+      const length = Math.min(CHUNK_SIZE, position);
+      position -= length;
+      const chunk = Buffer.allocUnsafe(length);
+      const { bytesRead } = await handle.read(chunk, 0, length, position);
+      const data = Buffer.concat([chunk.subarray(0, bytesRead), laterLineFragment]);
+
+      let lineEnd = data.length;
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] !== 0x0a) continue;
+        const boundary = observeLine(data.subarray(i + 1, lineEnd));
+        if (!latestBoundary && boundary) latestBoundary = boundary;
+        lineEnd = i;
+      }
+      laterLineFragment = data.subarray(0, lineEnd);
+
+      // A clean boundary needs no exact event count because no StaleSession is
+      // returned. The common clean path therefore remains a one-chunk read.
+      if (latestBoundary && latestBoundary.type !== 'in_flight_start') {
+        return { boundary: latestBoundary, eventCount };
+      }
+    }
+
+    const boundary = observeLine(laterLineFragment);
+    if (!latestBoundary && boundary) latestBoundary = boundary;
+    return latestBoundary ? { boundary: latestBoundary, eventCount } : null;
+  } finally {
+    await handle.close();
+  }
 }

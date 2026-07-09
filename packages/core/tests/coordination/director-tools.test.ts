@@ -3,6 +3,7 @@ import {
   type Director,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  FleetTokenCapError,
 } from '../../src/coordination/director.js';
 import {
   makeAskResultTool,
@@ -158,7 +159,7 @@ describe('makeSpawnTool', () => {
     expect(director.spawn).toHaveBeenCalledWith(expect.objectContaining({ name: 'bare' }));
   });
 
-  it('surfaces FleetSpawnBudgetError, FleetCostCapError, and generic errors', async () => {
+  it('surfaces spawn, cost, token, and generic errors', async () => {
     const tool = makeSpawnTool(asDir());
     (director.spawn as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new FleetSpawnBudgetError('max_spawns', 3, 4),
@@ -172,6 +173,12 @@ describe('makeSpawnTool', () => {
     expect(
       (await tool.execute({ name: 'x' }, {} as never, {} as never)) as { error: string },
     ).toHaveProperty('error');
+    (director.spawn as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new FleetTokenCapError(1000, 1200),
+    );
+    expect(
+      (await tool.execute({ name: 'x' }, {} as never, {} as never)) as { kind: string },
+    ).toMatchObject({ kind: 'max_tokens', limit: 1000, observed: 1200 });
     (director.spawn as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
     expect(
       (await tool.execute({ name: 'x' }, {} as never, {} as never)) as { error: string },
@@ -507,15 +514,74 @@ describe('lifecycle/status tools', () => {
     expect(res.error).toContain('unknown action');
   });
 
-  it('fleet_emit emits an event on the bus', async () => {
-    await makeFleetEmitTool(asDir()).execute(
-      { type: 'bug.found', payload: { x: 1 } },
-      {} as never,
+  it('fleet_emit validates known payloads and attributes the real caller/task', async () => {
+    const result = await makeFleetEmitTool(asDir()).execute(
+      {
+        type: 'bug.found',
+        payload: {
+          finding: {
+            id: 'bug-1',
+            type: 'logic',
+            severity: 'high',
+            location: { file: 'src/a.ts', line: 7 },
+            description: 'Incorrect branch condition.',
+          },
+        },
+      },
+      {
+        agentId: 'bug-hunter-1',
+        meta: { agentRole: 'bug-hunter', subagentTaskId: 'task-1' },
+      } as never,
       {} as never,
     );
+    expect(result).toMatchObject({ ok: true, event: 'bug.found' });
     expect((director.fleet as { emit: ReturnType<typeof vi.fn> }).emit).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'bug.found', subagentId: 'dir1' }),
+      expect.objectContaining({
+        type: 'bug.found',
+        subagentId: 'bug-hunter-1',
+        taskId: 'task-1',
+      }),
     );
+  });
+
+  it('fleet_emit rejects malformed known payloads and cross-role spoofing', async () => {
+    const tool = makeFleetEmitTool(asDir());
+    const malformed = await tool.execute(
+      { type: 'bug.found', payload: { finding: { id: 'broken' } } },
+      { agentId: 'bug-hunter-1', meta: { agentRole: 'bug-hunter' } } as never,
+      {} as never,
+    );
+    const spoofed = await tool.execute(
+      { type: 'bug.found', payload: {} },
+      { agentId: 'critic-1', meta: { agentRole: 'critic' } } as never,
+      {} as never,
+    );
+
+    expect(malformed).toMatchObject({ ok: false });
+    expect(spoofed).toMatchObject({ ok: false, error: expect.stringContaining('bug-hunter') });
+    expect((director.fleet as { emit: ReturnType<typeof vi.fn> }).emit).not.toHaveBeenCalled();
+  });
+
+  it('fleet_emit rejects known collab events when the caller has no role', async () => {
+    const result = await makeFleetEmitTool(asDir()).execute(
+      {
+        type: 'bug.found',
+        payload: {
+          finding: {
+            id: 'bug-1',
+            type: 'logic',
+            severity: 'medium',
+            location: { file: 'src/a.ts', line: 1 },
+            description: 'example',
+          },
+        },
+      },
+      { agentId: 'unscoped-agent', meta: {} } as never,
+      {} as never,
+    );
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('unknown') });
+    expect((director.fleet as { emit: ReturnType<typeof vi.fn> }).emit).not.toHaveBeenCalled();
   });
 
   it('work_complete signals wind-down', async () => {

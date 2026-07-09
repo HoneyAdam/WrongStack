@@ -14,6 +14,8 @@ import { defineConfig } from 'tsup';
 // still shipped — it just isn't pre-built by tsup; consumers that import
 // @wrongstack/webui/server hit Node's resolver which finds the
 // @wrongstack/webui-server dist at runtime).
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 export default defineConfig({
   entry: {
     index: 'src/main.tsx',
@@ -24,7 +26,7 @@ export default defineConfig({
   outDir: 'dist',
   splitting: false,
   sourcemap: true,
-  dts: true,
+  dts: skipDts ? false : true,
   external: [
     'react',
     'react-dom',

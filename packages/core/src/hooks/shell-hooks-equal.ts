@@ -8,21 +8,32 @@
  * Pure functions — no I/O, no logger, no side effects. Safe to import
  * from anywhere.
  */
-import type { HookEvent, ShellHook } from '../types/hooks.js';
+import type { ConfiguredHook, HookEvent } from '../types/hooks.js';
 
 /**
  * Compare two `config.hooks` maps. Returns true when they describe the
- * same set of entries (same events, same order, same command/matcher/
- * timeoutMs triples). Both arguments may be undefined — the absence of
+ * same set of entries (same events, same order, same transport/configuration).
+ * Both arguments may be undefined — the absence of
  * `hooks` is a valid state.
  *
- * Comparison is shallow per entry: `ShellHook` fields are all primitives,
- * so `===` per field is correct. Object-identity per entry is **not**
- * required because `configStore.update` may rebuild the maps from JSON.
+ * Object-identity per entry is **not** required because `configStore.update`
+ * may rebuild the maps from JSON. Object key order (including header order)
+ * is ignored, while array/registration order remains significant.
  */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, child]) => child !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
 export function shellHooksEqual(
-  a: Partial<Record<HookEvent, ShellHook[]>> | undefined,
-  b: Partial<Record<HookEvent, ShellHook[]>> | undefined,
+  a: Partial<Record<HookEvent, ConfiguredHook[]>> | undefined,
+  b: Partial<Record<HookEvent, ConfiguredHook[]>> | undefined,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
@@ -40,9 +51,7 @@ export function shellHooksEqual(
       const x = aList[i];
       const y = bList[i];
       if (!x || !y) return !x && !y;
-      if (x.command !== y.command) return false;
-      if ((x.matcher ?? '*') !== (y.matcher ?? '*')) return false;
-      if ((x.timeoutMs ?? undefined) !== (y.timeoutMs ?? undefined)) return false;
+      if (stableJson(x) !== stableJson(y)) return false;
     }
   }
   return true;
@@ -50,7 +59,7 @@ export function shellHooksEqual(
 
 /** Count the total number of shell-hook entries across all events. */
 export function countShellHooks(
-  hooks: Partial<Record<HookEvent, ShellHook[]>> | undefined,
+  hooks: Partial<Record<HookEvent, ConfiguredHook[]>> | undefined,
 ): number {
   if (!hooks) return 0;
   let n = 0;

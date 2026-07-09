@@ -1,18 +1,22 @@
+// Kanban data model + manager moved from @wrongstack/core to the standalone
+// @wrongstack/kanban package; only the Tool contract and the task-graph
+// serialization types still come from core.
+import type { SerializableTaskGraph, SerializedTaskGraph, Tool } from '@wrongstack/core';
+import { deserializeTaskGraph, serializeTaskGraph } from '@wrongstack/core';
 import type {
   AssignKanbanTaskInput,
   KanbanAgentAssignment,
-  KanbanEvent,
   KanbanAgentRunStatus,
   KanbanBoard,
   KanbanBoardSummary,
-  KanbanQueueHealth,
+  KanbanEvent,
   KanbanOrchestrationSnapshot,
+  KanbanQueueHealth,
   KanbanSearchResult,
   KanbanTask,
   KanbanTaskPriority,
   KanbanTaskStatus,
-  Tool,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import {
   addCheckToTask,
   addColumn,
@@ -25,7 +29,6 @@ import {
   claimReadyTask,
   copyTaskToBoard,
   createBoard,
-  deserializeTaskGraph,
   duplicateBoard,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
@@ -36,19 +39,18 @@ import {
   getTask,
   getTaskChain,
   heartbeatTaskAssignment,
+  listBoards,
   listKanbanEvents,
   listReadyTasks,
-  listBoards,
   mergeTasks,
   moveTask,
   parseLinesIntoTasks,
   recoverStaleTaskAssignments,
+  releaseTaskClaim,
   removeBoard,
   removeColumn,
   removeTask,
-  releaseTaskClaim,
   searchKanban,
-  serializeTaskGraph,
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
@@ -59,8 +61,7 @@ import {
   updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
-} from '@wrongstack/core';
-import type { SerializableTaskGraph, SerializedTaskGraph } from '@wrongstack/core';
+} from '@wrongstack/kanban';
 
 type KanbanAction =
   | 'list_boards'
@@ -823,7 +824,9 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
             ...(input.heartbeatAt !== undefined ? { heartbeatAt: input.heartbeatAt } : {}),
             ...(input.leaseExpiresAt !== undefined ? { leaseExpiresAt: input.leaseExpiresAt } : {}),
           });
-          return board ? okBoard(board, 'Assignment heartbeat updated.') : fail('Task assignment not found.');
+          return board
+            ? okBoard(board, 'Assignment heartbeat updated.')
+            : fail('Task assignment not found.');
         }
         case 'recover_stale': {
           if (!input.boardId) return fail('recover_stale requires boardId.');
@@ -1116,12 +1119,8 @@ function assignmentForTaskCreate(input: KanbanToolInput): KanbanAgentAssignment 
     ...(input.leaseExpiresAt !== undefined ? { leaseExpiresAt: input.leaseExpiresAt } : {}),
     ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
     ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
-    ...(input.costCeilingUsd !== undefined
-      ? { costCeilingUsd: input.costCeilingUsd }
-      : {}),
+    ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
     ...(input.retryPolicy !== undefined ? { retryPolicy: input.retryPolicy } : {}),
-    ...(input.lastFailureKind !== undefined
-      ? { lastFailureKind: input.lastFailureKind }
-      : {}),
+    ...(input.lastFailureKind !== undefined ? { lastFailureKind: input.lastFailureKind } : {}),
   };
 }

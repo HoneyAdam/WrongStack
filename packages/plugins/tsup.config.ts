@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
 
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
@@ -68,7 +70,7 @@ export default defineConfig({
     'test-generator': 'src/test-generator/index.ts',
   },
   format: ['esm'],
-  dts: true,
+  dts: skipDts ? false : true,
   splitting: false,
   treeshake: true,
   clean: true,

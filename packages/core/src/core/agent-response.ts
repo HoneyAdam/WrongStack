@@ -7,6 +7,7 @@ import type { Request, Response } from '../types/provider.js';
 import { isTextBlock } from '../types/blocks.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { markAssistantReferencedEvidence } from '../utils/context-evidence.js';
+import { toErrorMessage } from '../utils/error.js';
 import { parseContinueDirective, type ContinueDirective } from './continue-to-next-iteration.js';
 import type { RunOptions } from './context.js';
 import type { AgentInternals } from './agent-internals.js';
@@ -93,15 +94,17 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
       stopReason: res.stopReason,
       usage: res.usage,
     });
-    // Drain the LLM response to disk in the background. The write starts
-    // immediately so the durability window is only the disk round-trip —
-    // not the whole tool execution — but we don't block the next provider
-    // request on it. Awaited flushes at end-of-turn and checkpoint
-    // boundaries provide the synchronous durability for the SIGKILL-mid-tool
-    // case at the points that genuinely need it.
-    void a.ctx.session.flush().catch(() => {
-      /* best-effort — buffered write is retried at the next boundary flush */
-    });
+    // Tool execution is a side-effect boundary: ensure the response containing
+    // its tool_use blocks has reached the session writer before any tool runs.
+    // FileSessionWriter keeps failed batches queued for retry; alternate
+    // writers may reject, which is logged without masking the provider result.
+    try {
+      await a.ctx.session.flush();
+    } catch (err) {
+      (a.logger.debug ?? a.logger.warn)?.(
+        `LLM response flush failed: ${toErrorMessage(err)}`,
+      );
+    }
 
     if (a.ctx.signal.aborted) {
       // M3: collect into an array and join at the end. `finalText += block.text`

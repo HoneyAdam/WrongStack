@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   FleetContextOverflowError,
   FleetCostCapError,
+  FleetTokenCapError,
   FleetSpawnBudgetError,
 } from '../../src/coordination/director/director-errors.js';
 import type { DirectorFleetHost } from '../../src/coordination/fleet-spawn.js';
@@ -183,6 +184,9 @@ describe('fleet-spawn spawn()', () => {
     );
     await expect(fleetSpawn.spawn(mk('max_cost_usd'), cfg())).rejects.toBeInstanceOf(
       FleetCostCapError,
+    );
+    await expect(fleetSpawn.spawn(mk('max_tokens'), cfg())).rejects.toBeInstanceOf(
+      FleetTokenCapError,
     );
     await expect(fleetSpawn.spawn(mk('max_context_load'), cfg())).rejects.toBeInstanceOf(
       FleetContextOverflowError,

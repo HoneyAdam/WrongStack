@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makeAgentSubagentRunner } from '../../src/coordination/agent-subagent-runner.js';
 import { DefaultMultiAgentCoordinator } from '../../src/coordination/multi-agent-coordinator.js';
+import { SUBAGENT_STRUCTURED_REPORT_META_KEY } from '../../src/coordination/subagent-result-tool.js';
 import type { Agent, RunResult } from '../../src/core/agent.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type { TaskResult } from '../../src/types/multi-agent.js';
@@ -16,19 +17,28 @@ function makeStubAgent(opts: {
   finalText?: string;
   durationMs?: number;
   fail?: boolean;
+  streamedText?: string;
+  structuredReport?: Record<string, unknown>;
 }): { agent: Agent; events: EventBus } {
   const events = new EventBus();
-  const ctx = {} as any;
+  const ctx = { meta: {} as Record<string, unknown> } as any;
+  if (opts.structuredReport) {
+    ctx.meta[SUBAGENT_STRUCTURED_REPORT_META_KEY] = opts.structuredReport;
+  }
   const usage = { input: 100, output: 50 };
   const toolCallsPerIter = opts.toolCallsPerIteration ?? 1;
 
   const agent = {
+    ctx,
     async run(_input: unknown, runOpts: { signal: AbortSignal }): Promise<RunResult> {
       for (let i = 0; i < opts.iterations; i++) {
         if (runOpts.signal.aborted) {
           return { status: 'aborted', iterations: i };
         }
         events.emit('iteration.started', { ctx, index: i });
+        if (opts.streamedText) {
+          events.emit('provider.text_delta', { ctx, text: opts.streamedText });
+        }
         for (let t = 0; t < toolCallsPerIter; t++) {
           events.emit('tool.started', { name: 'stub', id: `t${i}-${t}` });
           // Pair with executed — the runner's budget hook now counts
@@ -77,7 +87,19 @@ function waitForCompletion(
 
 describe('makeAgentSubagentRunner', () => {
   it('drives a real agent and reports success', async () => {
-    const factory = vi.fn(async () => makeStubAgent({ iterations: 2, finalText: 'all done' }));
+    const factory = vi.fn(async () =>
+      makeStubAgent({
+        iterations: 2,
+        finalText: 'all done',
+        structuredReport: {
+          summary: 'Root cause confirmed.',
+          findings: ['Null guard is missing.'],
+          files_examined: ['src/a.ts'],
+          confidence: 0.9,
+          suggested_next_steps: ['Add a regression test.'],
+        },
+      }),
+    );
     const runner = makeAgentSubagentRunner({ factory });
     const coord = new DefaultMultiAgentCoordinator(makeConfig(), { runner });
 
@@ -88,6 +110,10 @@ describe('makeAgentSubagentRunner', () => {
 
     expect(result.status).toBe('success');
     expect(result.result).toBe('all done');
+    expect(result.report).toMatchObject({
+      summary: 'Root cause confirmed.',
+      confidence: 0.9,
+    });
     expect(result.iterations).toBe(2);
     expect(result.toolCalls).toBe(2); // 1 per iteration
     expect(factory).toHaveBeenCalledOnce();
@@ -132,7 +158,12 @@ describe('makeAgentSubagentRunner', () => {
   });
 
   it('agent failure surfaces as failed task', async () => {
-    const factory = async () => makeStubAgent({ iterations: 1, fail: true });
+    const factory = async () =>
+      makeStubAgent({
+        iterations: 1,
+        fail: true,
+        streamedText: 'evidence collected before failure',
+      });
     const runner = makeAgentSubagentRunner({ factory });
     const coord = new DefaultMultiAgentCoordinator(makeConfig(), { runner });
 
@@ -147,6 +178,7 @@ describe('makeAgentSubagentRunner', () => {
     // 'unknown' but the original message is preserved.
     expect(result.error?.kind).toBe('unknown');
     expect(result.error?.message).toMatch(/stub failure/);
+    expect(result.partial?.text).toBe('evidence collected before failure');
   });
 
   it('coordinator stop() propagates as abort signal to the agent', async () => {

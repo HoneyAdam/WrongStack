@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HookRegistry, hookMatcherMatches } from '../../src/hooks/registry.js';
 import { HookRunner } from '../../src/hooks/runner.js';
 import { countShellHooks, shellHooksEqual } from '../../src/hooks/shell-hooks-equal.js';
@@ -21,6 +21,73 @@ describe('hookMatcherMatches', () => {
 });
 
 describe('HookRunner.preToolUse', () => {
+  it('supports explicit allow/deny/mutate outcomes', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess('PreToolUse', '*', async (input) => ({
+      action: 'mutate',
+      input: { ...(input.toolInput as object), timeout_ms: 1_000 },
+    }));
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async (input) =>
+        (input.toolInput as { command?: string }).command === 'rm -rf /'
+          ? { action: 'deny', reason: 'destructive command' }
+          : { action: 'allow' },
+      'policy',
+      { stage: 'validate', failurePolicy: 'closed' },
+    );
+    const runner = new HookRunner({ registry: reg });
+
+    expect(await runner.preToolUse('bash', { command: 'ls' }, env)).toEqual({
+      input: { command: 'ls', timeout_ms: 1_000 },
+    });
+    expect(await runner.preToolUse('bash', { command: 'rm -rf /' }, env)).toEqual({
+      block: true,
+      reason: 'destructive command',
+    });
+  });
+
+  it('runs all mutators before validators regardless of registration order', async () => {
+    const reg = new HookRegistry();
+    let validatorSaw: unknown;
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async (input) => {
+        validatorSaw = input.toolInput;
+        return { action: 'allow' };
+      },
+      'validator',
+      { stage: 'validate' },
+    );
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async () => ({ action: 'mutate', input: { command: 'safe' } }),
+      'mutator',
+      { stage: 'mutate' },
+    );
+    const runner = new HookRunner({ registry: reg });
+    await runner.preToolUse('bash', { command: 'original' }, env);
+    expect(validatorSaw).toEqual({ command: 'safe' });
+  });
+
+  it('rejects mutation from a fail-closed validator', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async () => ({ action: 'mutate', input: { command: 'late-change' } }),
+      'bad-validator',
+      { stage: 'validate', failurePolicy: 'closed' },
+    );
+    const runner = new HookRunner({ registry: reg });
+    const result = await runner.preToolUse('bash', { command: 'safe' }, env);
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain('attempted to mutate');
+  });
+
   it('blocks when a hook returns decision:block (first block wins)', async () => {
     const reg = new HookRegistry();
     reg.registerInProcess('PreToolUse', 'Bash', () => ({ decision: 'block', reason: 'no shell' }));
@@ -109,6 +176,83 @@ describe('HookRunner — failures and gating', () => {
     const r = await runner.preToolUse('bash', {}, env);
     expect(r.block).toBeUndefined();
   });
+
+  it('keeps fail-closed policy hooks active when ordinary shell hooks are disabled', async () => {
+    const reg = new HookRegistry();
+    reg.registerShell('PreToolUse', {
+      name: 'mandatory-policy',
+      command: 'definitely-not-an-allowed-hook-command',
+      policy: true,
+      failurePolicy: 'closed',
+      stage: 'validate',
+    });
+    const runner = new HookRunner({ registry: reg, allowShell: false });
+    const result = await runner.preToolUse('bash', {}, env);
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain('mandatory-policy');
+    expect(result.reason).toContain('fail-closed');
+  });
+
+  it('disables ordinary in-process hooks while keeping in-process policy hooks', async () => {
+    const reg = new HookRegistry();
+    const ordinary = vi.fn(async () => ({ action: 'deny' as const, reason: 'ordinary denial' }));
+    const policy = vi.fn(async () => ({ action: 'allow' as const }));
+    reg.registerInProcess('PreToolUse', '*', ordinary, 'ordinary');
+    reg.registerInProcess('PreToolUse', '*', policy, 'policy', {
+      policy: true,
+      stage: 'validate',
+      failurePolicy: 'closed',
+    });
+    const runner = new HookRunner({ registry: reg, allowNonPolicy: false });
+    await expect(runner.preToolUse('bash', {}, env)).resolves.toEqual({});
+    expect(ordinary).not.toHaveBeenCalled();
+    expect(policy).toHaveBeenCalledOnce();
+  });
+
+  it('fails open on timeout by default', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async () => await new Promise(() => undefined),
+      'slow-telemetry',
+      { timeoutMs: 10, failurePolicy: 'open' },
+    );
+    const runner = new HookRunner({ registry: reg });
+    await expect(runner.preToolUse('bash', {}, env)).resolves.toEqual({});
+  });
+
+  it('turns a fail-closed timeout into a model-visible denial without approval', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async () => await new Promise(() => undefined),
+      'security-policy',
+      { timeoutMs: 10, failurePolicy: 'closed', stage: 'validate' },
+    );
+    const runner = new HookRunner({ registry: reg });
+    const result = await runner.preToolUse('bash', {}, env);
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain('fail-closed policy');
+    expect(result.reason).toContain('not an approval request');
+  });
+
+  it('treats a malformed explicit action as a fail-closed denial', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess(
+      'PreToolUse',
+      '*',
+      async () => ({ action: 'deny' }) as never,
+      'malformed-policy',
+      { failurePolicy: 'closed', stage: 'validate' },
+    );
+    const runner = new HookRunner({ registry: reg });
+    const result = await runner.preToolUse('bash', {}, env);
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain('invalid_output');
+    expect(result.reason).toContain('not an approval request');
+  });
 });
 
 describe('HookRegistry — owner-scoped teardown', () => {
@@ -175,6 +319,22 @@ describe('HookRegistry — owner-scoped teardown', () => {
 });
 
 describe('HookRegistry.replaceShellHooks', () => {
+  it('loads only policy hooks when policyOnly is enabled', () => {
+    const reg = new HookRegistry();
+    reg.loadShellHooks(
+      {
+        PreToolUse: [
+          { command: 'echo telemetry' },
+          { command: 'echo policy', name: 'policy', policy: true },
+        ],
+      },
+      { policyOnly: true },
+    );
+    expect(reg.list('PreToolUse')).toHaveLength(1);
+    expect(reg.list('PreToolUse')[0]?.name).toBe('policy');
+    expect(reg.list('PreToolUse')[0]?.policy).toBe(true);
+  });
+
   it('drops the prior shell set and installs the new one', () => {
     const reg = new HookRegistry();
     reg.registerShell('PreToolUse', { command: 'echo old1' });
@@ -203,7 +363,7 @@ describe('HookRegistry.replaceShellHooks', () => {
     expect((pre[0] as { kind: string }).kind).toBe('inprocess');
     expect((pre[0] as { owner?: string }).owner).toBe('plugin-a');
     expect((pre[1] as { kind: string }).kind).toBe('shell');
-    expect(((pre[1] as { command?: string }).command)).toBe('echo replaced');
+    expect((pre[1] as { command?: string }).command).toBe('echo replaced');
     // The plugin-owned unsubscribe is still valid — in-process entries
     // weren't touched.
     off();
@@ -221,13 +381,24 @@ describe('HookRegistry.replaceShellHooks', () => {
 
   it('idempotent: calling twice with the same map yields the same state', () => {
     const reg = new HookRegistry();
-    const map = { PreToolUse: [{ command: 'echo a' } as ShellHook], Stop: [{ command: 'echo b' } as ShellHook] };
+    const map = {
+      PreToolUse: [{ command: 'echo a' } as ShellHook],
+      Stop: [{ command: 'echo b' } as ShellHook],
+    };
     reg.replaceShellHooks(map);
     const first = reg.all().filter((e) => e.kind === 'shell').length;
     reg.replaceShellHooks(map);
     const second = reg.all().filter((e) => e.kind === 'shell').length;
     expect(first).toBe(second);
     expect(first).toBe(2);
+  });
+
+  it('leaves the live configured set intact when replacement construction fails', () => {
+    const reg = new HookRegistry();
+    reg.registerShell('PreToolUse', { command: 'echo old' });
+    expect(() => reg.replaceShellHooks({ PreToolUse: [null as never] })).toThrow();
+    expect(reg.list('PreToolUse')).toHaveLength(1);
+    expect(reg.list('PreToolUse')[0]).toMatchObject({ kind: 'shell', command: 'echo old' });
   });
 });
 
@@ -237,6 +408,9 @@ describe('shellHooksEqual', () => {
   const aDiffCmd = { PreToolUse: [{ command: 'echo y' }] };
   const aDiffMatcher = { PreToolUse: [{ command: 'echo x', matcher: 'Bash' }] };
   const aDiffTimeout = { PreToolUse: [{ command: 'echo x', timeoutMs: 1000 }] };
+  const aDiffFailurePolicy = {
+    PreToolUse: [{ command: 'echo x', failurePolicy: 'closed' as const }],
+  };
   const aExtra = { PreToolUse: [{ command: 'echo x' }], Stop: [{ command: 'echo y' }] };
   const aReordered = { PreToolUse: [{ command: 'echo y' }, { command: 'echo x' }] };
 
@@ -252,12 +426,19 @@ describe('shellHooksEqual', () => {
 
   it('returns true for structurally-equal maps with separate object identity', () => {
     expect(shellHooksEqual(a, aCopy)).toBe(true);
+    expect(
+      shellHooksEqual(
+        { PreToolUse: [{ type: 'http', url: 'https://policy.test', headers: { a: '1', b: '2' } }] },
+        { PreToolUse: [{ headers: { b: '2', a: '1' }, url: 'https://policy.test', type: 'http' }] },
+      ),
+    ).toBe(true);
   });
 
   it('detects command/matcher/timeoutMs differences', () => {
     expect(shellHooksEqual(a, aDiffCmd)).toBe(false);
     expect(shellHooksEqual(a, aDiffMatcher)).toBe(false);
     expect(shellHooksEqual(a, aDiffTimeout)).toBe(false);
+    expect(shellHooksEqual(a, aDiffFailurePolicy)).toBe(false);
   });
 
   it('detects added/removed events', () => {

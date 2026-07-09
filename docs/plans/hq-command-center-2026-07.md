@@ -1,7 +1,9 @@
 # HQ Command Center Enhancement — 2026-07
 
 **Feature:** Cross-machine HQ command center (`wstack --hq`, port 3499) — extreme improvement
-**Status:** Backend complete (Phases 1-4, 6). Frontend dashboard (Phase 5) + hardening (Phase 7 remainder) pending.
+**Status:** Backend complete (Phases 1-4, 6). Phase 5 (React dashboard, `packages/webui-hq`) SHIPPED,
+then upgraded to WebUI-grade rendering in 2026-07 (see "Phase 5.5" below). Phase 7 remainder
+(token hash-at-rest, rate limiting, browser password) still pending.
 **Supersedes:** `docs/plans/hq-command-center-2026-06.md` (the original planning blueprint)
 
 ---
@@ -99,16 +101,42 @@ transitions emit. `toAlertMessage()` → `hq.alert` broadcast to browsers.
 
 ---
 
+## Phase 5 — React dashboard (SHIPPED)
+
+`packages/webui-hq/` exists with 10 views (Cockpit, FleetMap, LiveConsole,
+Mailbox, Cost, Brain, Worktrees, Trends, Alerts, Control), served by
+`hq-static-serve.ts` with graceful fallback to inline HTML when unbuilt.
+The planned `packages/webui-ui/` shared-primitives extraction was not needed —
+shared logic lives in the browser-safe `@wrongstack/tools` subpaths instead.
+
+### Phase 5.5 — WebUI-grade rendering (2026-07)
+
+The dashboard was upgraded from dependency-free rendering to the main WebUI's
+stack and quality:
+
+- **Console**: full GFM markdown + `rehype-highlight` code blocks
+  (react-markdown), collapsed thinking cards (`thinking` transcript role added
+  to the HQ protocol + `transcript-mapper`), tool cards with lucide icons /
+  status (running-pulse, ok, error) via `@wrongstack/tools/tool-icons`, real
+  result views (LCS/unified diff via `@wrongstack/tools/tool-diff`, bash
+  exit-code footer, numbered Read output, collapsible JSON, todo checklist),
+  a session picker, and virtua-virtualized transcript with pinned follow +
+  jump-to-latest.
+- **Correctness**: `lib/transcript-store.ts` — exactly-once live batch
+  consumption keyed on `fromSeq` (the old view re-appended the whole event
+  ring on every event), live tool-result merging by `toolUseId`, and
+  fetch/stream overlap dedup.
+- **Backfill**: Brain + Worktrees seed from `GET /api/events?type=…`
+  (persistence) instead of rendering blank until new events arrive.
+- **Trends**: real SVG column charts (hover tooltips, validated dark palette)
+  + KPI tiles + time-range filter. **Cost**: hero total, per-project share
+  bars, per-session/model breakdown (click-through to Console).
+- **Control**: `btw`, `queue`, and RCE-gated `run-command` composers added.
+- **Theme**: graphite console theme aligned with the WebUI dark family
+  (IBM Plex, signal-cyan accent, status-only colors); scanline/CRT gimmicks
+  removed.
+
 ## Pending
-
-### Phase 5 — React dashboard
-
-Replace `hq-dashboard-html.ts` (CDN-dependent inline HTML) with an offline
-React app in a new `packages/webui-hq/` package + a `packages/webui-ui/`
-shared primitives extraction. 9 views: FleetMap, LiveConsole, MailboxInbox,
-CostDashboard, BrainDecisions, WorktreePhases, Trends, AlertsFeed,
-ControlDeck. `hq-static-serve.ts` serves the built `dist/` with graceful
-fallback to inline HTML when unbuilt. See the approved plan for details.
 
 ### Phase 7 remainder — hardening
 

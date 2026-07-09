@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import type { SddInterviewDriver, SddInterviewSnapshot } from '@wrongstack/core';
+import type { SddInterviewDriver, SddInterviewSnapshot } from '@wrongstack/sdd';
 
 interface WSClient {
   ws: WebSocket;

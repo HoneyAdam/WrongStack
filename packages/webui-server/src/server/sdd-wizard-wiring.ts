@@ -4,8 +4,12 @@ import {
   type Agent,
   type AgentFactory,
   type BrainArbiter,
-  cleanupStaleSddWorktrees,
   type EventBus,
+  WorktreeManager,
+  ToolValidationError,
+} from '@wrongstack/core';
+import {
+  cleanupStaleSddWorktrees,
   makeCommandVerifier,
   makeLlmSubtaskGenerator,
   SddBoardStore,
@@ -15,9 +19,7 @@ import {
   SpecStore,
   startSddRun,
   TaskGraphStore,
-  WorktreeManager,
-  ToolValidationError,
-} from '@wrongstack/core';
+} from '@wrongstack/sdd';
 import type { SddWizardDeps } from './sdd-wizard-ws-handler.js';
 
 export interface SddWizardWiringOptions {

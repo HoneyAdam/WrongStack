@@ -1,13 +1,14 @@
 /**
  * Unit tests for the pure transcript-formatting helpers that power the HQ Live
- * Console chat view (tool classification, input summaries, diff extraction,
- * duration/clock formatting).
+ * Console chat view (tool classification, input summaries, todo extraction,
+ * duration/clock formatting). Diff extraction now lives in the shared
+ * `@wrongstack/tools/tool-diff` model (tested in packages/tools); input
+ * summaries delegate to `@wrongstack/tools/tool-summary` — the tests below pin
+ * the delegation, not the summary grammar itself.
  */
 import { describe, expect, it } from 'vitest';
 import {
   classifyTool,
-  computeDiffLines,
-  diffFromToolInput,
   extractTodos,
   formatClock,
   formatDuration,
@@ -44,55 +45,42 @@ describe('tryParseJson', () => {
   });
 });
 
-describe('summarizeToolInput', () => {
+describe('summarizeToolInput (delegates to @wrongstack/tools/tool-summary)', () => {
   it('summarizes a bash command', () => {
     expect(summarizeToolInput('bash', '{"command":"pnpm test"}')).toBe('$ pnpm test');
   });
 
-  it('summarizes an edit with line counts', () => {
+  it('summarizes an edit with the file path and line counts', () => {
     const input = JSON.stringify({ file_path: 'a.ts', old_string: 'x\ny', new_string: 'x\ny\nz' });
-    expect(summarizeToolInput('edit', input)).toBe('a.ts · 2 → 3 lines');
+    const s = summarizeToolInput('edit', input);
+    expect(s).toContain('a.ts');
+    expect(s).toContain('2');
+    expect(s).toContain('3');
   });
 
-  it('summarizes a todo list', () => {
+  it('summarizes a todo list with done/in-progress counts', () => {
     const input = JSON.stringify({
       todos: [{ status: 'completed' }, { status: 'in_progress' }, { status: 'pending' }],
     });
-    expect(summarizeToolInput('TodoWrite', input)).toBe('3 todos · 1 done · 1 wip');
+    const s = summarizeToolInput('TodoWrite', input);
+    expect(s).toContain('3 todos');
+    expect(s).toContain('1 done');
   });
 
-  it('summarizes a read with offset/limit', () => {
-    expect(summarizeToolInput('read', '{"file_path":"a.ts","offset":10,"limit":20}')).toBe(
-      'a.ts:10..30',
-    );
-  });
-
-  it('falls back to a clipped scalar for unknown tools', () => {
-    expect(summarizeToolInput('mystery', '{"name":"foo"}')).toBe('foo');
+  it('summarizes a read with offset/limit as a range', () => {
+    const s = summarizeToolInput('read', '{"file_path":"a.ts","offset":10,"limit":20}');
+    expect(s).toContain('a.ts');
+    expect(s).toContain('10');
+    expect(s).toContain('30');
   });
 
   it('returns clipped raw text when input is not JSON', () => {
     expect(summarizeToolInput('bash', 'not json here')).toBe('not json here');
   });
-});
 
-describe('diffFromToolInput', () => {
-  it('extracts an edit diff', () => {
-    const input = JSON.stringify({ file_path: 'a.ts', old_string: 'a', new_string: 'b' });
-    expect(diffFromToolInput('edit', input)).toEqual({ oldText: 'a', newText: 'b', path: 'a.ts' });
-  });
-
-  it('treats a write as an all-added diff', () => {
-    const input = JSON.stringify({ file_path: 'a.ts', content: 'hello' });
-    expect(diffFromToolInput('write', input)).toEqual({
-      oldText: '',
-      newText: 'hello',
-      path: 'a.ts',
-    });
-  });
-
-  it('returns null for non-file tools', () => {
-    expect(diffFromToolInput('bash', '{"command":"ls"}')).toBeNull();
+  it('returns empty for empty/absent input', () => {
+    expect(summarizeToolInput('bash', undefined)).toBe('');
+    expect(summarizeToolInput('bash', '{}')).toBe('');
   });
 });
 
@@ -116,26 +104,6 @@ describe('extractTodos', () => {
     expect(extractTodos('{"command":"ls"}')).toBeNull();
     expect(extractTodos('not json')).toBeNull();
     expect(extractTodos('{"todos":[]}')).toBeNull();
-  });
-});
-
-describe('computeDiffLines', () => {
-  it('marks added and deleted lines around a common prefix/suffix', () => {
-    const lines = computeDiffLines('a\nb\nc', 'a\nB\nc');
-    expect(lines).toEqual([
-      { kind: 'ctx', text: 'a' },
-      { kind: 'del', text: 'b' },
-      { kind: 'add', text: 'B' },
-      { kind: 'ctx', text: 'c' },
-    ]);
-  });
-
-  it('treats a pure write as all-add', () => {
-    const lines = computeDiffLines('', 'x\ny');
-    expect(lines).toEqual([
-      { kind: 'add', text: 'x' },
-      { kind: 'add', text: 'y' },
-    ]);
   });
 });
 

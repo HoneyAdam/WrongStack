@@ -39,10 +39,25 @@ export interface CodexModelMeta {
  */
 export const CODEX_MODELS: ReadonlyArray<CodexModelMeta> = [
   {
+    id: 'gpt-5.6-sol',
+    name: 'GPT-5.6 Sol',
+    description: 'Latest frontier agentic coding model.',
+    current: true,
+  },
+  {
     id: 'gpt-5.5',
     name: 'GPT-5.5',
     description: 'Frontier model for complex coding, research, and real-world work.',
-    current: true,
+  },
+  {
+    id: 'gpt-5.6-terra',
+    name: 'GPT-5.6 Terra',
+    description: 'Balanced agentic coding model for everyday work.',
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT-5.6 Luna',
+    description: 'Fast and affordable agentic coding model.',
   },
   {
     id: 'gpt-5.4',
@@ -57,7 +72,7 @@ export const CODEX_MODELS: ReadonlyArray<CodexModelMeta> = [
   {
     id: 'gpt-5.3-codex-spark',
     name: 'GPT-5.3 Codex Spark',
-    description: 'Ultra-fast coding model (research preview).',
+    description: 'Ultra-fast coding model.',
   },
 ];
 

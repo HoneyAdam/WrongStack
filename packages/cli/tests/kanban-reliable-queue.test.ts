@@ -2,6 +2,12 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  makeKanbanQueueTool,
+  type SubagentConfig,
+  type TaskResult,
+  type TaskSpec,
+} from '@wrongstack/core';
+import {
   addTask,
   assignTask,
   claimReadyTask,
@@ -10,14 +16,10 @@ import {
   heartbeatTaskAssignment,
   listKanbanEvents,
   listReadyTasks,
-  makeKanbanQueueTool,
   recoverStaleTaskAssignments,
   releaseTaskClaim,
-  type SubagentConfig,
-  type TaskResult,
-  type TaskSpec,
   updateTaskAssignment,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { kanbanTool } from '../../tools/src/kanban.js';
 

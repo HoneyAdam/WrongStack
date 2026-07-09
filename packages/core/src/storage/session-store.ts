@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream, type Dirent } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -7,19 +8,28 @@ import type { ContentBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type {
+  ForkedSession,
   ResumedSession,
   SessionData,
   SessionEvent,
+  SessionForkOptions,
   SessionMetadata,
   SessionStore,
   SessionSummary,
   SessionWriter,
+  WorkspaceCheckpointRef,
+  WorkspaceMaterializationResult,
 } from '../types/session.js';
 import { atomicWrite, ensureDir, withFileLock } from '../utils/atomic-write.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { toErrorMessage } from '../utils/index.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 import { FileSessionWriter } from './file-session-writer.js';
+import { SessionCheckpointCas } from './session-checkpoint-cas.js';
+import {
+  formatResumeValidationNotice,
+  validateResumeFileObservations,
+} from './session-resume-validation.js';
 import { userInputTitle } from './session-helpers.js';
 import { generateSessionId } from './session-id.js';
 import { compareSessionSummaries, matchesSessionFilter } from './session-summary.js';
@@ -28,6 +38,11 @@ import { mapWithConcurrency } from './storage-concurrency.js';
 
 export interface SessionStoreOptions {
   dir: string;
+  /**
+   * Active project root used to revalidate persisted file-observation hashes
+   * during resume. Omit for stores that only inspect/archive transcripts.
+   */
+  projectRoot?: string | undefined;
   /** Optional EventBus for emitting session diagnostics. */
   events?: EventBus | undefined;
   /**
@@ -84,10 +99,63 @@ interface ShardManifestEntry {
   ids: string[];
 }
 
+function isReplayableMessage(value: unknown): value is Message {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<Message>;
+  return (
+    (candidate.role === 'user' ||
+      candidate.role === 'assistant' ||
+      candidate.role === 'system') &&
+    (typeof candidate.content === 'string' || Array.isArray(candidate.content))
+  );
+}
+
+function applyContextSnapshot(
+  target: Message[],
+  openToolUses: Set<string>,
+  snapshot: unknown,
+): boolean {
+  if (!Array.isArray(snapshot) || !snapshot.every(isReplayableMessage)) return false;
+  target.length = 0;
+  openToolUses.clear();
+  for (const raw of snapshot) {
+    const { _estTokens: _ignored, ...message } = raw;
+    target.push(message);
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === 'tool_use') openToolUses.add(block.id);
+      else if (block.type === 'tool_result') openToolUses.delete(block.tool_use_id);
+    }
+  }
+  return true;
+}
+
+function inheritsIntoFork(event: SessionEvent): boolean {
+  switch (event.type) {
+    case 'session_start':
+    case 'session_resumed':
+    case 'session_forked':
+    case 'session_end':
+    case 'in_flight_start':
+    case 'in_flight_end':
+    case 'rewound':
+      return false;
+    // Parent snapshots describe mutations owned by the parent journal. A
+    // child that shares the current workspace must not inherit authority to
+    // rewind those historical side effects.
+    case 'file_snapshot':
+      return false;
+    default:
+      return true;
+  }
+}
+
 export class DefaultSessionStore implements SessionStore {
   private readonly dir: string;
   private readonly events?: EventBus | undefined;
   private readonly secretScrubber?: SecretScrubber | undefined;
+  private readonly projectRoot?: string | undefined;
+  private readonly checkpointCas?: SessionCheckpointCas | undefined;
   private readonly isSessionInUse?: ((sessionId: string) => Promise<string | null>) | undefined;
 
   /**
@@ -108,6 +176,13 @@ export class DefaultSessionStore implements SessionStore {
 
   constructor(opts: SessionStoreOptions) {
     this.dir = opts.dir;
+    this.projectRoot = opts.projectRoot ? path.resolve(opts.projectRoot) : undefined;
+    this.checkpointCas = this.projectRoot
+      ? new SessionCheckpointCas({
+          rootDir: path.join(this.dir, '_cas'),
+          projectRoot: this.projectRoot,
+        })
+      : undefined;
     this.events = opts.events;
     this.secretScrubber = opts.secretScrubber;
     this.isSessionInUse = opts.isSessionInUse;
@@ -242,6 +317,7 @@ export class DefaultSessionStore implements SessionStore {
         dir: shardDir,
         filePath: file,
         secretScrubber: this.secretScrubber,
+        checkpointCas: this.checkpointCas,
         onClose: (s) => this.appendToIndex(s),
       });
       this.emitWrite(id, file, 'create', 'success', Date.now() - t0);
@@ -260,10 +336,115 @@ export class DefaultSessionStore implements SessionStore {
     /* v8 ignore stop */
   }
 
+  async fork(id: string, opts: SessionForkOptions = {}): Promise<ForkedSession> {
+    const parent = await this.load(id);
+    let boundary = parent.events.length - 1;
+    let targetCheckpoint: Extract<SessionEvent, { type: 'checkpoint' }> | undefined;
+    if (opts.checkpointPromptIndex !== undefined) {
+      boundary = -1;
+      for (let i = 0; i < parent.events.length; i++) {
+        const event = parent.events[i];
+        if (
+          event?.type === 'checkpoint' &&
+          event.promptIndex === opts.checkpointPromptIndex
+        ) {
+          // Prefer the latest matching checkpoint if a legacy/non-truncated
+          // journal reused prompt indices after a rewind.
+          boundary = i;
+          targetCheckpoint = event;
+        }
+      }
+      if (boundary === -1) {
+        throw new Error(
+          `Checkpoint ${opts.checkpointPromptIndex} not found in session "${id}"`,
+        );
+      }
+    }
+
+    const parentPrefix = parent.events.slice(0, boundary + 1);
+    const workspaceCheckpoint = targetCheckpoint?.workspaceCheckpoint;
+    const checkpointHash = createHash('sha256')
+      .update(parentPrefix.map((event) => JSON.stringify(event)).join('\n') + '\n', 'utf8')
+      .digest('hex');
+    const inherited = parentPrefix.filter(inheritsIntoFork);
+    const writer = await this.create({
+      id: '',
+      title: parent.metadata.title,
+      model: parent.metadata.model,
+      provider: parent.metadata.provider,
+    });
+
+    try {
+      await writer.append({
+        type: 'session_forked',
+        ts: new Date().toISOString(),
+        parentSessionId: id,
+        parentCheckpointPromptIndex: opts.checkpointPromptIndex,
+        parentCheckpointHash: checkpointHash,
+        workspace: 'shared-current',
+        workspaceCheckpointHash: workspaceCheckpoint?.manifestHash,
+      });
+      const batchSize = 250;
+      for (let offset = 0; offset < inherited.length; offset += batchSize) {
+        await writer.appendBatch(inherited.slice(offset, offset + batchSize));
+      }
+      await writer.flush();
+      await writer.close();
+      const data = await this.load(writer.id);
+      return {
+        id: writer.id,
+        data,
+        parentSessionId: id,
+        checkpointPromptIndex: opts.checkpointPromptIndex,
+        checkpointHash,
+        workspace: 'shared-current',
+        workspaceCheckpoint,
+      };
+    } catch (err) {
+      await writer.close().catch(() => undefined);
+      await this.delete(writer.id).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  async materializeWorkspaceCheckpoint(
+    checkpoint: WorkspaceCheckpointRef,
+    targetRoot: string,
+  ): Promise<WorkspaceMaterializationResult> {
+    if (!this.checkpointCas) {
+      throw new Error('Workspace checkpoint materialization requires a projectRoot-aware session store');
+    }
+    return this.checkpointCas.materialize(checkpoint, targetRoot);
+  }
+
   async resume(id: string): Promise<ResumedSession> {
     const file = this.sessionPath(id, '.jsonl');
     const t0 = Date.now();
     const data = await this.load(id);
+    let resumedData = data;
+    if (this.projectRoot) {
+      try {
+        const resumeValidation = await validateResumeFileObservations(data.events, this.projectRoot);
+        const notice = formatResumeValidationNotice(resumeValidation, this.projectRoot);
+        resumedData = {
+          ...data,
+          resumeValidation,
+          ...(notice
+            ? {
+                messages: [
+                  ...data.messages,
+                  { role: 'system' as const, content: notice, ts: resumeValidation.checkedAt },
+                ],
+              }
+            : {}),
+        };
+      } catch (err) {
+        // Validation is a safety signal, not a reason to make an otherwise
+        // readable session impossible to resume. Surface diagnostics and
+        // continue with the replay if an unexpected filesystem error occurs.
+        this.emitError(id, file, 'resume_validation', toErrorMessage(err), true);
+      }
+    }
     let handle: fsp.FileHandle;
     try {
       handle = await fsp.open(file, 'a', 0o600);
@@ -295,11 +476,12 @@ export class DefaultSessionStore implements SessionStore {
           dir: path.dirname(file),
           filePath: file,
           secretScrubber: this.secretScrubber,
+          checkpointCas: this.checkpointCas,
           onClose: (s) => this.appendToIndex(s),
         },
       );
       this.emitWrite(id, file, 'resume', 'success', Date.now() - t0);
-      return { writer, data };
+      return { writer, data: resumedData };
       /* v8 ignore start -- defensive: FileSessionWriter ctor does not throw in practice */
     } catch (err) {
       await handle.close().catch((e) => console.warn(JSON.stringify({
@@ -377,6 +559,7 @@ export class DefaultSessionStore implements SessionStore {
       let sessionModel: string | undefined;
       let sessionProvider: string | undefined;
       let sessionPendingToolUses: string[] | undefined;
+      let sessionForkedEvent: Extract<SessionEvent, { type: 'session_forked' }> | undefined;
 
       // Message builder state — only allocated when mode.full.
       const messages: Message[] | undefined = mode.full ? [] : undefined;
@@ -410,11 +593,21 @@ export class DefaultSessionStore implements SessionStore {
                 sessionEndEvent = ev;
                 sessionPendingToolUses = ev.pendingToolUses;
               }
+              if (ev.type === 'session_forked' && !sessionForkedEvent) {
+                sessionForkedEvent = ev;
+              }
 
               // Build messages in the same pass (replay() logic inlined).
               // Skipped entirely when mode.full is false.
               if (mode.full && messages !== undefined && openToolUses !== undefined) {
-                if (ev.type === 'user_input') {
+                if (ev.type === 'context_snapshot') {
+                  if (!applyContextSnapshot(messages, openToolUses, ev.messages)) {
+                    this.events?.emit('session.damaged', {
+                      sessionId: id,
+                      detail: 'Ignored malformed context_snapshot event',
+                    });
+                  }
+                } else if (ev.type === 'user_input') {
                   openToolUses.clear();
                   messages.push({ role: 'user', content: ev.content, ts: ev.ts });
                 } else if (ev.type === 'llm_response') {
@@ -503,6 +696,15 @@ export class DefaultSessionStore implements SessionStore {
         model: sessionModel,
         provider: sessionProvider,
         pendingToolUses: sessionPendingToolUses,
+        forkedFrom: sessionForkedEvent
+          ? {
+              sessionId: sessionForkedEvent.parentSessionId,
+              checkpointPromptIndex: sessionForkedEvent.parentCheckpointPromptIndex,
+              checkpointHash: sessionForkedEvent.parentCheckpointHash,
+              workspace: sessionForkedEvent.workspace,
+              workspaceCheckpointHash: sessionForkedEvent.workspaceCheckpointHash,
+            }
+          : undefined,
       };
 
       // Extract tool_call_end events for TUI tool entry rendering on resume.

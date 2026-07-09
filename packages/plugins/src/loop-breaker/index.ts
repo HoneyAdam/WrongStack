@@ -40,7 +40,7 @@
  *
  * @public
  */
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import type { Plugin } from '@wrongstack/core';
 
 // ---------------------------------------------------------------------------
@@ -241,17 +241,32 @@ function hashString(value: string): string {
   return String(h >>> 0);
 }
 
-function gitDiffFingerprint(cwd: string): string | null {
+async function gitDiffFingerprint(cwd: string, signal: AbortSignal): Promise<string | null> {
   try {
-    const diff = execFileSync('git', ['diff', '--no-ext-diff', '--'], {
-      cwd,
-      encoding: 'utf8',
-      timeout: 1_000,
-      maxBuffer: 1_000_000,
-      stdio: ['ignore', 'pipe', 'ignore'],
+    const diff = await new Promise<string>((resolve, reject) => {
+      execFile(
+        'git',
+        ['diff', '--no-ext-diff', '--'],
+        {
+          cwd,
+          encoding: 'utf8',
+          timeout: 1_000,
+          // Large dirty worktrees are common during an agent run. The hash
+          // itself is capped below, but the subprocess must still be allowed to
+          // finish so an oversized diff is not mistaken for "git unavailable".
+          maxBuffer: 16 * 1024 * 1024,
+          windowsHide: true,
+          signal,
+        },
+        (error, stdout) => {
+          if (error) reject(error);
+          else resolve(stdout);
+        },
+      );
     });
     return diff.length === 0 ? '' : hashString(diff);
-  } catch {
+  } catch (err) {
+    if (signal.aborted) throw err;
     return null;
   }
 }
@@ -323,7 +338,8 @@ const plugin: Plugin = {
         type: 'number',
         minimum: 0,
         default: 10,
-        description: 'Successful edit/write steps without a changed git diff before blocking next step; 0 disables.',
+        description:
+          'Successful edit/write steps without a changed git diff before blocking next step; 0 disables.',
       },
       repeatedErrorWarnAfter: {
         type: 'number',
@@ -459,11 +475,14 @@ const plugin: Plugin = {
       return;
     };
 
-    const postHook = (input: {
-      toolName?: string | undefined;
-      toolResult?: { content: string; isError: boolean } | undefined;
-      cwd?: string | undefined;
-    }) => {
+    const postHook = async (
+      input: {
+        toolName?: string | undefined;
+        toolResult?: { content: string; isError: boolean } | undefined;
+        cwd?: string | undefined;
+      },
+      runtime: { signal: AbortSignal } = { signal: new AbortController().signal },
+    ) => {
       if (!cfg.enabled) return;
       const toolName = input.toolName ?? 'unknown';
       if (cfg.ignoreTools.includes(toolName)) return;
@@ -506,7 +525,7 @@ const plugin: Plugin = {
       state.repeatedErrorStreak = 0;
 
       if (!MUTATING_TOOLS.has(toolName)) return;
-      const diffFingerprint = gitDiffFingerprint(input.cwd ?? process.cwd());
+      const diffFingerprint = await gitDiffFingerprint(input.cwd ?? process.cwd(), runtime.signal);
       if (diffFingerprint === null) return;
       if (diffFingerprint === state.lastDiffFingerprint) {
         state.noDiffStreak += 1;
@@ -515,7 +534,11 @@ const plugin: Plugin = {
         state.noDiffStreak = 0;
       }
 
-      if (cfg.noDiffBlockAfter > 0 && state.noDiffStreak >= cfg.noDiffBlockAfter && cfg.mode === 'block') {
+      if (
+        cfg.noDiffBlockAfter > 0 &&
+        state.noDiffStreak >= cfg.noDiffBlockAfter &&
+        cfg.mode === 'block'
+      ) {
         state.noDiffBlocks += 1;
         state.pendingBlockReason =
           `loop-breaker: no diff was produced in the last ${state.noDiffStreak} mutating step(s). ` +
@@ -534,8 +557,16 @@ const plugin: Plugin = {
       return;
     };
 
-    const unregisterPre = api.registerHook('PreToolUse', '*', hook as never);
-    const unregisterPost = api.registerHook('PostToolUse', '*', postHook as never);
+    const unregisterPre = api.registerHook('PreToolUse', '*', hook as never, {
+      name: 'loop-breaker',
+      stage: 'validate',
+      failurePolicy: 'open',
+    });
+    const unregisterPost = api.registerHook('PostToolUse', '*', postHook as never, {
+      name: 'loop-breaker-progress',
+      timeoutMs: 2_000,
+      failurePolicy: 'open',
+    });
     state.hookUnregister = () => {
       unregisterPre();
       unregisterPost();

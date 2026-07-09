@@ -25,15 +25,29 @@ export function renderMarkdownReport(
   lines.push('');
 
   const sorted = [...cells].sort((a, b) => b.passRate - a.passRate);
+  const hasTraceEval = cells.some((cell) => cell.traceEval !== undefined);
 
-  lines.push(
-    '| Model | Pass@1 | Edit-apply | $/task | tok in/out | iters (p50) | wall (p50) | timeout | 429s |',
-  );
-  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|');
+  if (hasTraceEval) {
+    lines.push(
+      '| Model | Pass@1 | Retrieval | Recall (given retrieval) | Edit application (given recall) | Tool edit-apply | $/task | tok in/out | iters (p50) | wall (p50) | timeout | 429s |',
+    );
+    lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
+  } else {
+    lines.push(
+      '| Model | Pass@1 | Edit-apply | $/task | tok in/out | iters (p50) | wall (p50) | timeout | 429s |',
+    );
+    lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|');
+  }
   for (const c of sorted) {
-    lines.push(renderRow(c));
+    lines.push(renderRow(c, hasTraceEval));
   }
   lines.push('');
+  if (hasTraceEval) {
+    lines.push(
+      '_Trace metrics are a causal funnel: retrieval observes expected evidence; recall is scored only after retrieval; edit application is scored only after a correct edit intent._',
+    );
+    lines.push('');
+  }
   lines.push(
     `_Fingerprint hash: \`${fingerprint.hash}\` · tools: ${fingerprint.toolNames.length} · subset: \`${fingerprint.subsetId}\`_`,
   );
@@ -42,7 +56,7 @@ export function renderMarkdownReport(
   return lines.join('\n');
 }
 
-function renderRow(c: CellResult): string {
+function renderRow(c: CellResult, hasTraceEval: boolean): string {
   // No graded rows (e.g. SWE-bench predictions exported for offline grading) →
   // show a dash rather than a misleading 0%.
   const passCell =
@@ -51,10 +65,18 @@ function renderRow(c: CellResult): string {
       : c.gradedCount < c.taskCount
         ? `${pct(c.passRate)} (${c.gradedCount}/${c.taskCount})`
         : pct(c.passRate);
+  const traceCells = hasTraceEval
+    ? [
+        conditionalPct(c.traceEval?.retrieval),
+        conditionalPct(c.traceEval?.recallGivenRetrieval),
+        conditionalPct(c.traceEval?.editApplicationGivenRecall),
+      ]
+    : [];
   return [
     '',
     c.cell.label,
     passCell,
+    ...traceCells,
     pct(c.editApplyRate),
     `$${c.avgCostUsd.toFixed(3)}`,
     `${fmtK(c.avgTokensIn)}/${fmtK(c.avgTokensOut)}`,
@@ -66,6 +88,11 @@ function renderRow(c: CellResult): string {
   ]
     .join(' | ')
     .trim();
+}
+
+function conditionalPct(metric: { passed: number; eligible: number; rate: number | undefined } | undefined): string {
+  if (!metric || metric.rate === undefined) return '—';
+  return `${pct(metric.rate)} (${metric.passed}/${metric.eligible})`;
 }
 
 function pct(x: number): string {

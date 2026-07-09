@@ -1,10 +1,12 @@
 # `wstack --hq` — HQ Command Center
 
-`wstack --hq` starts a local read-only **HQ command center**: a single
-HTTP+WebSocket process that listens on one port and serves an inline HTML
-dashboard at `/`. The dashboard aggregates telemetry from every
-WrongStack client (TUI, REPL, CLI-embedded WebUI, standalone WebUI) that
-connects to the same URL.
+`wstack --hq` starts a local **HQ command center**: a single
+HTTP+WebSocket process that listens on one port and serves the
+**`@wrongstack/webui-hq` React dashboard** at `/` (with a self-contained
+inline-HTML fallback when the panel dist is unbuilt). The dashboard
+aggregates telemetry from every WrongStack client (TUI, REPL,
+CLI-embedded WebUI, standalone WebUI) that connects to the same URL, and
+can steer/abort/spawn on connected clients through the control plane.
 
 **Same-machine clients need zero configuration.** Every WrongStack client
 starts in *auto-discovery* mode by default: it watches
@@ -18,8 +20,11 @@ HQ is **project-independent**: it does not require a project root, reads no
 project state, and stores no per-project data. It simply renders what
 clients publish.
 
-This is Phase 1 — read-only observation. Control commands (browser → client)
-are intentionally out of scope.
+Observation is the default posture, but HQ is **not** read-only anymore:
+the control plane (browser → client `steer` / `btw` / `queue` / `abort` /
+`spawn` / `broadcast` / gated `run-command`, plus zero-client
+`/api/mailbox-send`) shipped with Phases 3–4. See
+[Control plane](#control-plane).
 
 ## Usage
 
@@ -131,9 +136,16 @@ Consequences:
 
 | Route | Method | Response | Notes |
 |---|---|---|---|
-| `/` | GET | `text/html` | The HQ browser UI. Self-contained — no JS bundle, no asset host |
+| `/` | GET | `text/html` | The HQ panel: the built `@wrongstack/webui-hq` React app when its dist resolves, else the self-contained inline fallback. Static assets under `/assets/` (token-exempt). API/WS paths are never routed through the static server |
 | `/api/snapshot` | GET | `application/json` (`HqSnapshot`) | Same shape the browser receives on `/ws/browser` connect (see `HqSnapshot` schema in `protocol.ts`) |
 | `/api/projects/:id` | GET | `application/json` (`ProjectDetail`) | Drilldown endpoint used by the project drawer |
+| `/api/fleet` | GET | `application/json` (`HqSnapshot`) | Alias of the live snapshot (fleet rollup) |
+| `/api/events` | GET | `application/json` `{events, total}` | Persisted event envelopes from `<dataDir>/events.jsonl`, newest first. `?limit=` (≤5000), `?type=` filter. The panel backfills Brain / Worktrees / Mailbox from here |
+| `/api/trends/cost` | GET | `application/json` `{samples}` | 5-min-bucketed cost/token/tool-call time series (`HqTimeseriesSample[]`), `?since=` epoch-ms filter |
+| `/api/alerts` | GET | `application/json` `{active, history}` | Alert engine state (`?limit=`, default 100) |
+| `/api/sessions` | GET | `application/json` | Live sessions from the cross-process `SessionRegistry` (local machine) |
+| `/api/sessions/:id/events` | GET | `application/json` `{sessionId, source, total, entries}` | Full chat history for a terminal. Local sessions replay the JSONL from disk (`source:"disk"`, merged tool args+results); remote sessions serve the in-memory stream ring (`source:"stream"`). `?limit=` (≤5000, default 200), `?full=1` returns everything |
+| `/api/agents/:id/messages` | GET | `application/json` | Per-subagent message ring (`?full=1`) |
 | `/ws/browser` | WS upgrade | Stream of `HqBrowserMessage` frames | Browser connects here. Receives the current snapshot immediately, then live updates |
 | `/ws/client` | WS upgrade | Stream of `HqClientMessage` / `HqServerMessage` frames (bidirectional) | Telemetry clients (TUI/REPL/WebUI) connect here. Protocol version mismatch → close `1008` |
 | `/api/command` | POST | `application/json` (`202` on accept) | **Control plane.** Enqueue a command to a **connected** client. Requires a browser token with `control.enqueue` (open mode allows any). Target client must advertise `control.receive`. See [Control plane](#control-plane) |
@@ -331,11 +343,13 @@ re-exported via `@wrongstack/core/hq`. The discriminated unions are:
 |---|---|---|
 | Server → browser | `HqBrowserMessage` | `HqBrowserSnapshotMessage` (`type: "hq.snapshot"`), `HqBrowserEventMessage` (`type: "hq.event"`), `HqAlertMessage` (`type: "hq.alert"`) |
 | Client → server | `HqClientMessage` | `HqClientHelloMessage` (`type: "client.hello"`), `HqClientEventMessage` (`type: "client.event"`), `HqClientCommandPollMessage` (`type: "client.command_poll"`), `HqClientCommandAckMessage` (`type: "client.command_ack"`) |
-| Server → client | `HqServerMessage` | `HqWelcomePayload` (`type: "hq.welcome"`, sent on every `client.hello`), `HqServerCommandBatchMessage` (`type: "hq.command_batch"`, Phase 2 — not emitted yet) |
+| Server → client | `HqServerMessage` | `HqWelcomePayload` (`type: "hq.welcome"`, sent on every `client.hello`), `HqServerCommandBatchMessage` (`type: "hq.command_batch"` — emitted when a `client.command_poll` drains the client's command queue) |
 
 ### Browser → server
 
-The browser is read-only in Phase 1; it never sends frames.
+The browser sends no WS frames — the `/ws/browser` channel is
+receive-only. Control actions go through HTTP (`POST /api/command`,
+`POST /api/mailbox-send`) instead.
 
 ### Server → browser
 
@@ -372,8 +386,9 @@ all browsers. This is what powers the drawer live feed:
 }
 ```
 
-`hq.alert` — server-pushed alert (not yet emitted in Phase 1, reserved for
-later phases):
+`hq.alert` — server-pushed alert from the `HqAlertEngine` (evaluates the
+live snapshot every 15 s against cost / stale / concurrency / failure
+rules; only cleared→firing transitions emit):
 
 ```jsonc
 {
@@ -511,11 +526,11 @@ command:
 
 ### Server-side `parseHqFrame()` — discriminated dispatcher
 
-The current server (`packages/cli/src/hq-server.ts:794-801`) reads raw
-frames with `JSON.parse(...) as HqClientMessage`. The cast is unsafe —
-a malformed frame slips through as long as JSON parses. A stricter
-helper narrows to the union explicitly with type guards and surfaces
-unrecognized frames so the server can log / drop them:
+The server parses every inbound frame with `parseHqFrame()` (exported
+from `@wrongstack/core/hq/protocol`), which narrows to the
+`HqClientMessage` union with per-type shape guards and surfaces
+unrecognized frames so the server can drop them. The reference shape of
+that helper:
 
 ```typescript
 import type {
@@ -679,55 +694,29 @@ Notes:
 
 ## Browser UI
 
-The dashboard is a single self-contained HTML page. Top-level layout:
+The primary dashboard is the **`packages/webui-hq` React app** (offline
+Vite bundle, no CDN), served from its built `dist/` with a graceful
+fallback to a self-contained inline HTML page when the dist is unbuilt.
+The panel connects to `/ws/browser` and renders ten views behind a
+header (live LED + fleet stat chips) and a tab bar:
 
-- **Toolbar** — connection status, project picker dropdown, last-refreshed
-  timestamp.
-- **Global stat cards** — active clients, projects, mailboxes, unread,
-  open, high-priority, online agents (warn-colored cards for unread and
-  open, high-colored for high-priority).
-- **Mailboxes table** — per-mailbox counts (messages / unread / open /
-  high / agents). Project column is a clickable link that opens the
-  drilldown drawer.
-- **Clients table** — client id, kind, project id, capability chips,
-  last-seen time.
+| View | Contents | Data source |
+|---|---|---|
+| **Cockpit** | Fleet overview, quick actions (broadcast / pause), alert + cost summaries | `hq.snapshot`, `hq.alert`, `/api/alerts` |
+| **Fleet** | machine → project → session → agent tree with cost/ctx/model rollups; clicking a session opens it in Console | `hq.snapshot` |
+| **Console** | Full chat transcript of the selected session: GFM markdown + syntax-highlighted code, collapsed thinking cards, collapsible tool cards with real result views (LCS/unified diff, bash exit-code footer, numbered Read output, JSON, todo checklist), session picker, virtualized list with pinned follow | `/api/sessions/:id/events` + live `session.transcript` |
+| **Mailbox** | Live feed + grouped-by-project message browser with type/priority/project/search filters | `hq.snapshot`, `mailbox.event` (backfilled from `/api/events`) |
+| **Cost** | Hero total, per-project share bars, per-session/model breakdown | `hq.snapshot` |
+| **Brain** | Decision / intervention timeline | `brain.event` (backfilled from `/api/events`) |
+| **Worktrees** | Per-owner lifecycle lanes (allocated → committed → merged / conflict / failed) | `worktree.event` (backfilled) |
+| **Trends** | KPI tiles + SVG column charts (cost / tokens / tool calls) with hover tooltips and 1h–7d range filters | `/api/trends/cost` |
+| **Alerts** | Live alert feed + history | `hq.alert`, `/api/alerts` |
+| **Control** | Staged command composer (`steer` / `btw` / `queue` / `abort` / `spawn` / `broadcast` / gated `run-command`) with preview + typed-confirmation gates and the command audit trail | `POST /api/command`, `/api/commands` |
 
-### Project drilldown drawer
-
-The drawer is a right-side slide-in panel opened by:
-
-- Clicking a project link in the **Mailboxes** table.
-- Selecting a project in the toolbar **project picker**.
-- Deep-linking via `?project=<id>` query string or `#<id>` URL hash.
-
-Contents:
-
-1. **Meta header** — project id, scope pill (`project`/`global`), status,
-   last activity, last-refreshed timestamp.
-2. **Mailboxes** — short table for this project's mailboxes.
-3. **Recent messages** — last 20 messages, newest first, with scrubbed
-   preview, priority pill, and state badge.
-4. **Clients** — clients connected to this project, with capability chips.
-5. **📡 Live mailbox events** — per-project ring buffer (50 entries) of
-   every `mailbox.event` envelope received for that project. The buffer
-   accumulates even when the drawer is closed, so re-opening the drawer
-   immediately shows events that arrived in the interim (newest first).
-   Each row shows an action pill (color-coded: `message.sent` blue,
-   `message.completed`/`agent.registered` green, `message.read` gray,
-   `agent.offline` red, …), a short summary (subject / from / to or
-   agent identity), and a timestamp.
-
-The drawer auto-refreshes (debounced ~250 ms) whenever a global `hq.snapshot`
-containing the open project arrives. The event feed is preserved across
-refreshes because it lives in a client-side `Map<projectId, event[]>`.
-
-A "live" status indicator next to the section title pulses green for 1.5 s
-after each new event, then reverts to "idle". Switching projects preserves
-each project's feed history, and re-opening a previously-closed project
-drawer renders the accumulated buffer immediately.
-
-Press `Escape` or click the backdrop to close the drawer. Closing also
-clears the URL hash.
+Panel source: `packages/webui-hq/` (views under `src/views/`, the
+transcript accumulation layer in `src/lib/transcript-store.ts`). An
+opt-in Playwright smoke drives the whole panel end-to-end:
+`WSTACK_E2E=1 pnpm vitest run packages/cli/tests/hq-visual-smoke.test.ts`.
 
 ## Client-side environment variables
 
@@ -880,9 +869,9 @@ a separate client enrollment token on `/ws/client` once Phase 2 lands.
 
 ### VPS / public internet
 
-Do **not** run `wstack --hq --host 0.0.0.0` on a public VPS in Phase 1.
-There is nothing preventing an unauthenticated client or browser from
-connecting. The plan's
+Do **not** run `wstack --hq --host 0.0.0.0` on a public VPS without
+TOKEN MODE + a TLS-terminating proxy. In OPEN MODE there is nothing
+preventing an unauthenticated client or browser from connecting. The plan's
 [VPS guidance](../plans/hq-command-center-2026-06.md#vps-guidance) lists
 the prerequisites (HTTPS reverse proxy, strong password, client enrollment
 tokens, explicit retention/data directory, no raw content publishing) —
@@ -925,20 +914,25 @@ Phase 2 is landing in slices. What is already shipped:
     `writeHqAuthFile()`, `mutateHqAuthFile()`, `mintHqToken()`,
     `watchHqAuthFile()` (Phase 4 live reload).
 
-What is still coming in later Phase 2 / Phase 3 slices:
+Also shipped since:
+
+- **Persistent event log + snapshot cache + time series** —
+  `<dataDir>/events.jsonl` (rotated), `<dataDir>/snapshot.json` (atomic
+  checkpoint) and `<dataDir>/timeseries.jsonl` (5-min buckets, 1-week
+  retention) so a restart preserves recent history; served via
+  `/api/events` and `/api/trends/cost`.
+- **Frame-size cap** — the WS server runs with a 1 MiB `maxPayload`.
+
+What is still coming (Phase 7 remainder):
 
 - **Browser password auth** — password login for non-loopback browsers,
   HTTP-only session cookie, `scrypt`/`argon2` password hash. Token mode
   (shipped) covers the immediate case of "let a teammate open the dashboard
   without exposing it publicly"; password auth covers multi-tenant /
   unattended deployments.
-- **Subcommands** — `wstack hq auth set-password` (paired with the
-  password-auth work above).
-- **Persistent event log + snapshot cache** — `<dataDir>/events.jsonl`
-  and `<dataDir>/snapshot.json` so a server restart preserves recent
-  history. Schema reservation is already in place.
-- **Frame hygiene** — rate limiting, frame-size cap, explicit protocol
-  version negotiation (the `1008` close on mismatch is already in place).
+- **Token hash-at-rest** — SHA-256 in `auth.json`; raw token returned once
+  on mint.
+- **Per-client rate limiting** on the HTTP routes (mirror `WEBUI_RATE_LIMIT`).
 
 > **Phase 4 shipped.** Client token validation (`/ws/client`) and live
 > `auth.json` reload via a file-watcher are now live. See **TOKEN MODE**
@@ -1080,7 +1074,10 @@ is also taken.
 ## Code reference
 
 - `packages/cli/src/hq-server.ts` — `startHqServer`, route handlers,
-  inline `HQ_HTML` dashboard, drawer / live-feed / auto-refresh logic
+  control plane, transcript rings, persistence wiring
+- `packages/cli/src/hq-static-serve.ts` — resolve + serve the built
+  `@wrongstack/webui-hq/dist` (inline `HQ_HTML` fallback when unbuilt)
+- `packages/webui-hq/` — the React dashboard (10 views + transcript store)
 - `packages/cli/src/arg-parser.ts` — `--hq`, `--host`, `--port`,
   `--strict-port`, `--open` boolean flags
 - `packages/cli/src/cli-main.ts` — early `--hq` dispatch (before `boot()`)

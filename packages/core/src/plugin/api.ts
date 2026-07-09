@@ -1,17 +1,16 @@
+import type { Mailbox } from '../coordination/mailbox-types.js';
 import { ExtensionRegistry } from '../extension/registry.js';
-import { KERNEL_API_VERSION } from './loader.js';
 import type { HookRegistry } from '../hooks/registry.js';
 import type { Container } from '../kernel/container.js';
 import type { EventBus, EventName, Listener } from '../kernel/events.js';
 import type { Pipeline } from '../kernel/pipeline.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import type { SlashCommandRegistry } from '../registry/slash-command-registry.js';
-import type { ToolRegistry } from '../registry/tool-registry.js';
-import type { ToolWrapper } from '../registry/tool-registry.js';
+import type { ToolRegistry, ToolWrapper } from '../registry/tool-registry.js';
 import type { Config } from '../types/config.js';
+import type { HookEvent, HookMatcher, InProcessHook } from '../types/hooks.js';
 import type { Logger } from '../types/logger.js';
 import type { ModelsRegistry } from '../types/models-registry.js';
-import type { Mailbox } from '../coordination/mailbox-types.js';
 import type {
   MCPRegistryView,
   MetricsSinkView,
@@ -29,9 +28,9 @@ import type {
   ToolRegistryView,
 } from '../types/plugin.js';
 import type { Provider, Request } from '../types/provider.js';
-import type { HookEvent, HookMatcher, InProcessHook } from '../types/hooks.js';
 import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
+import { KERNEL_API_VERSION } from './loader.js';
 
 export interface PluginAPIInit {
   ownerName: string;
@@ -316,9 +315,10 @@ export class DefaultPluginAPI implements PluginAPI {
     event: HookEvent,
     matcher: HookMatcher | undefined,
     hook: InProcessHook,
+    options?: import('../types/hooks.js').HookRegistrationOptions | undefined,
   ): () => void {
     if (!this.hookRegistry) return () => {};
-    const off = this.hookRegistry.registerInProcess(event, matcher, hook, this.ownerName);
+    const off = this.hookRegistry.registerInProcess(event, matcher, hook, this.ownerName, options);
     this.pluginCleanupFns.push(off);
     return off;
   }
@@ -413,7 +413,10 @@ function makePluginLLM(
     };
   };
 
-  const resolveProvider = (name: string | undefined, model: string): { provider: Provider; providerName: string } => {
+  const resolveProvider = (
+    name: string | undefined,
+    model: string,
+  ): { provider: Provider; providerName: string } => {
     const defaults = pluginDefaults();
     const providerName = name ?? defaults.provider ?? config.provider;
     // The host session's own provider serves the default name directly —
@@ -588,7 +591,19 @@ export function definePlugin<const TOptions extends Record<string, unknown> | un
     conflictsWith?: string[] | undefined;
   },
   factory: (api: PluginAPI, options: TOptions) => void | Promise<void>,
-): { name: string; version?: string | undefined; description?: string | undefined; apiVersion: string; capabilities?: PluginCapabilities | undefined; configSchema?: JSONSchema | undefined; defaultConfig?: TOptions | undefined; dependsOn?: (string | PluginDependency)[] | undefined; optionalDeps?: (string | PluginDependency)[] | undefined; conflictsWith?: string[] | undefined; setup: (api: PluginAPI) => void | Promise<void> } {
+): {
+  name: string;
+  version?: string | undefined;
+  description?: string | undefined;
+  apiVersion: string;
+  capabilities?: PluginCapabilities | undefined;
+  configSchema?: JSONSchema | undefined;
+  defaultConfig?: TOptions | undefined;
+  dependsOn?: (string | PluginDependency)[] | undefined;
+  optionalDeps?: (string | PluginDependency)[] | undefined;
+  conflictsWith?: string[] | undefined;
+  setup: (api: PluginAPI) => void | Promise<void>;
+} {
   return {
     name: metadata.name,
     version: metadata.version,

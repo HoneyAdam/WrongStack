@@ -1,4 +1,3 @@
-import * as path from 'node:path';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import {
   color,
@@ -50,9 +49,10 @@ function findSessionId(args: string[]): string | undefined {
 export const rewindCmd: SubcommandHandler = async (args, deps) => {
   const flags = parseRewindFlags(args);
 
-  // Use global sessions path: ~/.wrongstack/sessions/
+  // Sessions are project-scoped under ~/.wrongstack/projects/<slug>/sessions.
+  // The legacy globalRoot/sessions path misses every modern date-sharded log.
   const wpaths = resolveWstackPaths({ projectRoot: deps.projectRoot });
-  const sessionsDir = path.join(wpaths.globalRoot, 'sessions');
+  const sessionsDir = wpaths.projectSessions;
 
   const rewind = new DefaultSessionRewinder(sessionsDir, deps.projectRoot);
 

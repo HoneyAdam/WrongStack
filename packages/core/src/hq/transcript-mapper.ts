@@ -41,12 +41,7 @@ function asString(v: unknown): string {
   }
 }
 
-function argsEntry(
-  ts: string,
-  name: unknown,
-  input: unknown,
-  id: unknown,
-): HqTranscriptEntry {
+function argsEntry(ts: string, name: unknown, input: unknown, id: unknown): HqTranscriptEntry {
   return {
     ts,
     role: 'tool',
@@ -64,7 +59,11 @@ function argsEntry(
  */
 export function mapSessionEventToEntries(ev: Record<string, unknown>): HqTranscriptEntry[] {
   const ts = typeof ev['ts'] === 'string' ? (ev['ts'] as string) : '';
-  const make = (role: HqTranscriptRole, text: string, extra?: Partial<HqTranscriptEntry>): HqTranscriptEntry => ({
+  const make = (
+    role: HqTranscriptRole,
+    text: string,
+    extra?: Partial<HqTranscriptEntry>,
+  ): HqTranscriptEntry => ({
     ts,
     role,
     text,
@@ -78,9 +77,24 @@ export function mapSessionEventToEntries(ev: Record<string, unknown>): HqTranscr
     }
     case 'llm_response': {
       const out: HqTranscriptEntry[] = [];
-      const t = blocksToText(ev['content']);
-      if (t.trim()) out.push(make('assistant', t));
       const content = ev['content'];
+      // Thinking blocks precede text/tool_use in an assistant message (provider
+      // contract) — surface them first so the transcript preserves that order.
+      if (Array.isArray(content)) {
+        const thinking = content
+          .filter(
+            (b): b is { type: string; thinking: string } =>
+              !!b &&
+              typeof b === 'object' &&
+              (b as { type?: unknown }).type === 'thinking' &&
+              typeof (b as { thinking?: unknown }).thinking === 'string',
+          )
+          .map((b) => b.thinking)
+          .join('\n');
+        if (thinking.trim()) out.push(make('thinking', thinking));
+      }
+      const t = blocksToText(content);
+      if (t.trim()) out.push(make('assistant', t));
       if (Array.isArray(content)) {
         for (const b of content) {
           if (b && typeof b === 'object' && (b as { type?: unknown }).type === 'tool_use') {
@@ -141,7 +155,11 @@ export function mapSessionEventToEntries(ev: Record<string, unknown>): HqTranscr
  * half).
  */
 function isResultEntry(e: HqTranscriptEntry): boolean {
-  return (e.role === 'tool' || e.role === 'error') && e.toolUseId !== undefined && e.toolInput === undefined;
+  return (
+    (e.role === 'tool' || e.role === 'error') &&
+    e.toolUseId !== undefined &&
+    e.toolInput === undefined
+  );
 }
 
 /**

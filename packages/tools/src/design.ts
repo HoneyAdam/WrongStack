@@ -23,21 +23,24 @@ type Overrides = Record<string, string>;
  * destination that the tool is about to write.
  */
 async function resolveReal(p: string): Promise<string> {
-  let probe = path.resolve(p);
+  const resolved = path.resolve(p);
+  let probe = resolved;
+  const missing: string[] = [];
   for (;;) {
     try {
-      return await fs.realpath(probe);
+      return path.resolve(await fs.realpath(probe), ...missing);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         const parent = path.dirname(probe);
-        if (parent === probe) return probe; // reached fs root
+        if (parent === probe) return resolved; // reached fs root
+        missing.unshift(path.basename(probe));
         probe = parent;
         continue;
       }
       // Any other error (EACCES, EBUSY, …) — fall back to the lexical
       // resolve rather than throwing, so the caller can still surface a
       // meaningful error from the path.relative check below.
-      return path.resolve(p);
+      return resolved;
     }
   }
 }

@@ -19,7 +19,7 @@ import { useSyncExternalStore } from 'react';
 
 export interface HqLocalPrefs {
   control: {
-    cmdType: 'steer' | 'abort' | 'spawn' | 'broadcast';
+    cmdType: 'steer' | 'btw' | 'queue' | 'abort' | 'spawn' | 'broadcast' | 'run-command';
     abortTarget: 'leader' | 'fleet';
     spawnRole: string;
     steerTo: string;
@@ -95,7 +95,12 @@ function mergeWithDefaults(input: unknown): HqLocalPrefs {
   const merged: HqLocalPrefs = {
     control: {
       cmdType:
-        ctl['cmdType'] === 'abort' || ctl['cmdType'] === 'spawn' || ctl['cmdType'] === 'broadcast'
+        ctl['cmdType'] === 'btw' ||
+        ctl['cmdType'] === 'queue' ||
+        ctl['cmdType'] === 'abort' ||
+        ctl['cmdType'] === 'spawn' ||
+        ctl['cmdType'] === 'broadcast' ||
+        ctl['cmdType'] === 'run-command'
           ? ctl['cmdType']
           : DEFAULT_PREFS.control.cmdType,
       abortTarget: ctl['abortTarget'] === 'fleet' ? 'fleet' : 'leader',

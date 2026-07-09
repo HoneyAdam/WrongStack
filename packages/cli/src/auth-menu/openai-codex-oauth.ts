@@ -208,7 +208,8 @@ export function isCodexCatalogModel(model: { family?: string | undefined }): boo
  *     models.dev registry and picks models whose `family` is `gpt-codex` or
  *     `gpt-codex-spark` and whose ids are current for ChatGPT sign-in.
  *  3. **Inline fallback** — a minimal list of documented mainstream models
- *     (`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`).
+ *     (`gpt-5.6-sol`, `gpt-5.5`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+ *     `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`).
  *
  * The live/catalog tiers gate account availability, while the shared current
  * model list filters out deprecated ChatGPT sign-in ids before config is saved.

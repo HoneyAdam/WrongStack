@@ -22,6 +22,8 @@ import { safeParse, safeStringify } from '../utils/safe-json.js';
 import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
 import type { BrainArbiter } from './brain.js';
+import { formatSubagentStructuredReport } from './subagent-result-tool.js';
+import { resolveMaxSpawnDepth } from './spawn-budget.js';
 import {
   type CollabDebugReport,
   CollabSession,
@@ -31,6 +33,7 @@ import {
   FleetContextOverflowError,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  FleetTokenCapError,
 } from './director/director-errors.js';
 import {
   composeDirectorPrompt,
@@ -98,6 +101,10 @@ export interface TaskResultNotification {
   resultText?: string | undefined;
   /** Flattened `kind: message` error string for non-success statuses. */
   errorText?: string | undefined;
+  /** Bounded incomplete text recovered before a non-successful exit. */
+  partialText?: string | undefined;
+  /** Machine-readable result submitted through submit_result. */
+  report?: TaskResult['report'] | undefined;
   iterations: number;
   toolCalls: number;
   durationMs: number;
@@ -168,7 +175,8 @@ export interface DirectorOptions {
    * user is at depth `spawnDepth` (default 0); any subagent that itself
    * acts as a director would construct its own `Director` with
    * `spawnDepth: parent.spawnDepth + 1`. When `spawnDepth >= maxSpawnDepth`,
-   * `spawn()` rejects. Default: 2 (root director can spawn workers; a
+   * `spawn()` rejects. The process-wide hard ceiling is 2; configuration can
+   * narrow it but cannot widen it. Default: 2 (root director can spawn workers; a
    * worker that becomes a sub-director cannot itself spawn further).
    * This stops infinite recursive director chains from a hostile or
    * confused prompt.
@@ -227,6 +235,8 @@ export interface DirectorOptions {
          * Default: Infinity (no cap).
          */
         maxCostUsd?: number | undefined;
+        /** Maximum cumulative input+output tokens across the fleet. */
+        maxTokens?: number | undefined;
       }
     | undefined;
   /**
@@ -344,6 +354,7 @@ export {
   FleetContextOverflowError,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  FleetTokenCapError,
 } from './director/director-errors.js';
 
 export class Director implements ICoordinator {
@@ -512,6 +523,8 @@ export class Director implements ICoordinator {
   private readonly manifestDebounceMs: number;
   /** Fleet-wide cost cap (entire fleet total, distinct from SubagentBudget limits). Infinity means no cap. */
   private readonly maxFleetCostUsd: number;
+  /** Fleet-wide input+output token cap. Infinity means no cap. */
+  private readonly maxFleetTokens: number;
   /** Max auto-extensions per subagent per budget kind before denying. */
   private readonly maxBudgetExtensions: number;
   /** Sessions root for direct subagent JSONL reads (fleet tool, action: session). */
@@ -598,13 +611,14 @@ export class Director implements ICoordinator {
     this.taskResultNotifier = opts.taskResultNotifier;
     this.sharedScratchpadPath = opts.sharedScratchpadPath ?? null;
     this.maxSpawns = opts.maxSpawns ?? Number.POSITIVE_INFINITY;
-    this.maxSpawnDepth = opts.maxSpawnDepth ?? 2;
-    this.spawnDepth = opts.spawnDepth ?? 0;
+    this.maxSpawnDepth = opts.fleetManager?.maxSpawnDepth ?? resolveMaxSpawnDepth(opts.maxSpawnDepth);
+    this.spawnDepth = opts.fleetManager?.spawnDepth ?? opts.spawnDepth ?? 0;
     this.sessionWriter = opts.sessionWriter ?? null;
     this.sessionIdSource = opts.sessionId ?? (() => opts.sessionWriter?.id);
     this.manifestDebounceMs = opts.manifestDebounceMs ?? 2000;
     this.dispatchClassifier = opts.dispatchClassifier;
     this.maxFleetCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
+    this.maxFleetTokens = opts.directorBudget?.maxTokens ?? Number.POSITIVE_INFINITY;
     this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 5;
     this.maxLeaderContextLoad = opts.maxLeaderContextLoad ?? 0.85;
     this.maxContext = opts.maxContext ?? 128_000;
@@ -744,6 +758,8 @@ export class Director implements ICoordinator {
               subagentName: this.manifestEntries.get(r.subagentId)?.name,
               resultText,
               errorText: r.error ? `${r.error.kind}: ${r.error.message}` : undefined,
+              partialText: r.partial?.text,
+              report: r.report,
               iterations: r.iterations,
               toolCalls: r.toolCalls,
               durationMs: r.durationMs,
@@ -1247,6 +1263,8 @@ export class Director implements ICoordinator {
           throw new FleetSpawnBudgetError('max_spawns', rejection.limit, rejection.observed);
         if (rejection.kind === 'max_cost_usd')
           throw new FleetCostCapError(rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_tokens')
+          throw new FleetTokenCapError(rejection.limit, rejection.observed);
         if (rejection.kind === 'max_context_load')
           throw new FleetContextOverflowError(rejection.limit, rejection.observed);
       }
@@ -1261,6 +1279,13 @@ export class Director implements ICoordinator {
         const totalCost = this.usage.snapshot().total?.cost ?? 0;
         if (totalCost >= this.maxFleetCostUsd) {
           throw new FleetCostCapError(this.maxFleetCostUsd, totalCost);
+        }
+      }
+      if (this.maxFleetTokens < Number.POSITIVE_INFINITY) {
+        const total = this.usage.snapshot().total;
+        const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+        if (usedTokens >= this.maxFleetTokens) {
+          throw new FleetTokenCapError(this.maxFleetTokens, usedTokens);
         }
       }
       // Context pressure check: reject spawn if leader context is too full.
@@ -1297,6 +1322,47 @@ export class Director implements ICoordinator {
         this._usedNicknames.add(key);
       }
     }
+    // Authoritative inheritance for any child later promoted to Director.
+    // Caller-supplied lineage is overwritten so a model cannot forge depth 0
+    // or restore fleet budget already consumed by siblings.
+    const budget = this.fleetManager
+      ? this.fleetManager.budgetSnapshot()
+      : (() => {
+          const total = this.usage.snapshot().total;
+          const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+          const usedCostUsd = total?.cost ?? 0;
+          return {
+            maxSpawns: this.maxSpawns,
+            remainingSpawns: Math.max(0, this.maxSpawns - this.spawnCount - 1),
+            maxTokens: this.maxFleetTokens,
+            remainingTokens: Math.max(0, this.maxFleetTokens - usedTokens),
+            maxCostUsd: this.maxFleetCostUsd,
+            remainingCostUsd: Math.max(0, this.maxFleetCostUsd - usedCostUsd),
+          };
+        })();
+    config.spawnLineage = {
+      parentDirectorId: this.id,
+      spawnDepth: this.spawnDepth + 1,
+      maxSpawnDepth: this.maxSpawnDepth,
+      fleetBudget: {
+        ...(Number.isFinite(budget.maxSpawns) ? { maxSpawns: budget.maxSpawns } : {}),
+        ...(Number.isFinite(budget.remainingSpawns)
+          ? {
+              remainingSpawns: this.fleetManager
+                ? Math.max(0, budget.remainingSpawns - 1)
+                : budget.remainingSpawns,
+            }
+          : {}),
+        ...(Number.isFinite(budget.maxTokens) ? { maxTokens: budget.maxTokens } : {}),
+        ...(Number.isFinite(budget.remainingTokens)
+          ? { remainingTokens: budget.remainingTokens }
+          : {}),
+        ...(Number.isFinite(budget.maxCostUsd) ? { maxCostUsd: budget.maxCostUsd } : {}),
+        ...(Number.isFinite(budget.remainingCostUsd)
+          ? { remainingCostUsd: budget.remainingCostUsd }
+          : {}),
+      },
+    };
     result = await this.coordinator.spawn(config);
     // Record with FleetManager when available; otherwise manage inline.
     if (this.fleetManager) {
@@ -1426,6 +1492,7 @@ export class Director implements ICoordinator {
           toolCalls: r.toolCalls,
           durationMs: r.durationMs,
           result: r.result,
+          report: r.report,
           error: r.error,
         })),
         null,
@@ -1443,6 +1510,7 @@ export class Director implements ICoordinator {
       lines.push(`_${r.status} — ${r.iterations} iter · ${r.toolCalls} tools · ${r.durationMs}ms_`);
       lines.push('');
       if (r.error) lines.push(`**Error:** ${r.error}`);
+      else if (r.report) lines.push(formatSubagentStructuredReport(r.report));
       else if (typeof r.result === 'string') lines.push(r.result);
       else if (r.result !== undefined)
         lines.push('```json\n' + JSON.stringify(r.result, null, 2) + '\n```');

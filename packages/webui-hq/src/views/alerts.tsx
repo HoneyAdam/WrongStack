@@ -2,10 +2,11 @@
  * Alerts view — live alert feed + active alerts.
  * Fed by `hq.alert` WS messages (Phase 6) + /api/alerts history.
  */
+
+import type { HqAlert } from '@wrongstack/core';
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { useHqStore, fetchJson } from '../store.js';
-import type { HqAlert } from '@wrongstack/core';
+import { fetchJson, useHqStore } from '../store.js';
 
 interface AlertsApiResponse {
   active: HqAlert[];
@@ -63,13 +64,17 @@ export function AlertsView(): React.ReactElement {
 
       <div className="hq-card-title">Live Alert Feed (last {liveAlerts.length})</div>
       {liveAlerts.length === 0 ? (
-        <div className="hq-empty">No live alerts. Alerts fire when fleet rules trigger (cost, stale, failures).</div>
+        <div className="hq-empty">
+          No live alerts. Alerts fire when fleet rules trigger (cost, stale, failures).
+        </div>
       ) : (
         liveAlerts.map((a, i) => (
           <div key={i} className="hq-card">
             <div className="hq-row">
               <span className={'hq-pill ' + a.severity}>{a.severity}</span>
-              <span className="hq-mono" style={{ marginLeft: 'auto', color: 'var(--dim)' }}>{new Date(a.timestamp).toLocaleTimeString()}</span>
+              <span className="hq-mono" style={{ marginLeft: 'auto', color: 'var(--dim)' }}>
+                {new Date(a.timestamp).toLocaleTimeString()}
+              </span>
             </div>
             <div style={{ marginTop: 4 }}>{a.message}</div>
           </div>
@@ -81,14 +86,19 @@ export function AlertsView(): React.ReactElement {
         {apiHistory.length === 0 ? (
           <div className="hq-empty">No historical alerts.</div>
         ) : (
-          apiHistory.slice(-30).reverse().map((a, i) => (
-            <div key={i} className="hq-row">
-              <span className={'hq-pill ' + a.severity}>{a.severity}</span>
-              <span className="hq-mono">{a.ruleId}</span>
-              <span style={{ color: 'var(--muted)' }}>{a.message}</span>
-              <span className="hq-mono" style={{ marginLeft: 'auto', color: 'var(--dim)' }}>{new Date(a.lastFiredAt).toLocaleTimeString()}</span>
-            </div>
-          ))
+          apiHistory
+            .slice(-30)
+            .reverse()
+            .map((a, i) => (
+              <div key={i} className="hq-row">
+                <span className={'hq-pill ' + a.severity}>{a.severity}</span>
+                <span className="hq-mono">{a.ruleId}</span>
+                <span style={{ color: 'var(--muted)' }}>{a.message}</span>
+                <span className="hq-mono" style={{ marginLeft: 'auto', color: 'var(--dim)' }}>
+                  {new Date(a.lastFiredAt).toLocaleTimeString()}
+                </span>
+              </div>
+            ))
         )}
       </div>
     </div>

@@ -29,7 +29,7 @@
  * ```jsonc
  * {
  *   "enabled": true,
- *   "tools": "fetch|search|read|get_page_text",  // matcher; "*" = all tools
+ *   "tools": "*",             // matcher; scan all tool output by default
  *   "minMatches": 1,          // hits needed before warning
  *   "maxScanChars": 262144    // scan cap per result
  * }
@@ -75,7 +75,7 @@ interface InjectionShieldConfig {
 
 const DEFAULTS: InjectionShieldConfig = {
   enabled: true,
-  tools: 'fetch|search|read|get_page_text',
+  tools: '*',
   minMatches: 1,
   maxScanChars: 262_144,
 };
@@ -236,6 +236,7 @@ const plugin: Plugin = {
         patterns: hits,
       });
       return {
+        contextAs: 'separate' as const,
         additionalContext:
           `injection-shield WARNING: this ${input.toolName ?? 'tool'} output contains text that looks like a prompt-injection attempt ` +
           `(matched: ${hits.join(', ')}). ` +

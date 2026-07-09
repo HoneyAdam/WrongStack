@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SddInterviewDriver, SpecStore, TaskGraphStore } from '@wrongstack/core';
+import { SddInterviewDriver, SpecStore, TaskGraphStore } from '@wrongstack/sdd';
 import { SddWizardWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal ws stub capturing sent JSON messages. */

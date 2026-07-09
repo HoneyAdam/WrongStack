@@ -4,9 +4,9 @@ import type {
   AutonomyStage,
   ContentBlock,
   DesignKitEntry,
-  SddBoardSnapshot,
   TokenSavingTier,
 } from '@wrongstack/core';
+import type { SddBoardSnapshot } from '@wrongstack/sdd';
 import type {
   AuthCatalogRow,
   AuthConfirmAction,

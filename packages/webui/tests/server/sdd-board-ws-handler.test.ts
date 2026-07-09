@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventBus, type SddBoardSnapshot } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core';
+import type { SddBoardSnapshot } from '@wrongstack/sdd';
 import { SddBoardWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal ws stub capturing sent JSON messages. */

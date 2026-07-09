@@ -1,4 +1,4 @@
-import type { KanbanBoard, KanbanBoardSummary, KanbanColumn, KanbanQueueHealth, KanbanTask } from '@wrongstack/core';
+import type { KanbanBoard, KanbanBoardSummary, KanbanColumn, KanbanQueueHealth, KanbanTask } from '@wrongstack/kanban';
 import { create } from 'zustand';
 
 export interface KanbanResultPayload {

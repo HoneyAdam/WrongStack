@@ -1,4 +1,9 @@
 import {
+  deserializeTaskGraph,
+  type SerializableTaskGraph,
+  serializeTaskGraph,
+} from '@wrongstack/core';
+import {
   addColumn,
   addGoalMetricToTask,
   addTask,
@@ -6,7 +11,6 @@ import {
   claimReadyTask,
   copyTaskToBoard,
   createBoard,
-  deserializeTaskGraph,
   duplicateBoard,
   exportBoardToTaskGraph,
   generateBoardFromDescription,
@@ -28,8 +32,6 @@ import {
   removeColumn,
   removeTask,
   releaseTaskClaim,
-  type SerializableTaskGraph,
-  serializeTaskGraph,
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
@@ -37,7 +39,7 @@ import {
   updateBoard,
   updateGoalMetricOnTask,
   updateTask,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import type { WebSocket } from 'ws';
 import type { WSClientMessage } from './types.js';
 import { send } from './ws-utils.js';

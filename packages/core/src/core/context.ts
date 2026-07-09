@@ -285,6 +285,14 @@ export class Context implements RunEnv {
       if (prevMtime !== mtimeMs) this.fileHashes.delete(absPath);
     }
     this.fileMtimes.set(absPath, mtimeMs);
+    if (contentHash !== undefined) {
+      this.session.recordFileObservation?.({
+        path: absPath,
+        hash: contentHash,
+        mtimeMs,
+        source,
+      });
+    }
     if (source === 'write') {
       this.writtenFiles.add(absPath);
     } else {

@@ -1,9 +1,11 @@
 import { defineConfig } from 'tsup';
 
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 export default defineConfig({
   entry: ['src/index.ts', 'src/oauth/index.ts'],
   format: ['esm'],
-  dts: true,
+  dts: skipDts ? false : true,
   sourcemap: true,
   clean: true,
   splitting: false,

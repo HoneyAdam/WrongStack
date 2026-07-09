@@ -22,6 +22,7 @@ import {
   FleetContextOverflowError,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  FleetTokenCapError,
 } from './director/director-errors.js';
 import type { ModelMatrixSource } from './director.js';
 import type { FleetBus, FleetUsageAggregator } from './fleet-bus.js';
@@ -30,6 +31,7 @@ import type { InMemoryBridgeTransport } from './in-memory-transport.js';
 import { resolveModelMatrixResolution, roleNeedsIndependentReviewModel } from './model-matrix.js';
 import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
+import { resolveMaxSpawnDepth } from './spawn-budget.js';
 
 /**
  * Narrow interface the helpers in this file need from the Director.
@@ -53,6 +55,7 @@ export interface DirectorFleetHost {
   readonly maxSpawnDepth: number;
   readonly spawnDepth: number;
   readonly maxFleetCostUsd: number;
+  readonly maxFleetTokens?: number | undefined;
   readonly maxLeaderContextLoad: number;
   leaderContextPressure: number;
   readonly modelMatrix?: ModelMatrixSource | undefined;
@@ -143,12 +146,15 @@ export async function spawn(
         throw new FleetSpawnBudgetError('max_spawns', rejection.limit, rejection.observed);
       if (rejection.kind === 'max_cost_usd')
         throw new FleetCostCapError(rejection.limit, rejection.observed);
+      if (rejection.kind === 'max_tokens')
+        throw new FleetTokenCapError(rejection.limit, rejection.observed);
       if (rejection.kind === 'max_context_load')
         throw new FleetContextOverflowError(rejection.limit, rejection.observed);
     }
   } else {
-    if (host.spawnDepth >= host.maxSpawnDepth) {
-      throw new FleetSpawnBudgetError('max_spawn_depth', host.maxSpawnDepth, host.spawnDepth);
+    const maxSpawnDepth = resolveMaxSpawnDepth(host.maxSpawnDepth);
+    if (host.spawnDepth >= maxSpawnDepth) {
+      throw new FleetSpawnBudgetError('max_spawn_depth', maxSpawnDepth, host.spawnDepth);
     }
     if (host.spawnCount >= host.maxSpawns) {
       throw new FleetSpawnBudgetError('max_spawns', host.maxSpawns, host.spawnCount + 1);
@@ -157,6 +163,14 @@ export async function spawn(
       const totalCost = host.usage.snapshot().total?.cost ?? 0;
       if (totalCost >= host.maxFleetCostUsd) {
         throw new FleetCostCapError(host.maxFleetCostUsd, totalCost);
+      }
+    }
+    const maxFleetTokens = host.maxFleetTokens ?? Number.POSITIVE_INFINITY;
+    if (maxFleetTokens < Number.POSITIVE_INFINITY) {
+      const total = host.usage.snapshot().total;
+      const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+      if (usedTokens >= maxFleetTokens) {
+        throw new FleetTokenCapError(maxFleetTokens, usedTokens);
       }
     }
     // Context pressure check: reject spawn if leader context is too full.
@@ -192,6 +206,37 @@ export async function spawn(
       host._usedNicknames.add(key);
     }
   }
+  const total = host.usage.snapshot().total;
+  const budget = host.fleetManager?.budgetSnapshot?.();
+  const maxFleetTokens = budget?.maxTokens ?? host.maxFleetTokens ?? Number.POSITIVE_INFINITY;
+  const maxFleetCostUsd = budget?.maxCostUsd ?? host.maxFleetCostUsd;
+  const remainingTokens =
+    budget?.remainingTokens ??
+    Math.max(0, maxFleetTokens - ((total?.input ?? 0) + (total?.output ?? 0)));
+  const remainingCostUsd =
+    budget?.remainingCostUsd ?? Math.max(0, maxFleetCostUsd - (total?.cost ?? 0));
+  config.spawnLineage = {
+    parentDirectorId: host.id,
+    spawnDepth: host.spawnDepth + 1,
+    maxSpawnDepth: resolveMaxSpawnDepth(host.maxSpawnDepth),
+    fleetBudget: {
+      ...(Number.isFinite(budget?.maxSpawns ?? host.maxSpawns)
+        ? { maxSpawns: budget?.maxSpawns ?? host.maxSpawns }
+        : {}),
+      ...(Number.isFinite(budget?.remainingSpawns ?? host.maxSpawns - host.spawnCount)
+        ? {
+            remainingSpawns: Math.max(
+              0,
+              (budget?.remainingSpawns ?? host.maxSpawns - host.spawnCount) - 1,
+            ),
+          }
+        : {}),
+      ...(Number.isFinite(maxFleetTokens) ? { maxTokens: maxFleetTokens } : {}),
+      ...(Number.isFinite(remainingTokens) ? { remainingTokens } : {}),
+      ...(Number.isFinite(maxFleetCostUsd) ? { maxCostUsd: maxFleetCostUsd } : {}),
+      ...(Number.isFinite(remainingCostUsd) ? { remainingCostUsd } : {}),
+    },
+  };
   const result = await host.coordinator.spawn(config);
   // Record with FleetManager when available; otherwise manage inline.
   if (host.fleetManager) {

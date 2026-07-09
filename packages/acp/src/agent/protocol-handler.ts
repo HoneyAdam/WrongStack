@@ -488,6 +488,7 @@ export class ACPProtocolHandler {
             list: {},
             delete: {},
             resume: {},
+            fork: {},
           },
           auth: {
             logout: {},
@@ -733,16 +734,48 @@ export class ACPProtocolHandler {
   }
 
   private async handleSessionFork(id: string | number, params: unknown): Promise<boolean> {
-    // Fork creates a new session from an existing one.
     const p = (params ?? {}) as { sessionId?: unknown; cwd?: unknown; mcpServers?: unknown };
     const sourceId = typeof p.sessionId === 'string' ? p.sessionId : null;
-    if (!sourceId || !this.sessions.has(sourceId)) {
+    const source = sourceId ? this.sessions.get(sourceId) : undefined;
+    if (!sourceId || !source) {
       await this.sendError(id, -32000, `session not found: ${sourceId}`);
       return false;
     }
-    // Create a new session based on the source
-    const forkParams: Record<string, unknown> = params as Record<string, unknown>;
-    return this.handleSessionNew(id, { ...forkParams, cwd: p.cwd ?? this.defaultCwd });
+
+    const now = new Date().toISOString();
+    const sessionId = `sess_${this.allocId()}`;
+    const forked: SessionState = {
+      id: sessionId,
+      cwd: typeof p.cwd === 'string' ? p.cwd : source.cwd,
+      abort: new AbortController(),
+      modeId: source.modeId,
+      createdAt: now,
+      updatedAt: now,
+      ...(source.title !== undefined ? { title: source.title } : {}),
+    };
+    const history = (this.replayFor?.(sourceId) ?? []).map((update) => ({
+      sessionUpdate: update.sessionUpdate,
+      content: structuredClone(update.content),
+    }));
+    this.sessions.set(sessionId, forked);
+    this.seedFor?.(sessionId, history);
+    this.onSessionNew(forked);
+    await this.persist(forked, history);
+
+    await this.sendNotification({
+      sessionId,
+      update: { sessionUpdate: 'current_mode_update', modeId: forked.modeId },
+    });
+    await this.transport.send(toWire({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        sessionId,
+        modes: this.modes,
+        configOptions: this.configOptions,
+      },
+    }));
+    return false;
   }
 
   private async handleProvidersList(id: string | number, _params: unknown): Promise<boolean> {
@@ -976,10 +1009,13 @@ export class ACPProtocolHandler {
   }
 
   /** Best-effort durable persistence of a session + its recorded history. */
-  private async persist(state: SessionState): Promise<void> {
+  private async persist(
+    state: SessionState,
+    history: Array<{ sessionUpdate: string; content: unknown }> | undefined = undefined,
+  ): Promise<void> {
     if (!this.store) return;
     try {
-      await this.store.save(state, this.replayFor?.(state.id));
+      await this.store.save(state, history ?? this.replayFor?.(state.id));
     } catch {
       // persistence is best-effort — never fail a request because the disk hiccuped
     }

@@ -74,6 +74,9 @@ export function clampContextLoad(load: number): number {
 /** Upper bound on the live tool-stream text retained in state. */
 export const MAX_TOOL_STREAM_RETAINED_CHARS = 100_000;
 
+/** Upper bound on the assistant/thinking live tail retained in React state. */
+export const MAX_ASSISTANT_STREAM_RETAINED_CHARS = 16_384;
+
 /** Caps applied to tool `input` payloads before retention in history entries. */
 export const MAX_RETAINED_INPUT_CHARS = 2_048;
 export const MAX_RETAINED_INPUT_DEPTH = 4;

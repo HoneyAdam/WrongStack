@@ -30,6 +30,7 @@
 import type { Provider } from '../types/provider.js';
 import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
+import { safeParse } from '../utils/safe-json.js';
 
 export interface AutonomyBrainOptions {
   /** LLM provider for decision-making. */
@@ -264,18 +265,19 @@ async function llmDecide(
 
     const text = extractText(response).trim();
 
-    // Try to match an option id
+    // Option-bearing decisions are control-plane input, not prose. Accept the
+    // canonical JSON envelope and the historical leading `[id]` form, but
+    // never substring-match an id anywhere in free text: a response such as
+    // "do not spawn; wait" must not select the earlier `spawn` option.
     if (request.options?.length) {
-      for (const opt of request.options) {
-        if (text.toLowerCase().includes(opt.id.toLowerCase())) {
-          return {
-            type: 'answer',
-            optionId: opt.id,
-            text: opt.label,
-            rationale: text,
-          };
-        }
+      const parsed = parseOptionDecision(text, request.options);
+      if (parsed) {
+        return parsed;
       }
+      return {
+        type: 'deny',
+        reason: 'Autonomy Brain returned no exact valid option id.',
+      };
     }
 
     // Free-text answer
@@ -296,6 +298,50 @@ async function llmDecide(
     }
     return { type: 'deny', reason: 'Autonomy Brain LLM unavailable for decision.' };
   }
+}
+
+function parseOptionDecision(
+  rawText: string,
+  options: NonNullable<BrainDecisionRequest['options']>,
+): BrainDecision | null {
+  const text = rawText.trim();
+  const byId = new Map(options.map((option) => [option.id, option] as const));
+
+  // A fenced response is accepted only when the fence is the entire payload.
+  // Extracting an embedded JSON block from prose would reintroduce the same
+  // ambiguity as substring matching (for example: "do not spawn" followed by
+  // an illustrative `{ optionId: 'spawn' }` block).
+  const wholeFence = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i.exec(text);
+  const jsonCandidate = wholeFence ? (wholeFence[1] ?? '').trim() : text;
+  const parsed = safeParse<{ optionId?: unknown; rationale?: unknown }>(jsonCandidate, 16_384);
+  if (parsed.ok && parsed.value && typeof parsed.value.optionId === 'string') {
+    const option = byId.get(parsed.value.optionId);
+    if (!option) return null;
+    return {
+      type: 'answer',
+      optionId: option.id,
+      text: option.label,
+      rationale:
+        typeof parsed.value.rationale === 'string' && parsed.value.rationale.trim()
+          ? parsed.value.rationale.trim()
+          : undefined,
+    };
+  }
+
+  // Backward compatibility for the prompt's former `[id] — rationale` shape.
+  // The id must be the first semantic token; mentions later in prose are not
+  // decisions and deliberately fail closed.
+  const legacy = /^\s*\[([^\]\r\n]+)\](?:\s*(?:—|-|:)\s*)?([\s\S]*)$/.exec(text);
+  if (!legacy) return null;
+  const option = byId.get((legacy[1] ?? '').trim());
+  if (!option) return null;
+  const rationale = (legacy[2] ?? '').trim();
+  return {
+    type: 'answer',
+    optionId: option.id,
+    text: option.label,
+    rationale: rationale || undefined,
+  };
 }
 
 function extractText(result: unknown): string {

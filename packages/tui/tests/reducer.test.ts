@@ -458,6 +458,14 @@ describe('TUI reducer', () => {
     expect(s.streamingText).toBe('');
   });
 
+  it('streamDelta retains only a bounded live tail', () => {
+    let s = initial();
+    s = reducer(s, { type: 'streamDelta', delta: `head-${'x'.repeat(20_000)}` });
+    expect(s.streamingText.length).toBe(16_384);
+    expect(s.streamingText).not.toContain('head-');
+    expect(s.streamingText).toBe('x'.repeat(16_384));
+  });
+
   it('addEntry commits a thinking entry with text', () => {
     let s = initial();
     s = reducer(s, { type: 'addEntry', entry: { kind: 'thinking', text: 'reasoning here' } });

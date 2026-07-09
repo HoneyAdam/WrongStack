@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -71,6 +72,51 @@ describe('createLocalManifestSuite', () => {
 
     const suite = createLocalManifestSuite({ suiteDir: dir });
     await expect(suite.loadTasks({})).rejects.toThrow(/grader or at least one assertion/);
+  });
+
+  it('requires a hash-pinned real session transcript for a trace-eval case', async () => {
+    const dir = await makeTmp();
+    const fixture = path.join(dir, 'fixture');
+    const transcript = path.join(dir, 'corpus', 'sess_source.jsonl');
+    await fs.mkdir(fixture, { recursive: true });
+    await fs.mkdir(path.dirname(transcript), { recursive: true });
+    await fs.writeFile(path.join(fixture, 'handler.ts'), 'legacy handler\n', 'utf8');
+    const source = JSON.stringify({ type: 'session_start', id: 'source-session' }) + '\n';
+    await fs.writeFile(transcript, source, 'utf8');
+    const sha256 = createHash('sha256').update(source).digest('hex');
+    await fs.writeFile(
+      path.join(dir, 'bench.local.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'from-session',
+            prompt: 'Update the handler.',
+            templateDir: './fixture',
+            assertions: [{ type: 'file_contains', path: 'handler.ts', text: 'modern handler' }],
+            traceEval: {
+              source: {
+                sessionId: 'source-session',
+                transcriptPath: './corpus/sess_source.jsonl',
+                sha256,
+                eventStart: 0,
+                eventEnd: 0,
+              },
+              retrieval: [{ toolNames: ['read'], contains: 'legacy handler' }],
+              recall: { toolNames: ['edit'], inputContains: ['handler.ts', 'modern handler'] },
+            },
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const suite = createLocalManifestSuite({ suiteDir: dir });
+    const [task] = await suite.loadTasks({});
+    expect(task?.traceEval?.source.transcriptPath).toBe(transcript);
+    expect(task?.traceEval?.source.sha256).toBe(sha256);
+
+    await fs.writeFile(transcript, source + JSON.stringify({ type: 'session_end' }), 'utf8');
+    await expect(suite.loadTasks({})).rejects.toThrow(/hash mismatch/);
   });
 
   it('respects the task limit', async () => {

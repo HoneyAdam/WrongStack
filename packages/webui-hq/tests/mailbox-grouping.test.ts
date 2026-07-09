@@ -7,7 +7,7 @@
  *   - Counter source-of-truth (snapshot wins; derive only when absent)
  *   - Graceful handling of unrelated event types (filtered out silently)
  */
-import { describe, expect, it } from 'vitest';
+
 import type {
   HqEventEnvelope,
   HqMailboxEventPayload,
@@ -15,6 +15,7 @@ import type {
   HqMailboxSnapshotPayload,
   HqMailboxSummary,
 } from '@wrongstack/core';
+import { describe, expect, it } from 'vitest';
 import { groupMailboxEvents } from '../src/views/mailbox-grouping.js';
 
 function messageSummary(overrides: Partial<HqMailboxMessageSummary>): HqMailboxMessageSummary {

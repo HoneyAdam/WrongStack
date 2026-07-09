@@ -36,6 +36,12 @@ function getHook(api: MockApi, event = 'PreToolUse'): (input: unknown) => HookRe
   return (call as unknown[])[2] as (input: unknown) => HookResult;
 }
 
+function getAsyncHook(api: MockApi, event: string): (input: unknown) => Promise<HookResult> {
+  const call = api.registerHook.mock.calls.find(([hookEvent]: unknown[]) => hookEvent === event);
+  if (!call) throw new Error(`${event} hook not registered`);
+  return (call as unknown[])[2] as (input: unknown) => Promise<HookResult>;
+}
+
 function getStatusTool(api: MockApi): {
   execute: (input: unknown) => Promise<Record<string, unknown>>;
 } {
@@ -55,10 +61,10 @@ describe('loop-breaker plugin', () => {
     const api = makeApi();
     loopBreakerPlugin.setup(api as never);
     expect(api.tools.register).toHaveBeenCalledTimes(1);
-    expect(api.registerHook.mock.calls).toEqual(
+    expect(api.registerHook.mock.calls.map((call: unknown[]) => call.slice(0, 2))).toEqual(
       expect.arrayContaining([
-        ['PreToolUse', '*', expect.any(Function)],
-        ['PostToolUse', '*', expect.any(Function)],
+        ['PreToolUse', '*'],
+        ['PostToolUse', '*'],
       ]),
     );
   });
@@ -144,7 +150,7 @@ describe('loop-breaker plugin', () => {
     expect(block?.reason).toContain('step budget exceeded');
   });
 
-  it('warns on repeated errors and blocks the next step at the threshold', () => {
+  it('warns on repeated errors and blocks the next step at the threshold', async () => {
     const api = makeApi({
       extensions: {
         'loop-breaker': { repeatedErrorWarnAfter: 2, repeatedErrorBlockAfter: 3, blockAfter: 99 },
@@ -152,36 +158,36 @@ describe('loop-breaker plugin', () => {
     });
     loopBreakerPlugin.setup(api as never);
     const preHook = getHook(api);
-    const postHook = getHook(api, 'PostToolUse');
+    const postHook = getAsyncHook(api, 'PostToolUse');
     const failed = {
       toolName: 'exec',
       toolResult: { isError: true, content: 'Error: boom at file.ts:123:4\nstack line' },
     };
-    expect(postHook(failed)).toBeUndefined();
-    const warn = postHook(failed);
+    expect(await postHook(failed)).toBeUndefined();
+    const warn = await postHook(failed);
     expect(warn?.additionalContext).toContain('same error repeated 2x');
-    postHook(failed);
+    await postHook(failed);
     const block = preHook({ toolName: 'read', toolInput: { path: '/next' } });
     expect(block?.decision).toBe('block');
     expect(block?.reason).toContain('same tool error repeated 3 times');
   });
 
-  it('warns when mutating steps stop changing the git diff and blocks the next step', () => {
+  it('warns when mutating steps stop changing the git diff and blocks the next step', async () => {
     const api = makeApi({
       extensions: { 'loop-breaker': { noDiffWarnAfter: 1, noDiffBlockAfter: 2, blockAfter: 99 } },
     });
     loopBreakerPlugin.setup(api as never);
     const preHook = getHook(api);
-    const postHook = getHook(api, 'PostToolUse');
+    const postHook = getAsyncHook(api, 'PostToolUse');
     const okEdit = {
       toolName: 'edit',
       cwd: process.cwd(),
       toolResult: { isError: false, content: 'ok' },
     };
-    expect(postHook(okEdit)).toBeUndefined();
-    const warn = postHook(okEdit);
+    expect(await postHook(okEdit)).toBeUndefined();
+    const warn = await postHook(okEdit);
     expect(warn?.additionalContext).toContain('no diff has changed for 1 mutating step');
-    postHook(okEdit);
+    await postHook(okEdit);
     const block = preHook({ toolName: 'read', toolInput: { path: '/next' } });
     expect(block?.decision).toBe('block');
     expect(block?.reason).toContain('no diff was produced');

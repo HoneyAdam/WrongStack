@@ -104,6 +104,41 @@ describe('transcript mapper', () => {
     expect(out[1]!.text).toBe('');
   });
 
+  it('surfaces thinking blocks as a thinking entry BEFORE the assistant text', () => {
+    const out = mapSessionEventToEntries({
+      type: 'llm_response',
+      ts: 't',
+      content: [
+        { type: 'thinking', thinking: 'let me check the files' },
+        { type: 'text', text: 'listing files' },
+        { type: 'tool_use', id: 'tu_1', name: 'bash', input: { command: 'ls' } },
+      ],
+    });
+    expect(out.map((e) => e.role)).toEqual(['thinking', 'assistant', 'tool']);
+    expect(out[0]!.text).toBe('let me check the files');
+  });
+
+  it('drops empty/whitespace thinking blocks', () => {
+    const out = mapSessionEventToEntries({
+      type: 'llm_response',
+      ts: 't',
+      content: [
+        { type: 'thinking', thinking: '   ' },
+        { type: 'text', text: 'hi' },
+      ],
+    });
+    expect(out.map((e) => e.role)).toEqual(['assistant']);
+  });
+
+  it('accepts a session.transcript payload carrying a thinking entry', () => {
+    const payload: HqTranscriptAppendPayload = {
+      sessionId: 's1',
+      fromSeq: 0,
+      entries: [{ ts: 't', role: 'thinking', text: 'pondering' }],
+    };
+    expect(parseHqEventPayload('session.transcript', payload).ok).toBe(true);
+  });
+
   it('merges a tool_result INTO the args entry — one box, chronological order', () => {
     const events = [
       { type: 'user_input', ts: 't0', content: 'run ls' },

@@ -14,16 +14,18 @@
  * The actual grouping/dedup/sort lives in `./mailbox-grouping.ts` as a
  * pure helper so it can be unit-tested without jsdom or React.
  */
-import { useMemo, useState } from 'react';
-import { useHqStore } from '../store.js';
-import { LiveMailboxView } from './mailbox-live-view.js';
+
 import type {
   HqEventEnvelope,
   HqMailboxEventPayload,
   HqMailboxMessageSummary,
   HqMailboxMessageType,
 } from '@wrongstack/core';
-import { groupMailboxEvents, type FlatMessage, type ProjectGroup } from './mailbox-grouping.js';
+import { useMemo, useState } from 'react';
+import { useBackfilledEvents } from '../lib/use-backfilled-events.js';
+import { useHqStore } from '../store.js';
+import { type FlatMessage, groupMailboxEvents, type ProjectGroup } from './mailbox-grouping.js';
+import { LiveMailboxView } from './mailbox-live-view.js';
 
 const TYPE_LABEL: Record<HqMailboxMessageType, { icon: string; tone: string }> = {
   note: { icon: '📝', tone: 'info' },
@@ -65,9 +67,18 @@ export function MailboxView(): React.ReactElement {
   const snapshot = state.snapshot;
   const [mode, setMode] = useState<'grouped' | 'live'>('live');
 
+  // Seed mailbox activity from the persisted event log so a freshly-connected
+  // browser sees message content immediately (the in-memory ring only carries
+  // envelopes received AFTER this browser connected), then fold in live ones.
+  const { events: mailboxEvents } = useBackfilledEvents('mailbox.event', 300);
+  const events = useMemo(
+    () => [...mailboxEvents, ...state.events.filter((e) => e.type !== 'mailbox.event')],
+    [mailboxEvents, state.events],
+  );
+
   const { projects, hasAnyActivity } = useMemo(
-    () => groupMailboxEvents(snapshot, state.events),
-    [snapshot, state.events],
+    () => groupMailboxEvents(snapshot, events),
+    [snapshot, events],
   );
 
   const totalUnread = snapshot?.totals.unreadMailboxMessages ?? 0;
@@ -103,7 +114,7 @@ export function MailboxView(): React.ReactElement {
         </button>
       </div>
       {mode === 'live' ? (
-        <LiveMailboxView snapshot={snapshot} events={state.events} />
+        <LiveMailboxView snapshot={snapshot} events={events} />
       ) : (
         projects.map((g) => <ProjectSection key={g.projectId} group={g} />)
       )}
@@ -331,4 +342,4 @@ export const MAILBOX_ACTION_LABELS = ACTION_LABEL;
 
 // Re-export the FlatMessage + ProjectGroup types so consumers wiring
 // custom message rows can stay typed without reaching into the helper.
-export type { FlatMessage, ProjectGroup, HqMailboxMessageSummary };
+export type { FlatMessage, HqMailboxMessageSummary, ProjectGroup };

@@ -1,11 +1,11 @@
 import {
+  allServers,
   type Config,
+  countShellHooks,
   GlobalMailbox,
   type HealthRegistry,
   HookRegistry,
   HookRunner,
-  countShellHooks,
-  shellHooksEqual,
   type Logger,
   type ModelsRegistry,
   normalizeTokenSavingTier,
@@ -15,17 +15,20 @@ import {
   type SecretVault,
   type SessionWriter,
   SlashCommandRegistry,
+  shellHooksEqual,
   TOKENS,
   type ToolRegistry,
   type WstackPaths,
-  allServers,
 } from '@wrongstack/core';
 import { MCPRegistry } from '@wrongstack/mcp';
-import { createAgent, setupCompaction } from './pipeline.js';
-import { installDesignStudio } from './design-studio.js';
-import { createLifecycleHooksExtension, createUserPromptSubmitMiddleware } from '../hooks-wiring.js';
-import { makeConfirmAwaiter } from '../permission-prompt.js';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
+import {
+  createLifecycleHooksExtension,
+  createUserPromptSubmitMiddleware,
+} from '../hooks-wiring.js';
+import { makeConfirmAwaiter } from '../permission-prompt.js';
+import { installDesignStudio } from './design-studio.js';
+import { createAgent, setupCompaction } from './pipeline.js';
 import { setupPlugins } from './plugins.js';
 
 // ---------------------------------------------------------------------------
@@ -81,7 +84,11 @@ export interface LifecyclePluginsResult {
   autoCompactor: any;
   effectiveMaxContextRef: { current: number };
   applyMaxContext: (providerId: string, modelId: string, mc: number, seq?: number) => void;
-  refreshMaxContext: (providerId: string, modelId: string, runtimeProviderConfig?: ProviderConfig) => Promise<void>;
+  refreshMaxContext: (
+    providerId: string,
+    modelId: string,
+    runtimeProviderConfig?: ProviderConfig,
+  ) => Promise<void>;
   // biome-ignore lint/suspicious/noExplicitAny: agent
   agent: any;
   mcpRegistry: MCPRegistry;
@@ -131,33 +138,37 @@ export async function setupLifecycleAndPlugins(
   // ── Lifecycle hooks ──────────────────────────────────────────────────────
   const hooksEnabled = flags['no-hooks'] !== true;
   const hookRegistry = new HookRegistry();
-  if (hooksEnabled) hookRegistry.loadShellHooks(config.hooks);
+  // `--no-hooks` disables ordinary automation, not trusted enforcement.
+  // Explicit `policy: true` hooks remain active and never ask for approval;
+  // they only allow/mutate silently or deny with a model-visible reason.
+  hookRegistry.loadShellHooks(config.hooks, { policyOnly: !hooksEnabled });
   container.bind(TOKENS.HookRegistry, () => hookRegistry);
   const hookRunner = new HookRunner({
     registry: hookRegistry,
     logger,
-    allowShell: hooksEnabled,
+    allowNonPolicy: hooksEnabled,
     sessionId: () => session.id,
   });
-  if (hooksEnabled) {
-    pipelines.userInput.use(createUserPromptSubmitMiddleware(hookRunner));
+  // Install the dispatch points even under --no-hooks: ordinary entries are
+  // filtered by HookRunner, while policy hooks may be registered later by a
+  // plugin and still need a live UserPromptSubmit interception point.
+  pipelines.userInput.use(createUserPromptSubmitMiddleware(hookRunner));
 
-    // Hot-reload shell hooks when config.hooks changes at runtime
-    configStore.watch((next: Config, prev: Config) => {
-      if (!shellHooksEqual(next.hooks, prev.hooks)) {
-        try {
-          hookRegistry.replaceShellHooks(next.hooks);
-          logger.info(
-            `Shell hooks reloaded (${countShellHooks(next.hooks)} entries across ${
-              Object.keys(next.hooks ?? {}).length
-            } events)`,
-          );
-        } catch (err) {
-          logger.warn(`Hook hot-reload failed: ${(err as Error).message ?? String(err)}`);
-        }
+  // Hot-reload configured hooks, preserving the --no-hooks policy filter.
+  configStore.watch((next: Config, prev: Config) => {
+    if (!shellHooksEqual(next.hooks, prev.hooks)) {
+      try {
+        hookRegistry.replaceShellHooks(next.hooks, { policyOnly: !hooksEnabled });
+        logger.info(
+          `Hooks reloaded (${countShellHooks(next.hooks)} configured entries across ${
+            Object.keys(next.hooks ?? {}).length
+          } events)`,
+        );
+      } catch (err) {
+        logger.warn(`Hook hot-reload failed: ${(err as Error).message ?? String(err)}`);
       }
-    });
-  }
+    }
+  });
 
   // Design Studio — per-turn UI-intent detection + kit-menu injection.
   installDesignStudio({ pipelines, context });
@@ -266,9 +277,8 @@ export async function setupLifecycleAndPlugins(
     source: 'cli',
   });
 
-  if (hooksEnabled) {
-    agent.extensions.register(createLifecycleHooksExtension(hookRunner));
-  }
+  // Same late-registration rule for plugin SessionStart/Stop policy hooks.
+  agent.extensions.register(createLifecycleHooksExtension(hookRunner));
 
   // ── MCP servers ──────────────────────────────────────────────────────────
   const mcpRegistry = new MCPRegistry({

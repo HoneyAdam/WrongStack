@@ -1,4 +1,10 @@
-import type { CellResult, ModelCell, TaskResult } from './types.js';
+import type {
+  CellResult,
+  ConditionalRate,
+  ModelCell,
+  TaskResult,
+  TraceEvalMetrics,
+} from './types.js';
 
 /**
  * Fold every per-(task × cell) result for ONE cell into its leaderboard row.
@@ -36,8 +42,9 @@ export function aggregateCell(cell: ModelCell, results: TaskResult[]): CellResul
   // Edit-apply rate is undefined when no edit was ever attempted; report 1
   // (nothing failed to apply) so a no-op run doesn't drag the column down.
   const editApplyRate = editCalls === 0 ? 1 : (editCalls - editErrors) / editCalls;
+  const traceEval = aggregateTraceEval(results);
 
-  return {
+  const cellResult: CellResult = {
     cell,
     taskCount,
     gradedCount: graded.length,
@@ -51,6 +58,37 @@ export function aggregateCell(cell: ModelCell, results: TaskResult[]): CellResul
     timeoutRate: timeouts / taskCount,
     totalRateLimitRetries: sum(results, (r) => r.tools.rateLimitRetries),
   };
+  if (traceEval) cellResult.traceEval = traceEval;
+  return cellResult;
+}
+
+/**
+ * Fold transcript-mined cases into an ordered conditional funnel. A recall
+ * miss after failed retrieval is intentionally excluded from recall's
+ * denominator; likewise application is measured only after a correct model
+ * intent. That makes the three numbers diagnostic instead of overlapping.
+ */
+function aggregateTraceEval(results: TaskResult[]): TraceEvalMetrics | undefined {
+  const traces = results.flatMap((result) => (result.traceEval ? [result.traceEval] : []));
+  if (traces.length === 0) return undefined;
+
+  const retrieval = rate(traces.length, traces.filter((trace) => trace.retrievalPassed).length);
+  const recallEligible = traces.filter((trace) => trace.retrievalPassed);
+  const recallGivenRetrieval = rate(
+    recallEligible.length,
+    recallEligible.filter((trace) => trace.recallPassed).length,
+  );
+  const applicationEligible = recallEligible.filter((trace) => trace.recallPassed);
+  const editApplicationGivenRecall = rate(
+    applicationEligible.length,
+    applicationEligible.filter((trace) => trace.editApplicationPassed).length,
+  );
+
+  return { retrieval, recallGivenRetrieval, editApplicationGivenRecall };
+}
+
+function rate(eligible: number, passed: number): ConditionalRate {
+  return { eligible, passed, rate: eligible === 0 ? undefined : passed / eligible };
 }
 
 /** Group all results by cell label and aggregate each group. */

@@ -61,6 +61,12 @@ export const ToolCapabilities = {
   /** Can inspect fleet/subagent coordination state without mutating it. */
   COORDINATION_FLEET_READ: 'coordination.fleet.read',
 
+  /** Can publish attributed, schema-checked events onto the fleet bus. */
+  COORDINATION_FLEET_EMIT: 'coordination.fleet.emit',
+
+  /** Can submit a task-local structured result to the parent Director. */
+  COORDINATION_RESULT_SUBMIT: 'coordination.result.submit',
+
   /** Can read or write inter-agent mailbox messages. */
   COORDINATION_MAIL: 'coordination.mail',
 
@@ -128,6 +134,7 @@ export const WIDE_SUBAGENT_CAPABILITIES: readonly ToolCapability[] = [
   // Read-only fleet visibility (fleet_status) — peer awareness has no blast
   // radius and every fleet worker should coordinate around its peers.
   ToolCapabilities.COORDINATION_FLEET_READ,
+  ToolCapabilities.COORDINATION_RESULT_SUBMIT,
 ];
 
 /**

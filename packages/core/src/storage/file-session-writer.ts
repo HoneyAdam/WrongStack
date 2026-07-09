@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, writeSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
@@ -8,10 +8,12 @@ import type {
   SessionMetadata,
   SessionSummary,
   SessionWriter,
+  WorkspaceCheckpointRef,
 } from '../types/session.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/index.js';
+import type { SessionCheckpointCas } from './session-checkpoint-cas.js';
 import { userInputTitle } from './session-helpers.js';
 
 /**
@@ -48,6 +50,7 @@ export class FileSessionWriter implements SessionWriter {
   private appendFailCount = 0;
   private lastAppendWarnAt = 0;
   private readonly secretScrubber?: SecretScrubber | undefined;
+  private readonly checkpointCas?: SessionCheckpointCas | undefined;
   private readonly onCloseCb?: (((summary: SessionSummary) => void | Promise<void>)) | undefined;
   /** Implements SessionWriter.traceId — propagated from ContextInit.traceId. */
   traceId: string | undefined;
@@ -70,9 +73,12 @@ export class FileSessionWriter implements SessionWriter {
   // a timer-driven flush racing an explicit flush()/close() issues two
   // concurrent appendFile() calls on the shared O_APPEND handle — the kernel
   // may complete them out of order (chronology breaks) or, for large
-  // batches, interleave partial writes (torn JSONL lines). The chain keeps
-  // exactly one write in flight; failures don't break the chain.
+  // batches, interleave partial writes (torn JSONL lines). The write chain
+  // serializes handle I/O; flushChain additionally serializes the act of
+  // draining/re-queueing the in-memory event buffer so a failed older batch
+  // can never be overtaken by a newer successful one.
   private writeChain: Promise<void> = Promise.resolve();
+  private flushChain: Promise<void> = Promise.resolve();
 
   /** Enqueue a write on the FIFO chain. Resolves/rejects with that write. */
   private enqueueWrite(data: string): Promise<void> {
@@ -96,13 +102,28 @@ export class FileSessionWriter implements SessionWriter {
   /**
    * Scrub secrets out of conversation-turn events before they are observed
    * for the summary, written to the JSONL log, or surfaced on resume. Only
-   * `user_input` / `llm_response` carry free-form user/model text; other event
-   * types either have no secret-bearing content or are already scrubbed
-   * upstream (tool results). Returns the event unchanged when no scrubber is
-   * configured.
+   * `user_input`, `llm_response`, and `context_snapshot` carry free-form
+   * user/model text; other event types either have no secret-bearing content
+   * or are already scrubbed upstream (tool results). Snapshot normalization
+   * also strips transient token-cache fields even when no scrubber is set.
    */
   private scrubEvent(event: SessionEvent): SessionEvent {
     const s = this.secretScrubber;
+    if (event.type === 'context_snapshot') {
+      return {
+        ...event,
+        messages: event.messages.map((message) => {
+          const { _estTokens: _ignored, ...persisted } = message;
+          return {
+            ...persisted,
+            content:
+              typeof persisted.content === 'string'
+                ? (s?.scrub(persisted.content) ?? persisted.content)
+                : (s?.scrubObject(persisted.content) ?? persisted.content),
+          };
+        }),
+      };
+    }
     if (!s) return event;
     if (event.type === 'user_input') {
       return {
@@ -123,8 +144,33 @@ export class FileSessionWriter implements SessionWriter {
     before: string | null;
     after: string | null;
   }> = [];
+  /** Prompt whose tool work is currently executing. Set by writeCheckpoint. */
+  private activePromptIndex: number | null = null;
   /** Tracks open tool_use IDs during the current run to serialize on close for resume. */
   private openToolUses = new Set<string>();
+
+  /**
+   * Buffer an event from a synchronous Context callback. ensureInit() starts
+   * by pushing the lifecycle preamble synchronously, so session_start always
+   * precedes observations even though these callbacks cannot await append().
+   */
+  private bufferSynchronousEvent(event: SessionEvent): void {
+    if (this.closed) return;
+    void this.ensureInit();
+    this.observeForSummary(event);
+    this.writeBuffer.push(event);
+    if (this.writeBuffer.length >= FileSessionWriter.FLUSH_SIZE) {
+      if (this.flushTimer) {
+        clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+      }
+      void this.flushBuffer().catch(() => {
+        // Retained at the head of writeBuffer for the boundary retry.
+      });
+    } else {
+      this.scheduleFlush();
+    }
+  }
 
   recordFileChange(input: {
     path: string;
@@ -132,7 +178,43 @@ export class FileSessionWriter implements SessionWriter {
     before: string | null;
     after: string | null;
   }): void {
-    this.pendingFileSnapshots.push(input);
+    if (this.closed) return;
+    if (this.activePromptIndex === null) {
+      // Compatibility path for embedders that mutate before their first
+      // checkpoint. writeCheckpoint()/close() will attach these changes to the
+      // first available prompt index.
+      this.pendingFileSnapshots.push(input);
+      return;
+    }
+
+    // This method is intentionally synchronous because file tools call it
+    // immediately after their atomic mutation. Put the reconstruct event in
+    // the writer buffer before the tool returns; agent-tools flushes the buffer
+    // together with the matching tool_result boundary.
+    const event: SessionEvent = {
+      type: 'file_snapshot',
+      ts: new Date().toISOString(),
+      promptIndex: this.activePromptIndex,
+      files: [input],
+    };
+    this.bufferSynchronousEvent(event);
+  }
+
+  recordFileObservation(input: {
+    path: string;
+    hash: string;
+    mtimeMs: number;
+    source: 'user' | 'write';
+  }): void {
+    if (!input.path || !/^[a-f\d]{64}$/i.test(input.hash) || !Number.isFinite(input.mtimeMs)) return;
+    this.bufferSynchronousEvent({
+      type: 'file_observation',
+      ts: new Date().toISOString(),
+      path: input.path,
+      hash: input.hash.toLowerCase(),
+      mtimeMs: input.mtimeMs,
+      source: input.source,
+    });
   }
 
   recordSideEffect(input: {
@@ -165,6 +247,7 @@ export class FileSessionWriter implements SessionWriter {
       dir?: string | undefined;
       filePath?: string | undefined;
       secretScrubber?: SecretScrubber | undefined;
+      checkpointCas?: SessionCheckpointCas | undefined;
       /** Called on close() with the finalized summary for index/sidecar writes. */
       onClose?: (((summary: SessionSummary) => void | Promise<void>)) | undefined;
     } = {},
@@ -177,6 +260,7 @@ export class FileSessionWriter implements SessionWriter {
     this.manifestFile = opts.dir ? path.join(opts.dir, `${path.basename(id)}.summary.json`) : '';
     this.filePath = opts.filePath ?? '';
     this.secretScrubber = opts.secretScrubber;
+    this.checkpointCas = opts.checkpointCas;
     this.onCloseCb = opts.onClose;
     this.summary = {
       id,
@@ -197,23 +281,17 @@ export class FileSessionWriter implements SessionWriter {
   }
 
   private async writeSessionStartLazy(): Promise<void> {
-    // Write through the SAME file handle that flushBuffer() uses — avoids
-    // cross-fd issues on Windows where a separate fsp.writeFile can contend
-    // with the already-open append-mode handle. The handle was opened with
-    // O_APPEND so this write lands at the current end-of-file regardless of
-    // whether the file is empty or already contains prior session data.
-    const record = `${JSON.stringify({
+    // Keep the lifecycle preamble in the same retryable buffer as every other
+    // reconstruct event. Writing it through a separate one-shot append meant
+    // an ENOSPC/transient handle failure could permanently lose session_start
+    // while later events survived, leaving an unidentifiable transcript.
+    this.writeBuffer.push({
       type: this.resumed ? 'session_resumed' : 'session_start',
       ts: this.startedAt,
       id: this.id,
       model: this.meta.model ?? 'unknown',
       provider: this.meta.provider ?? 'unknown',
-    })}\n`;
-    try {
-      await this.enqueueWrite(record);
-    } catch {
-      // best-effort
-    }
+    });
   }
 
   async append(event: SessionEvent): Promise<void> {
@@ -237,7 +315,11 @@ export class FileSessionWriter implements SessionWriter {
         clearTimeout(this.flushTimer);
         this.flushTimer = null;
       }
-      await this.flushBuffer();
+      await this.flushBuffer().catch(() => {
+        // append() is intentionally best-effort. The failed batch remains at
+        // the front of writeBuffer; an explicit boundary flush can surface the
+        // error while ordinary audit appends do not abort the agent loop.
+      });
     } else {
       this.scheduleFlush();
     }
@@ -256,7 +338,9 @@ export class FileSessionWriter implements SessionWriter {
         clearTimeout(this.flushTimer);
         this.flushTimer = null;
       }
-      await this.flushBuffer();
+      await this.flushBuffer().catch(() => {
+        // Same best-effort append contract as append(); batch is retained.
+      });
     } else {
       this.scheduleFlush();
     }
@@ -267,16 +351,19 @@ export class FileSessionWriter implements SessionWriter {
    * (user_input, llm_response) call this so they survive SIGKILL/crash
    * instead of sitting in the in-memory buffer for up to 500ms.
    *
-   * Idempotent — cancels any pending timer and writes whatever has
-   * accumulated in the buffer. Safe to call even when the buffer
-   * is empty (no-op).
+   * Idempotent — cancels any pending timer, writes whatever has accumulated,
+   * then asks the OS to synchronize the file data before resolving. Even an
+   * empty-buffer flush synchronizes any earlier timer-driven append.
    */
   async flush(): Promise<void> {
+    if (this.closed) return;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     await this.flushBuffer();
+    await this.writeChain;
+    await this.handle.datasync();
   }
 
   /**
@@ -294,10 +381,21 @@ export class FileSessionWriter implements SessionWriter {
     }
     const batch = this.writeBuffer.map((e) => JSON.stringify(e)).join('\n') + '\n';
     this.writeBuffer = [];
+    let fd: number | undefined;
     try {
-      appendFileSync(this.filePath, batch, 'utf8');
+      fd = openSync(this.filePath, 'a');
+      writeSync(fd, batch, null, 'utf8');
+      fsyncSync(fd);
     } catch {
       // best-effort — the process is exiting either way
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // best-effort — the process is exiting either way
+        }
+      }
     }
   }
 
@@ -317,15 +415,25 @@ export class FileSessionWriter implements SessionWriter {
 
   /**
    * Flush all buffered events to disk as a single appendFile call.
-   * Errors use the same throttled-warning pattern the old per-event
-   * append path used — one warning every 5s with a suppressed count.
-   * On failure the buffer is cleared (events are best-effort, same as
-   * the old per-event path where a failed write was silently dropped).
+   * Concurrent callers join a FIFO flush chain. On failure the drained batch
+   * is prepended to the live buffer, preserving chronology and allowing the
+   * next timer/boundary flush to retry it. Warnings retain the existing
+   * throttled behavior.
    */
-  private async flushBuffer(): Promise<void> {
+  private flushBuffer(): Promise<void> {
+    const flush = this.flushChain.then(() => this.flushBufferOnce());
+    this.flushChain = flush.then(
+      () => undefined,
+      () => undefined,
+    );
+    return flush;
+  }
+
+  private async flushBufferOnce(): Promise<void> {
     if (this.writeBuffer.length === 0) return;
-    const eventCount = this.writeBuffer.length;
-    const batch = this.writeBuffer.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    const events = this.writeBuffer;
+    const eventCount = events.length;
+    const batch = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
     this.writeBuffer = [];
     const t0 = Date.now();
     let outcome: 'success' | 'failure' = 'success';
@@ -335,6 +443,9 @@ export class FileSessionWriter implements SessionWriter {
     } catch (err) {
       outcome = 'failure';
       errorMsg = toErrorMessage(err);
+      // No newer batch can be draining concurrently (flushChain serializes
+      // this section), so prepending restores the exact original chronology.
+      this.writeBuffer = [...events, ...this.writeBuffer];
       this.appendFailCount += eventCount;
       const now = Date.now();
       if (now - this.lastAppendWarnAt > 5000) {
@@ -348,6 +459,8 @@ export class FileSessionWriter implements SessionWriter {
         this.lastAppendWarnAt = now;
         this.appendFailCount = 0;
       }
+      if (!this.closed) this.scheduleFlush();
+      throw err;
     } finally {
       this.events?.emit('storage.write', {
         sessionId: this.id,
@@ -412,11 +525,25 @@ export class FileSessionWriter implements SessionWriter {
     // promise, so nobody proceeds (e.g. to tear down the session directory)
     // while the first close is still flushing.
     if (this.closePromise) return this.closePromise;
-    this.closePromise = this.doClose();
+    this.closePromise = this.doClose().catch((err) => {
+      // A failed durable drain must not permanently brick the writer. Keep the
+      // handle open and allow the timer or a later close() call to retry.
+      this.closed = false;
+      this.closePromise = null;
+      if (this.writeBuffer.length > 0) this.scheduleFlush();
+      throw err;
+    });
     return this.closePromise;
   }
 
   private async doClose(): Promise<void> {
+    if (this.pendingFileSnapshots.length > 0) {
+      await this.writeFileSnapshot(
+        this.activePromptIndex ?? 0,
+        [...this.pendingFileSnapshots],
+      );
+      this.pendingFileSnapshots = [];
+    }
     this.closed = true;
     // Flush any buffered events before finalizing. The summary counters
     // (toolCallCount, tokenIn/Out, outcome) are already up to date because
@@ -430,6 +557,7 @@ export class FileSessionWriter implements SessionWriter {
     // Drain any write enqueued outside flushBuffer (e.g. the lazy
     // session_start record) before the handle is closed.
     await this.writeChain;
+    await this.handle.datasync();
     // Finalize the summary before writing.
     this.summary = {
       ...this.summary,
@@ -509,12 +637,32 @@ export class FileSessionWriter implements SessionWriter {
       await this.writeFileSnapshot(promptIndex, [...this.pendingFileSnapshots]);
       this.pendingFileSnapshots = [];
     }
+    let workspaceCheckpoint: WorkspaceCheckpointRef | undefined;
+    try {
+      workspaceCheckpoint = await this.checkpointCas?.capture(this.id, promptIndex);
+    } catch (err) {
+      // Conversation checkpoints remain usable even when Git/CAS capture is
+      // unavailable. The missing workspaceCheckpoint field makes the reduced
+      // guarantee explicit to fork/materialization callers.
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'session.workspace_checkpoint_capture_failed',
+          sessionId: this.id,
+          promptIndex,
+          message: toErrorMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    }
     await this.append({
       type: 'checkpoint',
       ts: new Date().toISOString(),
       promptIndex,
       promptPreview,
+      ...(workspaceCheckpoint ? { workspaceCheckpoint } : {}),
     });
+    this.activePromptIndex = promptIndex;
     this.events?.emit('checkpoint.written', {
       sessionId: this.id,
       promptIndex,
@@ -754,6 +902,7 @@ export class FileSessionWriter implements SessionWriter {
       toPromptIndex: targetPromptIndex,
       revertedFiles: [],
     });
+    this.activePromptIndex = targetPromptIndex;
 
     this.events?.emit('session.rewound', {
       sessionId: this.id,
@@ -775,6 +924,10 @@ export class FileSessionWriter implements SessionWriter {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+    // Wait for a currently-draining batch first. If it failed and re-queued
+    // itself, the explicit reset below discards it along with the rest of the
+    // old conversation; if it succeeded, writeChain has already serialized it.
+    await this.flushChain;
     this.writeBuffer = [];
     // Let any in-flight append land first — otherwise it would re-append
     // stale events AFTER the reset record below.
@@ -787,6 +940,8 @@ export class FileSessionWriter implements SessionWriter {
       provider: this.meta.provider ?? 'unknown',
     })}\n`;
     await fsp.writeFile(this.filePath, record, 'utf8');
+    this.activePromptIndex = null;
+    this.pendingFileSnapshots = [];
   }
 
   /**
@@ -815,6 +970,13 @@ export class FileSessionWriter implements SessionWriter {
    * cleanly X times, then died without finishing Y".
    */
   async clearInFlightMarker(reason: 'clean' | 'aborted' | 'recovered'): Promise<void> {
+    if (this.pendingFileSnapshots.length > 0) {
+      await this.writeFileSnapshot(
+        this.activePromptIndex ?? 0,
+        [...this.pendingFileSnapshots],
+      );
+      this.pendingFileSnapshots = [];
+    }
     await this.append({
       type: 'in_flight_end',
       ts: new Date().toISOString(),

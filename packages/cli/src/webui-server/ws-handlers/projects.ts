@@ -91,7 +91,10 @@ export async function handleProjectsSelect(
       ? path.resolve(path.dirname(ctx.opts.globalConfigPath))
       : wstackGlobalRoot();
     const nextPaths = resolveWstackPaths({ projectRoot: resolved, globalRoot });
-    const nextSessionStore = new DefaultSessionStore({ dir: nextPaths.projectSessions });
+    const nextSessionStore = new DefaultSessionStore({
+      dir: nextPaths.projectSessions,
+      projectRoot: resolved,
+    });
     const actx = ctx.opts.agent.ctx;
     const oldWriter = actx.session ?? ctx.opts.session;
     const oldSessionId = oldWriter?.id ?? ctx.opts.session.id;

@@ -1,5 +1,5 @@
 import type { ContextWindowModeId } from './context-window.js';
-import type { HookEvent, ShellHook } from './hooks.js';
+import type { ConfiguredHook, HookEvent } from './hooks.js';
 import type { WireFamily } from './models-registry.js';
 import type { CacheTtl, Capabilities, ReasoningEffort } from './provider.js';
 import type { Permission } from './tool.js';
@@ -860,6 +860,17 @@ export interface SkillsConfig {
  * supervisor semantics.
  */
 export interface FleetConfig {
+  /** Fleet-wide hard ceilings. In-flight work may finish; new spawns are refused at the cap. */
+  budget?:
+    | {
+        /** Maximum subagents spawned during one Director lifetime. Default 64 in CLI. */
+        maxSpawns?: number | undefined;
+        /** Maximum cumulative input+output tokens across all fleet subagents. */
+        maxTokens?: number | undefined;
+        /** Maximum cumulative estimated USD cost across all fleet subagents. */
+        maxCostUsd?: number | undefined;
+      }
+    | undefined;
   /** Periodic "[FLEET PULSE]" peer-status digest folded into each agent's context. */
   pulse?:
     | {
@@ -931,7 +942,7 @@ export interface FleetSupervisorConfig {
   overloadPinnedThreshold?: number | undefined;
   /** pending > backlogFactor × live workers (sustained) → spawn-helper signal. Default 2. */
   backlogFactor?: number | undefined;
-  /** Running subagent with no tool activity for this long → stuck signal. Default 180000. */
+  /** Running subagent with no observable fleet activity for this long → stuck signal. Default 180000. */
   stuckMs?: number | undefined;
   /** Consecutive failed/timeout results from one subagent → failure-streak signal. Default 2. */
   failureStreak?: number | undefined;
@@ -1025,12 +1036,12 @@ export interface Config {
    */
   fallbackAuto?: boolean | undefined;
   /**
-   * Lifecycle shell hooks, keyed by event. Each command receives the hook
-   * `HookInput` JSON on stdin; a JSON `HookOutcome` on stdout (and exit code 2
-   * = block) steers the agent. In-process hooks are registered separately via
-   * the plugin API. Disabled entirely under `--bare` / `--no-hooks`.
+   * Lifecycle command/HTTP hooks, keyed by event. Commands receive HookInput
+   * JSON on stdin; HTTP hooks receive the same object as a POST body. A typed
+   * outcome can allow, deny, or mutate. `policy: true` enforcement hooks remain
+   * active under `--no-hooks`; ordinary automation is disabled.
    */
-  hooks?: Partial<Record<HookEvent, ShellHook[]>>;
+  hooks?: Partial<Record<HookEvent, ConfiguredHook[]>>;
   plugins?: (string | PluginConfig)[] | undefined;
   log: LogConfig;
   features: FeaturesConfig;

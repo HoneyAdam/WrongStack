@@ -33,6 +33,11 @@ Bridge contract:
     Cover: what you accomplished, what you changed (files/commands), how it
     was verified, uncertainty flags, and any blockers or leftovers. Never end with a bare
     "done" — an unverifiable report forces the Director to redo your work.
+  - If the `submit_result` tool is available, call it once near the end with
+    `summary`, atomic `findings`, project-relative `files_examined`, numeric
+    `confidence` (0..1), and `suggested_next_steps`. Then give a short normal
+    final response. The tool report is the machine-readable control-plane
+    result; your final response remains the human-readable handoff.
 
 CRITICAL CONSTRAINT — NO FURTHER DELEGATION:
   - You MUST NOT call `delegate`, `spawn_subagent`, `assign_task`, or any

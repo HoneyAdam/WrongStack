@@ -20,7 +20,7 @@ function visibleProviderModels(config: Config, providerId: string, providerModel
   return entry?.models !== undefined ? [...entry.models] : providerModels;
 }
 import type { Logger } from '../types/logger.js';
-import { type Provider, ProviderError, StreamHangError } from '../types/provider.js';
+import { type Provider, ProviderError, type ProviderErrorKind } from '../types/provider.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
@@ -101,27 +101,33 @@ export function fallbackProfileChain(config: Config, profileName: string | undef
  * Check if an error should trigger a fallback. Returns the status for
  * logging, or null if the error doesn't warrant a fallback attempt.
  *
- * Triggers on:
- *   - StreamHangError (always — the upstream endpoint stalled mid-response)
- *   - HTTP 429 (rate limited)
- *   - HTTP 529 (overloaded)
- *   - HTTP 5xx (server error)
- *   - HTTP 0 / network error (connection failure, DNS failure, etc.)
+ * Branches on the canonical `ProviderError.kind`: capacity/availability
+ * failures (rate limit, overload, server error, stream hang, timeout,
+ * network) are worth trying on another provider; request-shaped failures
+ * (auth, invalid request, context overflow, content filter) would fail
+ * identically anywhere — or need a different remedy (compaction, key fix) —
+ * so they surface instead.
  */
 function shouldFallback(err: unknown): number | null {
-  if (err instanceof StreamHangError) {
-    // Stream hangs are always worth falling back — the endpoint is
-    // likely overloaded or has a routing issue.
-    return 599;
-  }
   if (!(err instanceof ProviderError)) return null;
-  const s = err.status;
-  // Network errors (status 0) — connection couldn't be established
-  if (s === 0) return s;
-  // Rate limits, overload, and server errors
-  if (s === 429 || s === 529 || s >= 500) return s;
-  return null;
+  return FALLBACK_WORTHY_KINDS[err.kind] ? err.status : null;
 }
+
+/** Exhaustive kind → hop-eligibility mapping (compile-guarded like the other
+ *  kind tables): capacity/transport failures hop; request-shaped ones don't. */
+const FALLBACK_WORTHY_KINDS: Record<ProviderErrorKind, boolean> = {
+  stream_hang: true,
+  rate_limit: true,
+  overloaded: true,
+  server: true,
+  timeout: true,
+  network: true,
+  auth: false,
+  invalid_request: false,
+  context_overflow: false,
+  content_filter: false,
+  unknown: false,
+};
 
 /** A provider is usable as a fallback target when it has a stored key, a key
  *  list, or a populated env var. Mirrors `setmodel.providerHasKey`. */

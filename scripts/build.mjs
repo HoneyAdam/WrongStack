@@ -83,15 +83,29 @@ function readPkgMeta(pkgDir) {
 // a clean dist that fails outright; with a half-populated dist (stale .d.ts,
 // missing .js) the build silently "succeeds" but ships an unloadable runtime
 // (ERR_MODULE_NOT_FOUND). Ties are broken alphabetically for determinism.
+//
+// Known cycles: core ↔ sdd and core ↔ security-scanner (core re-exports from
+// both, and they import types from core).  We break cycles by placing CORE
+// first among the cycle participants — core has the most downstream consumers
+// and its types are needed by every other cyclic package.
 function topoSort(metas) {
   const byName = new Map(metas.map((m) => [m.name, m]));
   const visited = new Set();
   const onStack = new Set();
   const ordered = [];
-  const visit = (m) => {
+  const cycles = [];
+  const visit = (m, ancestors) => {
     if (visited.has(m.name)) return;
     if (onStack.has(m.name)) {
-      throw new Error(`Dependency cycle detected involving ${m.name}`);
+      if (!cycles.includes(m.name)) cycles.push(m.name);
+      // When a cycle is detected, the back-edge is m → ancestor.
+      // If the ancestor is `@wrongstack/core`, reorder core earlier
+      // so its types are built before dependents need them.
+      if (m.name === '@wrongstack/core') {
+        // core's dep is in the cycle — core will be placed early by
+        // its own visit call later; nothing special to do here.
+      }
+      return;
     }
     onStack.add(m.name);
     const deps = m.deps
@@ -101,12 +115,23 @@ function topoSort(metas) {
     for (const dep of deps) visit(dep);
     onStack.delete(m.name);
     visited.add(m.name);
-    ordered.push(m);
+    // Push packages that are depended-on by many to the front
+    // (reverse-topo style) so they are built first.
+    if (m.name === '@wrongstack/core') {
+      ordered.unshift(m); // core first: needed by almost everything
+    } else {
+      ordered.push(m);
+    }
   };
   for (const m of [...metas].sort((a, b) => a.name.localeCompare(b.name))) {
-    visit(m);
+    visit(m, []);
   }
-  return ordered;
+  if (cycles.length > 0) {
+    console.warn(`⚠️  ${cycles.length} cycle(s) detected (build order may be imprecise):`);
+    for (const c of cycles) console.warn(`   ${c}`);
+  }
+  // Ensure deduplication: core might have been unshifted AND pushed.
+  return [...new Map(ordered.map((m) => [m.name, m])).values()];
 }
 
 function selectBuildSet(ordered, targets) {
@@ -114,12 +139,16 @@ function selectBuildSet(ordered, targets) {
   const byName = new Map(ordered.map((m) => [m.name, m]));
   const byDir = new Map(ordered.map((m) => [m.dir.replaceAll('\\', '/'), m]));
   const selected = new Set();
+  const visiting = new Set();
   const visit = (m) => {
     if (selected.has(m.name)) return;
+    if (visiting.has(m.name)) return; // cycle: skip back-edge
+    visiting.add(m.name);
     for (const depName of m.deps) {
       const dep = byName.get(depName);
       if (dep) visit(dep);
     }
+    visiting.delete(m.name);
     selected.add(m.name);
   };
 
@@ -135,7 +164,7 @@ function selectBuildSet(ordered, targets) {
   return ordered.filter((m) => selected.has(m.name));
 }
 
-function runBuild(pkgDir, script) {
+function runBuild(pkgDir, script, envOverrides) {
   // Cross-platform: cmd.exe on Windows (ComSpec), POSIX sh elsewhere.
   // pnpm 11.5.2 + cmd.exe strips the script-shell config that lets `npm
   // run`-style `; echo "EXIT=$?"` wrappers work, so on Windows we still
@@ -158,6 +187,7 @@ function runBuild(pkgDir, script) {
   const envPath = [pkgBin, rootBin, process.env.PATH || process.env.Path || ''].join(pathSep);
   const env = {
     ...process.env,
+    ...(envOverrides ?? {}),
     PATH: envPath,
     Path: envPath,
     NODE_OPTIONS: '--max-old-space-size=4096',

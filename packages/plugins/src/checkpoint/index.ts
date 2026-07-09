@@ -37,6 +37,7 @@
  */
 
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
@@ -153,6 +154,24 @@ function captureFile(path: string, maxBytes: number): Snapshot['files'][number] 
   }
 }
 
+async function captureFileForHook(
+  path: string,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<Snapshot['files'][number] | 'too-large'> {
+  try {
+    signal.throwIfAborted();
+    const st = await stat(path);
+    if (st.size > maxBytes) return 'too-large';
+    const content = await readFile(path, 'utf-8');
+    signal.throwIfAborted();
+    return { path, content, bytes: st.size };
+  } catch (err) {
+    if (signal.aborted) throw err;
+    return { path, content: null, bytes: 0 };
+  }
+}
+
 function pushSnapshot(snapshot: Snapshot, maxSnapshots: number): void {
   state.snapshots.push(snapshot);
   if (state.snapshots.length > maxSnapshots) {
@@ -217,13 +236,16 @@ const plugin: Plugin = {
 
     // ── Auto-capture hook ─────────────────────────────────────────────
     if (cfg.enabled && cfg.autoCapture) {
-      const hook = (input: { toolName?: string | undefined; toolInput?: unknown }) => {
+      const hook = async (
+        input: { toolName?: string | undefined; toolInput?: unknown },
+        runtime: { signal: AbortSignal } = { signal: new AbortController().signal },
+      ) => {
         const ti = (input.toolInput ?? {}) as Record<string, unknown>;
         const raw = ti['path'] ?? ti['file_path'] ?? ti['filePath'];
         if (typeof raw !== 'string' || raw.length === 0) return;
         const safePath = resolveProjectPath(raw);
         if (!safePath) return;
-        const captured = captureFile(safePath, cfg.maxFileBytes);
+        const captured = await captureFileForHook(safePath, cfg.maxFileBytes, runtime.signal);
         if (captured === 'too-large') {
           state.skippedLarge += 1;
           return;
@@ -256,7 +278,13 @@ const plugin: Plugin = {
           when: new Date().toISOString(),
         });
       };
-      state.hookUnregister = api.registerHook('PreToolUse', 'write|edit', hook as never);
+      state.hookUnregister = api.registerHook('PreToolUse', 'write|edit', hook as never, {
+        name: 'checkpoint-guard',
+        stage: 'validate',
+        // Checkpointing is recovery automation, not an enforcement boundary.
+        // A transient read failure must not stall normal/YOLO writes.
+        failurePolicy: 'open',
+      });
     }
 
     // ── checkpoint_create ─────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import type { Mailbox } from '../coordination/mailbox-types.js';
 import type { ToolCallPipelinePayload } from '../core/agent.js';
 import type { Context } from '../core/context.js';
 import type { ExtensionRegistry } from '../extension/registry.js';
@@ -7,10 +8,9 @@ import type { ReadonlyPipeline } from '../kernel/pipeline.js';
 import type { ToolWrapper } from '../registry/tool-registry.js';
 import type { TextBlock } from './blocks.js';
 import type { Config } from './config.js';
-import type { HookEvent, HookMatcher, InProcessHook } from './hooks.js';
+import type { HookEvent, HookMatcher, HookRegistrationOptions, InProcessHook } from './hooks.js';
 import type { Logger } from './logger.js';
 import type { ModelsRegistry, WireFamily } from './models-registry.js';
-import type { Mailbox } from '../coordination/mailbox-types.js';
 import type { Provider, Request, Response } from './provider.js';
 import type { SlashCommand } from './slash-command.js';
 import type { SystemPromptContributor } from './system-prompt-contributor.js';
@@ -175,7 +175,12 @@ export interface PluginAPI {
    * context — see `HookOutcome`. Automatically removed when the plugin is
    * uninstalled. Returns an unregister function.
    */
-  registerHook(event: HookEvent, matcher: HookMatcher | undefined, hook: InProcessHook): () => void;
+  registerHook(
+    event: HookEvent,
+    matcher: HookMatcher | undefined,
+    hook: InProcessHook,
+    options?: HookRegistrationOptions | undefined,
+  ): () => void;
   config: Config;
   log: Logger;
   /**

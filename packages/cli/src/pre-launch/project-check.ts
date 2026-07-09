@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { color, toErrorMessage } from '@wrongstack/core';
 import type { ReadlineInputReader } from '../input-reader.js';
 import type { TerminalRenderer } from '../renderer.js';
-import { detectProjectFacts, renderAgentsTemplate } from '../slash-commands/index.js';
+import { detectProjectFacts, renderAgentsTemplate } from '../services/project-facts.js';
 
 export type ProjectKind =
   /** `.wrongstack/AGENTS.md` exists — fully set up. */

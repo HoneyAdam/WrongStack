@@ -18,6 +18,55 @@ export const sessionsCmd: SubcommandHandler = async (args, deps) => {
     deps.renderer.writeError('No session store available.');
     return 1;
   }
+  if (sub === 'fork') {
+    if (!deps.sessionStore.fork) {
+      deps.renderer.writeError('This session store does not support forking.\n');
+      return 1;
+    }
+    const forkArgs = args.slice(1);
+    const explicitId = forkArgs[0] && !forkArgs[0].startsWith('-') ? forkArgs[0] : undefined;
+    const sourceId = explicitId ?? (await deps.sessionStore.list(1))[0]?.id;
+    if (!sourceId) {
+      deps.renderer.writeError('No source session found to fork.\n');
+      return 1;
+    }
+    const checkpointRaw = extractArg(forkArgs, '--to');
+    if (forkArgs.includes('--to') && checkpointRaw === null) {
+      deps.renderer.writeError('--to requires a checkpoint index.\n');
+      return 1;
+    }
+    let checkpointPromptIndex: number | undefined;
+    if (checkpointRaw !== null) {
+      checkpointPromptIndex = Number(checkpointRaw);
+      if (!Number.isInteger(checkpointPromptIndex) || checkpointPromptIndex < 0) {
+        deps.renderer.writeError('--to must be a non-negative checkpoint index.\n');
+        return 1;
+      }
+    }
+    try {
+      const forked = await deps.sessionStore.fork(sourceId, { checkpointPromptIndex });
+      deps.renderer.write(
+        [
+          `Forked ${sourceId}${checkpointPromptIndex !== undefined ? ` at checkpoint ${checkpointPromptIndex}` : ' at latest persisted boundary'}.`,
+          `  Child: ${forked.id}`,
+          `  Checkpoint hash: ${forked.checkpointHash}`,
+          '  Workspace: shared-current (journal history is isolated; files are not copied)',
+          ...(forked.workspaceCheckpoint
+            ? [
+                `  Workspace checkpoint: ${forked.workspaceCheckpoint.manifestHash}`,
+                `    Base HEAD: ${forked.workspaceCheckpoint.baseHead}; paths: ${forked.workspaceCheckpoint.entryCount}; unresolved: ${forked.workspaceCheckpoint.unresolvedCount}`,
+              ]
+            : ['  Workspace checkpoint: unavailable for this boundary']),
+          `Resume with: wstack resume ${forked.id}`,
+          '',
+        ].join('\n'),
+      );
+      return 0;
+    } catch (err) {
+      deps.renderer.writeError(`Fork failed: ${err instanceof Error ? err.message : String(err)}\n`);
+      return 1;
+    }
+  }
   const list = await deps.sessionStore.list(20);
   if (list.length === 0) {
     deps.renderer.write('No sessions found.\n');

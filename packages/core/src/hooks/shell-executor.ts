@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
+import type { AnyHookOutcome, HookInput, HookOutcome } from '../types/hooks.js';
+import type { Logger } from '../types/logger.js';
 import { buildChildEnv } from '../utils/child-env.js';
 import { toErrorMessage } from '../utils/error.js';
-import type { HookInput, HookOutcome } from '../types/hooks.js';
-import type { Logger } from '../types/logger.js';
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -14,25 +14,75 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 //   2. Create wrapper scripts under .wrongstack/hooks/ and reference them by absolute path
 const ALLOWED_SHELL_COMMANDS = new Set([
   // POSIX shells + Windows shells
-  'bash', 'sh', 'dash', 'zsh', 'fish', 'pwsh', 'powershell', 'cmd',
+  'bash',
+  'sh',
+  'dash',
+  'zsh',
+  'fish',
+  'pwsh',
+  'powershell',
+  'cmd',
   // Script interpreters — hooks are routinely small node/python scripts
-  'node', 'deno', 'bun', 'npx', 'npm', 'pnpm', 'yarn',
-  'python', 'python3', 'perl', 'ruby',
+  'node',
+  'deno',
+  'bun',
+  'npx',
+  'npm',
+  'pnpm',
+  'yarn',
+  'python',
+  'python3',
+  'perl',
+  'ruby',
   // Utilities
-  'echo', 'cat', 'grep', 'sed', 'awk', 'find', 'sort', 'uniq', 'wc', 'head', 'tail', 'cut',
-  'tr', 'tee', 'xargs', 'printf', 'test', 'expr',
+  'echo',
+  'cat',
+  'grep',
+  'sed',
+  'awk',
+  'find',
+  'sort',
+  'uniq',
+  'wc',
+  'head',
+  'tail',
+  'cut',
+  'tr',
+  'tee',
+  'xargs',
+  'printf',
+  'test',
+  'expr',
   // File operations
-  'ls', 'stat', 'touch', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'chown',
+  'ls',
+  'stat',
+  'touch',
+  'mkdir',
+  'rm',
+  'cp',
+  'mv',
+  'chmod',
+  'chown',
   // Network (read-only)
-  'curl', 'wget',
+  'curl',
+  'wget',
   // Git (common operations)
-  'git', 'diff', 'merge',
+  'git',
+  'diff',
+  'merge',
   // Process
-  'ps', 'kill', 'pgrep', 'pkill',
+  'ps',
+  'kill',
+  'pgrep',
+  'pkill',
   // Text processing
-  'jq', 'yq',
+  'jq',
+  'yq',
   // System info
-  'uname', 'hostname', 'whoami', 'date',
+  'uname',
+  'hostname',
+  'whoami',
+  'date',
 ]);
 
 /** Absolute path on either platform (POSIX `/...` or Windows `C:\...` / `C:/...`). */
@@ -49,7 +99,7 @@ function isCommandAllowed(command: string): boolean {
   if (isAbsoluteCommandPath(baseCommand)) return true;
   // Relative path with separators (e.g. ./scripts/hook.sh) — judge by filename.
   const commandName = /[\\/]/.test(baseCommand)
-    ? baseCommand.split(/[\\/]/).pop() ?? baseCommand
+    ? (baseCommand.split(/[\\/]/).pop() ?? baseCommand)
     : baseCommand;
 
   return ALLOWED_SHELL_COMMANDS.has(commandName);
@@ -58,6 +108,59 @@ function isCommandAllowed(command: string): boolean {
 export interface ShellHookSpec {
   command: string;
   timeoutMs?: number | undefined;
+}
+
+export type HookExecutionFailureKind =
+  | 'aborted'
+  | 'error'
+  | 'exit'
+  | 'invalid_output'
+  | 'rejected'
+  | 'timeout';
+
+export interface HookExecutionFailure {
+  kind: HookExecutionFailureKind;
+  message: string;
+}
+
+export interface HookExecutionResult {
+  outcome: AnyHookOutcome | null;
+  failure?: HookExecutionFailure | undefined;
+}
+
+export interface HookExecutionOptions {
+  signal?: AbortSignal | undefined;
+}
+
+function killProcessTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  if (typeof pid === 'number') {
+    if (process.platform === 'win32') {
+      try {
+        const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        killer.unref();
+        return;
+      } catch {
+        // Fall through to direct kill.
+      }
+    } else {
+      try {
+        // Command hooks are detached into their own process group on POSIX.
+        process.kill(-pid, 'SIGKILL');
+        return;
+      } catch {
+        // Fall through to direct kill.
+      }
+    }
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -75,20 +178,45 @@ export async function runShellHook(
   input: HookInput,
   logger?: Logger | undefined,
 ): Promise<HookOutcome | null> {
-  const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const result = await runShellHookDetailed(spec, input, logger);
+  if (result.outcome && 'action' in result.outcome) {
+    if (result.outcome.action === 'deny') {
+      return { decision: 'block', reason: result.outcome.reason };
+    }
+    if (result.outcome.action === 'mutate') {
+      return { decision: 'allow', modifiedInput: result.outcome.input };
+    }
+    return { decision: 'allow' };
+  }
+  return result.outcome as HookOutcome | null;
+}
+
+/** Detailed executor used by HookRunner to apply per-hook failure policy. */
+export async function runShellHookDetailed(
+  spec: ShellHookSpec,
+  input: HookInput,
+  logger?: Logger | undefined,
+  options: HookExecutionOptions = {},
+): Promise<HookExecutionResult> {
+  const timeoutMs = Math.max(1, Math.min(spec.timeoutMs ?? DEFAULT_TIMEOUT_MS, 10 * 60_000));
 
   // Security: reject commands not in the allowlist
   if (!isCommandAllowed(spec.command)) {
     logger?.warn?.(`hook rejected: command not in allowlist: ${spec.command}`);
-    return null;
+    return {
+      outcome: null,
+      failure: { kind: 'rejected', message: 'command is not in the hook allowlist' },
+    };
   }
 
-  return await new Promise<HookOutcome | null>((resolve) => {
+  return await new Promise<HookExecutionResult>((resolve) => {
     let settled = false;
-    const done = (v: HookOutcome | null) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = (v: HookExecutionResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
       resolve(v);
     };
 
@@ -103,20 +231,34 @@ export async function runShellHook(
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
         windowsHide: true,
+        detached: process.platform !== 'win32',
       });
     } catch (err) {
       logger?.warn?.(`hook spawn failed: ${toErrorMessage(err)}`);
-      return resolve(null);
+      return resolve({
+        outcome: null,
+        failure: { kind: 'error', message: `spawn failed: ${toErrorMessage(err)}` },
+      });
     }
 
-    const timer = setTimeout(() => {
+    const onAbort = () => {
+      killProcessTree(child);
+      done({ outcome: null, failure: { kind: 'aborted', message: 'hook invocation aborted' } });
+    };
+
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+
+    timer = setTimeout(() => {
       logger?.warn?.(`hook command timed out after ${timeoutMs}ms: ${spec.command}`);
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        /* ignore */
-      }
-      done(null);
+      killProcessTree(child);
+      done({
+        outcome: null,
+        failure: { kind: 'timeout', message: `timed out after ${timeoutMs}ms` },
+      });
     }, timeoutMs);
 
     let out = '';
@@ -136,16 +278,35 @@ export async function runShellHook(
 
     child.on('error', (e) => {
       logger?.warn?.(`hook command error: ${e instanceof Error ? e.message : String(e)}`);
-      done(null);
+      done({
+        outcome: null,
+        failure: { kind: 'error', message: e instanceof Error ? e.message : String(e) },
+      });
     });
 
     child.on('close', (code) => {
       if (code === 2) {
         const reason = (err.trim() || out.trim() || 'blocked by hook').slice(0, 2_000);
-        return done({ decision: 'block', reason });
+        return done({ outcome: { action: 'deny', reason } });
       }
-      const parsed = parseOutcome(out);
-      done(parsed);
+      if (code !== 0) {
+        return done({
+          outcome: null,
+          failure: {
+            kind: 'exit',
+            message: (err.trim() || `hook exited with code ${String(code)}`).slice(0, 2_000),
+          },
+        });
+      }
+      if (!out.trim()) return done({ outcome: null });
+      const parsed = parseHookOutcome(out);
+      if (!parsed) {
+        return done({
+          outcome: null,
+          failure: { kind: 'invalid_output', message: 'hook stdout was not valid outcome JSON' },
+        });
+      }
+      done({ outcome: parsed });
     });
 
     // Feed the payload and close stdin so the command isn't left waiting.
@@ -157,12 +318,40 @@ export async function runShellHook(
   });
 }
 
-function parseOutcome(stdout: string): HookOutcome | null {
+export function parseHookOutcome(stdout: string): AnyHookOutcome | null {
   const trimmed = stdout.trim();
   if (trimmed?.[0] !== '{') return null;
   try {
     const obj = JSON.parse(trimmed) as Record<string, unknown>;
     const outcome: HookOutcome = {};
+    const common: {
+      additionalContext?: string | undefined;
+      contextAs?: 'inline' | 'separate' | undefined;
+    } = {
+      ...(typeof obj['additionalContext'] === 'string'
+        ? { additionalContext: obj['additionalContext'] }
+        : {}),
+      ...(obj['contextAs'] === 'inline' || obj['contextAs'] === 'separate'
+        ? { contextAs: obj['contextAs'] as 'inline' | 'separate' }
+        : {}),
+    };
+    if (obj['action'] === 'allow' || obj['action'] === 'deny' || obj['action'] === 'mutate') {
+      if (obj['action'] === 'deny') {
+        if (typeof obj['reason'] !== 'string' || !obj['reason'].trim()) return null;
+        return { action: 'deny', reason: obj['reason'], ...common };
+      }
+      if (obj['action'] === 'mutate') {
+        if (!obj['input'] || typeof obj['input'] !== 'object' || Array.isArray(obj['input']))
+          return null;
+        return {
+          action: 'mutate',
+          input: obj['input'] as Record<string, unknown>,
+          ...(typeof obj['reason'] === 'string' ? { reason: obj['reason'] } : {}),
+          ...common,
+        };
+      }
+      return { action: 'allow', ...common };
+    }
     if (obj['decision'] === 'block' || obj['decision'] === 'allow') {
       outcome.decision = obj['decision'];
     }
@@ -172,6 +361,9 @@ function parseOutcome(stdout: string): HookOutcome | null {
     }
     if (obj['modifiedInput'] && typeof obj['modifiedInput'] === 'object') {
       outcome.modifiedInput = obj['modifiedInput'] as Record<string, unknown>;
+    }
+    if (obj['contextAs'] === 'inline' || obj['contextAs'] === 'separate') {
+      outcome.contextAs = obj['contextAs'];
     }
     return outcome;
   } catch {

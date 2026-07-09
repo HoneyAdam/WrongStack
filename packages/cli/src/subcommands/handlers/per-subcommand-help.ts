@@ -444,7 +444,7 @@ const helpTable: Record<string, PerSubcommandHelp> = {
     seeAlso: 'wstack auth local (pre-fill Ollama / vLLM / LM Studio)',
   },
 
-  // -- Session list / resume / show ---------------------------------------
+  // -- Session list / resume / show / fork --------------------------------
   sessions: {
     name: 'sessions',
     title: 'wstack sessions — list and resume recent sessions',
@@ -452,11 +452,12 @@ const helpTable: Record<string, PerSubcommandHelp> = {
       'List recent sessions, show one session in detail, resume a ' +
       'session, or inspect a session\'s audit log. The audit log is ' +
       'stored as JSONL next to each session\'s recording.',
-    usage: 'wstack sessions [list|show|resume|config|fleet] [...]',
+    usage: 'wstack sessions [list|show|resume|fork|config|fleet] [...]',
     subcommands: [
       { name: 'list', description: 'List the most recent sessions.' },
       { name: 'show <id>', description: 'Show one session in detail.' },
       { name: 'resume [<id>]', description: 'Resume a session (latest if no id given).' },
+      { name: 'fork [<id>] [--to N]', description: 'Create an isolated child journal at a persisted boundary.' },
       { name: 'config', description: 'Show or edit session-specific config.' },
       { name: 'fleet', description: 'List the active fleet of sessions.' },
     ],
@@ -909,6 +910,23 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
       { name: '[<id>]', description: 'Session id to resume (defaults to the most recent).' },
     ],
     seeAlso: 'wstack sessions list (find a recent id); wstack sessions show <id> (preview before resuming)',
+  },
+  'sessions:fork': {
+    name: 'sessions:fork',
+    title: 'wstack sessions fork [<id>] [--to N] — branch a session journal',
+    description:
+      'Create a non-destructive child JSONL journal from the latest persisted ' +
+      'boundary or checkpoint N. The parent is unchanged and the returned ' +
+      'checkpoint hash identifies the exact parent event prefix. New Git-backed ' +
+      'checkpoints also report a content-addressed workspace manifest, but the ' +
+      'fork command does not apply it automatically: files remain shared until ' +
+      'a host materializes that manifest into a separate clean checkout.',
+    usage: 'wstack sessions fork [<id>] [--to N]',
+    subcommands: [
+      { name: '[<id>]', description: 'Parent session id (defaults to the most recent).' },
+      { name: '--to N', description: 'Fork at checkpoint prompt index N.' },
+    ],
+    seeAlso: 'wstack rewind --list (find checkpoints); wstack sessions resume <child-id>',
   },
   'sessions:fleet': {
     name: 'sessions:fleet',

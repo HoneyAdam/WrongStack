@@ -43,9 +43,11 @@
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*",
+    "@wrongstack/kanban": "workspace:*",
     "@wrongstack/mcp": "workspace:*",
     "@wrongstack/providers": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
+    "@wrongstack/sdd": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "jszip": "^3.10.1",
     "ws": "^8.21.0"

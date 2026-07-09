@@ -5,10 +5,11 @@
  * single at-a-glance card grid so the operator can triage the
  * fleet without bouncing between tabs.
  */
+
+import type { HqAlert } from '@wrongstack/core';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { useHqStore, fetchJson, postCommand, setActiveView, type ViewId } from '../store.js';
-import type { HqAlert } from '@wrongstack/core';
+import { fetchJson, postCommand, setActiveView, useHqStore, type ViewId } from '../store.js';
 
 interface CockpitAlertEntry {
   severity: 'info' | 'warn' | 'error' | 'critical' | string;

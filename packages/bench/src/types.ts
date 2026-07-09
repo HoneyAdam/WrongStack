@@ -51,6 +51,12 @@ export interface BenchTask {
   templateExclude?: string[] | undefined;
   /** Opaque per-suite data the grader needs (test command, language, etc.). */
   meta: Record<string, unknown>;
+  /**
+   * Optional three-stage trace evaluation. These cases are mined from a real
+   * session transcript and make retrieval, model recall/intent, and edit-tool
+   * application independently observable.
+   */
+  traceEval?: TranscriptEvalSpec | undefined;
 }
 
 export type SuiteId = 'polyglot' | 'swebench' | 'local';
@@ -101,6 +107,8 @@ export interface TaskResult {
   grade: GradeResult;
   /** Tool-call metrics parsed from the isolated session JSONL. */
   tools: ToolMetrics;
+  /** Present only for real-transcript trace evaluation cases. */
+  traceEval?: TraceEvalResult | undefined;
 }
 
 /** Tool-level metrics derived from the session log (model-free). */
@@ -114,6 +122,76 @@ export interface ToolMetrics {
   rateLimitRetries: number;
 }
 
+/** Immutable provenance for an evaluation case mined from a real session. */
+export interface TranscriptCaseSource {
+  /** Session id recorded by the original JSONL transcript. */
+  sessionId: string;
+  /** Absolute path after the manifest loader resolves the source path. */
+  transcriptPath: string;
+  /** SHA-256 of the original transcript, preventing silent source drift. */
+  sha256: string;
+  /** Inclusive zero-based JSONL event range used to curate the case. */
+  eventStart: number;
+  eventEnd: number;
+}
+
+/** Evidence that a retrieval tool must surface for a trace-eval case. */
+export interface RetrievalExpectation {
+  /** Text that must occur in a successful tool result. */
+  contains: string;
+  /** Optional case-insensitive allow-list of retrieval tools. */
+  toolNames?: string[] | undefined;
+}
+
+/** A deterministic marker for the model's intended edit. */
+export interface RecallExpectation {
+  /** Edit tool names eligible to express the intended change. */
+  toolNames?: string[] | undefined;
+  /** All strings must occur in one matching tool input JSON payload. */
+  inputContains: string[];
+}
+
+/**
+ * Stage specifications tied to a real session transcript.
+ *
+ * At runtime the benchmark evaluates a fresh session in this order:
+ * retrieval succeeds when all expected evidence is observed; recall succeeds
+ * when the model produces the expected edit intent; application succeeds when
+ * that exact tool-use id later ends with `ok: true`.
+ */
+export interface TranscriptEvalSpec {
+  source: TranscriptCaseSource;
+  retrieval: RetrievalExpectation[];
+  recall: RecallExpectation;
+}
+
+/** Result of applying a {@link TranscriptEvalSpec} to one benchmark run. */
+export interface TraceEvalResult {
+  sourceSessionId: string;
+  retrievalPassed: boolean;
+  recallPassed: boolean;
+  /** True only when a correct-intent edit invocation applied successfully. */
+  editApplicationPassed: boolean;
+}
+
+/** A numerator/denominator metric; absent rates are never converted to 100%. */
+export interface ConditionalRate {
+  eligible: number;
+  passed: number;
+  rate: number | undefined;
+}
+
+/**
+ * Ordered diagnostic funnel for transcript-mined cases. Each downstream rate
+ * is conditional on the preceding stage, so a tooling failure cannot be
+ * attributed to retrieval or model reasoning.
+ */
+export interface TraceEvalMetrics {
+  retrieval: ConditionalRate;
+  recallGivenRetrieval: ConditionalRate;
+  editApplicationGivenRecall: ConditionalRate;
+}
+
 /** Folded results for one model cell across all its tasks. */
 export interface CellResult {
   cell: ModelCell;
@@ -124,6 +202,8 @@ export interface CellResult {
   passRate: number;
   /** Fraction in [0,1] of edit/write calls that applied cleanly. */
   editApplyRate: number;
+  /** Three-stage diagnostic metrics for transcript-mined cases, when any ran. */
+  traceEval?: TraceEvalMetrics | undefined;
   avgCostUsd: number;
   avgTokensIn: number;
   avgTokensOut: number;

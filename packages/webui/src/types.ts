@@ -1,4 +1,5 @@
-import type { KanbanBoard, KanbanBoardSummary, KanbanTask, Usage } from '@wrongstack/core';
+import type { Usage } from '@wrongstack/core';
+import type { KanbanBoard, KanbanBoardSummary, KanbanTask } from '@wrongstack/kanban';
 
 // Event types for WebSocket communication
 export interface WSMessage {

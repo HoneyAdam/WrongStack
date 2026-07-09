@@ -155,7 +155,10 @@ describe('setupProvider', () => {
     });
 
     expect(out.resolvedProvider?.models.map((m) => m.id)).toEqual([
+      'gpt-5.6-sol',
       'gpt-5.5',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.3-codex-spark',
@@ -174,6 +177,9 @@ describe('setupProvider', () => {
             { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', family: 'gpt-codex' },
             { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', family: 'gpt-codex' },
             { id: 'gpt-5.5', name: 'GPT-5.5', family: 'gpt-codex' },
+            { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', family: 'gpt-codex' },
+            { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', family: 'gpt-codex' },
+            { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', family: 'gpt-codex' },
           ],
         } as ResolvedProvider;
       }
@@ -195,7 +201,13 @@ describe('setupProvider', () => {
       logger: fakeLogger(),
     });
 
-    expect(out.resolvedProvider?.models.map((m) => m.id)).toEqual(['gpt-5.5', 'gpt-5.4-mini']);
+    expect(out.resolvedProvider?.models.map((m) => m.id)).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.5',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.4-mini',
+    ]);
   });
 
   it('throws UNSUPPORTED_PROVIDER when family is unsupported and no override', async () => {

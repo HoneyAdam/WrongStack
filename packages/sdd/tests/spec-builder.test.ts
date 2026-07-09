@@ -1,0 +1,476 @@
+import { describe, expect, it, vi } from 'vitest';
+import { AISpecBuilder } from '../src/spec-builder.js';
+import type { SpecStore } from '../src/spec-store.js';
+import type { Specification } from '@wrongstack/core/types/spec.js';
+
+function mockStore(): SpecStore {
+  const saved = new Map<string, Specification>();
+  return {
+    save: vi.fn(async (spec: Specification) => { saved.set(spec.id, spec); }),
+    load: vi.fn(async (id: string) => saved.get(id) ?? null),
+    list: vi.fn(async () => []),
+    delete: vi.fn(async () => true),
+    exists: vi.fn(async () => false),
+    createDraft: vi.fn(async () => ({ id: 'draft', title: '', version: '0.1.0', status: 'draft' as const, overview: '', sections: [], requirements: [], createdAt: 0, updatedAt: 0 })),
+    update: vi.fn(async () => null),
+  };
+}
+
+describe('AISpecBuilder', () => {
+  it('starts in questioning phase', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.getPhase()).toBe('questioning');
+  });
+
+  it('startSession sets title and intent', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Auth System', 'Add OAuth2 login');
+    const session = builder.getSession();
+    expect(session.title).toBe('Auth System');
+    expect(session.userIntent).toBe('Add OAuth2 login');
+    expect(session.phase).toBe('questioning');
+  });
+
+  it('getAIPrompt returns questioning prompt with budget info', () => {
+    const builder = new AISpecBuilder({ store: mockStore(), minQuestions: 3, maxQuestions: 8 });
+    builder.startSession('Test Feature');
+    const prompt = builder.getAIPrompt();
+    expect(prompt).toContain('SDD Spec Builder');
+    expect(prompt).toContain('Test Feature');
+    expect(prompt).toContain('Questioning');
+    expect(prompt).toContain('remaining budget');
+    expect(prompt).toContain('**Minimum required:** 3');
+  });
+
+  it('addAnswer increments question count', () => {
+    const builder = new AISpecBuilder({ store: mockStore(), minQuestions: 2 });
+    builder.startSession('Test');
+    builder.addAnswer('What auth?', 'OAuth2');
+    builder.addAnswer('Roles?', 'Admin/User');
+    expect(builder.getSession().questionCount).toBe(2);
+    expect(builder.hasMetMinimumQuestions()).toBe(true);
+  });
+
+  it('shouldContinueQuestioning returns false at max', () => {
+    const builder = new AISpecBuilder({ store: mockStore(), maxQuestions: 3 });
+    builder.startSession('Test');
+    builder.addAnswer('Q1', 'A1');
+    builder.addAnswer('Q2', 'A2');
+    builder.addAnswer('Q3', 'A3');
+    expect(builder.shouldContinueQuestioning()).toBe(false);
+  });
+
+  it('hasMetMinimumQuestions returns false below min', () => {
+    const builder = new AISpecBuilder({ store: mockStore(), minQuestions: 5 });
+    builder.startSession('Test');
+    builder.addAnswer('Q1', 'A1');
+    expect(builder.hasMetMinimumQuestions()).toBe(false);
+  });
+
+  it('setSpec moves to spec_review phase', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    const spec: Specification = {
+      id: 'test-id',
+      title: 'Test',
+      version: '0.1.0',
+      status: 'draft',
+      overview: 'Test overview',
+      sections: [],
+      requirements: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    builder.setSpec(spec);
+    expect(builder.getPhase()).toBe('spec_review');
+    expect(builder.getSession().spec).toBe(spec);
+  });
+
+  it('approve transitions through phases correctly', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    const spec: Specification = {
+      id: 'test-id',
+      title: 'Test',
+      version: '0.1.0',
+      status: 'draft',
+      overview: 'Test overview',
+      sections: [],
+      requirements: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    builder.setSpec(spec);
+    expect(builder.getPhase()).toBe('spec_review');
+
+    builder.approve(); // spec_review → implementation
+    expect(builder.getPhase()).toBe('implementation');
+
+    builder.setImplementation('Do stuff');
+    expect(builder.getPhase()).toBe('task_review');
+
+    builder.approve(); // task_review → executing
+    expect(builder.getPhase()).toBe('executing');
+
+    builder.approve(); // executing → done
+    expect(builder.getPhase()).toBe('done');
+  });
+
+  it('approve throws if no spec generated in questioning phase', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    expect(() => builder.approve()).toThrow('Cannot approve: no spec generated yet.');
+  });
+
+  it('saveSpec persists to store', async () => {
+    const store = mockStore();
+    const builder = new AISpecBuilder({ store });
+    builder.startSession('Test');
+    const spec: Specification = {
+      id: 'test-id',
+      title: 'Test',
+      version: '0.1.0',
+      status: 'draft',
+      overview: 'Test overview',
+      sections: [],
+      requirements: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    builder.setSpec(spec);
+    await builder.saveSpec();
+    expect(store.save).toHaveBeenCalledWith(spec);
+  });
+
+  it('saveSpec throws if no spec', async () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    await expect(builder.saveSpec()).rejects.toThrow('No spec to save.');
+  });
+
+  it('extractJSON handles ```json blocks', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'Here is the spec:\n```json\n{"title":"Test"}\n```\nDone.';
+    const result = builder.extractJSON(text);
+    expect(result).toBe('{"title":"Test"}');
+  });
+
+  it('extractJSON handles raw JSON objects', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'The spec is: {"title":"Test","overview":"Hello"}';
+    const result = builder.extractJSON(text);
+    expect(result).toBe('{"title":"Test","overview":"Hello"}');
+  });
+
+  it('extractJSON returns null for no JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('no json here')).toBeNull();
+  });
+
+  it('hasSpecInOutput detects JSON blocks', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.hasSpecInOutput('```json\n{"title":"T"}\n```')).toBe(true);
+    expect(builder.hasSpecInOutput('no json')).toBe(false);
+  });
+
+  it('tryParseSpecFromOutput parses valid spec JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('My Feature');
+    const text = `Here's the spec:
+\`\`\`json
+{
+  "title": "Auth System",
+  "overview": "User authentication with OAuth2",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "type": "functional",
+      "priority": "critical",
+      "description": "User can login with OAuth2",
+      "acceptanceCriteria": ["Login works"]
+    }
+  ]
+}
+\`\`\``;
+    const spec = builder.tryParseSpecFromOutput(text);
+    expect(spec).not.toBeNull();
+    expect(spec!.title).toBe('Auth System');
+    expect(spec!.requirements).toHaveLength(1);
+    expect(spec!.requirements[0]!.priority).toBe('critical');
+  });
+
+  it('tryParseSpecFromOutput returns null for invalid JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.tryParseSpecFromOutput('no json at all')).toBeNull();
+  });
+
+  it('parseSpecFromJSON normalizes missing fields', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Fallback Title');
+    const spec = builder.parseSpecFromJSON('{"overview":"minimal"}');
+    expect(spec.title).toBe('Fallback Title');
+    expect(spec.overview).toBe('minimal');
+    expect(spec.requirements).toHaveLength(0);
+    expect(spec.sections).toHaveLength(0);
+  });
+
+  it('parseSpecFromJSON throws on invalid JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('not json')).toThrow('Invalid JSON');
+  });
+
+  it('extractJSONArray handles code blocks', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'Tasks:\n```json\n[{"title":"T1"},{"title":"T2"}]\n```';
+    const result = builder.extractJSONArray(text);
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result!);
+    expect(parsed).toHaveLength(2);
+  });
+
+  it('getAIPrompt includes conversation history after answers', () => {
+    const builder = new AISpecBuilder({ store: mockStore(), minQuestions: 1, maxQuestions: 5 });
+    builder.startSession('Test');
+    builder.addAnswer('What auth method?', 'OAuth2');
+    const prompt = builder.getAIPrompt();
+    expect(prompt).toContain('What auth method?');
+    expect(prompt).toContain('OAuth2');
+    expect(prompt).toContain('Conversation so far');
+  });
+
+  it('getAIPrompt for spec_review includes requirements', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    const spec: Specification = {
+      id: 'test-id',
+      title: 'Auth',
+      version: '0.1.0',
+      status: 'draft',
+      overview: 'Auth system',
+      sections: [],
+      requirements: [
+        { id: 'REQ-1', type: 'functional', priority: 'critical', description: 'Login', acceptanceCriteria: [] },
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    builder.setSpec(spec);
+    const prompt = builder.getAIPrompt();
+    expect(prompt).toContain('Spec Review');
+    expect(prompt).toContain('Login');
+    expect(prompt).toContain('[critical]');
+  });
+
+  it('getAIPrompt for implementation phase includes instructions', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    const spec: Specification = {
+      id: 'test-id',
+      title: 'Test',
+      version: '0.1.0',
+      status: 'draft',
+      overview: 'Test',
+      sections: [],
+      requirements: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    builder.setSpec(spec);
+    builder.approve(); // → implementation
+    const prompt = builder.getAIPrompt();
+    expect(prompt).toContain('Implementation Planning');
+    expect(prompt).toContain('Architecture decisions');
+  });
+
+  it('projectContext is included in questioning prompt', () => {
+    const builder = new AISpecBuilder({
+      store: mockStore(),
+      projectContext: 'Project: my-app\nDependencies: express, zod',
+    });
+    builder.startSession('Test');
+    const prompt = builder.getAIPrompt();
+    expect(prompt).toContain('Project Context');
+    expect(prompt).toContain('express, zod');
+  });
+
+  it('setImplementation moves to task_review', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    builder.setImplementation('Step 1: do stuff\nStep 2: more stuff');
+    expect(builder.getPhase()).toBe('task_review');
+    expect(builder.getSession().implementation).toContain('Step 1');
+  });
+
+  it('markDone moves to done phase', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Test');
+    builder.markDone();
+    expect(builder.getPhase()).toBe('done');
+    expect(builder.getAIPrompt()).toContain('completed');
+  });
+
+  // ── JSON extraction edge cases (extractJSON / tryParseSpecFromOutput / extractJSONArray)
+
+  it('tryParseSpecFromOutput returns null when no JSON is present', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.tryParseSpecFromOutput('just some text, no JSON')).toBeNull();
+  });
+
+  it('tryParseSpecFromOutput returns null when JSON is malformed schema-wise', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    // Valid JSON but missing required fields → parseSpecFromJSON throws,
+    // tryParseSpecFromOutput catches and returns null.
+    expect(builder.tryParseSpecFromOutput('{"foo":"bar"}')).toBeNull();
+  });
+
+  it('extractJSONArray returns the array from a ```json fenced code block', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'some intro\n```json\n[{"title":"a"},{"title":"b"}]\n```\noutro';
+    const got = builder.extractJSONArray(text);
+    expect(got).not.toBeNull();
+    expect(JSON.parse(got!)).toEqual([{ title: 'a' }, { title: 'b' }]);
+  });
+
+  it('extractJSONArray falls back to a raw [..] pattern when no code block exists', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = 'here are the tasks: [{"title":"x"}] and some more text';
+    const got = builder.extractJSONArray(text);
+    expect(JSON.parse(got!)).toEqual([{ title: 'x' }]);
+  });
+
+  it('extractJSONArray returns null when the bare [..] is not valid JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSONArray('[not, json, here]')).toBeNull();
+  });
+
+  it('extractJSONArray returns null when the fenced block does not start with [', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const text = '```json\n{"not": "an-array"}\n```';
+    // Code block exists but content is {} — function falls through to the raw
+    // [...] pattern (which doesn't match) and returns null.
+    expect(builder.extractJSONArray(text)).toBeNull();
+  });
+
+  it('extractJSONArray returns null when input has no array at all', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSONArray('plain text only')).toBeNull();
+  });
+
+  // ── parseSpecFromJSON edge cases ──────────────────────────────────────────
+
+  it('parseSpecFromJSON throws on invalid JSON', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('not-json{')).toThrow(/Invalid JSON/);
+  });
+
+  it('parseSpecFromJSON throws when payload is not an object', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('"string"')).toThrow(/must be an object/);
+    expect(() => builder.parseSpecFromJSON('null')).toThrow(/must be an object/);
+    expect(() => builder.parseSpecFromJSON('42')).toThrow(/must be an object/);
+  });
+
+  it('parseSpecFromJSON throws when overview is missing', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(() => builder.parseSpecFromJSON('{"title":"x"}')).toThrow(/must have an overview/);
+  });
+
+  it('parseSpecFromJSON normalizes unknown section types to "overview"', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const spec = builder.parseSpecFromJSON(
+      JSON.stringify({
+        title: 'T',
+        overview: 'O',
+        sections: [
+          { type: 'fancy-type', title: 'A', content: 'a' },
+          { type: 'requirements', title: 'B', content: 'b', level: 2 },
+        ],
+      }),
+    );
+    expect(spec.sections[0].type).toBe('overview');
+    expect(spec.sections[1].type).toBe('requirements');
+    expect(spec.sections[1].level).toBe(2);
+  });
+
+  it('parseSpecFromJSON filters out non-object sections + requirements', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const spec = builder.parseSpecFromJSON(
+      JSON.stringify({
+        overview: 'ok',
+        sections: [null, 1, 'string', { title: 'real' }],
+        requirements: [null, 'x', { description: 'real-req' }],
+      }),
+    );
+    expect(spec.sections).toHaveLength(1);
+    expect(spec.requirements).toHaveLength(1);
+    expect(spec.requirements[0].description).toBe('real-req');
+  });
+
+  it('parseSpecFromJSON normalizes invalid type/priority to defaults', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    const spec = builder.parseSpecFromJSON(
+      JSON.stringify({
+        overview: 'ok',
+        requirements: [{ description: 'r', type: 'invalid', priority: 'extreme' }],
+      }),
+    );
+    expect(spec.requirements[0].type).toBe('functional');
+    expect(spec.requirements[0].priority).toBe('medium');
+  });
+
+  it('parseSpecFromJSON uses session.title when payload omits title', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('Session Title');
+    const spec = builder.parseSpecFromJSON(JSON.stringify({ overview: 'ok' }));
+    expect(spec.title).toBe('Session Title');
+  });
+
+  // ── extractJSON variants ───────────────────────────────────────────────────
+
+  it('extractJSON pulls JSON from a ```json fenced block', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('```json\n{"a":1}\n```')).toBe('{"a":1}');
+  });
+
+  it('extractJSON falls back to a generic ``` block when it starts with { or [', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('```\n{"a":2}\n```')).toBe('{"a":2}');
+    // [ also accepted
+    expect(builder.extractJSON('```\n[1,2,3]\n```')).toBe('[1,2,3]');
+  });
+
+  it('extractJSON ignores generic ``` block whose content is not JSON-like', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    // Falls through to raw JSON pattern — which also doesn't match → null
+    expect(builder.extractJSON('```\nplain prose\n```')).toBeNull();
+  });
+
+  it('extractJSON finds raw JSON object embedded in prose', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('Here it is: {"a":3} and more')).toBe('{"a":3}');
+  });
+
+  it('extractJSON returns null when raw JSON match is unparseable', () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    expect(builder.extractJSON('text {not-json} more')).toBeNull();
+  });
+
+  // ── saveSpec ──────────────────────────────────────────────────────────────
+
+  it('saveSpec throws when no spec is set on the session', async () => {
+    const builder = new AISpecBuilder({ store: mockStore() });
+    builder.startSession('x');
+    await expect(builder.saveSpec()).rejects.toThrow(/No spec to save/);
+  });
+
+  it('saveSpec delegates to store.save when a spec is present', async () => {
+    const store = mockStore();
+    const builder = new AISpecBuilder({ store });
+    builder.startSession('y');
+    builder.setSpec(
+      builder.parseSpecFromJSON(JSON.stringify({ title: 'T', overview: 'O' })),
+    );
+    await builder.saveSpec();
+    expect(store.save).toHaveBeenCalledOnce();
+  });
+});

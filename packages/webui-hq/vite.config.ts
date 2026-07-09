@@ -12,10 +12,13 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     target: 'esnext',
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
+          markdown: ['react-markdown', 'remark-gfm', 'rehype-highlight'],
+          icons: ['lucide-react'],
         },
       },
     },

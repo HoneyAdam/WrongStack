@@ -30,13 +30,18 @@ const autoPolicy = {
   evaluate: vi.fn().mockResolvedValue({ permission: 'auto', source: 'default' }),
 };
 
-function makeExecutor(tools: Tool[], hookRunner: HookRunner) {
+function makeExecutor(
+  tools: Tool[],
+  hookRunner: HookRunner,
+  options: { permissionPolicy?: typeof autoPolicy; confirmAwaiter?: ReturnType<typeof vi.fn> } = {},
+) {
   const registry = { get: (n: string) => tools.find((t) => t.name === n), list: () => tools };
   return new ToolExecutor(registry, {
-    permissionPolicy: autoPolicy as never,
+    permissionPolicy: (options.permissionPolicy ?? autoPolicy) as never,
     secretScrubber: scrubber as never,
     perIterationOutputCapBytes: 50_000,
     hookRunner,
+    confirmAwaiter: options.confirmAwaiter as never,
   });
 }
 
@@ -56,6 +61,40 @@ function use(name: string, input: Record<string, unknown> = {}): ToolUseBlock {
 }
 
 describe('ToolExecutor — PreToolUse hooks', () => {
+  it('keeps allow/mutate silent in YOLO mode without requesting approval', async () => {
+    const reg = new HookRegistry();
+    reg.registerInProcess('PreToolUse', '*', async () => ({
+      action: 'mutate',
+      input: { command: 'echo safe', timeout_ms: 1_000 },
+    }));
+    const exec = vi.fn().mockResolvedValue({ ok: true });
+    const confirmAwaiter = vi.fn();
+    const yoloPolicy = {
+      evaluate: vi.fn().mockResolvedValue({ permission: 'auto', source: 'yolo' }),
+      getYolo: () => true,
+    };
+    const schema = {
+      type: 'object',
+      properties: {
+        command: { type: 'string' },
+        timeout_ms: { type: 'integer' },
+      },
+      required: ['command'],
+    };
+    const ex = makeExecutor([tool('bash', exec, schema)], new HookRunner({ registry: reg }), {
+      permissionPolicy: yoloPolicy as never,
+      confirmAwaiter,
+    });
+
+    await ex.executeBatch([use('bash', { command: 'echo original' })], makeCtx(), 'sequential');
+    expect(exec).toHaveBeenCalledWith(
+      { command: 'echo safe', timeout_ms: 1_000 },
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(confirmAwaiter).not.toHaveBeenCalled();
+  });
+
   it('blocks a tool and never executes it', async () => {
     const reg = new HookRegistry();
     reg.registerInProcess('PreToolUse', 'Bash', () => ({ decision: 'block', reason: 'denied' }));

@@ -1,7 +1,21 @@
 import type { PhaseGraph, PhaseNode, PhaseTemplate } from './types.js';
 import type { TaskGraph } from '../types/task-graph.js';
-import type { TaskStore } from '../sdd/task-tracker.js';
-import { DefaultTaskStore, TaskTracker } from '../sdd/index.js';
+
+import { createRequire } from 'node:module';
+
+/** Minimal TaskStore interface — mirrors @wrongstack/sdd's TaskStore so no dep on sdd's .d.ts. */
+interface TaskStore {
+  saveGraph(graph: TaskGraph): Promise<void>;
+  loadGraph(id: string): Promise<TaskGraph | null>;
+  loadAllGraphs(): Promise<Map<string, TaskGraph>>;
+  deleteGraph(id: string): Promise<void>;
+}
+
+/** Lazy synchronous import of @wrongstack/sdd — avoids a DTS dependency for type generation. */
+function sdd(): { DefaultTaskStore: any; TaskTracker: any } {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return createRequire(import.meta.url)('@wrongstack/sdd') as any;
+}
 
 export interface PhaseGraphBuilderOptions {
   title: string;
@@ -47,8 +61,9 @@ export class PhaseGraphBuilder {
       phaseIds.push(phaseId);
 
       // Use the external store or create a new DefaultTaskStore.
-      const store = this.opts.externalTaskStore ?? new DefaultTaskStore();
-      const tracker = new TaskTracker({ store });
+      const { DefaultTaskStore: SddTaskStore, TaskTracker: SddTaskTracker } = sdd();
+      const store = this.opts.externalTaskStore ?? new SddTaskStore();
+      const tracker = new SddTaskTracker({ store });
       const taskGraph = await tracker.createGraph(phaseId, `${tmpl.name} Tasks`);
 
       // Add task templates when present.

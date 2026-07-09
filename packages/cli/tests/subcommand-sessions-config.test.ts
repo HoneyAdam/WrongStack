@@ -96,6 +96,65 @@ describe('sessionsCmd', () => {
     expect(out).toContain('sess-2');
     expect(out).toContain('123');
   });
+
+  it('forks an explicit session at a checkpoint and prints branch metadata', async () => {
+    const fork = vi.fn().mockResolvedValue({
+      id: 'child-1',
+      checkpointHash: 'a'.repeat(64),
+      workspace: 'shared-current',
+      workspaceCheckpoint: {
+        manifestHash: 'c'.repeat(64),
+        baseHead: 'd'.repeat(40),
+        entryCount: 3,
+        unresolvedCount: 0,
+      },
+    });
+    const code = await sessionsCmd(
+      ['fork', 'parent-1', '--to', '2'],
+      mkDeps({ sessionStore: { list: vi.fn(), fork } }),
+    );
+    expect(code).toBe(0);
+    expect(fork).toHaveBeenCalledWith('parent-1', { checkpointPromptIndex: 2 });
+    expect(writes.join('')).toContain('child-1');
+    expect(writes.join('')).toContain('shared-current');
+    expect(writes.join('')).toContain('a'.repeat(64));
+    expect(writes.join('')).toContain('c'.repeat(64));
+    expect(writes.join('')).toContain('paths: 3; unresolved: 0');
+  });
+
+  it('fork defaults to the latest session and validates --to', async () => {
+    const fork = vi.fn().mockResolvedValue({
+      id: 'child-latest',
+      checkpointHash: 'b'.repeat(64),
+      workspace: 'shared-current',
+    });
+    const list = vi.fn().mockResolvedValue([{ id: 'latest-parent' }]);
+    const deps = mkDeps({ sessionStore: { list, fork } });
+    expect(await sessionsCmd(['fork', '--to=3'], deps)).toBe(0);
+    expect(fork).toHaveBeenCalledWith('latest-parent', { checkpointPromptIndex: 3 });
+
+    expect(await sessionsCmd(['fork', 'latest-parent', '--to', '-1'], deps)).toBe(1);
+    expect(errors.join('')).toContain('non-negative checkpoint');
+
+    errors = [];
+    expect(await sessionsCmd(['fork', 'latest-parent', '--to'], deps)).toBe(1);
+    expect(errors.join('')).toContain('requires a checkpoint index');
+  });
+
+  it('reports unsupported or failed session forks', async () => {
+    expect(await sessionsCmd(['fork', 'parent'], mkDeps())).toBe(1);
+    expect(errors.join('')).toContain('does not support forking');
+
+    errors = [];
+    const fork = vi.fn().mockRejectedValue(new Error('checkpoint missing'));
+    expect(
+      await sessionsCmd(
+        ['fork', 'parent'],
+        mkDeps({ sessionStore: { list: vi.fn(), fork } }),
+      ),
+    ).toBe(1);
+    expect(errors.join('')).toContain('checkpoint missing');
+  });
 });
 
 // ── configCmd ────────────────────────────────────────────────────────────────

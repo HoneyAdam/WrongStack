@@ -112,4 +112,45 @@ describe('createStrategyCompactor', () => {
     expect(provider.complete).toHaveBeenCalled();
     expect(report).toBeDefined();
   });
+
+  it('journals and flushes the exact post-compaction message state', async () => {
+    const messages = manyTurns();
+    messages[0]!._estTokens = 123;
+    let revision = 0;
+    const append = vi.fn().mockResolvedValue(undefined);
+    const flush = vi.fn().mockResolvedValue(undefined);
+    const ctx = {
+      messages,
+      model: 'test-model',
+      systemPrompt: [],
+      tools: [],
+      signal: new AbortController().signal,
+      provider: undefined,
+      meta: {},
+      session: { id: 'journaled', append, flush },
+      state: {
+        get revision() {
+          return revision;
+        },
+        replaceMessages(next: Message[]) {
+          messages.length = 0;
+          messages.push(...next);
+          revision++;
+        },
+      },
+    } as never as Context;
+
+    const compactor = createStrategyCompactor({ preserveK: 3 });
+    await compactor.compact(ctx, { aggressive: true });
+
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'context_snapshot',
+        reason: 'compaction',
+        messages: expect.any(Array),
+      }),
+    );
+    expect(JSON.stringify(append.mock.calls[0]?.[0])).not.toContain('_estTokens');
+    expect(flush).toHaveBeenCalledOnce();
+  });
 });

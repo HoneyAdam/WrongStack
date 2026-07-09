@@ -282,9 +282,8 @@ describe('DefaultSessionStore', () => {
 
   it('debounces append-failure warnings instead of flooding the console', async () => {
     const w = await store.create({ id: 'flood', model: 'm', provider: 'p' });
-    // Force every appendFile after this point to fail. The first event still
-    // hits the real disk (session_start) — we replace the handle's method
-    // on the instance only.
+    // Force every appendFile after this point to fail. The retryable buffer
+    // includes session_start as well as the user events.
     const handle = (w as never as { handle: FileHandle }).handle;
     const stub = vi.spyOn(handle, 'appendFile').mockRejectedValue(new Error('ENOSPC'));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -294,7 +293,7 @@ describe('DefaultSessionStore', () => {
       }
       // Appends are buffered (FLUSH_SIZE 50 / inactivity timer) — force the
       // flush so the failure path runs inside the test instead of on a timer.
-      await (w as never as { flushBuffer: () => Promise<void> }).flushBuffer();
+      await (w as never as { flushBuffer: () => Promise<void> }).flushBuffer().catch(() => undefined);
       // Despite 25 failed events, the throttle folds them into a single
       // warning (the 5-second window hasn't elapsed within the test).
       expect(warn).toHaveBeenCalledTimes(1);
@@ -303,6 +302,46 @@ describe('DefaultSessionStore', () => {
       warn.mockRestore();
       await w.close().catch(() => undefined);
     }
+  });
+
+  it('retains a failed batch and retries it in original order', async () => {
+    const w = await store.create({ id: 'retry-buffer', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'persisted-first' });
+    await w.flush();
+
+    const handle = (w as never as { handle: FileHandle }).handle;
+    const stub = vi.spyOn(handle, 'appendFile').mockRejectedValue(new Error('temporary ENOSPC'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'retry-a' });
+      await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'retry-b' });
+      await expect(w.flush()).rejects.toThrow('temporary ENOSPC');
+
+      const buffered = (w as never as { writeBuffer: Array<{ type: string }> }).writeBuffer;
+      expect(buffered).toHaveLength(2);
+    } finally {
+      stub.mockRestore();
+      warn.mockRestore();
+    }
+
+    await w.flush();
+    await w.close();
+    const data = await store.load('retry-buffer');
+    const inputs = data.events
+      .filter((event) => event.type === 'user_input')
+      .map((event) => event.content);
+    expect(inputs).toEqual(['persisted-first', 'retry-a', 'retry-b']);
+  });
+
+  it('synchronizes JSONL data on explicit flush and close boundaries', async () => {
+    const w = await store.create({ id: 'durable-sync', model: 'm', provider: 'p' });
+    const handle = (w as never as { handle: FileHandle }).handle;
+    const sync = vi.spyOn(handle, 'datasync');
+    await w.append({ type: 'user_input', ts: new Date().toISOString(), content: 'durable' });
+    await w.flush();
+    expect(sync).toHaveBeenCalledTimes(1);
+    await w.close();
+    expect(sync).toHaveBeenCalledTimes(2);
   });
 
   it('surfaces the suppressed count once the debounce window elapses', async () => {
@@ -314,7 +353,7 @@ describe('DefaultSessionStore', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {
         const flush = () =>
-          (w as never as { flushBuffer: () => Promise<void> }).flushBuffer();
+          (w as never as { flushBuffer: () => Promise<void> }).flushBuffer().catch(() => undefined);
         // First batch: one failing flush of 5 events → one warn that folds
         // the other 4 events into a "+4 suppressed" tail.
         for (let i = 0; i < 5; i++) {

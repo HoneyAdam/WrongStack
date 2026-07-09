@@ -283,7 +283,12 @@ const plugin: Plugin = {
       return;
     };
 
-    state.hookUnregister = api.registerHook('PreToolUse', 'write|edit|bash|exec', hook as never);
+    state.hookUnregister = api.registerHook('PreToolUse', 'write|edit|bash|exec', hook as never, {
+      name: 'path-guard',
+      stage: 'validate',
+      failurePolicy: 'closed',
+      policy: true,
+    });
 
     // ── path_guard_status tool ────────────────────────────────────────
     api.tools.register({

@@ -172,6 +172,27 @@ describe('FleetSupervisor', () => {
     expect(h.supervisor.history().at(-1)).toMatchObject({ outcome: 'escalated' });
   });
 
+  it('does not execute the recommended action for an answer without an exact option id', async () => {
+    const h = makeHarness(
+      {
+        async decide(): Promise<BrainDecision> {
+          return { type: 'answer', text: 'Do not rebalance; wait for the current worker.' };
+        },
+      },
+      { overloadPinnedThreshold: 2 },
+    );
+    h.state.subagents = [sub('busy', 'running'), sub('idle', 'idle')];
+    h.state.pending = [task('head', 'busy'), task('tail', 'busy')];
+
+    await h.supervisor.evaluate();
+
+    expect(h.actions.retargetPendingTask).not.toHaveBeenCalled();
+    expect(h.supervisor.history().at(-1)).toMatchObject({
+      proposedAction: 'retarget',
+      outcome: 'denied',
+    });
+  });
+
   it('cooldown suppresses re-engagement for the same worker; a task is never retargeted twice', async () => {
     const h = makeHarness(approveBrain(), { overloadPinnedThreshold: 2, cooldownMs: 120_000 });
     h.state.subagents = [sub('busy', 'running'), sub('idle', 'idle')];
@@ -199,6 +220,9 @@ describe('FleetSupervisor', () => {
     await h.supervisor.evaluate(); // tick 2 — fire
     expect(h.signals).toContain('backlog');
     expect(h.actions.spawnHelper).toHaveBeenCalledTimes(1);
+    expect(h.actions.spawnHelper).toHaveBeenCalledWith(
+      expect.objectContaining({ task: expect.objectContaining({ id: 't-1' }) }),
+    );
     expect(h.actions.notifyLeader).toHaveBeenCalledWith(
       'Fleet helper spawned',
       expect.stringContaining('helper-1'),
@@ -229,7 +253,7 @@ describe('FleetSupervisor', () => {
     expect(h.actions.spawnHelper).not.toHaveBeenCalled();
   });
 
-  it('stuck agent (no tool activity past stuckMs) → steer + leader notification', async () => {
+  it('stuck agent (no observable activity past stuckMs) → steer + leader notification', async () => {
     const h = makeHarness(approveBrain(), { stuckMs: 180_000 });
     h.supervisor.start(); // arm listeners so fleet activity is tracked
     h.state.subagents = [sub('w1', 'running', 'some task')];
@@ -249,6 +273,32 @@ describe('FleetSupervisor', () => {
       expect.stringContaining('stalled'),
     );
     expect(h.actions.notifyLeader).toHaveBeenCalled();
+    h.supervisor.stop();
+  });
+
+  it('provider streaming activity prevents a false stuck-agent signal', async () => {
+    const h = makeHarness(approveBrain(), { stuckMs: 180_000 });
+    h.supervisor.start();
+    h.state.subagents = [sub('w1', 'running', 'long reasoning task')];
+    h.fleet.emit({
+      subagentId: 'w1',
+      ts: h.clock.now,
+      type: 'tool.started',
+      payload: { name: 'read' },
+    });
+    h.clock.now += 170_000;
+    h.fleet.emit({
+      subagentId: 'w1',
+      ts: h.clock.now,
+      type: 'provider.text_delta',
+      payload: { text: 'still working' },
+    });
+    h.clock.now += 20_000;
+
+    await h.supervisor.evaluate();
+
+    expect(h.signals).not.toContain('stuck_agent');
+    expect(h.actions.steerAgent).not.toHaveBeenCalled();
     h.supervisor.stop();
   });
 

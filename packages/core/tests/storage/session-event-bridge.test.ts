@@ -56,11 +56,27 @@ describe('SessionEventBridge', () => {
       const bridge = createSessionEventBridge(writer, 'minimal');
 
       await bridge.append({ type: 'user_input', ts: 't', content: 'hi' });
+      await bridge.append({
+        type: 'file_observation',
+        ts: 't',
+        path: '/project/a.ts',
+        hash: 'a'.repeat(64),
+        mtimeMs: 1,
+        source: 'user',
+      });
+      await bridge.append({
+        type: 'context_snapshot',
+        ts: 't',
+        reason: 'compaction',
+        messages: [{ role: 'system', content: 'compacted' }],
+      });
       await bridge.append({ type: 'compaction', ts: 't', before: 100, after: 50 });
       await bridge.append({ type: 'error', ts: 't', message: 'boom', phase: 'agent' });
 
-      expect(append).toHaveBeenCalledTimes(1);
+      expect(append).toHaveBeenCalledTimes(3);
       expect(append.mock.calls[0][0].type).toBe('user_input');
+      expect(append.mock.calls[1][0].type).toBe('file_observation');
+      expect(append.mock.calls[2][0].type).toBe('context_snapshot');
     });
 
     it('standard: writes core + standard audit events', async () => {

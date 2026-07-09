@@ -4,10 +4,10 @@
  */
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { useHqStore, selectClient, postCommand, fetchJson } from '../store.js';
+import { fetchJson, postCommand, selectClient, useHqStore } from '../store.js';
 import { setHqControlPrefs, useHqLocalPrefs } from '../stores/hq-local-prefs.js';
 
-type CmdType = 'steer' | 'abort' | 'spawn' | 'broadcast';
+type CmdType = 'steer' | 'btw' | 'queue' | 'abort' | 'spawn' | 'broadcast' | 'run-command';
 type Stage = 'compose' | 'preview';
 
 interface DraftCommand {
@@ -54,6 +54,8 @@ export function ControlView(): React.ReactElement {
   const [abortTarget, setAbortTarget] = useState(pctl.abortTarget);
   const [broadcastSubject, setBroadcastSubject] = useState(pctl.broadcastSubject);
   const [broadcastBody, setBroadcastBody] = useState(pctl.broadcastBody);
+  const [runCommand, setRunCommand] = useState('');
+  const [runCwd, setRunCwd] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,14 +75,17 @@ export function ControlView(): React.ReactElement {
       abortTarget,
       broadcastSubject,
       broadcastBody,
+      runCommand,
+      runCwd,
     ],
   );
 
   const confirmRequired = draft.risk === 'danger';
+  const confirmWord = cmdType === 'run-command' ? 'RUN' : 'ABORT';
   const canDispatch =
     selected !== null &&
     draft.disabledReason === null &&
-    (!confirmRequired || confirmText === 'ABORT');
+    (!confirmRequired || confirmText === confirmWord);
 
   function resetPreview(): void {
     setStage('compose');
@@ -133,19 +138,36 @@ export function ControlView(): React.ReactElement {
   }
 
   function buildDraft(): DraftCommand {
-    if (cmdType === 'steer') {
+    if (cmdType === 'steer' || cmdType === 'btw' || cmdType === 'queue') {
       const body = steerBody.trim();
+      const verb =
+        cmdType === 'steer'
+          ? 'Send high-priority steer to'
+          : cmdType === 'btw'
+            ? 'Post a non-urgent FYI (btw) to'
+            : 'Queue a prompt for';
       return {
-        type: 'steer',
+        type: cmdType,
         payload: {
           to: steerTo || 'leader',
-          subject: steerSubject || 'HQ steer',
+          subject: steerSubject || `HQ ${cmdType}`,
           body: steerBody,
-          priority: 'high',
+          priority: cmdType === 'steer' ? 'high' : 'normal',
         },
-        disabledReason: body.length === 0 ? 'Steer body is required.' : null,
+        disabledReason: body.length === 0 ? 'Message body is required.' : null,
         risk: 'normal',
-        summary: `Send high-priority steer to ${steerTo || 'leader'}.`,
+        summary: `${verb} ${steerTo || 'leader'}.`,
+      };
+    }
+    if (cmdType === 'run-command') {
+      const cmd = runCommand.trim();
+      return {
+        type: 'run-command',
+        payload: { command: runCommand, ...(runCwd.trim() ? { cwd: runCwd.trim() } : {}) },
+        disabledReason: cmd.length === 0 ? 'Command is required.' : null,
+        risk: 'danger',
+        summary:
+          'Route a shell command to the client (requires --hq-allow-exec + control.execute; delivered as a steer, the agent’s permission policy still applies).',
       };
     }
     if (cmdType === 'abort') {
@@ -237,19 +259,21 @@ export function ControlView(): React.ReactElement {
         <span className={'hq-step' + (status !== null ? ' active' : '')}>3 queued</span>
       </div>
       <div className="hq-row">
-        {(['steer', 'abort', 'spawn', 'broadcast'] as CmdType[]).map((t) => (
-          <button
-            key={t}
-            className={'hq-btn secondary' + (cmdType === t ? ' hq-btn-selected' : '')}
-            onClick={() => chooseType(t)}
-          >
-            {t}
-          </button>
-        ))}
+        {(['steer', 'btw', 'queue', 'abort', 'spawn', 'broadcast', 'run-command'] as CmdType[]).map(
+          (t) => (
+            <button
+              key={t}
+              className={'hq-btn secondary' + (cmdType === t ? ' hq-btn-selected' : '')}
+              onClick={() => chooseType(t)}
+            >
+              {t}
+            </button>
+          ),
+        )}
       </div>
 
       <div style={{ marginTop: 16 }}>
-        {cmdType === 'steer' && (
+        {(cmdType === 'steer' || cmdType === 'btw' || cmdType === 'queue') && (
           <div className="hq-card">
             <label className="hq-label">
               To (agent address — e.g. <code>leader</code>, <code>leader@sessionTag</code>, or a
@@ -341,6 +365,32 @@ export function ControlView(): React.ReactElement {
           </div>
         )}
 
+        {cmdType === 'run-command' && (
+          <div className="hq-card hq-card-danger">
+            <label className="hq-label">Shell command</label>
+            <textarea
+              className="hq-textarea"
+              value={runCommand}
+              onChange={(e) => setRunCommand(e.target.value)}
+              placeholder="pnpm test"
+            />
+            <label className="hq-label" style={{ marginTop: 8 }}>
+              Working directory (optional — defaults to the agent's project root)
+            </label>
+            <input
+              className="hq-input"
+              value={runCwd}
+              onChange={(e) => setRunCwd(e.target.value)}
+              placeholder=""
+            />
+            <div className="hq-control-warning">
+              RCE-gated: the client must run with <code>--hq-allow-exec</code> and your token needs
+              the <code>control.execute</code> capability — otherwise the server rejects this.
+              Preview requires typing <strong>RUN</strong> before dispatch.
+            </div>
+          </div>
+        )}
+
         {cmdType === 'broadcast' && (
           <div className="hq-card">
             <label className="hq-label">Subject</label>
@@ -401,7 +451,7 @@ export function ControlView(): React.ReactElement {
                   className="hq-input"
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder="Type ABORT"
+                  placeholder={`Type ${confirmWord}`}
                 />
               </>
             )}

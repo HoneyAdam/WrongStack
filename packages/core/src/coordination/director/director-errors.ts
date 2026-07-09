@@ -40,6 +40,21 @@ export class FleetCostCapError extends Error {
   }
 }
 
+export class FleetTokenCapError extends Error {
+  readonly kind: 'max_tokens';
+  readonly limit: number;
+  readonly observed: number;
+  constructor(limit: number, observed: number) {
+    super(
+      `Director token cap exceeded: total fleet usage ${Math.round(observed)} tokens meets or exceeds maxTokens ${Math.round(limit)}`,
+    );
+    this.name = 'FleetTokenCapError';
+    this.kind = 'max_tokens';
+    this.limit = limit;
+    this.observed = observed;
+  }
+}
+
 export class FleetContextOverflowError extends Error {
   readonly kind: 'max_context_load';
   readonly limit: number;

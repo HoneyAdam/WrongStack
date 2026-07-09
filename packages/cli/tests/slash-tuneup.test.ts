@@ -100,7 +100,7 @@ describe('checkHooks', () => {
         } as TuneupInput['config'],
       }),
     );
-    expect(findings.some((f) => f.problem.includes('5 shell hooks'))).toBe(true);
+    expect(findings.some((f) => f.problem.includes('5 configured hooks'))).toBe(true);
   });
 
   it('is silent with no hooks', () => {

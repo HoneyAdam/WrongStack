@@ -324,4 +324,85 @@ describe('recovery strategies', () => {
     // gpt-3.5 lacks image input, so no candidates.
     expect(res).toBeNull();
   });
+
+  const contentFilterErr = () =>
+    new ProviderError('filtered', 400, false, 'openai', {
+      body: { type: 'content_filter', message: 'The response was filtered' },
+    });
+
+  it('content_filter_reroute retries with the closest-cost sibling model', async () => {
+    const modelsRegistry = {
+      getProvider: vi.fn(async () => ({
+        id: 'openai',
+        family: 'openai',
+        models: [
+          { id: 'gpt-4', cost: { input: 30 }, tool_call: true, modalities: { input: ['text'] } },
+          {
+            id: 'gpt-4-alt',
+            cost: { input: 28 },
+            tool_call: true,
+            modalities: { input: ['text'] },
+          },
+          { id: 'gpt-3.5', cost: { input: 1 }, tool_call: true, modalities: { input: ['text'] } },
+        ],
+      })),
+      getModel: vi.fn(async (_p: string, m: string) => ({
+        id: m,
+        cost: { input: 30 },
+        capabilities: { tools: true, vision: false },
+      })),
+    } as never as ModelsRegistry;
+    const eh = new DefaultErrorHandler(buildRecoveryStrategies({ modelsRegistry }));
+    const res = await eh.recover(contentFilterErr(), makeCtx());
+    // Closest cost to gpt-4 (30) is gpt-4-alt (28) — a reroute, NOT the
+    // cheapest downgrade.
+    expect(res).toEqual({ action: 'retry', reason: 'content_filter_reroute', model: 'gpt-4-alt' });
+  });
+
+  it('content_filter_reroute never picks the model that just filtered', async () => {
+    const modelsRegistry = {
+      getProvider: vi.fn(async () => ({
+        id: 'openai',
+        family: 'openai',
+        models: [
+          { id: 'gpt-4', cost: { input: 30 }, tool_call: true, modalities: { input: ['text'] } },
+        ],
+      })),
+      getModel: vi.fn(async () => ({
+        id: 'gpt-4',
+        cost: { input: 30 },
+        capabilities: { tools: true, vision: false },
+      })),
+    } as never as ModelsRegistry;
+    const eh = new DefaultErrorHandler(buildRecoveryStrategies({ modelsRegistry }));
+    expect(await eh.recover(contentFilterErr(), makeCtx())).toBeNull();
+  });
+
+  it('content_filter_reroute returns null without a registry (surfaces to fallback layer)', async () => {
+    const eh = new DefaultErrorHandler(buildRecoveryStrategies());
+    expect(await eh.recover(contentFilterErr(), makeCtx())).toBeNull();
+  });
+
+  it('content_filter errors never reach downgrade_model', async () => {
+    // A content-filtered 400 must not be treated as a server-error downgrade;
+    // the reroute strategy owns it (closest-cost, not cheapest).
+    const modelsRegistry = {
+      getProvider: vi.fn(async () => ({
+        id: 'openai',
+        family: 'openai',
+        models: [
+          { id: 'gpt-4', cost: { input: 30 }, tool_call: true, modalities: { input: ['text'] } },
+          { id: 'gpt-3.5', cost: { input: 1 }, tool_call: true, modalities: { input: ['text'] } },
+        ],
+      })),
+      getModel: vi.fn(async (_p: string, m: string) => ({
+        id: m,
+        cost: { input: 30 },
+        capabilities: { tools: true, vision: false },
+      })),
+    } as never as ModelsRegistry;
+    const eh = new DefaultErrorHandler(buildRecoveryStrategies({ modelsRegistry }));
+    const res = await eh.recover(contentFilterErr(), makeCtx());
+    expect(res).toEqual({ action: 'retry', reason: 'content_filter_reroute', model: 'gpt-3.5' });
+  });
 });

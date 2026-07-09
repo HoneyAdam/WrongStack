@@ -1,16 +1,13 @@
 # AGENTS.md — WrongStack Developer Reference
 
 > **DO NOT DELETE THIS FILE.** It is loaded into WrongStack's system prompt as
-> persistent project context. Previous content here may contain decisions,
-> architecture notes, domain knowledge, or verification history that should be
-> preserved. Merge additions rather than replacing.
+> persistent project context. Merge additions rather than replacing.
 
 ## Project brief
 
-WrongStack is a terminal AI coding agent built in TypeScript. It runs an LLM that reads code, edits files, runs shell commands, and reasons through bugs — with a permission policy that auto-approves trusted/YOLO-normal project work while gating clearly destructive or project-escaping calls unless explicitly overridden. The monorepo spans 14 packages under `packages/` plus 2 apps under `apps/`.
+WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that auto-approves trusted/YOLO-normal project work while gating destructive or project-escaping calls. Monorepo: 14 packages + 2 apps.
 
-**Runtime:** CLI (REPL), optional TUI (React/Ink), optional WebUI (Vite/React), optional Desktop (Electron)
-**Primary users:** Individual developers, teams
+**Runtime:** CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron)
 **Entry point:** `apps/wrongstack/src/main.ts` → `packages/cli/src/index.ts`
 
 ## Package map
@@ -20,735 +17,217 @@ packages/core/        — Kernel: Container, Pipeline, EventBus, RunController, 
 packages/providers/   — Anthropic, OpenAI, Google, OpenAI-compatible adapters
 packages/tools/       — Builtin tools: read, write, bash, exec, git, grep, glob, ...
 packages/mcp/         — MCP client + registry + stdio/SSE/streamable-http transports
-packages/plug-lsp/    — LSP bridge (slash commands: /lsp:start, /lsp:diag, /lsp:goto)
+packages/plug-lsp/    — LSP bridge (/lsp:start, /lsp:diag, /lsp:goto)
 packages/acp/         — Agent Client Protocol: client + agent (Zed, JetBrains, VSCode ACP)
 packages/cli/         — REPL, subcommands, slash commands, plugin management
 packages/tui/         — React/Ink terminal UI (lazy-loaded behind --tui)
 packages/runtime/     — Default runtime wiring: makeDefaultRuntime()
 packages/telegram/    — Telegram bridge plugin
-packages/webui/       — Vite+React web UI: standalone `webui` binary + CLI `--webui` (see docs/webui.md)
+packages/webui/       — Vite+React web UI: `webui` binary + CLI --webui (docs/webui.md)
 packages/plugins/     — Built-in plugin host: cron, file-watcher, session-tracker, subagent
-packages/bench/       — Model-independent benchmark harness (Aider polyglot + SWE-bench Verified); see docs/subcommands/bench.md
+packages/bench/       — Benchmark harness (Aider polyglot + SWE-bench); docs/subcommands/bench.md
 apps/wrongstack/      — bin entry (wrongstack / wstack)
 ```
 
-**Dependency direction:** `core` → nothing WrongStack-internal. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/skills/bench` → `core`. `cli/tui` → everything beneath. Never reverse these layers.
+**Dependency direction:** `core` → nothing internal. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/skills/bench` → `core`. `cli/tui` → everything beneath. Never reverse.
 
-## Key architectural concepts
+## Kernel (~1670 lines, `packages/core/src/kernel/`)
 
-### Kernel (~1670 lines incl. event types)
+**Container** — Typed DI keyed by `Token<T>` (branded symbol, not string). Bindings: `factory`/`value`/`decorator`; lazy + memoized. All well-known tokens (Logger, SessionStore, PermissionPolicy, Compactor, BrainArbiter, HookRegistry, …) live in `tokens.ts`. Plugins rebind tokens before `Agent.run`. No service locator.
 
-`packages/core/src/kernel/` has six modules:
+**Pipeline\<T\>** — Linear middleware chain. Six pipelines per agent step: `userInput` (every user turn), `request` (before provider call), `response` (after), `assistantOutput` (per text block), `toolCall` (after every tool call), `contextWindow` (before send if context may be too large). Middleware: `{ name, owner, handler: async (req, next) => ... }`; a middleware can `replace` a step — last `replace` wins (position-aware).
 
-**Container** — Typed DI indexed by `Token<T>` (branded symbol). Bindings: `factory`, `value`, `decorator`. Resolution is lazy and memoized. Well-known tokens in `tokens.ts`:
-
-```
-TOKENS.Logger · TOKENS.TokenCounter · TOKENS.SessionStore · TOKENS.MemoryStore
-TOKENS.PermissionPolicy · TOKENS.Compactor · TOKENS.PathResolver · TOKENS.ConfigLoader
-TOKENS.ConfigStore · TOKENS.Renderer · TOKENS.InputReader · TOKENS.ErrorHandler
-TOKENS.RetryPolicy · TOKENS.SkillLoader · TOKENS.PromptLoader · TOKENS.SystemPromptBuilder · TOKENS.SecretScrubber
-TOKENS.ModelsRegistry · TOKENS.ModeStore · TOKENS.ProviderRunner · TOKENS.WorktreeManager
-TOKENS.BrainArbiter · TOKENS.HookRegistry
-```
-
-Plugins rebind any token before `Agent.run`. No service-locator pattern — every dependency is explicit.
-
-**Pipeline<T>** — Linear middleware chain. Six pipelines fire per agent step:
-
-| Pipeline | Fires |
-|---|---|
-| `userInput` | Every user turn |
-| `request` | Before each provider call |
-| `response` | After each provider call |
-| `assistantOutput` | Per assistant text block |
-| `toolCall` | After every tool call |
-| `contextWindow` | Before sending if context might be too large |
-
-Middleware shape:
-```ts
-const mw: Middleware<Request> = {
-  name: 'my-mw',
-  owner: 'my-plugin',
-  handler: async (req, next) => { /* before */ const out = await next(req); /* after */ return out; },
-};
-```
-
-**EventBus** — Typed pub/sub. All events defined in `packages/core/src/kernel/events.ts` (typed `EventMap`):
-
-| Category | Events |
-|---|---|
-| **Session** | `session.started`, `session.ended`, `session.damaged`, `session.rewound` |
-| **Agent** | `agent.run.started`, `agent.run.completed`, `agent.run.error` |
-| **Iteration** | `iteration.started`, `iteration.completed`, `iteration.limit_reached` |
-| **Provider** | `provider.response`, `provider.text_delta`, `provider.thinking_delta`, `provider.tool_use_start`, `provider.tool_use_stop`, `provider.retry`, `provider.error`, `provider.fallback`, `provider.trust.persisted` |
-| **Tool** | `tool.started`, `tool.progress`, `tool.confirm_needed`, `tool.executed` |
-| **Context** | `ctx.pct`, `token.threshold`, `budget.threshold_reached`, `context.repaired` |
-| **Compaction** | `compaction.fired`, `compaction.failed` |
-| **MCP** | `mcp.server.connected`, `mcp.server.reconnected`, `mcp.server.disconnected` |
-| **Subagent** | `subagent.spawned`, `subagent.task_started`, `subagent.task_completed`, `subagent.budget_warning`, `subagent.budget_extended`, `subagent.tool_executed`, `subagent.iteration_summary`, `subagent.done`, `subagent.ctx_pct` |
-| **Worktree** | `worktree.allocated`, `worktree.committed`, `worktree.merged`, `worktree.conflict`, `worktree.released`, `worktree.failed` |
-| **Session (audit)** | `checkpoint.written`, `in_flight.started`, `in_flight.ended`, `token.cost_estimate_unavailable` |
-| **Fleet** | `coordinator.stats` |
-| **Fleet supervisor** | `fleet.supervisor.signal`, `fleet.supervisor.decision`, `fleet.supervisor.action` |
-| **Brain** | `brain.decision_requested`, `brain.decision_answered`, `brain.decision_ask_human`, `brain.human_answered`, `brain.decision_denied`, `brain.intervention` |
-| **Errors** | `error` |
-
-Total: **~56 events** across 14 categories. Source of truth is the `EventMap` type in `events.ts` — any new event must be added there AND to this table.
+**EventBus** — Typed pub/sub; ~56 events across 14 categories (session, agent.run, iteration, provider, tool, context, compaction, mcp.server, subagent, worktree, session audit, fleet + fleet.supervisor, brain, error) all defined in `kernel/events.ts` — `EventMap` is the source of truth; add new events there with a doc comment.
 
 **RunController** — One per `Agent.run`. Owns `AbortController`, chains parent signal, drains abort hooks LIFO on dispose.
 
-### Context and ConversationState
+## Context and agent lifecycle
 
-`Context` is the live agent-run object: messages, todos, system prompt, session writer, tools, provider, signal, cwd, model, meta.
-
-After L1-A, `Context` implements `RunEnv` (read-only env interface). `ctx.state: ConversationState` is an observable wrapper over mutable fields. `ctx.state.appendMessage(m)` and `ctx.state.replaceMessages(ms)` fire `onChange` events. Direct mutation still works for backward compat but subscribers won't see those changes.
-
-### Agent lifecycle
+`Context` is the live run object (messages, todos, system prompt, session writer, tools, provider, signal, cwd, model, meta) and implements `RunEnv`. `ctx.state: ConversationState` is an observable wrapper — `appendMessage(m)` / `replaceMessages(ms)` fire `onChange`; direct mutation works but bypasses subscribers.
 
 ```
 user input → Agent.run
   ↓ normalizeAndEmitUserInput (userInput pipeline + ctx.state.appendMessage)
-  ↓ for each iteration:
-      checkIterationLimit
-      build request → request pipeline
-      runProviderWithRetry → provider text_delta / response pipeline
-      if text only → done
-      else tool_use blocks:
-          ToolExecutor.executeBatch
-            permission check
-            tool.execute → toolCall pipeline → ctx.state.append
-      compactContextIfNeeded → contextWindow pipeline
+  ↓ per iteration: checkIterationLimit → build request (request pipeline)
+      → runProviderWithRetry (text_delta / response pipeline)
+      → text only? done : ToolExecutor.executeBatch
+          (permission check → tool.execute → toolCall pipeline → ctx.state.append)
+      → compactContextIfNeeded (contextWindow pipeline)
   ↓ RunResult
 ```
 
-### Tools streaming contract
+## Provider failure taxonomy & retry/fallback
 
-```ts
-interface Tool<I, O> {
-  name: string;
-  description: string;
-  inputSchema: JSONSchema;
-  permission: 'auto' | 'confirm' | 'deny';
-  mutating: boolean;
-  execute(input, ctx, opts): Promise<O>;
-  executeStream?(input, ctx, opts): AsyncIterable<ToolStreamEvent<O>>; // preferred when available
-  cleanup?(input, ctx): Promise<void>;
-}
-```
+Every provider HTTP failure is classified ONCE, at error construction, into `ProviderError.kind` (`rate_limit | overloaded | server | timeout | network | stream_hang | auth | context_overflow | content_filter | invalid_request | unknown`) by `classifyProviderError()` in `core/src/types/provider.ts` — the single home for status/type/message heuristics. **Consumers branch on `err.kind`, never re-derive from status/regex.** `isRetryableKind()` / `kindToCode()` live beside it. Retry-After headers are parsed by `retryAfterMsFromHeaders` (providers/error-parse.ts) into `body.retryAfterMs` via `translateError(status, text, headers?)`; wire-format backfills the hint even when a custom `normalizeError` ignores headers.
 
-`executeStream` yields `log`, `partial_output`, `metric`, `file_changed`, `warning` events, then terminal `{ type: 'final', output }`. The executor publishes each as `tool.progress` on the EventBus. Tool execution strategies: `parallel` (all at once), `sequential`, or `smart` (auto, defaults to parallel for independent tools).
+Three consumer layers, fixed precedence: (1) **in-place retries** — `runProviderWithRetry` + `DefaultRetryPolicy`: attempts per kind (rate_limit/stream_hang 5, overloaded/server 3, timeout/network 2, else 0), delay = Retry-After hint else exponential+jitter; (2) **cross-provider fallback** — `fallback-model`'s `wrapProviderRunner` hops the chain ONLY for capacity/transport kinds; request-shaped kinds (auth, invalid_request, context_overflow, content_filter) never hop; each hop gets its own layer-1 cycle; (3) **recovery strategies** — `errorHandler.recover`, one strategy per kind: `context_overflow` → compact+retry, `rate_limit` → last-resort backoff, `overloaded/server/stream_hang` → cheaper-model downgrade, `content_filter` → closest-cost sibling reroute; a `retry` decision re-enters layers 1–2, bounded by `recoveryRetries ≤ 2`.
 
-**Cancellation contract:** every tool MUST observe `opts.signal` (the executor composes the run's abort signal with the per-tool timeout via `AbortSignal.any` and passes it in `opts`). The executor cannot force a non-cooperative tool to stop — it discards the stale result and runs `cleanup`, but the tool keeps burning resources until its own I/O completes. Long walks poll `signal.aborted` (grep, glob); subprocess tools pass the signal to spawn / tree-kill on abort (bash, exec, git); file mutators check `signal.throwIfAborted()` right before their `atomicWrite` (write, edit) so an aborted turn leaves no fresh writes behind; MCP proxy tools forward the signal into `client.callTool`, which drops the JSON-RPC request AND sends the spec's `notifications/cancelled` so the server stops the in-flight work.
+## Tools
 
-**Malformed-argument repair:** provider adapters parse streamed tool arguments through `parseToolInput` (`packages/providers/src/_tool-input.ts`) — a repair ladder: direct parse → code-fence strip (`stripCodeFences`) → JSON5-style sanitize (`sanitizeJsonString`: comments, trailing commas, literal control chars) → truncation completion (`completePartialObject`) → both composed → double-wrap salvage → `{ __raw }` sentinel. The executor then validates against `inputSchema`; before rejecting it runs one lossless coercion pass (`coerceAgainstSchema`: `"5"`→5, `"true"`→true, double-encoded JSON strings revived) and re-validates. Unrecoverable input produces an `is_error` tool_result naming the exact fields (missing + expected type, mistyped + received value) so the model can self-correct on the next turn.
+`Tool<I, O>`: `name`, `description`, `inputSchema` (JSONSchema), `permission: 'auto'|'confirm'|'deny'`, `mutating`, `execute(input, ctx, opts)`, optional `executeStream` (preferred — yields `log`/`partial_output`/`metric`/`file_changed`/`warning` then `{type:'final', output}`; executor publishes each as `tool.progress`), optional `cleanup`. Execution strategies: `parallel`, `sequential`, `smart` (default).
 
-**Loop detection** (`tools.loopDetection` config, resolved in `agent-types.ts`): two detectors in the agent loop — (1) consecutive effectively-identical iterations (tool-name set + first input hash + text blob), (2) a sliding window of per-call `(name + canonicalized args)` hashes that catches "re-reading the same file for the 4th time" even interleaved with other calls. Default mode `steer-then-cut`: at `steerThreshold` (3) a corrective `[loop-detector]` note is folded into the conversation and the run continues; at `cutThreshold` (5) the turn ends with `status: 'max_iterations'`. Modes `cut` (legacy hard-stop) and `off` are available. Every detection emits `tool.loop_detected` with `action` (`steer`/`cut`) and `scope` (`iteration`/`call`).
+**Cancellation:** every tool MUST observe `opts.signal` (run abort + per-tool timeout via `AbortSignal.any`). Long walks poll `signal.aborted` (grep, glob); subprocess tools pass the signal to spawn / tree-kill (bash, exec, git); file mutators call `signal.throwIfAborted()` right before `atomicWrite` (write, edit); MCP proxy tools forward it into `client.callTool` (drops the request AND sends `notifications/cancelled`).
 
-### Lifecycle hooks
+**Malformed-argument repair:** adapters parse streamed tool args via `parseToolInput` (`providers/src/_tool-input.ts`) — ladder: direct parse → code-fence strip → JSON5-style sanitize → truncation completion → composed → double-wrap salvage → `{ __raw }` sentinel. Executor validates against `inputSchema`; before rejecting runs one lossless coercion pass (`coerceAgainstSchema`) and re-validates; unrecoverable input → `is_error` tool_result naming exact fields.
 
-User/plugin-defined hooks that **steer** (not just observe — the EventBus can't block). Core lives in `packages/core/src/hooks/` (`HookRegistry`, `HookRunner`, `runShellHook`); pure types in `types/hooks.ts`; DI token `TOKENS.HookRegistry`. Events: `PreToolUse` / `PostToolUse` (wired in `ToolExecutor` — block, rewrite input, append context), `UserPromptSubmit` (a `userInput` pipeline middleware — block via thrown `HookBlockedError`, inject context), `SessionStart` / `Stop` (an `AgentExtension`). Two transports: **shell** (`config.hooks`, JSON over stdin, exit 2 = block) and **in-process** (`api.registerHook(event, matcher, fn)`). CLI wiring in `packages/cli/src/hooks-wiring.ts` + boot in `index.ts`; gated off by `--no-hooks`. See `docs/hooks.md`.
+**Loop detection** (`tools.loopDetection`): (1) consecutive effectively-identical iterations; (2) sliding window of per-call `(name + canonicalized args)` hashes catching interleaved repeats. Default `steer-then-cut`: steer note at 3, cut at 5 (`status: 'max_iterations'`); modes `cut`, `off`; emits `tool.loop_detected`.
 
-### Fallback model
+## Lifecycle hooks
 
-`config.fallbackModels` (CLI `--fallback-model a,b,c`) — ordered chain tried when the primary is overloaded (429/529/5xx) after its own retries. Implemented as an `AgentExtension` (`packages/core/src/core/fallback-model.ts`) that wraps the provider runner: walks the chain within a single provider call (so it doesn't burn the loop's `recoveryRetries`) and supports cross-provider targets via the CLI/runtime provider builder. After a fallback succeeds, the leader stays on that fallback while the primary is cooling down; when the cooldown expires it probes the primary half-open and backs off again on overload. Emits `provider.fallback`.
+User/plugin hooks that **steer** (EventBus can't block). Core in `core/src/hooks/`; types `types/hooks.ts`; token `TOKENS.HookRegistry`. Events: `PreToolUse`/`PostToolUse` (ToolExecutor), `UserPromptSubmit` (userInput middleware), `SessionStart`/`Stop` (AgentExtension). `PreToolUse` outcomes: `allow`, `deny {reason}`, `mutate {input}`; mutate-stage hooks compose before validate-stage hooks inspect (validators can't rewrite); `allow`/`mutate` never bypass the permission policy, incl. YOLO. Deadline-bound, cancellable, per-hook `failurePolicy: open|closed`. Transports: command (`config.hooks`, JSON over stdin, exit 2 = deny), HTTP, in-process (`api.registerHook`). `--no-hooks` keeps `policy: true` enforcement hooks. See `docs/hooks.md`.
 
-### Multi-agent
+## Fallback model
 
-`DefaultMultiAgentCoordinator` manages a fleet with:
-- Task queue with `maxConcurrent` (default 4) in-flight limit
-- Per-subagent `SubagentBudget`: maxIterations, maxToolCalls, maxTokens, maxCostUsd, timeoutMs
-- `AgentBridge` for bidirectional parent↔subagent messaging
-- `BudgetExceededError` → `timeout` or `stopped` result status
-- Subagent signal lifecycle: `AbortController` recycled between tasks
+`config.fallbackModels` (`--fallback-model a,b,c`) — ordered chain tried when primary is overloaded (429/529/5xx) after its own retries. An `AgentExtension` (`core/src/core/fallback-model.ts`) wrapping the provider runner: walks the chain within one provider call (doesn't burn `recoveryRetries`); cross-provider targets supported. After success the leader stays on the fallback during cooldown, then probes half-open. Emits `provider.fallback`.
 
-Subagent model routing is driven by `config.modelMatrix`: exact role → role phase
-→ `*` → leader model. A matrix entry can set `provider`/`model`, point at a
-`fallbackProfile`, and/or carry `modelRuntime` overrides. Runtime-only entries
-are valid, so a role can inherit the leader model while using its own reasoning
-mode/effort/preserve. CLI `/setmodel` and WebUI Settings → Model Routing both
-persist the same matrix shape.
+## Multi-agent
 
-For director-driven evolution, see `docs/director-architecture.md`.
+`DefaultMultiAgentCoordinator`: task queue with `maxConcurrent` (default 4; `--max-concurrent` / `WRONGSTACK_MAX_CONCURRENT` / `/fleet concurrency`); per-subagent `SubagentBudget` (iterations/tool-calls/tokens/cost/timeout); `AgentBridge` for parent↔subagent messaging; subagent `AbortController` recycled between tasks.
+
+Budgets self-extend via `budget.threshold_reached` → onThreshold → `extend`. Enforcement on overrun: (1) no handler / `'sync'` mode / no EventBus → synchronous `BudgetExceededError`; (2) bus + listener → `BudgetThresholdSignal`, runner awaits the negotiated decision (live production path — the coordinator always registers a listener); (3) bus but no listener → `onThreshold` runs synchronously: a **sync** policy handler is honored in place, an **async** one is a hard stop. Each exceeded kind negotiates independently, one event per kind (dedup cleared on a microtask).
+
+Failure results preserve progress: `TaskResult.partial` carries the latest `SubagentPartialResult` (via `SubagentRunContext.reportProgress`; last 4K chars kept for failed/timed-out/stopped tasks); the delegate tool consumes it first, falling back to JSONL transcript recovery. Structured success results: every CLI fleet subagent gets the task-local `submit_result` tool (`{summary, findings, files_examined, confidence, suggested_next_steps}`, capped 8K) → `TaskResult.report`; roll-up/delegate/mailbox prefer it; `TaskResult.result` kept for legacy runners.
+
+Model routing via `config.modelMatrix`: exact role → role phase → `*` → leader model; entries can set `provider`/`model`, `fallbackProfile`, `modelRuntime` overrides (runtime-only entries valid). `/setmodel` and WebUI Settings → Model Routing persist the same shape.
+
+Recursion: hard depth ceiling 2 (`HARD_MAX_SPAWN_DEPTH`, config may narrow, never widen); CLI default 64 lifetime spawns (`fleet.budget.maxSpawns`); `Director.spawn` overwrites caller lineage with authoritative `spawnLineage`; fleet-wide `fleet.budget.maxTokens`/`maxCostUsd` refuse new spawns at ceiling (in-flight tasks undisturbed). See `docs/director-architecture.md`.
 
 ### Fleet supervision + peer awareness
 
-**Early finishers (`awaitTasksAny`)** — `Director.awaitTasksAny(ids, {timeoutMs?})`
-(and the coordinator method behind it) resolves on the FIRST completion,
-returning `{completed, pending, timedOut?}`; already-cached ids drain
-immediately. The leader tool `await_tasks` takes `mode: 'all'|'any'` (+
-`timeoutMs` for any-mode) so a leader can handle each finisher as it lands
-instead of blocking on the slowest sibling. **Consumed-in-band rule**
-(`director.ts` taskCompletedListener): a result returned in-band — by an
-`awaitTasks` batch waiter or as the winning result of an any-await — sends
-no report-back mail; every other completion (fire-and-forget tasks AND the
-slow siblings of an any-await) reaches the leader as a mailbox `result`.
+**Early finishers** — `Director.awaitTasksAny(ids, {timeoutMs?})` resolves on FIRST completion; leader tool `await_tasks` takes `mode: 'all'|'any'`. **Consumed-in-band rule** (`director.ts`): a result returned in-band (batch waiter or winning any-await) sends no report-back mail; every other completion reaches the leader as mailbox `result`. **Rebalancing** — `listPendingTasks()` / `retargetPendingTask(taskId, subagentId|undefined)`; only still-PENDING tasks move (task id preserved); running tasks can only be steered/terminated.
 
-**Rebalancing primitives** — `listPendingTasks()` /
-`retargetPendingTask(taskId, subagentId|undefined)` on coordinator +
-Director. Only still-PENDING tasks move (task id preserved, so waiters/
-notifier/checkpoints resolve unchanged); running tasks can only be steered
-or terminated.
+**FleetSupervisor** (`core/coordination/fleet-supervisor.ts`) — brain-gated shadow watcher over the Director fleet (SDD has its own `SddSupervisor`). Rule-first signals (starvation, overloaded worker, deep backlog → spawn helper, stuck agent, failure streak, idle-with-work); every proposal goes through `TOKENS.BrainArbiter` (`fallback:'ask_human'`). Actions: retarget+steer+notify, spawn helper, steer, notify, terminate (opt-in). Rate-limited (per-(signal,subject) cooldown, one engagement in flight, `maxInterventionsPerSubagent`, one retarget per task). Never calls budget extend/deny, never preempts running tasks, never flips autonomy, dormant after `work_complete`. Wired in `MultiAgentHost.buildDirector`; `/supervisor`; config `config.fleet.supervisor`. Helper spawning routes through `dispatchAgent` + `FLEET_ROSTER`. Any child FleetBus event counts as liveness (long provider call ≠ stuck).
 
-**FleetSupervisor** (`core/coordination/fleet-supervisor.ts`) — brain-gated
-shadow watcher over the generic Director fleet (SDD keeps its own
-`SddSupervisor`). Rule-first signals: pinned starvation, overloaded worker,
-deep backlog (→ spawn helper), stuck agent, failure streak, idle-with-work.
-Every proposal goes through the session `TOKENS.BrainArbiter`
-(`fallback:'ask_human'`, so policy answers recommended low-risk instantly
-and the LLM tier handles medium/high under the `/brain risk` ceiling).
-Actions: retarget + steer-the-loser + notify leader, spawn helper, steer,
-notify, terminate (opt-in `allowTerminate`). Rate limits: per-(signal,
-subject) cooldown, single engagement in flight, `maxInterventionsPerSubagent`,
-one retarget per task. Non-interference: never calls budget `extend`/`deny`
-(Director's budgetFilter stays sole negotiator), never preempts running
-tasks, never flips autonomy, dormant after `work_complete`. Wired in
-`MultiAgentHost.buildDirector` (CLI); inspect/toggle via `/supervisor`;
-audit trail = `fleet.supervisor.*` events. Config: `config.fleet.supervisor`.
+**Peer awareness** — (1) fleet-pulse digest: `[FLEET PULSE]` peer block folded every N iterations (`core/core/fleet-pulse.ts` + `attachFleetPulse`; deduped, char-capped, 30s throttle); (2) `fleet_status` tool — read-only peer snapshot from the mailbox registry (capability `coordination.fleet.read`); (3) status broadcasts — `cli/fleet/status-broadcast.ts` turns spawn/completion/budget-pressure into `type:'status'` mails (coalesced + rate-capped) and pushes `currentTask`/`status` into heartbeats. Config: `config.fleet.pulse` / `.statusBroadcasts`. The whole `fleet` key is **deny-listed for in-project config**.
 
-**Peer awareness** — three mechanisms so agents on a project see each other
-mid-run, not just at spawn: (1) **fleet-pulse digest** — every Agent's loop
-folds a `[FLEET PULSE]` peer block in every N iterations
-(`core/core/fleet-pulse.ts` formatter + `attachFleetPulse` in
-`mailbox-attach.ts`; signature-deduped, char-capped, 30s registry-read
-throttle); (2) **`fleet_status` tool** — read-only live peer snapshot from
-the mailbox registry (`coordination/fleet-status-tool.ts`, capability
-`coordination.fleet.read`, in `WIDE_SUBAGENT_CAPABILITIES`); (3) **status
-broadcasts** — `cli/fleet/status-broadcast.ts` turns subagent
-spawn/completion/budget-pressure into `type:'status'` broadcast mails
-(per-agent coalescing + global per-minute cap) and pushes
-`currentTask`/`status` into mailbox heartbeats on task start/stop. Config:
-`config.fleet.pulse` / `config.fleet.statusBroadcasts`. The whole `fleet`
-key is **deny-listed for in-project config**.
+## The Brain (decision layer)
 
-### The Brain (decision layer)
+One Brain per session at `TOKENS.BrainArbiter`, between agents and human. All autonomous consumers (Director, AutoPhase `phase-orchestrator.ts`, Eternal engine `eternal-autonomy.ts` / `--eternal`) route blocking decisions through it.
 
-One **Brain** instance per session, bound at `TOKENS.BrainArbiter`, sits
-between the agents and the human. Every autonomous consumer — Director
-(`director.ts`, `director-construction.ts`), AutoPhase
-(`phase-orchestrator.ts`), Eternal engine (`eternal-autonomy.ts`, incl.
-the `--eternal` flag path) — routes blocking decisions through it.
+**Three tiers** (wired in `cli-main.ts`): 1. `DefaultBrainArbiter` — deterministic policy. 2. `createTieredBrainArbiter` + `createAutonomyBrain` (`core/execution/autonomy-brain.ts`) — LLM engine gated by a live autonomy ceiling (`/brain risk off|low|medium|high|all`, default `medium`, read per decision). 3. `HumanEscalatingBrainArbiter` + `BrainDecisionQueue` — interactive prompt (TUI `BrainDecisionPrompt`). `ObservableBrainArbiter` emits `brain.decision_*` around the chain.
 
-**Three tiers** (`cli-main.ts` wires the chain):
-1. `DefaultBrainArbiter` — deterministic policy (low-risk fast path,
-   fallback semantics).
-2. `createTieredBrainArbiter` + `createAutonomyBrain`
-   (`core/execution/autonomy-brain.ts`) — LLM decision engine, gated by a
-   **live autonomy ceiling** (`/brain risk off|low|medium|high|all`,
-   default `medium`, read on every decision). Sees the live
-   provider/model via a lazy wrapper.
-3. `HumanEscalatingBrainArbiter` + `BrainDecisionQueue` — interactive
-   prompt (TUI `BrainDecisionPrompt`). `ObservableBrainArbiter` emits
-   `brain.decision_*` events around the whole chain.
+**Self-activation:** `BrainMonitor` (`core/coordination/brain-monitor.ts`) watches for tool-failure streaks (3× same tool) and error storms (4 in 60s), consults the Brain, and on steer sends a high-priority `steer` mail `brain@<tag>` → `leader@<tag>`. Emits `brain.intervention`; 120s per-signal cooldown; policy-only brains degrade to observe-only. `/brain` shows status + last 20 decisions.
 
-**Self-activation:** `BrainMonitor`
-(`core/coordination/brain-monitor.ts`) watches the EventBus for
-tool-failure streaks (3× same tool) and error storms (4 in 60s),
-consults the Brain (`source: 'system'`, options steer/continue, fallback
-`continue`), and on a steer decision sends a high-priority `steer` mail
-from `brain@<sessionTag>` to `leader@<sessionTag>` — folded into the
-agent's conversation by the mailbox loop. Emits `brain.intervention`
-either way; 120s per-signal cooldown; policy-only brains degrade to
-observe-only. `/brain` shows status + the last 20 decisions.
+**Surfaces:** TUI renders decisions as BRAIN entries + ask-human overlay, interventions as ⚡ (`use-brain-events.ts`). Both WebUI servers broadcast `brain.*` as `{type:'brain.event'}` WS messages; the standalone WebUI wires its own Brain (policy → LLM, no human tier — `ask_human` falls back) + BrainMonitor and serves `/brain` over WS.
 
-**Surfaces:** TUI renders `brain.decision_*` as BRAIN history entries +
-the ask-human overlay, and `brain.intervention` as a ⚡ intervention
-entry (`use-brain-events.ts`). Both WebUI servers broadcast `brain.*` as
-`{type: 'brain.event'}` WS messages; the frontend (`ws-handlers.ts`)
-surfaces interventions as chat notices + toasts. The standalone WebUI
-server wires its own Brain (policy → LLM, no human tier yet — `ask_human`
-falls back) + BrainMonitor, and serves the `/brain` command over WS
-(`brain.status` / `brain.risk` / `brain.ask` messages).
+**Option decision contract:** an LLM Brain decision with options must return exact JSON `{ "optionId": "<exact-id>", "rationale": "..." }` (legacy leading `[exact-id]` accepted). Free-text substring matching is forbidden — "do not spawn" must never select `spawn`. No exact valid id → denied, falls through the tier chain; FleetSupervisor likewise refuses answers lacking a valid `optionId`.
 
-### Cross-surface coordination (multi-terminal / multi-WebUI)
+## Cross-surface coordination
 
-Any number of terminals, TUIs and WebUIs working on the same project share
-one coordination plane under `~/.wrongstack/projects/<slug>/`:
+All surfaces on one project share `~/.wrongstack/projects/<slug>/`:
 
-- **One canonical project dir.** Every surface derives `<slug>` via
-  `projectSlug()` (`core/utils/wstack-paths.ts`). `resolveProjectDir`
-  (GlobalMailbox) and the WebUI's `generateProjectSlug` DELEGATE to it —
-  never reintroduce an inline slug copy (a divergent copy once split agents
-  on edge-named projects into two mailboxes).
-- **projects.json** (`~/.wrongstack/projects.json`) is auto-touched on every
-  boot — CLI/TUI via `touchProjectInManifest()` (file-locked) in
-  `cli/slash-commands/project-utils.ts`, standalone WebUI via its local
-  equivalent. Entries: name/root/slug/createdAt/lastSeen/lastWorkingDir.
-- **GlobalMailbox** (`_mailbox.jsonl` + `_mailbox.registry.json`): agents
-  register under a **session-unique identity** `<base>@<session-tag>` (set by
-  `attachMailboxChecker` into `ctx.meta['globalAgentId']`) with 30s
-  heartbeats (stale after 60s). The bare base id (`leader`) is an alias:
-  the loop checker, the `mailbox` tool, and `/mailbox` query unique id +
-  alias + `*` and dedupe by message id; read receipts always go under the
-  unique id. "to leader" fans out to every live leader process; "to
-  leader@a1b2c3d4" is exact. send() and ack() share one file lock (an unlocked
-  append racing ack's rewrite is silently erased).
-- **SessionRegistry** (cross-process): both the CLI and the standalone
-  WebUI register their sessions and run `AgentStatusTracker`, so
-  `/sessions status` lists every surface's live sessions.
-- **Surfaces.** Agents read incoming mail automatically each iteration
-  (`mailbox-loop` folds steer/btw inline) and write via `mail_send` /
-  `mail_inbox` (high-affordance thin wrappers) or the multi-action
-  `mailbox` power-tool — all registered in CLI and WebUI, available to
-  fleet subagents (full registry by default), and covered by a mailbox
-  protocol block in the system prompt + subagent baseline (identity,
-  broadcast-milestones etiquette, answer-your-mail). Fleet subagents get
-  distinct identities via Context `agentId`/`agentName` (host.ts).
-  Humans use `/mailbox` (inbox / agents / send / broadcast / history);
-  the TUI and both WebUI servers forward `mailbox.received` /
-  `mailbox.agent_registered` live.
+- **One canonical slug** via `projectSlug()` (`core/utils/wstack-paths.ts`); `resolveProjectDir` (GlobalMailbox) and WebUI's `generateProjectSlug` DELEGATE to it — never reintroduce an inline copy (a divergent copy once split agents into two mailboxes).
+- **projects.json** auto-touched on every boot via file-locked `touchProjectInManifest()` (`cli/slash-commands/project-utils.ts`; standalone WebUI has a local equivalent).
+- **GlobalMailbox** (`_mailbox.jsonl` + `_mailbox.registry.json`): agents register under session-unique `<base>@<session-tag>` (`attachMailboxChecker` → `ctx.meta['globalAgentId']`), 30s heartbeats (stale 60s). Bare base id (`leader`) is an alias: readers query unique id + alias + `*`, dedupe by message id; read receipts under the unique id. "to leader" fans out to every live leader; "to leader@a1b2c3d4" exact. send() and ack() share one file lock.
+- **SessionRegistry** (cross-process): CLI + standalone WebUI register sessions and run `AgentStatusTracker`; `/sessions status` lists every surface.
+- Agents read mail each iteration (`mailbox-loop` folds steer/btw inline), write via `mail_send`/`mail_inbox` or the multi-action `mailbox` power-tool; fleet subagents get distinct identities via Context `agentId`/`agentName` (host.ts). Humans use `/mailbox`; TUI + WebUI forward mailbox events live.
 
-### Collab Debug Session
+## Collab Debug Session
 
-A **CollabSession** (triggered by `/collab <paths>` or `collab_debug` tool) runs a three-agent parallel pipeline: `bug-hunter` → `refactor-planner` → `critic`. Each agent emits structured events via `fleet_emit` tool, which the Director routes to the `FleetBus`. Downstream agents consume events in real time (not just at task completion).
+`CollabSession` (`/collab <paths>` or `collab_debug` tool): three-agent parallel pipeline `bug-hunter` → `refactor-planner` → `critic`. Agents emit structured events via the `fleet_emit` tool → `FleetBus`; downstream agents consume in real time. Events: `bug.found` (per-finding, no batching), `refactor.plan` (per bug), `critic.evaluation` (→ Director final report). Known payloads schema-validated and role-bound; attribution from executing `Context.agentId` + `subagentTaskId`, never model-supplied; unknown event types allowed for plugins. FleetMonitor (Ctrl+F) / FleetPanel show live status. Code: `core/src/coordination/collab-debug.ts`, `fleet-bus.ts`; `tui/src/components/fleet-monitor.tsx`, `fleet-panel.tsx`.
 
-**Event types:**
-| Event | Emitted by | Consumed by |
-|-------|-----------|-------------|
-| `bug.found` | BugHunter | RefactorPlanner, Critic |
-| `refactor.plan` | RefactorPlanner | Critic |
-| `critic.evaluation` | Critic | Director (aggregated into final report) |
+## HQ Command Center (port 3499)
 
-**Key rules:**
-- Agents use `fleet_emit` tool for real-time event emission, NOT scratchpad JSON parsing
-- BugHunter emits `bug.found` per-finding as soon as each is found (no batching)
-- RefactorPlanner reads the BugHunter report from scratchpad, emits `refactor.plan` per bug
-- Critic reads both reports, emits `critic.evaluation` per subject
-- FleetMonitor (Ctrl+F) and FleetPanel show real-time agent status + event counts
-- Timeline in FleetMonitor shows last 20 events across all agents
+`wstack --hq`: project-independent, **the only deliberately cross-machine** server (everything else is loopback-only). Aggregates telemetry from every connected surface and can steer them. Full docs: `docs/subcommands/hq.md` + `docs/plans/hq-command-center-2026-07.md`.
 
-**Code references:**
-- `packages/core/src/coordination/collab-debug.ts` — `CollabSession` class
-- `packages/core/src/coordination/fleet-bus.ts` — `FleetBus` event routing
-- `packages/tui/src/components/fleet-monitor.tsx` — Ctrl+F dashboard
-- `packages/tui/src/components/fleet-panel.tsx` — status bar compact view
+Hub-and-spoke, two WS channels: `/ws/client` — surfaces publish versioned `HqEventEnvelope`s (`HQ_PROTOCOL_VERSION = 1`); `/ws/browser` — dashboard subscribes to `hq.snapshot` (debounced 250ms) + `hq.event` + `hq.alert`. Each surface wires an `HqPublisher` + EventBus bridges forwarding plain-data events (session/agent/fleet/brain/worktree/tool[redacted]/cost); wiring in `cli-main.ts` (~L1370), `webui/src/server/pre-context-services.ts`, `tui/src/run-tui.ts`. Persistence: `<dataDir>/events.jsonl` (rotated 50K), `snapshot.json`, `timeseries.jsonl` (5-min buckets); restart re-seeds rings; HTTP `/api/events`, `/api/trends/cost`, `/api/alerts`. Control plane: browser → `POST /api/command` → per-client queue → `client.command_poll` → `hq.command_batch` → `client.command_ack`; token scopes via `HqToken.capabilities` (absent = unrestricted; `control.enqueue` browser, `control.execute` client); commands `steer`/`abort`/`spawn`/`broadcast`/`run-command` (RCE-gated: `--hq-allow-exec` + `control.execute`; even then routed as a steer — the agent's own permission policy applies). `HqAlertEngine` evaluates the snapshot every 15s; only state transitions emit `hq.alert`. Separate browser/client token sets in `<dataDir>/auth.json` (auto-minted; open mode when a set is empty). Code: `core/src/hq/`; `cli/src/hq-server.ts`, `hq-dashboard-html.ts` (→ React `packages/webui-hq/`, Phase 5), `hq-command-controller.ts`, `hq-publisher.ts`, `boot/short-circuit-hq.ts`.
 
-### HQ Command Center (port 3499)
+## TUI fleet commands
 
-`wstack --hq` starts a project-independent, cross-machine command center. It
-is the **only deliberately cross-machine** server in WrongStack — every other
-surface (WebUI, mailbox-serve, MCP serve) is loopback-only. HQ aggregates
-telemetry from every connected terminal/TUI/REPL/WebUI across machines and,
-since the 2026-07 enhancement, can also steer them.
+`Ctrl+F` fleet monitor · `Ctrl+G` agents monitor · `/fleet status|dispatch <task>|log <id>|usage|spawn <role> [n]|stream on|off`.
 
-**Architecture:** hub-and-spoke over two WebSocket channels:
-- `/ws/client` — TUI/REPL/WebUI/CLI surfaces **publish** telemetry as versioned
-  `HqEventEnvelope`s (envelope shape: `{id,type,schemaVersion,timestamp,
-  clientId,projectId,sessionId?,runId?,seq,payload}`). Protocol version
-  `HQ_PROTOCOL_VERSION = 1`.
-- `/ws/browser` — HQ dashboard **subscribes** to `hq.snapshot` (debounced 250ms)
-  + `hq.event` (transient) + `hq.alert` (Phase 6) frames.
+## MCP integration
 
-**Telemetry bridge model:** every surface wires an `HqPublisher` + a set of
-bridges (template: `agent-bridge.ts`). Each bridge subscribes to the local
-EventBus and forwards serializable events as HQ envelopes. All event payloads
-are plain data — no closures. Bridges:
-- `session-bridge` → `session.snapshot`/`session.transcript`/`session.ended`
-- `agent-bridge` → `agent.message`/`agent.status`
-- `fleet-bridge` → `fleet.snapshot` (from `coordinator.stats`)
-- `brain-bridge` → `brain.event` (decision/intervention lifecycle)
-- `worktree-bridge` → `worktree.event` (allocated/committed/merged/conflict/…)
-- `tool-bridge` → `tool.started`/`tool.completed` (input summarized via redaction)
-- `cost-bridge` → `session.usage` (from `token.accounted` — granular cost feed)
+**Client:** `MCPClient` speaks JSON-RPC 2.0 over `stdio`/`sse`/`streamable-http`. `MCPRegistry`: exponential backoff + jitter on reconnect (cap 5 cycles → `failed`). Tools prefixed `mcp__<server>__<tool>`. Manage via `/mcp`, `wstack mcp`, or WebUI Settings → MCP — all persist to `mcpServers` and drive the same registry.
 
-Wiring call-sites: `cli-main.ts` (~L1370), `packages/webui/src/server/
-pre-context-services.ts`, `packages/tui/src/run-tui.ts`.
+**Lazy connect** (per-server `MCPServerConfig.lazy`): no spawn at boot; tools registered from an on-disk manifest cache (`~/.wrongstack/cache/mcp-tools/<server>.json`, invalidated by `configHash`) via resolver-backed wrappers (`wrapMCPTool` accepts a client or a client factory). Spawns on first tool call through `MCPRegistry.ensureConnected` (single-flight), state `'dormant'` until then; idle-auto-sleeps after `idleTimeoutMs` (default 5 min) keeping wrappers registered.
 
-**Persistence (Phase 2):** survives restart — `<dataDir>/events.jsonl`
-(append-only, rotated at 50K lines), `snapshot.json` (atomic checkpoint on
-every debounced broadcast), `timeseries.jsonl` (5-min cost/activity buckets).
-Restart hydration re-seeds the in-memory rings. HTTP: `/api/events`,
-`/api/trends/cost`.
+**Management core:** `packages/mcp/src/manage.ts` — single surface-agnostic core (add/update/remove/enable/disable/restart/discover/list) returning structured results; REPL renders via `mcp-utils.ts`, both WebUI servers translate to WS via `mcp-handlers.ts` and own a live `MCPRegistry` (embedded reuses the agent's; standalone constructs its own).
 
-**Control plane (Phase 3-4):** two-directional. Browser → `POST /api/command`
-→ per-client queue → client polls via `client.command_poll` → `hq.command_batch`
-→ client executes → `client.command_ack`. Token scope model: `HqToken.capabilities`
-(opt-in — absent = unrestricted for backward-compat; `control.enqueue` for
-browser tokens, `control.execute` for client `run-command`). Five command
-types: `steer`, `abort`, `spawn`, `broadcast`, `run-command` (RCE-gated: needs
-`--hq-allow-exec` + `control.execute`; even then routes as a steer, never
-direct shell — the agent's own permission policy still applies). Client-side
-dispatch: `hq-command-controller.ts` (mutable holder, lazy-populated like
-`interruptController`).
+**Server:** `wstack mcp serve` (`packages/mcp/src/server.ts` + `cli/src/mcp-serve.ts`) exposes the builtin tool registry over stdio. Default read-only; `--yolo` exposes write/exec, `--tools a,b,c` whitelists. See `docs/mcp-server.md`.
 
-**Alerting (Phase 6):** `HqAlertEngine` evaluates the live snapshot every 15s
-against rules (fleet cost threshold, all-machines-stale, high concurrency,
-fleet failure spike). Dedup via state machine — only transitions emit
-`hq.alert`. HTTP: `/api/alerts` (active + history).
+## Compactors
 
-**Security:** separate browser/client token sets in `<dataDir>/auth.json`
-(first-run auto-minted; open mode when a set is empty). `redactionPolicy`
-operator-overridable. `control.receive` capability negotiated at hello.
+`config.context.strategy` selects via `createStrategyCompactor` (`execution/strategy-compactor.ts`); `TOKENS.Compactor` binds to it in both CLI and WebUI: `hybrid` *(default)* — `HybridCompactor`, lossless rule-based (elides oversized old tool results, collapses ancient turns into one digest preserving all text, dropping only raw tool I/O — still in the session log); `intelligent` — LLM summarization, falls back to the lossless digest on failure; `selective` — LLM keep/collapse selection (`LLMSelector`) + summarization. LLM strategies resolve `provider` from `ctx` at `compact()`-time and degrade to lossless hybrid without one. Shared primitives (token estimate, elision with `tool_use`/`tool_result` pair preservation, digest, safe-cut boundary) in `execution/compaction-core.ts`; canonical estimator `utils/token-estimate.ts:estimateMessageTokens` (chars/3.5, per-`(provider,model)` calibration via `recordActualUsage`). `AutoCompactionMiddleware` wraps the `contextWindow` pipeline (fires after every iteration) and writes a `compaction` session event; `repairToolUseAdjacency()` removes orphan `tool_use`/`tool_result` blocks after context surgery. Context modes: `balanced` (default), `frugal`, `deep`, `archival`.
 
-**Code references:**
-- `packages/core/src/hq/` — protocol, publisher, factory, auth-store, bridges,
-  redaction, persistence, commands, alerts, transcript-mapper
-- `packages/cli/src/hq-server.ts` — the server (port 3499, both WS channels,
-  HTTP API, persistence, alert engine, control queue)
-- `packages/cli/src/hq-dashboard-html.ts` — inline HTML dashboard (to be
-  replaced by a React app in `packages/webui-hq/` — Phase 5)
-- `packages/cli/src/hq-command-controller.ts` — client-side command dispatch
-- `packages/cli/src/hq-publisher.ts` — CLI publisher wrapper
-- `packages/cli/src/boot/short-circuit-hq.ts` — `--hq` boot path
+## Plugins
 
-### TUI Fleet Commands
-
-| Key / Command | Effect |
-|---|---|
-| `Ctrl+F` | Toggle full fleet monitor dashboard |
-| `Ctrl+G` | Toggle agents monitor (per-agent live view) |
-| `/fleet status` | Pending + completed task table per subagent |
-| `/fleet dispatch <task>` | Route task to best agent (heuristic + LLM) and spawn |
-| `/fleet log <id>` | Compact JSONL transcript summary for subagent |
-| `/fleet usage` | Per-agent iterations, tool calls, cost rollup |
-| `/fleet spawn <role> [n]` | Spawn N agents of given role |
-| `/fleet stream on\|off` | Show/hide subagent activity in leader history |
-
-### MCP integration
-
-**Client** (consume external servers): `MCPClient` speaks JSON-RPC 2.0 over three transports: `stdio` (child process), `sse` (server-sent events), `streamable-http` (NDJSON). `MCPRegistry` manages the fleet with exponential backoff + jitter on reconnect (cap 5 cycles, then `failed`); `list()`/`describe()` expose live state + per-server tool names. Tools get namespace prefix `mcp__<serverName>__<toolName>`. Enable/disable/restart via `/mcp` (REPL/TUI), `wstack mcp` (CLI), or the WebUI Settings → MCP panel — all persist to `mcpServers` in config and drive the same registry.
-
-**Lazy connect** (per-server `MCPServerConfig.lazy`, opt-in): the process is not spawned at boot. Tools are registered from an on-disk manifest cache (`~/.wrongstack/cache/mcp-tools/<server>.json`, written on first connect, invalidated by a `configHash` over transport/command/args/url — `manifest-cache.ts`) via resolver-backed wrappers (`wrapMCPTool` accepts `MCPClient | (() => Promise<MCPClient>)`). The process spawns on the first tool call through `MCPRegistry.ensureConnected` (single-flight), state `'dormant'` until then, and idle-auto-sleeps after `idleTimeoutMs` (default 5 min) via a soft stop that keeps wrappers registered. Registry takes `cacheDir`/`idleTimeoutMs` options; first-ever connect still does one cold discovery.
-
-**Management core**: `packages/mcp/src/manage.ts` is the single surface-agnostic core (`addMcp`/`updateMcp`/`removeMcp`/`enableMcp`/`disableMcp`/`restartMcp`/`discoverMcp`/`listMcp`) operating on `{configPath, registry, presets}` and returning structured results. The REPL renders them as colored strings (`mcp-utils.ts`); both WebUI servers (CLI-embedded `webui-server.ts` and standalone `packages/webui/src/server/index.ts`) translate them to WS events via `packages/webui/src/server/mcp-handlers.ts`. SSE/streamable-http `url`/`headers` persist correctly. Both WebUI servers now own a live `MCPRegistry` (the embedded one reuses the agent's; the standalone constructs its own).
-
-**Server** (expose WrongStack outward): `MCPServer` + `serveStdio` (`packages/mcp/src/server.ts`) make WrongStack itself an MCP server — `wstack mcp serve` exposes the built-in tool registry over stdio JSON-RPC. Default policy is read-only (`AutoApprovePermissionPolicy`); `--yolo` exposes write/exec tools, `--tools a,b,c` whitelists. CLI wiring in `packages/cli/src/mcp-serve.ts`. See `docs/mcp-server.md`.
-
-### Compactors
-
-`config.context.strategy` selects the compactor through `createStrategyCompactor` (`execution/strategy-compactor.ts`); `TOKENS.Compactor` binds to it in both the CLI container and the WebUI server (one wiring, two surfaces):
-
-| `strategy` | Compactor | Behavior |
-|---|---|---|
-| `hybrid` *(default)* | `HybridCompactor` | Lossless rule-based — no LLM. Elides oversized old tool results, then collapses ancient turns into one digest that **preserves all text** (instructions/decisions) and drops only raw tool I/O (still in the session log). |
-| `intelligent` | `IntelligentCompactor` | LLM summarization of ancient turns; falls back to the lossless digest if the summarizer call fails. |
-| `selective` | `SelectiveCompactor` | LLM-driven keep/collapse selection (`LLMSelector`) + summarization. |
-
-The LLM strategies resolve their `provider` from `ctx` at `compact()`-time (so binding before `context.provider` exists is safe) and degrade to lossless hybrid when no provider is available. Shared primitives — token estimate, tool-result elision *with `tool_use`/`tool_result` pair preservation*, lossless digest, safe-cut boundary — live in `execution/compaction-core.ts`. The single canonical message-token estimator is `utils/token-estimate.ts:estimateMessageTokens` (chars/3.5), with per-`(provider,model)` calibration fed by `recordActualUsage` after each API call.
-
-`AutoCompactionMiddleware` wraps the `contextWindow` pipeline and fires automatically when token thresholds are crossed; it writes a `compaction` session event carrying the collapse digest. `repairToolUseAdjacency()` removes orphan `tool_use`/`tool_result` blocks after context surgery or compaction.
-
-Context modes: `balanced` (default), `frugal` (compacts early), `deep` (delays compaction), `archival` (keeps summaries prominent).
-
-### Plugins
-
-Declare `capabilities: { tools, providers, slashCommands, mcp, pipelines }` and receive a scoped `api`:
-
-```ts
-export default {
-  name: 'my-plugin',
-  apiVersion: '^0.1.0',
-  capabilities: { tools: true },
-  async setup(api) { api.tools.register(myTool); },
-  async teardown() { /* close handles */ },
-};
-```
-
-The loader runs `teardown()` on SIGINT and natural exit. See `docs/plugin-author-guide.md`.
+Declare `capabilities: { tools, providers, slashCommands, mcp, pipelines }`, receive a scoped `api`; `setup(api)` registers, `teardown()` runs on SIGINT and natural exit. See `docs/plugin-author-guide.md`.
 
 ## Session storage
 
-All persistent per-project state (including sessions) lives under the user home:
+Sessions: `~/.wrongstack/projects/<sha256(absProjectRoot).slice(0,12)>/sessions/<id>.jsonl`, one `SessionEvent` per line (`core/src/types/session.ts`; two-tier audit via `session.auditLevel`). Always-written Core Reconstruct Set: `user_input`, `llm_response`, `tool_result`, `checkpoint`, `in_flight_start`/`end`, `session_*`. `DefaultSessionStore.list()` reads sidecar `<id>.summary.json`; `DefaultSessionReader` provides query/replay/search/export. Path source of truth: `resolveWstackPaths()` (`core/src/utils/wstack-paths.ts`).
 
-```
-~/.wrongstack/projects/<sha256(absProjectRoot).slice(0,12)>/sessions/<id>.jsonl
-```
-
-Each line is a `SessionEvent`. See `packages/core/src/types/session.ts` for the full
-union and two-tier audit model (`session.auditLevel`).
-
-Key events that are **always** written (Core Reconstruct Set):
-- `user_input`, `llm_response`, `tool_result`
-- `checkpoint`, `in_flight_start`/`in_flight_end`, `session_*`
-
-Many richer audit events (`compaction`, `tool_call_*`, provider retries, etc.)
-are controlled by `Config.session.auditLevel` (default: "standard").
-
-`DefaultSessionStore.list()` reads a side-car `<id>.summary.json` for fast listing.
-`DefaultSessionReader` provides query/replay/search/export.
-
-**Session names.** `SessionSummary.name?` is an optional user-supplied label,
-distinct from `title` (which is auto-derived from the first `user_input` and
-overwritten on every rebuild). `name` is set via `SessionStore.rename(id, name)`
-(an empty/whitespace `name` clears it) and persisted in `.summary.json` +
-`_index.jsonl`; the CLI surfaces it as `/sessions rename <id> [name...]` and the
-WebUI via the `session.rename` WS message (both servers) + the rename pencil in
-the sidebar. Listings should prefer `name` over `title` when present. The field
-is additive and backward-compatible — old sidecars/indices without it load fine.
-Rename is **not** guarded by the in-use check (it only changes a label).
-
-**Delete in-use guard.** `DefaultSessionStore.delete()` refuses to remove a
-session any live process in this project is using — otherwise a parallel
-terminal/TUI/WebUI could drop a session another surface is still writing to
-(silent data loss + a stale `active.json`). Two checks run, in order:
-(1) `active.json` (the per-project RecoveryLock, read via
-`readActiveSessionId()`); (2) the optional `SessionStoreOptions.isSessionInUse`
-callback, which the runtime container and the standalone WebUI wire to
-`SessionRegistry.listByProject(slug)` so a session held open by a *different*
-surface than the deleter is also protected. When the callback is omitted (e.g. a
-bare test store), only the `active.json` check runs. The guard throws (it does
-not silently skip), so callers surface the error.
-
-**Source of truth for paths:** `resolveWstackPaths()` in `packages/core/src/utils/wstack-paths.ts`.
+**Session names:** `SessionSummary.name?` is an optional user label, distinct from auto-derived `title`; set via `SessionStore.rename(id, name)` (empty clears), surfaced as `/sessions rename` + the `session.rename` WS message; listings prefer `name`; rename is NOT guarded by the in-use check. **Delete in-use guard:** `DefaultSessionStore.delete()` refuses to remove a session any live process is using — (1) `active.json` (RecoveryLock via `readActiveSessionId()`); (2) optional `isSessionInUse` callback wired to `SessionRegistry.listByProject(slug)` so other surfaces are protected. The guard throws.
 
 ### Recording invariants (do not regress)
 
-1. **`agent.ctx.session` is the single live writer.** Anything that persists
-   events long-term must resolve the writer at append time — the CLI's
-   `sessionBridge` and the standalone WebUI server pass a **getter**
-   (`() => context.session`) to `createSessionEventBridge`, never a captured
-   writer instance.
-2. **Every code path that swaps `ctx.session`** (TUI `onResumeSession`, WebUI
-   `session.resume` / `session.new` / `projects.select`, process exit) must
-   finalize the writer it leaves: append `session_end` with current usage,
-   then `close()`. Resume paths additionally re-point the recovery lock
-   (`active.json`) at the new session id.
-3. **`FileSessionWriter` serializes all disk writes** through a FIFO
-   `writeChain`, shares one lazy-init promise for the `session_start` record,
-   and exposes an idempotent awaitable `close()`. Don't add a second write
-   path around it.
-4. **Mid-stream `session_end` markers are forbidden** — `/save` flushes, it
-   does not end. Recovery (`RecoveryLock`, `SessionRecovery`) treats only a
-   *trailing* `session_end` as a clean exit.
-5. **Session ids are date-sharded** (`2026-06-11/<base>`). Per-session sidecar
-   paths (`.jsonl`/`.summary.json`/`.annotations.json`/`.audit.jsonl`/
-   `.replay.jsonl`) must go through `sessionScopedPath()`
-   (`packages/core/src/utils/session-scoped-path.ts`) — containment-checked,
-   shard-slash-friendly. Directory scans for session artifacts must descend
-   one shard level; root-only scans miss every modern session.
-6. The end-to-end regression net is
-   `packages/core/tests/storage/session-lifecycle.test.ts` — extend it when
-   touching the lifecycle. Always test with sharded ids, not flat ones.
+1. **`agent.ctx.session` is the single live writer** — persisters resolve it at append time (pass a getter `() => context.session` to `createSessionEventBridge`, never a captured instance).
+2. **Every path that swaps `ctx.session`** (TUI resume, WebUI resume/new/projects.select, exit) finalizes the old writer: append `session_end` with usage, then `close()`; resume re-points `active.json`.
+3. **`FileSessionWriter` serializes all writes** through a FIFO `writeChain`; idempotent awaitable `close()`; no second write path.
+4. **No mid-stream `session_end`** — `/save` flushes, never ends; recovery treats only a *trailing* `session_end` as clean exit.
+5. **Session ids are date-sharded** (`2026-06-11/<base>`); sidecar paths go through `sessionScopedPath()`; directory scans must descend one shard level.
+6. Regression net: `core/tests/storage/session-lifecycle.test.ts` — extend when touching the lifecycle; test with sharded ids.
 
-The things that live inside the project tree itself are the committed
-`.wrongstack/AGENTS.md`, `.wrongstack/skills/`, and an optional
-`.wrongstack/config.json` (the `inProjectConfig` layer). Everything else is in
-`~/.wrongstack/projects/<hash>/`.
+In-tree project state: committed `.wrongstack/AGENTS.md`, `.wrongstack/skills/`, optional `.wrongstack/config.json`. Everything else in `~/.wrongstack/projects/<hash>/`.
 
-**Security — `inProjectConfig` is an untrusted layer.** `<project>/.wrongstack/config.json`
-ships inside a repo and is therefore attacker-controllable (a cloned/pulled repo
-can carry one). It is deep-merged *above* the user's global config, so the loader
-first runs `stripUnsafeInProjectFields()` (`config-loader.ts`) — an **allow-list**
-filter that lets through only a small set of benign preferences (`model`,
-`context`, `tools`, `features`, `autonomy`, `indexing`, `session`, `log`,
-`launch`, …) and drops every other top-level field — `provider`, `apiKey`,
-`baseUrl`, `providers`, `mcpServers`, `hooks`, `plugins`, `sync`, `yolo`,
-`extensions`, `hq`, `acp`, `fleet` — before the merge, surfacing the dropped keys in a
-`config.in_project_unsafe_fields_ignored` warning. Without that strip a malicious
-repo would get RCE on launch (an `mcpServers`/`hooks` entry, or an
-`extensions['@wrongstack/plug-lsp'].servers[].command` the LSP plugin spawns)
-and could exfiltrate the provider API key via a `baseUrl` override. The
-allow-list is paired with `assertInProjectAllowListComplete()`, a structural
-drift check that throws if a new top-level `Config` field is added without
-being explicitly classified as allow-listed (in `IN_PROJECT_ALLOWED_KEYS`) or
-documented as denied (in `KNOWN_DENIED_IN_PROJECT`, with a reason). New fields
-are **denied by default** — a forgotten update is a safe default-deny, not a
-silent RCE/secret-exfil vector. When adding a new top-level `Config` field,
-update both lists: add to the allow-list if it is safe for a repo to set, or
-add to `KNOWN_DENIED_IN_PROJECT` with a one-line reason. Per-project sensitive /
-plugin config belongs in the non-committed `~/.wrongstack/projects/<hash>/config.local.json`.
+**Security — `inProjectConfig` is untrusted.** `<project>/.wrongstack/config.json` is attacker-controllable (ships in a repo) yet merges above the user's global config. `stripUnsafeInProjectFields()` (`config-loader.ts`) is an **allow-list** — only benign preferences (`model`, `context`, `tools`, `features`, `autonomy`, `indexing`, `session`, `log`, `launch`, …) survive; everything else (`provider`, `apiKey`, `baseUrl`, `providers`, `mcpServers`, `hooks`, `plugins`, `sync`, `yolo`, `extensions`, `hq`, `acp`, `fleet`) is dropped with a `config.in_project_unsafe_fields_ignored` warning (otherwise: RCE via `mcpServers`/`hooks`/LSP `command`, key exfil via `baseUrl`). `assertInProjectAllowListComplete()` throws if a new top-level `Config` field isn't classified in `IN_PROJECT_ALLOWED_KEYS` or `KNOWN_DENIED_IN_PROJECT` — new fields are **denied by default**; update one of the two lists when adding a field. Sensitive per-project config → non-committed `~/.wrongstack/projects/<hash>/config.local.json`.
 
 ## Observability
 
-Three pillars, all behind noop-default interfaces:
-
-| Pillar | Interface | Default | Opt-in |
-|---|---|---|---|
-| Metrics | `MetricsSink` | `NoopMetricsSink` | `--metrics` |
-| Traces | `Tracer` | `NoopTracer` | bind real `OTelTracer` |
-| Health | `HealthRegistry` | `DefaultHealthRegistry` | `--metrics` |
-
-Prometheus endpoint: `--metrics-port 9090`. OTLP exporters available.
+Three noop-default pillars: Metrics (`MetricsSink`, opt-in `--metrics`), Traces (`Tracer`, bind real `OTelTracer`), Health (`HealthRegistry`, `--metrics`). Prometheus `--metrics-port 9090`; OTLP exporters available.
 
 ## Commands
 
-| Command | Script |
-|---------|--------|
-| Build | `pnpm run build` |
-| Test | `pnpm test` |
-| Typecheck | `pnpm run typecheck` |
-| Lint | `pnpm run lint` |
-| Dev | `pnpm run dev` |
+Build `pnpm run build` · Test `pnpm test` · Typecheck `pnpm run typecheck` · Lint `pnpm run lint` · Dev `pnpm run dev`.
 
-## Key files and entry points
+## Key files
 
-| File | Role |
-|---|---|
-| `apps/wrongstack/src/main.ts` | Binary entry point |
-| `packages/cli/src/index.ts` | CLI boot: parse argv → wire container → run REPL/TUI |
-| `packages/cli/src/repl.ts` | REPL implementation, slash command dispatch |
-| `packages/cli/src/slash-commands/index.ts` | All builtin slash commands registered here |
-| `packages/cli/src/slash-commands/helpers.ts` | Shared helpers: `detectProjectFacts`, `renderAgentsTemplate`, `countTurnPairs`, etc. |
-| `packages/core/src/kernel/container.ts` | DI container |
-| `packages/core/src/kernel/pipeline.ts` | Middleware pipeline |
-| `packages/core/src/kernel/event-bus.ts` | Typed pub/sub |
-| `packages/core/src/kernel/run-controller.ts` | Abort signal and cleanup management |
-| `packages/core/src/agent.ts` | `Agent.run` — the main loop |
-| `packages/core/src/execution/tool-executor.ts` | Tool batch execution |
-| `packages/core/src/execution/intelligent-compactor.ts` | LLM-assisted compaction + repair |
-| `packages/core/src/coordination/multi-agent-coordinator.ts` | Subagent fleet coordinator |
-| `packages/tools/src/builtin.ts` | All builtin tools |
-| `packages/mcp/src/client.ts` | MCP client + transport layer |
-| `packages/core/src/storage/session-store.ts` | Session persistence |
-| `packages/core/src/storage/memory-store.ts` | Memory persistence |
-| `packages/core/src/storage/plan-store.ts` | Plan persistence |
+`apps/wrongstack/src/main.ts` (binary entry) · `cli/src/index.ts` (boot: argv → container → REPL/TUI) · `cli/src/repl.ts` · `cli/src/slash-commands/index.ts` + `helpers.ts` · `core/src/kernel/{container,pipeline,event-bus,run-controller}.ts` · `core/src/agent.ts` (main loop) · `core/src/execution/tool-executor.ts` · `core/src/coordination/multi-agent-coordinator.ts` · `tools/src/builtin.ts` · `mcp/src/client.ts` · `core/src/storage/{session-store,memory-store,plan-store}.ts`.
 
 ## Slash commands
 
-All slash commands live in `packages/cli/src/slash-commands/`. Each is a `buildXxxCommand(opts: SlashCommandContext): SlashCommand` that returns an object with `name`, `description`, optional `aliases`, optional `help`, and an `async run(args, ctx)` method.
+All in `packages/cli/src/slash-commands/`; each exports `buildXxxCommand(opts: SlashCommandContext): SlashCommand` (`name`, `description`, optional `aliases`/`help`, `async run(args, ctx)`). `SlashCommandContext` (wired in `cli/src/index.ts`) carries the registries, context, paths, renderer, stores, provider/model, and the onSpawn/onFleet*/onAutonomy/etc. callbacks. Adding one: create `slash-commands/<name>.ts` → register in `buildBuiltinSlashCommands()` (`index.ts`) → tests `packages/cli/tests/slash-<name>.test.ts` → docs `docs/slash/<name>.md`.
 
-Key `SlashCommandContext` fields wired in `packages/cli/src/index.ts`:
-```
-registry · toolRegistry · context · cwd · projectRoot · renderer
-memoryStore · sessionStore · skillLoader · modeStore · compactor
-tokenCounter · llmProvider · llmModel · planPath
-onSpawn · onAgents · onDirector · onFleet · onFleetRetry · onFleetLog
-onYolo · onAutonomy · onEternalStart · onEternalStop · onPlugin
-statuslineConfig · statuslineHiddenItems · metricsSink · healthRegistry
-```
-
-Slash commands are documented in `docs/slash/`. When adding a new one:
-1. Create `packages/cli/src/slash-commands/<name>.ts`
-2. Export `buildXxxCommand(opts: SlashCommandContext): SlashCommand`
-3. Import and add to `buildBuiltinSlashCommands()` in `index.ts`
-4. Add tests: `packages/cli/tests/slash-<name>.test.ts`
-5. Add docs: `docs/slash/<name>.md`
-
-**Currently registered (34):** `help`, `init`, `clear`, `compact`, `context`, `tools`, `plugin`, `mcp`, `diag`, `stats`, `spawn`, `agents`, `director`, `fleet`, `memory`, `todos`, `sdd`, `save`, `load`, `yolo`, `autonomy`, `goal`, `brain`, `btw`, `next`, `mode`, `exit`, `fix`, `autophase`, `worktree`, `settings`, `collab`, `statusline`, `supervisor`.
-
-Previously-planned but not yet implemented: `git`, `health`, `metrics`, `plan`, `security`. Their `docs/slash/*.md` files were deleted in 2026-06-13 (H13 from the 2026-06-03 audit). If any of them become priorities, add them via a `buildXxxCommand` registered in `packages/cli/src/slash-commands/index.ts` first, then write a fresh `docs/slash/<name>.md` describing the actual implementation. (The skill commands — `/skill`, `/skill-gen`, `/skill-install`, `/skill-import`, `/skill-update`, `/skill-uninstall` — are implemented as a first-party plugin, `createSkillsPlugin` in `packages/core/src/plugins/skills-plugin.ts`, not as builtin slash commands.)
+**Registered (34):** help, init, clear, compact, context, tools, plugin, mcp, diag, stats, spawn, agents, director, fleet, memory, todos, sdd, save, load, yolo, autonomy, goal, brain, btw, next, mode, exit, fix, autophase, worktree, settings, collab, statusline, supervisor. Planned-but-unimplemented (`git`, `health`, `metrics`, `plan`, `security`): implement first, then write fresh docs. Skill commands (`/skill*`) are a first-party plugin (`createSkillsPlugin`, `core/src/plugins/skills-plugin.ts`), not builtins.
 
 ## Issue tracking
 
-Open issues and follow-up refactors that span more than a single PR are tracked as `docs/issues/YYYY-MM-DD-<slug>.md` files. The first such file is `docs/issues/2026-06-13-tui-app-refactor.md`, which describes an 8-PR plan to split `packages/tui/src/app.tsx` (5,671 lines) into focused hooks. Future refactors of similar scope should also land here so the next session can pick up where the last one left off.
-
-These files are the **in-repo equivalent of a GitHub issue**. When opening the corresponding GitHub issue, copy the markdown body to the issue; when closing the GitHub issue, the file stays as historical record.
+Multi-PR follow-ups live as `docs/issues/YYYY-MM-DD-<slug>.md` — the in-repo equivalent of a GitHub issue (copy the body when opening a GH issue; the file stays as record).
 
 ## Skill system
 
-Skills are `SKILL.md` files (agentskills.io format: YAML frontmatter `name`/`description` + markdown body) loaded by `DefaultSkillLoader` (`execution/skill-loader.ts`, bound at `TOKENS.SkillLoader`). Discovery, first-seen wins by name:
+Skills are `SKILL.md` files (agentskills.io: YAML frontmatter `name`/`description` + markdown body) loaded by `DefaultSkillLoader` (`execution/skill-loader.ts`, `TOKENS.SkillLoader`). Discovery priority, first-seen wins by name: 1 `<project>/.wrongstack/skills/` · 2 `<project>/.claude/skills/` · 3 `<project>/.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/` (cursor: `skills-cursor`) · 4 `~/.wrongstack/skills/` · 5 `~/.claude/skills/` · 6 same foreign set under `~` · 7 `config.skills.extraDirs` (user config only) · 8 `packages/core/skills/` (bundled). Foreign layers read-only; dedup by name; frontmatter via shared `skills/frontmatter.ts` (`validateSkillName`); symlinks followed.
 
-| Priority | Location | source |
-|---|---|---|
-| 1 | `<project>/.wrongstack/skills/` | `project` |
-| 2 | `<project>/.claude/skills/` | `claude-project` |
-| 3 | `<project>/.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/` (cursor uses `skills-cursor`) | `foreign` |
-| 4 | `~/.wrongstack/skills/` | `user` |
-| 5 | `~/.claude/skills/` | `claude-user` |
-| 6 | `~/.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/` | `foreign` |
-| 7 | `config.skills.extraDirs` (user config only) | `extra` |
-| 8 | `packages/core/skills/` (bundled) | `bundled` |
+**Injection:** `DefaultSystemPromptBuilder` injects skill bodies. Mode `'progressive'` injects only a name+trigger manifest + registers a `skill` tool (`tools/src/skill.ts`) loading body + resources on demand (emits `skill_activated`); default `'eager'` injects all bodies bounded by `eagerMaxChars` (default 24000, highest-priority first; overflow → manifest + tool).
 
-Format:
-```markdown
----
-name: my-skill
-description: |
-  Use this skill when <trigger condition>.
-  Triggers: user says "X", "Y".
-version: 1.0.0
----
+**Commands** (via `createSkillsPlugin`): `/skill`, `/skill-gen`, `/skill-search`, `/skill-install <user/repo|registry:id>`, `/skill-import [--from <tool>|--from-claude] [--global] [--link]`, `/skill-update`, `/skill-uninstall`. Config: `config.skills = { readClaudeSkills, foreignSources, mode, eagerMaxChars, extraDirs, registryUrl }`; `extraDirs`/`registryUrl` stripped from in-project config (prompt-injection / SSRF). `/skill-search` queries a registry (default skills.sh); private GitHub repos work with `GITHUB_TOKEN`/`GH_TOKEN`. **Limits** in one place — `core/src/skills/limits.ts` (`SKILL_LIMITS`): body 16k, resource 32k, eager budget 24k, tarball 50MB.
 
-# My Skill
-
-## Overview
-One-line description of what this skill does.
-
-## Rules
-1. Rule one
-2. Rule two
-
-## Patterns
-### Do
-```ts
-// good example
-```
-
-### Don't
-```ts
-// bad example
-```
-
-## Skills in scope
-- `other-skill` — for delegation when this skill needs help
-```
-
-Foreign layers (`.claude`, other agents, `extra`) are read-only — never written; a skill present in several agent dirs appears once (dedup by name). Frontmatter is parsed by the shared `skills/frontmatter.ts` (`validateSkillName` enforces the agentskills.io name rules; CRLF/quote-robust); the loader follows symlinks (Claude Code symlinks `~/.claude/skills/*` → `~/.agents/skills/*`).
-
-**Injection:** `DefaultSystemPromptBuilder` injects skill bodies into the prompt. `config.skills.mode: 'progressive'` injects only a name+trigger manifest and registers a `skill` tool (`packages/tools/src/skill.ts`, `makeSkillTool`) that loads a body + `scripts/`|`references/`|`assets/` on demand (emits `skill_activated`); default `'eager'` injects all bodies.
-
-**Commands** (first-party `createSkillsPlugin`, not builtin slash commands): `/skill`, `/skill-gen`, `/skill-search`, `/skill-install <user/repo|registry:id>`, `/skill-import [--from <tool>|--from-claude] [--global] [--link]`, `/skill-update`, `/skill-uninstall`. Config: `config.skills = { readClaudeSkills, foreignSources (true|string[]|false), mode, eagerMaxChars, extraDirs, registryUrl }`; `extraDirs` and `registryUrl` are stripped from in-project config (prompt-injection / SSRF vectors). Eager mode bounds total injected skill chars to `eagerMaxChars` (default 24000, highest-priority first; overflow → manifest the agent loads via the `skill` tool). `/skill-search` queries a skill registry (default: skills.sh, the open marketplace backed by mastra-ai/skills-api) and `/skill-install <registry>:<id>` resolves a registry hit to its backing GitHub repo. Private GitHub repos work when `GITHUB_TOKEN` / `GH_TOKEN` is set.
-
-**Skill limits** live in one place — `packages/core/src/skills/limits.ts` (`SKILL_LIMITS`). Per-skill body cap 16k, resource cap 32k, eager budget default 24k, tarball max 50MB, etc. All consumers (loader, system-prompt builder, `skill` tool, installer, github-fetcher) import from there.
-
-Bundled skills (23): `api-design`, `audit-log`, `bug-hunter`, `chimera`, `docker-deploy`, `git-flow`, `mailbox-bridge`, `multi-agent`, `node-modern`, `observability`, `output-standards`, `plugin-author`, `prompt-engineering`, `react-modern`, `refactor-planner`, `research-web`, `sdd`, `security-scanner`, `skill-creator`, `tech-stack`, `testing`, `typescript-strict`, `wrongstack-mailbox`. (`output-standards` is depended on by almost every other skill for `<next_steps>` formatting — don't drop it.)
-
-See `docs/skills.md` for the full authoring guide.
+23 bundled skills under `packages/core/skills/` (api-design … wrongstack-mailbox; `output-standards` is depended on by almost every other skill — don't drop it). See `docs/skills.md`.
 
 ## Prompt library
 
-Reusable prompts loaded by `DefaultPromptLoader` (`execution/prompt-loader.ts`, bound at `TOKENS.PromptLoader`) from three layers, de-duplicated by `slug` (higher priority shadows lower):
-
-| Priority | Location | source |
-|---|---|---|
-| 1 | `<project>/.wrongstack/prompts/` (`inProjectPrompts`) | `project` |
-| 2 | `~/.wrongstack/prompts/` (`globalPrompts`) | `user` / `synced` |
-| 3 | `packages/core/data/prompts/` (bundled, read-only) | `builtin` |
-
-`PromptEntry` is v2 (`{id(ULID), slug, title, description, content, category, tags, source, favorite, variables?, checksum?, forkedFrom?, …}`); legacy v1 files are upgraded lazily on read by `migratePromptEntry` (`storage/prompt-store.ts`) and only rewritten as v2 on next `save()`. Builtin/project layers are written file-per-JSON; favoriting or editing a builtin **copies it down** into the user layer (`source:'user'`, `forkedFrom:<slug>`) so the bundled dataset is never mutated. `renderPrompt(entry, values)` fills `{{variable}}` placeholders and reports missing required vars. The bundled dataset ships as `packages/core/data/prompts/` (built by `scripts/build-prompts.mjs`); its `index.json` mirrors the remote-registry manifest shape (`types/prompt-registry.ts`) so builtin and synced prompts flow through one path. Surfaced via the `wstack-prompts` plugin (`/prompt`, `/prompts`, `/prompt-gen`).
+`DefaultPromptLoader` (`execution/prompt-loader.ts`, `TOKENS.PromptLoader`), three layers deduped by `slug` (higher shadows lower): `<project>/.wrongstack/prompts/` → `~/.wrongstack/prompts/` → `packages/core/data/prompts/` (bundled read-only, built by `scripts/build-prompts.mjs`; its `index.json` mirrors the remote-registry manifest). `PromptEntry` is v2 (ULID id, slug, content, variables?, forkedFrom?, …); v1 upgrades lazily on read (`migratePromptEntry`). Favoriting/editing a builtin **copies it down** to the user layer (`forkedFrom:<slug>`) — bundled dataset never mutated. `renderPrompt(entry, values)` fills `{{variable}}` placeholders. Surfaced via the `wstack-prompts` plugin (`/prompt`, `/prompts`, `/prompt-gen`).
 
 ## Domain knowledge
 
-- **IDs are ULIDs** not UUIDs — see `ulid.ts` in core
-- **Token brandings** — `Token<T>` is a branded `symbol` for type-safe DI, not a string
-- **Pipeline middleware** can `replace` a step — the last `replace` in the chain wins (position-aware)
-- **Compactor runs after every iteration** via the `contextWindow` pipeline, not explicitly in the agent loop
-- **MCP reconnect** uses exponential backoff with jitter, capped at 5 cycles, then the server transitions to `failed`
-- **`tool.executed` events** are truncated before writing to the session log to avoid flooding — truncation threshold is configurable
-- **Secret encryption** — API keys in `~/.wrongstack/config.json` are encrypted with a per-machine key derived from `~/.wrongstack/.key` using `DefaultSecretVault`
-- **`runText` in slash command results** — when a slash command returns `{ runText: "..." }`, the REPL injects that text as the next user turn (used by `/goal`, `/sdd`, `/autonomy` for steering)
+- **IDs are ULIDs** not UUIDs (`ulid.ts` in core)
+- **`tool.executed` events** are truncated before session-log write (threshold configurable)
+- **Secret encryption** — API keys in `~/.wrongstack/config.json` encrypted per-machine (`~/.wrongstack/.key`, `DefaultSecretVault`)
+- **`runText`** — a slash command returning `{ runText: "..." }` makes the REPL inject that text as the next user turn (`/goal`, `/sdd`, `/autonomy` steering)
 
 ## Verification checklist
 
-- Run `pnpm run typecheck` before any PR
-- Run `pnpm test` — 3091+ tests should all pass
-- New slash commands need tests in `packages/cli/tests/slash-<name>.test.ts`
-- New tools need tests in the corresponding package
-- If adding a new kernel token, update `tokens.ts` and document in this file
-- If adding a new EventBus event type, add it to `events.ts` with doc comment
+- `pnpm run typecheck` before any PR; `pnpm test` — 3091+ tests pass
+- New slash commands → tests in `packages/cli/tests/slash-<name>.test.ts`; new tools → tests in their package
+- New kernel token → update `tokens.ts` + document here; new EventBus event → `events.ts` with doc comment
 
 ## Pre-commit hook
 
-`.githooks/pre-commit` (installed via `pnpm run setup:hooks` / `git config core.hooksPath .githooks`) runs three gates:
-
-1. `guard-against-corruption` and `lint-console-logging` — pre-existing, unchanged.
-2. **Typecheck gate (added 2026-06-17, commit `c71d8237`)** — when any `packages/*/src/**/*.{ts,tsx}` is staged:
-   - Rebuilds `dist/` for each changed package (`pnpm run build` per package).
-   - Runs `pnpm -r typecheck` across the workspace.
-
-The typecheck gate exists because `dist/` is gitignored: a source edit that changes a public type (e.g. making a property mutable, adding a method) won't show up in `git status`, but the next consumer's `tsc --noEmit` will read the stale `dist/index.d.ts` and fail. Without this hook, the failure surfaces only after `pnpm build && pnpm typecheck` — usually in CI, blocking the PR.
-
-**One-time setup after pulling this commit:** run `pnpm build` once to seed your local `dist/` directories. Without this, the first source-touching commit you make will rebuild every changed package from scratch (~5-15s each), making that commit noticeably slower than the steady-state ~45s the hook was sized for. `pnpm build` routes through `scripts/build.mjs`, which topologically sorts packages by their `@wrongstack/*` dependencies and runs each package's `tsup` build in order. **Do not invoke `pnpm -r build` directly**: pnpm runs packages in alphabetical order (acp, bench, cli, core, mcp, …), which breaks tsup's DTS step that resolves `@wrongstack/*` from each dependency's *emitted* `dist/*.d.ts`. On a clean dist it fails outright; on a half-populated dist it silently produces unloadable runtime (`ERR_MODULE_NOT_FOUND`). 13 packages with `build` scripts; total ~60-90s on a warm cache.
-
-**Ack after seeding:** once you have run `pnpm build` on your machine, ack the correction broadcast so the team knows the seed has propagated:
-```
-mailbox action=ack messageId=09dd607d-4f5c-4e2d-a200-27e546847f38 completed=true outcome="pnpm build ran on <hostname> at <time>; 13 packages built fresh; ready for source commits"
-```
-Replace `<hostname>` and `<time>` with values from `hostname` and `date -Iseconds`. This keeps the broadcast's `completed: false` flag accurate — currently it stays open because no teammate has confirmed a seed run. (The original sender's local-machine seed run is NOT an ack — only the team-rolling-out signal is.)
-
-**Cost:** ~45s per source-touching commit (~5-15s rebuild per changed package + ~30s typecheck). Skipped entirely for docs/config-only commits. Multi-package edits scale linearly — a commit touching 3 packages costs ~75s.
-
-**Bypass:** `git commit --no-verify` skips all hooks. Use only for emergencies (broken WIP, hotfix); CI still runs the full `pnpm typecheck && pnpm build && pnpm test` gate on every PR via `release:check` (see `package.json:29`), so a stale dist cannot ship.
-
-**If the typecheck gate fails with stale-dist errors after pulling main:** run `pnpm build` to refresh your local `dist/` before retrying.
+`.githooks/pre-commit` (install: `pnpm run setup:hooks`) runs `guard-against-corruption`, `lint-console-logging`, and a **typecheck gate**: when any `packages/*/src/**/*.{ts,tsx}` is staged, it rebuilds `dist/` for each changed package then runs `pnpm -r typecheck` — `dist/` is gitignored, so a source edit changing a public type otherwise leaves consumers typechecking against stale `dist/index.d.ts` (surfacing only in CI). Run `pnpm build` once after pulling to seed local `dist/`; it routes through `scripts/build.mjs` (topological sort by `@wrongstack/*` deps). **Never `pnpm -r build`** — alphabetical order breaks tsup's DTS resolution (clean dist: fails; half-populated: silently unloadable `ERR_MODULE_NOT_FOUND`). Cost ~45s per source-touching commit; skipped for docs-only. `--no-verify` for emergencies only — CI's `release:check` still gates every PR. Stale-dist errors after pulling main → `pnpm build`.
 
 ## Useful pointers
 
-- **Architecture decisions:** `docs/adr/` — architectural decision records
-- **Plugin authoring:** `docs/plugin-author-guide.md`
-- **Provider authoring:** `docs/provider-author-guide.md`
-- **Tool authoring:** `docs/tool-author-guide.md`
-- **Skill authoring:** `docs/skills.md`
-- **Troubleshooting:** `docs/troubleshooting.md`
-- **Slash command docs:** `docs/slash/README.md`
-- **Changelog:** `CHANGELOG.md`
-- **Configuration:** `docs/configuration.md`
+- **Architecture decisions:** `docs/adr/` · **Changelog:** `CHANGELOG.md` · **Configuration:** `docs/configuration.md`
+- **Authoring guides:** plugins `docs/plugin-author-guide.md` · providers `docs/provider-author-guide.md` · tools `docs/tool-author-guide.md` · skills `docs/skills.md`
+- **Troubleshooting:** `docs/troubleshooting.md` · **Slash docs:** `docs/slash/README.md`

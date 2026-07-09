@@ -1,21 +1,19 @@
 import * as path from 'node:path';
 
-// Best-effort heuristic detection of *catastrophic* shell commands — NOT a
-// security boundary. Static analysis of shell strings is inherently defeatable
+// Best-effort heuristic detection of destructive shell commands — NOT a
+// complete security boundary. Static analysis of shell strings is inherently defeatable
 // by obfuscation: env-variable indirection (`$RM -rf /`), quote-splitting
 // (`r''m`), base64/eval pipes, command substitution, and aliases all evade
 // these patterns. This is one defense-in-depth layer behind the permission
 // policy; treat a miss here as expected, not a hole to be plugged with
 // ever-more-clever regexes.
 //
-// CALIBRATION: this gate fires only for *genuinely catastrophic*, effectively
-// irreversible, system-/disk-/home-wide destruction — the kind that bricks the
-// machine or wipes everything. Ordinary destructive-but-recoverable dev work is
-// NOT gated and runs frictionlessly under YOLO: deleting a few files (even
-// outside the project), `git reset --hard`, `git clean -xdf`, `DROP TABLE`,
-// `chmod -R`, writing a single file outside the project, `shutdown`/`reboot`,
-// `curl … | sh`. Only whole-filesystem / whole-disk / whole-home destruction
-// stops to ask.
+// CALIBRATION: this gate catches high-impact local/remote side effects that
+// should not run solely because a model saw text in untrusted tool output:
+// project-escaping or catastrophic recursive deletes, VCS history rewrites,
+// public publishes/deploys, cluster-wide deletes, disk/system wipes, and
+// network-fetch-then-execute patterns. Harmless reads, normal build/test
+// commands, and in-project cleanups stay frictionless.
 const CATASTROPHIC_PATTERNS: RegExp[] = [
   /\b(?:mkfs(?:\.[a-z0-9]+)?|mke2fs|newfs)\b/i, // make a filesystem — wipes a partition
   /\bformat\s+[A-Za-z]:/i, // format C: — wipes a Windows volume
@@ -23,6 +21,12 @@ const CATASTROPHIC_PATTERNS: RegExp[] = [
   /\bdd\b[^|]*\bof=(?:\/dev\/|\\\\[.?]\\)/i, // dd writing straight to a raw device
   />\s*\/dev\/(?:sd|hd|nvme|disk|mapper|vd)/i, // redirect into a raw block device
   /:\(\)\s*\{\s*:\|:&\s*\}\s*;/, // classic fork bomb
+];
+
+const HIGH_IMPACT_PATTERNS: RegExp[] = [
+  /\b(?:curl|wget|fetch|httpie|http|irm|iwr|Invoke-WebRequest|Invoke-RestMethod)\b[\s\S]{0,300}\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|pwsh|powershell|iex|Invoke-Expression)\b/i,
+  /\b(?:powershell|pwsh)(?:\.exe)?\b[\s\S]{0,120}-(?:enc|encodedcommand)\b/i,
+  /\b(?:shutdown|reboot)\b/i,
 ];
 
 // Top-level locations whose *recursive* deletion is catastrophic (the whole
@@ -60,6 +64,139 @@ export function pathLooksInsideProject(rawPath: string, projectRoot: string | un
 
 function tokenizeShell(command: string): string[] {
   return command.match(/"[^"]*"|'[^']*'|\S+/g)?.map((token) => token.replace(/^['"]|['"]$/g, '')) ?? [];
+}
+
+function commandSegment(tokens: string[], start: number): string[] {
+  const out: string[] = [];
+  for (let i = start; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === undefined || SHELL_OPERATORS.has(token)) break;
+    out.push(token);
+  }
+  return out;
+}
+
+function hasShortFlag(args: readonly string[], letters: string): boolean {
+  const seen = new Set<string>();
+  for (const arg of args) {
+    if (!arg.startsWith('-') || arg.startsWith('--')) continue;
+    for (const ch of arg.replace(/^-+/, '')) seen.add(ch.toLowerCase());
+  }
+  return letters.split('').every((letter) => seen.has(letter));
+}
+
+function hasRecursiveForceDelete(command: string, projectRoot: string | undefined): boolean {
+  const tokens = tokenizeShell(command);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]?.toLowerCase();
+    if (!token) continue;
+
+    if (token === 'rm' || token === 'rmdir') {
+      const args = commandSegment(tokens, i + 1);
+      const recursiveForce =
+        hasShortFlag(args, 'rf') ||
+        (args.some((arg) => arg === '--recursive') && args.some((arg) => arg === '--force'));
+      if (recursiveForce) {
+        const targets = args.filter((arg) => !arg.startsWith('-') && !SHELL_OPERATORS.has(arg));
+        if (targets.length > 0 && targets.every((target) => target.trim().length === 0)) {
+          continue;
+        }
+        if (targets.length === 0) return true;
+        if (targets.some(isCatastrophicDeleteTarget)) return true;
+        if (targets.some((target) => !pathLooksInsideProject(target, projectRoot))) return true;
+      }
+    }
+
+    if (token === 'remove-item' || token === 'ri') {
+      const args = commandSegment(tokens, i + 1).map((arg) => arg.toLowerCase());
+      const recurse = args.some((arg) => arg === '-recurse' || arg === '-r');
+      const force = args.some((arg) => arg === '-force' || arg === '-f');
+      if (recurse && force && !args.includes('-whatif')) {
+        const targets = args.filter((arg) => !arg.startsWith('-') && !SHELL_OPERATORS.has(arg));
+        if (targets.length === 0) return true;
+        if (targets.some(isCatastrophicDeleteTarget)) return true;
+        if (targets.some((target) => !pathLooksInsideProject(target, projectRoot))) return true;
+      }
+    }
+
+    if (token === 'rd' || token === 'rmdir') {
+      const args = commandSegment(tokens, i + 1).map((arg) => arg.toLowerCase());
+      if (args.includes('/s')) {
+        const targets = args.filter((arg) => !arg.startsWith('-') && !arg.startsWith('/') && !SHELL_OPERATORS.has(arg));
+        if (targets.length === 0) return true;
+        if (targets.some(isCatastrophicDeleteTarget)) return true;
+        if (targets.some((target) => !pathLooksInsideProject(target, projectRoot))) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasGitHistoryRewrite(command: string): boolean {
+  const tokens = tokenizeShell(command).map((token) => token.toLowerCase());
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] !== 'git') continue;
+    const args = commandSegment(tokens, i + 1);
+    if (args.includes('reset') && args.some((arg) => arg === '--hard' || arg.startsWith('--hard='))) {
+      return true;
+    }
+    const cleanIdx = args.indexOf('clean');
+    if (cleanIdx >= 0) {
+      const cleanArgs = args.slice(cleanIdx + 1);
+      if (cleanArgs.some((arg) => arg === '-f' || arg === '--force' || /^-[a-z]*f[a-z]*$/i.test(arg))) {
+        return true;
+      }
+    }
+    const pushIdx = args.indexOf('push');
+    if (pushIdx >= 0) {
+      const pushArgs = args.slice(pushIdx + 1);
+      if (
+        pushArgs.some(
+          (arg) =>
+            arg === '-f' ||
+            arg === '--force' ||
+            arg === '--force-with-lease' ||
+            arg.startsWith('--force=') ||
+            arg.startsWith('--force-with-lease='),
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasExternalPublish(command: string): boolean {
+  const tokens = tokenizeShell(command).map((token) => token.toLowerCase());
+  for (let i = 0; i < tokens.length; i++) {
+    const cmd = tokens[i];
+    if (!cmd) continue;
+    const args = commandSegment(tokens, i + 1);
+    if (['npm', 'pnpm', 'yarn', 'bun'].includes(cmd) && (args.includes('publish') || args.includes('deploy'))) {
+      return true;
+    }
+    if (cmd === 'cargo' && (args.includes('publish') || args.includes('yank'))) return true;
+    if ((cmd === 'docker' || cmd === 'podman') && args.includes('push')) return true;
+    if (cmd === 'kubectl') {
+      const deleteIdx = args.indexOf('delete');
+      if (deleteIdx >= 0 && (args[deleteIdx + 1] === 'namespace' || args[deleteIdx + 1] === 'ns')) {
+        return true;
+      }
+      if (args.includes('drain')) return true;
+    }
+  }
+  return false;
+}
+
+function hasFindExec(command: string): boolean {
+  const tokens = tokenizeShell(command).map((token) => token.toLowerCase());
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] !== 'find') continue;
+    const args = commandSegment(tokens, i + 1);
+    if (args.some((arg) => arg === '-exec' || arg === '-ok' || arg === '-execdir')) return true;
+  }
+  return false;
 }
 
 /**
@@ -146,11 +283,16 @@ function hasCatastrophicDelete(command: string): boolean {
  */
 export function isClearlyDestructiveBashCommand(
   command: string,
-  _projectRoot: string | undefined,
+  projectRoot: string | undefined,
 ): boolean {
   const trimmed = command.trim();
   if (!trimmed) return false;
+  if (hasRecursiveForceDelete(trimmed, projectRoot)) return true;
+  if (hasGitHistoryRewrite(trimmed)) return true;
+  if (hasExternalPublish(trimmed)) return true;
+  if (hasFindExec(trimmed)) return true;
   if (hasCatastrophicDelete(trimmed)) return true;
   if (CATASTROPHIC_PATTERNS.some((pattern) => pattern.test(trimmed))) return true;
+  if (HIGH_IMPACT_PATTERNS.some((pattern) => pattern.test(trimmed))) return true;
   return false;
 }

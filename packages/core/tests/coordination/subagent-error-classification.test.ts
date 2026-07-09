@@ -72,6 +72,31 @@ describe('classifySubagentError — direct mapping', () => {
     expect(out.message).toContain('[req req_1234567890]');
   });
 
+  it('429 with a Retry-After hint uses it as the backoff instead of the 5s default', () => {
+    const err = new ProviderError('rate limited', 429, true, 'anthropic', {
+      body: { retryAfterMs: 12_000 },
+    });
+    const out = classifySubagentError(err);
+    expect(out.kind).toBe('provider_rate_limit');
+    expect(out.backoffMs).toBe(12_000);
+  });
+
+  it('400 context-overflow ProviderError → context_overflow, NOT unknown', () => {
+    const err = new ProviderError('anthropic HTTP 400', 400, false, 'anthropic', {
+      body: { type: 'invalid_request_error', message: 'prompt is too long: 250000 tokens' },
+    });
+    const out = classifySubagentError(err);
+    expect(out.kind).toBe('context_overflow');
+    expect(out.retryable).toBe(false);
+  });
+
+  it('network failure (status 0) → provider_timeout, retryable', () => {
+    const err = new ProviderError('fetch failed', 0, true, 'openai');
+    const out = classifySubagentError(err);
+    expect(out.kind).toBe('provider_timeout');
+    expect(out.retryable).toBe(true);
+  });
+
   it('BudgetExceededError(iterations) → budget_iterations', () => {
     const err = new BudgetExceededError('iterations', 10, 11);
     const out = classifySubagentError(err);

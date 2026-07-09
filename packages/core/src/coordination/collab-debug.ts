@@ -31,6 +31,7 @@ import * as fsp from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import { expandGlob } from '../utils/glob-expand.js';
+import { validateFleetEventEmission } from './fleet-event-validation.js';
 
 /**
  * Default maximum number of files a collab_debug session may target.
@@ -528,6 +529,12 @@ export class CollabSession extends EventEmitter {
               ? 'critic.evaluation'
               : null;
       if (!type) continue;
+      const validationError = validateFleetEventEmission(
+        type,
+        obj,
+        this.roleFromSubagentId(result.subagentId) ?? undefined,
+      );
+      if (validationError) continue;
       this.fleetBus.emit({
         subagentId: result.subagentId,
         taskId: result.taskId,

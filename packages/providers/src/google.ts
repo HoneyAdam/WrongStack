@@ -1,5 +1,5 @@
 import type { Capabilities, ProviderError } from '@wrongstack/core';
-import { parseProviderHttpError } from './error-parse.js';
+import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import type { GoogleStreamState } from './presets/google.js';
 import { googleWireFormat } from './presets/google.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
@@ -33,7 +33,11 @@ export class GoogleProvider extends WireFormatProvider<GoogleStreamState> {
     };
   }
 
-  protected override translateError(status: number, text: string): ProviderError {
-    return parseProviderHttpError(this.id, status, text);
+  protected override translateError(
+    status: number,
+    text: string,
+    headers?: HeadersLike,
+  ): ProviderError {
+    return parseProviderHttpError(this.id, status, text, headers);
   }
 }

@@ -43,6 +43,7 @@ import { reduceFleetState } from './reducers/fleet.js';
 import {
   closePanels,
   firstSelectable,
+  MAX_ASSISTANT_STREAM_RETAINED_CHARS,
   MAX_TOOL_STREAM_RETAINED_CHARS,
   pruneToolInput,
   skipDivider,
@@ -151,8 +152,14 @@ export function reducer(state: State, action: Action): State {
         },
       };
     }
-    case 'streamDelta':
-      return { ...state, streamingText: state.streamingText + action.delta };
+    case 'streamDelta': {
+      const combined = state.streamingText + action.delta;
+      const streamingText =
+        combined.length > MAX_ASSISTANT_STREAM_RETAINED_CHARS
+          ? combined.slice(-MAX_ASSISTANT_STREAM_RETAINED_CHARS)
+          : combined;
+      return { ...state, streamingText };
+    }
     case 'streamReset':
       return { ...state, streamingText: '' };
     case 'status':

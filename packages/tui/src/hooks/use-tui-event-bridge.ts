@@ -1,4 +1,5 @@
-import type { EventBus, SddBoardSnapshot } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core';
+import type { SddBoardSnapshot } from '@wrongstack/sdd';
 import { useEffect } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { useBrainEvents } from './use-brain-events.js';

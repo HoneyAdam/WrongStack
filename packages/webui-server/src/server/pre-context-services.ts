@@ -224,6 +224,7 @@ export async function createPreContextServices(
     opts.services?.session ??
     new DefaultSessionStore({
       dir: wpaths.projectSessions,
+      projectRoot: wpaths.projectRoot,
       // Cross-process guard for delete(): refuses to remove a session that a
       // live terminal/TUI/WebUI in this project is using. The store also
       // checks active.json directly; this widens it to every concurrent

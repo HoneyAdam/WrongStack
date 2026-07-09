@@ -1,17 +1,16 @@
 /**
  * Transcript formatting helpers for the HQ Live Console.
  *
- * These are pure functions — no React, no DOM — so the chat view can lean on
- * them for a WebUI-grade rendering (tool-aware summaries, diff extraction,
- * pretty JSON, terminal output) while staying trivially unit-testable.
- *
- * The HQ transcript entry (`HqTranscriptEntry`) merges a tool call's args and
- * result into a single entry: `tool` is the name, `toolInput` is the
- * stringified arguments, and `text` is the stringified result. We classify the
- * tool by name to pick the right "real" result view.
+ * Pure functions — no React, no DOM. The heavy lifting (tool-input summaries,
+ * diff extraction) is delegated to the shared browser-safe
+ * `@wrongstack/tools` subpaths so the HQ Console, the main WebUI and the TUI
+ * all render tool calls from the same single source of truth. What remains
+ * here is HQ-specific: transcript-entry classification, todo extraction from
+ * stringified input, and small display formatters.
  *
  * @module lib/transcript-format
  */
+import { summarizeToolInput as sharedSummarize } from '@wrongstack/tools/tool-summary';
 
 /** Broad tool family used to pick a result renderer. */
 export type ToolKind = 'edit' | 'write' | 'bash' | 'read' | 'search' | 'fetch' | 'todo' | 'generic';
@@ -41,112 +40,17 @@ export function tryParseJson(raw: string | undefined): unknown {
   }
 }
 
-function clip(s: string, max: number): string {
-  const flat = s.replace(/\s+/g, ' ').trim();
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
-}
-
-function pickPath(o: Record<string, unknown>): string {
-  for (const k of ['file_path', 'path', 'filepath', 'file', 'notebook_path']) {
-    const v = o[k];
-    if (typeof v === 'string' && v) return v;
-  }
-  return '';
-}
-
 /**
- * One-line, tool-aware summary of a tool's input — the collapsed-card subtitle.
- * Mirrors the WebUI's `summarizeToolInput` at a smaller surface. `input` is the
- * stringified JSON args as stored on the transcript entry.
+ * One-line, tool-aware summary of a tool's input — the collapsed-card
+ * subtitle. Delegates to the shared `@wrongstack/tools/tool-summary`
+ * implementation (which accepts HQ's stringified-JSON input directly).
  */
 export function summarizeToolInput(
   toolName: string | undefined,
   input: string | undefined,
 ): string {
-  const parsed = tryParseJson(input);
-  if (parsed === undefined || parsed === null || typeof parsed !== 'object') {
-    return input ? clip(input, 120) : '';
-  }
-  const obj = parsed as Record<string, unknown>;
-  const kind = classifyTool(toolName);
-
-  if (kind === 'todo' || Array.isArray(obj.todos)) {
-    const todos = (obj.todos ?? []) as Array<{ status?: string }>;
-    if (Array.isArray(todos)) {
-      const done = todos.filter((t) => t.status === 'completed').length;
-      const wip = todos.filter((t) => t.status === 'in_progress').length;
-      const parts = [`${todos.length} todo${todos.length === 1 ? '' : 's'}`];
-      if (done) parts.push(`${done} done`);
-      if (wip) parts.push(`${wip} wip`);
-      return parts.join(' · ');
-    }
-  }
-
-  if (kind === 'edit') {
-    const fp = pickPath(obj);
-    const oldS = typeof obj.old_string === 'string' ? obj.old_string : '';
-    const newS = typeof obj.new_string === 'string' ? obj.new_string : '';
-    const oldLines = oldS ? oldS.split('\n').length : 0;
-    const newLines = newS ? newS.split('\n').length : 0;
-    return `${fp || '(file)'}${oldLines || newLines ? ` · ${oldLines} → ${newLines} lines` : ''}`;
-  }
-
-  if (kind === 'write') {
-    const fp = pickPath(obj);
-    const c = typeof obj.content === 'string' ? obj.content : '';
-    const lines = c ? c.split('\n').length : 0;
-    return `${fp || '(file)'}${lines ? ` · ${lines} lines` : ''}`;
-  }
-
-  if (kind === 'bash') {
-    const cmd = (obj.command ?? obj.cmd ?? obj.script) as string | undefined;
-    if (typeof cmd === 'string') return `$ ${clip(cmd, 110)}`;
-  }
-
-  if (kind === 'fetch') {
-    const url = obj.url as string | undefined;
-    if (typeof url === 'string') {
-      const method = ((obj.method as string | undefined) ?? 'GET').toUpperCase();
-      return `${method} ${clip(url, 100)}`;
-    }
-    const query = obj.query as string | undefined;
-    if (typeof query === 'string') return clip(query, 110);
-  }
-
-  if (kind === 'search') {
-    const pattern = (obj.pattern ?? obj.query ?? obj.glob) as string | undefined;
-    const scope = (obj.path ?? obj.glob ?? obj.type) as string | undefined;
-    if (typeof pattern === 'string') {
-      return scope && scope !== pattern ? `${clip(pattern, 60)} in ${scope}` : clip(pattern, 100);
-    }
-  }
-
-  if (kind === 'read') {
-    const fp = pickPath(obj);
-    const offset = obj.offset as number | undefined;
-    const limit = obj.limit as number | undefined;
-    if (fp)
-      return offset || limit
-        ? `${fp}:${offset ?? 0}${limit ? `..${(offset ?? 0) + limit}` : ''}`
-        : fp;
-  }
-
-  // Generic fallback: first meaningful scalar field, else compact JSON.
-  for (const k of [
-    'file_path',
-    'path',
-    'command',
-    'cmd',
-    'url',
-    'query',
-    'pattern',
-    'description',
-    'name',
-  ]) {
-    const v = obj[k];
-    if (typeof v === 'string' && v) return clip(v, 120);
-  }
-  return clip(JSON.stringify(obj), 120);
+  if (input === undefined || input === '' || input === '{}') return '';
+  return sharedSummarize(toolName, input);
 }
 
 /** A pretty, human-readable rendering of a tool's stringified JSON input. */
@@ -196,74 +100,6 @@ export function extractTodos(input: string | undefined): TodoItem[] | null {
     todos.push({ status, content });
   }
   return todos.length > 0 ? todos : null;
-}
-
-export interface DiffParts {
-  oldText: string;
-  newText: string;
-  path: string;
-}
-
-/**
- * Extract a before/after diff from an edit/write tool's stringified input.
- * Returns `null` when the input doesn't describe a file change.
- */
-export function diffFromToolInput(
-  toolName: string | undefined,
-  input: string | undefined,
-): DiffParts | null {
-  const parsed = tryParseJson(input);
-  if (parsed === null || typeof parsed !== 'object') return null;
-  const obj = parsed as Record<string, unknown>;
-  const kind = classifyTool(toolName);
-  const path = pickPath(obj);
-
-  if (kind === 'edit') {
-    const oldText = typeof obj.old_string === 'string' ? obj.old_string : '';
-    const newText = typeof obj.new_string === 'string' ? obj.new_string : '';
-    if (oldText === '' && newText === '') return null;
-    return { oldText, newText, path };
-  }
-  if (kind === 'write') {
-    const content = typeof obj.content === 'string' ? obj.content : '';
-    if (content === '') return null;
-    return { oldText: '', newText: content, path };
-  }
-  return null;
-}
-
-export type DiffLineKind = 'add' | 'del' | 'ctx';
-export interface DiffLine {
-  kind: DiffLineKind;
-  text: string;
-}
-
-/**
- * Build a simple line-oriented diff for the before/after text. This is a
- * common-prefix / common-suffix diff (not full Myers) — cheap, dependency-free,
- * and more than adequate for the small hunks edit/write tools produce.
- */
-export function computeDiffLines(oldText: string, newText: string): DiffLine[] {
-  const oldLines = oldText === '' ? [] : oldText.split('\n');
-  const newLines = newText === '' ? [] : newText.split('\n');
-
-  let start = 0;
-  while (start < oldLines.length && start < newLines.length && oldLines[start] === newLines[start])
-    start++;
-
-  let endOld = oldLines.length;
-  let endNew = newLines.length;
-  while (endOld > start && endNew > start && oldLines[endOld - 1] === newLines[endNew - 1]) {
-    endOld--;
-    endNew--;
-  }
-
-  const out: DiffLine[] = [];
-  for (let i = 0; i < start; i++) out.push({ kind: 'ctx', text: oldLines[i] ?? '' });
-  for (let i = start; i < endOld; i++) out.push({ kind: 'del', text: oldLines[i] ?? '' });
-  for (let i = start; i < endNew; i++) out.push({ kind: 'add', text: newLines[i] ?? '' });
-  for (let i = endOld; i < oldLines.length; i++) out.push({ kind: 'ctx', text: oldLines[i] ?? '' });
-  return out;
 }
 
 /** Human-friendly duration for a tool call (e.g. `820ms`, `2.4s`, `1m3s`). */

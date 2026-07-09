@@ -470,7 +470,12 @@ const plugin: Plugin = {
       };
     };
 
-    state.hookUnregister = api.registerHook('PreToolUse', 'bash|git_autocommit', hook);
+    state.hookUnregister = api.registerHook('PreToolUse', 'bash|git_autocommit', hook, {
+      name: 'commit-validator',
+      stage: 'validate',
+      failurePolicy: 'closed',
+      policy: true,
+    });
 
     // --- commit_validator_status tool ---
     api.tools.register({

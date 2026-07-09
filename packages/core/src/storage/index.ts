@@ -3,6 +3,11 @@ export {
   DefaultSessionStore,
   type SessionStoreOptions,
 } from './session-store.js';
+export {
+  SessionCheckpointCas,
+  type CheckpointGitResult,
+  type SessionCheckpointCasOptions,
+} from './session-checkpoint-cas.js';
 export { generateSessionId, sanitizeModel } from './session-id.js';
 export {
   QueueStore,

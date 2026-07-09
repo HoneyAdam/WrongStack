@@ -1,6 +1,8 @@
 import type { Context } from '../core/context.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { ContextWindowPolicy } from '../types/context-window.js';
+import type { Message } from '../types/messages.js';
+import { toErrorMessage } from '../utils/index.js';
 import { HybridCompactor } from './compactor.js';
 import { IntelligentCompactor } from './intelligent-compactor.js';
 import { SelectiveCompactor } from './selective-compactor.js';
@@ -50,14 +52,73 @@ export interface StrategyCompactorOptions {
 export function createStrategyCompactor(opts: StrategyCompactorOptions = {}): Compactor {
   const requested = opts.strategy ?? (opts.llmSelector ? 'selective' : 'hybrid');
   const strategy = requested as CompactorStrategy;
+  let inner: Compactor;
   if (strategy === 'intelligent' || strategy === 'selective') {
-    return new ProviderBackedCompactor(strategy, opts);
+    inner = new ProviderBackedCompactor(strategy, opts);
+  } else {
+    inner = new HybridCompactor({
+      preserveK: opts.preserveK,
+      eliseThreshold: opts.eliseThreshold,
+      smart: opts.smart,
+    });
   }
-  return new HybridCompactor({
-    preserveK: opts.preserveK,
-    eliseThreshold: opts.eliseThreshold,
-    smart: opts.smart,
-  });
+  return new JournaledCompactor(inner);
+}
+
+/**
+ * Persists the exact post-compaction message array as a reconstruct event.
+ * Every production compaction entry point resolves its compactor through
+ * createStrategyCompactor(), so manual, automatic, recovery, WebUI and
+ * eternal-engine compactions all share this one durability boundary.
+ */
+class JournaledCompactor implements Compactor {
+  constructor(private readonly inner: Compactor) {}
+
+  async compact(
+    ctx: Context,
+    compactOpts: { aggressive?: boolean | undefined } = {},
+  ): Promise<CompactReport> {
+    const state = ctx.state;
+    const revisionBefore = state.revision;
+    const report = await this.inner.compact(ctx, compactOpts);
+    const changed =
+      state.revision !== revisionBefore ||
+      report.reductions.some((reduction) => reduction.saved > 0) ||
+      report.repaired !== undefined;
+    const writer = ctx.session;
+    if (!changed || !writer) return report;
+
+    const messages = ctx.messages.map(stripTransientMessageFields);
+    try {
+      await writer.append({
+        type: 'context_snapshot',
+        ts: new Date().toISOString(),
+        reason: 'compaction',
+        messages,
+      });
+      // A snapshot is a reconstruct boundary: do not return from compaction
+      // while it exists only in the writer's in-memory batch.
+      await writer.flush();
+    } catch (err) {
+      // Session logging remains best-effort by contract. Keep the compacted
+      // live state usable, but make the lost exact-replay boundary explicit.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'session.context_snapshot_write_failed',
+          sessionId: writer.id,
+          message: toErrorMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    }
+    return report;
+  }
+}
+
+function stripTransientMessageFields(message: Message): Message {
+  const { _estTokens: _ignored, ...persisted } = message;
+  return persisted;
 }
 
 class ProviderBackedCompactor implements Compactor {

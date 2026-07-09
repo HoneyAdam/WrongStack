@@ -19,6 +19,39 @@ export type HookEvent = 'PreToolUse' | 'PostToolUse' | 'UserPromptSubmit' | 'Ses
  */
 export type HookMatcher = string;
 
+/** What to do when a hook crashes, times out, or returns malformed output. */
+export type HookFailurePolicy = 'open' | 'closed';
+
+/**
+ * PreToolUse hooks run in two phases. Mutators compose first; validators then
+ * inspect the final arguments and may no longer rewrite them.
+ */
+export type PreToolUseStage = 'mutate' | 'validate';
+
+/** Per-registration runtime controls shared by every hook transport. */
+export interface HookRegistrationOptions {
+  /** Stable name used in logs and model-visible fail-closed errors. */
+  name?: string | undefined;
+  /** Per-invocation deadline in milliseconds (default 5000). */
+  timeoutMs?: number | undefined;
+  /** `open` skips a failed hook; `closed` converts failure to a denial. */
+  failurePolicy?: HookFailurePolicy | undefined;
+  /** PreToolUse phase. Legacy registrations default to `mutate`. */
+  stage?: PreToolUseStage | undefined;
+  /**
+   * Trusted enforcement hook. Policy hooks remain active under `--no-hooks`;
+   * ordinary automation hooks do not.
+   */
+  policy?: boolean | undefined;
+}
+
+/** Deadline/cancellation context passed to in-process hooks. */
+export interface HookInvocationContext {
+  signal: AbortSignal;
+  /** Absolute Unix epoch deadline in milliseconds. */
+  deadlineAt: number;
+}
+
 /**
  * The JSON payload handed to a hook. For shell hooks this is serialized to
  * stdin; for in-process hooks it is passed as the sole argument. Kept flat and
@@ -72,30 +105,69 @@ export interface HookOutcome {
   contextAs?: 'inline' | 'separate' | undefined;
 }
 
+/**
+ * Preferred, mutually-exclusive PreToolUse result. `allow` means only that
+ * this hook has no objection; it never bypasses the core permission policy.
+ */
+export type PreToolUseOutcome = {
+  additionalContext?: string | undefined;
+  contextAs?: 'inline' | 'separate' | undefined;
+} & (
+  | { action: 'allow' }
+  | { action: 'deny'; reason: string }
+  | { action: 'mutate'; input: Record<string, unknown>; reason?: string | undefined }
+);
+
+/** New and legacy hook outputs accepted at the transport boundary. */
+export type AnyHookOutcome = HookOutcome | PreToolUseOutcome;
+
 /** An in-process hook function (registered via the plugin API). */
-export type InProcessHook = (input: HookInput) => HookOutcome | void | Promise<HookOutcome | void>;
+export type InProcessHook = (
+  input: HookInput,
+  runtime: HookInvocationContext,
+) => AnyHookOutcome | void | Promise<AnyHookOutcome | void>;
+
+interface ConfiguredHookBase extends HookRegistrationOptions {
+  /** Tool-name matcher (defaults to `*`). */
+  matcher?: HookMatcher | undefined;
+}
 
 /**
  * A shell-command hook (declared in `config.hooks`). Claude-compatible: the
  * `HookInput` JSON is written to the command's stdin; a JSON `HookOutcome` may
  * be printed to stdout, and exit code 2 forces `decision: 'block'`.
  */
-export interface ShellHook {
+export interface ShellHook extends ConfiguredHookBase {
+  type?: 'command' | undefined;
   /** Command line run via the platform shell. */
   command: string;
-  /** Tool-name matcher (defaults to `*`). */
-  matcher?: HookMatcher | undefined;
-  /** Per-invocation timeout in ms (default 5000). */
+}
+
+/** Native HTTP hook. The HookInput JSON is POSTed and JSON output is parsed. */
+export interface HttpHook extends ConfiguredHookBase {
+  type: 'http';
+  url: string;
+  headers?: Record<string, string> | undefined;
+}
+
+export type ConfiguredHook = ShellHook | HttpHook;
+
+interface HookEntryBase {
+  event: HookEvent;
+  matcher: HookMatcher;
+  name: string;
   timeoutMs?: number | undefined;
+  failurePolicy: HookFailurePolicy;
+  stage: PreToolUseStage;
+  policy: boolean;
 }
 
 /** A registered hook entry, discriminated by transport. */
 export type HookEntry =
-  | {
+  | (HookEntryBase & {
       kind: 'inprocess';
-      event: HookEvent;
-      matcher: HookMatcher;
       hook: InProcessHook;
       owner?: string | undefined;
-    }
-  | { kind: 'shell'; event: HookEvent; matcher: HookMatcher; command: string; timeoutMs?: number | undefined };
+    })
+  | (HookEntryBase & { kind: 'shell'; command: string })
+  | (HookEntryBase & { kind: 'http'; url: string; headers?: Record<string, string> | undefined });

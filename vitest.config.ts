@@ -19,6 +19,12 @@ export default defineConfig({
       // Same for @wrongstack/tools: CLI tests import wiring that reaches the
       // tools package, and root Vitest must not require a prebuilt dist/.
       '@wrongstack/tools': path.resolve(__dirname, './packages/tools/src'),
+      // Packages extracted from core (sdd/kanban/security-scanner) — the core
+      // barrel re-exports from them, so every test importing core needs these
+      // resolved from source as well.
+      '@wrongstack/sdd': path.resolve(__dirname, './packages/sdd/src'),
+      '@wrongstack/kanban': path.resolve(__dirname, './packages/kanban/src'),
+      '@wrongstack/security-scanner': path.resolve(__dirname, './packages/security-scanner/src'),
     },
   },
   // Exclude typescript from SSR transform to prevent "invalid JS syntax" errors

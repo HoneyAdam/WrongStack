@@ -49,6 +49,72 @@ function shellCommandLineFromInput(input: unknown): string | undefined {
   return [command, ...renderedArgs].join(' ');
 }
 
+const SENSITIVE_READ_PATHS: RegExp[] = [
+  /(?:^|[\\/])\.env(?:[.\w-]*)?$/i,
+  /(?:^|[\\/])\.npmrc$/i,
+  /(?:^|[\\/])\.pypirc$/i,
+  /(?:^|[\\/])\.netrc$/i,
+  /(?:^|[\\/])id_(?:rsa|dsa|ecdsa|ed25519)$/i,
+  /(?:^|[\\/])\.aws[\\/]credentials$/i,
+  /(?:^|[\\/])\.kube[\\/]config$/i,
+  /(?:^|[\\/])(?:secrets?|tokens?|credentials?|private[_-]?keys?)$/i,
+  /(?:^|[\\/])[^\\/]*(?:secret|token|credential|private[_-]?key)[^\\/]*(?:\.json|\.ya?ml|\.toml|\.ini|\.txt|\.env|\.properties|\.key|\.pem)$/i,
+];
+
+const SHELL_READ_VERBS = new Set([
+  'cat',
+  'type',
+  'get-content',
+  'gc',
+  'more',
+  'less',
+  'head',
+  'tail',
+  'grep',
+  'rg',
+  'sed',
+  'awk',
+  'findstr',
+  'select-string',
+  'strings',
+  'cp',
+  'copy',
+  'scp',
+]);
+
+function stripShellQuotes(value: string): string {
+  return value.replace(/^['"]|['"]$/g, '');
+}
+
+function pathLooksSensitive(rawPath: string): boolean {
+  const normalized = stripShellQuotes(rawPath).replace(/\\/g, '/');
+  return SENSITIVE_READ_PATHS.some((pattern) => pattern.test(normalized));
+}
+
+function inputPathLooksSensitive(input: unknown): boolean {
+  if (!input || typeof input !== 'object') return false;
+  const obj = input as Record<string, unknown>;
+  for (const key of ['path', 'file', 'file_path', 'filePath', 'target', 'targetPath']) {
+    const value = obj[key];
+    if (typeof value === 'string' && pathLooksSensitive(value)) return true;
+  }
+  return false;
+}
+
+function shellCommandReadsSensitivePath(command: string): boolean {
+  const tokens = command
+    .match(/"[^"]*"|'[^']*'|\S+/g)
+    ?.map((token) => stripShellQuotes(token).toLowerCase()) ?? [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token) continue;
+    if (!SHELL_READ_VERBS.has(token)) continue;
+    const rest = tokens.slice(i + 1);
+    if (rest.some((arg) => pathLooksSensitive(arg))) return true;
+  }
+  return false;
+}
+
 export interface PermissionPolicyOptions {
   trustFile: string;
   yolo?: boolean | undefined;
@@ -295,6 +361,39 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       return decision;
     }
 
+    // 6a. Sensitive reads — outside YOLO, reading credentials needs explicit
+    // approval unless the user already trusted this exact subject above. In
+    // YOLO, only truly destructive operations prompt; secret redaction remains
+    // the safety net for read output.
+    if (!this.yolo && this.isSensitiveReadCall(tool, input)) {
+      if (this.promptDelegate) {
+        const userDecision = await this.promptDelegate(tool, input, subject ?? tool.name);
+        if (userDecision === 'always') {
+          await this.trust({ tool: tool.name, pattern: subject ?? tool.name });
+          return {
+            permission: 'auto',
+            source: 'user',
+            reason: 'user always-allowed sensitive read',
+          };
+        }
+        if (userDecision === 'deny') {
+          await this.deny({ tool: tool.name, pattern: subject ?? tool.name });
+          return { permission: 'deny', source: 'user', reason: 'user denied sensitive read' };
+        }
+        return {
+          permission: userDecision === 'yes' ? 'auto' : 'deny',
+          source: 'user',
+          reason: 'sensitive read user decision',
+        };
+      }
+      return {
+        permission: 'confirm',
+        source: 'default',
+        riskTier: 'standard',
+        reason: 'sensitive file read needs explicit approval',
+      };
+    }
+
     // 7. YOLO — auto-approve normal project work. Clearly destructive calls
     // were handled above before trust-file allow rules.
     if (this.yolo) {
@@ -420,6 +519,27 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     }
 
     return tool.riskTier === 'destructive';
+  }
+
+  private isSensitiveReadCall(tool: Tool, input: unknown): boolean {
+    const isReadTool =
+      hasCapability(tool, ToolCapabilities.FS_READ) ||
+      tool.name === 'read' ||
+      tool.name === 'grep' ||
+      tool.name === 'glob' ||
+      tool.name === 'tree';
+    if (isReadTool && inputPathLooksSensitive(input)) return true;
+
+    const hasShellCap = hasCapability(tool, [
+      ToolCapabilities.SHELL_ARBITRARY,
+      ToolCapabilities.SHELL_RESTRICTED,
+      ToolCapabilities.SHELL_EXEC,
+    ]);
+    if (!hasShellCap && tool.name !== 'bash' && tool.name !== 'shell' && tool.name !== 'exec') {
+      return false;
+    }
+    const command = shellCommandLineFromInput(input);
+    return command ? shellCommandReadsSensitivePath(command) : false;
   }
 
   async trust(rule: { tool: string; pattern: string }): Promise<void> {

@@ -335,7 +335,7 @@ export interface HqSessionSnapshotPayload {
   agents: readonly HqSessionAgentSummary[];
 }
 
-export type HqTranscriptRole = 'user' | 'assistant' | 'tool' | 'system' | 'error';
+export type HqTranscriptRole = 'user' | 'assistant' | 'thinking' | 'tool' | 'system' | 'error';
 
 /** One rendered conversation turn. Canonical shape shared by client streaming
  * and server-side JSONL replay so both planes agree. */
@@ -968,7 +968,14 @@ function isHqSessionSnapshotPayload(x: unknown): x is HqSessionSnapshotPayload {
   return true;
 }
 
-const HQ_TRANSCRIPT_ROLES = new Set<string>(['user', 'assistant', 'tool', 'system', 'error']);
+const HQ_TRANSCRIPT_ROLES = new Set<string>([
+  'user',
+  'assistant',
+  'thinking',
+  'tool',
+  'system',
+  'error',
+]);
 
 function isHqTranscriptEntry(x: unknown): x is HqTranscriptEntry {
   if (typeof x !== 'object' || x === null) return false;

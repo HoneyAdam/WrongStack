@@ -42,10 +42,10 @@ function getTool(
   return call[0] as { execute: (input: unknown) => Promise<Record<string, unknown>> };
 }
 
-function getHook(api: MockApi): (input: unknown) => void {
+function getHook(api: MockApi): (input: unknown) => Promise<unknown> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
-  return (call as unknown[])[2] as (input: unknown) => void;
+  return (call as unknown[])[2] as (input: unknown) => Promise<unknown>;
 }
 
 let tmp: string;
@@ -90,7 +90,7 @@ describe('checkpoint plugin', () => {
     const file = join(tmp, 'a.txt');
     writeFileSync(file, 'original');
     // Simulate the agent about to overwrite the file.
-    hook({ toolName: 'write', toolInput: { path: file } });
+    await hook({ toolName: 'write', toolInput: { path: file } });
     writeFileSync(file, 'clobbered');
 
     const list = await getTool(api, 'checkpoint_list').execute({});

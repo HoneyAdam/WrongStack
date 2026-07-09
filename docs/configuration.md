@@ -414,7 +414,7 @@ the CLI with `/setmodel reasoning ...` or from WebUI Settings -> Model Routing.
 
 ## `hooks` — Lifecycle hooks
 
-Shell commands run at lifecycle points (`PreToolUse`, `PostToolUse`,
+Command or HTTP handlers run at lifecycle points (`PreToolUse`, `PostToolUse`,
 `UserPromptSubmit`, `SessionStart`, `Stop`). The hook payload is written to the
 command's stdin as JSON; a JSON `HookOutcome` on stdout (or exit code `2`)
 steers the agent. `PreToolUse`/`PostToolUse` entries take a `matcher` (a
@@ -424,21 +424,30 @@ pipe-delimited tool-name list, or `*`).
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "bash", "command": "./scripts/guard-bash.sh", "timeoutMs": 3000 }
+      {
+        "name": "bash-safety",
+        "matcher": "bash",
+        "stage": "validate",
+        "command": "bash ./scripts/guard-bash.sh",
+        "timeoutMs": 3000,
+        "failurePolicy": "closed",
+        "policy": true
+      }
     ],
     "PostToolUse": [
       { "matcher": "edit|write", "command": "npm run -s lint:staged" }
     ],
     "UserPromptSubmit": [
-      { "command": "./scripts/inject-context.sh" }
+      { "command": "bash ./scripts/inject-context.sh" }
     ]
   }
 }
 ```
 
-Disable all hooks for a session with `--no-hooks`. Plugins can register
-in-process hooks via `api.registerHook(...)`. See [hooks.md](./hooks.md) for the
-full payload/outcome schema and the security model.
+`--no-hooks` disables ordinary automation; trusted entries with `policy: true`
+remain active. `failurePolicy` defaults to `open`, so normal/YOLO work does not
+gain new approval prompts. Plugins can register in-process hooks via
+`api.registerHook(...)`. See [hooks.md](./hooks.md) for the full schema.
 
 ---
 

@@ -93,7 +93,83 @@ describe('createAutonomyBrain — LLM evaluation (llmDecide)', () => {
         ],
       }),
     );
+    expect(d).toMatchObject({
+      type: 'deny',
+      reason: 'Autonomy Brain returned no exact valid option id.',
+    });
+  });
+
+  it('accepts the canonical JSON option envelope', async () => {
+    const provider = fakeProvider('{"optionId":"resolve","rationale":"Safe to auto-resolve."}');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    const d = await brain.decide(
+      req({
+        question: 'mission complete?',
+        options: [
+          { id: 'resolve', label: 'Resolve conflict' },
+          { id: 'stop', label: 'Stop' },
+        ],
+      }),
+    );
+    expect(d).toMatchObject({
+      type: 'answer',
+      optionId: 'resolve',
+      text: 'Resolve conflict',
+      rationale: 'Safe to auto-resolve.',
+    });
+  });
+
+  it('keeps the historical leading [id] option form for compatibility', async () => {
+    const provider = fakeProvider('[resolve] — safe to auto-resolve.');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    const d = await brain.decide(
+      req({
+        question: 'mission complete?',
+        options: [
+          { id: 'resolve', label: 'Resolve conflict' },
+          { id: 'stop', label: 'Stop' },
+        ],
+      }),
+    );
     expect(d).toMatchObject({ type: 'answer', optionId: 'resolve', text: 'Resolve conflict' });
+  });
+
+  it('does not select an option merely mentioned in negated prose', async () => {
+    const provider = fakeProvider('Do not spawn another helper; wait for current workers.');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    const d = await brain.decide(
+      req({
+        question: 'mission complete?',
+        options: [
+          { id: 'spawn', label: 'Spawn helper' },
+          { id: 'wait', label: 'Wait' },
+        ],
+      }),
+    );
+    expect(d).toMatchObject({
+      type: 'deny',
+      reason: 'Autonomy Brain returned no exact valid option id.',
+    });
+  });
+
+  it('does not extract an option JSON block embedded in prose', async () => {
+    const provider = fakeProvider(
+      'Do not spawn; this is only an example:\n```json\n{"optionId":"spawn"}\n```',
+    );
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    const d = await brain.decide(
+      req({
+        question: 'mission complete?',
+        options: [
+          { id: 'spawn', label: 'Spawn helper' },
+          { id: 'wait', label: 'Wait' },
+        ],
+      }),
+    );
+    expect(d).toMatchObject({
+      type: 'deny',
+      reason: 'Autonomy Brain returned no exact valid option id.',
+    });
   });
 
   it('sends the file-backed Autonomy Brain system prompt to the provider', async () => {
@@ -180,7 +256,7 @@ describe('createAutonomyBrain — LLM evaluation (llmDecide)', () => {
       id: 'fake',
       capabilities: {},
       stream: vi.fn(),
-      complete: vi.fn(async () => ({ choices: [{ message: { content: 'go with [a]' } }] })),
+      complete: vi.fn(async () => ({ choices: [{ message: { content: '[a] — safe' } }] })),
     } as never as Provider;
     const brain = createAutonomyBrain({ provider, model: 'm' });
     const d = await brain.decide(

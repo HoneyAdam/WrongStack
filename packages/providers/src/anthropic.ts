@@ -1,5 +1,5 @@
 import type { Capabilities, ProviderError, Request } from '@wrongstack/core';
-import { parseProviderHttpError } from './error-parse.js';
+import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import type { AnthropicStreamState } from './presets/anthropic.js';
 import { anthropicWireFormat } from './presets/anthropic.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
@@ -82,7 +82,11 @@ export class AnthropicProvider extends WireFormatProvider<AnthropicStreamState> 
     return headers;
   }
 
-  protected override translateError(status: number, text: string): ProviderError {
-    return parseProviderHttpError(this.id, status, text);
+  protected override translateError(
+    status: number,
+    text: string,
+    headers?: HeadersLike,
+  ): ProviderError {
+    return parseProviderHttpError(this.id, status, text, headers);
   }
 }

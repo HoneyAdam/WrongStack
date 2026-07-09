@@ -622,6 +622,36 @@ describe('Director orchestration', () => {
     expect(parsed[0].status).toBe('success');
   });
 
+  it('rollUp prefers the structured report while preserving legacy result in JSON', async () => {
+    const d = new Director({
+      config: { coordinatorId: 'report-rollup', doneCondition: { type: 'all_tasks_done' } },
+      runner: async () => ({
+        result: 'legacy final text',
+        report: {
+          summary: 'Verified root cause.',
+          findings: ['Guard is missing.'],
+          files_examined: ['src/a.ts'],
+          confidence: 0.8,
+          suggested_next_steps: ['Add regression coverage.'],
+        },
+        iterations: 1,
+        toolCalls: 0,
+      }),
+    });
+    _director = d;
+    const id = await d.spawn({ name: 'reporter' });
+    const taskId = await d.assign({ id: 'report-task', description: 'inspect', subagentId: id });
+    await d.awaitTasks([taskId]);
+
+    const markdown = d.rollUp([taskId]);
+    expect(markdown).toContain('Verified root cause.');
+    expect(markdown).toContain('Findings:\n- Guard is missing.');
+    expect(markdown).not.toContain('legacy final text');
+    const json = JSON.parse(d.rollUp([taskId], 'json')) as Array<Record<string, unknown>>;
+    expect(json[0]?.['result']).toBe('legacy final text');
+    expect(json[0]?.['report']).toMatchObject({ confidence: 0.8 });
+  });
+
   it('rollUp with no matching tasks returns a polite empty marker', () => {
     const { director: d } = buildDirector();
     _director = d;
@@ -854,6 +884,47 @@ describe('Director orchestration', () => {
       expect(dir.maxSpawns).toBe(Number.POSITIVE_INFINITY);
       // Root spawn should succeed since 0 < 2.
       await expect(dir.spawn({ name: 'a' })).resolves.toBeTruthy();
+      await dir.shutdown();
+    });
+
+    it('hard-caps depth and overwrites forged child lineage with remaining fleet budget', async () => {
+      let observed: SubagentRunContext['config'] | undefined;
+      const dir = new Director({
+        config: { coordinatorId: 'lineage', doneCondition: { type: 'all_tasks_done' } },
+        runner: async (_task, ctx) => {
+          observed = ctx.config;
+          return { result: 'ok', iterations: 1, toolCalls: 0 };
+        },
+        maxSpawnDepth: 99,
+        maxSpawns: 4,
+        directorBudget: { maxTokens: 500, maxCostUsd: 2 },
+      });
+      const id = await dir.spawn({
+        name: 'child',
+        spawnLineage: {
+          parentDirectorId: 'forged',
+          spawnDepth: 0,
+          maxSpawnDepth: 99,
+          fleetBudget: { maxTokens: 999_999, remainingTokens: 999_999 },
+        },
+      });
+      const taskId = await dir.assign({ id: 'lineage-task', description: 'inspect', subagentId: id });
+      await dir.awaitTasks([taskId]);
+
+      expect(dir.maxSpawnDepth).toBe(2);
+      expect(observed?.spawnLineage).toEqual({
+        parentDirectorId: 'lineage',
+        spawnDepth: 1,
+        maxSpawnDepth: 2,
+        fleetBudget: {
+          maxSpawns: 4,
+          remainingSpawns: 3,
+          maxTokens: 500,
+          remainingTokens: 500,
+          maxCostUsd: 2,
+          remainingCostUsd: 2,
+        },
+      });
       await dir.shutdown();
     });
 
@@ -1265,6 +1336,13 @@ describe('Director taskResultNotifier (fire-and-forget report-back)', () => {
     const runner = vi.fn(
       async (task: TaskSpec, _ctx: SubagentRunContext): Promise<SubagentRunOutcome> => ({
         result: `done:${task.description}`,
+        report: {
+          summary: `done:${task.description}`,
+          findings: ['completed'],
+          files_examined: [],
+          confidence: 1,
+          suggested_next_steps: [],
+        },
         iterations: 1,
         toolCalls: 1,
       }),
@@ -1296,6 +1374,7 @@ describe('Director taskResultNotifier (fire-and-forget report-back)', () => {
     expect(n.status).toBe('success');
     expect(n.title).toBe('background job');
     expect(n.resultText).toBe('done:background job');
+    expect(n.report).toMatchObject({ summary: 'done:background job', confidence: 1 });
     expect(n.subagentId).toBe(id);
     await d.shutdown();
   });

@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
 
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 export default defineConfig({
   entry: [
     'src/index.ts',
@@ -15,7 +17,6 @@ export default defineConfig({
     'src/coordination/index.ts',
     'src/storage/index.ts',
     'src/security/index.ts',
-    'src/sdd/index.ts',
     'src/models/index.ts',
     'src/infrastructure/index.ts',
     'src/observability/index.ts',
@@ -27,7 +28,7 @@ export default defineConfig({
     'src/skills/index.ts',
   ],
   format: ['esm'],
-  dts: true,
+  dts: skipDts ? false : true,
   sourcemap: true,
   clean: true,
   splitting: false,

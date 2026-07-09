@@ -72,7 +72,10 @@ export async function switchProjectInPlace(
   const oldProjectRoot = state.projectRoot;
   const nextWpaths = resolveWstackPaths({ projectRoot: resolved, globalRoot: state.wpaths.globalRoot });
   await fs.mkdir(nextWpaths.projectSessions, { recursive: true });
-  const nextSessionStore = new DefaultSessionStore({ dir: nextWpaths.projectSessions });
+  const nextSessionStore = new DefaultSessionStore({
+    dir: nextWpaths.projectSessions,
+    projectRoot: resolved,
+  });
   const nextWriter = await nextSessionStore.create({
     id: '',
     title: '',

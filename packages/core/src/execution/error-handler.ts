@@ -1,6 +1,6 @@
 import type { Context } from '../core/context.js';
 import type { ErrorHandler, RecoveryDecision } from '../types/error-handler.js';
-import { ProviderError } from '../types/provider.js';
+import { isRetryableKind, ProviderError, type ProviderErrorKind } from '../types/provider.js';
 import { NETWORK_ERR_RE } from './regex-patterns.js';
 import type { Compactor } from '../types/compactor.js';
 import type { ModelsRegistry } from '../types/models-registry.js';
@@ -19,9 +19,6 @@ export interface RecoveryStrategy {
   attempt: (err: unknown, ctx: Context) => Promise<RecoveryDecision | null>;
 }
 
-// Package-level compiled regex for hot paths — avoids repeated compilation.
-const CONTEXT_OVERFLOW_RE = /context|too long|tokens|exceeds the context window|context window/i;
-
 /**
  * Builds the ordered list of recovery strategies used by DefaultErrorHandler.
  * Exported so callers can customise or extend the strategy chain.
@@ -37,7 +34,7 @@ export function buildRecoveryStrategies(opts?: {
       compactor: opts?.compactor,
       async attempt(err, ctx) {
         if (!(err instanceof ProviderError)) return null;
-        if (err.status !== 413 && !isContextOverflowError(err)) return null;
+        if (err.kind !== 'context_overflow') return null;
 
         if (this.compactor) {
           try {
@@ -55,7 +52,7 @@ export function buildRecoveryStrategies(opts?: {
     {
       label: 'rate_limit_backoff',
       async attempt(err) {
-        if (!(err instanceof ProviderError) || err.status !== 429) return null;
+        if (!(err instanceof ProviderError) || err.kind !== 'rate_limit') return null;
 
         // Prefer the parsed Retry-After hint the provider extracted into
         // body.retryAfterMs; fall back to 5s when absent.
@@ -70,11 +67,13 @@ export function buildRecoveryStrategies(opts?: {
       label: 'downgrade_model',
       async attempt(err, ctx) {
         if (!(err instanceof ProviderError)) return null;
-        // 429 is intentionally NOT handled here: the rate_limit_backoff
-        // strategy above always returns a decision for 429, so this strategy
-        // is never reached for it. Downgrade applies to overload (529) and
-        // generic 5xx server errors only.
-        if (err.status !== 529 && err.status < 500) return null;
+        // rate_limit is intentionally NOT handled here: the rate_limit_backoff
+        // strategy above always returns a decision for it, so this strategy
+        // is never reached. Downgrade applies to overload and generic server
+        // errors only.
+        if (err.kind !== 'overloaded' && err.kind !== 'server' && err.kind !== 'stream_hang') {
+          return null;
+        }
 
         const registry = opts?.modelsRegistry;
         if (!registry) return null;
@@ -125,19 +124,82 @@ export function buildRecoveryStrategies(opts?: {
         }
       },
     },
+    {
+      label: 'content_filter_reroute',
+      async attempt(err, ctx) {
+        if (!(err instanceof ProviderError) || err.kind !== 'content_filter') return null;
+
+        const registry = opts?.modelsRegistry;
+        if (!registry) return null;
+
+        try {
+          const providerId = ctx.provider?.id;
+          if (!providerId) return null;
+          const provider = await registry.getProvider(providerId);
+          if (!provider) return null;
+
+          const currentModel = await registry.getModel(providerId, ctx.model);
+          if (!currentModel) return null;
+
+          const visibleModels = opts?.getConfig?.().providers?.[providerId]?.models;
+          const candidates = provider.models.filter((m) => {
+            if (m.id === ctx.model) return false;
+            if (visibleModels !== undefined && !visibleModels.includes(m.id)) return false;
+            if (currentModel.capabilities.tools && !m.tool_call) return false;
+            if (currentModel.capabilities.vision && !m.modalities?.input?.includes('image'))
+              return false;
+            return true;
+          });
+          if (candidates.length === 0) return null;
+
+          // Content filters are model/deployment-specific (Azure-style false
+          // positives especially), so the same request may pass a sibling
+          // model. This is a reroute, not a downgrade: pick the closest-COST
+          // sibling to stay in the same quality tier, tie-broken by id for
+          // determinism. The agent loop's recoveryRetries cap (2) bounds any
+          // ping-pong between two filtering models.
+          const currentCost = currentModel.cost?.input;
+          const distance = (m: (typeof candidates)[number]) =>
+            currentCost === undefined || m.cost?.input === undefined
+              ? Number.POSITIVE_INFINITY
+              : Math.abs(m.cost.input - currentCost);
+          const reroute = candidates.reduce((prev, curr) => {
+            const delta = distance(curr) - distance(prev);
+            if (delta < 0) return curr;
+            if (delta === 0 && curr.id < prev.id) return curr;
+            return prev;
+          });
+
+          return { action: 'retry', reason: 'content_filter_reroute', model: reroute.id };
+        } catch {
+          return null;
+        }
+      },
+    },
   ];
 }
 
 export const DEFAULT_RECOVERY_STRATEGIES = buildRecoveryStrategies();
 
-function isContextOverflowError(err: ProviderError): boolean {
-  return CONTEXT_OVERFLOW_RE.test([
-    err.message,
-    err.body?.message,
-    err.body?.type,
-    err.body?.raw,
-  ].filter(Boolean).join('\n'));
-}
+type HandlerKind = ReturnType<ErrorHandler['classify']>['kind'];
+
+/** Canonical taxonomy → the handler's public (coarser) union. Exhaustive over
+ *  every kind except 'unknown' (special-cased to preserve err.retryable). */
+const HANDLER_KIND_BY_PROVIDER_KIND: Record<
+  Exclude<ProviderErrorKind, 'unknown'>,
+  Exclude<HandlerKind, 'abort' | 'unknown'>
+> = {
+  rate_limit: 'rate_limit',
+  overloaded: 'overloaded',
+  server: 'server',
+  stream_hang: 'server',
+  timeout: 'network',
+  network: 'network',
+  context_overflow: 'context_overflow',
+  content_filter: 'content_filter',
+  auth: 'client',
+  invalid_request: 'client',
+};
 
 export class DefaultErrorHandler implements ErrorHandler {
   private readonly strategies: RecoveryStrategy[];
@@ -146,18 +208,7 @@ export class DefaultErrorHandler implements ErrorHandler {
     this.strategies = strategies;
   }
 
-  classify(err: unknown): {
-    kind:
-      | 'rate_limit'
-      | 'overloaded'
-      | 'server'
-      | 'client'
-      | 'network'
-      | 'abort'
-      | 'context_overflow'
-      | 'unknown';
-    retryable: boolean;
-  } {
+  classify(err: unknown): ReturnType<ErrorHandler['classify']> {
     // AbortError can be thrown in both browser (DOMException) and Node (Error).
     // Guard with typeof check so Node builds don't reference the browser-only DOMException.
     if (
@@ -171,13 +222,15 @@ export class DefaultErrorHandler implements ErrorHandler {
       return { kind: 'abort', retryable: false };
     }
     if (err instanceof ProviderError) {
-      if (err.status === 429) return { kind: 'rate_limit', retryable: true };
-      if (err.status === 529) return { kind: 'overloaded', retryable: true };
-      if (err.status >= 500) return { kind: 'server', retryable: true };
-      if (err.status === 413 || isContextOverflowError(err)) {
-        return { kind: 'context_overflow', retryable: false };
-      }
-      if (err.status >= 400) return { kind: 'client', retryable: false };
+      // Map the canonical taxonomy onto the handler's public (coarser) union.
+      // Exhaustive by construction — a new ProviderErrorKind refuses to
+      // compile until it is mapped here. Retryability comes from the kind
+      // (the canonical source), not the instance's constructor flag.
+      if (err.kind === 'unknown') return { kind: 'unknown', retryable: err.retryable };
+      return {
+        kind: HANDLER_KIND_BY_PROVIDER_KIND[err.kind],
+        retryable: isRetryableKind(err.kind),
+      };
     }
     if (err instanceof Error && NETWORK_ERR_RE.test(err.message)) {
       return { kind: 'network', retryable: true };

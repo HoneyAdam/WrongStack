@@ -41,10 +41,28 @@ export interface IFleetManager {
    * internally.
    */
   canSpawn(config: SubagentConfig): {
-    kind: 'max_spawns' | 'max_spawn_depth' | 'max_cost_usd' | 'max_context_load';
+    kind:
+      | 'max_spawns'
+      | 'max_spawn_depth'
+      | 'max_cost_usd'
+      | 'max_tokens'
+      | 'max_context_load';
     limit: number;
     observed: number;
   } | null;
+
+  /** Current fleet-wide token/cost ceiling and remaining headroom. */
+  budgetSnapshot?: (() => {
+    maxSpawns: number;
+    usedSpawns: number;
+    remainingSpawns: number;
+    maxTokens: number;
+    usedTokens: number;
+    remainingTokens: number;
+    maxCostUsd: number;
+    usedCostUsd: number;
+    remainingCostUsd: number;
+  }) | undefined;
 
   /**
    * Update the leader agent's current context pressure (tokens used in the

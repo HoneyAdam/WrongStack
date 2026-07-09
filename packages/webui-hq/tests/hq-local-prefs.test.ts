@@ -10,19 +10,19 @@
  * @vitest-environment jsdom
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  __test__,
   getHqLocalPrefsSnapshot,
   reloadHqLocalPrefs,
   resetHqLocalPrefs,
   setHqControlPrefs,
   setHqMailboxPrefs,
   useHqLocalPrefs,
-  __test__,
 } from '../src/stores/hq-local-prefs.js';
-import { createElement } from 'react';
-import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 
 function clearStorage(): void {
   window.localStorage.removeItem(__test__.STORAGE_KEY);

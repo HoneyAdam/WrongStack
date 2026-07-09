@@ -12,7 +12,7 @@ import {
   removeTask,
   transferTaskToBoard,
   updateTask,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from '../ink.js';

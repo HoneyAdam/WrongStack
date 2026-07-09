@@ -19,21 +19,25 @@ import {
   type Container,
   Context,
   createDefaultPipelines,
+  DEFAULT_MAX_FLEET_SPAWNS,
   DEFAULT_SUBAGENT_BASELINE,
+  dispatchAgent,
   type DefaultMultiAgentCoordinator,
   Director,
   type DirectorSessionFactory,
   EventBus,
   FLEET_ROSTER,
+  formatSubagentStructuredReport,
   FleetManager,
   FleetSupervisor,
   type FleetWorktreePolicy,
   GlobalMailbox,
+  HARD_MAX_SPAWN_DEPTH,
   type ModelsRegistry,
   mailboxSessionTag,
   makeDirectorSessionFactory,
   makeFleetEmitTool,
-  makePreferSideConflictResolver,
+  makeSubagentResultTool,
   mergeModelRuntime,
   type Provider,
   type ProviderRegistry,
@@ -50,11 +54,13 @@ import {
   type TokenCounter,
   type Tool,
   ToolRegistry,
+  ToolCapabilities,
   ToolValidationError,
   WIDE_SUBAGENT_CAPABILITIES,
   WorktreeManager,
   wstackGlobalRoot,
 } from '@wrongstack/core';
+import { makePreferSideConflictResolver } from '@wrongstack/sdd';
 import { ToolExecutor } from '@wrongstack/core/execution';
 // PR-C1: DefaultTokenCounter moved off the root barrel — infrastructure/
 // symbols are imported from the published subpath (see commit 66c4eb68).
@@ -225,7 +231,10 @@ export interface MultiAgentHostOptions {
    */
   directorBudget?: {
     maxCostUsd?: number | undefined;
+    maxTokens?: number | undefined;
   };
+  /** Lifetime spawn cap for this Director. CLI default: 64. */
+  maxSpawns?: number | undefined;
   /**
    * Maximum auto-extensions per subagent per budget kind before the
    * director denies further extensions. Default: 2. Only meaningful in
@@ -423,9 +432,10 @@ export class MultiAgentHost {
       stateCheckpointPath: this.opts.stateCheckpointPath,
       sessionWriter: this.opts.sessionWriter,
       directorBudget: this.opts.directorBudget,
+      maxSpawns: this.opts.maxSpawns ?? DEFAULT_MAX_FLEET_SPAWNS,
       manifestDebounceMs: 2000,
       checkpointDebounceMs: this.opts.checkpointDebounceMs ?? 250,
-      maxSpawnDepth: 5,
+      maxSpawnDepth: HARD_MAX_SPAWN_DEPTH,
       maxContext: this.opts.getLeaderMaxContext,
     });
     this.fleetManager = fleetManager;
@@ -466,11 +476,12 @@ export class MultiAgentHost {
       sessionWriter: this.opts.sessionWriter,
       sessionId: () => this.deps.session.id,
       directorBudget: this.opts.directorBudget,
+      maxSpawns: this.opts.maxSpawns ?? DEFAULT_MAX_FLEET_SPAWNS,
       maxBudgetExtensions: this.opts.maxBudgetExtensions,
       checkpointDebounceMs: this.opts.checkpointDebounceMs,
       sessionsRoot: this.opts.sessionsRoot,
       directorRunId: this.opts.directorRunId,
-      maxSpawnDepth: 5,
+      maxSpawnDepth: HARD_MAX_SPAWN_DEPTH,
       maxContext: this.opts.getLeaderMaxContext,
       // Live getter (not a snapshot) so a mid-session `/setmodel` takes
       // effect on the next spawn — the director is built lazily + once.
@@ -1036,6 +1047,7 @@ export class MultiAgentHost {
         agentName: subCfg.name ?? subagentName,
       });
       if (subCfg.role) ctx.meta['agentRole'] = subCfg.role;
+      if (subCfg.spawnLineage) ctx.meta['spawnLineage'] = subCfg.spawnLineage;
 
       const baseRegistry = this.subagentToolRegistry(tools);
       // Per-spawn capability allowlist. The ToolExecutor and the Agent must
@@ -1344,7 +1356,13 @@ export class MultiAgentHost {
   private filterTools(allow?: string[]): Tool[] {
     const all = this.deps.toolRegistry.list();
     if (!allow || allow.length === 0) {
-      return all.filter((tool) => !DEFAULT_SUBAGENT_HIDDEN_TOOLS.has(tool.name));
+      const visible = new Map(
+        all
+          .filter((tool) => !DEFAULT_SUBAGENT_HIDDEN_TOOLS.has(tool.name))
+          .map((tool) => [tool.name, tool] as const),
+      );
+      visible.set('submit_result', makeSubagentResultTool());
+      return Array.from(visible.values());
     }
     const allowSet = new Set(allow);
     const result = new Map<string, Tool>();
@@ -1355,6 +1373,10 @@ export class MultiAgentHost {
       const directorTool = this.directorToolsByName.get(name);
       if (directorTool && !result.has(name)) result.set(name, directorTool);
     }
+    // Task-result submission is safe, task-local control-plane plumbing. It is
+    // always present even for a narrow read-only role so structured reporting
+    // does not require widening that role's filesystem/shell permissions.
+    result.set('submit_result', makeSubagentResultTool());
     return Array.from(result.values());
   }
 
@@ -1381,7 +1403,14 @@ export class MultiAgentHost {
    *      (1) grant.
    */
   private resolveSubagentCapabilities(subCfg: SubagentConfig): readonly string[] | undefined {
-    if (subCfg.allowedCapabilities) return subCfg.allowedCapabilities;
+    if (subCfg.allowedCapabilities) {
+      return Array.from(
+        new Set([
+          ...subCfg.allowedCapabilities,
+          ToolCapabilities.COORDINATION_RESULT_SUBMIT,
+        ]),
+      );
+    }
     const allow = subCfg.tools;
     if (!allow || allow.length === 0) return WIDE_SUBAGENT_CAPABILITIES;
     // Scoped slice: the granted tools' own capabilities ARE the grant, atop the
@@ -1429,12 +1458,28 @@ export class MultiAgentHost {
       actions: {
         retargetPendingTask: (taskId, subagentId) =>
           director.retargetPendingTask(taskId, subagentId),
-        spawnHelper: async ({ reason }) => {
+        spawnHelper: async ({ reason, task }) => {
           try {
+            // Route the helper through the same catalog/model-matrix path as a
+            // normal smart dispatch. A name-only helper would receive the
+            // unscoped WIDE capability set and lose role-specific tools,
+            // budgets, prompts, worktree policy, and model routing.
+            const routed = await dispatchAgent(task?.description ?? reason, {
+              classifier: director.dispatchClassifier,
+            });
+            const template = FLEET_ROSTER[routed.role] ?? FLEET_ROSTER['executor'];
+            const helperPrompt = [
+              template?.prompt,
+              `You are a helper worker spawned by the fleet supervisor to drain a task backlog (${reason}). Complete the assigned task efficiently and report a concise, evidence-backed result.`,
+            ]
+              .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+              .join('\n\n');
             const subagentId = await director.spawn({
+              ...(template ?? { name: 'fleet helper', role: 'executor' }),
               id: `helper-${randomUUID().slice(0, 8)}`,
-              name: 'fleet helper',
-              systemPromptOverride: `You are a helper worker spawned by the fleet supervisor to drain a task backlog (${reason}). Complete assigned tasks efficiently and report results.`,
+              name: `fleet helper (${routed.role})`,
+              role: routed.role,
+              systemPromptOverride: helperPrompt,
             });
             return { subagentId };
           } catch (err) {
@@ -1488,7 +1533,14 @@ export class MultiAgentHost {
       const mailbox = new GlobalMailbox(this.mailboxProjectDir(), this.deps.events);
       const ok = n.status === 'success';
       const MAX_BODY = 700;
-      const raw = (ok ? n.resultText : (n.errorText ?? n.status)) ?? '(no textual result)';
+      const failureText = [
+        n.errorText ?? n.status,
+        n.partialText ? `Partial output:\n${n.partialText}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      const successText = n.report ? formatSubagentStructuredReport(n.report) : n.resultText;
+      const raw = (ok ? successText : failureText) ?? '(no textual result)';
       const excerpt = raw.length > MAX_BODY ? `${raw.slice(0, MAX_BODY)}…` : raw;
       const title = n.title.length > 80 ? `${n.title.slice(0, 80)}…` : n.title;
       await mailbox.send({
@@ -1690,6 +1742,7 @@ export class MultiAgentHost {
       toolCalls: result.toolCalls,
       durationMs: result.durationMs,
       error: result.error,
+      finalText: typeof result.result === 'string' ? result.result : result.partial?.text,
     });
   }
 

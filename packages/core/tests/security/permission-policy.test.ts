@@ -262,15 +262,15 @@ describe('DefaultPermissionPolicy', () => {
       expect(d.source).toBe('yolo_destructive');
     });
 
-    it('yolo does NOT gate a recoverable delete of a sibling directory', async () => {
+    it('yolo gates recursive force deletes of sibling directories', async () => {
       const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive'),
         { command: 'rm -rf ../other-project' },
         { projectRoot: process.cwd() } as Context,
       );
-      expect(d.permission).toBe('auto');
-      expect(d.source).toBe('yolo');
+      expect(d.permission).toBe('confirm');
+      expect(d.source).toBe('yolo_destructive');
     });
 
     it('yolo + yoloDestructive still gates destructive operations', async () => {
@@ -418,6 +418,73 @@ describe('DefaultPermissionPolicy', () => {
       );
       expect(d.permission).toBe('confirm');
       expect(d.source).toBe('yolo_destructive');
+    });
+
+    it('yolo gates destructive git exec commands by command plus args', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+      const reset = await p.evaluate(
+        tool('exec', 'confirm', 'standard', true, ['shell.restricted']),
+        { command: 'git', args: ['reset', '--hard'] },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(reset.permission).toBe('confirm');
+      expect(reset.source).toBe('yolo_destructive');
+
+      const forcePush = await p.evaluate(
+        tool('exec', 'confirm', 'standard', true, ['shell.restricted']),
+        { command: 'git', args: ['push', '--force-with-lease'] },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(forcePush.permission).toBe('confirm');
+      expect(forcePush.source).toBe('yolo_destructive');
+    });
+  });
+
+  describe('sensitive read gating', () => {
+    it('yolo auto-approves sensitive reads; redaction handles the output path', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+      const d = await p.evaluate(
+        tool('read', 'auto', 'safe', false, ['fs.read']),
+        { path: '.env' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('auto');
+      expect(d.source).toBe('yolo');
+    });
+
+    it('non-yolo confirms reads of .env files even when the read tool is otherwise auto', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile });
+      const d = await p.evaluate(
+        tool('read', 'auto', 'safe', false, ['fs.read']),
+        { path: '.env' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('confirm');
+      expect(d.reason).toContain('sensitive file read');
+    });
+
+    it('non-yolo confirms shell reads of sensitive files', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+      p.setYolo(false);
+      const d = await p.evaluate(
+        tool('bash', 'confirm', 'destructive', true, ['shell.arbitrary']),
+        { command: 'cat .env.local' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('confirm');
+      expect(d.reason).toContain('sensitive file read');
+    });
+
+    it('allows a trusted sensitive read subject', async () => {
+      await fs.writeFile(trustFile, JSON.stringify({ read: { allow: ['.env'] } }));
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+      const d = await p.evaluate(
+        tool('read', 'auto', 'safe', false, ['fs.read']),
+        { path: '.env' },
+        { projectRoot: process.cwd() } as Context,
+      );
+      expect(d.permission).toBe('auto');
+      expect(d.source).toBe('trust');
     });
   });
 });

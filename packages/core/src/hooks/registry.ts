@@ -1,10 +1,35 @@
 import type {
+  ConfiguredHook,
   HookEntry,
   HookEvent,
   HookMatcher,
+  HookRegistrationOptions,
+  HttpHook,
   InProcessHook,
   ShellHook,
 } from '../types/hooks.js';
+
+interface LoadConfiguredHooksOptions {
+  /** Load only trusted hooks that remain active under `--no-hooks`. */
+  policyOnly?: boolean | undefined;
+}
+
+function entryControls(
+  event: HookEvent,
+  fallbackName: string,
+  options: HookRegistrationOptions,
+  legacyStage: 'mutate' | 'validate',
+): Pick<HookEntry, 'name' | 'timeoutMs' | 'failurePolicy' | 'stage' | 'policy'> {
+  return {
+    name: options.name?.trim() || fallbackName,
+    timeoutMs: options.timeoutMs,
+    failurePolicy: options.failurePolicy ?? 'open',
+    // Legacy PreToolUse hooks may rewrite input, so preserve their old
+    // behavior unless the registration explicitly opts into final validation.
+    stage: event === 'PreToolUse' ? (options.stage ?? legacyStage) : 'validate',
+    policy: options.policy === true,
+  };
+}
 
 /**
  * Registry of lifecycle hooks (both in-process and shell). One instance is
@@ -21,6 +46,7 @@ export class HookRegistry {
     matcher: HookMatcher | undefined,
     hook: InProcessHook,
     owner?: string | undefined,
+    options: HookRegistrationOptions = {},
   ): () => void {
     const entry: HookEntry = {
       kind: 'inprocess',
@@ -28,6 +54,12 @@ export class HookRegistry {
       matcher: matcher ?? '*',
       hook,
       owner,
+      ...entryControls(
+        event,
+        owner ? `${owner}:${event}` : `inprocess:${event}`,
+        options,
+        'mutate',
+      ),
     };
     this.entries.push(entry);
     return () => this.remove(entry);
@@ -43,18 +75,43 @@ export class HookRegistry {
       event,
       matcher: hook.matcher ?? '*',
       command: hook.command,
-      timeoutMs: hook.timeoutMs,
+      ...entryControls(event, hook.command, hook, 'validate'),
     };
     this.entries.push(entry);
     return () => this.remove(entry);
   }
 
-  /** Bulk-load shell hooks from a `config.hooks` map. */
-  loadShellHooks(hooks: Partial<Record<HookEvent, ShellHook[]>> | undefined): void {
+  /** Register a native HTTP hook. */
+  registerHttp(event: HookEvent, hook: HttpHook): () => void {
+    const entry: HookEntry = {
+      kind: 'http',
+      event,
+      matcher: hook.matcher ?? '*',
+      url: hook.url,
+      headers: hook.headers,
+      ...entryControls(event, hook.url, hook, 'validate'),
+    };
+    this.entries.push(entry);
+    return () => this.remove(entry);
+  }
+
+  /** Bulk-load command/HTTP hooks from a `config.hooks` map. */
+  loadShellHooks(
+    hooks: Partial<Record<HookEvent, ConfiguredHook[]>> | undefined,
+    options: LoadConfiguredHooksOptions = {},
+  ): void {
     if (!hooks) return;
-    for (const [event, list] of Object.entries(hooks) as [HookEvent, ShellHook[] | undefined][]) {
+    for (const [event, list] of Object.entries(hooks) as [
+      HookEvent,
+      ConfiguredHook[] | undefined,
+    ][]) {
       for (const h of list ?? []) {
-        if (h?.command) this.registerShell(event, h);
+        if (options.policyOnly && h.policy !== true) continue;
+        if (h.type === 'http') {
+          if (h.url) this.registerHttp(event, h);
+        } else if (h.command) {
+          this.registerShell(event, h);
+        }
       }
     }
   }
@@ -72,14 +129,23 @@ export class HookRegistry {
    * with the same map yields the same registry state (callers should still
    * guard at the change-detection layer to avoid wasted work).
    */
-  replaceShellHooks(hooks: Partial<Record<HookEvent, ShellHook[]>> | undefined): void {
-    // Drop every shell entry. Iterate in reverse so splicing doesn't
+  replaceShellHooks(
+    hooks: Partial<Record<HookEvent, ConfiguredHook[]>> | undefined,
+    options: LoadConfiguredHooksOptions = {},
+  ): void {
+    // Build the replacement first. If config access or registration throws,
+    // the live registry remains untouched.
+    const replacement = new HookRegistry();
+    replacement.loadShellHooks(hooks, options);
+    const configuredEntries = replacement.entries.slice();
+
+    // Drop every configured transport entry. Iterate in reverse so splicing doesn't
     // invalidate the index — same pattern as `drainByOwner`.
     for (let i = this.entries.length - 1; i >= 0; i--) {
       const e = this.entries[i];
-      if (e && e.kind === 'shell') this.entries.splice(i, 1);
+      if (e && e.kind !== 'inprocess') this.entries.splice(i, 1);
     }
-    this.loadShellHooks(hooks);
+    this.entries.push(...configuredEntries);
   }
 
   /** All entries registered for an event, in registration order. */

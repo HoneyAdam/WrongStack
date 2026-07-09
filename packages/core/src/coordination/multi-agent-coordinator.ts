@@ -10,6 +10,7 @@ import type {
   SubagentConfig,
   SubagentContext,
   SubagentRunContext,
+  SubagentPartialResult,
   SubagentRunner,
   TaskResult,
   TaskSpec,
@@ -692,12 +693,22 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     this.inFlight++;
 
     const startTime = Date.now();
+    let latestPartial: SubagentPartialResult | undefined;
     const runCtx: SubagentRunContext = {
       subagentId,
       config: subagent.config,
       budget,
       signal: subagent.abortController.signal,
       bridge: subagent.context.parentBridge || null,
+      reportProgress: (partial) => {
+        const text = partial.text.trim();
+        if (!text) return;
+        latestPartial = {
+          ...partial,
+          // A partial is context recovery, not a transcript replacement.
+          text: text.slice(-4_000),
+        };
+      },
     };
 
     let result: TaskResult;
@@ -716,6 +727,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         taskId: task.id,
         status: 'success',
         result: outcome.result,
+        ...(outcome.report ? { report: outcome.report } : {}),
         iterations: outcome.iterations,
         toolCalls: outcome.toolCalls,
         durationMs: Date.now() - startTime,
@@ -738,6 +750,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         error: classifySubagentError(err, {
           parentAborted: subagent.abortController.signal.aborted,
         }),
+        ...(latestPartial ? { partial: latestPartial } : {}),
         iterations: usage.iterations,
         toolCalls: usage.toolCalls,
         durationMs: Date.now() - startTime,
@@ -1161,6 +1174,8 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
         taskId: result.taskId,
         status: result.status,
         result: result.result,
+        report: result.report,
+        partial: result.partial,
         iterations: result.iterations,
         toolCalls: result.toolCalls,
         durationMs: result.durationMs,

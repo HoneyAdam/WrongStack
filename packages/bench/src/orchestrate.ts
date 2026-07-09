@@ -3,6 +3,7 @@ import { computeHarnessFingerprint } from './fingerprint.js';
 import { cleanupSandbox, createSandbox, prepareWorkdir } from './isolation.js';
 import { mapWithConcurrency, runWstack } from './runner.js';
 import { readToolMetrics } from './session-metrics.js';
+import { evaluateTraceEval } from './trace-eval.js';
 import type {
   BenchConfig,
   BenchReport,
@@ -117,6 +118,13 @@ export async function runBenchmark(opts: RunBenchmarkOptions): Promise<BenchRepo
       });
 
       const tools = await readToolMetrics({ homeDir: sandbox.homeDir, workdir });
+      const traceEval = task.traceEval
+        ? await evaluateTraceEval({
+            homeDir: sandbox.homeDir,
+            workdir,
+            spec: task.traceEval,
+          })
+        : undefined;
 
       let grade: GradeResult;
       try {
@@ -135,6 +143,7 @@ export async function runBenchmark(opts: RunBenchmarkOptions): Promise<BenchRepo
       );
 
       const result: TaskResult = { taskId: task.id, cell, run, grade, tools };
+      if (traceEval) result.traceEval = traceEval;
       return result;
     });
 

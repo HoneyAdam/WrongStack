@@ -1,13 +1,37 @@
 /**
- * Cost view — fleet-wide cost breakdown by project.
+ * Cost view — fleet-wide cost: hero total, per-project share bars, and a
+ * per-session/agent breakdown (model, tokens, cost) from the live snapshot.
  */
 import type React from 'react';
-import { useHqStore } from '../store.js';
+import { useMemo } from 'react';
+import { selectSession, setActiveView, useHqStore } from '../store.js';
+
+function fmtTokens(v: number): string {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  return String(v);
+}
 
 export function CostView(): React.ReactElement {
   const state = useHqStore(['snapshot']);
   const projects = state.snapshot?.projects ?? [];
+  const sessions = state.snapshot?.liveSessions ?? [];
   const total = state.snapshot?.totals.totalCostUsd ?? 0;
+
+  const sessionRows = useMemo(() => {
+    const rows = sessions.map((s) => {
+      let cost = 0;
+      let tokens = 0;
+      const models = new Set<string>();
+      for (const a of s.agents) {
+        cost += a.costUsd ?? 0;
+        tokens += (a.tokensIn ?? 0) + (a.tokensOut ?? 0);
+        if (a.model !== undefined) models.add(a.model);
+      }
+      return { s, cost, tokens, models: [...models] };
+    });
+    return rows.filter((r) => r.cost > 0 || r.tokens > 0).sort((a, b) => b.cost - a.cost);
+  }, [sessions]);
 
   if (projects.length === 0) {
     return <div className="hq-empty">No cost data yet — connect some clients.</div>;
@@ -17,12 +41,21 @@ export function CostView(): React.ReactElement {
 
   return (
     <div>
-      <div className="hq-card">
-        <div className="hq-card-title">Total Fleet Cost</div>
-        <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--green)' }}>
-          ${total.toFixed(4)}
+      <div className="hq-kpi-row">
+        <div className="hq-kpi hero">
+          <span className="hq-kpi-value accent-cost">${total.toFixed(4)}</span>
+          <span className="hq-kpi-label">total fleet cost</span>
+        </div>
+        <div className="hq-kpi">
+          <span className="hq-kpi-value">{projects.length}</span>
+          <span className="hq-kpi-label">projects</span>
+        </div>
+        <div className="hq-kpi">
+          <span className="hq-kpi-value">{sessionRows.length}</span>
+          <span className="hq-kpi-label">costed sessions</span>
         </div>
       </div>
+
       <div className="hq-card-title">By Project</div>
       {sorted.map((p) => {
         const pct = total > 0 ? (p.totalCostUsd / total) * 100 : 0;
@@ -30,14 +63,12 @@ export function CostView(): React.ReactElement {
           <div key={p.projectId} className="hq-card">
             <div className="hq-row">
               <span style={{ fontWeight: 700 }}>{p.projectName}</span>
-              <span className="hq-mono" style={{ color: 'var(--dim)' }}>{p.projectId}</span>
-              <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--green)' }}>
-                ${p.totalCostUsd.toFixed(4)}
-              </span>
-              <span className="hq-mono" style={{ color: 'var(--dim)' }}>{pct.toFixed(1)}%</span>
+              <span className="hq-mono hq-row-subtle">{p.projectId}</span>
+              <span className="hq-cost-amount">${p.totalCostUsd.toFixed(4)}</span>
+              <span className="hq-mono hq-row-subtle">{pct.toFixed(1)}%</span>
             </div>
-            <div style={{ height: 4, background: 'var(--bg)', borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)' }} />
+            <div className="hq-share-track">
+              <div className="hq-share-fill" style={{ width: `${pct}%` }} />
             </div>
             <div className="hq-row" style={{ marginTop: 4 }}>
               <span className="hq-pill info">{p.activeSessions} sessions</span>
@@ -47,6 +78,35 @@ export function CostView(): React.ReactElement {
           </div>
         );
       })}
+
+      {sessionRows.length > 0 && (
+        <>
+          <div className="hq-card-title">By Session</div>
+          <div className="hq-card">
+            {sessionRows.map(({ s, cost, tokens, models }) => (
+              <div
+                key={s.sessionId}
+                className="hq-row hq-row-click"
+                onClick={() => {
+                  selectSession(s.sessionId);
+                  setActiveView('console');
+                }}
+                title="Open in Console"
+              >
+                <span style={{ fontWeight: 600 }}>{s.projectName}</span>
+                <span className="hq-pill idle">{s.clientKind}</span>
+                {models.map((m) => (
+                  <span key={m} className="hq-pill info">
+                    {m}
+                  </span>
+                ))}
+                <span className="hq-mono hq-row-subtle">{fmtTokens(tokens)} tok</span>
+                <span className="hq-cost-amount">${cost.toFixed(4)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

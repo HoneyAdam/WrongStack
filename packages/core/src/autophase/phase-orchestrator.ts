@@ -1,6 +1,5 @@
+import { createRequire } from 'node:module';
 import type { EventBus } from '../kernel/events.js';
-import { DefaultTaskStore } from '../sdd/task-generator.js';
-import { TaskTracker } from '../sdd/task-tracker.js';
 import type { TaskNode } from '../types/task-graph.js';
 import type { WorktreeHandle, WorktreeManager } from '../worktree/worktree-manager.js';
 import { toErrorMessage } from '../utils/error.js';
@@ -14,6 +13,12 @@ import type {
   PhaseProgress,
   PhaseStatus,
 } from './types.js';
+
+/** Lazy synchronous import of @wrongstack/sdd — avoids a DTS dependency for type generation. */
+function sdd(): { DefaultTaskStore: any; TaskTracker: any } {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return createRequire(import.meta.url)('@wrongstack/sdd') as any;
+}
 
 export interface PhaseOrchestratorOptions extends AutoPhaseOptions {
   graph: PhaseGraph;
@@ -63,7 +68,7 @@ export class PhaseOrchestrator {
   private paused = false;
   private runningPhases = new Set<string>();
   private tickInterval: ReturnType<typeof setInterval> | null = null;
-  private trackerCache = new Map<string, TaskTracker>();
+  private trackerCache = new Map<string, any>();
   private taskRetryCounts = new Map<string, number>();
 
   // ── Git-worktree isolation (optional) ──────────────────────────────────────
@@ -773,20 +778,21 @@ export class PhaseOrchestrator {
     const tracker = this.getTrackerForPhase(phase);
     return tracker
       .getAllNodes({ status: ['pending', 'blocked'] })
-      .filter((n) => n.status === 'pending' && tracker.canStart(n.id))
-      .sort((a, b) => {
+      .filter((n: { id: string; status: string; priority: string }) => n.status === 'pending' && tracker.canStart(n.id))
+      .sort((a: { priority: TaskNode['priority'] }, b: { priority: TaskNode['priority'] }) => {
         const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
         return (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4);
       });
   }
 
-  private getTrackerForPhase(phase: PhaseNode): TaskTracker {
+  private getTrackerForPhase(phase: PhaseNode): any {
     if (this.trackerCache.has(phase.id)) {
-      return this.trackerCache.get(phase.id) as TaskTracker;
+      return this.trackerCache.get(phase.id);
     }
 
-    const store = new DefaultTaskStore();
-    const tracker = new TaskTracker({ store });
+    const { DefaultTaskStore: SddTaskStore, TaskTracker: SddTaskTracker } = sdd();
+    const store = new SddTaskStore();
+    const tracker = new SddTaskTracker({ store });
     tracker.setGraph(phase.taskGraph);
     this.trackerCache.set(phase.id, tracker);
     return tracker;

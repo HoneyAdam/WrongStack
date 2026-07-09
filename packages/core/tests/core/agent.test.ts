@@ -110,6 +110,30 @@ describe('Agent', () => {
     expect(provider.calls).toBe(1);
   });
 
+  it('flushes reconstruct and lifecycle boundaries before run resolves', async () => {
+    const provider = new MockProvider([
+      { content: [{ type: 'text', text: 'durable reply' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, ctx, tmp, sessionStore } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+
+    await agent.run('durable prompt');
+
+    // The writer remains open (matching the REPL between turns), so this read
+    // proves the agent awaited boundary flushes rather than relying on close().
+    const data = await sessionStore.load(ctx.session.id);
+    expect(data.events.map((event) => event.type)).toEqual([
+      'session_start',
+      'user_input',
+      'checkpoint',
+      'in_flight_start',
+      'llm_request',
+      'llm_response',
+      'in_flight_end',
+    ]);
+    await ctx.session.close();
+  });
+
   it('syncs ctx.tools from the registry on run (tool_search sees the catalog)', async () => {
     const echo: Tool = {
       name: 'echo',

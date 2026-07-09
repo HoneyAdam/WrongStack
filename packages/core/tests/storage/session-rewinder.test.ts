@@ -175,6 +175,23 @@ describe('DefaultSessionRewinder', () => {
       expect(result.revertedFiles).toContain(testFile);
       expect(result.errors).toEqual([]);
     });
+
+    it('reverts repeated edits of the same file in reverse execution order', async () => {
+      const testFile = path.join(tmp, 'repeated.txt');
+      await fs.writeFile(testFile, 'v2', 'utf8');
+      const id = await writeSession([
+        makeCheckpoint(0, 'start'),
+        makeFileSnapshot(0, [
+          { path: testFile, action: 'modified', before: 'v0', after: 'v1' },
+          { path: testFile, action: 'modified', before: 'v1', after: 'v2' },
+        ]),
+      ]);
+
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
+      await rewind.rewindToCheckpoint(id, 0);
+
+      expect(await fs.readFile(testFile, 'utf8')).toBe('v0');
+    });
   });
 
   describe('rewindLastN', () => {

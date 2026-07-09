@@ -86,18 +86,33 @@ function providerErrorToSubagentError(
   message: string,
   cause: SubagentError['cause'],
 ): SubagentError {
-  const status = err.status;
-  if (status === 429 || err.body?.type === 'rate_limit_error') {
-    return { kind: 'provider_rate_limit', message, retryable: true, backoffMs: 5_000, cause };
+  // Branch on the canonical taxonomy computed at error-construction time —
+  // this classifier must not re-derive kinds from status codes or regexes.
+  // No default: the switch is exhaustive over ProviderErrorKind, so a new
+  // kind refuses to compile until it is mapped here.
+  switch (err.kind) {
+    case 'rate_limit':
+      return {
+        kind: 'provider_rate_limit',
+        message,
+        retryable: true,
+        backoffMs: err.body?.retryAfterMs ?? 5_000,
+        cause,
+      };
+    case 'auth':
+      return { kind: 'provider_auth', message, retryable: false, cause };
+    case 'timeout':
+    case 'network':
+      return { kind: 'provider_timeout', message, retryable: true, cause };
+    case 'overloaded':
+    case 'server':
+    case 'stream_hang':
+      return { kind: 'provider_5xx', message, retryable: true, backoffMs: 3_000, cause };
+    case 'context_overflow':
+      return { kind: 'context_overflow', message, retryable: false, cause };
+    case 'invalid_request':
+    case 'content_filter':
+    case 'unknown':
+      return { kind: 'unknown', message, retryable: err.retryable, cause };
   }
-  if (status === 401 || status === 403 || err.body?.type === 'authentication_error') {
-    return { kind: 'provider_auth', message, retryable: false, cause };
-  }
-  if (status === 408 || status === 0) {
-    return { kind: 'provider_timeout', message, retryable: true, cause };
-  }
-  if (status >= 500 && status < 600) {
-    return { kind: 'provider_5xx', message, retryable: true, backoffMs: 3_000, cause };
-  }
-  return { kind: 'unknown', message, retryable: err.retryable, cause };
 }

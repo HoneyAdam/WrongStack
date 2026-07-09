@@ -1,4 +1,4 @@
-import type { KanbanBoard, KanbanTask } from '@wrongstack/core';
+import type { KanbanBoard, KanbanTask } from '@wrongstack/kanban';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useKanbanStore } from '../../src/stores/kanban-store.js';
 

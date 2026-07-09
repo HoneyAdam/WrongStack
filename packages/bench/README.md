@@ -84,6 +84,18 @@ Use this for WrongStack-specific regression evals: tool behavior, prompt changes
 permission policy, multi-file edits, or any task that can be graded by a command
 and/or simple file checks.
 
+For transcript-mined retrieval/recall/tooling diagnostics, add `traceEval` to a
+local task. Its source transcript is hash-pinned and its three metrics form a
+causal funnel: retrieval → correct model edit intent → that exact edit's successful
+application. See [the bench command reference](../../docs/subcommands/bench.md#transcript-mined-diagnostic-cases)
+for the manifest shape and corpus rules. Do not use synthetic cases for this
+corpus: edit-application failures depend on the real session/tool trace.
+
+Use `wstack bench mine --transcript <session.jsonl> --out ./evals` to copy the
+original JSONL into `evals/corpus/` and generate one curator-ready draft per edit
+attempt. Freeze the source worktree and add a deterministic grader before moving
+a draft into `bench.local.json`.
+
 ```
 evals/
   bench.local.json

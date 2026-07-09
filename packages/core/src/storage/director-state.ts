@@ -67,6 +67,7 @@ export interface DirectorStateSnapshot {
   directorBudget?:
     | {
         maxCostUsd?: number | undefined;
+        maxTokens?: number | undefined;
       }
     | undefined;
   subagents: DirectorSubagentState[];
@@ -186,6 +187,7 @@ export class DirectorStateCheckpoint {
       directorBudget?:
         | {
             maxCostUsd?: number | undefined;
+            maxTokens?: number | undefined;
           }
         | undefined;
     },

@@ -12,6 +12,7 @@ import type { IFleetManager } from './ifleet-manager.js';
 import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import type { WorktreeTaskStateUpdate } from './worktree-task-runner.js';
+import { resolveMaxSpawnDepth } from './spawn-budget.js';
 
 /** Options for constructing a FleetManager. */
 export interface FleetManagerOptions {
@@ -25,7 +26,10 @@ export interface FleetManagerOptions {
   sessionWriter?: SessionWriter | undefined;
   manifestDebounceMs?: number | undefined;
   checkpointDebounceMs?: number | undefined;
-  directorBudget?: { maxCostUsd?: number | undefined } | undefined;
+  directorBudget?: {
+    maxCostUsd?: number | undefined;
+    maxTokens?: number | undefined;
+  } | undefined;
   /**
    * Maximum context load (as a fraction of maxContext) the leader agent
    * is allowed to reach before a new spawn is rejected. Default: 0.85.
@@ -88,6 +92,8 @@ export class FleetManager implements IFleetManager {
   /** Fleet-wide cost cap. Infinity = no cap. Distinct from SubagentBudget limits,
    *  which track per-subagent spend — this field caps the entire fleet total. */
   private readonly maxFleetCostUsd: number;
+  /** Fleet-wide input+output token ceiling. Infinity = no cap. */
+  private readonly maxFleetTokens: number;
   private readonly manifestEntries = new Map<
     string,
     {
@@ -132,11 +138,12 @@ export class FleetManager implements IFleetManager {
     this.manifestPath = opts.manifestPath;
     this.directorRunId = opts.directorRunId ?? randomUUID();
     this.maxSpawns = opts.maxSpawns ?? Number.POSITIVE_INFINITY;
-    this.maxSpawnDepth = opts.maxSpawnDepth ?? 2;
+    this.maxSpawnDepth = resolveMaxSpawnDepth(opts.maxSpawnDepth);
     this.spawnDepth = opts.spawnDepth ?? 0;
     this.sessionWriter = opts.sessionWriter ?? null;
     this.manifestDebounceMs = opts.manifestDebounceMs ?? 2000;
     this.maxFleetCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
+    this.maxFleetTokens = opts.directorBudget?.maxTokens ?? Number.POSITIVE_INFINITY;
     this.maxLeaderContextLoad = opts.maxLeaderContextLoad ?? 0.85;
     this.maxContext = opts.maxContext ?? 128_000;
     this.stateCheckpoint = opts.stateCheckpointPath
@@ -206,7 +213,12 @@ export class FleetManager implements IFleetManager {
    * how to surface the rejection.
    */
   canSpawn(_config: SubagentConfig): {
-    kind: 'max_spawns' | 'max_spawn_depth' | 'max_cost_usd' | 'max_context_load';
+    kind:
+      | 'max_spawns'
+      | 'max_spawn_depth'
+      | 'max_cost_usd'
+      | 'max_tokens'
+      | 'max_context_load';
     limit: number;
     observed: number;
   } | null {
@@ -220,6 +232,13 @@ export class FleetManager implements IFleetManager {
       const totalCost = this.usage.snapshot().total?.cost ?? 0;
       if (totalCost >= this.maxFleetCostUsd) {
         return { kind: 'max_cost_usd', limit: this.maxFleetCostUsd, observed: totalCost };
+      }
+    }
+    if (this.maxFleetTokens < Number.POSITIVE_INFINITY) {
+      const total = this.usage.snapshot().total;
+      const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+      if (usedTokens >= this.maxFleetTokens) {
+        return { kind: 'max_tokens', limit: this.maxFleetTokens, observed: usedTokens };
       }
     }
     // Context pressure check: reject spawn if leader context is too full.
@@ -236,6 +255,33 @@ export class FleetManager implements IFleetManager {
       }
     }
     return null;
+  }
+
+  budgetSnapshot(): {
+    maxSpawns: number;
+    usedSpawns: number;
+    remainingSpawns: number;
+    maxTokens: number;
+    usedTokens: number;
+    remainingTokens: number;
+    maxCostUsd: number;
+    usedCostUsd: number;
+    remainingCostUsd: number;
+  } {
+    const total = this.usage.snapshot().total;
+    const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+    const usedCostUsd = total?.cost ?? 0;
+    return {
+      maxSpawns: this.maxSpawns,
+      usedSpawns: this.spawnCount,
+      remainingSpawns: Math.max(0, this.maxSpawns - this.spawnCount),
+      maxTokens: this.maxFleetTokens,
+      usedTokens,
+      remainingTokens: Math.max(0, this.maxFleetTokens - usedTokens),
+      maxCostUsd: this.maxFleetCostUsd,
+      usedCostUsd,
+      remainingCostUsd: Math.max(0, this.maxFleetCostUsd - usedCostUsd),
+    };
   }
 
   setLeaderContextPressure(tokens: number): void {

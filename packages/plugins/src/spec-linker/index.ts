@@ -43,9 +43,9 @@
  *
  * @public
  */
-import type { Plugin } from '@wrongstack/core';
-import { existsSync, statSync } from 'node:fs';
+
 import * as fs from 'node:fs/promises';
+import type { Plugin } from '@wrongstack/core';
 import { PLUGIN_CATALOG, PLUGIN_NAMES } from '../catalog.js';
 
 // ---------------------------------------------------------------------------
@@ -364,10 +364,9 @@ const plugin: Plugin = {
 
       state.postInvocations += 1;
 
-      if (!existsSync(filePath)) return;
       let content: string;
       try {
-        const stat = statSync(filePath);
+        const stat = await fs.stat(filePath);
         if (!stat.isFile()) return;
         content = await fs.readFile(filePath, 'utf-8');
       } catch {
@@ -433,7 +432,11 @@ const plugin: Plugin = {
           additionalContext: `\n🔗 spec-linker (autoFix): wrapped unlinked plugin reference(s) in '${filePath}'.`,
         };
       };
-      state.preHookUnregister = api.registerHook('PreToolUse', 'write', preHook as never);
+      state.preHookUnregister = api.registerHook('PreToolUse', 'write', preHook as never, {
+        name: 'spec-linker-autofix',
+        stage: 'mutate',
+        failurePolicy: 'open',
+      });
     }
 
     // ── spec_linker_status tool ───────────────────────────────────────

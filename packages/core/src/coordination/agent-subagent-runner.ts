@@ -13,6 +13,7 @@ import {
   BudgetThresholdSignal,
 } from './subagent-budget.js';
 import type { FleetBus } from './fleet-bus.js';
+import { readSubagentStructuredReport } from './subagent-result-tool.js';
 
 /**
  * Caller-supplied factory that builds an isolated `Agent` for a subagent.
@@ -108,6 +109,11 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     const taskStartedAt = Date.now();
     const factoryResult = await opts.factory(ctx.config);
     const { agent, events } = factoryResult;
+    // Tool calls such as fleet_emit need authoritative caller/task attribution.
+    // The Agent and Context are task-scoped, so this cannot leak into a later
+    // assignment even when the coordinator reuses the same logical subagent.
+    const agentContext = (agent as Agent & { ctx?: { meta?: Record<string, unknown> } }).ctx;
+    if (agentContext?.meta) agentContext.meta['subagentTaskId'] = task.id;
 
     // Attach subagent EventBus to FleetBus so the TUI fleet panel (and any
     // other FleetBus subscriber) can observe this subagent live. Detach on
@@ -268,6 +274,10 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
         ctx.budget.markActivity();
         // Accumulate last ~2000 chars for the partial text snapshot.
         streamingTextAcc = (streamingTextAcc + e.text).slice(-2000);
+        const text = streamingTextAcc.trim();
+        if (text) {
+          ctx.reportProgress?.({ text, source: 'stream', capturedAt: Date.now() });
+        }
       }),
     );
 
@@ -278,6 +288,10 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     let result: RunResult;
     try {
       result = await agent.run(format(task, ctx.config), { signal: aborter.signal });
+      const finalText = result.finalText?.trim();
+      if (finalText) {
+        ctx.reportProgress?.({ text: finalText, source: 'run_result', capturedAt: Date.now() });
+      }
       // Emit task_completed BEFORE the finally block unsubscribes the
       // FleetBus — this lets the WebUI see the subagent's final output.
       events.emit('subagent.task_completed', {
@@ -401,6 +415,7 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     }
     return {
       result: result.finalText,
+      report: readSubagentStructuredReport(agentContext),
       iterations: result.iterations,
       toolCalls: usage.toolCalls,
     };

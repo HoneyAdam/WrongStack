@@ -6,9 +6,17 @@ const repoRoot = path.resolve(__dirname, '../../..');
 const self = rel(__filename);
 const sourceRoots = ['packages', 'apps'].map((dir) => path.join(repoRoot, dir));
 const allowedNegativeKillTests = new Set(['packages/tools/tests/spawn-background.test.ts']);
-const allowedNegativeKillSources = new Set(['packages/tools/src/process-registry.ts']);
+const allowedNegativeKillSources = new Set([
+  'packages/tools/src/process-registry.ts',
+  // Hook commands are spawned detached into their own process group on POSIX;
+  // killProcessTree() signals -child.pid of a child this module itself spawned
+  // (taskkill /T on win32), so the group kill cannot reach a foreign group.
+  'packages/core/src/hooks/shell-executor.ts',
+]);
 const allowedDirectSignalSources = new Set([
   'packages/cli/src/slash-commands/session.ts',
+  // Same reviewed call site as above: SIGKILL to its own detached hook child.
+  'packages/core/src/hooks/shell-executor.ts',
   // The WebUI server was extracted from packages/webui to the standalone
   // @wrongstack/webui-server package. The webui.shutdown self-SIGINT now lives
   // in the moved message-dispatcher.ts.

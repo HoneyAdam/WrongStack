@@ -55,7 +55,11 @@ export interface FleetSupervisorActions {
   /** Move a still-pending task to another (or any idle) worker. */
   retargetPendingTask(taskId: string, subagentId: string | undefined): boolean | Promise<boolean>;
   /** Spawn an additional helper worker. Return {error} to degrade gracefully. */
-  spawnHelper(input: { reason: string }): Promise<{ subagentId: string } | { error: string }>;
+  spawnHelper(input: {
+    reason: string;
+    /** Oldest queued task used to route the helper's role/tool profile. */
+    task?: TaskSpec | undefined;
+  }): Promise<{ subagentId: string } | { error: string }>;
   /** High-priority steer mail to one agent. */
   steerAgent(subagentId: string, subject: string, body: string): Promise<void>;
   /** Status/steer mail to the session leader. */
@@ -129,7 +133,7 @@ export class FleetSupervisor {
   // ── observation state ─────────────────────────────────────────────────
   /** taskId → first tick timestamp we saw it pending. */
   private readonly pendingSince = new Map<string, number>();
-  /** subagentId → last tool.executed timestamp (fleet-wide activity map). */
+  /** subagentId → last observable fleet event timestamp. */
   private readonly lastActivityAt = new Map<string, number>();
   /** subagentId → consecutive non-success completions. */
   private readonly failStreaks = new Map<string, number>();
@@ -167,11 +171,12 @@ export class FleetSupervisor {
   start(): void {
     if (!this.cfg.enabled || this.timer) return;
     this.stopped = false;
-    // Fleet-wide activity map: any tool execution proves the worker is
-    // alive. This is deliberately the ONLY budget-adjacent thing we touch —
-    // observation, never negotiation.
+    // Fleet-wide activity map: provider streaming, reasoning, iteration, and
+    // tool events all prove the worker is alive. Watching only tool.executed
+    // falsely labels long reasoning/provider calls as stuck. This remains
+    // observation-only: the supervisor never negotiates a worker's budget.
     this.offHandles.push(
-      this.opts.fleet.filter('tool.executed', (e) => {
+      this.opts.fleet.onAny((e) => {
         this.lastActivityAt.set(e.subagentId, this.now());
       }),
     );
@@ -302,7 +307,7 @@ export class FleetSupervisor {
     this.backlogTicks = backlogged ? this.backlogTicks + 1 : 0;
     if (backlogged && this.backlogTicks >= 2 && this.cfg.allowSpawn) {
       this.backlogTicks = 0;
-      await this.engageBacklog(pending.length, live);
+      await this.engageBacklog(pending, live);
       return;
     }
 
@@ -414,7 +419,13 @@ export class FleetSupervisor {
     };
     const decision = await this.opts.brain.decide(request);
     if (decision.type !== 'answer') return { choice: null, decision };
-    const choice = decision.optionId ?? options.find((o) => o.recommended)?.id ?? null;
+    // An answer without an exact option id is not executable control-plane
+    // authorization. Do not silently promote ambiguous free text to the
+    // recommended action (especially spawn/retarget); policy brains that want
+    // the recommendation already return its id explicitly.
+    const choice = options.some((option) => option.id === decision.optionId)
+      ? (decision.optionId ?? null)
+      : null;
     return { choice, decision };
   }
 
@@ -504,10 +515,11 @@ export class FleetSupervisor {
     }
   }
 
-  private async engageBacklog(pendingCount: number, liveWorkers: number): Promise<void> {
+  private async engageBacklog(pending: readonly TaskSpec[], liveWorkers: number): Promise<void> {
     if (!this.cooldownOk('backlog', 'fleet')) return;
     this.engaging = true;
     try {
+      const pendingCount = pending.length;
       this.emitSignal(
         'backlog',
         `${pendingCount} pending tasks vs ${liveWorkers} live worker(s)`,
@@ -538,6 +550,7 @@ export class FleetSupervisor {
       }
       const res = await this.opts.actions.spawnHelper({
         reason: `queue backlog: ${pendingCount} pending / ${liveWorkers} workers`,
+        task: pending[0],
       });
       if ('subagentId' in res) {
         this.emitAction('spawn_helper', true, res.subagentId, res.subagentId);
@@ -582,11 +595,11 @@ export class FleetSupervisor {
     try {
       this.emitSignal(
         'stuck_agent',
-        `no tool activity for ≥${Math.round(this.cfg.stuckMs / 1000)}s`,
+        `no observable activity for ≥${Math.round(this.cfg.stuckMs / 1000)}s`,
         s.id,
       );
       const { choice, decision } = await this.decide(
-        `Worker ${s.name} (${s.id}) is marked running but produced no tool activity for over ${Math.round(this.cfg.stuckMs / 1000)}s. Nudge it with a steer message?`,
+        `Worker ${s.name} (${s.id}) is marked running but produced no observable activity for over ${Math.round(this.cfg.stuckMs / 1000)}s. Nudge it with a steer message?`,
         `Current task: ${s.currentTask ?? 'unknown'}`,
         [
           {
@@ -614,7 +627,7 @@ export class FleetSupervisor {
       await this.opts.actions.steerAgent(
         s.id,
         'Progress check from fleet supervisor',
-        `You appear stalled (no tool activity for ${Math.round(this.cfg.stuckMs / 1000)}s on: ${
+        `You appear stalled (no observable activity for ${Math.round(this.cfg.stuckMs / 1000)}s on: ${
           s.currentTask ?? 'your current task'
         }). If you are blocked, say so via mail_send to the leader and either narrow the scope or hand the task back — do not keep silently retrying the same step.`,
       );
@@ -622,7 +635,7 @@ export class FleetSupervisor {
       await this.opts.actions
         .notifyLeader(
           `Worker ${s.name} may be stuck`,
-          `No tool activity for ${Math.round(this.cfg.stuckMs / 1000)}s. Supervisor nudged it; consider terminate_subagent + reassigning if it stays silent.`,
+          `No observable activity for ${Math.round(this.cfg.stuckMs / 1000)}s. Supervisor nudged it; consider terminate_subagent + reassigning if it stays silent.`,
         )
         .catch(() => {});
       this.record({

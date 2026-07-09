@@ -81,6 +81,28 @@ describe('renderMarkdownReport', () => {
     expect(md).toMatch(/250ms/); // fmtMs < 1000
   });
 
+  it('renders the conditional trace-eval funnel when transcript cases are present', () => {
+    const md = renderMarkdownReport({
+      suite: 'local',
+      finishedAt: 'now',
+      fingerprint: FP,
+      cells: [
+        cell({
+          cell: opus,
+          traceEval: {
+            retrieval: { eligible: 4, passed: 3, rate: 0.75 },
+            recallGivenRetrieval: { eligible: 3, passed: 2, rate: 2 / 3 },
+            editApplicationGivenRecall: { eligible: 2, passed: 1, rate: 0.5 },
+          },
+        }),
+      ],
+    });
+    expect(md).toContain('Recall (given retrieval)');
+    expect(md).toContain('Edit application (given recall)');
+    expect(md).toContain('75.0% (3/4)');
+    expect(md).toContain('50.0% (1/2)');
+  });
+
   it('handles an empty cell list (taskCount defaults to 0)', () => {
     const md = renderMarkdownReport({ suite: 'polyglot', finishedAt: 'now', fingerprint: FP, cells: [] });
     expect(md).toMatch(/Tasks\/cell:\*\* 0/);

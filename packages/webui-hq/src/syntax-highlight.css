@@ -1,0 +1,108 @@
+/* ===========================================================================
+   Syntax Highlighting Theme — HQ Console (dark-only)
+   Ported from the main WebUI's syntax-highlight.css (its .dark variants),
+   keyed on the HQ token set so highlighted code follows the panel theme.
+   =========================================================================== */
+
+.hljs {
+  color: var(--text);
+  background: transparent;
+}
+
+/* ── Comments ── */
+.hljs-comment,
+.hljs-quote {
+  color: color-mix(in oklab, var(--muted) 60%, transparent);
+  font-style: italic;
+}
+
+/* ── Keywords ── */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type,
+.hljs-literal {
+  color: #f28dbc;
+}
+
+/* ── Strings ── */
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: #64d488;
+}
+
+/* ── Numbers ── */
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--primary);
+}
+
+/* ── Functions / classes ── */
+.hljs-function .hljs-keyword,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-title.class_.inherited__ {
+  color: #6cb6ff;
+}
+
+/* ── Variables and parameters ── */
+.hljs-variable,
+.hljs-params {
+  color: var(--text);
+}
+
+/* ── Tags (JSX/HTML) ── */
+.hljs-tag,
+.hljs-name {
+  color: #f47a95;
+}
+
+/* ── Attributes / properties ── */
+.hljs-attribute,
+.hljs-property {
+  color: #ffb055;
+}
+
+/* ── Regex ── */
+.hljs-regexp {
+  color: #49d3c5;
+}
+
+/* ── Punctuation / operators ── */
+.hljs-punctuation,
+.hljs-operator {
+  color: color-mix(in oklab, var(--muted) 80%, var(--text));
+}
+
+/* ── Meta / doctype ── */
+.hljs-meta,
+.hljs-doctag,
+.hljs-section {
+  color: var(--muted);
+}
+
+/* ── Additions / deletions (diff) ── */
+.hljs-addition {
+  color: #64d488;
+  background: hsl(150 58% 36% / 0.12);
+}
+.hljs-deletion {
+  color: #ff7a7a;
+  background: hsl(0 72% 48% / 0.12);
+}
+
+/* ── Emphasis ── */
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* ── Links ── */
+.hljs-link {
+  text-decoration: underline;
+  color: var(--primary);
+}

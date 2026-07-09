@@ -21,7 +21,7 @@
  *
  * Caution rules are deliberately permissive — they execute and emit a
  * warning rather than blocking. The rationale: many of these patterns
- * (python -c, sudo, curl | bash) are part of legitimate dev workflows,
+ * (python -c, sudo) are part of legitimate dev workflows,
  * so a hard deny would block too much. A warning gives the user a
  * chance to notice "wait, I didn't mean to do that" without forcing
  * them to add a config override for every script.
@@ -303,39 +303,19 @@ const RULES: readonly DangerRule[] = [
     },
     reason: 'inline script evaluation (-c / -e / --eval)',
   },
-  // ----- pipe-to-shell (caution — well-known exfil pattern) -----
+  // ----- pipe-to-shell (destructive — download-and-run pattern) -----
   // The classic `curl https://... | sh` download-and-run vector. Detected by
-  // looking for a known fetcher followed by a shell sink. We use a simple
-  // substring scan; false positives are limited because both tokens must
-  // appear in the same argv.
+  // looking for a known fetcher piped into a shell or expression evaluator.
+  // A shell command passed through `bash -c` / `pwsh -Command` arrives as one
+  // argv string, so scan the reconstructed argv text rather than individual
+  // tokens only.
   {
     id: 'pipe-to-shell',
-    level: 'caution',
-    test: (_cmd, args) => {
-      const hasFetcher = args.some(
-        (a) =>
-          /^(curl|wget|fetch|httpie|http)$/i.test(a) ||
-          a.startsWith('curl') /* curl.exe on Windows */ ||
-          a.startsWith('wget'),
-      );
-      const hasShellSink = args.some(
-        (a) =>
-          a === 'sh' ||
-          a === 'bash' ||
-          a === 'zsh' ||
-          a === 'fish' ||
-          a === 'pwsh' ||
-          a === 'powershell' ||
-          a.endsWith('/sh') ||
-          a.endsWith('/bash') ||
-          a.endsWith('/zsh') ||
-          a.endsWith('/pwsh'),
-      );
-      // Also catches the sh -c "..." form (where "sh" is the cmd, not in args)
-      // — but that's covered by inline-eval. This rule is specifically
-      // for the fetcher-pipe-shell case in a single command.
-      return hasFetcher && hasShellSink;
-    },
+    level: 'destructive',
+    test: (cmd, args) =>
+      /\b(?:curl|wget|fetch|httpie|http|irm|iwr|Invoke-WebRequest|Invoke-RestMethod)\b[\s\S]{0,300}\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|pwsh|powershell|iex|Invoke-Expression)\b/i.test(
+        [cmd, ...args].join(' '),
+      ),
     reason: 'network fetch piped to a shell (download-and-run pattern)',
   },
   // ----- privilege escalation (caution) -----

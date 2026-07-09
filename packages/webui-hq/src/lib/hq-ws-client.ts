@@ -55,9 +55,14 @@ export class HqWsClient {
     if (opts?.url) {
       this.url = opts.url;
     } else {
-      const loc = typeof window !== 'undefined' ? window.location : { host: '127.0.0.1:3499', protocol: 'http:' };
+      const loc =
+        typeof window !== 'undefined'
+          ? window.location
+          : { host: '127.0.0.1:3499', protocol: 'http:' };
       const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-      const token = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('token');
+      const token = new URLSearchParams(
+        typeof window !== 'undefined' ? window.location.search : '',
+      ).get('token');
       const base = `${wsProto}//${loc.host}/ws/browser`;
       this.url = token ? `${base}?token=${encodeURIComponent(token)}` : base;
     }
@@ -96,11 +101,19 @@ export class HqWsClient {
     ws.onmessage = (event) => {
       this.lastMessageAt = Date.now();
       try {
-        const msg = JSON.parse(typeof event.data === 'string' ? event.data : '') as HqBrowserMessage;
+        const msg = JSON.parse(
+          typeof event.data === 'string' ? event.data : '',
+        ) as HqBrowserMessage;
         for (const h of this.handlers) {
-          try { h(msg); } catch { /* handler errors must not kill the client */ }
+          try {
+            h(msg);
+          } catch {
+            /* handler errors must not kill the client */
+          }
         }
-      } catch { /* ignore malformed frames */ }
+      } catch {
+        /* ignore malformed frames */
+      }
     };
 
     ws.onclose = () => this.handleClose('close');
@@ -195,7 +208,11 @@ export class HqWsClient {
   private emitState(state: HqWsConnectionState): void {
     this._state = state;
     for (const h of this.stateHandlers) {
-      try { h(state); } catch { /* handler errors must not propagate */ }
+      try {
+        h(state);
+      } catch {
+        /* handler errors must not propagate */
+      }
     }
   }
 }

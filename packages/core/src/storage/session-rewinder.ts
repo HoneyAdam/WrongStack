@@ -134,7 +134,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
       }
     }
 
-    const result = await revertSnapshots(snapshotsToRevert.reverse(), this.projectRoot);
+    const result = await revertSnapshots(snapshotsToRevert, this.projectRoot);
     return { ...result, toPromptIndex: targetIndex, removedEvents: snapshotsToRevert.length };
   }
 
@@ -154,7 +154,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
       return { revertedFiles: [], errors: [], toPromptIndex: 0, removedEvents: 0 };
     }
 
-    const result = await revertSnapshots(allSnapshots.reverse(), this.projectRoot);
+    const result = await revertSnapshots(allSnapshots, this.projectRoot);
     return { ...result, toPromptIndex: 0, removedEvents: allSnapshots.length };
   }
 }
@@ -189,8 +189,11 @@ async function revertSnapshots(
   const revertedFiles: string[] = [];
   const errors: string[] = [];
 
-  for (const snapshot of snapshots) {
-    for (const file of snapshot.files) {
+  // Undo is the inverse of execution order. Reverse both event order and the
+  // per-event file list so repeated edits of the same path restore the oldest
+  // `before` content rather than stopping at an intermediate version.
+  for (const snapshot of [...snapshots].reverse()) {
+    for (const file of [...snapshot.files].reverse()) {
       try {
         // Guard: ensure the target path resolves inside the project root.
         // Without this, a maliciously recorded path (e.g., via path traversal

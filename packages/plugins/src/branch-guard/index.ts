@@ -26,8 +26,9 @@
  *
  * @public
  */
+
+import { execFile } from 'node:child_process';
 import type { Plugin } from '@wrongstack/core';
-import { execSync } from 'node:child_process';
 
 const API_VERSION = '^0.1.10';
 
@@ -127,16 +128,29 @@ function hasDisabledPluginEntry(raw: unknown): boolean {
  * Get the current git branch name. Returns null if not a git repo
  * or git is unavailable.
  */
-function getCurrentBranch(cwd?: string): string | null {
+function runGit(args: string[], cwd: string | undefined, signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      args,
+      { encoding: 'utf-8', timeout: 3_000, cwd, windowsHide: true, signal },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(stdout);
+      },
+    );
+  });
+}
+
+async function getCurrentBranch(
+  cwd: string | undefined,
+  signal: AbortSignal,
+): Promise<string | null> {
   try {
-    const branch = execSync('git branch --show-current', {
-      encoding: 'utf-8',
-      timeout: 3_000,
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const branch = (await runGit(['branch', '--show-current'], cwd, signal)).trim();
     return branch || null;
-  } catch {
+  } catch (err) {
+    if (signal.aborted) throw err;
     return null;
   }
 }
@@ -146,16 +160,15 @@ function getCurrentBranch(cwd?: string): string | null {
  * Uses `git status --porcelain` — any non-empty output means dirty tree.
  * Returns false if not a git repo or the command fails (best-effort).
  */
-function detectUncommittedChanges(cwd?: string): boolean {
+async function detectUncommittedChanges(
+  cwd: string | undefined,
+  signal: AbortSignal,
+): Promise<boolean> {
   try {
-    const output = execSync('git status --porcelain', {
-      encoding: 'utf-8',
-      timeout: 3_000,
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const output = (await runGit(['status', '--porcelain'], cwd, signal)).trim();
     return output.length > 0;
-  } catch {
+  } catch (err) {
+    if (signal.aborted) throw err;
     return false;
   }
 }
@@ -270,14 +283,14 @@ const plugin: Plugin = {
     });
     const cwd = typeof process.cwd === 'function' ? process.cwd() : undefined;
 
-    const hook = (input: {
-      toolName?: string | undefined;
-      toolInput?: unknown;
-    }): {
+    const hook = async (
+      input: { toolName?: string | undefined; toolInput?: unknown },
+      runtime: { signal: AbortSignal } = { signal: new AbortController().signal },
+    ): Promise<{
       decision?: 'block' | 'allow' | undefined;
       reason?: string;
       additionalContext?: string;
-    } | void => {
+    } | void> => {
       const toolName = input.toolName ?? '';
       const inp = (input.toolInput ?? {}) as Record<string, unknown>;
       state.invocationCount += 1;
@@ -306,7 +319,7 @@ const plugin: Plugin = {
       if (!shouldBlock(gitOp.type, cfg)) return; // config says don't block this op type
 
       // Check current branch.
-      const branch = getCurrentBranch(cwd);
+      const branch = await getCurrentBranch(cwd, runtime.signal);
       if (!branch) return; // can't determine branch — don't block
       const protectedSet = new Set(cfg.branches);
       if (!protectedSet.has(branch)) return; // not protected — let it through
@@ -321,7 +334,7 @@ const plugin: Plugin = {
             : 'merging into';
 
       // Check for uncommitted changes so we can suggest stash.
-      const hasUncommitted = detectUncommittedChanges(cwd);
+      const hasUncommitted = await detectUncommittedChanges(cwd, runtime.signal);
 
       // Build a helpful suggestion: stash + branch + retry the same operation.
       // For git_autocommit, keep the final step at the tool level so agents do
@@ -370,7 +383,13 @@ const plugin: Plugin = {
       };
     };
 
-    state.hookUnregister = api.registerHook('PreToolUse', 'bash|git|git_autocommit', hook);
+    state.hookUnregister = api.registerHook('PreToolUse', 'bash|git|git_autocommit', hook, {
+      name: 'branch-guard',
+      stage: 'validate',
+      timeoutMs: 7_000,
+      failurePolicy: 'closed',
+      policy: true,
+    });
 
     // --- branch_guard_status tool ---
     api.tools.register({

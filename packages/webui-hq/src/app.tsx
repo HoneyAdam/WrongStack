@@ -3,18 +3,19 @@
  * Offline React app, no CDN. Connects to /ws/browser on mount.
  */
 import type React from 'react';
-import { useHqStore, setActiveView, type ViewId } from './store.js';
+import { setActiveView, useHqStore, type ViewId } from './store.js';
+import { AlertsView } from './views/alerts.js';
+import { BrainView } from './views/brain.js';
+import { CockpitView } from './views/cockpit.js';
+import { ControlView } from './views/control.js';
+import { CostView } from './views/cost.js';
 import { FleetMapView } from './views/fleet-map.js';
 import { LiveConsoleView } from './views/live-console.js';
 import { MailboxView } from './views/mailbox.js';
-import { CostView } from './views/cost.js';
-import { BrainView } from './views/brain.js';
-import { WorktreeView } from './views/worktree.js';
 import { TrendsView } from './views/trends.js';
-import { AlertsView } from './views/alerts.js';
-import { ControlView } from './views/control.js';
-import { CockpitView } from './views/cockpit.js';
+import { WorktreeView } from './views/worktree.js';
 import './app.css';
+import './syntax-highlight.css';
 
 const VIEWS: { id: ViewId; label: string; icon: string }[] = [
   { id: 'cockpit', label: 'Cockpit', icon: '🛰' },
@@ -30,7 +31,11 @@ const VIEWS: { id: ViewId; label: string; icon: string }[] = [
 ];
 
 export function HqApp(): React.ReactElement {
-  const state = useHqStore(['snapshot', 'alerts']);
+  // 'activeView' must be in the subscription keys: the store only notifies
+  // listeners whose key filter intersects the change, so without it tab
+  // clicks only "took effect" when the next snapshot broadcast re-rendered
+  // the app (i.e. never on an idle server).
+  const state = useHqStore(['snapshot', 'alerts', 'activeView']);
   const snap = state.snapshot;
   const totals = snap?.totals;
   const unread = totals?.unreadMailboxMessages ?? 0;

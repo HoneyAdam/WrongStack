@@ -1,15 +1,22 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock execSync before importing the plugin so the plugin's import
+// Mock async execFile before importing the plugin so the plugin's import
 // of node:child_process is replaced at module-load time.
-const mockExecSync = vi.fn((cmd: string): string => {
-  if (cmd.includes('branch --show-current')) return 'main\n';
-  if (cmd.includes('status --porcelain')) return ''; // clean by default
-  return '';
-});
+const mockExecFile = vi.fn(
+  (
+    _cmd: string,
+    args: string[],
+    _opts: unknown,
+    cb: (error: Error | null, stdout: string) => void,
+  ) => {
+    const command = args.join(' ');
+    const stdout = command.includes('branch --show-current') ? 'main\n' : '';
+    queueMicrotask(() => cb(null, stdout));
+  },
+);
 
 vi.mock('node:child_process', () => ({
-  execSync: mockExecSync,
+  execFile: mockExecFile,
 }));
 
 // Import AFTER the mock is set up.
@@ -52,7 +59,9 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
 
 function getHook(
   api: MockApi,
-): (input: unknown) => { decision?: string; reason?: string; additionalContext?: string } | void {
+): (
+  input: unknown,
+) => Promise<{ decision?: string; reason?: string; additionalContext?: string } | void> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
   return (call as unknown[])[2] as ReturnType<typeof getHook>;
@@ -68,24 +77,24 @@ function getStatusTool(api: MockApi): { execute: (input: unknown) => Promise<unk
 
 /** Set the mock to return a specific branch name. */
 function setBranch(branch: string): void {
-  mockExecSync.mockImplementation((cmd: string): string => {
-    if (cmd.includes('branch --show-current')) return branch + '\n';
-    if (cmd.includes('status --porcelain')) return '';
-    return '';
+  mockExecFile.mockImplementation((_cmd, args, _opts, cb) => {
+    const command = args.join(' ');
+    const stdout = command.includes('branch --show-current') ? branch + '\n' : '';
+    queueMicrotask(() => cb(null, stdout));
+    return undefined as never;
   });
 }
 
 /** Set the mock to simulate a dirty working tree (uncommitted changes). */
 function setDirty(dirty: boolean): void {
-  const currentImpl = mockExecSync.getMockImplementation();
-  mockExecSync.mockImplementation((cmd: string): string => {
-    if (cmd.includes('branch --show-current')) {
-      return currentImpl ? (currentImpl as (c: string) => string)(cmd) : 'main\n';
+  const currentImpl = mockExecFile.getMockImplementation();
+  mockExecFile.mockImplementation((cmd, args, opts, cb) => {
+    const command = args.join(' ');
+    if (command.includes('status --porcelain')) {
+      queueMicrotask(() => cb(null, dirty ? ' M packages/plugins/src/test.ts\n' : ''));
+      return undefined as never;
     }
-    if (cmd.includes('status --porcelain')) {
-      return dirty ? ' M packages/plugins/src/test.ts\n' : '';
-    }
-    return '';
+    return currentImpl?.(cmd, args, opts, cb) as never;
   });
 }
 
@@ -107,104 +116,112 @@ describe('branch-guard plugin', () => {
 });
 
 describe('hook behavior — non-git commands', () => {
-  it('passes through bash commands that are not git commit/push/merge', () => {
+  it('passes through bash commands that are not git commit/push/merge', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    expect(hook({ toolName: 'bash', toolInput: { command: 'ls -la' } })).toBeUndefined();
+    expect(await hook({ toolName: 'bash', toolInput: { command: 'ls -la' } })).toBeUndefined();
   });
 
-  it('passes through non-bash non-git_autocommit tools', () => {
+  it('passes through non-bash non-git_autocommit tools', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    expect(hook({ toolName: 'read', toolInput: { path: '/tmp/x' } })).toBeUndefined();
+    expect(await hook({ toolName: 'read', toolInput: { path: '/tmp/x' } })).toBeUndefined();
   });
 });
 
 describe('hook behavior — git commit on protected branch', () => {
-  it('blocks git commit on main (default protected)', () => {
+  it('blocks git commit on main (default protected)', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('main');
     expect(result?.reason).toContain('protected');
   });
 
-  it('blocks git_autocommit tool on main', () => {
+  it('blocks git_autocommit tool on main', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'git_autocommit', toolInput: { type: 'feat' } });
+    const result = await hook({ toolName: 'git_autocommit', toolInput: { type: 'feat' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('commit');
     expect(result?.reason).toContain('protected');
     expect(result?.reason).toContain('retry git_autocommit');
   });
 
-  it('allows git_autocommit dry_run on main because it does not commit', () => {
-    const api = makeApi();
-    branchGuardPlugin.setup(api as never);
-    const hook = getHook(api);
-    expect(hook({ toolName: 'git_autocommit', toolInput: { dry_run: true } })).toBeUndefined();
-  });
-
-  it('blocks the structured git commit tool on main', () => {
-    const api = makeApi();
-    branchGuardPlugin.setup(api as never);
-    const hook = getHook(api);
-    const result = hook({ toolName: 'git', toolInput: { command: 'commit', message: 'x' } });
-    expect(result?.decision).toBe('block');
-    expect(result?.reason).toContain('commit');
-  });
-
-  it('allows structured git commit dry_run on main because it does not commit', () => {
+  it('allows git_autocommit dry_run on main because it does not commit', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
     expect(
-      hook({ toolName: 'git', toolInput: { command: 'commit', message: 'x', dry_run: true } }),
+      await hook({ toolName: 'git_autocommit', toolInput: { dry_run: true } }),
+    ).toBeUndefined();
+  });
+
+  it('blocks the structured git commit tool on main', async () => {
+    const api = makeApi();
+    branchGuardPlugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({ toolName: 'git', toolInput: { command: 'commit', message: 'x' } });
+    expect(result?.decision).toBe('block');
+    expect(result?.reason).toContain('commit');
+  });
+
+  it('allows structured git commit dry_run on main because it does not commit', async () => {
+    const api = makeApi();
+    branchGuardPlugin.setup(api as never);
+    const hook = getHook(api);
+    expect(
+      await hook({
+        toolName: 'git',
+        toolInput: { command: 'commit', message: 'x', dry_run: true },
+      }),
     ).toBeUndefined();
   });
 });
 
 describe('hook behavior — git push and merge', () => {
-  it('blocks git push on main', () => {
+  it('blocks git push on main', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git push origin main' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git push origin main' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('push');
   });
 
-  it('blocks structured git push on main', () => {
+  it('blocks structured git push on main', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'git', toolInput: { command: 'push' } });
+    const result = await hook({ toolName: 'git', toolInput: { command: 'push' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('push');
   });
 
-  it('blocks git merge on main', () => {
+  it('blocks git merge on main', async () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git merge feature-branch' } });
+    const result = await hook({
+      toolName: 'bash',
+      toolInput: { command: 'git merge feature-branch' },
+    });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('merge');
   });
 });
 
 describe('hook behavior — warn mode', () => {
-  it('injects additionalContext instead of blocking', () => {
+  it('injects additionalContext instead of blocking', async () => {
     const api = makeApi({ extensions: { 'branch-guard': { mode: 'warn' } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('allow');
     expect(result?.additionalContext).toContain('branch-guard');
     expect(result?.additionalContext).toContain('main');
@@ -212,25 +229,25 @@ describe('hook behavior — warn mode', () => {
 });
 
 describe('hook behavior — disabled mode', () => {
-  it('does not block when mode=off', () => {
+  it('does not block when mode=off', async () => {
     const api = makeApi({ extensions: { 'branch-guard': { mode: 'off' } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
     expect(
-      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+      await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
     ).toBeUndefined();
   });
 
-  it('does not block when enabled=false', () => {
+  it('does not block when enabled=false', async () => {
     const api = makeApi({ extensions: { 'branch-guard': { enabled: false } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
     expect(
-      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+      await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
     ).toBeUndefined();
   });
 
-  it('hot-disables when config changes to a disabled plugin entry', () => {
+  it('hot-disables when config changes to a disabled plugin entry', async () => {
     let watcher: ((next: unknown, prev: unknown) => void) | undefined;
     const api = makeApi();
     api.onConfigChange.mockImplementation((cb: (next: unknown, prev: unknown) => void) => {
@@ -240,54 +257,54 @@ describe('hook behavior — disabled mode', () => {
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
     expect(
-      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } })?.decision,
+      (await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }))?.decision,
     ).toBe('block');
 
     watcher?.({ plugins: [{ name: 'branch-guard', enabled: false }], extensions: {} }, {});
 
     expect(
-      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+      await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
     ).toBeUndefined();
   });
 });
 
 describe('hook behavior — custom protected branches', () => {
-  it('blocks on a custom protected branch', () => {
+  it('blocks on a custom protected branch', async () => {
     setBranch('develop');
     const api = makeApi({ extensions: { 'branch-guard': { branches: ['develop'] } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('develop');
   });
 
-  it('does not block on a non-protected branch', () => {
+  it('does not block on a non-protected branch', async () => {
     setBranch('feature-xyz');
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
     expect(
-      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+      await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
     ).toBeUndefined();
   });
 });
 
 describe('hook behavior — selective blocking', () => {
-  it('does not block commits when blockCommit=false', () => {
+  it('does not block commits when blockCommit=false', async () => {
     const api = makeApi({ extensions: { 'branch-guard': { blockCommit: false } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
     expect(
-      hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
+      await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } }),
     ).toBeUndefined();
   });
 
-  it('still blocks push when blockCommit=false', () => {
+  it('still blocks push when blockCommit=false', async () => {
     const api = makeApi({ extensions: { 'branch-guard': { blockCommit: false } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git push origin main' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git push origin main' } });
     expect(result?.decision).toBe('block');
   });
 });
@@ -319,7 +336,7 @@ describe('teardown + H1 pattern', () => {
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    hook({ toolName: 'bash', toolInput: { command: 'git commit -m "x"' } });
+    await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "x"' } });
     branchGuardPlugin.teardown!(api as never);
     const health = await branchGuardPlugin.health!();
     expect(health.counters.invocations).toBe(0);
@@ -335,45 +352,45 @@ describe('teardown + H1 pattern', () => {
 // ── Stash suggestion ────────────────────────────────────────────────────
 
 describe('stash suggestion', () => {
-  it('suggests stash when working tree is dirty', () => {
+  it('suggests stash when working tree is dirty', async () => {
     setDirty(true);
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).toContain('git stash');
     expect(result?.reason).toContain('git checkout -b');
     expect(result?.reason).toContain('git stash pop');
   });
 
-  it('does not suggest stash when working tree is clean', () => {
+  it('does not suggest stash when working tree is clean', async () => {
     setDirty(false);
     const api = makeApi();
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('block');
     expect(result?.reason).not.toContain('git stash');
     expect(result?.reason).toContain('git checkout -b');
   });
 
-  it('warn mode mentions stash when dirty', () => {
+  it('warn mode mentions stash when dirty', async () => {
     setDirty(true);
     const api = makeApi({ extensions: { 'branch-guard': { mode: 'warn' } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('allow');
     expect(result?.additionalContext).toContain('git stash');
   });
 
-  it('warn mode does not mention stash when clean', () => {
+  it('warn mode does not mention stash when clean', async () => {
     setDirty(false);
     const api = makeApi({ extensions: { 'branch-guard': { mode: 'warn' } } });
     branchGuardPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'git commit -m "test"' } });
     expect(result?.decision).toBe('allow');
     expect(result?.additionalContext).not.toContain('git stash');
   });

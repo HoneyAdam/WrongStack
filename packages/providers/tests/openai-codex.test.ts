@@ -111,6 +111,41 @@ describe('OpenAICodexProvider request shape', () => {
     expect(body.instructions).toBe('Be terse.');
     expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]);
   });
+
+  it.each([
+    'xhigh',
+    'max',
+  ] as const)('forwards request-level %s reasoning effort', async (effort) => {
+    const captured: Captured = {};
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('acc_99'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: capturingFetch(COMPLETED_SSE, captured),
+    });
+
+    await p.complete(
+      { ...baseReq, model: 'gpt-5.6-sol', reasoning: { effort } },
+      { signal: new AbortController().signal },
+    );
+
+    const body = JSON.parse(captured.init?.body ?? '{}');
+    expect(body.reasoning).toEqual({ effort, summary: 'auto' });
+  });
+
+  it('omits reasoning when request-level reasoning is disabled', async () => {
+    const captured: Captured = {};
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('acc_99'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: capturingFetch(COMPLETED_SSE, captured),
+    });
+
+    await p.complete(
+      { ...baseReq, reasoning: { enabled: false } },
+      { signal: new AbortController().signal },
+    );
+
+    const body = JSON.parse(captured.init?.body ?? '{}');
+    expect(body).not.toHaveProperty('reasoning');
+  });
 });
 
 describe('OpenAICodexProvider stream parsing', () => {

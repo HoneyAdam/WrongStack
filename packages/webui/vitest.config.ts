@@ -60,6 +60,8 @@ export default defineConfig({
       // Force @wrongstack/core to resolve from source (packages/core/src) instead
       // of going through the package's "exports" field which points to dist/.
       '@wrongstack/core': path.resolve(__dirname, '../../packages/core/src'),
+      '@wrongstack/kanban': path.resolve(__dirname, '../../packages/kanban/src'),
+      '@wrongstack/sdd': path.resolve(__dirname, '../../packages/sdd/src'),
       // Force @wrongstack/webui-server to resolve from source (its src/) instead
       // of the published dist bundle, so per-module vi.mock() boundaries and
       // partial @wrongstack/core / node:fs mocks work exactly as they did when

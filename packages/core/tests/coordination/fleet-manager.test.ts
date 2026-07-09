@@ -77,6 +77,11 @@ describe('FleetManager', () => {
       expect(fm.canSpawn(makeConfig({ name: 'deep' }) as SubagentConfig)).toBeNull();
     });
 
+    it('hard-caps configured recursive spawn depth at 2', () => {
+      const fm = new FleetManager({ maxSpawnDepth: 99 });
+      expect(fm.maxSpawnDepth).toBe(2);
+    });
+
     it('defaults maxFleetCostUsd to Infinity', () => {
       const fm = new FleetManager({ directorBudget: {} });
       expect(fm.canSpawn(makeConfig())).toBeNull();
@@ -132,6 +137,27 @@ describe('FleetManager', () => {
       const result = fm.canSpawn(makeConfig());
       expect(result).not.toBeNull();
       expect(result!.kind).toBe('max_cost_usd');
+    });
+
+    it('rejects new spawns when cumulative fleet tokens reach maxTokens', () => {
+      const fm = new FleetManager({ directorBudget: { maxTokens: 100 } });
+      fm.fleet.emit({
+        subagentId: 'existing',
+        ts: Date.now(),
+        type: 'provider.response',
+        payload: { usage: { input: 80, output: 20, cacheRead: 0, cacheWrite: 0 } },
+      });
+
+      expect(fm.canSpawn(makeConfig())).toMatchObject({
+        kind: 'max_tokens',
+        limit: 100,
+        observed: 100,
+      });
+      expect(fm.budgetSnapshot()).toMatchObject({
+        maxTokens: 100,
+        usedTokens: 100,
+        remainingTokens: 0,
+      });
     });
 
     it('rejects when fleet already hit cost cap', () => {

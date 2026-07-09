@@ -1,4 +1,4 @@
-import { ProviderError } from '@wrongstack/core';
+import { ProviderError, classifyProviderError, isRetryableKind } from '@wrongstack/core';
 import type { ProviderErrorBody } from '@wrongstack/core';
 import { isPlainObject } from './object-utils.js';
 
@@ -16,11 +16,49 @@ export function parseProviderHttpError(
   providerId: string,
   status: number,
   rawText: string,
+  headers?: HeadersLike,
 ): ProviderError {
   const body = parseBody(rawText);
-  const retryable = isRetryable(status, body.type);
+  const retryAfterMs = retryAfterMsFromHeaders(headers);
+  if (retryAfterMs !== undefined) body.retryAfterMs = retryAfterMs;
+  const kind = classifyProviderError(status, body);
   const message = `${providerId} HTTP ${status}`;
-  return new ProviderError(message, status, retryable, providerId, { body });
+  return new ProviderError(message, status, isRetryableKind(kind), providerId, { body, kind });
+}
+
+/** Structural subset of the Fetch `Headers` interface, easy to fake in tests. */
+export interface HeadersLike {
+  get(name: string): string | null;
+}
+
+/**
+ * Parse a Retry-After hint from HTTP response headers into milliseconds.
+ *
+ * Handles the three shapes seen in the wild:
+ *  - `retry-after-ms: 1500` — milliseconds (Anthropic, some OpenAI-compatibles)
+ *  - `retry-after: 12` — delta-seconds (RFC 9110)
+ *  - `retry-after: Wed, 21 Oct 2026 07:28:00 GMT` — HTTP-date
+ *
+ * Returns `undefined` for missing/unparseable/non-positive values so callers
+ * fall through to their exponential backoff schedule.
+ */
+export function retryAfterMsFromHeaders(headers?: HeadersLike): number | undefined {
+  if (!headers) return undefined;
+  const ms = headers.get('retry-after-ms');
+  if (ms) {
+    const n = Number(ms);
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+  }
+  const ra = headers.get('retry-after');
+  if (!ra) return undefined;
+  const secs = Number(ra);
+  if (Number.isFinite(secs) && secs > 0) return Math.round(secs * 1000);
+  const date = Date.parse(ra);
+  if (!Number.isNaN(date)) {
+    const delta = date - Date.now();
+    if (delta > 0) return delta;
+  }
+  return undefined;
 }
 
 const RAW_TRUNCATE_AT = 2000;
@@ -72,20 +110,6 @@ function parseBody(rawText: string): ProviderErrorBody {
   if (reqId) body.requestId = reqId;
 
   return body;
-}
-
-/**
- * Retryability is mostly driven by HTTP status, but provider-specific
- * `type` strings let us catch retryable conditions that don't have a
- * dedicated status code (e.g. Anthropic's `overloaded_error` is 529 but
- * we also retry it when wrapped in a 503).
- */
-function isRetryable(status: number, type?: string): boolean {
-  if (status === 0) return true; // network error
-  if (status === 408 || status === 429 || status === 529) return true;
-  if (status >= 500 && status < 600) return true;
-  if (type === 'overloaded_error' || type === 'rate_limit_error') return true;
-  return false;
 }
 
 function stringOf(v: unknown): string | undefined {

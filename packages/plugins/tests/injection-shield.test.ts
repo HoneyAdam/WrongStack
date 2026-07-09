@@ -29,7 +29,7 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
   };
 }
 
-type HookResult = { additionalContext?: string } | undefined;
+type HookResult = { additionalContext?: string; contextAs?: 'inline' | 'separate' } | undefined;
 
 function getHook(api: MockApi): (input: unknown) => HookResult {
   const call = api.registerHook.mock.calls[0];
@@ -92,7 +92,7 @@ describe('injection-shield plugin', () => {
     expect(api.tools.register).toHaveBeenCalledTimes(1);
     const [event, matcher] = api.registerHook.mock.calls[0]!;
     expect(event).toBe('PostToolUse');
-    expect(matcher).toBe('fetch|search|read|get_page_text');
+    expect(matcher).toBe('*');
   });
 
   it('warns when fetched content contains an injection attempt', () => {
@@ -108,6 +108,7 @@ describe('injection-shield plugin', () => {
     });
     expect(result?.additionalContext).toContain('injection-shield WARNING');
     expect(result?.additionalContext).toContain('DATA');
+    expect(result?.contextAs).toBe('separate');
     expect(api.log.warn).toHaveBeenCalled();
   });
 

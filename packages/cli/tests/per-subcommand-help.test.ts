@@ -387,12 +387,21 @@ describe('audit:list / replay:list deep help', () => {
   });
 });
 
-describe('sessions:resume / sessions:fleet / sessions:show deep help', () => {
+describe('sessions:resume / sessions:fork / sessions:fleet / sessions:show deep help', () => {
   it('sessions:resume mentions the optional positional [<id>]', () => {
     const renderer = makeRenderer();
     renderDeepHelp('sessions:resume', renderer);
     const out = capture(renderer);
     expect(out).toContain('[<id>]');
+  });
+
+  it('sessions:fork documents checkpoint and shared-workspace semantics', () => {
+    const renderer = makeRenderer();
+    renderDeepHelp('sessions:fork', renderer);
+    const out = capture(renderer);
+    expect(out).toContain('--to N');
+    expect(out).toContain('content-addressed workspace manifest');
+    expect(out).toContain('separate clean checkout');
   });
 
   it('sessions:fleet mentions the multi-agent fleet', () => {
@@ -503,7 +512,7 @@ describe('deepSubcommandsWithFocusedHelp', () => {
     //   - `plugin:add`/`remove`/`enable`/`disable`/`toggle`/`list`/`report`/`menu`/`official`
     //   - `models:add`/`remove`/`refresh`/`list`
     //   - `audit --list`/`replay --list`
-    //   - `sessions:resume`/`fleet`/`show`/`list`/`config`
+    //   - `sessions:resume`/`fork`/`fleet`/`show`/`list`/`config`
     //   - `config:show`/`edit`/`history`/`restore`
     //   - `rewind:list`/`all`/`last`/`to`/`resume`
     //   - `auth:list`/`auth:status`/`auth:remove`/`auth:local`
@@ -516,7 +525,7 @@ describe('deepSubcommandsWithFocusedHelp', () => {
       'plugin:official', 'plugin:officials',
       'models:add', 'models:remove', 'models:refresh', 'models:list',
       'audit:list', 'replay:list',
-      'sessions:resume', 'sessions:fleet', 'sessions:show',
+      'sessions:resume', 'sessions:fork', 'sessions:fleet', 'sessions:show',
       'sessions:list', 'sessions:config',
       'config:show', 'config:edit', 'config:history', 'config:restore',
       'rewind:list', 'rewind:all', 'rewind:last', 'rewind:to', 'rewind:resume',

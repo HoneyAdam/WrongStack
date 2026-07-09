@@ -1,6 +1,15 @@
 import { ProviderError } from '@wrongstack/core';
-import { describe, expect, it } from 'vitest';
-import { parseProviderHttpError } from '../src/error-parse.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  type HeadersLike,
+  parseProviderHttpError,
+  retryAfterMsFromHeaders,
+} from '../src/error-parse.js';
+
+function fakeHeaders(entries: Record<string, string>): HeadersLike {
+  const lower = Object.fromEntries(Object.entries(entries).map(([k, v]) => [k.toLowerCase(), v]));
+  return { get: (name) => lower[name.toLowerCase()] ?? null };
+}
 
 describe('parseProviderHttpError', () => {
   it('parses Anthropic 529 overloaded body', () => {
@@ -92,6 +101,60 @@ describe('parseProviderHttpError', () => {
     const err = parseProviderHttpError('anthropic', 503, body);
     expect(err.retryable).toBe(true);
     expect(err.describe()).toContain('overloaded');
+  });
+
+  it('stamps the canonical kind on the error', () => {
+    expect(parseProviderHttpError('p', 429, '').kind).toBe('rate_limit');
+    expect(parseProviderHttpError('p', 529, '').kind).toBe('overloaded');
+    expect(parseProviderHttpError('p', 503, '').kind).toBe('server');
+    expect(parseProviderHttpError('p', 401, '').kind).toBe('auth');
+    expect(parseProviderHttpError('p', 0, '').kind).toBe('network');
+    const overflow = JSON.stringify({
+      error: { type: 'invalid_request_error', message: 'prompt is too long: 210000 tokens' },
+    });
+    expect(parseProviderHttpError('anthropic', 400, overflow).kind).toBe('context_overflow');
+  });
+
+  it('populates body.retryAfterMs from a delta-seconds Retry-After header', () => {
+    const err = parseProviderHttpError('openai', 429, '', fakeHeaders({ 'retry-after': '12' }));
+    expect(err.body?.retryAfterMs).toBe(12_000);
+  });
+
+  it('prefers retry-after-ms over retry-after', () => {
+    const err = parseProviderHttpError(
+      'anthropic',
+      429,
+      '',
+      fakeHeaders({ 'retry-after-ms': '1500', 'retry-after': '30' }),
+    );
+    expect(err.body?.retryAfterMs).toBe(1500);
+  });
+
+  it('leaves retryAfterMs unset without headers', () => {
+    expect(parseProviderHttpError('openai', 429, '').body?.retryAfterMs).toBeUndefined();
+  });
+});
+
+describe('retryAfterMsFromHeaders', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('parses an HTTP-date Retry-After relative to now', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-09T12:00:00Z'));
+    const ms = retryAfterMsFromHeaders(
+      fakeHeaders({ 'retry-after': 'Thu, 09 Jul 2026 12:00:30 GMT' }),
+    );
+    expect(ms).toBe(30_000);
+  });
+
+  it('returns undefined for garbage, negative, zero, and past-date values', () => {
+    expect(retryAfterMsFromHeaders(fakeHeaders({ 'retry-after': 'soon' }))).toBeUndefined();
+    expect(retryAfterMsFromHeaders(fakeHeaders({ 'retry-after': '-5' }))).toBeUndefined();
+    expect(retryAfterMsFromHeaders(fakeHeaders({ 'retry-after': '0' }))).toBeUndefined();
+    expect(
+      retryAfterMsFromHeaders(fakeHeaders({ 'retry-after': 'Thu, 09 Jul 2020 12:00:00 GMT' })),
+    ).toBeUndefined();
+    expect(retryAfterMsFromHeaders(undefined)).toBeUndefined();
   });
 });
 

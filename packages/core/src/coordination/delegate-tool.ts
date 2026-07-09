@@ -404,7 +404,15 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
                 ? 'aborted'
                 : 'budget_exhausted';
         const partial =
-          result.status === 'success' ? undefined : await readSubagentPartial(opts, subagentId);
+          result.status === 'success'
+            ? undefined
+            : result.partial
+              ? {
+                  lastAssistantText: result.partial.text,
+                  toolUsesObserved: result.toolCalls,
+                  events: result.iterations,
+                }
+              : await readSubagentPartial(opts, subagentId);
 
         const errorKind = result.error?.kind;
         const retryable = result.error?.retryable;
@@ -446,6 +454,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           subagentId: result.subagentId,
           taskId: result.taskId,
           result: result.result,
+          report: result.report,
           error: result.error,
           iterations: result.iterations,
           toolCalls: result.toolCalls,
@@ -585,7 +594,9 @@ function buildDelegateSummary(role: string | undefined, result: TaskResult): str
 
   if (result.status === 'success') {
     const preview =
-      typeof result.result === 'string'
+      result.report?.summary
+        ? result.report.summary.trim().slice(0, 120).replace(/\n+/g, ' ')
+        : typeof result.result === 'string'
         ? result.result.trim().slice(0, 120).replace(/\n+/g, ' ')
         : null;
     const tail = preview ? ` — ${preview}` : '';

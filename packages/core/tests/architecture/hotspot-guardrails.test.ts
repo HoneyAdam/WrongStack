@@ -60,7 +60,6 @@ const TEMPORARY_SLASH_COMMAND_IMPORT_ALLOWLIST = new Set<string>([
   'packages/cli/src/boot.ts',
   'packages/cli/src/execution.ts',
   'packages/cli/src/project-picker.ts',
-  'packages/cli/src/pre-launch.ts',
   'packages/cli/src/repl.ts',
   'packages/cli/src/webui-server/ws-handlers/projects.ts',
   'packages/cli/src/cli-main.ts',

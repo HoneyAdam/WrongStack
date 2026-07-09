@@ -413,7 +413,12 @@ const plugin: Plugin = {
       };
     };
 
-    state.hookUnregister = api.registerHook('PreToolUse', 'bash|exec', hook as never);
+    state.hookUnregister = api.registerHook('PreToolUse', 'bash|exec', hook as never, {
+      name: 'dep-guard',
+      stage: 'validate',
+      failurePolicy: 'closed',
+      policy: true,
+    });
 
     // ── dep_guard_status tool ─────────────────────────────────────────
     api.tools.register({

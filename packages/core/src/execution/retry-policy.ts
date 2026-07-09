@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { ProviderError } from '../types/provider.js';
+import { ProviderError, type ProviderErrorKind } from '../types/provider.js';
 import { NETWORK_ERR_RE } from './regex-patterns.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 
@@ -17,6 +17,27 @@ import type { RetryPolicy } from '../types/retry-policy.js';
  */
 export const MAX_RETRY_AFTER_MS = 60_000;
 
+/**
+ * In-place attempts per canonical failure kind. Exhaustive by construction
+ * (`Record<ProviderErrorKind, …>`) — adding a new kind refuses to compile
+ * until it gets an attempt budget. Zero for request-shaped failures
+ * (auth / invalid_request / context_overflow / content_filter): replaying
+ * the same request can't succeed.
+ */
+const MAX_ATTEMPTS_BY_KIND: Record<ProviderErrorKind, number> = {
+  rate_limit: 5,
+  stream_hang: 5, // transient, worth retrying aggressively
+  overloaded: 3,
+  server: 3,
+  timeout: 2,
+  network: 2,
+  auth: 0,
+  invalid_request: 0,
+  context_overflow: 0,
+  content_filter: 0,
+  unknown: 0,
+};
+
 export class DefaultRetryPolicy implements RetryPolicy {
   shouldRetry(err: Error | ProviderError, attempt: number): boolean {
     if (err instanceof ProviderError) {
@@ -31,11 +52,7 @@ export class DefaultRetryPolicy implements RetryPolicy {
 
   maxAttempts(err: Error | ProviderError): number {
     if (err instanceof ProviderError) {
-      if (err.status === 429) return 5;
-      if (err.status === 529) return 3;
-      if (err.status === 599) return 5; // stream hang — transient, worth retrying aggressively
-      if (err.status >= 500) return 3;
-      return 0;
+      return MAX_ATTEMPTS_BY_KIND[err.kind];
     }
     return 2;
   }

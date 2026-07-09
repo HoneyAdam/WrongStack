@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
 
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 // L3-A: every public tool gets its own entry so users can
 // `import { bashTool } from '@wrongstack/tools/bash'` and tree-shake the
 // rest. Underscored files are excluded.
@@ -59,7 +61,7 @@ export default defineConfig({
     'src/codebase-index/worker.ts',
   ],
   format: ['esm'],
-  dts: true,
+  dts: skipDts ? false : true,
   sourcemap: true,
   clean: true,
   splitting: false,
@@ -71,8 +73,9 @@ export default defineConfig({
   // rewrite makes dist unloadable. Keep the protocol intact.
   removeNodeProtocol: false,
   external: [
-    // Workspace dependency — resolved from node_modules at runtime.
+    // Workspace dependencies — resolved from node_modules at runtime.
     '@wrongstack/core',
+    '@wrongstack/kanban',
     // Node built-in (codebase-index storage). Must not be inlined.
     'node:sqlite',
     // The TypeScript compiler API (used only by codebase-index/ts-parser).

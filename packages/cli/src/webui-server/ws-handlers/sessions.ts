@@ -58,10 +58,12 @@ function sessionPayload<T extends Record<string, unknown>>(
 
 /** The session store to use: the wired one, else a transient legacy fallback. */
 function storeFor(opts: SessionsOptions): SessionStore {
+  const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
   return (
     opts.sessionStore ??
     new DefaultSessionStore({
-      dir: path.join(opts.projectRoot ?? opts.agent.ctx.projectRoot, '.wrongstack', 'sessions'),
+      dir: path.join(projectRoot, '.wrongstack', 'sessions'),
+      projectRoot,
     })
   );
 }

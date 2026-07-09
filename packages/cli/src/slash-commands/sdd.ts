@@ -1,10 +1,10 @@
 import * as fsp from 'node:fs/promises';
-import type { AISpecPhase, SlashCommand, SpecRequirement } from '@wrongstack/core';
+import { expectDefined, type SlashCommand, type SpecRequirement } from '@wrongstack/core';
 import {
+  type AISpecPhase,
   AISpecBuilder,
   analyzeCriticalPath,
   DefaultTaskStore,
-  expectDefined,
   getTemplate,
   listTemplates,
   renderProgress,
@@ -17,7 +17,7 @@ import {
   TaskGraphStore,
   TaskTracker,
   templateToMarkdown,
-} from '@wrongstack/core';
+} from '@wrongstack/sdd';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 import { findSpec, gatherProjectContext } from './sdd/project-context.js';

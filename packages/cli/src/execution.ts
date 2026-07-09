@@ -407,7 +407,7 @@ export interface ExecutionDeps {
    * SIGINT handler uses this to stop a running `/sdd parallel` on the first Ctrl+C
    * — the run has its own coordinator, so it is otherwise unreachable from there.
    */
-  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  getSddRun?: (() => import('@wrongstack/sdd').SddRunControl | null) | undefined;
   /**
    * Apply a post-run SDD lifecycle op (clean worktrees / rollback / destroy) from
    * the host. Drives the TUI board overlay keys (c / z / x) so they work even
@@ -419,7 +419,7 @@ export interface ExecutionDeps {
     | ((
         op: 'cleanup_worktrees' | 'rollback' | 'destroy',
         opts?: { revertMerged?: boolean },
-      ) => Promise<import('@wrongstack/core').SddLifecycleResult>)
+      ) => Promise<import('@wrongstack/sdd').SddLifecycleResult>)
     | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal engine.

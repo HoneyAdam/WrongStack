@@ -12,6 +12,12 @@ const CORE_SRC = path.resolve(process.cwd(), 'packages/core/src');
 const ALLOWED_SELF_IMPORTS = new Set([
   '@wrongstack/core',
   '@wrongstack/core/utils/dispatcher-types', // dispatcher-types.d.ts re-exports from itself in JSDoc examples
+  // @wrongstack/kanban was extracted from core and sits BELOW it in the
+  // dependency graph (kanban has no @wrongstack dependencies; core declares
+  // it in package.json). Static imports are therefore not upward imports.
+  // Note: @wrongstack/sdd stays ABOVE core (it depends on core) and must not
+  // appear here — core reaches it only via lazy createRequire in autophase/.
+  '@wrongstack/kanban',
 ]);
 
 /**

@@ -119,6 +119,11 @@ describe('DefaultMultiAgentCoordinator with runner', () => {
 
   it('timeout aborts the runner and reports status=timeout', async () => {
     const runner: SubagentRunner = async (_task, ctx) => {
+      ctx.reportProgress?.({
+        text: 'incomplete but useful root-cause evidence',
+        source: 'runner',
+        capturedAt: Date.now(),
+      });
       // Cooperative runner that respects the signal
       await new Promise<void>((resolve, reject) => {
         const t = setTimeout(() => resolve(), 500);
@@ -137,6 +142,10 @@ describe('DefaultMultiAgentCoordinator with runner', () => {
     const [result] = await donePromise;
 
     expect(result.status).toBe('timeout');
+    expect(result.partial).toMatchObject({
+      text: 'incomplete but useful root-cause evidence',
+      source: 'runner',
+    });
   });
 
   it('never-die: a wired onThreshold negotiates a timeout extension and the task finishes (status=success)', async () => {

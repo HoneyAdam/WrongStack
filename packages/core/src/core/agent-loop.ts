@@ -507,21 +507,21 @@ export function createAgentLoopHandler(
       ts: new Date().toISOString(),
       content: inputPayload.content,
     });
-    // Drain the user_input to disk before the LLM call. Fire-and-forget
-    // (matching the llm_response path in agent-response.ts) — the write
-    // starts immediately so the durability window is only the disk round-
-    // trip (~1-5ms), not the full tool-execution phase. The writeCheckpoint
-    // below adds a second event to the buffer and schedules a 500ms deferred
-    // flush, which acts as a backup if the async flush is interrupted.
-    // Synchronous durability is still guaranteed at close()/checkpoint
-    // boundaries for the SIGKILL-mid-tool case.
-    void a.ctx.session.flush().catch(() => {
-      /* best-effort — buffered write is retried at the next boundary flush */
-    });
-
     const promptIndex = a.ctx.messages.filter((m) => m.role === 'user').length - 1;
     const preview = inputPayload.text.slice(0, 80) + (inputPayload.text.length > 80 ? '…' : '');
     await a.ctx.session.writeCheckpoint(promptIndex, preview);
+    // The user input and its checkpoint are one recovery boundary. Await the
+    // drain before the provider call so a crash cannot start work whose prompt
+    // exists only in the 500ms memory buffer. FileSessionWriter retains a
+    // failed batch for retry; alternate writers may reject, which remains
+    // best-effort and must not abort the user's turn.
+    try {
+      await a.ctx.session.flush();
+    } catch (err) {
+      (a.logger.debug ?? a.logger.warn)?.(
+        `session boundary flush failed: ${toErrorMessage(err)}`,
+      );
+    }
 
     let finalText = '';
     let iterations = 0;
@@ -600,18 +600,17 @@ export function createAgentLoopHandler(
           return { status: 'aborted', iterations, abortReason: signalAbortReason(controller.signal) };
         }
 
-        // Fire-and-forget: the in-flight marker is best-effort crash-
-        // recovery metadata. Don't block the iteration loop on a disk
-        // write — the .catch already swallows errors, and the marker
-        // just needs to land at some point during the iteration for
-        // SessionRecovery.detectStale to detect a crash.
-        a.ctx.session
-          .writeInFlightMarker(`iteration ${i} / max ${a.maxIterations}`)
-          .catch((err) => {
-            (a.logger.debug ?? a.logger.warn)?.(
-              `in-flight marker write failed: ${toErrorMessage(err)}`,
-            );
-          });
+        // Persist the open boundary before starting provider/tool work. A
+        // fire-and-forget marker could be overtaken by later events or remain
+        // solely in memory for the entire crash window.
+        try {
+          await a.ctx.session.writeInFlightMarker(`iteration ${i} / max ${a.maxIterations}`);
+          await a.ctx.session.flush();
+        } catch (err) {
+          (a.logger.debug ?? a.logger.warn)?.(
+            `in-flight marker write failed: ${toErrorMessage(err)}`,
+          );
+        }
 
         if (autonomousContinue) {
           consumeAutonomousContinue(a.ctx);
@@ -953,13 +952,14 @@ export function createAgentLoopHandler(
     } finally {
       offSubagentDone();
       const reason: 'clean' | 'aborted' = controller.signal.aborted ? 'aborted' : 'clean';
-      await a.ctx.session
-        .clearInFlightMarker(reason)
-        .catch((err) => {
-          (a.logger.debug ?? a.logger.warn)?.(
-            `in-flight marker clear failed: ${toErrorMessage(err)}`,
-          );
-        });
+      try {
+        await a.ctx.session.clearInFlightMarker(reason);
+        await a.ctx.session.flush();
+      } catch (err) {
+        (a.logger.debug ?? a.logger.warn)?.(
+          `in-flight marker clear failed: ${toErrorMessage(err)}`,
+        );
+      }
     }
   }
 

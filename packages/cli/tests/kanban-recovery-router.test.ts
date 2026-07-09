@@ -8,7 +8,7 @@ import {
   getBoard,
   recoverStaleTaskAssignments,
   updateTaskAssignment,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tmpDir = '';

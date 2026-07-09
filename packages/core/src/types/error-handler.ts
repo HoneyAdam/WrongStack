@@ -45,6 +45,7 @@ export interface ErrorHandler {
       | 'network'
       | 'abort'
       | 'context_overflow'
+      | 'content_filter'
       | 'unknown';
     retryable: boolean;
   };

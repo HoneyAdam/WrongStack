@@ -48,7 +48,10 @@ interface Pattern {
 // Custom patterns from config are APPENDED at setup() time.
 const BASE_PATTERNS: Pattern[] = [
   // LLM provider keys
-  { type: 'anthropic_key', regex: /(?<![A-Za-z0-9])sk-ant-api\d+-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9])/g },
+  {
+    type: 'anthropic_key',
+    regex: /(?<![A-Za-z0-9])sk-ant-api\d+-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9])/g,
+  },
   { type: 'openai_key', regex: /(?<![A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?![A-Za-z0-9])/g },
   // GitHub
   { type: 'github_pat', regex: /(?<![A-Za-z0-9])ghp_[A-Za-z0-9]{36,}(?![A-Za-z0-9])/g },
@@ -60,7 +63,10 @@ const BASE_PATTERNS: Pattern[] = [
   // Slack
   { type: 'slack_token', regex: /(?<![A-Za-z0-9-])xox[abpos]-[A-Za-z0-9-]{10,}(?![A-Za-z0-9-])/g },
   // Stripe
-  { type: 'stripe_key', regex: /(?<![A-Za-z0-9])sk_(?:live|test)_[A-Za-z0-9]{24,}(?![A-Za-z0-9])/g },
+  {
+    type: 'stripe_key',
+    regex: /(?<![A-Za-z0-9])sk_(?:live|test)_[A-Za-z0-9]{24,}(?![A-Za-z0-9])/g,
+  },
   // Twilio
   { type: 'twilio_sid', regex: /(?<![A-Za-z0-9])AC[a-f0-9]{32}(?![A-Za-z0-9])/g },
   // Telegram
@@ -71,12 +77,14 @@ const BASE_PATTERNS: Pattern[] = [
   // JWT
   {
     type: 'jwt',
-    regex: /(?<![A-Za-z0-9/+=])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9/+=])/g,
+    regex:
+      /(?<![A-Za-z0-9/+=])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9/+=])/g,
   },
   // Private keys
   {
     type: 'private_key',
-    regex: /(?:^|\n)-----BEGIN (?:RSA|EC|OPENSSH|DSA|PGP)? ?PRIVATE KEY-----[\s\S]*?-----END (?:RSA|EC|OPENSSH|DSA|PGP)? ?PRIVATE KEY-----(?!\S)/g,
+    regex:
+      /(?:^|\n)-----BEGIN (?:RSA|EC|OPENSSH|DSA|PGP)? ?PRIVATE KEY-----[\s\S]*?-----END (?:RSA|EC|OPENSSH|DSA|PGP)? ?PRIVATE KEY-----(?!\S)/g,
   },
   // AI/ML provider tokens
   { type: 'huggingface_token', regex: /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{34}(?![A-Za-z0-9])/g },
@@ -121,10 +129,7 @@ let COMBINED_REGEX = buildCombinedRegex(PATTERNS);
  * @internal
  */
 function buildCombinedRegex(patterns: Pattern[]): RegExp {
-  return new RegExp(
-    patterns.map((p) => `(${p.regex.source})`).join('|'),
-    'g',
-  );
+  return new RegExp(patterns.map((p) => `(${p.regex.source})`).join('|'), 'g');
 }
 
 // ---------------------------------------------------------------------------
@@ -303,12 +308,19 @@ function readConfig(raw: unknown): SecretScannerConfig {
       } catch {
         continue;
       }
-      customPatterns.push({ type, regex, description: typeof e['description'] === 'string' ? e['description'] : undefined });
+      customPatterns.push({
+        type,
+        regex,
+        description: typeof e['description'] === 'string' ? e['description'] : undefined,
+      });
     }
   }
   return {
     matcher: typeof r['matcher'] === 'string' ? r['matcher'] : DEFAULTS.matcher,
-    postToolUseMatcher: typeof r['postToolUseMatcher'] === 'string' ? r['postToolUseMatcher'] : DEFAULTS.postToolUseMatcher,
+    postToolUseMatcher:
+      typeof r['postToolUseMatcher'] === 'string'
+        ? r['postToolUseMatcher']
+        : DEFAULTS.postToolUseMatcher,
     mode,
     enabled: r['enabled'] !== false,
     customPatterns,
@@ -319,8 +331,22 @@ function readConfig(raw: unknown): SecretScannerConfig {
 // Hook
 // ---------------------------------------------------------------------------
 
-function buildHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...rest: unknown[]) => void; info: (msg: string, ...rest: unknown[]) => void }) {
-  return (input: { toolName?: string | undefined; toolInput?: unknown }): { decision?: 'block' | 'allow' | undefined; reason?: string | undefined; modifiedInput?: Record<string, unknown>; additionalContext?: string | undefined } | void => {
+function buildHook(
+  cfg: SecretScannerConfig,
+  log: {
+    warn: (msg: string, ...rest: unknown[]) => void;
+    info: (msg: string, ...rest: unknown[]) => void;
+  },
+) {
+  return (input: {
+    toolName?: string | undefined;
+    toolInput?: unknown;
+  }): {
+    decision?: 'block' | 'allow' | undefined;
+    reason?: string | undefined;
+    modifiedInput?: Record<string, unknown>;
+    additionalContext?: string | undefined;
+  } | void => {
     if (!cfg.enabled) return;
     const toolName = input.toolName ?? 'unknown';
     const matched = scanInput(input.toolInput);
@@ -331,9 +357,7 @@ function buildHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...rest:
     if (cfg.mode === 'block') {
       state.blockCount += 1;
       state.lastBlock = { toolName, matchedTypes: matched, when };
-      log.warn(
-        `[secret-scanner] blocked ${toolName} — matched: ${summary}`,
-      );
+      log.warn(`[secret-scanner] blocked ${toolName} — matched: ${summary}`);
       return {
         decision: 'block',
         reason:
@@ -344,20 +368,13 @@ function buildHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...rest:
     }
     if (cfg.mode === 'redact') {
       const redacted = redactInput(input.toolInput);
-      if (
-        redacted !== null &&
-        typeof redacted === 'object' &&
-        !Array.isArray(redacted)
-      ) {
+      if (redacted !== null && typeof redacted === 'object' && !Array.isArray(redacted)) {
         state.redactCount += 1;
-        log.info(
-          `[secret-scanner] redacted ${toolName} — matched: ${summary}`,
-        );
+        log.info(`[secret-scanner] redacted ${toolName} — matched: ${summary}`);
         return {
           decision: 'allow',
           modifiedInput: redacted as Record<string, unknown>,
-          additionalContext:
-            `secret-scanner: redacted ${matched.length} credential pattern(s) from the ${toolName} arguments before execution.`,
+          additionalContext: `secret-scanner: redacted ${matched.length} credential pattern(s) from the ${toolName} arguments before execution.`,
         };
       }
       // Fall through to block if redaction can't produce a valid input
@@ -366,8 +383,7 @@ function buildHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...rest:
       state.lastBlock = { toolName, matchedTypes: matched, when };
       return {
         decision: 'block',
-        reason:
-          `secret-scanner: cannot safely redact '${toolName}' input (non-object shape); refusing to run.`,
+        reason: `secret-scanner: cannot safely redact '${toolName}' input (non-object shape); refusing to run.`,
       };
     }
     // mode === 'allow' — just count and log, never block.
@@ -394,7 +410,10 @@ function buildHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...rest:
  * The counter is always bumped regardless of mode — detecting a leak
  * in `allow` mode is still operationally important.
  */
-function buildPostHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...rest: unknown[]) => void }) {
+function buildPostHook(
+  cfg: SecretScannerConfig,
+  log: { warn: (msg: string, ...rest: unknown[]) => void },
+) {
   return (input: {
     toolName?: string | undefined;
     toolResult?: { content: string; isError: boolean } | undefined;
@@ -415,9 +434,7 @@ function buildPostHook(cfg: SecretScannerConfig, log: { warn: (msg: string, ...r
     state.leakCount += 1;
     state.lastLeak = { toolName, matchedTypes: matched, when };
 
-    log.warn(
-      `[secret-scanner] POST-TOOL LEAK: ${toolName} output matched ${summary}`,
-    );
+    log.warn(`[secret-scanner] POST-TOOL LEAK: ${toolName} output matched ${summary}`);
 
     return {
       additionalContext:
@@ -450,7 +467,8 @@ const plugin: Plugin = {
       postToolUseMatcher: {
         type: 'string',
         default: '*',
-        description: 'PostToolUse: Tool-name matcher for output leak detection. Default "*" scans all tool outputs.',
+        description:
+          'PostToolUse: Tool-name matcher for output leak detection. Default "*" scans all tool outputs.',
       },
       mode: {
         type: 'string',
@@ -461,12 +479,20 @@ const plugin: Plugin = {
       enabled: { type: 'boolean', default: true },
       customPatterns: {
         type: 'array',
-        description: 'User-supplied custom credential patterns. Each entry is { type: string, regex: string, description?: string }. Appended to the 20 built-in patterns at setup() time.',
+        description:
+          'User-supplied custom credential patterns. Each entry is { type: string, regex: string, description?: string }. Appended to the 20 built-in patterns at setup() time.',
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', description: 'Unique identifier (used in block reason + [REDACTED:type] label)' },
-            regex: { type: 'string', description: 'Regex source string (without /…/g delimiters). Must be a valid JS regex.' },
+            type: {
+              type: 'string',
+              description: 'Unique identifier (used in block reason + [REDACTED:type] label)',
+            },
+            regex: {
+              type: 'string',
+              description:
+                'Regex source string (without /…/g delimiters). Must be a valid JS regex.',
+            },
             description: { type: 'string', description: 'Optional human-readable description' },
           },
           required: ['type', 'regex'],
@@ -511,7 +537,15 @@ const plugin: Plugin = {
     // Register the PreToolUse hook. registerHook returns an unregister
     // function we keep for teardown.
     const hook = buildHook(cfg, log);
-    state.hookUnregister = api.registerHook('PreToolUse', cfg.matcher, hook);
+    state.hookUnregister = api.registerHook('PreToolUse', cfg.matcher, hook, {
+      name: 'secret-scanner',
+      // Redaction rewrites arguments; block/allow modes must inspect the final
+      // result after every mutator has run so a later rewrite cannot smuggle a
+      // secret past deterministic enforcement.
+      stage: cfg.mode === 'redact' ? 'mutate' : 'validate',
+      failurePolicy: 'closed',
+      policy: true,
+    });
 
     // Register the PostToolUse hook for output leak detection.
     const postHook = buildPostHook(cfg, log);

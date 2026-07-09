@@ -282,6 +282,9 @@ describe('resolveCodexModels', () => {
             { id: 'gpt-5.4-mini' },
             { id: 'gpt-5.3-codex' },
             { id: 'gpt-5.5' },
+            { id: 'gpt-5.6-sol' },
+            { id: 'gpt-5.6-terra' },
+            { id: 'gpt-5.6-luna' },
           ],
         }),
       ),
@@ -293,7 +296,10 @@ describe('resolveCodexModels', () => {
     } as never as ModelsRegistry;
 
     await expect(resolveCodexModels(registry, 'test-token')).resolves.toEqual([
+      'gpt-5.6-sol',
       'gpt-5.5',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.4-mini',
     ]);
   });
@@ -308,7 +314,10 @@ describe('resolveCodexModels', () => {
         id === 'openai'
           ? {
               models: [
+                { id: 'gpt-5.6-sol', family: 'gpt-codex' },
                 { id: 'gpt-5.5', family: 'gpt-codex' },
+                { id: 'gpt-5.6-terra', family: 'gpt-codex' },
+                { id: 'gpt-5.6-luna', family: 'gpt-codex' },
                 { id: 'gpt-5.4', family: 'gpt-codex' },
                 { id: 'gpt-5.4-mini', family: 'gpt-codex' },
                 { id: 'gpt-5.3-codex-spark', family: 'gpt-codex-spark' },
@@ -321,7 +330,10 @@ describe('resolveCodexModels', () => {
     } as never as ModelsRegistry;
 
     await expect(resolveCodexModels(registry, 'test-token')).resolves.toEqual([
+      'gpt-5.6-sol',
       'gpt-5.5',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.3-codex-spark',
@@ -338,7 +350,10 @@ describe('resolveCodexModels', () => {
     } as never as ModelsRegistry;
 
     await expect(resolveCodexModels(registry, 'test-token')).resolves.toEqual([
+      'gpt-5.6-sol',
       'gpt-5.5',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.3-codex-spark',

@@ -43,7 +43,6 @@ import {
   mailboxSessionTag,
   ParallelEternalEngine,
   type LogLevel,
-  SddRunRegistry,
   type SystemPromptBuilder,
   TOKENS,
   ToolRegistry,
@@ -51,6 +50,7 @@ import {
   writeOut,
   getToolDescriptionMode,
 } from '@wrongstack/core';
+import { SddRunRegistry } from '@wrongstack/sdd';
 import { wireSessionEvents } from './session-event-wiring.js';
 import { initializeCli } from './cli-context.js';
 import { createAuthPanelHost } from './auth-menu/panel-service.js';
@@ -103,7 +103,7 @@ import { wireEventWiring } from './boot/event-wiring.js';
 export { CLI_VERSION };
 
 type SddParallelRunGlobal = typeof globalThis & {
-  __sddParallelRun?: import('@wrongstack/core').SddParallelRun | undefined;
+  __sddParallelRun?: import('@wrongstack/sdd').SddParallelRun | undefined;
 };
 
 type PluginPickerItem = {
@@ -853,7 +853,7 @@ export async function main(argv: string[]): Promise<number> {
   // abandoned SDD run left behind so they never accumulate across sessions.
   // Liveness-guarded (skips a run live in another process) + best-effort;
   // fire-and-forget so it never delays startup.
-  void import('@wrongstack/core')
+  void import('@wrongstack/sdd')
     .then((m) => m.cleanupStaleSddWorktrees({ projectRoot, boardsDir: wpaths.projectSddBoards }))
     .catch(() => undefined);
 
@@ -1710,7 +1710,7 @@ export async function main(argv: string[]): Promise<number> {
         return `Cannot run parallel in phase "${session.phase}". Use /sdd approve first.`;
       }
       const graphId = sdd.getTaskGraphId();
-      const graphStore = new (await import('@wrongstack/core')).TaskGraphStore({
+      const graphStore = new (await import('@wrongstack/sdd')).TaskGraphStore({
         baseDir: wpaths.projectTaskGraphs,
       });
       const graph = graphId ? await graphStore.load(graphId) : null;
@@ -1718,6 +1718,7 @@ export async function main(argv: string[]): Promise<number> {
         return 'No task graph found for the current SDD session.';
       }
       const core = await import('@wrongstack/core');
+      const sddApi = await import('@wrongstack/sdd');
       // Resume safety (orphaned in_progress reset) is handled inside startSddRun.
 
       // Per-task git-worktree isolation: each parallel agent works in its own
@@ -1755,7 +1756,7 @@ export async function main(argv: string[]): Promise<number> {
           // Clean slate before allocating: sweep orphaned worktrees/branches a
           // prior crashed/abandoned run left behind. Liveness-guarded so it
           // never disturbs a run live in another process.
-          await core
+          await sddApi
             .cleanupStaleSddWorktrees({ projectRoot, boardsDir: wpaths.projectSddBoards })
             .catch(() => undefined);
           worktrees = new core.WorktreeManager({
@@ -1766,14 +1767,14 @@ export async function main(argv: string[]): Promise<number> {
         }
       }
 
-      const boardStore = new core.SddBoardStore({ baseDir: wpaths.projectSddBoards });
+      const boardStore = new sddApi.SddBoardStore({ baseDir: wpaths.projectSddBoards });
 
       // Completion gate: when a task declares `metadata.verificationCommand`, run
       // it in the task's worktree cwd and only let the task complete on exit 0.
       // No command → no-op (the run's existing guards still apply). Bounded so a
       // hung verifier can't wedge the run. Shared with the standalone WebUI wizard
       // via core.makeCommandVerifier so both surfaces gate identically.
-      const verifyTask = core.makeCommandVerifier();
+      const verifyTask = sddApi.makeCommandVerifier();
 
       // Failure supervisor: when a task exhausts its retries, the Brain decides
       // retry/reassign/fail rather than dead-ending. Safe default (no LLM verdict)
@@ -1788,7 +1789,7 @@ export async function main(argv: string[]): Promise<number> {
       // bounded retry — and `reassignModels` still applies when a brain answers
       // `reassign`. (Standalone WebUI, whose brain has no human wrapper, enables
       // it; see sdd-wizard-wiring.ts.)
-      const sddSupervisor = new core.SddSupervisor({
+      const sddSupervisor = new sddApi.SddSupervisor({
         brain,
         reassignModels: core.effectiveFallbackChain(config),
       });
@@ -1808,11 +1809,11 @@ export async function main(argv: string[]): Promise<number> {
       const conflictMode = process.env['WRONGSTACK_SDD_CONFLICT_RESOLVER'];
       const conflictResolver =
         conflictMode === 'prefer-incoming'
-          ? core.makePreferSideConflictResolver('incoming')
+          ? sddApi.makePreferSideConflictResolver('incoming')
           : conflictMode === 'prefer-base'
-            ? core.makePreferSideConflictResolver('base')
+            ? sddApi.makePreferSideConflictResolver('base')
             : conflictMode === 'llm'
-              ? core.makeLlmConflictResolver({
+              ? sddApi.makeLlmConflictResolver({
                   run: async (prompt: string): Promise<string> => {
                     const r = await sddSubagentFactory({
                       id: `sdd-conflict-${Date.now()}`,
@@ -1835,7 +1836,7 @@ export async function main(argv: string[]): Promise<number> {
 
       // Shared run-setup core (also used by the WebUI servers): orphan reset →
       // run → board projector → registry → cross-process control drain.
-      const handle = core.startSddRun({
+      const handle = sddApi.startSddRun({
         tracker,
         graph,
         agent,
@@ -1850,7 +1851,7 @@ export async function main(argv: string[]): Promise<number> {
         verifyTask,
         conflictResolver,
         superviseFailure: sddSupervisor.superviseFailure,
-        onProgress: (p: import('@wrongstack/core').SddProgress) => {
+        onProgress: (p: import('@wrongstack/sdd').SddProgress) => {
           renderer.write(
             `  ░ wave ${p.wave + 1} · ${p.completed}/${p.total} tasks · ${p.percent}% done\n`,
           );
@@ -1890,21 +1891,21 @@ export async function main(argv: string[]): Promise<number> {
     onSddCleanWorktrees: async () => {
       const active = sddRunRegistry.getActive();
       if (active) return active.cleanupWorktrees();
-      const core = await import('@wrongstack/core');
-      const { removed } = await core.cleanupSddWorktrees(projectRoot);
+      const sddApi = await import('@wrongstack/sdd');
+      const { removed } = await sddApi.cleanupSddWorktrees(projectRoot);
       return removed;
     },
     onSddRollback: async () => {
       const active = sddRunRegistry.getActive();
       if (active) return active.rollback();
-      const core = await import('@wrongstack/core');
-      return core.rollbackSddRunFromDisk({ projectRoot, boardsDir: wpaths.projectSddBoards });
+      const sddApi = await import('@wrongstack/sdd');
+      return sddApi.rollbackSddRunFromDisk({ projectRoot, boardsDir: wpaths.projectSddBoards });
     },
     onSddDestroy: async (destroyOpts) => {
       // Stop any live run first so nothing writes while we delete.
       sddRunRegistry.getActive()?.stop();
-      const core = await import('@wrongstack/core');
-      return core.destroySddProject({
+      const sddApi = await import('@wrongstack/sdd');
+      return sddApi.destroySddProject({
         projectRoot,
         revertMerged: destroyOpts?.revertMerged === true,
         paths: {
@@ -2345,8 +2346,8 @@ export async function main(argv: string[]): Promise<number> {
       else if (active?.isRunning()) {
         return { op, ok: false, reason: 'Stop the run first (Ctrl+C), then retry.' };
       }
-      const core = await import('@wrongstack/core');
-      return core.applySddLifecycle(op, {
+      const sddApi = await import('@wrongstack/sdd');
+      return sddApi.applySddLifecycle(op, {
         projectRoot,
         revertMerged: lcOpts?.revertMerged === true,
         paths: {

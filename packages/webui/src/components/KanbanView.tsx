@@ -1,4 +1,4 @@
-import type { KanbanBoard, KanbanColumn, KanbanTask } from '@wrongstack/core';
+import type { KanbanBoard, KanbanColumn, KanbanTask } from '@wrongstack/kanban';
 import {
   ArrowLeft,
   Check,

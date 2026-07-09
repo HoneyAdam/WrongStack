@@ -2,6 +2,14 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  makeKanbanQueueTool,
+  serializeTaskGraph,
+  type SubagentConfig,
+  type TaskGraph,
+  type TaskResult,
+  type TaskSpec,
+} from '@wrongstack/core';
+import {
   addDependency,
   addGoalMetricToTask,
   addTask,
@@ -19,7 +27,6 @@ import {
   heartbeatTaskAssignment,
   listKanbanEvents,
   listReadyTasks,
-  makeKanbanQueueTool,
   type KanbanBoard,
   mergeTasks,
   moveTask,
@@ -28,19 +35,14 @@ import {
   releaseTaskClaim,
   removeBoard,
   searchKanban,
-  serializeTaskGraph,
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
   transferTaskToBoard,
-  type TaskGraph,
   updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
-  type SubagentConfig,
-  type TaskResult,
-  type TaskSpec,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 import { kanbanTool } from '../../tools/src/kanban.js';

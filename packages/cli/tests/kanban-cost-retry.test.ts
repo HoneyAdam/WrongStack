@@ -8,7 +8,7 @@ import {
   createBoard,
   getBoard,
   updateTaskAssignment,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { kanbanTool } from '../../tools/src/kanban.js';
 

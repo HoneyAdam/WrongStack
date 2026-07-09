@@ -1,11 +1,19 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import secretScannerPlugin from '../src/secret-scanner';
 
 interface MockApi {
   tools: { register: ReturnType<typeof vi.fn> };
   config: { extensions: Record<string, unknown> };
-  log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
-  metrics: { counter: ReturnType<typeof vi.fn>; histogram: ReturnType<typeof vi.fn>; gauge: ReturnType<typeof vi.fn> };
+  log: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+  metrics: {
+    counter: ReturnType<typeof vi.fn>;
+    histogram: ReturnType<typeof vi.fn>;
+    gauge: ReturnType<typeof vi.fn>;
+  };
   registerSystemPromptContributor: ReturnType<typeof vi.fn>;
   registerHook: ReturnType<typeof vi.fn>;
   onEvent: ReturnType<typeof vi.fn>;
@@ -25,14 +33,17 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
   };
 }
 
-function getRegisteredTool(api: MockApi, name: string): {
+function getRegisteredTool(
+  api: MockApi,
+  name: string,
+): {
   execute: (input: unknown) => Promise<unknown>;
 } {
   const call = api.tools.register.mock.calls.find(
     ([t]: unknown[]) => (t as { name: string }).name === name,
   );
   if (!call) throw new Error(`tool ${name} not registered`);
-  return (call[0] as { execute: (input: unknown) => Promise<unknown> });
+  return call[0] as { execute: (input: unknown) => Promise<unknown> };
 }
 
 function getRegisteredHook(api: MockApi): (input: {
@@ -40,13 +51,20 @@ function getRegisteredHook(api: MockApi): (input: {
   toolName?: string;
   toolInput?: unknown;
   cwd: string;
-}) => { decision?: 'block' | 'allow' | undefined; reason?: string | undefined; modifiedInput?: Record<string, unknown>; additionalContext?: string | undefined } | void {
+}) => {
+  decision?: 'block' | 'allow' | undefined;
+  reason?: string | undefined;
+  modifiedInput?: Record<string, unknown>;
+  additionalContext?: string | undefined;
+} | void {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('PreToolUse hook not registered');
   return (call as unknown[])[2] as ReturnType<typeof getRegisteredHook>;
 }
 
-function getRegisteredPostHook(api: MockApi): (input: {
+function getRegisteredPostHook(
+  api: MockApi,
+): (input: {
   toolName?: string;
   toolResult?: { content: string; isError: boolean };
 }) => { additionalContext?: string | undefined } | void {
@@ -93,7 +111,9 @@ describe('secret-scanner plugin', () => {
   it('registers secret_scanner_status and secret_scanner_test', () => {
     const api = makeApi();
     secretScannerPlugin.setup(api as any);
-    const names = api.tools.register.mock.calls.map(([t]: unknown[]) => (t as { name: string }).name);
+    const names = api.tools.register.mock.calls.map(
+      ([t]: unknown[]) => (t as { name: string }).name,
+    );
     expect(names).toContain('secret_scanner_status');
     expect(names).toContain('secret_scanner_test');
   });
@@ -105,17 +125,24 @@ describe('secret-scanner plugin', () => {
       'PreToolUse',
       'bash|write|edit',
       expect.any(Function),
+      {
+        name: 'secret-scanner',
+        stage: 'validate',
+        failurePolicy: 'closed',
+        policy: true,
+      },
     );
   });
 
   it('respects a custom matcher from config', () => {
     const api = makeApi({ extensions: { 'secret-scanner': { matcher: 'bash' } } });
     secretScannerPlugin.setup(api as any);
-    expect(api.registerHook).toHaveBeenCalledWith(
-      'PreToolUse',
-      'bash',
-      expect.any(Function),
-    );
+    expect(api.registerHook).toHaveBeenCalledWith('PreToolUse', 'bash', expect.any(Function), {
+      name: 'secret-scanner',
+      stage: 'validate',
+      failurePolicy: 'closed',
+      policy: true,
+    });
   });
 });
 
@@ -256,9 +283,7 @@ describe('PreToolUse hook — allow mode', () => {
       cwd: '/tmp',
     });
     expect(result).toBeUndefined();
-    expect(api.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('allow-mode'),
-    );
+    expect(api.log.warn).toHaveBeenCalledWith(expect.stringContaining('allow-mode'));
   });
 });
 
@@ -574,9 +599,7 @@ describe('custom patterns', () => {
     const api = makeApi({
       extensions: {
         'secret-scanner': {
-          customPatterns: [
-            { type: 'custom_api_key', regex: 'CUSTOMKEY-[A-Za-z0-9]{32}' },
-          ],
+          customPatterns: [{ type: 'custom_api_key', regex: 'CUSTOMKEY-[A-Za-z0-9]{32}' }],
         },
       },
     });
@@ -595,9 +618,7 @@ describe('custom patterns', () => {
     const api = makeApi({
       extensions: {
         'secret-scanner': {
-          customPatterns: [
-            { type: 'internal_token', regex: 'INT-[A-F0-9]{40}' },
-          ],
+          customPatterns: [{ type: 'internal_token', regex: 'INT-[A-F0-9]{40}' }],
         },
       },
     });
@@ -621,14 +642,19 @@ describe('custom patterns', () => {
       extensions: {
         'secret-scanner': {
           customPatterns: [
-            { type: 'custom_uuid', regex: 'uuid-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' },
+            {
+              type: 'custom_uuid',
+              regex: 'uuid-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+            },
           ],
         },
       },
     });
     secretScannerPlugin.setup(api as any);
     const testTool = getRegisteredTool(api, 'secret_scanner_test');
-    const result = await testTool.execute({ text: 'see uuid-deadbeef-1234-5678-abcd-ef0123456789 here' });
+    const result = await testTool.execute({
+      text: 'see uuid-deadbeef-1234-5678-abcd-ef0123456789 here',
+    });
     expect(result.matched).toContain('custom_uuid');
   });
 

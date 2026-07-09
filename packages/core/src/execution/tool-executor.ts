@@ -951,6 +951,8 @@ function extractMalformedRaw(input: unknown): string | undefined {
 }
 
 const TOOL_OUTPUT_ARTIFACT_THRESHOLD_BYTES = 64 * 1024;
+const TOOL_OUTPUT_ARTIFACT_PREVIEW_BYTES = 12 * 1024;
+const TOOL_OUTPUT_ARTIFACT_OMISSION = '\n…[artifact middle omitted]…\n';
 
 /**
  * Classify a tool execution error into a structured ToolErrorCategory.
@@ -1080,11 +1082,54 @@ async function maybePersistLargeToolOutput(
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filePath = path.join(dir, `${stamp}-${safeTool}-${randomUUID()}.log`);
     await fs.writeFile(filePath, content, 'utf8');
-    return (
-      content +
-      `\n[full tool output: ${bytes} bytes at ${filePath}; read/grep that file selectively instead of re-running or requesting more output]`
+    const marker =
+      `[full tool output: ${bytes} bytes at ${filePath}; ` +
+      'read/grep that file selectively instead of re-running or requesting more output]';
+    const fixedBytes = Buffer.byteLength(marker + TOOL_OUTPUT_ARTIFACT_OMISSION, 'utf8');
+    const previewBytes = Math.min(
+      TOOL_OUTPUT_ARTIFACT_PREVIEW_BYTES,
+      Math.max(0, budget - fixedBytes),
     );
+    if (previewBytes < 256) return marker;
+
+    const headBudget = Math.ceil(previewBytes / 2);
+    const tailBudget = previewBytes - headBudget;
+    const head = sliceUtf8Prefix(content, headBudget);
+    const tail = sliceUtf8Suffix(content, tailBudget);
+    return `${marker}\n${head}${TOOL_OUTPUT_ARTIFACT_OMISSION}${tail}`;
   } catch {
     return content;
   }
+}
+
+function sliceUtf8Prefix(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(text.slice(0, mid), 'utf8') <= maxBytes) low = mid;
+    else high = mid - 1;
+  }
+  let end = low;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end--;
+  return text.slice(0, end);
+}
+
+function sliceUtf8Suffix(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const chars = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(text.slice(text.length - chars), 'utf8') <= maxBytes) low = chars;
+    else high = chars - 1;
+  }
+  let start = text.length - low;
+  const first = text.charCodeAt(start);
+  if (first >= 0xdc00 && first <= 0xdfff) start++;
+  return text.slice(start);
 }

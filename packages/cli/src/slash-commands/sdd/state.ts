@@ -1,5 +1,10 @@
-import type { AISpecBuilder, AISpecPhase, DefaultTaskStore, TaskTracker } from '@wrongstack/core';
-import { SpecVersioning } from '@wrongstack/core';
+import {
+  type AISpecBuilder,
+  type AISpecPhase,
+  type DefaultTaskStore,
+  SpecVersioning,
+  type TaskTracker,
+} from '@wrongstack/sdd';
 import type { SlashCommandContext } from '../index.js';
 
 /** Key used to store SDD session state in ctx.meta for session isolation. */

@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
 
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
@@ -10,7 +12,7 @@ export default defineConfig({
     probe: 'src/local-llm-probe.ts',
   },
   format: ['esm'],
-  dts: true,
+  dts: skipDts ? false : true,
   sourcemap: true,
   clean: true,
   splitting: false,

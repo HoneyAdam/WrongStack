@@ -3,8 +3,9 @@
  * dependency). Holds the latest snapshot, recent events, active alerts, and
  * UI state (selected node, active view). Subscribes to the WS client once.
  */
-import { useEffect, useSyncExternalStore } from 'react';
+
 import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import { useEffect, useSyncExternalStore } from 'react';
 import { getHqClient } from './lib/hq-ws-client.js';
 
 export type ViewId =

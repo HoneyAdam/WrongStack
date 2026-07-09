@@ -1,7 +1,8 @@
 import { join, resolve, sep } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { EventBus, Logger } from '@wrongstack/core';
-import { cleanupStaleSddWorktrees, WorktreeManager } from '@wrongstack/core';
+import { WorktreeManager } from '@wrongstack/core';
+import { cleanupStaleSddWorktrees } from '@wrongstack/sdd';
 import type { WorktreeHandleView, WorktreeOrphanView, WSServerMessage } from './types.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 

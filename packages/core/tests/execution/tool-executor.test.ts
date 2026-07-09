@@ -771,9 +771,12 @@ describe('ToolExecutor', () => {
         const result = await executor.executeBatch([makeUse('large')], makeCtx(), 'sequential');
         const content = String((result.outputs[0]!.result as ToolResultBlock).content);
         expect(content).toContain('[full tool output:');
+        expect(content).toContain('[artifact middle omitted]');
+        expect(content.length).toBeLessThan(15_000);
         const match = / at (.*?); read\/grep/.exec(content);
         expect(match?.[1]).toBeTruthy();
         await expect(fs.stat(match![1]!)).resolves.toBeTruthy();
+        await expect(fs.readFile(match![1]!, 'utf8')).resolves.toBe('x'.repeat(70_000));
       } finally {
         if (oldHome === undefined) delete process.env['WRONGSTACK_HOME'];
         else process.env['WRONGSTACK_HOME'] = oldHome;

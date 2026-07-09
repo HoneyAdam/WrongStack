@@ -636,8 +636,12 @@ function startHqServerWithAuth(
       // The React app (packages/webui-hq) is the primary dashboard. When unbuilt
       // (or the package is absent), fall back to the self-contained inline HTML
       // so HQ is always functional — even offline with no build step.
+      // API + WS paths must NEVER hit the static server: its SPA fallback
+      // answers unknown routes with index.html, which would shadow every
+      // /api/* route below with a 200 text/html response.
       const hqDistDir = resolveHqDistDir();
-      if (hqDistDir !== null && (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/'))) {
+      const isApiOrWsPath = url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/');
+      if (hqDistDir !== null && !isApiOrWsPath) {
         const served = serveHqStatic(req, res, url.pathname, hqDistDir);
         if (served.handled) return;
       }

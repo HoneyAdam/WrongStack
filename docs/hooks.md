@@ -9,21 +9,24 @@ hooks are **interceptors**: a hook can short-circuit an action, mutate its
 inputs, or append context that the model sees. This is the system that lets an
 operator say "if X happens, you step in" — without recompiling the host.
 
-## Two execution models
+## Three execution models
 
 | Model | Who registers | Transport | Use case |
 |---|---|---|---|
-| **Shell hooks** | Operator, via `config.hooks` | Subprocess: `HookInput` JSON → stdin, `HookOutcome` JSON → stdout | Glue scripts, lint/format/notify pipelines, anything you'd rather write in bash/python than ship as a plugin |
-| **In-process hooks** | Plugins, via `api.registerHook` | Direct function call | Type-safe, low-latency, needs access to host internals (registries, stores) |
+| **Command hooks** | Operator, via `config.hooks` | Subprocess: `HookInput` JSON → stdin, outcome JSON → stdout | Glue scripts, lint/format/notify pipelines |
+| **HTTP hooks** | Operator, via `config.hooks` | JSON HTTP POST/response | Local or remote policy services; HTTPS required except loopback |
+| **In-process hooks** | Plugins, via `api.registerHook` | Awaited function call | Type-safe, low-latency, receives deadline + `AbortSignal` |
 
-Both models share the **same** payload (`HookInput`) and **same** outcome
-contract (`HookOutcome`), and both are driven by a single `HookRunner` per
+All models share the **same** payload (`HookInput`) and outcome
+contract (`HookOutcome`), and all are driven by a single `HookRunner` per
 session. The runner reads from one shared `HookRegistry`, so a tool call can be
 shaped by a mix of shell and in-process hooks in the same turn.
 
-Disable **everything** for a session with `--no-hooks`. Shell hooks are also
-independently gated by the runner's `allowShell` flag (set false under
-`--bare` and in untrusted sessions).
+Disable ordinary hook automation for a session with `--no-hooks`. Trusted
+configured hooks marked `policy: true` remain active; this prevents a session
+flag from removing a security boundary. Command/HTTP hooks are independently
+gated by the runner's `allowNonPolicy` flag, except policy
+hooks.
 
 ---
 
@@ -33,7 +36,7 @@ These are the lifecycle points a hook can attach to:
 
 | Event | When it fires | Can block? | Can mutate / inject |
 |---|---|---|---|
-| `PreToolUse` | Before a tool runs, **before** the permission check | ✅ (tool never runs) | rewrite tool input via `modifiedInput` |
+| `PreToolUse` | Before a tool runs, **before** the permission check | ✅ (tool never runs) | rewrite input via `action: "mutate"` |
 | `PostToolUse` | After a tool returns | — | append `additionalContext` to the result |
 | `UserPromptSubmit` | Before a user turn is processed | ✅ (turn ends, no model call) | append `additionalContext` to the user message |
 | `SessionStart` | Once, on the first turn of the session | — | append `additionalContext` to the system prompt (persists for the session) |
@@ -44,13 +47,12 @@ These are the lifecycle points a hook can attach to:
 All hooks for a given event fire in **registration order**. There are three
 distinct fire patterns, one per category of outcome:
 
-1. **Blockable chain** (`PreToolUse`, `UserPromptSubmit`) — hooks run
-   **sequentially**, in the order they were registered. The first hook that
-   returns `decision: "block"` short-circuits the chain: no later hook for
-   that event runs, and the block decision is returned to the caller. If no
-   hook blocks, all hooks in the chain complete.
+1. **PreToolUse two-stage chain** — hooks registered with `stage: "mutate"`
+   run sequentially first and compose argument changes. Hooks registered with
+   `stage: "validate"` then inspect the same final argument object. Validators
+   cannot mutate. Any explicit deny short-circuits execution.
 
-2. **Mutation chain** (`PreToolUse` only, `modifiedInput`) — within the
+2. **Mutation chain** (`PreToolUse` only, `action: "mutate"`) — within the
    sequential chain, each hook sees the **output of the previous hook** as its
    `toolInput`. Mutations compose left-to-right. The final composed input is
    re-validated against the tool's JSON Schema before the tool runs.
@@ -78,9 +80,9 @@ on the post-hook (possibly rewritten) input.
 
 ## Registration
 
-### Shell hooks (operator, via config)
+### Configured command/HTTP hooks (operator, via config)
 
-Declared under `config.hooks`, a `Partial<Record<HookEvent, ShellHook[]>>`.
+Declared under `config.hooks`, a `Partial<Record<HookEvent, ConfiguredHook[]>>`.
 Loaded once at boot by `HookRegistry.loadShellHooks(config.hooks)`.
 
 ```jsonc
@@ -88,22 +90,34 @@ Loaded once at boot by `HookRegistry.loadShellHooks(config.hooks)`.
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "bash", "command": "./scripts/guard-bash.sh", "timeoutMs": 3000 },
-      { "matcher": "edit|write", "command": "./scripts/audit-edit.sh" }
+      {
+        "name": "bash-safety",
+        "matcher": "bash",
+        "stage": "validate",
+        "command": "bash ./scripts/guard-bash.sh",
+        "timeoutMs": 3000,
+        "failurePolicy": "closed",
+        "policy": true
+      },
+      { "matcher": "edit|write", "command": "bash ./scripts/audit-edit.sh" }
     ],
     "SessionStart": [
-      { "command": "./scripts/on-start.sh" }
+      { "command": "bash ./scripts/on-start.sh" }
     ],
     "Stop": [
-      { "command": "./scripts/on-stop.sh" }
+      { "command": "bash ./scripts/on-stop.sh" }
     ]
   }
 }
 ```
 
-Shell hooks are owned by the **runtime** (no plugin name), so they survive
-plugin install/uninstall cycles. They are reloaded only at boot — runtime config
-changes do not hot-reload hooks for the current session.
+HTTP hooks use the same controls plus `"type": "http"`, `"url"`, and
+optional `"headers"`. Non-loopback cleartext HTTP is rejected. `policy: true`
+marks trusted enforcement that remains active under `--no-hooks`.
+
+Configured command/HTTP hooks are owned by the **runtime** (no plugin name), so
+they survive plugin install/uninstall cycles. Config changes atomically replace
+the configured transport entries while leaving plugin-owned hooks intact.
 
 ### In-process hooks (plugins)
 
@@ -118,10 +132,11 @@ export default {
   name: 'lint-after-edit',
   capabilities: { hooks: true },          // declare intent (see Capability gating)
   setup(api: PluginAPI) {
-    const off = api.registerHook('PostToolUse', 'edit|write', async (input) => {
+    const off = api.registerHook('PostToolUse', 'edit|write', async (input, runtime) => {
+      runtime.signal.throwIfAborted();
       const lint = await runLint(input.toolInput);
       return lint ? { additionalContext: `Lint:\n${lint}` } : {};
-    });
+    }, { name: 'lint-after-edit', timeoutMs: 5000, failurePolicy: 'open' });
     // `off` is called automatically when the plugin is uninstalled.
     // You usually don't need to call it yourself.
   },
@@ -161,24 +176,28 @@ state into this serializable shape at each phase.
 
 ## Outcome (`HookOutcome`)
 
-A shell hook may **print** a JSON object to stdout; an in-process hook may
+A command hook may **print** a JSON object to stdout; an HTTP hook returns one
+in its response body; an in-process hook may
 **return** one. Every field is optional — an empty object, `undefined`, or a
-shell hook that prints nothing all mean "allow, no side effect".
+command hook that prints nothing all mean "allow, no side effect".
 
 ```jsonc
-{
-  "decision": "block",                     // "block" | "allow" (omit = allow)
-  "reason": "blocked: rm -rf",             // shown to the model on block
-  "modifiedInput": { "command": "ls -la" },// PreToolUse only
-  "additionalContext": "note for the model"// see per-event semantics above
-}
+{ "action": "allow" }
+{ "action": "deny", "reason": "blocked: rm -rf" }
+{ "action": "mutate", "input": { "command": "ls -la", "timeout_ms": 30000 } }
 ```
 
-**Shell shortcut:** exit code `2` forces `decision: "block"` (with stderr, or
-failing that stdout, truncated to 2 000 chars as the reason), matching Claude's
-convention. Any other exit code with no JSON on stdout is a no-op.
+These outcomes are mutually exclusive. `allow` means this hook has no
+objection; it never bypasses WrongStack's permission policy. Normal YOLO work
+therefore continues silently while the existing destructive gate remains
+intact. Legacy `decision: "block"|"allow"` and `modifiedInput` outputs remain
+accepted and are normalized at the transport boundary.
 
-`modifiedInput` is **only honored for `PreToolUse`**. The executor swaps it in
+**Command shortcut:** exit code `2` forces `action: "deny"` (with stderr, or
+failing that stdout, truncated to 2 000 chars as the reason), matching Claude's
+convention. Other non-zero exits are hook failures and follow `failurePolicy`.
+
+Mutation is **only honored for mutator-stage `PreToolUse` hooks**. The executor swaps it in
 and **re-validates** it against the tool's `inputSchema` before running — a hook
 cannot bypass the schema. A re-validation failure is fed back to the model as
 an error so it can self-correct.
@@ -206,37 +225,38 @@ on `prompt` or `additionalContext` — if you need one, write it inside your hoo
 
 ---
 
-## Async behavior
+## Async behavior, deadlines, and failure policy
 
-- **In-process hooks** may be sync or async. The runner always `await`s the
-  return value, so a `Promise<HookOutcome>` is fine. Long-running work should
-  still respect the session's iteration timeout — a hook that never resolves
-  will block the agent loop.
-- **Shell hooks** are spawned and awaited with a per-invocation timeout
-  (`timeoutMs`, default 5 000 ms). On timeout the child is sent `SIGKILL` and
-  the hook resolves to a no-op (`null`).
+- Every invocation is awaited behind a per-hook deadline (`timeoutMs`, default
+  5 000 ms). In-process hooks receive `{ signal, deadlineAt }` and must use
+  asynchronous I/O. Blocking APIs such as `execSync` defeat cancellation and
+  must not be used in hook bodies.
+- Command hooks are killed as a process tree on timeout or abort. HTTP hooks
+  pass the same cancellation signal to `fetch`.
+- `failurePolicy: "open"` (default) logs timeout/crash/malformed output and
+  continues. `failurePolicy: "closed"` turns the failure into a model-visible
+  denial; it does not open an approval dialog.
 - The runner uses `Promise.allSettled` for fan-out events so a single slow hook
   does not block its siblings — but the caller still awaits every hook before
   continuing, so the slowest hook in a fan-out sets the floor for that phase.
-- Hooks share the agent's event loop. They cannot be cancelled mid-flight by
-  the user pressing Ctrl-C; the abort signal propagates to tool execution but
-  not into hook bodies. Keep hooks short.
+- Hooks share the agent's event loop. Ctrl-C and hook deadlines propagate via
+  `AbortSignal`. An in-process hook that ignores the signal may keep doing work
+  after the runner stops awaiting it, so hooks must be cancellation-cooperative.
 
 ---
 
 ## Error isolation
 
-**A hook can never crash the agent.** Every hook invocation is wrapped in a
-try/catch inside `HookRunner.invoke`:
+**A hook can never crash the agent.** Every invocation is isolated, then its
+failure is interpreted using the hook's explicit failure policy:
 
 | Failure mode | Resolution | Surfaced as |
 |---|---|---|
-| In-process hook throws | Caught, logged at `warn`, treated as no-op (`null`) | `logger.warn("<event> hook threw: <msg>")` |
-| In-process hook returns a non-object | Coerced to `null` (no-op) | nothing |
-| Shell hook fails to spawn | Caught, logged, `null` | `logger.warn("hook spawn failed: ...")` |
-| Shell hook times out | Child killed, `null` | `logger.warn("hook command timed out after <ms>ms: <cmd>")` |
-| Shell hook exits non-zero (≠ 2) with no JSON | Parsed as `null` | nothing |
-| Shell hook emits invalid JSON | Parse error swallowed, `null` | nothing |
+| In-process hook throws/times out | Signal fired; open = skip, closed = deny | warning + policy result |
+| In-process hook returns a non-object | `invalid_output`; open = skip, closed = deny | warning + policy result |
+| Command hook fails or times out | Process tree killed; open = skip, closed = deny | warning + policy result |
+| HTTP connection/non-2xx/timeout | Request aborted; open = skip, closed = deny | warning + policy result |
+| Configured hook emits invalid JSON | `invalid_output`; open = skip, closed = deny | warning + policy result |
 | Shell hook emits valid JSON missing fields | Missing fields dropped, partial outcome used | nothing |
 
 The isolation guarantee is **per-hook**: one hook failing does not prevent
@@ -249,10 +269,10 @@ ended) and the `reason` is shown to the model.
 
 ### Output caps
 
-- Shell hook stdout is capped at **64 KiB**. Beyond that the buffer is
+- Command-hook stdout and HTTP-hook responses are capped at **64 KiB**. Beyond that the buffer is
   truncated and the hook's outcome (if any) is parsed from the truncated
   prefix.
-- Shell hook stderr is capped at 64 KiB for the block-reason fallback.
+- Command-hook stderr is capped at 64 KiB for the deny-reason fallback.
 - Block reasons are truncated to **2 000 chars** before being shown to the
   model.
 
@@ -260,7 +280,7 @@ ended) and the `reason` is shown to the model.
 
 ## Security model
 
-- Shell hooks run arbitrary commands **you** put in your own config — they are
+- Command hooks run arbitrary commands **you** put in your own config — they are
   not model-controlled and cannot be installed by a prompt. Still: keep hook
   scripts in version control and review them like any other automation.
 - `runShellHook` enforces a **command allowlist** (shells, interpreters, common
@@ -270,11 +290,12 @@ ended) and the `reason` is shown to the model.
      `C:\...`/`C:/...`) — trusted because you wrote it.
   2. Drop a wrapper under `.wrongstack/hooks/` and reference it by absolute
      path.
-- `--no-hooks` disables **both** shell and in-process hooks for the session.
-  Shell hooks are additionally gated by the runner's `allowShell` flag.
-- Shell hooks inherit a sanitized child environment via `buildChildEnv()`.
-- Hooks never receive secrets in their payload. The payload contains tool
-  names, inputs, results, cwd, and sessionId — never API keys or tokens.
+- `--no-hooks` disables ordinary automation across every transport. Hooks
+  explicitly marked `policy: true` remain active.
+- Command hooks inherit a sanitized child environment via `buildChildEnv()`.
+- Hook payloads include tool inputs/results and can therefore contain sensitive
+  data. Treat command scripts and HTTP endpoints as trusted policy components;
+  prefer loopback or HTTPS and never log raw payloads indiscriminately.
 
 ---
 
@@ -283,7 +304,7 @@ ended) and the `reason` is shown to the model.
 ### Loading
 
 1. **Boot phase.** `HookRegistry.loadShellHooks(config.hooks)` registers every
-   shell hook from config. These are owned by the runtime.
+   configured command/HTTP hook. These are owned by the runtime.
 2. **Plugin setup phase.** The plugin loader topologically sorts plugins by
    `dependsOn`/`optionalDeps`, then calls each plugin's `setup(api)`. Inside
    `setup`, a plugin calls `api.registerHook(...)`. Each call:
@@ -312,30 +333,30 @@ resource ownership when plugin B depends on plugin A):
    `setup()` threw **partway through** after registering some hooks — the
    per-call unsubscribes for the not-yet-pushed hooks would otherwise never
    fire, leaving dangling closures in the registry.
-4. Shell hooks (runtime-owned) are **never** removed by `drainByOwner`. They
+4. Configured hooks (runtime-owned) are **never** removed by `drainByOwner`. They
    persist for the session and are cleared by `HookRegistry.clear()` only at
    full session teardown.
 
 The result: **no plugin-owned hook can outlive its plugin.** Even a plugin that
 crashes during setup leaves a clean registry.
 
-### Hot reload (shell hooks)
+### Hot reload (configured hooks)
 
-Shell hooks **are** hot-reloaded. The CLI subscribes to `ConfigStore.watch`
+Configured hooks **are** hot-reloaded. The CLI subscribes to `ConfigStore.watch`
 at boot (`packages/cli/src/cli-main.ts`); whenever `config.hooks` changes,
 the watcher calls `HookRegistry.replaceShellHooks(next.hooks)` which:
 
-1. Drops every currently-registered shell entry (in-process entries are
-   untouched — plugin-owned closures survive the reload).
-2. Installs the new shell set from the updated config map.
-3. Logs `"Shell hooks reloaded (N entries across K events)"` at `info`
+1. Builds the replacement before changing live state, then drops every old
+   configured entry (in-process entries are untouched).
+2. Installs the new command/HTTP set from the updated config map.
+3. Logs `"Hooks reloaded (N configured entries across K events)"` at `info`
    level so operators can confirm the reload.
 
-The watcher uses a shallow per-entry equality predicate
+The watcher uses a structural per-entry equality predicate
 (`shellHooksEqual(a, b)`) so unrelated config changes — model, log level,
 provider, etc. — do **not** trigger a redundant reload. The reload only
-fires when the shell-hook set actually changed (command, matcher,
-timeoutMs, or the event list).
+fires when the configured hook set actually changed (transport target,
+matcher, timeout/failure/stage/policy controls, headers, or the event list).
 
 A failed reload never crashes the watcher — it's caught at warn level and
 the previous hook set stays in place.
@@ -424,20 +445,27 @@ import {
   HookRegistry,           // class
   HookRunner,             // class
   runShellHook,           // (spec, input, logger?) => Promise<HookOutcome | null>
+  runShellHookDetailed,   // preserves timeout/exit/parse failure classification
+  runHttpHookDetailed,    // POST HookInput JSON to a native HTTP hook
   hookMatcherMatches,     // (matcher, toolName?) => boolean
-  shellHooksEqual,        // (a, b) => boolean — shallow per-entry equality
+  shellHooksEqual,        // (a, b) => boolean — structural configured-hook equality
   countShellHooks,        // (hooks) => number — total entries across events
 } from '@wrongstack/core';
 import type {
   HookEvent,              // 'PreToolUse' | 'PostToolUse' | 'UserPromptSubmit' | 'SessionStart' | 'Stop'
   HookMatcher,            // string
   HookInput,              // the payload
-  HookOutcome,            // the return shape
-  InProcessHook,          // (input) => HookOutcome | void | Promise<HookOutcome | void>
-  ShellHook,              // { command, matcher?, timeoutMs? }
+  HookOutcome,            // legacy/non-PreToolUse return shape
+  PreToolUseOutcome,      // explicit allow | deny(reason) | mutate(input)
+  AnyHookOutcome,         // accepted transport-boundary output
+  InProcessHook,          // (input, { signal, deadlineAt }) => value/Promise
+  HookRegistrationOptions,// timeout, failure policy, stage, policy marker
+  ShellHook,              // command transport configuration
+  HttpHook,               // native HTTP transport configuration
+  ConfiguredHook,         // ShellHook | HttpHook
   HookEntry,              // discriminated union of registered entries
   HookRunEnv,             // { cwd: string }
-  HookRunnerOptions,      // { registry, logger?, allowShell?, sessionId? }
+  HookRunnerOptions,      // { registry, logger?, allowNonPolicy?, sessionId? }
   PreToolUseResult,       // { block?, reason?, input? }
   PromptResult,           // { block?, reason?, additionalContext? }
   ShellHookSpec,          // { command, timeoutMs? }
@@ -457,7 +485,7 @@ import type {
 input=$(cat)                                                 # HookInput JSON on stdin
 cmd=$(printf '%s' "$input" | jq -r '.toolInput.command // ""')
 if printf '%s' "$cmd" | grep -qE 'rm -rf|:\(\)\{'; then
-  echo '{"decision":"block","reason":"dangerous command blocked"}'
+  echo '{"action":"deny","reason":"dangerous command blocked"}'
   exit 0                                                     # (or: exit 2)
 fi
 # allow (no output)
@@ -468,7 +496,15 @@ fi
 ```jsonc
 {
   "hooks": {
-    "PreToolUse": [{ "matcher": "bash", "command": "./scripts/guard-bash.sh" }]
+    "PreToolUse": [{
+      "name": "bash-safety",
+      "matcher": "bash",
+      "stage": "validate",
+      "command": "bash ./scripts/guard-bash.sh",
+      "timeoutMs": 3000,
+      "failurePolicy": "closed",
+      "policy": true
+    }]
   }
 }
 ```
@@ -476,14 +512,14 @@ fi
 ### Rewrite tool arguments (in-process)
 
 ```ts
-api.registerHook('PreToolUse', 'bash', (input) => {
+api.registerHook('PreToolUse', 'bash', async (input) => {
   const cmd = (input.toolInput as { command?: string }).command ?? '';
   // Force `ls` to always show long form
   if (cmd.startsWith('ls ') && !cmd.includes('-l')) {
-    return { modifiedInput: { ...input.toolInput, command: cmd.replace('ls', 'ls -l') } };
+    return { action: 'mutate', input: { ...input.toolInput, command: cmd.replace('ls', 'ls -l') } };
   }
-  return {};
-});
+  return { action: 'allow' };
+}, { name: 'long-ls', stage: 'mutate', failurePolicy: 'open' });
 ```
 
 The rewritten input is **re-validated** against the tool's schema before it
@@ -502,7 +538,7 @@ api.registerHook('PostToolUse', 'edit|write', async (input) => {
 ### Inject a project reminder at session start
 
 ```ts
-api.registerHook('SessionStart', undefined, () => ({
+api.registerHook('SessionStart', undefined, async () => ({
   additionalContext: 'Reminder: this repo uses conventional commits.',
 }));
 ```
@@ -521,8 +557,7 @@ api.registerHook('Stop', undefined, async () => {
 
 | Mechanism | Scope | Effect |
 |---|---|---|
-| `--no-hooks` CLI flag | Whole session | Neither shell nor in-process hooks run; `HookRegistry` stays empty |
-| `--bare` / untrusted session | Whole session | Shell hooks skipped (`allowShell: false`); in-process hooks still run |
-| `allowShell: false` on `HookRunnerOptions` | Runner instance | Shell hooks skipped; in-process hooks still run |
+| `--no-hooks` CLI flag | Whole session | Ordinary hooks are skipped across all transports; `policy: true` hooks remain |
+| `allowNonPolicy: false` on `HookRunnerOptions` | Runner instance | Ordinary hooks are skipped across all transports; policy hooks still run |
 | Plugin uninstall | That plugin's hooks | `drainByOwner` removes every in-process hook the plugin registered |
-| `HookRegistry.clear()` | Whole registry | Every entry (shell + in-process) dropped; used in tests and full session teardown |
+| `HookRegistry.clear()` | Whole registry | Every entry (configured + in-process) dropped; used in tests and full session teardown |

@@ -21,6 +21,7 @@ function result(over: Partial<TaskResult> & { passed: boolean; graded?: boolean 
     },
     grade: { passed: over.passed, graded: over.graded },
     tools: { totalCalls: 5, editCalls: 4, editErrors: 0, rateLimitRetries: 0, ...over.tools },
+    traceEval: over.traceEval,
   };
 }
 
@@ -129,5 +130,56 @@ describe('aggregateCell', () => {
     ]);
     expect(agg.gradedCount).toBe(0);
     expect(agg.passRate).toBe(0);
+  });
+
+  it('keeps retrieval, recall, and edit application as a conditional funnel', () => {
+    const agg = aggregateCell(cell, [
+      result({
+        taskId: 'retrieval-miss',
+        passed: false,
+        traceEval: {
+          sourceSessionId: 's1',
+          retrievalPassed: false,
+          recallPassed: true,
+          editApplicationPassed: true,
+        },
+      }),
+      result({
+        taskId: 'model-miss',
+        passed: false,
+        traceEval: {
+          sourceSessionId: 's2',
+          retrievalPassed: true,
+          recallPassed: false,
+          editApplicationPassed: false,
+        },
+      }),
+      result({
+        taskId: 'tool-miss',
+        passed: false,
+        traceEval: {
+          sourceSessionId: 's3',
+          retrievalPassed: true,
+          recallPassed: true,
+          editApplicationPassed: false,
+        },
+      }),
+      result({
+        taskId: 'all-pass',
+        passed: true,
+        traceEval: {
+          sourceSessionId: 's4',
+          retrievalPassed: true,
+          recallPassed: true,
+          editApplicationPassed: true,
+        },
+      }),
+    ]);
+
+    expect(agg.traceEval).toEqual({
+      retrieval: { eligible: 4, passed: 3, rate: 0.75 },
+      recallGivenRetrieval: { eligible: 3, passed: 2, rate: 2 / 3 },
+      editApplicationGivenRecall: { eligible: 2, passed: 1, rate: 0.5 },
+    });
   });
 });

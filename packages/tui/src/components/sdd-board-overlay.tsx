@@ -1,4 +1,4 @@
-import type { SddBoardSnapshot, SddBoardTask, SddTaskDisplayStatus } from '@wrongstack/core';
+import type { SddBoardSnapshot, SddBoardTask, SddTaskDisplayStatus } from '@wrongstack/sdd';
 import type React from 'react';
 import { Box, Text } from '../ink.js';
 

@@ -99,6 +99,7 @@ export {
   Director,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  FleetTokenCapError,
   type TaskResultNotification,
 } from './director.js';
 export {
@@ -187,10 +188,23 @@ export {
   type SupervisedSubagent,
   type SupervisorLogEntry,
 } from './fleet-supervisor.js';
+export {
+  DEFAULT_MAX_FLEET_SPAWNS,
+  HARD_MAX_SPAWN_DEPTH,
+  resolveMaxSpawnDepth,
+} from './spawn-budget.js';
 export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
 export type { ICoordinator } from './icoordinator.js';
 export type { IFleetManager } from './ifleet-manager.js';
 export { LargeAnswerStore } from './large-answer-store.js';
+export {
+  formatSubagentStructuredReport,
+  MAX_SUBAGENT_STRUCTURED_REPORT_CHARS,
+  makeSubagentResultTool,
+  normalizeSubagentStructuredReport,
+  readSubagentStructuredReport,
+  SUBAGENT_STRUCTURED_REPORT_META_KEY,
+} from './subagent-result-tool.js';
 export { type MailToolsOptions, makeMailInboxTool, makeMailSendTool } from './mail-tools.js';
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './mailbox.js';

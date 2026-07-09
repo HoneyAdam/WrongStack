@@ -7,7 +7,11 @@ import type {
   WireFamily,
 } from '@wrongstack/core';
 import { ConfigError, type ProviderError } from '@wrongstack/core';
-import { parseProviderHttpError } from './error-parse.js';
+import {
+  type HeadersLike,
+  parseProviderHttpError,
+  retryAfterMsFromHeaders,
+} from './error-parse.js';
 import { type SSEMessage, parseSSE } from './sse.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
@@ -64,8 +68,10 @@ export interface WireFormatConfig<S = Record<string, unknown>> {
    * `[DONE]` instead of an explicit terminator).
    */
   finalizeStream?(state: S): StreamEvent[];
-  /** Optional override; defaults to the shared HTTP error parser. */
-  normalizeError?(status: number, body: string): ProviderError;
+  /** Optional override; defaults to the shared HTTP error parser. `headers`
+   *  (when the fetch impl provides them) carries Retry-After hints — impls
+   *  may ignore it; the wire format backfills `body.retryAfterMs` either way. */
+  normalizeError?(status: number, body: string, headers?: HeadersLike): ProviderError;
 }
 
 /**
@@ -119,10 +125,21 @@ export class WireFormatProvider<S = Record<string, unknown>> extends WireAdapter
     return this.runStream(body, fallbackModel);
   }
 
-  protected override translateError(status: number, body: string): ProviderError {
-    return this.cfg.normalizeError
-      ? this.cfg.normalizeError(status, body)
-      : parseProviderHttpError(this.id, status, body);
+  protected override translateError(
+    status: number,
+    body: string,
+    headers?: HeadersLike,
+  ): ProviderError {
+    const err = this.cfg.normalizeError
+      ? this.cfg.normalizeError(status, body, headers)
+      : parseProviderHttpError(this.id, status, body, headers);
+    // Custom normalizers rarely parse headers themselves — backfill the
+    // Retry-After hint so retry policies can honour it regardless of impl.
+    if (err.body && err.body.retryAfterMs === undefined) {
+      const hint = retryAfterMsFromHeaders(headers);
+      if (hint !== undefined) err.body.retryAfterMs = hint;
+    }
+    return err;
   }
 
   private async *runStream(

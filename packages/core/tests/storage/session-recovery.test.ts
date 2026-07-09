@@ -54,6 +54,43 @@ describe('SessionRecovery.detectStale', () => {
     expect(stale!.eventCount).toBe(3);
   });
 
+  it('flags an open marker even when provider/tool events follow it', async () => {
+    await writeLog('s-open-with-tail', [
+      { type: 'session_start', ts: '2026-01-01T00:00:00Z', id: 's-open-with-tail', model: 'm', provider: 'p' },
+      { type: 'in_flight_start', ts: '2026-01-01T00:00:01Z', context: 'iteration 2' },
+      { type: 'llm_response', ts: '2026-01-01T00:00:02Z', content: [{ type: 'text', text: 'partial' }], stopReason: 'tool_use', usage: { input: 1, output: 1 } },
+      { type: 'tool_result', ts: '2026-01-01T00:00:03Z', id: 'tu-1', content: 'done', isError: false },
+    ]);
+
+    const stale = await recovery.detectStale('s-open-with-tail');
+    expect(stale).not.toBeNull();
+    expect(stale!.context).toBe('iteration 2');
+    expect(stale!.eventCount).toBe(4);
+  });
+
+  it('finds an open marker across a tool-result line larger than the old 8KB tail', async () => {
+    await writeLog('s-large-tail', [
+      { type: 'in_flight_start', ts: '2026-01-01T00:00:00Z', context: 'large result' },
+      { type: 'tool_result', ts: '2026-01-01T00:00:01Z', id: 'tu-1', content: 'x'.repeat(80_000), isError: false },
+    ]);
+
+    const stale = await recovery.detectStale('s-large-tail');
+    expect(stale).not.toBeNull();
+    expect(stale!.context).toBe('large result');
+    expect(stale!.eventCount).toBe(2);
+  });
+
+  it('treats a later clean boundary as authoritative after ordinary events', async () => {
+    await writeLog('s-clean-tail', [
+      { type: 'in_flight_start', ts: '2026-01-01T00:00:00Z', context: 'iteration 1' },
+      { type: 'tool_result', ts: '2026-01-01T00:00:01Z', id: 'tu-1', content: 'done', isError: false },
+      { type: 'in_flight_end', ts: '2026-01-01T00:00:02Z', reason: 'clean' },
+      { type: 'session_end', ts: '2026-01-01T00:00:03Z', usage: { input: 1, output: 1 } },
+    ]);
+
+    expect(await recovery.detectStale('s-clean-tail')).toBeNull();
+  });
+
   it('returns null when the last event is neither in_flight_start nor in_flight_end', async () => {
     // Legacy / pre-marker log: a session that was never annotated.
     await writeLog('s3', [
@@ -215,6 +252,21 @@ describe('SessionRecovery.recover', () => {
     // Pending = events after the checkpoint, including the marker.
     expect(plan!.pendingEvents).toHaveLength(1);
     expect(plan!.pendingEvents[0]!.type).toBe('in_flight_start');
+  });
+
+  it('marks the plan stale when ordinary events follow the open marker', async () => {
+    await writeLog('s3-tail', [
+      { type: 'checkpoint', ts: '2026-01-01T00:00:00Z', promptIndex: 0, promptPreview: 'x' },
+      { type: 'in_flight_start', ts: '2026-01-01T00:00:01Z', context: 'iteration 6' },
+      { type: 'llm_response', ts: '2026-01-01T00:00:02Z', content: [], stopReason: 'tool_use', usage: { input: 1, output: 1 } },
+      { type: 'tool_result', ts: '2026-01-01T00:00:03Z', id: 'tu-1', content: 'done', isError: false },
+    ]);
+
+    const plan = await recovery.recover('s3-tail');
+    expect(plan).not.toBeNull();
+    expect(plan!.stale).toBe(true);
+    expect(plan!.context).toBe('iteration 6');
+    expect(plan!.pendingEvents).toHaveLength(3);
   });
 
   it('uses the LAST checkpoint, not the first one', async () => {

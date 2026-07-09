@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DefaultSecretScrubber, DefaultSessionStore } from '../../src/index.js';
 import type { SessionEvent } from '../../src/types/session.js';
@@ -18,6 +19,7 @@ afterEach(async () => {
 });
 
 const now = () => new Date().toISOString();
+const hash = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
 
 describe('FileSessionWriter — transcriptPath / file snapshots / checkpoints', () => {
   it('exposes the transcript path', async () => {
@@ -38,12 +40,249 @@ describe('FileSessionWriter — transcriptPath / file snapshots / checkpoints', 
     expect(types).toContain('checkpoint');
   });
 
+  it('attaches a content-addressed workspace manifest to checkpoint events', async () => {
+    const w = await store.create({ id: 'workspace-cp', model: 'm', provider: 'p' });
+    const workspaceCheckpoint = {
+      manifestHash: 'a'.repeat(64),
+      baseHead: 'b'.repeat(40),
+      entryCount: 2,
+      unresolvedCount: 0,
+      capturedAt: now(),
+      coverage: 'git-head-plus-dirty' as const,
+    };
+    const capture = vi.fn().mockResolvedValue(workspaceCheckpoint);
+    (w as never as { checkpointCas: { capture: typeof capture } }).checkpointCas = { capture };
+    await w.writeCheckpoint(4, 'workspace state');
+    await w.close();
+
+    const data = await store.load('workspace-cp');
+    expect(capture).toHaveBeenCalledWith('workspace-cp', 4);
+    expect(data.events).toContainEqual(
+      expect.objectContaining({
+        type: 'checkpoint',
+        promptIndex: 4,
+        workspaceCheckpoint,
+      }),
+    );
+  });
+
+  it('journals file changes during an active prompt without waiting for the next prompt', async () => {
+    const w = await store.create({ id: 'fc-active', model: 'm', provider: 'p' });
+    await w.writeCheckpoint(0, 'active prompt');
+    w.recordFileChange({ path: 'a.ts', action: 'modified', before: 'x', after: 'y' });
+    await w.flush();
+
+    const data = await store.load('fc-active');
+    expect(data.events).toContainEqual(
+      expect.objectContaining({
+        type: 'file_snapshot',
+        promptIndex: 0,
+        files: [{ path: 'a.ts', action: 'modified', before: 'x', after: 'y' }],
+      }),
+    );
+    await w.close();
+  });
+
+  it('journals file observations without waiting for writer close', async () => {
+    const w = await store.create({ id: 'observed', model: 'm', provider: 'p' });
+    w.recordFileObservation?.({
+      path: path.join(tmp, 'a.ts'),
+      hash: hash('const a = 1;'),
+      mtimeMs: 123,
+      source: 'user',
+    });
+    await w.flush();
+
+    const data = await store.load('observed');
+    expect(data.events).toContainEqual(
+      expect.objectContaining({
+        type: 'file_observation',
+        path: path.join(tmp, 'a.ts'),
+        hash: hash('const a = 1;'),
+        source: 'user',
+      }),
+    );
+    await w.close();
+  });
+
   it('writeFileSnapshot appends a file_snapshot event directly', async () => {
     const w = await store.create({ id: 'fs', model: 'm', provider: 'p' });
     await w.writeFileSnapshot(1, [{ path: 'z.ts', action: 'deleted', before: 'old', after: null }]);
     await w.close();
     const data = await store.load('fs');
     expect(data.events.some((e) => e.type === 'file_snapshot')).toBe(true);
+  });
+});
+
+describe('DefaultSessionStore — resume file validation', () => {
+  it('injects an ephemeral system warning when an observed file changed', async () => {
+    const sessions = path.join(tmp, 'sessions');
+    const projectStore = new DefaultSessionStore({ dir: sessions, projectRoot: tmp });
+    const file = path.join(tmp, 'src.ts');
+    await fs.writeFile(file, 'before', 'utf8');
+    const stat = await fs.stat(file);
+    const w = await projectStore.create({ id: 'stale', model: 'm', provider: 'p' });
+    await w.append({ type: 'user_input', ts: now(), content: 'inspect src.ts' });
+    w.recordFileObservation?.({
+      path: file,
+      hash: hash('before'),
+      mtimeMs: stat.mtimeMs,
+      source: 'user',
+    });
+    await w.close();
+    await fs.writeFile(file, 'after', 'utf8');
+
+    const resumed = await projectStore.resume('stale');
+    expect(resumed.data.resumeValidation).toMatchObject({
+      checkedFileCount: 1,
+      staleFiles: [{ path: file, status: 'modified', expectedHash: hash('before') }],
+    });
+    expect(resumed.data.messages.at(-1)).toMatchObject({
+      role: 'system',
+      content: expect.stringContaining('Prior tool results and reasoning'),
+    });
+    await resumed.writer.close();
+
+    // The notice belongs to this resume boundary only; it is not replayed or
+    // appended to the JSONL on subsequent ordinary loads.
+    const loaded = await projectStore.load('stale');
+    expect(loaded.messages.some((message) => message.role === 'system')).toBe(false);
+  });
+
+  it('does not inject a warning when the latest observed hash still matches', async () => {
+    const sessions = path.join(tmp, 'sessions');
+    const projectStore = new DefaultSessionStore({ dir: sessions, projectRoot: tmp });
+    const file = path.join(tmp, 'same.ts');
+    await fs.writeFile(file, 'current', 'utf8');
+    const stat = await fs.stat(file);
+    const w = await projectStore.create({ id: 'fresh', model: 'm', provider: 'p' });
+    w.recordFileObservation?.({
+      path: file,
+      hash: hash('old'),
+      mtimeMs: stat.mtimeMs - 1,
+      source: 'user',
+    });
+    w.recordFileObservation?.({
+      path: file,
+      hash: hash('current'),
+      mtimeMs: stat.mtimeMs,
+      source: 'write',
+    });
+    await w.close();
+
+    const resumed = await projectStore.resume('fresh');
+    expect(resumed.data.resumeValidation).toMatchObject({
+      checkedFileCount: 1,
+      staleFiles: [],
+    });
+    expect(resumed.data.messages.some((message) => message.role === 'system')).toBe(false);
+    await resumed.writer.close();
+  });
+
+  it('marks deleted and out-of-project observations as stale without reading outside the root', async () => {
+    const sessions = path.join(tmp, 'sessions');
+    const projectStore = new DefaultSessionStore({ dir: sessions, projectRoot: tmp });
+    const deleted = path.join(tmp, 'deleted.ts');
+    const outside = path.join(path.dirname(tmp), 'outside.ts');
+    const w = await projectStore.create({ id: 'unavailable', model: 'm', provider: 'p' });
+    w.recordFileObservation?.({
+      path: deleted,
+      hash: hash('gone'),
+      mtimeMs: 1,
+      source: 'user',
+    });
+    w.recordFileObservation?.({
+      path: outside,
+      hash: hash('outside'),
+      mtimeMs: 1,
+      source: 'user',
+    });
+    await w.close();
+
+    const resumed = await projectStore.resume('unavailable');
+    expect(resumed.data.resumeValidation?.staleFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: deleted, status: 'deleted' }),
+        expect.objectContaining({ path: outside, status: 'outside_project' }),
+      ]),
+    );
+    await resumed.writer.close();
+  });
+});
+
+describe('DefaultSessionStore — non-destructive journal fork', () => {
+  it('forks an exact checkpoint prefix without copying parent rewind snapshots', async () => {
+    const parent = await store.create({ id: 'parent', model: 'm', provider: 'p' });
+    const workspaceCheckpoint = {
+      manifestHash: 'c'.repeat(64),
+      baseHead: 'd'.repeat(40),
+      entryCount: 1,
+      unresolvedCount: 0,
+      capturedAt: now(),
+      coverage: 'git-head-plus-dirty' as const,
+    };
+    const capture = vi.fn(async (_sessionId: string, promptIndex: number) =>
+      promptIndex === 0 ? workspaceCheckpoint : undefined,
+    );
+    (parent as never as { checkpointCas: { capture: typeof capture } }).checkpointCas = { capture };
+    await parent.append({ type: 'user_input', ts: now(), content: 'first prompt' });
+    await parent.writeCheckpoint(0, 'first prompt');
+    await parent.writeFileSnapshot(0, [
+      { path: path.join(tmp, 'a.ts'), action: 'modified', before: 'a0', after: 'a1' },
+    ]);
+    await parent.append({
+      type: 'llm_response',
+      ts: now(),
+      content: [{ type: 'text', text: 'first answer' }],
+      usage: { input: 1, output: 1 },
+      stopReason: 'end_turn',
+    });
+    await parent.append({ type: 'user_input', ts: now(), content: 'second prompt' });
+    await parent.writeCheckpoint(1, 'second prompt');
+    await parent.close();
+    const parentBefore = await fs.readFile(path.join(tmp, 'parent.jsonl'), 'utf8');
+
+    const firstFork = await store.fork('parent', { checkpointPromptIndex: 0 });
+    const secondFork = await store.fork('parent', { checkpointPromptIndex: 0 });
+
+    expect(firstFork.id).not.toBe('parent');
+    expect(firstFork.id).not.toBe(secondFork.id);
+    expect(firstFork.checkpointHash).toMatch(/^[a-f\d]{64}$/);
+    expect(firstFork.checkpointHash).toBe(secondFork.checkpointHash);
+    expect(firstFork.workspace).toBe('shared-current');
+    expect(firstFork.workspaceCheckpoint).toEqual(workspaceCheckpoint);
+    expect(firstFork.data.metadata.forkedFrom).toEqual({
+      sessionId: 'parent',
+      checkpointPromptIndex: 0,
+      checkpointHash: firstFork.checkpointHash,
+      workspace: 'shared-current',
+      workspaceCheckpointHash: workspaceCheckpoint.manifestHash,
+    });
+    expect(firstFork.data.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'first prompt' }),
+    ]);
+    expect(firstFork.data.events.some((event) => event.type === 'file_snapshot')).toBe(false);
+    expect(await fs.readFile(path.join(tmp, 'parent.jsonl'), 'utf8')).toBe(parentBefore);
+  });
+
+  it('forks the latest exact replay state and rejects an unknown checkpoint', async () => {
+    const parent = await store.create({ id: 'latest-parent', model: 'm', provider: 'p' });
+    await parent.append({ type: 'user_input', ts: now(), content: 'old raw turn' });
+    await parent.append({
+      type: 'context_snapshot',
+      ts: now(),
+      reason: 'compaction',
+      messages: [{ role: 'system', content: 'exact compacted state' }],
+    });
+    await parent.close();
+
+    const forked = await store.fork('latest-parent');
+    expect(forked.data.messages).toEqual([
+      expect.objectContaining({ role: 'system', content: 'exact compacted state' }),
+    ]);
+    await expect(
+      store.fork('latest-parent', { checkpointPromptIndex: 99 }),
+    ).rejects.toThrow('Checkpoint 99 not found');
   });
 });
 
@@ -337,6 +576,53 @@ describe('DefaultSessionStore — summarize / replay over raw event streams', ()
     expect(last?.role).toBe('user');
     expect(Array.isArray(last?.content) ? last.content.length : 0).toBe(2);
   });
+
+  it('replaces earlier replay state at context_snapshot and applies later events', async () => {
+    await writeRawSession(tmp, 'snapshot-replay', [
+      { type: 'session_start', ts: now(), id: 'snapshot-replay', model: 'm', provider: 'p' },
+      { type: 'user_input', ts: now(), content: 'ancient user turn' },
+      {
+        type: 'llm_response',
+        ts: now(),
+        content: [{ type: 'text', text: 'ancient answer' }],
+        usage: { input: 5, output: 5 },
+        stopReason: 'end_turn',
+      },
+      {
+        type: 'context_snapshot',
+        ts: now(),
+        reason: 'compaction',
+        messages: [
+          { role: 'system', content: '[prior_turns_digest: compacted state]' },
+          { role: 'user', content: 'current turn' },
+        ],
+      },
+      {
+        type: 'llm_response',
+        ts: now(),
+        content: [{ type: 'text', text: 'answer after compaction' }],
+        usage: { input: 2, output: 3 },
+        stopReason: 'end_turn',
+      },
+    ]);
+
+    const data = await store.load('snapshot-replay');
+    expect(data.messages.map((message) => message.role)).toEqual(['system', 'user', 'assistant']);
+    expect(JSON.stringify(data.messages)).not.toContain('ancient user turn');
+    expect(JSON.stringify(data.messages)).toContain('answer after compaction');
+    // Usage remains the complete session cost, not merely the post-snapshot tail.
+    expect(data.usage).toMatchObject({ input: 7, output: 8 });
+  });
+
+  it('ignores a malformed context_snapshot without discarding replayed history', async () => {
+    await writeRawSession(tmp, 'bad-snapshot', [
+      { type: 'session_start', ts: now(), id: 'bad-snapshot', model: 'm', provider: 'p' },
+      { type: 'user_input', ts: now(), content: 'keep me' },
+      { type: 'context_snapshot', ts: now(), reason: 'compaction', messages: 'not-an-array' },
+    ]);
+    const data = await store.load('bad-snapshot');
+    expect(data.messages).toContainEqual(expect.objectContaining({ role: 'user', content: 'keep me' }));
+  });
 });
 
 describe('FileSessionWriter — observeForSummary event types + scheduled flush', () => {
@@ -365,9 +651,22 @@ describe('FileSessionWriter — observeForSummary event types + scheduled flush'
     } as SessionEvent);
     // A non-user/non-llm event takes the scrubEvent pass-through branch.
     await w.append({ type: 'tool_call_start', ts: now(), name: 'bash', id: 'p1' } as SessionEvent);
+    await w.append({
+      type: 'context_snapshot',
+      ts: now(),
+      reason: 'compaction',
+      messages: [
+        {
+          role: 'system',
+          content: 'snapshot sk-ant-SECRETSECRETSECRETSECRET value',
+          _estTokens: 99,
+        },
+      ],
+    });
     await w.close();
     const raw = await fs.readFile(path.join(tmp, 'scrub.jsonl'), 'utf8');
     expect(raw).not.toContain('SECRETSECRETSECRETSECRET');
+    expect(raw).not.toContain('_estTokens');
     expect(raw).toContain('tool_call_start');
   });
 

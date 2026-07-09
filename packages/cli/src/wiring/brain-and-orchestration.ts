@@ -210,6 +210,15 @@ export function setupBrainAndOrchestration(
       fleetRoot: fleetRootForPromotion,
       stateCheckpointPath,
       sessionWriter: session,
+      ...(config.fleet?.budget
+        ? {
+            directorBudget: {
+              maxTokens: config.fleet.budget.maxTokens,
+              maxCostUsd: config.fleet.budget.maxCostUsd,
+            },
+          }
+        : {}),
+      maxSpawns: config.fleet?.budget?.maxSpawns,
       maxConcurrent,
       getLeaderMaxContext: () => effectiveMaxContextRef.current,
       brain,

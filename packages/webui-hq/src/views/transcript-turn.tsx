@@ -2,23 +2,24 @@
  * Rich transcript turn renderers for the HQ Live Console — the WebUI-grade
  * chat surface. Each `HqTranscriptEntry` becomes one of:
  *   - a user bubble (right-aligned),
- *   - an assistant bubble (left-aligned, fenced-code aware),
- *   - a collapsible tool card with a "real" result view (diff / terminal /
- *     file / JSON), or
+ *   - an assistant bubble (full GFM markdown + syntax-highlighted code),
+ *   - a collapsed-by-default thinking card (model reasoning),
+ *   - a collapsible tool card with a real result view (diff / terminal /
+ *     numbered read / JSON / todo checklist), lucide icon + status, or
  *   - a subtle system / error line.
- *
- * Kept dependency-free (no markdown/icon libs) to match the webui-hq stack.
  *
  * @module views/transcript-turn
  */
 
 import type { HqTranscriptEntry } from '@wrongstack/core';
+import { Brain, CheckCircle2, ChevronDown, ChevronRight, XCircle } from 'lucide-react';
 import type React from 'react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
+import { CopyButton } from '../lib/copy-button.js';
+import { Markdown } from '../lib/markdown.js';
+import { getToolVisual } from '../lib/tool-visual.js';
 import {
   classifyTool,
-  computeDiffLines,
-  diffFromToolInput,
   extractTodos,
   formatClock,
   formatDuration,
@@ -27,118 +28,11 @@ import {
   type TodoItem,
   toolDisplayName,
 } from '../lib/transcript-format.js';
+import { isToolRunning } from '../lib/transcript-store.js';
+import { hasToolDiff, ToolDiffView } from './diff-view.js';
+import { ToolResultView } from './tool-result.js';
 
-// ── Copy affordance ──────────────────────────────────────────────────────────
-
-function CopyButton({ text }: { text: string }): React.ReactElement {
-  const [done, setDone] = useState(false);
-  const copy = () => {
-    void navigator.clipboard?.writeText(text).then(
-      () => {
-        setDone(true);
-        setTimeout(() => setDone(false), 1200);
-      },
-      () => {},
-    );
-  };
-  return (
-    <button type="button" className="hq-copy-btn" onClick={copy} title="Copy to clipboard">
-      {done ? 'copied' : 'copy'}
-    </button>
-  );
-}
-
-// ── Assistant text (lightweight fenced-code renderer) ────────────────────────
-
-interface Segment {
-  code: boolean;
-  lang?: string;
-  text: string;
-}
-
-/** Split assistant text into code / prose segments on ``` fences. */
-export function splitFences(text: string): Segment[] {
-  const out: Segment[] = [];
-  const re = /```([^\n`]*)\n?([\s\S]*?)```/g;
-  let last = 0;
-  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
-    if (m.index > last) out.push({ code: false, text: text.slice(last, m.index) });
-    out.push({
-      code: true,
-      lang: (m[1] ?? '').trim() || undefined,
-      text: (m[2] ?? '').replace(/\n$/, ''),
-    });
-    last = re.lastIndex;
-  }
-  if (last < text.length) out.push({ code: false, text: text.slice(last) });
-  return out.length > 0 ? out : [{ code: false, text }];
-}
-
-function AssistantText({ text }: { text: string }): React.ReactElement {
-  const segments = splitFences(text);
-  return (
-    <>
-      {segments.map((seg, i) =>
-        seg.code ? (
-          <pre key={i} className="hq-chat-code">
-            <span className="hq-chat-code-bar">
-              {seg.lang && <span className="hq-chat-code-lang">{seg.lang}</span>}
-              <span className="hq-chat-code-copy">
-                <CopyButton text={seg.text} />
-              </span>
-            </span>
-            <code>{seg.text}</code>
-          </pre>
-        ) : (
-          seg.text.trim() !== '' && (
-            <div key={i} className="hq-chat-prose">
-              {seg.text.replace(/^\n+|\n+$/g, '')}
-            </div>
-          )
-        ),
-      )}
-    </>
-  );
-}
-
-// ── Tool result views ────────────────────────────────────────────────────────
-
-function DiffBody({
-  oldText,
-  newText,
-  path,
-}: {
-  oldText: string;
-  newText: string;
-  path?: string;
-}): React.ReactElement {
-  const lines = computeDiffLines(oldText, newText);
-  const adds = lines.filter((l) => l.kind === 'add').length;
-  const dels = lines.filter((l) => l.kind === 'del').length;
-  return (
-    <div className="hq-diff">
-      <div className="hq-diff-stat">
-        {path && (
-          <span className="hq-diff-path" title={path}>
-            {path}
-          </span>
-        )}
-        <span className="hq-diff-add-count">+{adds}</span>
-        <span className="hq-diff-del-count">-{dels}</span>
-      </div>
-      <pre className="hq-diff-body">
-        {lines.map((l, i) => (
-          <span key={i} className={`hq-diff-line ${l.kind}`}>
-            <span className="hq-diff-gutter">
-              {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '}
-            </span>
-            {l.text || ' '}
-          </span>
-        ))}
-      </pre>
-    </div>
-  );
-}
+// ── Todo checklist ───────────────────────────────────────────────────────────
 
 const TODO_MARK: Record<TodoItem['status'], string> = {
   completed: '✔',
@@ -165,36 +59,30 @@ function TodoList({ todos }: { todos: TodoItem[] }): React.ReactElement {
   );
 }
 
-/** Render the "real" result view for a tool, chosen by tool family. */
-function ToolResultView({ entry }: { entry: HqTranscriptEntry }): React.ReactElement | null {
+// ── Tool card ────────────────────────────────────────────────────────────────
+
+/** Render the body of an expanded tool card: input view + result view. */
+function ToolBody({ entry }: { entry: HqTranscriptEntry }): React.ReactElement {
   const kind = classifyTool(entry.tool);
-  const diff = diffFromToolInput(entry.tool, entry.toolInput);
-
-  // For edit/write the args ARE the change — show the diff regardless of result.
-  if (diff) {
-    return (
-      <div className="hq-tool-section">
-        <div className="hq-tool-section-label">changes</div>
-        <DiffBody oldText={diff.oldText} newText={diff.newText} path={diff.path} />
-        {entry.text.trim() !== '' && !entry.isError && (
-          <div className="hq-tool-result-note">{entry.text.split('\n')[0]}</div>
-        )}
-      </div>
-    );
-  }
-
-  // TodoWrite → a real checklist instead of raw JSON.
+  const diff = hasToolDiff(entry.tool, entry.toolInput);
   const todos = kind === 'todo' ? extractTodos(entry.toolInput) : null;
-
   const result = entry.text ?? '';
   const hasResult = result.trim() !== '';
 
   return (
-    <>
-      {todos ? (
+    <div className="hq-tool-body">
+      {diff ? (
+        <div className="hq-tool-section">
+          <div className="hq-tool-section-label">changes</div>
+          <ToolDiffView toolName={entry.tool} toolInput={entry.toolInput} />
+          {hasResult && !entry.isError && (
+            <div className="hq-tool-result-note">{result.split('\n')[0]}</div>
+          )}
+        </div>
+      ) : todos ? (
         <TodoList todos={todos} />
       ) : (
-        entry.toolInput &&
+        entry.toolInput !== undefined &&
         entry.toolInput !== '{}' && (
           <div className="hq-tool-section">
             <div className="hq-tool-section-label">input</div>
@@ -202,43 +90,80 @@ function ToolResultView({ entry }: { entry: HqTranscriptEntry }): React.ReactEle
           </div>
         )
       )}
-      {hasResult && (
+      {!diff && hasResult && (
         <div className="hq-tool-section">
           <div className="hq-tool-section-head">
             <span className="hq-tool-section-label">{entry.isError ? 'error' : 'output'}</span>
-            <CopyButton text={result} />
+            <CopyButton text={result} label="copy" />
           </div>
-          <pre
-            className={`hq-tool-pre ${entry.isError ? 'err' : ''} ${kind === 'bash' ? 'term' : ''}`}
-          >
-            {result}
-          </pre>
+          <ToolResultView toolName={entry.tool} result={result} isError={entry.isError} />
         </div>
       )}
-      {!hasResult && !entry.isError && !todos && <div className="hq-tool-empty">(no output)</div>}
-    </>
+      {!hasResult && !entry.isError && !todos && !diff && (
+        <div className="hq-tool-empty">(no output)</div>
+      )}
+    </div>
   );
 }
 
-function ToolTurn({ entry }: { entry: HqTranscriptEntry }): React.ReactElement {
+function ToolTurn({
+  entry,
+  running,
+}: {
+  entry: HqTranscriptEntry;
+  running: boolean;
+}): React.ReactElement {
   const [open, setOpen] = useState(false);
   const summary = summarizeToolInput(entry.tool, entry.toolInput);
   const duration = formatDuration(entry.durationMs);
   const name = toolDisplayName(entry.tool);
-  const status = entry.isError ? 'err' : 'ok';
+  const { Icon, color } = getToolVisual(entry.tool);
 
   return (
     <div className={`hq-chat-turn tool ${entry.isError ? 'err' : ''}`}>
       <button type="button" className="hq-tool-head" onClick={() => setOpen((v) => !v)}>
-        <span className="hq-tool-caret">{open ? '▾' : '▸'}</span>
-        <span className={`hq-tool-dot ${status}`} aria-hidden />
+        <span className="hq-tool-caret">
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </span>
+        <span className="hq-tool-icon" style={{ color }}>
+          <Icon size={14} />
+        </span>
         <span className="hq-tool-name">{name}</span>
-        {summary && <span className="hq-tool-summary">{summary}</span>}
-        {duration && <span className="hq-tool-dur">{duration}</span>}
+        {summary !== '' && <span className="hq-tool-summary">{summary}</span>}
+        {duration !== '' && <span className="hq-tool-dur">{duration}</span>}
+        <span className="hq-tool-status" aria-hidden>
+          {running ? (
+            <span className="hq-tool-running-dot" title="running" />
+          ) : entry.isError ? (
+            <XCircle size={14} className="hq-status-err" />
+          ) : (
+            <CheckCircle2 size={14} className="hq-status-ok" />
+          )}
+        </span>
+      </button>
+      {open && <ToolBody entry={entry} />}
+    </div>
+  );
+}
+
+// ── Thinking card ────────────────────────────────────────────────────────────
+
+function ThinkingTurn({ entry }: { entry: HqTranscriptEntry }): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const firstLine = entry.text.split('\n')[0] ?? '';
+  return (
+    <div className="hq-chat-turn thinking">
+      <button type="button" className="hq-thinking-head" onClick={() => setOpen((v) => !v)}>
+        <span className="hq-tool-caret">
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </span>
+        <Brain size={13} className="hq-thinking-icon" />
+        <span className="hq-thinking-label">thinking</span>
+        {!open && <span className="hq-thinking-peek">{firstLine}</span>}
       </button>
       {open && (
-        <div className="hq-tool-body">
-          <ToolResultView entry={entry} />
+        <div className="hq-thinking-body">
+          <Markdown text={entry.text} />
         </div>
       )}
     </div>
@@ -247,18 +172,36 @@ function ToolTurn({ entry }: { entry: HqTranscriptEntry }): React.ReactElement {
 
 // ── Public turn dispatcher ───────────────────────────────────────────────────
 
-export function TranscriptTurn({ entry }: { entry: HqTranscriptEntry }): React.ReactElement | null {
+export const TranscriptTurn = memo(function TranscriptTurn({
+  entry,
+  running,
+}: {
+  entry: HqTranscriptEntry;
+  /**
+   * Whether a result-less tool card should show the running pulse. Callers
+   * that know the entry's position pass `isToolRunning(e) && nearTail` so an
+   * old call that never recorded a result doesn't pulse forever; standalone
+   * rendering falls back to the shape check alone.
+   */
+  running?: boolean;
+}): React.ReactElement | null {
   const clock = formatClock(entry.ts);
 
-  if (entry.role === 'tool') return <ToolTurn entry={entry} />;
+  // A failed tool call is merged into its args entry with role 'error' — it
+  // still carries the tool name + input, so render it as an (error) tool card
+  // rather than a bare error bubble.
+  if (entry.role === 'tool' || (entry.role === 'error' && entry.toolInput !== undefined)) {
+    return <ToolTurn entry={entry} running={running ?? isToolRunning(entry)} />;
+  }
+  if (entry.role === 'thinking') return <ThinkingTurn entry={entry} />;
 
   if (entry.role === 'user') {
     return (
       <div className="hq-chat-turn user">
         <div className="hq-chat-bubble user">
           <div className="hq-chat-role">
-            you{entry.agentId ? ` · ${entry.agentId}` : ''}
-            {clock && <span className="hq-chat-clock">{clock}</span>}
+            you{entry.agentId !== undefined ? ` · ${entry.agentId}` : ''}
+            {clock !== '' && <span className="hq-chat-clock">{clock}</span>}
           </div>
           <div className="hq-chat-prose">{entry.text}</div>
         </div>
@@ -271,10 +214,10 @@ export function TranscriptTurn({ entry }: { entry: HqTranscriptEntry }): React.R
       <div className="hq-chat-turn assistant">
         <div className="hq-chat-bubble assistant">
           <div className="hq-chat-role">
-            agent{entry.agentId ? ` · ${entry.agentId}` : ''}
-            {clock && <span className="hq-chat-clock">{clock}</span>}
+            agent{entry.agentId !== undefined ? ` · ${entry.agentId}` : ''}
+            {clock !== '' && <span className="hq-chat-clock">{clock}</span>}
           </div>
-          <AssistantText text={entry.text} />
+          <Markdown text={entry.text} />
         </div>
       </div>
     );
@@ -285,7 +228,7 @@ export function TranscriptTurn({ entry }: { entry: HqTranscriptEntry }): React.R
       <div className="hq-chat-turn error">
         <div className="hq-chat-bubble error">
           <div className="hq-chat-role err">
-            error{clock && <span className="hq-chat-clock">{clock}</span>}
+            error{clock !== '' && <span className="hq-chat-clock">{clock}</span>}
           </div>
           <pre className="hq-tool-pre err">{entry.text}</pre>
         </div>
@@ -299,8 +242,8 @@ export function TranscriptTurn({ entry }: { entry: HqTranscriptEntry }): React.R
     <div className="hq-chat-turn system">
       <span className="hq-chat-system-line">
         {entry.text}
-        {clock && <span className="hq-chat-clock">{clock}</span>}
+        {clock !== '' && <span className="hq-chat-clock">{clock}</span>}
       </span>
     </div>
   );
-}
+});

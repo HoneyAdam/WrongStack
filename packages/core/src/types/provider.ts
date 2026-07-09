@@ -286,10 +286,109 @@ export interface ProviderErrorBody {
   rawLength?: number | undefined;
 }
 
+/**
+ * Canonical provider-failure taxonomy. Computed ONCE at error-construction
+ * time (`classifyProviderError`) and carried on `ProviderError.kind` so
+ * every downstream consumer — retry policy, cross-provider fallback,
+ * recovery strategies, the subagent error classifier — branches on the
+ * same classification instead of re-deriving it from status codes and
+ * message regexes. When a new provider's error format needs special
+ * handling, this module is the only place to teach it.
+ */
+export type ProviderErrorKind =
+  | 'rate_limit' // 429 / rate_limit_error — back off (honour Retry-After), then failover
+  | 'overloaded' // 529 / overloaded_error — retry with backoff, then failover
+  | 'server' // other 5xx — retry same provider
+  | 'timeout' // 408 request timeout
+  | 'network' // status 0 — connection/DNS failure before a response arrived
+  | 'stream_hang' // 599 sentinel — stream stalled mid-response (StreamHangError)
+  | 'auth' // 401/403 — key invalid/expired; retrying without action is pointless
+  | 'context_overflow' // 413 or an overflow-shaped 4xx — compact, don't retry as-is
+  | 'content_filter' // provider refused the content — a different model may accept it
+  | 'invalid_request' // other 4xx — request is malformed; retrying won't help
+  | 'unknown';
+
+/**
+ * Overflow-shaped provider messages. Union of the patterns previously
+ * scattered across `error-handler.ts` and `coordinator/error-classifier.ts`
+ * (which had drifted apart) — keep additions here, nowhere else.
+ */
+const CONTEXT_OVERFLOW_RE =
+  /context.length|context.window|max.*tokens?.*exceeded|prompt is too long|too long|exceeds the context|\btokens\b.*exceed|context_length_exceeded/i;
+
+/** Content-policy refusals surfaced as HTTP errors (Azure/OpenAI `content_filter`, etc.). */
+const CONTENT_FILTER_RE = /content.(filter|policy|moderation)|safety (system|filter)/i;
+
+/**
+ * Classify a provider HTTP failure into the canonical taxonomy from its
+ * status code plus the parsed error body (and, for message-only errors
+ * without a structured body, the error message itself). Pure and total —
+ * always returns a kind, never throws.
+ */
+export function classifyProviderError(
+  status: number,
+  body?: ProviderErrorBody,
+  message?: string,
+): ProviderErrorKind {
+  const type = body?.type;
+  if (status === 0) return 'network';
+  if (status === 408) return 'timeout';
+  if (status === 599) return 'stream_hang';
+  if (type === 'rate_limit_error' || status === 429) return 'rate_limit';
+  if (type === 'overloaded_error' || status === 529) return 'overloaded';
+  if (status >= 500) return 'server';
+  if (
+    type === 'authentication_error' ||
+    type === 'permission_error' ||
+    status === 401 ||
+    status === 403
+  ) {
+    return 'auth';
+  }
+  const text = [message, body?.message, type, body?.raw].filter(Boolean).join('\n');
+  if (type === 'content_filter' || CONTENT_FILTER_RE.test(text)) return 'content_filter';
+  if (status === 413 || (status >= 400 && CONTEXT_OVERFLOW_RE.test(text))) {
+    return 'context_overflow';
+  }
+  if (status >= 400) return 'invalid_request';
+  return 'unknown';
+}
+
+/**
+ * Whether a kind is worth retrying against the SAME provider/model.
+ * `context_overflow` is deliberately false — the request must shrink first;
+ * `auth`/`invalid_request`/`content_filter` won't improve on replay.
+ *
+ * Exhaustive by construction (`Record<ProviderErrorKind, …>`): adding a new
+ * kind refuses to compile until it is classified here. Every kind→X mapping
+ * in the codebase follows this drift-guard pattern — see also KIND_TO_CODE
+ * below, DefaultRetryPolicy.maxAttempts, fallback-model shouldFallback, and
+ * the coordinator's providerErrorToSubagentError.
+ */
+export function isRetryableKind(kind: ProviderErrorKind): boolean {
+  return RETRYABLE_BY_KIND[kind];
+}
+
+const RETRYABLE_BY_KIND: Record<ProviderErrorKind, boolean> = {
+  rate_limit: true,
+  overloaded: true,
+  server: true,
+  timeout: true,
+  network: true,
+  stream_hang: true,
+  auth: false,
+  context_overflow: false,
+  content_filter: false,
+  invalid_request: false,
+  unknown: false,
+};
+
 export class ProviderError extends WrongStackError {
   public readonly status: number;
   public readonly retryable: boolean;
   public readonly providerId: string;
+  /** Canonical failure classification — see {@link ProviderErrorKind}. */
+  public readonly kind: ProviderErrorKind;
   public readonly body?: ProviderErrorBody | undefined;
 
   constructor(
@@ -297,11 +396,17 @@ export class ProviderError extends WrongStackError {
     status: number,
     retryable: boolean,
     providerId: string,
-    opts: { body?: ProviderErrorBody | undefined; cause?: unknown | undefined } = {},
+    opts: {
+      body?: ProviderErrorBody | undefined;
+      cause?: unknown | undefined;
+      /** Override the computed classification (rarely needed — tests, custom wires). */
+      kind?: ProviderErrorKind | undefined;
+    } = {},
   ) {
+    const kind = opts.kind ?? classifyProviderError(status, opts.body, message);
     super({
       message,
-      code: providerStatusToCode(status, opts.body?.type),
+      code: kindToCode(kind),
       subsystem: 'provider',
       severity: status >= 500 ? 'error' : 'warning',
       recoverable: retryable,
@@ -312,6 +417,7 @@ export class ProviderError extends WrongStackError {
     this.status = status;
     this.retryable = retryable;
     this.providerId = providerId;
+    this.kind = kind;
     this.body = opts.body;
   }
 
@@ -343,11 +449,13 @@ export class ProviderError extends WrongStackError {
 
 function describeStatus(status: number, type?: string): string {
   if (status === 0) return 'network error';
+  if (status === 599) return `stream hang (${status})`;
   if (type === 'overloaded_error' || status === 529) return `overloaded (${status})`;
   if (type === 'rate_limit_error' || status === 429) return `rate limited (${status})`;
   if (type === 'authentication_error' || status === 401) return `auth failed (${status})`;
   if (type === 'permission_error' || status === 403) return `forbidden (${status})`;
   if (type === 'not_found_error' || status === 404) return `not found (${status})`;
+  if (type === 'content_filter') return `content filtered (${status})`;
   if (type === 'invalid_request_error' || status === 400) return `invalid request (${status})`;
   if (status === 408) return `timeout (${status})`;
   if (status >= 500 && status < 600) return `HTTP ${status} (server error)`;
@@ -406,13 +514,22 @@ export class StreamHangError extends ProviderError {
   }
 }
 
-function providerStatusToCode(status: number, type?: string): ErrorCode {
-  if (status === 0) return ERROR_CODES.PROVIDER_NETWORK_ERROR;
-  if (type === 'rate_limit_error' || status === 429) return ERROR_CODES.PROVIDER_RATE_LIMITED;
-  if (type === 'authentication_error' || status === 401) return ERROR_CODES.PROVIDER_AUTH_FAILED;
-  if (type === 'overloaded_error' || status === 529) return ERROR_CODES.PROVIDER_OVERLOADED;
-  if (type === 'invalid_request_error' || status === 400) return ERROR_CODES.PROVIDER_INVALID_REQUEST;
-  if (status === 408) return ERROR_CODES.PROVIDER_NETWORK_ERROR;
-  if (status >= 500) return ERROR_CODES.PROVIDER_SERVER_ERROR;
-  return ERROR_CODES.PROVIDER_INVALID_REQUEST;
+/** Exhaustive kind → ErrorCode mapping — new kinds must be added here or the
+ *  file stops compiling (same drift-guard pattern as RETRYABLE_BY_KIND). */
+const KIND_TO_CODE: Record<ProviderErrorKind, ErrorCode> = {
+  network: ERROR_CODES.PROVIDER_NETWORK_ERROR,
+  timeout: ERROR_CODES.PROVIDER_NETWORK_ERROR,
+  rate_limit: ERROR_CODES.PROVIDER_RATE_LIMITED,
+  auth: ERROR_CODES.PROVIDER_AUTH_FAILED,
+  overloaded: ERROR_CODES.PROVIDER_OVERLOADED,
+  context_overflow: ERROR_CODES.PROVIDER_CONTEXT_OVERFLOW,
+  server: ERROR_CODES.PROVIDER_SERVER_ERROR,
+  stream_hang: ERROR_CODES.PROVIDER_SERVER_ERROR,
+  content_filter: ERROR_CODES.PROVIDER_INVALID_REQUEST,
+  invalid_request: ERROR_CODES.PROVIDER_INVALID_REQUEST,
+  unknown: ERROR_CODES.PROVIDER_INVALID_REQUEST,
+};
+
+function kindToCode(kind: ProviderErrorKind): ErrorCode {
+  return KIND_TO_CODE[kind];
 }

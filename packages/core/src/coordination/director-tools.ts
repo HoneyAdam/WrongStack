@@ -5,15 +5,21 @@ import {
   updateTaskAssignment,
   type KanbanBoard,
   type KanbanTask,
-} from '../kanban/index.js';
+} from '@wrongstack/kanban';
 import { ToolCapabilities } from '../security/capabilities.js';
 import type { SubagentConfig, TaskResult, TaskSpec } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
 import { toErrorMessage } from '../utils/error.js';
 import { type AgentDefinition, getAgentDefinition } from './agents/index.js';
 import type { CollabSessionOptions } from './collab-debug.js';
-import { type Director, FleetCostCapError, FleetSpawnBudgetError } from './director.js';
+import {
+  type Director,
+  FleetCostCapError,
+  FleetSpawnBudgetError,
+  FleetTokenCapError,
+} from './director.js';
 import { dispatchAgent } from './dispatcher.js';
+import { validateFleetEventEmission } from './fleet-event-validation.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -168,6 +174,9 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
           return { error: err.message, kind: err.kind, limit: err.limit, observed: err.observed };
         }
         if (err instanceof FleetCostCapError) {
+          return { error: err.message, kind: err.kind, limit: err.limit, observed: err.observed };
+        }
+        if (err instanceof FleetTokenCapError) {
           return { error: err.message, kind: err.kind, limit: err.limit, observed: err.observed };
         }
         return { error: toErrorMessage(err) };
@@ -1673,7 +1682,8 @@ export function makeCollabDebugTool(director: Director): Tool {
 
 /**
  * Tool for subagents to emit structured events on the FleetBus.
- * Any agent can emit any event type; the Director routes it to all listeners.
+ * Custom event types are extensible; known collab events are schema-validated
+ * and restricted to their owning role before the Director routes them.
  * Common event types in collaborative sessions:
  *   bug.found        — BugHunter emits per-finding
  *   refactor.plan    — RefactorPlanner emits per-plan
@@ -1685,10 +1695,10 @@ export function makeFleetEmitTool(director: Director): Tool {
   return {
     name: 'fleet_emit',
     description:
-      'Emit a structured event on the FleetBus. Any subagent can emit any event type; the Director routes it to all listeners. Use it to stream findings, progress updates, or final results to other agents in real time.',
+      'Emit a structured event on the FleetBus. Known collaboration events are schema-validated and role-bound; custom event types remain extensible. Use it to stream findings, progress updates, or final results to other agents in real time.',
     permission: 'auto',
     mutating: false,
-    capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],
+    capabilities: [ToolCapabilities.COORDINATION_FLEET_EMIT],
     inputSchema: {
       type: 'object',
       properties: {
@@ -1704,10 +1714,16 @@ export function makeFleetEmitTool(director: Director): Tool {
       },
       required: ['type'],
     },
-    async execute(input: unknown) {
+    async execute(input: unknown, ctx) {
       const i = input as { type: string; payload?: Record<string, unknown> | null };
+      const role = ctx.meta['agentRole'] as string | undefined;
+      const validationError = validateFleetEventEmission(i.type, i.payload ?? {}, role);
+      if (validationError) return { ok: false, error: validationError };
+      const callerId = ctx.agentId && ctx.agentId !== 'unknown' ? ctx.agentId : director.id;
+      const taskId = ctx.meta['subagentTaskId'] as string | undefined;
       director.fleet.emit({
-        subagentId: director.id,
+        subagentId: callerId,
+        taskId,
         ts: Date.now(),
         type: i.type,
         payload: i.payload ?? {},

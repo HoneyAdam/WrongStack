@@ -39,7 +39,13 @@ export {
   writePredictionsJsonl,
 } from './report/predictions.js';
 export { mapWithConcurrency, type RunWstackOptions, runWstack } from './runner.js';
-export { readToolMetrics } from './session-metrics.js';
+export { readSessionLogEvents, readToolMetrics, type SessionLogEvent } from './session-metrics.js';
+export { evaluateTraceEval } from './trace-eval.js';
+export {
+  mineTranscript,
+  type MinedTraceEvalDraft,
+  type MineTranscriptResult,
+} from './transcript-mine.js';
 // Suites
 export {
   createLocalManifestSuite,

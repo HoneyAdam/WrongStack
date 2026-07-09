@@ -185,7 +185,7 @@ export interface ReplOptions {
    * `/sdd parallel` blocks the prompt while it awaits completion, so this is the
    * only mid-run stop path from the REPL — the SIGINT handler calls `stop()`.
    */
-  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  getSddRun?: (() => import('@wrongstack/sdd').SddRunControl | null) | undefined;
   /** Model-specific max context window (tokens). Used for the context bar in turn summaries. */
   effectiveMaxContext?: number | undefined;
   /** Live model-specific max context window. Prefer this over the startup snapshot when provided. */

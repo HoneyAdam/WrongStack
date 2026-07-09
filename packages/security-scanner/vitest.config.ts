@@ -1,0 +1,31 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vitest/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@wrongstack/core': path.resolve(__dirname, '../core/src'),
+      '@wrongstack/core/kernel': path.resolve(__dirname, '../core/src/kernel'),
+      '@wrongstack/core/types': path.resolve(__dirname, '../core/src/types'),
+      '@wrongstack/core/coordination': path.resolve(__dirname, '../core/src/coordination'),
+      '@wrongstack/core/execution': path.resolve(__dirname, '../core/src/execution'),
+      '@wrongstack/core/utils': path.resolve(__dirname, '../core/src/utils'),
+      '@wrongstack/core/security': path.resolve(__dirname, '../core/src/security'),
+      '@wrongstack/core/storage': path.resolve(__dirname, '../core/src/storage'),
+      '@wrongstack/core/models': path.resolve(__dirname, '../core/src/models'),
+      '@wrongstack/core/skills': path.resolve(__dirname, '../core/src/skills'),
+      '@wrongstack/core/plugin': path.resolve(__dirname, '../core/src/plugin'),
+      '@wrongstack/core/defaults': path.resolve(__dirname, '../core/src/defaults'),
+      '@wrongstack/core/infrastructure': path.resolve(__dirname, '../core/src/infrastructure'),
+      '@wrongstack/core/worktree': path.resolve(__dirname, '../core/src/worktree'),
+    },
+  },
+  test: {
+    include: ['tests/**/*.test.ts'],
+    pool: 'forks',
+    setupFiles: ['../../vitest.setup.ts'],
+  },
+});

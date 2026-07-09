@@ -1,12 +1,11 @@
 import type { WebSocket } from 'ws';
 import {
   computeTaskProgress,
-  SpecStore,
-  TaskGraphStore,
   type Specification,
   type TaskGraph,
   type TaskNode,
 } from '@wrongstack/core';
+import { SpecStore, TaskGraphStore } from '@wrongstack/sdd';
 
 interface WSClient {
   ws: WebSocket;

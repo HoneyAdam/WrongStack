@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
 
+const skipDts = process.env.WRONGSTACK_SKIP_DTS === '1';
+
 // PR-018b extracted @wrongstack/webui/server into a new workspace package
 // (audit §3.1.1 — option A: new package). The server entry points are emitted
 // here; @wrongstack/webui no longer ships server code.
@@ -10,7 +12,7 @@ export default defineConfig({
     'server/handlers': 'src/server/handlers/index.ts',
   },
   format: ['esm'],
-  dts: true,
+  dts: skipDts ? false : true,
   sourcemap: true,
   clean: true,
   splitting: false,

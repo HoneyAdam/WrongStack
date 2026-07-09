@@ -52,6 +52,7 @@ run robust to a model crashing, hanging (per-task timeout + tree-kill), or OOMin
 |---|---|
 | `wstack bench` | Print usage |
 | `wstack bench list [--models <config>]` | Show suites; with `--models`, list configured cells + the harness header |
+| `wstack bench mine --transcript <session.jsonl> [--out <eval-dir>]` | Copy a real transcript into the corpus and emit curator-ready trace-eval drafts |
 | `wstack bench run --suite <id> [flags]` | Run a suite across the model matrix and write a report |
 | `wstack bench report <run-dir>` | Re-render `report.md` from a finished run's `summary.json` |
 
@@ -108,6 +109,13 @@ applied cleanly — the polyglot edit-accuracy signal) · `$/task` · `tok in/ou
 `provider_retry`/`provider_error`) — never an LLM. Exported-but-ungraded SWE-bench
 rows show `—` in Pass@1 so they never masquerade as failures.
 
+When a local manifest contains transcript-mined `traceEval` cases, the report adds
+three causal columns: **Retrieval**, **Recall (given retrieval)**, and **Edit
+application (given recall)**. The last column follows the same correct-intent
+tool-use id to `tool_call_end.ok`, so a model that emits the right edit but whose
+tool invocation fails is counted as a tooling/application failure, not as a model
+or retrieval failure.
+
 ## Polyglot
 
 ```bash
@@ -155,6 +163,61 @@ Supported assertions: `file_exists`, `file_not_exists`, `file_contains`,
 `file_not_contains`. The local subset fingerprint includes task ids, prompts,
 grader/assertion definitions, excludes, and a hash of fixture content.
 
+### Transcript-mined diagnostic cases
+
+Use `traceEval` for the retrieval/recall/tooling diagnostic corpus. Every such
+case must carry an immutable provenance record for a real, copied session JSONL:
+the original session id, a source transcript path, its SHA-256, and the inclusive
+event range from which the case was curated. The loader verifies the hash, event
+range, and session id before a run; a hand-written synthetic substitute cannot
+silently enter this corpus.
+
+```json
+{
+  "id": "handler-replacement-from-session",
+  "prompt": "Modernize the handler implementation.",
+  "templateDir": "./fixtures/handler-replacement",
+  "assertions": [{ "type": "file_contains", "path": "src/handler.ts", "text": "modern handler" }],
+  "traceEval": {
+    "source": {
+      "sessionId": "sess_01J...",
+      "transcriptPath": "./corpus/sess_01J.jsonl",
+      "sha256": "<64-character sha256>",
+      "eventStart": 12,
+      "eventEnd": 29
+    },
+    "retrieval": [{ "toolNames": ["read", "grep"], "contains": "legacy handler" }],
+    "recall": {
+      "toolNames": ["edit", "write", "apply_patch"],
+      "inputContains": ["src/handler.ts", "modern handler"]
+    }
+  }
+}
+```
+
+The fixture is the frozen pre-edit worktree captured with that session; retain it
+next to the provenance JSONL. Metric denominators are deliberately conditional:
+retrieval is over all trace cases, recall only over cases where the required
+evidence was retrieved, and edit application only over cases where the model
+emitted the expected intent. That makes “retrieval, model, or tooling?” a direct
+read from the report instead of an inference from Pass@1.
+
+Start this workflow with a real session, rather than hand-authoring a trace:
+
+```bash
+wstack bench mine \
+  --transcript ~/.wrongstack/projects/<project>/sessions/<date>/sess_<id>.jsonl \
+  --out ./evals
+```
+
+This copies the original JSONL verbatim to `./evals/corpus/` and writes
+`./evals/trace-eval-drafts.json`: one candidate per edit attempt, seeded with
+the latest user prompt, a preceding retrieval marker, correct-intent input
+markers, and whether that exact invocation applied. The draft is intentionally
+not a runnable task until a curator freezes the pre-edit worktree and adds a
+deterministic grader; this avoids manufacturing a synthetic test from partial
+transcript data.
+
 ## SWE-bench
 
 `--dataset-dir <path>` must contain one directory per pinned instance id:
@@ -194,6 +257,7 @@ change it (changing the subset changes the fingerprint).
 | `isolation.ts` | Sandbox: isolated `WRONGSTACK_HOME` + per-cell workdirs (`.meta` excluded) |
 | `runner.ts` | Spawn the wstack subprocess, parse `--output-json`, tree-kill on timeout, `mapWithConcurrency` |
 | `session-metrics.ts` | Edit-apply % and 429 counts from the session JSONL |
+| `trace-eval.ts` | Deterministic retrieval → recall → edit-application funnel for transcript-mined cases |
 | `suites/local-manifest.ts`, `graders/local-manifest-grader.ts` | Local manifest loader + deterministic command/file grader |
 | `suites/polyglot.ts`, `graders/polyglot-grader.ts` | Polyglot loader + deterministic grader |
 | `suites/swebench.ts`, `suites/swebench-patch.ts`, `graders/swebench-grader.ts` | SWE-bench loader, patch extraction, grader |

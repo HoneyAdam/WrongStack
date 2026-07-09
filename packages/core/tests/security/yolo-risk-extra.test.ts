@@ -47,10 +47,10 @@ describe('yolo-risk — extra coverage', () => {
       expect(isClearlyDestructiveBashCommand('rm -rf ~', ROOT)).toBe(true);
       expect(isClearlyDestructiveBashCommand('rm -rf C:\\', ROOT)).toBe(true);
     });
-    it('does NOT flag deleting an outside non-system path (recoverable-scale)', () => {
-      // A few files or an arbitrary sibling dir is recoverable, not catastrophic.
-      expect(isClearlyDestructiveBashCommand(`rm -rf ${OUTSIDE}`, ROOT)).toBe(false);
+    it('flags recursive force deletes outside the project but allows project cleanup', () => {
+      expect(isClearlyDestructiveBashCommand(`rm -rf ${OUTSIDE}`, ROOT)).toBe(true);
       expect(isClearlyDestructiveBashCommand('rm -rf node_modules', ROOT)).toBe(false);
+      expect(isClearlyDestructiveBashCommand('rm -rf dist build', ROOT)).toBe(false);
     });
     it('flags Windows rmdir /s, del, and Remove-Item -Recurse on a system directory', () => {
       expect(isClearlyDestructiveBashCommand('rmdir /s C:\\Windows', ROOT)).toBe(true);
@@ -66,8 +66,10 @@ describe('yolo-risk — extra coverage', () => {
       expect(isClearlyDestructiveBashCommand('mkfs.ext4 /dev/sda1', ROOT)).toBe(true);
       expect(isClearlyDestructiveBashCommand('diskpart', ROOT)).toBe(true);
     });
-    it('does NOT flag recoverable dev operations (git/db/chmod) or reads', () => {
-      expect(isClearlyDestructiveBashCommand('git reset --hard', ROOT)).toBe(false);
+    it('flags high-impact git operations, but still skips db/chmod strings and reads', () => {
+      expect(isClearlyDestructiveBashCommand('git reset --hard', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('git clean -xdf', ROOT)).toBe(true);
+      expect(isClearlyDestructiveBashCommand('git push --force-with-lease', ROOT)).toBe(true);
       expect(isClearlyDestructiveBashCommand('DROP TABLE users', ROOT)).toBe(false);
       expect(isClearlyDestructiveBashCommand('cd ..', ROOT)).toBe(false);
       expect(isClearlyDestructiveBashCommand(`cat ${OUTSIDE}`, ROOT)).toBe(false);
@@ -84,8 +86,8 @@ describe('yolo-risk — extra coverage', () => {
     });
     it('auto-approves `git status | findstr /v` (regression for /flag-looks-absolute)', () => {
       // The old ABSOLUTE_PATH_PATTERN matched the `/v` switch as an absolute
-      // path and gated this read-only command. The catastrophic-only gate does
-      // not look at flags at all.
+      // path and gated this read-only command. The current gate only treats
+      // high-impact command shapes as destructive.
       expect(isClearlyDestructiveBashCommand('git status --short | findstr /v "^??"', ROOT)).toBe(false);
       expect(isClearlyDestructiveBashCommand('grep /v file.txt', ROOT)).toBe(false);
     });

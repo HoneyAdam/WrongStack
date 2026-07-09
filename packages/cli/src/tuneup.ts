@@ -389,18 +389,19 @@ export function checkHooks(input: TuneupInput): TuneupFinding[] {
       findings.push({
         category: 'hooks',
         severity: 'info',
-        problem: `${event} runs ${list.length} shell hooks — each blocks the turn until it returns.`,
+        problem: `${event} runs ${list.length} configured hooks — each blocks the turn until it returns.`,
         suggestion: 'Consolidate or drop hooks you no longer need to keep turns snappy.',
       });
     }
 
     list.forEach((hook, index) => {
       const timeoutMs = hook.timeoutMs;
+      const target = hook.type === 'http' ? hook.url : hook.command;
       if (typeof timeoutMs === 'number' && timeoutMs >= SLOW_HOOK_TIMEOUT_MS) {
         findings.push({
           category: 'hooks',
           severity: 'warning',
-          problem: `${event} hook #${index + 1} allows up to ${(timeoutMs / 1000).toFixed(0)}s (\`${previewCommand(hook.command)}\`).`,
+          problem: `${event} hook #${index + 1} allows up to ${(timeoutMs / 1000).toFixed(0)}s (\`${previewCommand(target)}\`).`,
           suggestion:
             'A slow hook stalls every matching tool call. Lower the timeout or disable the hook.',
           fix: `clamp timeout to ${SLOW_HOOK_TIMEOUT_MS / 1000}s`,

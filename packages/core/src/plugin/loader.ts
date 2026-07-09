@@ -1,8 +1,8 @@
-import { PluginError, ERROR_CODES } from '../types/errors.js';
+import { ERROR_CODES, PluginError } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
 import type { Plugin, PluginAPI, PluginDependency } from '../types/plugin.js';
-import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { toErrorMessage } from '../utils/error.js';
+import { validateAgainstSchema } from '../utils/json-schema-validate.js';
 
 /** Internal map tracking the API instance each plugin received during setup,
  *  so unloadPlugins can call teardown with the same API (not a fresh one).
@@ -375,7 +375,10 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (t: unknown) => {
-                violate('tools', `register(${(t as { name?: string | undefined })?.name ?? '<unknown>'})`);
+                violate(
+                  'tools',
+                  `register(${(t as { name?: string | undefined })?.name ?? '<unknown>'})`,
+                );
                 return (target.register as (x: unknown) => unknown)(t);
               };
             }
@@ -390,7 +393,10 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'register') {
               return (f: unknown) => {
-                violate('providers', `register(${(f as { type?: string | undefined })?.type ?? '<unknown>'})`);
+                violate(
+                  'providers',
+                  `register(${(f as { type?: string | undefined })?.type ?? '<unknown>'})`,
+                );
                 return (target.register as (x: unknown) => unknown)(f);
               };
             }
@@ -423,7 +429,10 @@ function wrapApiForCapabilityCheck(
           get(target, prop, receiver) {
             if (prop === 'start') {
               return (cfg: unknown) => {
-                violate('mcp', `start(${(cfg as { name?: string | undefined })?.name ?? '<unknown>'})`);
+                violate(
+                  'mcp',
+                  `start(${(cfg as { name?: string | undefined })?.name ?? '<unknown>'})`,
+                );
                 return (target.start as (x: unknown) => unknown)(cfg);
               };
             }
@@ -440,21 +449,19 @@ function wrapApiForCapabilityCheck(
       : new Proxy(api, {
           get(target, prop, receiver) {
             if (prop === 'registerHook') {
-              return (
-                event: unknown,
-                matcher: unknown,
-                hook: unknown,
-              ) => {
+              return (event: unknown, matcher: unknown, hook: unknown, options?: unknown) => {
                 const ev = typeof event === 'string' ? event : '<unknown>';
                 const m = typeof matcher === 'string' ? matcher : '*';
                 violate('hooks', `registerHook(${ev}, ${m})`);
-                return (
-                  target.registerHook as (
-                    e: unknown,
-                    m: unknown,
-                    h: unknown,
-                  ) => unknown
-                )(event, matcher, hook);
+                const register = target.registerHook as (
+                  e: unknown,
+                  m: unknown,
+                  h: unknown,
+                  o?: unknown,
+                ) => unknown;
+                return options === undefined
+                  ? register(event, matcher, hook)
+                  : register(event, matcher, hook, options);
               };
             }
             return Reflect.get(target, prop, receiver);

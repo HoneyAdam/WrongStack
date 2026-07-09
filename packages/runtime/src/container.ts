@@ -104,6 +104,7 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
     () =>
       new DefaultSessionStore({
         dir: wpaths.projectSessions,
+        projectRoot: wpaths.projectRoot,
         // Scrub secrets out of persisted user/model turns (F-06). Tool output
         // is already scrubbed by the executor.
         secretScrubber: container.resolve(TOKENS.SecretScrubber),

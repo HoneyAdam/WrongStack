@@ -89,13 +89,18 @@ function fakeFetch(body: ReadableStream<Uint8Array>, status = 200): typeof fetch
     }) as never as Response) as never as typeof fetch;
 }
 
-function fakeFetchError(status: number, body: string): typeof fetch {
+function fakeFetchError(
+  status: number,
+  body: string,
+  headers?: Record<string, string>,
+): typeof fetch {
   return (async () =>
     ({
       ok: false,
       status,
       text: async () => body,
       body: null,
+      headers: headers ? { get: (n: string) => headers[n.toLowerCase()] ?? null } : undefined,
     }) as never as Response) as never as typeof fetch;
 }
 
@@ -253,6 +258,52 @@ describe('WireFormatProvider — declarative wire format', () => {
       caught = e;
     }
     expect((caught as Error).message).toBe('custom 500');
+  });
+
+  it('backfills Retry-After onto errors from a custom normalizeError', async () => {
+    const customCfg = defineWireFormat<MiniState>({
+      ...miniConfig,
+      normalizeError: (status) =>
+        new ProviderError(`custom ${status}`, status, true, 'mini', { body: {} }),
+    });
+    const provider = new WireFormatProvider(customCfg, {
+      apiKey: 'k',
+      fetchImpl: fakeFetchError(429, 'slow down', { 'retry-after': '7' }),
+    });
+
+    let caught: unknown;
+    try {
+      for await (const _ of provider.stream(
+        { model: 'mini-1', messages: [], maxTokens: 100 },
+        { signal: new AbortController().signal },
+      )) {
+        // unreachable
+      }
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as ProviderError).body?.retryAfterMs).toBe(7_000);
+  });
+
+  it('parses Retry-After through the default normalizer', async () => {
+    const provider = new WireFormatProvider(miniConfig, {
+      apiKey: 'k',
+      fetchImpl: fakeFetchError(429, '', { 'retry-after-ms': '1500' }),
+    });
+
+    let caught: unknown;
+    try {
+      for await (const _ of provider.stream(
+        { model: 'mini-1', messages: [], maxTokens: 100 },
+        { signal: new AbortController().signal },
+      )) {
+        // unreachable
+      }
+    } catch (e) {
+      caught = e;
+    }
+    expect((caught as ProviderError).body?.retryAfterMs).toBe(1500);
+    expect((caught as ProviderError).kind).toBe('rate_limit');
   });
 
   it('finalizeStream emits trailing events when defined', async () => {

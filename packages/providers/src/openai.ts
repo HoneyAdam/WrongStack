@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Capabilities, ReasoningEffort, Request, ResponseFormat, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
-import { parseProviderHttpError } from './error-parse.js';
+import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { parseSSE } from './sse.js';
 import { normalizeOpenAI } from './stop-reason.js';
@@ -144,8 +144,12 @@ export class OpenAIProvider extends WireAdapter {
     });
   }
 
-  protected override translateError(status: number, text: string): ProviderError {
-    return parseProviderHttpError(this.id, status, text);
+  protected override translateError(
+    status: number,
+    text: string,
+    headers?: HeadersLike,
+  ): ProviderError {
+    return parseProviderHttpError(this.id, status, text, headers);
   }
 
   private stripCacheControl(req: Request): typeof req.system {

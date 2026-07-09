@@ -1,6 +1,6 @@
 import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core';
 import { ConfigError, ParseError, ProviderError, StreamHangError } from '@wrongstack/core';
-import { parseProviderHttpError } from './error-parse.js';
+import { parseProviderHttpError, type HeadersLike } from './error-parse.js';
 import { isDebugStreamEnabled, pushDebugChunkStats } from './stream-debug-state.js';
 import { isNodeReadable } from './object-utils.js';
 import { Readable } from 'node:stream';
@@ -13,6 +13,8 @@ type Response2 = {
   status: number;
   text(): Promise<string>;
   body: ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
+  /** Optional — custom fetchImpl fakes may omit it; Retry-After parsing degrades gracefully. */
+  headers?: HeadersLike | undefined;
 };
 
 /** Configuration for WireAdapter stream-level debugging and hang detection. */
@@ -151,7 +153,7 @@ export abstract class WireAdapter implements Provider {
 
     if (!httpRes.ok) {
       const text = await safeText(httpRes);
-      throw this.translateError(httpRes.status, text);
+      throw this.translateError(httpRes.status, text, httpRes.headers);
     }
 
     let sseBody = httpRes.body;
@@ -348,8 +350,9 @@ export abstract class WireAdapter implements Provider {
     req: Request,
   ): AsyncIterable<StreamEvent>;
 
-  /** Build a ProviderError from an HTTP failure response. */
-  protected translateError(status: number, body: string): ProviderError {
-    return parseProviderHttpError(this.id, status, body);
+  /** Build a ProviderError from an HTTP failure response. `headers` (when the
+   *  fetch impl provides them) lets the parser honour Retry-After hints. */
+  protected translateError(status: number, body: string, headers?: HeadersLike): ProviderError {
+    return parseProviderHttpError(this.id, status, body, headers);
   }
 }

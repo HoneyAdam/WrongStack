@@ -6,10 +6,11 @@
  *
  * @module hq-static-serve
  */
-import { createRequire } from 'node:module';
+
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type * as http from 'node:http';
+import { createRequire } from 'node:module';
+import * as path from 'node:path';
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -36,24 +37,43 @@ let cachedDistDir: string | null | undefined;
  */
 export function resolveHqDistDir(): string | null {
   if (cachedDistDir !== undefined) return cachedDistDir;
+
+  // Strategy 1: resolve the package root via its package.json export. The
+  // "." entry points at dist/index.js which the vite build does NOT emit
+  // (the package is an asset carrier — dist holds index.html + assets/), so
+  // resolving the bare specifier throws ERR_PACKAGE_PATH_NOT_EXPORTED /
+  // MODULE_NOT_FOUND and, before this fix, HQ silently ALWAYS fell back to
+  // the legacy inline HTML.
   try {
-    // Resolve the package's index entry, then walk up to the package root's dist.
-    const entry = requireFromHere.resolve('@wrongstack/webui-hq');
-    // entry is typically <pkg>/dist/index.js → dist dir is path.dirname(entry).
-    const dir = path.dirname(entry);
-    if (fs.existsSync(path.join(dir, 'index.html'))) {
-      cachedDistDir = dir;
-      return dir;
-    }
-    // Maybe entry is the package root; try dist subdir.
-    const distSub = path.join(path.dirname(entry), 'dist');
-    if (fs.existsSync(path.join(distSub, 'index.html'))) {
-      cachedDistDir = distSub;
-      return distSub;
+    const pkgJson = requireFromHere.resolve('@wrongstack/webui-hq/package.json');
+    const dist = path.join(path.dirname(pkgJson), 'dist');
+    if (fs.existsSync(path.join(dist, 'index.html'))) {
+      cachedDistDir = dist;
+      return dist;
     }
   } catch {
-    /* package not installed */
+    /* fall through to strategy 2 */
   }
+
+  // Strategy 2: walk up from this module looking for the workspace/installed
+  // package under node_modules (also covers older installs whose package.json
+  // exports map does not expose "./package.json").
+  try {
+    let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1'));
+    for (let i = 0; i < 8; i++) {
+      const candidate = path.join(dir, 'node_modules', '@wrongstack', 'webui-hq', 'dist');
+      if (fs.existsSync(path.join(candidate, 'index.html'))) {
+        cachedDistDir = candidate;
+        return candidate;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    /* not found */
+  }
+
   cachedDistDir = null;
   return null;
 }

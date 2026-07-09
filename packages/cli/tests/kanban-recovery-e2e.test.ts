@@ -2,18 +2,20 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  type SubagentConfig,
+  type TaskResult,
+  type TaskSpec,
+  makeKanbanQueueTool,
+} from '@wrongstack/core';
+import {
   addTask,
   assignTask,
   createBoard,
   getBoard,
   listKanbanEvents,
   listReadyTasks,
-  makeKanbanQueueTool,
   recoverStaleTaskAssignments,
-  type SubagentConfig,
-  type TaskResult,
-  type TaskSpec,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tmpDir = '';

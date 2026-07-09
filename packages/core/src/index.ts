@@ -100,8 +100,14 @@ export {
   Director,
   FleetCostCapError,
   FleetSpawnBudgetError,
+  FleetTokenCapError,
   type TaskResultNotification,
 } from './coordination/director.js';
+export {
+  DEFAULT_MAX_FLEET_SPAWNS,
+  HARD_MAX_SPAWN_DEPTH,
+  resolveMaxSpawnDepth,
+} from './coordination/spawn-budget.js';
 export {
   type DirectorSessionFactory,
   type DirectorSessionFactoryOptions,
@@ -120,6 +126,14 @@ export {
   makeSpawnTool,
   makeTerminateTool,
 } from './coordination/director-tools.js';
+export {
+  formatSubagentStructuredReport,
+  MAX_SUBAGENT_STRUCTURED_REPORT_CHARS,
+  makeSubagentResultTool,
+  normalizeSubagentStructuredReport,
+  readSubagentStructuredReport,
+  SUBAGENT_STRUCTURED_REPORT_META_KEY,
+} from './coordination/subagent-result-tool.js';
 export {
   DEFAULT_DISPATCH_ROLE,
   type DispatchCandidate,
@@ -430,7 +444,6 @@ export {
   shellHooksEqual,
 } from './hooks/index.js';
 export * from './hq/index.js';
-export * from './kanban/index.js';
 export * from './kernel/index.js';
 export { attachMailboxChecker } from './mailbox-attach.js';
 export {
@@ -480,10 +493,6 @@ export {
   ReplayProviderRunner,
   type ReplayProviderRunnerOptions,
 } from './replay/replay-provider-runner.js';
-export {
-  type ConflictSide,
-  makePreferSideConflictResolver,
-} from './sdd/conflict-resolver.js';
 // Well-known tool capabilities + subagent capability helpers. Public so
 // first-party consumers (CLI fleet host, plugins) can reason about and widen
 // subagent capability allowlists instead of hardcoding capability strings.
@@ -497,7 +506,6 @@ export {
   WIDE_SUBAGENT_CAPABILITIES,
 } from './security/capabilities.js';
 export { DefaultSecretScrubber } from './security/secret-scrubber.js';
-export * from './security-scanner/index.js';
 export * from './skills/index.js';
 export * from './storage/index.js';
 // Explicit re-exports for the new session audit bridge (helps some consumers

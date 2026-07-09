@@ -1,8 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { resolveWstackPaths } from '@wrongstack/core';
 
 // Mock the core's rewinder/store classes — exercised in their own tests.
 // Use vi.hoisted so the mock factory can refer to the shared instances.
 const mocks = vi.hoisted(() => ({
+  rewindConstructor: vi.fn(),
+  storeConstructor: vi.fn(),
   rewindInstance: {
     listCheckpoints: vi.fn(),
     rewindToStart: vi.fn(),
@@ -18,12 +21,18 @@ const { rewindInstance, storeInstance } = mocks;
 vi.mock('@wrongstack/core', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   class FakeRewinder {
+    constructor(...args: unknown[]) {
+      mocks.rewindConstructor(...args);
+    }
     listCheckpoints = mocks.rewindInstance.listCheckpoints;
     rewindToStart = mocks.rewindInstance.rewindToStart;
     rewindLastN = mocks.rewindInstance.rewindLastN;
     rewindToCheckpoint = mocks.rewindInstance.rewindToCheckpoint;
   }
   class FakeStore {
+    constructor(...args: unknown[]) {
+      mocks.storeConstructor(...args);
+    }
     resume = mocks.storeInstance.resume;
   }
   return {
@@ -58,6 +67,8 @@ function fakeDeps(overrides: Partial<SubcommandDeps> = {}): SubcommandDeps {
 }
 
 beforeEach(() => {
+  mocks.rewindConstructor.mockReset();
+  mocks.storeConstructor.mockReset();
   rewindInstance.listCheckpoints.mockReset();
   rewindInstance.rewindToStart.mockReset();
   rewindInstance.rewindLastN.mockReset();
@@ -66,6 +77,18 @@ beforeEach(() => {
 });
 
 describe('rewindCmd', () => {
+  it('uses the modern project-scoped sessions directory', async () => {
+    rewindInstance.listCheckpoints.mockResolvedValue([]);
+    const deps = fakeDeps();
+
+    await rewindCmd(['--list'], deps);
+
+    expect(mocks.rewindConstructor).toHaveBeenCalledWith(
+      resolveWstackPaths({ projectRoot: deps.projectRoot }).projectSessions,
+      deps.projectRoot,
+    );
+  });
+
   it('errors when no sessions available and no id passed', async () => {
     const deps = fakeDeps({
       sessionStore: {

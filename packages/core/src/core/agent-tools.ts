@@ -263,6 +263,17 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     // and timer rescheduling overhead.
     if (sessionEvents.length > 0) {
       await a.ctx.session.appendBatch(sessionEvents);
+      // A completed tool may already have changed the filesystem. Persist its
+      // file_snapshot + tool_result boundary before another provider call (or
+      // a process crash) can observe only the side effect and lose its journal
+      // record.
+      try {
+        await a.ctx.session.flush();
+      } catch (err) {
+        (a.logger.debug ?? a.logger.warn)?.(
+          `tool result boundary flush failed: ${toErrorMessage(err)}`,
+        );
+      }
     }
 
     a.ctx.state.appendMessage({ role: 'user', content: resultsForMessage });

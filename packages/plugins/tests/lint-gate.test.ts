@@ -1,11 +1,19 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import lintGatePlugin from '../src/lint-gate';
 
 interface MockApi {
   tools: { register: ReturnType<typeof vi.fn> };
   config: { extensions: Record<string, unknown> };
-  log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
-  metrics: { counter: ReturnType<typeof vi.fn>; histogram: ReturnType<typeof vi.fn>; gauge: ReturnType<typeof vi.fn> };
+  log: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+  metrics: {
+    counter: ReturnType<typeof vi.fn>;
+    histogram: ReturnType<typeof vi.fn>;
+    gauge: ReturnType<typeof vi.fn>;
+  };
   registerHook: ReturnType<typeof vi.fn>;
   onEvent: ReturnType<typeof vi.fn>;
   emitCustom: ReturnType<typeof vi.fn>;
@@ -25,16 +33,22 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
   };
 }
 
-function getHook(api: MockApi): (input: unknown) => { decision?: string; reason?: string; additionalContext?: string } | void {
+function getHook(
+  api: MockApi,
+): (
+  input: unknown,
+) => Promise<{ decision?: string; reason?: string; additionalContext?: string } | void> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
   return (call as unknown[])[2] as ReturnType<typeof getHook>;
 }
 
 function getStatusTool(api: MockApi): { execute: (input: unknown) => Promise<unknown> } {
-  const call = api.tools.register.mock.calls.find(([t]: unknown[]) => (t as { name: string }).name === 'lint_gate_status');
+  const call = api.tools.register.mock.calls.find(
+    ([t]: unknown[]) => (t as { name: string }).name === 'lint_gate_status',
+  );
   if (!call) throw new Error('lint_gate_status not registered');
-  return (call[0] as { execute: (input: unknown) => Promise<unknown> });
+  return call[0] as { execute: (input: unknown) => Promise<unknown> };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -52,27 +66,27 @@ describe('lint-gate plugin', () => {
 });
 
 describe('hook behavior', () => {
-  it('passes through when toolName is not write/edit', () => {
+  it('passes through when toolName is not write/edit', async () => {
     const api = makeApi();
     lintGatePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'bash', toolInput: { command: 'echo hi' } });
+    const result = await hook({ toolName: 'bash', toolInput: { command: 'echo hi' } });
     expect(result).toBeUndefined();
   });
 
-  it('passes through when path is missing', () => {
+  it('passes through when path is missing', async () => {
     const api = makeApi();
     lintGatePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'write', toolInput: { content: 'hello' } });
+    const result = await hook({ toolName: 'write', toolInput: { content: 'hello' } });
     expect(result).toBeUndefined();
   });
 
-  it('passes through when content is missing on write', () => {
+  it('passes through when content is missing on write', async () => {
     const api = makeApi();
     lintGatePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({ toolName: 'write', toolInput: { path: '/tmp/x.ts' } });
+    const result = await hook({ toolName: 'write', toolInput: { path: '/tmp/x.ts' } });
     expect(result).toBeUndefined();
   });
 });
@@ -149,7 +163,9 @@ describe('config parsing', () => {
 
   it('parses fixRules from config', async () => {
     const api = makeApi({
-      extensions: { 'lint-gate': { mode: 'fix', fixRules: ['lint/style/useImportType', 'format'] } },
+      extensions: {
+        'lint-gate': { mode: 'fix', fixRules: ['lint/style/useImportType', 'format'] },
+      },
     });
     lintGatePlugin.setup(api as never);
     const status = await getStatusTool(api).execute({});

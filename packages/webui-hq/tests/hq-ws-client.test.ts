@@ -17,7 +17,10 @@ class FakeWebSocket {
     this.url = url;
   }
 
-  _open(): void { this.readyState = FakeWebSocket.OPEN; this.onopen?.({}); }
+  _open(): void {
+    this.readyState = FakeWebSocket.OPEN;
+    this.onopen?.({});
+  }
   _close(code?: number, reason?: string): void {
     this.readyState = FakeWebSocket.CLOSED;
     this.onclose?.({ code, reason, wasClean: true });
@@ -28,7 +31,9 @@ class FakeWebSocket {
     // Browser fires onclose after onerror
     this.onclose?.({ code: 1006, reason: 'error', wasClean: false });
   }
-  _message(data: string): void { this.onmessage?.({ data }); }
+  _message(data: string): void {
+    this.onmessage?.({ data });
+  }
   close(code?: number, reason?: string): void {
     if (this.readyState === FakeWebSocket.OPEN) this._close(code, reason);
   }
@@ -47,6 +52,7 @@ const wsProxy = new Proxy(OrigWebSocket, {
 });
 
 const { HqWsClient, getHqClient } = await import('../src/lib/hq-ws-client.js');
+
 import type { HqWsConnectionState } from '../src/lib/hq-ws-client.js';
 
 describe('HqWsClient', () => {

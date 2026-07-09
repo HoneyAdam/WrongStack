@@ -25,11 +25,12 @@
  *
  * @public
  */
-import type { Plugin } from '@wrongstack/core';
-import { execSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Plugin } from '@wrongstack/core';
 
 const API_VERSION = '^0.1.10';
 
@@ -109,24 +110,58 @@ function readConfig(raw: unknown): LintGateConfig {
  * Detect which linter is available. "auto" tries biome first, then eslint.
  * Returns the linter command + args prefix, or null if neither is found.
  */
-function detectLinter(requested: Linter): { cmd: string; args: string[]; name: string } | null {
+interface CommandResult {
+  stdout: string;
+  error: Error | null;
+}
+
+function executable(command: string): string {
+  return process.platform === 'win32' && command === 'npx' ? 'npx.cmd' : command;
+}
+
+function runCommand(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        executable(command),
+        args,
+        {
+          encoding: 'utf-8',
+          timeout: timeoutMs,
+          cwd: process.cwd(),
+          windowsHide: true,
+          maxBuffer: 2 * 1024 * 1024,
+          ...(signal ? { signal } : {}),
+        },
+        (error, stdout) => resolve({ stdout, error }),
+      );
+    } catch (err) {
+      resolve({ stdout: '', error: err instanceof Error ? err : new Error(String(err)) });
+    }
+  });
+}
+
+async function detectLinter(
+  requested: Linter,
+): Promise<{ cmd: string; args: string[]; name: string } | null> {
   const tryBiome = requested === 'biome' || requested === 'auto';
   const tryEslint = requested === 'eslint' || requested === 'auto';
 
   if (tryBiome) {
-    try {
-      execSync('npx biome --version', { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] });
+    const probe = await runCommand('npx', ['biome', '--version'], 5_000);
+    if (!probe.error) {
       return { cmd: 'npx', args: ['biome', 'check', '--reporter=json'], name: 'biome' };
-    } catch {
-      // biome not available
     }
   }
   if (tryEslint) {
-    try {
-      execSync('npx eslint --version', { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] });
+    const probe = await runCommand('npx', ['eslint', '--version'], 5_000);
+    if (!probe.error) {
       return { cmd: 'npx', args: ['eslint', '--format=json'], name: 'eslint' };
-    } catch {
-      // eslint not available
     }
   }
   return null;
@@ -147,40 +182,31 @@ interface LintIssue {
  * Run the linter on a temp file and parse the output.
  * Returns the list of issues found, or null if the linter itself failed.
  */
-function lintContent(
+async function lintContent(
   content: string,
   filePath: string,
   linter: { cmd: string; args: string[]; name: string },
   timeoutMs: number,
-): LintIssue[] | null {
+  signal: AbortSignal,
+): Promise<LintIssue[] | null> {
   // Create a temp directory and write the content with the same extension
   // as the target file so the linter applies the right rules.
   const ext = filePath.includes('.') ? filePath.slice(filePath.lastIndexOf('.')) : '.ts';
-  const tmpDir = mkdtempSync(join(tmpdir(), 'lint-gate-'));
+  const tmpDir = await mkdtemp(join(tmpdir(), 'lint-gate-'));
   const tmpFile = join(tmpDir, `input${ext}`);
   try {
-    writeFileSync(tmpFile, content, 'utf-8');
+    await writeFile(tmpFile, content, 'utf-8');
     const fullArgs = [...linter.args, tmpFile];
-    let stdout = '';
-    try {
-      stdout = execSync(`${linter.cmd} ${fullArgs.map((a) => `"${a}"`).join(' ')}`, {
-        encoding: 'utf-8',
-        timeout: timeoutMs,
-        cwd: process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch (err: unknown) {
-      const e = err as { stdout?: string; killed?: boolean };
-      if (e.killed) return null; // timeout
-      // Linters exit non-zero when they find issues — stdout has the JSON.
-      if (e.stdout) stdout = e.stdout;
-      else return null;
-    }
-    return parseLinterOutput(stdout, linter.name);
+    const result = await runCommand(linter.cmd, fullArgs, timeoutMs, signal);
+    if (signal.aborted) throw signal.reason;
+    // Linters commonly exit non-zero when findings exist; JSON remains stdout.
+    if (result.error && !result.stdout) return null;
+    return parseLinterOutput(result.stdout, linter.name);
   } catch {
+    if (signal.aborted) throw signal.reason;
     return null;
   } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -195,40 +221,32 @@ function lintContent(
  *
  * @internal
  */
-function lintAndFix(
+async function lintAndFix(
   content: string,
   filePath: string,
   linter: { cmd: string; args: string[]; name: string },
   timeoutMs: number,
-): string {
+  signal: AbortSignal,
+): Promise<string> {
   const ext = filePath.includes('.') ? filePath.slice(filePath.lastIndexOf('.')) : '.ts';
-  const tmpDir = mkdtempSync(join(tmpdir(), 'lint-gate-fix-'));
+  const tmpDir = await mkdtemp(join(tmpdir(), 'lint-gate-fix-'));
   const tmpFile = join(tmpDir, `input${ext}`);
   try {
-    writeFileSync(tmpFile, content, 'utf-8');
+    await writeFile(tmpFile, content, 'utf-8');
     // Build the fix command: biome uses `check --write`, eslint uses `--fix`.
     const fixArgs =
       linter.name === 'biome'
         ? ['biome', 'check', '--write', tmpFile]
         : ['eslint', '--fix', tmpFile];
-    try {
-      execSync(`${linter.cmd} ${fixArgs.map((a) => `"${a}"`).join(' ')}`, {
-        encoding: 'utf-8',
-        timeout: timeoutMs,
-        cwd: process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch (err: unknown) {
-      const e = err as { killed?: boolean };
-      if (e.killed) return content; // timeout — return original
-      // Linters exit non-zero even after fixing. The file may still
-      // have been written to — read it back regardless.
-    }
-    return readFileSync(tmpFile, 'utf-8');
+    await runCommand(linter.cmd, fixArgs, timeoutMs, signal);
+    if (signal.aborted) throw signal.reason;
+    // Linters may exit non-zero after partial fixes; read the temp file anyway.
+    return await readFile(tmpFile, 'utf-8');
   } catch {
+    if (signal.aborted) throw signal.reason;
     return content; // any error → return original
   } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -244,7 +262,8 @@ function parseLinterOutput(stdout: string, linterName: string): LintIssue[] {
     if (linterName === 'biome') {
       for (const d of data.diagnostics ?? []) {
         const cat = d.category ?? 'unknown';
-        const sev = d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warning' : 'info';
+        const sev =
+          d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warning' : 'info';
         issues.push({
           severity: sev,
           rule: cat,
@@ -299,7 +318,8 @@ function filterBySeverity(issues: LintIssue[], threshold: Severity): LintIssue[]
 const plugin: Plugin = {
   name: 'lint-gate',
   version: '0.1.0',
-  description: 'Pre-tool hook that runs biome/eslint on would-be file content before write or edit commits',
+  description:
+    'Pre-tool hook that runs biome/eslint on would-be file content before write or edit commits',
   apiVersion: API_VERSION,
   capabilities: { tools: true, hooks: true },
   defaultConfig: { ...DEFAULTS },
@@ -316,13 +336,15 @@ const plugin: Plugin = {
         type: 'string',
         enum: ['block', 'warn', 'fix'],
         default: 'warn',
-        description: '"block" refuses the write/edit; "warn" injects lint errors as context; "fix" auto-runs the linter with --write/--fix and substitutes the fixed content (write: full file; edit: new_string snippet in isolation — file-level rules like import sorting are not checked on snippets).',
+        description:
+          '"block" refuses the write/edit; "warn" injects lint errors as context; "fix" auto-runs the linter with --write/--fix and substitutes the fixed content (write: full file; edit: new_string snippet in isolation — file-level rules like import sorting are not checked on snippets).',
       },
       severity: {
         type: 'string',
         enum: ['error', 'warning'],
         default: 'error',
-        description: 'Minimum severity to act on. "error" = only errors; "warning" = errors + warnings.',
+        description:
+          'Minimum severity to act on. "error" = only errors; "warning" = errors + warnings.',
       },
       timeoutMs: {
         type: 'number',
@@ -334,7 +356,8 @@ const plugin: Plugin = {
         type: 'array',
         items: { type: 'string' },
         default: [],
-        description: 'When mode=fix, only auto-fix issues matching these rule IDs (e.g. "lint/style/useImportType", "format"). Empty = fix everything the linter can.',
+        description:
+          'When mode=fix, only auto-fix issues matching these rule IDs (e.g. "lint/style/useImportType", "format"). Empty = fix everything the linter can.',
       },
     },
   },
@@ -351,20 +374,28 @@ const plugin: Plugin = {
     const cfg = readConfig(api.config.extensions?.['lint-gate']);
 
     // Detect linter once at setup time.
-    const linter = detectLinter(cfg.linter);
-    if (!linter) {
-      api.log.warn('lint-gate: no linter found (biome or eslint) — hook will be a no-op', {
-        requested: cfg.linter,
-      });
-    } else {
-      api.log.info('lint-gate: detected linter', { name: linter.name });
-    }
+    const linterReady = detectLinter(cfg.linter).then((linter) => {
+      if (!linter) {
+        api.log.warn('lint-gate: no linter found (biome or eslint) — hook will be a no-op', {
+          requested: cfg.linter,
+        });
+      } else {
+        api.log.info('lint-gate: detected linter', { name: linter.name });
+      }
+      return linter;
+    });
 
     // PreToolUse hook: lint the would-be content before write/edit.
-    const hook = (input: {
-      toolName?: string | undefined;
-      toolInput?: unknown;
-    }): { decision?: 'block' | 'allow' | undefined; reason?: string; modifiedInput?: Record<string, unknown>; additionalContext?: string } | void => {
+    const hook = async (
+      input: { toolName?: string | undefined; toolInput?: unknown },
+      runtime: { signal: AbortSignal } = { signal: new AbortController().signal },
+    ): Promise<{
+      decision?: 'block' | 'allow' | undefined;
+      reason?: string;
+      modifiedInput?: Record<string, unknown>;
+      additionalContext?: string;
+    } | void> => {
+      const linter = await linterReady;
       if (!linter) return; // no linter → no-op
 
       const toolName = input.toolName ?? '';
@@ -385,9 +416,8 @@ const plugin: Plugin = {
         const newStr = inp['new_string'] as string | undefined;
         if (typeof oldStr !== 'string' || typeof newStr !== 'string') return;
         // Read current file content, apply the edit in-memory.
-        if (!existsSync(filePath)) return; // edit will fail anyway — let the tool handle it
         try {
-          const current = readFileSync(filePath, 'utf-8');
+          const current = await readFile(filePath, 'utf-8');
           content = applyEdit(current, oldStr, newStr);
         } catch {
           return; // can't read file — let the tool handle the error
@@ -398,7 +428,7 @@ const plugin: Plugin = {
       }
 
       // Run the linter.
-      const issues = lintContent(content, filePath, linter, cfg.timeoutMs);
+      const issues = await lintContent(content, filePath, linter, cfg.timeoutMs, runtime.signal);
       if (issues === null) {
         state.linterErrorCount += 1;
         return; // linter process failed — don't block the write
@@ -419,14 +449,19 @@ const plugin: Plugin = {
       state.hitCount += 1;
       const summary = filtered
         .slice(0, 10) // cap at 10 to avoid massive context
-        .map((i) => `  • [${i.severity}] ${i.rule}: ${i.message}${i.line ? ` (line ${i.line})` : ''}`)
+        .map(
+          (i) => `  • [${i.severity}] ${i.rule}: ${i.message}${i.line ? ` (line ${i.line})` : ''}`,
+        )
         .join('\n');
       const truncated = filtered.length > 10 ? `\n  … and ${filtered.length - 10} more` : '';
 
       if (cfg.mode === 'block') {
-        api.log.warn(`lint-gate: blocked ${toolName} on ${filePath} — ${filtered.length} issue(s)`, {
-          severity: cfg.severity,
-        });
+        api.log.warn(
+          `lint-gate: blocked ${toolName} on ${filePath} — ${filtered.length} issue(s)`,
+          {
+            severity: cfg.severity,
+          },
+        );
         return {
           decision: 'block',
           reason:
@@ -438,7 +473,13 @@ const plugin: Plugin = {
       if (cfg.mode === 'fix') {
         // Auto-fix for `write`: fix the entire content.
         if (toolName === 'write') {
-          const fixedContent = lintAndFix(content, filePath, linter, cfg.timeoutMs);
+          const fixedContent = await lintAndFix(
+            content,
+            filePath,
+            linter,
+            cfg.timeoutMs,
+            runtime.signal,
+          );
           if (fixedContent !== content) {
             state.fixCount += 1;
 
@@ -455,7 +496,10 @@ const plugin: Plugin = {
               if (remaining.length > 0) {
                 remainingSummary = remaining
                   .slice(0, 10)
-                  .map((i) => `  • [${i.severity}] ${i.rule}: ${i.message}${i.line ? ` (line ${i.line})` : ''}`)
+                  .map(
+                    (i) =>
+                      `  • [${i.severity}] ${i.rule}: ${i.message}${i.line ? ` (line ${i.line})` : ''}`,
+                  )
                   .join('\n');
               }
             }
@@ -492,7 +536,13 @@ const plugin: Plugin = {
         if (toolName === 'edit') {
           const newStr = inp['new_string'] as string | undefined;
           if (typeof newStr === 'string' && newStr.length > 0) {
-            const fixedNewStr = lintAndFix(newStr, filePath, linter, cfg.timeoutMs);
+            const fixedNewStr = await lintAndFix(
+              newStr,
+              filePath,
+              linter,
+              cfg.timeoutMs,
+              runtime.signal,
+            );
             if (fixedNewStr !== newStr) {
               state.fixCount += 1;
               api.log.info(`lint-gate: auto-fixed new_string in edit for ${filePath}`, {
@@ -516,9 +566,12 @@ const plugin: Plugin = {
       }
 
       // mode === 'warn' — inject context but let the call through.
-      api.log.info(`lint-gate: warning on ${toolName} for ${filePath} — ${filtered.length} issue(s)`, {
-        severity: cfg.severity,
-      });
+      api.log.info(
+        `lint-gate: warning on ${toolName} for ${filePath} — ${filtered.length} issue(s)`,
+        {
+          severity: cfg.severity,
+        },
+      );
       return {
         decision: 'allow',
         additionalContext:
@@ -527,7 +580,14 @@ const plugin: Plugin = {
       };
     };
 
-    state.hookUnregister = api.registerHook('PreToolUse', 'write|edit', hook);
+    state.hookUnregister = api.registerHook('PreToolUse', 'write|edit', hook, {
+      name: 'lint-gate',
+      stage: 'mutate',
+      timeoutMs: Math.max(1_000, cfg.timeoutMs + 1_000),
+      // Formatter/linter availability must not create approval or denial
+      // loops in YOLO mode. Explicit lint findings still block in block mode.
+      failurePolicy: 'open',
+    });
 
     // --- lint_gate_status tool ---
     api.tools.register({
@@ -539,6 +599,7 @@ const plugin: Plugin = {
       category: 'Code Quality',
       mutating: false,
       async execute() {
+        const linter = await linterReady;
         return {
           ok: true,
           linter: linter?.name ?? 'none',
@@ -559,7 +620,7 @@ const plugin: Plugin = {
 
     api.log.info('lint-gate plugin loaded', {
       version: '0.1.0',
-      linter: linter?.name ?? 'none',
+      linter: 'detecting',
       mode: cfg.mode,
       severity: cfg.severity,
     });

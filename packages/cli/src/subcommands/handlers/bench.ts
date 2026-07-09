@@ -17,6 +17,7 @@ import {
   gradePolyglot,
   gradeSwebench,
   loadBenchConfig,
+  mineTranscript,
   readSummary,
   renderMarkdownReport,
   reportHeaderLine,
@@ -34,6 +35,7 @@ import type { SubcommandDeps, SubcommandHandler } from '../index.js';
  * fingerprint.
  *
  *   wstack bench run    --suite <id> --models <config> [...]
+ *   wstack bench mine   --transcript <session.jsonl> [--out <eval-dir>]
  *   wstack bench report <dir>
  *   wstack bench list   [--models <config>]
  */
@@ -47,6 +49,8 @@ export const benchCmd: SubcommandHandler = async (args, deps) => {
       return benchReport(rest, deps);
     case 'list':
       return benchList(rest, deps);
+    case 'mine':
+      return benchMine(rest, deps);
     default:
       printUsage(deps);
       return sub === undefined ? 0 : 1;
@@ -59,6 +63,7 @@ function printUsage(deps: SubcommandDeps): void {
       color.bold('wstack bench') + ' — model-independent agentic benchmarks',
       '',
       '  run     Run a suite across a model matrix and write a report',
+      '  mine    Copy a real session transcript and draft trace-eval cases',
       '  report  Re-render report.md from a finished run directory',
       '  list    Show available suites and configured model cells',
       '',
@@ -69,6 +74,7 @@ function printUsage(deps: SubcommandDeps): void {
       color.dim(
         '  wstack bench run --suite local --suite-dir ./evals --models bench.config.json',
       ),
+      color.dim('  wstack bench mine --transcript ./session.jsonl --out ./evals'),
       color.dim('  wstack bench report ./bench-results/2026-06-14T10-00-00'),
       '',
     ].join('\n') + '\n',
@@ -253,6 +259,31 @@ async function benchReport(args: string[], deps: SubcommandDeps): Promise<number
   await fs.writeFile(path.join(outDir, 'report.md'), md, 'utf8');
   deps.renderer.write('\n' + md + '\n');
   return 0;
+}
+
+async function benchMine(args: string[], deps: SubcommandDeps): Promise<number> {
+  const transcriptRaw = flagStr(deps, 'transcript') ?? args.find((arg) => !arg.startsWith('-'));
+  if (!transcriptRaw) {
+    deps.renderer.writeError('Usage: wstack bench mine --transcript <session.jsonl> [--out <eval-dir>]');
+    return 1;
+  }
+  const outRaw = flagStr(deps, 'out') ?? 'evals';
+  try {
+    const mined = await mineTranscript({
+      transcriptPath: path.resolve(deps.cwd, transcriptRaw),
+      outDir: path.resolve(deps.cwd, outRaw),
+    });
+    deps.renderer.writeInfo(`Mined ${mined.candidates.length} edit attempt(s) from ${mined.sessionId}.`);
+    deps.renderer.writeInfo(`Pinned transcript → ${mined.copiedTranscriptPath}`);
+    deps.renderer.writeInfo(`Curator drafts → ${mined.draftsPath}`);
+    deps.renderer.writeInfo(
+      'Add a frozen pre-edit fixture and deterministic grader before copying a draft into bench.local.json.',
+    );
+    return 0;
+  } catch (err) {
+    deps.renderer.writeError(toErrorMessage(err));
+    return 1;
+  }
 }
 
 async function benchList(_args: string[], deps: SubcommandDeps): Promise<number> {

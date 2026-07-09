@@ -45,6 +45,7 @@ import {
 } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { routeImagesForModel, type VisionAdapters } from '@wrongstack/runtime/vision';
+import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
 import { getIndexState, getProcessRegistry, onIndexStateChange } from '@wrongstack/tools';
 import React, {
   useCallback,
@@ -345,7 +346,7 @@ export interface AppProps {
    * handler uses it to stop a running `/sdd parallel` on the first Ctrl+C — the
    * run has its own coordinator, so it is otherwise unreachable from there.
    */
-  getSddRun?: (() => import('@wrongstack/core').SddRunControl | null) | undefined;
+  getSddRun?: (() => SddRunControl | null) | undefined;
   /**
    * Apply a post-run SDD lifecycle op (clean / rollback / destroy) from the host.
    * Drives board overlay keys c / z / x so they work after the run finished.
@@ -354,7 +355,7 @@ export interface AppProps {
     | ((
         op: 'cleanup_worktrees' | 'rollback' | 'destroy',
         opts?: { revertMerged?: boolean },
-      ) => Promise<import('@wrongstack/core').SddLifecycleResult>)
+      ) => Promise<SddLifecycleResult>)
     | undefined;
   /**
    * Subscribe to live per-iteration events from the eternal engine. The
@@ -827,7 +828,7 @@ function sddLifecycleEntry(
   r:
     | number
     | { ok: boolean; reverted: number; reason?: string | undefined }
-    | import('@wrongstack/core').SddLifecycleResult,
+    | SddLifecycleResult,
 ): { kind: 'info' | 'warn'; text: string } {
   // Live cleanupWorktrees() → bare count.
   if (typeof r === 'number') {

@@ -45,6 +45,28 @@ describe('Context', () => {
     expect(ctx.lastReadMtime('/missing')).toBeUndefined();
   });
 
+  it('recordRead journals content hashes through capable session writers', () => {
+    const observations: unknown[] = [];
+    const ctx = new Context({
+      systemPrompt: [{ type: 'text', text: 'hi' } as TextBlock],
+      provider: fakeProvider,
+      session: {
+        ...fakeSession,
+        recordFileObservation: (input) => observations.push(input),
+      },
+      signal: new AbortController().signal,
+      tokenCounter: new DefaultTokenCounter(),
+      cwd: '/tmp',
+      projectRoot: '/tmp',
+      model: 'm',
+    });
+
+    ctx.recordRead('/tmp/a.ts', 123, 'user', 'a'.repeat(64));
+    expect(observations).toEqual([
+      { path: '/tmp/a.ts', hash: 'a'.repeat(64), mtimeMs: 123, source: 'user' },
+    ]);
+  });
+
   it('usage delegates to tokenCounter', () => {
     const ctx = mkContext();
     ctx.tokenCounter.account({ input: 7, output: 3 }, 'm');

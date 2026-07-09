@@ -8,7 +8,6 @@ import {
   areDependenciesMet,
   assignTask,
   claimReadyTask,
-  color,
   copyTaskToBoard,
   createBoard,
   createBoardFromTaskGraph,
@@ -36,14 +35,14 @@ import {
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
-  TaskGraphStore,
-  type SlashCommand,
   transferTaskToBoard,
   updateBoard as updateBoardManager,
   updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
-} from '@wrongstack/core';
+} from '@wrongstack/kanban';
+import { color, type SlashCommand } from '@wrongstack/core';
+import { TaskGraphStore } from '@wrongstack/sdd';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 

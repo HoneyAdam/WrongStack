@@ -1,6 +1,11 @@
 import type { WebSocket } from 'ws';
-import type { EventBus, SddBoardSnapshot, SddLifecycleOp } from '@wrongstack/core';
-import { applySddLifecycle, SddBoardStore } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core';
+import {
+  applySddLifecycle,
+  SddBoardStore,
+  type SddBoardSnapshot,
+  type SddLifecycleOp,
+} from '@wrongstack/sdd';
 
 interface WSClient {
   ws: WebSocket;

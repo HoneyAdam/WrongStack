@@ -1,3 +1,5 @@
+import '@fontsource-variable/ibm-plex-sans';
+import '@fontsource/ibm-plex-mono';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HqApp } from './app.js';

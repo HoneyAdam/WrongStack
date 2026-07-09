@@ -30,8 +30,9 @@ HOW YOU DECIDE:
    may need re-evaluation.
 
 OUTPUT FORMAT:
-- With options: output the option [id] and a 1-sentence justification.
-  Example: "[resolve] — conflict is in test files only, safe to auto-resolve."
+- With options: output ONLY a JSON object with the exact option id and a
+  1-sentence rationale. Do not mention rejected option ids in the rationale.
+  Example: {"optionId":"resolve","rationale":"Conflict is in test files only, safe to auto-resolve."}
 - Without options: output the decision as a 1-2 sentence action.
   Example: "Continue execution. Progress is steady at 60% with 3/5
   deliverables done. No reason to stop."

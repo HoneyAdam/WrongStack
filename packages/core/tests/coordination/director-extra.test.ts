@@ -412,7 +412,12 @@ describe('Director with an injected FleetManager', () => {
     const fleetManager = new FleetManager();
     const { d } = makeDirector({ fleetManager } as Partial<DirectorOpts>);
     const spy = vi.spyOn(fleetManager, 'canSpawn');
-    for (const kind of ['max_spawn_depth', 'max_cost_usd', 'max_context_load'] as const) {
+    for (const kind of [
+      'max_spawn_depth',
+      'max_cost_usd',
+      'max_tokens',
+      'max_context_load',
+    ] as const) {
       spy.mockReturnValueOnce({ kind, limit: 1, observed: 2 } as never);
       await expect(d.spawn({ name: kind, provider: 'p', model: 'm' })).rejects.toThrow();
     }

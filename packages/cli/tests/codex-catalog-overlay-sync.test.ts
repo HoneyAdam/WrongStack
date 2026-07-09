@@ -43,4 +43,21 @@ describe('openai-codex overlay ↔ core floor parity', () => {
       expect(m.description, `${m.id} is missing a description`).toBeTruthy();
     }
   });
+
+  it('declares the documented GPT-5.6 wire reasoning efforts', () => {
+    // Ultra is a product orchestration mode (max + automatic task delegation),
+    // not a reasoning.effort value sent to the Responses backend.
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+      const model = OVERLAY['openai-codex']?.models?.[id] as
+        | { reasoningConfig?: { effortLevels?: string[] } }
+        | undefined;
+      expect(model?.reasoningConfig?.effortLevels, id).toEqual([
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'max',
+      ]);
+    }
+  });
 });

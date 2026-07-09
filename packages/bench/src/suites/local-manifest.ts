@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { BenchSuite, BenchTask } from '../types.js';
+import type {
+  BenchSuite,
+  BenchTask,
+  RecallExpectation,
+  RetrievalExpectation,
+  TranscriptEvalSpec,
+} from '../types.js';
 
 export const DEFAULT_LOCAL_MANIFEST = 'bench.local.json';
 
@@ -38,6 +44,8 @@ export interface LocalTaskMeta {
   templateHash: string;
   grader?: LocalCommandGrader | undefined;
   assertions?: LocalAssertion[] | undefined;
+  /** Present for curated cases mined from a real session transcript. */
+  traceEval?: TranscriptEvalSpec | undefined;
 }
 
 interface LocalManifest {
@@ -52,6 +60,7 @@ interface LocalManifestTask {
   templateExclude?: string[] | undefined;
   grader?: LocalCommandGrader | undefined;
   assertions?: LocalAssertion[] | undefined;
+  traceEval?: TranscriptEvalSpec | undefined;
 }
 
 export function createLocalManifestSuite(opts: LocalSuiteOptions): BenchSuite {
@@ -83,15 +92,21 @@ export function createLocalManifestSuite(opts: LocalSuiteOptions): BenchSuite {
         };
         if (item.grader) meta.grader = item.grader;
         if (item.assertions) meta.assertions = item.assertions;
+        const traceEval = item.traceEval
+          ? await resolveAndValidateTraceEval(item.traceEval, manifestFile)
+          : undefined;
+        if (traceEval) meta.traceEval = traceEval;
 
-        tasks.push({
+        const task: BenchTask = {
           id,
           suite: 'local',
           prompt: item.prompt,
           templateDir,
           templateExclude: item.templateExclude,
           meta: meta as never as Record<string, unknown>,
-        });
+        };
+        if (traceEval) task.traceEval = traceEval;
+        tasks.push(task);
         if (limit !== undefined && tasks.length >= limit) return tasks;
       }
       return tasks;
@@ -107,6 +122,18 @@ export function createLocalManifestSuite(opts: LocalSuiteOptions): BenchSuite {
             prompt: task.prompt,
             templateExclude: task.templateExclude ?? [],
             templateHash: meta.templateHash,
+            traceEval: meta.traceEval
+              ? {
+                  source: {
+                    eventEnd: meta.traceEval.source.eventEnd,
+                    eventStart: meta.traceEval.source.eventStart,
+                    sessionId: meta.traceEval.source.sessionId,
+                    sha256: meta.traceEval.source.sha256,
+                  },
+                  retrieval: meta.traceEval.retrieval,
+                  recall: meta.traceEval.recall,
+                }
+              : null,
           };
         })
         .sort((a, b) => a.id.localeCompare(b.id));
@@ -157,6 +184,7 @@ function parseTask(value: unknown, field: string, manifestFile: string): LocalMa
     `${field}.assertions`,
     manifestFile,
   );
+  const traceEval = parseOptionalTraceEval(value['traceEval'], `${field}.traceEval`, manifestFile);
 
   if (!grader && (!assertions || assertions.length === 0)) {
     throw new Error(`${manifestFile}: ${field} must define a grader or at least one assertion`);
@@ -166,7 +194,135 @@ function parseTask(value: unknown, field: string, manifestFile: string): LocalMa
   if (templateExclude) task.templateExclude = templateExclude;
   if (grader) task.grader = grader;
   if (assertions) task.assertions = assertions;
+  if (traceEval) task.traceEval = traceEval;
   return task;
+}
+
+function parseOptionalTraceEval(
+  value: unknown,
+  field: string,
+  manifestFile: string,
+): TranscriptEvalSpec | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`${manifestFile}: ${field} must be an object`);
+  }
+  const sourceValue = value['source'];
+  if (!isRecord(sourceValue)) {
+    throw new Error(`${manifestFile}: ${field}.source must be an object describing a real session transcript`);
+  }
+  const sessionId = requiredString(sourceValue['sessionId'], `${field}.source.sessionId`, manifestFile);
+  const transcriptPath = requiredString(
+    sourceValue['transcriptPath'],
+    `${field}.source.transcriptPath`,
+    manifestFile,
+  );
+  const sha256 = requiredString(sourceValue['sha256'], `${field}.source.sha256`, manifestFile);
+  if (!/^[a-f0-9]{64}$/i.test(sha256)) {
+    throw new Error(`${manifestFile}: ${field}.source.sha256 must be a SHA-256 hex digest`);
+  }
+  const eventStart = requiredNonNegativeInteger(
+    sourceValue['eventStart'],
+    `${field}.source.eventStart`,
+    manifestFile,
+  );
+  const eventEnd = requiredNonNegativeInteger(
+    sourceValue['eventEnd'],
+    `${field}.source.eventEnd`,
+    manifestFile,
+  );
+  if (eventEnd < eventStart) {
+    throw new Error(`${manifestFile}: ${field}.source.eventEnd must be >= eventStart`);
+  }
+
+  const retrievalValue = value['retrieval'];
+  if (!Array.isArray(retrievalValue) || retrievalValue.length === 0) {
+    throw new Error(`${manifestFile}: ${field}.retrieval must be a non-empty array`);
+  }
+  const retrieval = retrievalValue.map((item, index) =>
+    parseRetrievalExpectation(item, `${field}.retrieval[${index}]`, manifestFile),
+  );
+  const recall = parseRecallExpectation(value['recall'], `${field}.recall`, manifestFile);
+  return {
+    source: { sessionId, transcriptPath, sha256: sha256.toLowerCase(), eventStart, eventEnd },
+    retrieval,
+    recall,
+  };
+}
+
+function parseRetrievalExpectation(
+  value: unknown,
+  field: string,
+  manifestFile: string,
+): RetrievalExpectation {
+  if (!isRecord(value)) throw new Error(`${manifestFile}: ${field} must be an object`);
+  const contains = requiredString(value['contains'], `${field}.contains`, manifestFile);
+  const toolNames = optionalStringArray(value['toolNames'], `${field}.toolNames`, manifestFile);
+  return toolNames ? { contains, toolNames } : { contains };
+}
+
+function parseRecallExpectation(
+  value: unknown,
+  field: string,
+  manifestFile: string,
+): RecallExpectation {
+  if (!isRecord(value)) throw new Error(`${manifestFile}: ${field} must be an object`);
+  const inputContains = requiredNonEmptyStringArray(
+    value['inputContains'],
+    `${field}.inputContains`,
+    manifestFile,
+  );
+  const toolNames = optionalStringArray(value['toolNames'], `${field}.toolNames`, manifestFile);
+  return toolNames ? { inputContains, toolNames } : { inputContains };
+}
+
+/**
+ * Prove that a stage-eval case is anchored to the exact transcript it names.
+ * The copied transcript lives beside the manifest so the corpus remains
+ * reviewable and does not silently become a synthetic fixture later.
+ */
+async function resolveAndValidateTraceEval(
+  spec: TranscriptEvalSpec,
+  manifestFile: string,
+): Promise<TranscriptEvalSpec> {
+  const transcriptPath = path.resolve(path.dirname(manifestFile), spec.source.transcriptPath);
+  let raw: string;
+  try {
+    raw = await fs.readFile(transcriptPath, 'utf8');
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`cannot read traceEval source transcript ${transcriptPath}: ${detail}`);
+  }
+  const digest = createHash('sha256').update(raw).digest('hex');
+  if (digest !== spec.source.sha256) {
+    throw new Error(`traceEval source transcript hash mismatch for ${transcriptPath}`);
+  }
+
+  const events = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .flatMap((line) => {
+      try {
+        const parsed = JSON.parse(line);
+        return isRecord(parsed) ? [parsed] : [];
+      } catch {
+        return [];
+      }
+    });
+  if (events.length <= spec.source.eventEnd) {
+    throw new Error(`traceEval source event range is outside ${transcriptPath}`);
+  }
+  const hasSessionId = events.some(
+    (event) =>
+      (event['type'] === 'session_start' || event['type'] === 'session_resumed') &&
+      event['id'] === spec.source.sessionId,
+  );
+  if (!hasSessionId) {
+    throw new Error(`traceEval source sessionId ${spec.source.sessionId} was not found in ${transcriptPath}`);
+  }
+
+  return { ...spec, source: { ...spec.source, transcriptPath } };
 }
 
 function parseOptionalGrader(
@@ -334,6 +490,24 @@ function optionalPositiveNumber(
   if (value === undefined) return undefined;
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw new Error(`${manifestFile}: ${field} must be a positive number`);
+  }
+  return value;
+}
+
+function requiredNonNegativeInteger(value: unknown, field: string, manifestFile: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`${manifestFile}: ${field} must be a non-negative integer`);
+  }
+  return value as number;
+}
+
+function requiredNonEmptyStringArray(
+  value: unknown,
+  field: string,
+  manifestFile: string,
+): string[] {
+  if (!Array.isArray(value) || value.length === 0 || !value.every((item) => typeof item === 'string' && item !== '')) {
+    throw new Error(`${manifestFile}: ${field} must be a non-empty array of non-empty strings`);
   }
   return value;
 }
