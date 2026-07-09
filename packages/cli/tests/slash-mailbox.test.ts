@@ -168,6 +168,10 @@ describe('/mailbox slash command', () => {
 
   it('history shows recent project traffic oldest-first', async () => {
     await mailbox.send({ from: 'a', to: '*', type: 'broadcast', subject: 'first', body: 'first' });
+    // #249: mailbox orders history by timestamp. Back-to-back sends can land
+    // in the same millisecond on fast CI runners and flip the order. Sleep
+    // 5ms between sends so the ISO timestamps are strictly distinct.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await mailbox.send({ from: 'b', to: '*', type: 'broadcast', subject: 'second', body: 'second' });
     const cmd = buildMailboxCommand(opts);
     const res = await cmd.run('history 10', opts.context);

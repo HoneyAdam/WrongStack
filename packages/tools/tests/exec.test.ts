@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Context } from '@wrongstack/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   execTool,
   configureExecPolicy,
@@ -13,6 +13,7 @@ import {
   resetDangerBypass,
   getDangerBypass,
 } from '../src/exec.js';
+import { getProcessRegistry } from '../src/process-registry.js';
 
 const makeOpts = () => ({ signal: new AbortController().signal });
 const makeCtx = () => ({ cwd: '/fake', tools: [], projectRoot: '/fake' }) as any;
@@ -325,6 +326,14 @@ describe('exec abort and ENOENT hardening (#99)', () => {
 describe('exec command policy (configurable allowlist)', () => {
   const makeCtx2 = () => ({ cwd: '/fake', tools: [], projectRoot: '/fake' }) as any;
   const makeOpts2 = () => ({ signal: new AbortController().signal });
+
+  beforeEach(() => {
+    // #249: exec.test.ts had no circuit-breaker reset between tests, so a
+    // transient earlier failure (or shared state from a sibling file)
+    // could trip the breaker and cause later `rm -rf` / `git status` tests
+    // to see `allowed: false`. Reset the singleton's breaker per-test.
+    getProcessRegistry().forceBreakerReset();
+  });
 
   afterEach(() => {
     resetExecPolicy();

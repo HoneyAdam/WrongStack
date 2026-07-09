@@ -5,6 +5,11 @@ import { mkSandbox, newSignal } from './fixtures.js';
 
 const isWin = os.platform() === 'win32';
 
+// #249: per-test timeout bumped from 20_000 / 30_000 → 60_000. Local runtime
+// is ~3s; CI runner load + shared runners push these tests over the old
+// budget. 60s leaves comfortable headroom and still trips the test in
+// minutes rather than hours if anything actually hangs.
+
 /**
  * P1 #3 (before-release.md): the bash tool's streaming protocol uses a
  * MAX_QUEUE_CHUNKS = 500 buffer between the child process and the async
@@ -66,7 +71,7 @@ describe('bash backpressure — MAX_QUEUE_CHUNKS upper bound (P1 #3)', () => {
     } finally {
       await sb.cleanup();
     }
-  }, 20_000);
+  }, 60_000);
 
   it('keeps memory bounded: heap does not grow unboundedly for chatty output', async () => {
     const sb = await mkSandbox();
@@ -93,7 +98,7 @@ describe('bash backpressure — MAX_QUEUE_CHUNKS upper bound (P1 #3)', () => {
     } finally {
       await sb.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it('preserves the head of output when truncating (middle-elision)', async () => {
     const sb = await mkSandbox();
@@ -116,5 +121,5 @@ describe('bash backpressure — MAX_QUEUE_CHUNKS upper bound (P1 #3)', () => {
     } finally {
       await sb.cleanup();
     }
-  }, 20_000);
+  }, 60_000);
 });
