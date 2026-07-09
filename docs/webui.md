@@ -247,12 +247,12 @@ wstack --webui \
 
 ## Internals (for contributors)
 
-- Standalone server: `packages/webui/src/server/index.ts` (`startWebUI`) + `entry.ts` (bin).
+- Standalone server: `packages/webui-server/src/server/index.ts` (`startWebUI`) + `entry.ts` (bin), the `@wrongstack/webui-server` package (extracted in PR #018b; `@wrongstack/webui/server` is now a back-compat re-export shim).
 - CLI-embedded server: `packages/cli/src/webui-server.ts` (`runWebUI`) — reuses the
   webui package's `createHttpServer`, `findFreePort`, `openBrowser`, and the instance
   registry via the `@wrongstack/webui/server` export so the static-serve / port / meta
   injection logic lives in one place.
-- Static serve + WS-port `<meta>` injection + CSP: `packages/webui/src/server/http-server.ts`.
+- Static serve + WS-port `<meta>` injection + CSP: `packages/webui-server/src/server/http-server.ts`.
 - Free-port discovery: `port-utils.ts`. Instance registry: `instance-registry.ts`.
   Browser opener: `open-browser.ts`. Frontend WS-URL resolution: `src/lib/ws-client.ts`.
 - Completion trigger/cache heuristics: `src/lib/completion.ts`. Completion WS
