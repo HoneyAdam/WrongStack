@@ -56,5 +56,12 @@ export default defineConfig({
       "import { startWebUI } from '@wrongstack/webui-server';\n" +
       "export { startWebUI };\n";
     await fs.writeFile(path.join(outDir, 'index.js'), content);
+    // Also write a minimal .d.ts that re-exports from @wrongstack/webui-server.
+    // Without this, downstream packages (e.g. @wrongstack/cli) that import
+    // from @wrongstack/webui/server get an implicit `any` type and the
+    // strict noImplicitAny fails. The .d.ts is a one-liner: re-export
+    // everything from the new home's public types.
+    const dtsContent = "export * from '@wrongstack/webui-server';\n";
+    await fs.writeFile(path.join(outDir, 'index.d.ts'), dtsContent);
   },
 });
