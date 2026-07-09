@@ -562,7 +562,7 @@ export {
 } from './utils/instruction-file.js';
 // Re-export safeParse explicitly at the top-level export for consumers
 // who import from '@wrongstack/core' directly (e.g. providers package).
-export { safeParse, safeStringify, sanitizeJsonString } from './utils/safe-json.js';
+export { safeParse, safeStringify, sanitizeJsonString, stripCodeFences } from './utils/safe-json.js';
 // Likewise pin the terminal helpers: tsup's DTS deduplication can drop the
 // whole term.js module from the bundled declarations (it's only reachable via
 // the `export *` util chain), which breaks `import { onResize } from

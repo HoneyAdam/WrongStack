@@ -81,6 +81,31 @@ export function sanitizeJsonString(s: string): string | null {
 }
 
 /**
+ * Strip a Markdown code-fence wrapper from a payload.
+ *
+ * Models occasionally return tool-call arguments wrapped in ```json fences
+ * (or embedded in prose around one) instead of bare JSON. Returns the inner
+ * content when the input starts with a fence (closing fence optional, so a
+ * truncated stream still unwraps) or contains one complete fenced block;
+ * returns null when no fence is present. Callers should only invoke this
+ * after a direct parse failed, so fences inside legitimate string values are
+ * never touched.
+ */
+export function stripCodeFences(s: string): string | null {
+  const trimmed = s.trim();
+  // Whole-payload fence: ```lang? … ```? (closer optional for truncation)
+  const opener = /^```[\w+-]*[ \t]*\r?\n?/.exec(trimmed);
+  if (opener) {
+    const inner = trimmed.slice(opener[0].length).replace(/(\r?\n)?[ \t]*```[ \t]*$/, '');
+    return inner.trim();
+  }
+  // Fence embedded in prose: extract the first complete fenced block.
+  const embedded = /```[\w+-]*[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/.exec(trimmed);
+  if (embedded) return (embedded[1] ?? '').trim();
+  return null;
+}
+
+/**
  * Walk the string tracking whether we are inside a JSON string literal and
  * replace raw control characters (U+0000–U+001F) that appear inside strings
  * with their valid JSON escape sequences. Characters outside strings are left
