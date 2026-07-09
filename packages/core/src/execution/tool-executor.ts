@@ -19,7 +19,7 @@ import type {
 } from '../types/tool-executor.js';
 import { toErrorMessage } from '../utils/error.js';
 import { expectDefined } from '../utils/expect-defined.js';
-import { validateAgainstSchema } from '../utils/json-schema-validate.js';
+import { coerceAgainstSchema, validateAgainstSchema } from '../utils/json-schema-validate.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
@@ -185,27 +185,57 @@ export class ToolExecutor {
         return { result, tool, durationMs: Date.now() - start };
       }
 
+      // Provider boundary: the model's tool arguments arrive as a raw JSON
+      // string accumulated over streamed deltas. When that string is not a
+      // valid JSON object (truncated, scalar, or mangled by a proxy/local
+      // model), the parsers wrap it under a sentinel key instead of silently
+      // producing `{}`. Detect the sentinel BEFORE schema validation: a
+      // schema with required fields would otherwise mask this case with a
+      // misleading "field missing" error, when the actionable feedback is
+      // "your arguments were not a JSON object — here is what arrived".
+      if (hasMalformedArguments(use.input)) {
+        const result = this.malformedInputResult(use, extractMalformedRaw(use.input));
+        budget = this.budgetForString(result.content, budget);
+        return { result, tool, durationMs: Date.now() - start };
+      }
+
       // Strong guarantee: Validate input against the tool's declared JSON Schema
       // *before* permission checks or execution. This is a hard gate — bad calls
       // are rejected early with actionable feedback so the model can self-correct.
+      // Before rejecting, one lossless coercion pass runs (string "5" → 5,
+      // "true" → true, double-encoded JSON strings revived): models routinely
+      // deliver the right content in the wrong type, and silently fixing that
+      // beats burning a round-trip on an error the model may repeat.
       const validation = validateAgainstSchema(use.input, tool.inputSchema);
       if (!validation.ok) {
-        const errorDetails = validation.errors
-          .map((e) => `  - ${e.path || 'input'}: ${e.message}`)
-          .join('\n');
+        const coercion = coerceAgainstSchema(use.input, tool.inputSchema);
+        const revalidation = coercion.changed
+          ? validateAgainstSchema(coercion.value, tool.inputSchema)
+          : validation;
+        if (coercion.changed && revalidation.ok) {
+          this.opts.logger?.info('tool arguments coerced to match inputSchema', {
+            tool: tool.name,
+            id: use.id,
+          });
+          use = { ...use, input: coercion.value as Record<string, unknown> };
+        } else {
+          const errorDetails = revalidation.errors
+            .map((e) => `  - ${e.path || 'input'}: ${e.message}`)
+            .join('\n');
 
-        const result = {
-          type: 'tool_result' as const,
-          tool_use_id: use.id,
-          content:
-            `Invalid arguments for tool "${tool.name}".\n\n` +
-            `Validation errors:\n${errorDetails}\n\n` +
-            `Please call the tool again with arguments that match its inputSchema. ` +
-            `You can use the "tool-help" tool with name="${tool.name}" to see the exact expected schema.`,
-          is_error: true,
-        };
-        budget = this.budgetForString(result.content, budget);
-        return { result, tool, durationMs: Date.now() - start };
+          const result = {
+            type: 'tool_result' as const,
+            tool_use_id: use.id,
+            content:
+              `Invalid arguments for tool "${tool.name}".\n\n` +
+              `Validation errors:\n${errorDetails}\n\n` +
+              `Fix exactly the fields listed above and call the tool again. ` +
+              `You can use the "tool-help" tool with name="${tool.name}" to see the exact expected schema.`,
+            is_error: true,
+          };
+          budget = this.budgetForString(result.content, budget);
+          return { result, tool, durationMs: Date.now() - start };
+        }
       }
 
       // Capability safety net at the executor level (defense in depth).
@@ -214,20 +244,6 @@ export class ToolExecutor {
       // In non-YOLO contexts, an `auto` permission is elevated to `confirm`
       // for dangerous-capability tools, reducing prompt-injection blast radius.
       const toolDangerousCaps = getDangerousCapabilities(tool);
-
-      // Provider boundary: the model's tool arguments arrive as a raw JSON
-      // string accumulated over streamed deltas. When that string is not a
-      // valid JSON object (truncated, scalar, or mangled by a proxy/local
-      // model), the parsers wrap it under a sentinel key instead of silently
-      // producing `{}`. Executing the tool with such input yields a cryptic
-      // "<field> is required" error that the model can't act on. Detect the
-      // sentinel here and feed back an actionable message so the model
-      // resends well-formed arguments.
-      if (hasMalformedArguments(use.input)) {
-        const result = this.malformedInputResult(use, extractMalformedRaw(use.input));
-        budget = this.budgetForString(result.content, budget);
-        return { result, tool, durationMs: Date.now() - start };
-      }
 
       // PreToolUse hooks: may block the call outright or rewrite its input.
       // Runs before the permission check so a hook can veto a tool that the

@@ -314,6 +314,54 @@ describe('ToolExecutor', () => {
     });
   });
 
+  describe('executeBatch — schema coercion before rejection', () => {
+    const countSchema = {
+      type: 'object' as const,
+      properties: { path: { type: 'string' as const }, count: { type: 'integer' as const } },
+      required: ['path', 'count'],
+    };
+
+    it('coerces string-encoded numbers/booleans instead of rejecting the call', async () => {
+      const tool = makeTool({
+        name: 'read',
+        inputSchema: countSchema,
+        execute: vi.fn().mockResolvedValue({ ok: true }),
+      });
+      const executor = makeExecutor([tool]);
+      const result = await executor.executeBatch(
+        [makeUse('read', { path: 'a.ts', count: '5' })],
+        makeCtx(),
+        'sequential',
+      );
+      const output = result.outputs[0]!;
+      expect((output.result as ToolResultBlock).is_error).toBe(false);
+      // The tool must receive the COERCED input, not the raw strings.
+      expect(tool.execute).toHaveBeenCalledWith(
+        { path: 'a.ts', count: 5 },
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('rejects with field-specific errors when coercion cannot fix the input', async () => {
+      const tool = makeTool({ name: 'read', inputSchema: countSchema, execute: vi.fn() });
+      const executor = makeExecutor([tool]);
+      const result = await executor.executeBatch(
+        [makeUse('read', { count: 'twelve' })],
+        makeCtx(),
+        'sequential',
+      );
+      const output = result.outputs[0]!;
+      const content = (output.result as ToolResultBlock).content as string;
+      expect((output.result as ToolResultBlock).is_error).toBe(true);
+      // The error must name the exact fields: the missing one with its
+      // expected type and the mistyped one with the received value.
+      expect(content).toContain('path: required property missing (expected string)');
+      expect(content).toContain('count: expected integer, got string ("twelve")');
+      expect(tool.execute).not.toHaveBeenCalled();
+    });
+  });
+
   describe('executeBatch — permission deny', () => {
     it('returns denied result when policy rejects', async () => {
       policy.evaluate.mockResolvedValue(denyDecision('forbidden'));
