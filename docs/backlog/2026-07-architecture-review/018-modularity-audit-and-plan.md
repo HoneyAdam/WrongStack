@@ -152,6 +152,67 @@ but its home in a "webui" package is misleading; a separate
   rename the file to reflect its real role, and update 10 CLI importers
   plus any WebUI consumers. **Effort: 2 PRs, ~2 days.**
 
+> **Update 2026-07-09 (post-audit finding)**: The `@wrongstack/core/server`
+> option in the second bullet is **architecturally blocked** by a workspace
+> dependency cycle. See §3.1.1 below for details. The new-package option
+> (`@wrongstack/server-bridge`) remains viable. The `MCPRegistry` cycle-break
+> path (see §3.1.1 option C) is the recommended next step if `core/server`
+> is the preferred destination.
+
+### 3.1.1 Workspace cycle finding — 2026-07-09
+
+The cut-over to `@wrongstack/core/server` was attempted on branch
+`refactor/server-module-to-core` and **aborted** when pnpm flagged:
+
+```
+[WARN] There are cyclic workspace dependencies:
+    packages/core
+    packages/mcp
+```
+
+**Why**: The server module's `pre-context-services.ts` has a runtime
+import of `MCPRegistry` from `@wrongstack/mcp` (`import { MCPRegistry }
+from '@wrongstack/mcp'`). Once the server lives in `core`, this becomes a
+`core → mcp` workspace edge. But `packages/mcp/package.json` already
+declares `"@wrongstack/core": "workspace:*"` (3 of the 4 server-side
+mcp imports are type-only, but `MCPRegistry` is the runtime exception).
+
+Cycle graph:
+
+```
+core ←── mcp   (mcp uses core types/classes; pre-existing)
+  ↑       ↓
+  └───── (proposed) server code in core imports MCPRegistry at runtime
+```
+
+**Architectural rule violated**: `architecture-rules.md` says `infrastructure/`
+is layer 2 and "must not import from core/...". The server code crossing
+into `core` (currently layer 1) plus wanting to use `mcp` (a separate
+package) is the same violation in different vocabulary.
+
+**Options (revised; see §5 Decision B for the record)**:
+
+- **(A) New package `@wrongstack/server-bridge`** (or similar name).
+  No cycle. The new package owns the 6 runtime deps the server needs
+  (`ws`, `jszip`, `@wrongstack/mcp`, `@wrongstack/providers`,
+  `@wrongstack/runtime`, `@wrongstack/tools`); `core` stays at zero
+  runtime deps. Cost: new release train, new version bumping, more
+  files in the workspace. **Effort: 2–3 days.**
+- **(C) Break the cycle by moving `MCPRegistry` to `core`** (or making
+  the import type-only via a shared type). `MCPRegistry` is conceptually
+  a coordination primitive — it doesn't need to live in `@wrongstack/mcp`.
+  Once the type lives in `core`, the server's `mcp` import becomes
+  type-only and pnpm allows the cycle (or, more cleanly, the type-only
+  import doesn't add a runtime edge). **Effort: 1–2 days. Recommended.**
+- **(B) Keep `@wrongstack/webui/server` in place** and accept the 10
+  cross-package edges. Adds no value beyond this finding.
+- **(D) Defer**. The 10 edges remain in the codebase; PR-018b stays
+  blocked.
+
+**This finding was not in the original audit.** The audit recommended
+`@wrongstack/core/server` as "preferred" without verifying the cycle.
+This addendum is the correction.
+
 ### 3.2 Façade module pattern — `core/kanban/manager.ts`
 
 `packages/core/src/kanban/manager.ts` is **2772 lines, 48 exported
@@ -317,6 +378,16 @@ either `@wrongstack/core/server` (preferred — keeps `core` as the
 neutral foundation per `architecture-rules.md`) or a new
 `@wrongstack/server-bridge` package.
 
+> **Update 2026-07-09 (cycle finding)**: The `@wrongstack/core/server`
+> option was attempted on branch `refactor/server-module-to-core` and
+> **aborted** because pnpm flagged a workspace dependency cycle:
+> `core → mcp → core`. See **§3.1.1** above for the full finding, the
+> cycle graph, and the revised options. The recommended next step is
+> **(C) Break the cycle by promoting `MCPRegistry` to `core`** — this
+> makes the type-only import cycle allowable and unblocks the
+> `@wrongstack/core/server` home without taking on the cost of a new
+> package. Effort: 1–2 days. Operator decision pending.
+
 ### Decision C — Promote `parseNextSteps` from `@wrongstack/tui` to `@wrongstack/tools`
 
 `parseNextSteps` is a generic markdown-block parser with no TUI
@@ -370,8 +441,8 @@ items unblock later ones.
 
 ### Wave 1 — Quick wins from this audit
 
-- [ ] **NEW — PR-018a** — Promote `parseNextSteps` to `@wrongstack/tools/next-steps` (Decision C)
-- [ ] **NEW — PR-018b** — Decide and execute `@wrongstack/webui/server` → `@wrongstack/core/server` move (Decision B; opens the door to two CLI files dropping a cross-package dep)
+- [x] **NEW — PR-018a** — Promote `parseNextSteps` to `@wrongstack/tools/next-steps` (Decision C) — **MERGED 2026-07-09 as squash commit `e6482a84` via PR #242**
+- [ ] **NEW — PR-018b** — Decide and execute `@wrongstack/webui/server` move (Decision B; **BLOCKED on workspace cycle per §3.1.1**; recommended path is option C — promote `MCPRegistry` to `core` first, then move the server)
 - [ ] **NEW — PR-018c** — Resolve `@wrongstack/skills` placeholder (Decision F; trivial removal)
 - [ ] **Item 003** — Continue `cli-main.ts` decomposition (4 of 8 wiring/ modules already extracted)
 
