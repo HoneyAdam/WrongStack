@@ -367,6 +367,16 @@ function assertMatchingJsonRpcResult(
   return data;
 }
 
+/**
+ * Abort error whose `name` is `'AbortError'` so the core executor's
+ * classifyToolError maps it to FATAL / not-retryable (user cancellation).
+ */
+function makeAbortError(method: string): Error {
+  const err = new Error(`MCP request "${method}" aborted by client`);
+  err.name = 'AbortError';
+  return err;
+}
+
 function createTimeoutSignal(
   parent: AbortSignal | undefined,
   timeoutMs: number,
@@ -680,11 +690,20 @@ export class SSETransport extends BaseHTTPTransport {
     }
   }
 
-  private async httpPost(method: string, params: unknown): Promise<JsonRpcResult> {
+  private async httpPost(
+    method: string,
+    params: unknown,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<JsonRpcResult> {
     const id = this.genId();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
-    const timeoutSignal = createTimeoutSignal(this.abortController?.signal, this.requestTimeout);
+    const external = opts?.signal;
+    const parent =
+      external && this.abortController
+        ? AbortSignal.any([this.abortController.signal, external])
+        : (external ?? this.abortController?.signal);
+    const timeoutSignal = createTimeoutSignal(parent, this.requestTimeout);
     const fetchOpts: RequestInit = {
       method: 'POST',
       headers: {
@@ -695,9 +714,10 @@ export class SSETransport extends BaseHTTPTransport {
       signal: timeoutSignal.signal,
     };
     this.applyTlsAgent(fetchOpts);
-    const res = await fetch(this.url, fetchOpts);
-
+    // fetch lives INSIDE the try so dispose() runs on every exit path — a
+    // rejected fetch must not leak the timeout timer / abort listener.
     try {
+      const res = await fetch(this.url, fetchOpts);
       if (!res.ok) {
         // Cap the body — a misbehaving server could return megabytes of
         // HTML and that's not useful in an error message anyway.
@@ -726,12 +746,28 @@ export class SSETransport extends BaseHTTPTransport {
         });
       }
       return assertMatchingJsonRpcResult(data, id, method);
+    } catch (err) {
+      if (external?.aborted && !method.startsWith('notifications/')) {
+        // MCP spec cancellation: tell the server to stop the in-flight
+        // request. Best-effort fire-and-forget — the caller is already
+        // unwinding on the abort.
+        void this.httpPost('notifications/cancelled', {
+          requestId: id,
+          reason: 'client aborted',
+        }).catch(() => {});
+        throw makeAbortError(method);
+      }
+      throw err;
     } finally {
       timeoutSignal.dispose();
     }
   }
 
-  async callTool(name: string, input: unknown): Promise<ToolCallResult> {
+  async callTool(
+    name: string,
+    input: unknown,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<ToolCallResult> {
     if (this.state !== 'connected') {
       throw new ToolError({
         message: `SSE transport not connected (state=${this.state})`,
@@ -740,7 +776,7 @@ export class SSETransport extends BaseHTTPTransport {
         context: { transport: 'sse', state: this.state },
       });
     }
-    const res = await this.httpPost('tools/call', { name, arguments: input });
+    const res = await this.httpPost('tools/call', { name, arguments: input }, opts);
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
@@ -929,11 +965,20 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
     }
   }
 
-  private async postRaw(method: string, params: unknown): Promise<JsonRpcResult> {
+  private async postRaw(
+    method: string,
+    params: unknown,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<JsonRpcResult> {
     const id = this.genId();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
-    const timeoutSignal = createTimeoutSignal(this.abortController?.signal, this.requestTimeout);
+    const external = opts?.signal;
+    const parent =
+      external && this.abortController
+        ? AbortSignal.any([this.abortController.signal, external])
+        : (external ?? this.abortController?.signal);
+    const timeoutSignal = createTimeoutSignal(parent, this.requestTimeout);
     const fetchOpts: RequestInit = {
       method: 'POST',
       headers: {
@@ -946,9 +991,10 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
       signal: timeoutSignal.signal,
     };
     this.applyTlsAgent(fetchOpts);
-    const res = await fetch(this.url, fetchOpts);
-
+    // fetch lives INSIDE the try so dispose() runs on every exit path — a
+    // rejected fetch must not leak the timeout timer / abort listener.
     try {
+      const res = await fetch(this.url, fetchOpts);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -964,6 +1010,17 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         return assertMatchingJsonRpcResult(match, id, method);
       }
       throw new Error('Could not parse response as JSON-RPC');
+    } catch (err) {
+      if (external?.aborted && !method.startsWith('notifications/')) {
+        // MCP spec cancellation: tell the server to stop the in-flight
+        // request. Best-effort fire-and-forget.
+        void this.postRaw('notifications/cancelled', {
+          requestId: id,
+          reason: 'client aborted',
+        }).catch(() => {});
+        throw makeAbortError(method);
+      }
+      throw err;
     } finally {
       timeoutSignal.dispose();
     }
@@ -1018,11 +1075,15 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
     }
   }
 
-  async callTool(name: string, input: unknown): Promise<ToolCallResult> {
+  async callTool(
+    name: string,
+    input: unknown,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<ToolCallResult> {
     if (this.state !== 'connected') {
       throw new Error(`streamable-http transport not connected (state=${this.state})`);
     }
-    const res = await this.postRaw('tools/call', { name, arguments: input });
+    const res = await this.postRaw('tools/call', { name, arguments: input }, opts);
     if (res.error) {
       return { content: res.error.message, isError: true };
     }

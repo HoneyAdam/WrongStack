@@ -82,4 +82,14 @@ describe('wrapMCPTool', () => {
     const out = await wrapped.execute({}, ctx, { signal: new AbortController().signal });
     expect(out).toBe('');
   });
+
+  it('forwards the executor abort signal to client.callTool', async () => {
+    const callTool = vi.fn(async () => ({ content: 'ok', isError: false }));
+    const client = { callTool } as never as MCPClient;
+    const wrapped = wrapMCPTool('s', { name: 'fetch', inputSchema: { type: 'object' } }, client);
+    const ctrl = new AbortController();
+    const ctx = {} as Parameters<typeof wrapped.execute>[1];
+    await wrapped.execute({ q: 1 }, ctx, { signal: ctrl.signal });
+    expect(callTool).toHaveBeenCalledWith('fetch', { q: 1 }, { signal: ctrl.signal });
+  });
 });

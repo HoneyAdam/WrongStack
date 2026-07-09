@@ -45,11 +45,14 @@ export function wrapMCPTool(
     mutating: isMutatingTool(mcpTool),
     capabilities: [ToolCapabilities.MCP_PROXY],
     inputSchema: mcpTool.inputSchema ?? { type: 'object', properties: {} },
-    async execute(input, _ctx, _opts) {
+    async execute(input, _ctx, opts) {
       // For a dormant lazy server this spawns the process + handshakes before
       // the first call; for an eager server it resolves to the fixed client.
       const live = typeof client === 'function' ? await client() : client;
-      const res = await live.callTool(mcpTool.name, input);
+      // Propagate the run's abort signal: on Ctrl+C the JSON-RPC request is
+      // dropped AND the server is told via `notifications/cancelled` to stop
+      // the in-flight work, instead of it running to completion server-side.
+      const res = await live.callTool(mcpTool.name, input, { signal: opts.signal });
       if (res.isError) {
         throw new Error(stringify(res.content));
       }
