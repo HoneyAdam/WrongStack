@@ -163,6 +163,23 @@ describe('OpenAIProvider.stream', () => {
     expect(res.usage).toEqual({ input: 200, output: 20, cacheRead: 800 });
   });
 
+  it('splits OpenAI cache write tokens out of full-rate input', async () => {
+    const sse = [
+      'data: {"id":"x","model":"gpt-5.6","choices":[{"index":0,"delta":{"content":"ok"}}]}',
+      '',
+      'data: {"id":"x","choices":[{"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":40,"cache_write_tokens":10}}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    const provider = new OpenAIProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    const res = await provider.complete(
+      { model: 'gpt-5.6', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 },
+      { signal: new AbortController().signal },
+    );
+    expect(res.usage).toEqual({ input: 50, output: 20, cacheRead: 40, cacheWrite: 10 });
+  });
+
   it('parses tool_calls with arguments streamed in chunks', async () => {
     const sse = [
       'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"echo","arguments":"{\\"text\\":"}}]}}]}',

@@ -16,6 +16,32 @@ import {
 
 type Overrides = Record<string, string>;
 
+/**
+ * Canonicalize `p` through `fs.realpath` so symlinks / bind mounts don't
+ * hide out-of-root writes. Falls back to `path.resolve(p)` when the path
+ * (or any of its parents) doesn't exist yet — callers frequently pass a
+ * destination that the tool is about to write.
+ */
+async function resolveReal(p: string): Promise<string> {
+  let probe = path.resolve(p);
+  for (;;) {
+    try {
+      return await fs.realpath(probe);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        const parent = path.dirname(probe);
+        if (parent === probe) return probe; // reached fs root
+        probe = parent;
+        continue;
+      }
+      // Any other error (EACCES, EBUSY, …) — fall back to the lexical
+      // resolve rather than throwing, so the caller can still surface a
+      // meaningful error from the path.relative check below.
+      return path.resolve(p);
+    }
+  }
+}
+
 interface DesignInput {
   action?: 'list' | 'use' | 'foundations' | 'set' | 'materialize' | 'verify' | undefined;
   kit?: string | undefined;
@@ -228,12 +254,28 @@ export const designTool: Tool<DesignInput, DesignOutput> = {
         outPath: input.out,
       });
       // Containment: result.path derives from caller-supplied input.out and
-      // may contain a ../ traversal. Pin the write inside the project root,
-      // mirroring the scaffold tool. path.join collapses a leading-slash
-      // absolute into a relative segment; resolve then normalizes ../ so the
-      // relative check below is authoritative.
-      const root = path.resolve(ctx.projectRoot);
-      const abs = path.resolve(path.join(ctx.projectRoot, result.path));
+      // may be either relative (joined under projectRoot) or absolute
+      // (used as-is). Pin the write inside the project root, mirroring the
+      // scaffold tool.
+      //
+      // #249 (design.ts escape check): resolve both sides through fs.realpath
+      // before the relative check, so symlinks / bind mounts (e.g. /tmp on
+      // CI runners is often a symlink to /private/tmp) can't smuggle an
+      // out-of-root path past the prefix-startsWith-`..` guard. The
+      // destination file does not exist yet, so realpath the parent
+      // directory and re-join the basename.
+      //
+      // Note: on Windows, path.join(absoluteA, absoluteB) concatenates
+      // literally (path.join('C:\\A\\B', 'C:\\A\\C.css') === 'C:\\A\\B\\C:\\A\\C.css')
+      // rather than collapsing absoluteB onto the drive root. Treating
+      // absolute result.path as absolute (not as a join-input) keeps the
+      // behavior consistent across platforms and is what the test asserts.
+      const root = await resolveReal(ctx.projectRoot);
+      const absResolved = path.isAbsolute(result.path)
+        ? path.resolve(result.path)
+        : path.resolve(path.join(ctx.projectRoot, result.path));
+      const absParent = await resolveReal(path.dirname(absResolved));
+      const abs = path.join(absParent, path.basename(absResolved));
       const rel = path.relative(root, abs);
       if (rel.startsWith('..') || path.isAbsolute(rel)) {
         throw new Error(

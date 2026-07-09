@@ -10,9 +10,10 @@ import { compactToolDefinitionForWire } from './tool-wire-compact.js';
  * `estimateRequestTokens` uses a fixed 3.5 chars/token heuristic — a
  * conservative overestimate that prevents underestimation but reduces
  * accuracy. After each API call, call `recordActualUsage()` with the
- * real `usage.input` from the provider response. The module maintains a
- * rolling average of `actual / estimated` ratio (EWM, α=0.3) and
- * applies it to subsequent calls via `estimateRequestTokensCalibrated`.
+ * provider-authoritative effective prompt tokens (`input + cacheRead +
+ * cacheWrite` after adapter normalization). The module maintains a rolling
+ * average of `actual / estimated` ratio (EWM, α=0.3) and applies it to
+ * subsequent calls via `estimateRequestTokensCalibrated`.
  *
  * Calibration is per-module (shared across all callers), which is
  * sufficient: the chars/token ratio is a property of the tokenizer,

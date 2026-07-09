@@ -13,7 +13,7 @@ interface MockAgentSetup {
   tokenCounter?: {
     total: () => { input: number; output: number };
     estimateCost: () => { total: number };
-    currentRequestTokens?: () => { input: number; cacheRead: number };
+    currentRequestTokens?: () => { input: number; cacheRead: number; cacheWrite: number };
   };
 }
 
@@ -58,7 +58,7 @@ function makeMockTokenCounter(
     },
     currentRequestTokens: () => {
       const s = seq[Math.min(i, seq.length - 1)]!;
-      return { input: s.requestInput ?? s.input, cacheRead: 0 };
+      return { input: s.requestInput ?? s.input, cacheRead: 0, cacheWrite: 0 };
     },
   };
 }

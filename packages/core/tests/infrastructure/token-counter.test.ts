@@ -132,11 +132,11 @@ describe('DefaultTokenCounter', () => {
     tc.accountWithModel({ input: 1_000_000, output: 1_000_000, cacheRead: 50 }, m1);
     expect(tc.total().input).toBe(1_000_000);
     expect(tc.estimateCost().total).toBeGreaterThan(0);
-    expect(tc.currentRequestTokens()).toEqual({ input: 1_000_000, cacheRead: 50 });
+    expect(tc.currentRequestTokens()).toEqual({ input: 1_000_000, cacheRead: 50, cacheWrite: 0 });
     tc.reset();
     expect(tc.total().input).toBe(0);
     expect(tc.estimateCost().total).toBe(0);
-    expect(tc.currentRequestTokens()).toEqual({ input: 0, cacheRead: 0 });
+    expect(tc.currentRequestTokens()).toEqual({ input: 0, cacheRead: 0, cacheWrite: 0 });
     expect(seen.at(-1)).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
   });
 
@@ -263,9 +263,10 @@ describe('DefaultTokenCounter', () => {
     tc.account({ input: 10, output: 5 }, 'm');
     expect(tc.currentRequestTokens().input).toBe(10);
     // setCurrentRequestTokens overrides it
-    tc.setCurrentRequestTokens(42, 7);
+    tc.setCurrentRequestTokens(42, 7, 3);
     expect(tc.currentRequestTokens().input).toBe(42);
     expect(tc.currentRequestTokens().cacheRead).toBe(7);
+    expect(tc.currentRequestTokens().cacheWrite).toBe(3);
     // total() is unchanged — only the snapshot was overridden
     expect(tc.total().input).toBe(10);
   });

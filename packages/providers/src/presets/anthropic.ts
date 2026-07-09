@@ -110,15 +110,26 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
                 input_tokens?: number | undefined;
                 cache_read_input_tokens?: number | undefined;
                 cache_creation_input_tokens?: number | undefined;
+                cache_creation?: {
+                  ephemeral_5m_input_tokens?: number | undefined;
+                  ephemeral_1h_input_tokens?: number | undefined;
+                } | undefined;
               };
             }
           | undefined;
         if (message?.model) state.model = message.model;
+        const cacheWrite5m = message?.usage?.cache_creation?.ephemeral_5m_input_tokens;
+        const cacheWrite1h = message?.usage?.cache_creation?.ephemeral_1h_input_tokens;
+        const cacheWriteAggregate =
+          message?.usage?.cache_creation_input_tokens ??
+          ((cacheWrite5m ?? 0) + (cacheWrite1h ?? 0) || undefined);
         state.usage = {
           input: message?.usage?.input_tokens ?? 0,
           output: 0,
           cacheRead: message?.usage?.cache_read_input_tokens,
-          cacheWrite: message?.usage?.cache_creation_input_tokens,
+          cacheWrite: cacheWriteAggregate,
+          cacheWrite5m,
+          cacheWrite1h,
         };
         if (!state.started) {
           state.started = true;

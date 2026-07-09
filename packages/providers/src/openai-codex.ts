@@ -336,7 +336,7 @@ interface ResponsesUsage {
   input_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
-  input_tokens_details?: { cached_tokens?: number };
+  input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
 }
 
 interface StreamingArgBuffer {
@@ -586,11 +586,13 @@ async function* parseCodexResponsesStream(
 
 function normalizeUsage(u: ResponsesUsage): Usage {
   const cached = u.input_tokens_details?.cached_tokens ?? 0;
+  const cacheWrite = u.input_tokens_details?.cache_write_tokens ?? 0;
   const total = u.input_tokens ?? 0;
   return {
-    input: Math.max(0, total - cached),
+    input: Math.max(0, total - cached - cacheWrite),
     output: u.output_tokens ?? 0,
     cacheRead: cached || undefined,
+    cacheWrite: cacheWrite || undefined,
   };
 }
 

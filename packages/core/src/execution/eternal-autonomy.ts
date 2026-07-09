@@ -587,7 +587,7 @@ export class EternalAutonomyEngine {
     if (maxCtx && maxCtx > 0) {
       const used = ctx.tokenCounter?.currentRequestTokens?.();
       if (used) {
-        const total = used.input + used.cacheRead;
+        const total = used.input + used.cacheRead + used.cacheWrite;
         if (total / maxCtx >= threshold) {
           shouldRun = true;
           aggressive = true;

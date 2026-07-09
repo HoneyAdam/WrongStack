@@ -485,6 +485,39 @@ describe('Anthropic preset - cache metadata', () => {
     expect((stop as { usage: { cacheRead: number; cacheWrite: number } }).usage.cacheRead).toBe(50);
     expect((stop as { usage: { cacheWrite: number } }).usage.cacheWrite).toBe(200);
   });
+
+  it('preserves Anthropic cache creation TTL split when present', async () => {
+    const events = await collectFromPreset(
+      anthropicWireFormat,
+      sseBody([
+        JSON.stringify({
+          type: 'message_start',
+          message: {
+            model: 'c',
+            usage: {
+              input_tokens: 100,
+              cache_read_input_tokens: 50,
+              cache_creation_input_tokens: 300,
+              cache_creation: {
+                ephemeral_5m_input_tokens: 200,
+                ephemeral_1h_input_tokens: 100,
+              },
+            },
+          },
+        }),
+        JSON.stringify({ type: 'message_stop' }),
+      ]),
+      'c',
+    );
+    const stop = events.find((e) => e.type === 'message_stop');
+    expect(
+      (stop as { usage: { cacheWrite: number; cacheWrite5m: number; cacheWrite1h: number } }).usage,
+    ).toMatchObject({
+      cacheWrite: 300,
+      cacheWrite5m: 200,
+      cacheWrite1h: 100,
+    });
+  });
 });
 
 describe('OpenAI preset - buildUrl variants', () => {
@@ -685,6 +718,35 @@ describe('OpenAI preset - cached token usage', () => {
     expect((stop as { usage: { input: number; cacheRead: number } }).usage).toMatchObject({
       input: 60, // 100 - 40
       cacheRead: 40,
+    });
+  });
+
+  it('extracts OpenAI prompt cache write tokens as disjoint usage', async () => {
+    const events = await collectFromPreset(
+      openaiWireFormat,
+      sseBody([
+        JSON.stringify({
+          model: 'gpt-5.6',
+          choices: [{ finish_reason: 'stop' }],
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            prompt_tokens_details: { cached_tokens: 40, cache_write_tokens: 10 },
+          },
+        }),
+        '[DONE]',
+      ]),
+      'gpt-5.6',
+    );
+    const stop = events.find((e) => e.type === 'message_stop');
+    expect(
+      (stop as { usage: { input: number; output: number; cacheRead: number; cacheWrite: number } })
+        .usage,
+    ).toMatchObject({
+      input: 50,
+      output: 20,
+      cacheRead: 40,
+      cacheWrite: 10,
     });
   });
 

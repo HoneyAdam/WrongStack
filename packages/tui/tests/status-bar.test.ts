@@ -172,8 +172,8 @@ describe('renderMeter (sub-cell precision)', () => {
 
 describe('tokenDisplayTotals', () => {
   it('falls back to current request input tokens when provider usage totals are zero', () => {
-    expect(tokenDisplayTotals({ input: 0, output: 0 }, { input: 3210, cacheRead: 40 })).toEqual({
-      input: 3250,
+    expect(tokenDisplayTotals({ input: 0, output: 0 }, { input: 3210, cacheRead: 40, cacheWrite: 10 })).toEqual({
+      input: 3260,
       output: 0,
     });
   });
@@ -182,13 +182,13 @@ describe('tokenDisplayTotals', () => {
     expect(
       tokenDisplayTotals(
         { input: 1000, output: 200, cacheRead: 300, cacheWrite: 400 },
-        { input: 3210, cacheRead: 40 },
+        { input: 3210, cacheRead: 40, cacheWrite: 10 },
       ),
     ).toEqual({ input: 1700, output: 200 });
   });
 
   it('marks the token chip visible when only outgoing request tokens exist', () => {
-    expect(hasTokenDisplay(tokenDisplayTotals(undefined, { input: 3210, cacheRead: 40 }))).toBe(true);
+    expect(hasTokenDisplay(tokenDisplayTotals(undefined, { input: 3210, cacheRead: 40, cacheWrite: 10 }))).toBe(true);
   });
 
   it('keeps the token chip hidden when no input or output tokens exist', () => {

@@ -14,19 +14,19 @@ export interface TokenCounter {
   /** Optional live session binding used by token.accounted events. */
   setSessionId?(sessionId: string | (() => string | undefined) | undefined): void;
   /**
-   * Tokens from the most recently-accounted request (input + cacheRead).
-   * Use this for per-request context pressure tracking (e.g. status bar
-   * ctx bar) — tokenCounter.total() is cumulative across all requests
-   * and cannot be compared meaningfully against a per-request maxContext
-   * ceiling.
+   * Disjoint token counts from the most recently-accounted request. Sum
+   * input + cacheRead + cacheWrite for per-request context pressure tracking
+   * (e.g. status bar ctx bar) — tokenCounter.total() is cumulative across all
+   * requests and cannot be compared meaningfully against a per-request
+   * maxContext ceiling.
    */
-  currentRequestTokens(): { input: number; cacheRead: number };
+  currentRequestTokens(): { input: number; cacheRead: number; cacheWrite: number };
   /**
    * Override the last-request token snapshot. Used by slash commands like
    * /compact that modify ctx.messages without making an API request —
    * after calling this, the TUI/REPL context bar reflects the new size.
    */
-  setCurrentRequestTokens(input: number, cacheRead?: number): void;
+  setCurrentRequestTokens(input: number, cacheRead?: number, cacheWrite?: number): void;
   total(): Usage;
   estimateCost(): { input: number; output: number; total: number; currency: 'USD' };
   cacheStats(): CacheStats;

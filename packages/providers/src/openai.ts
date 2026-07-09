@@ -466,7 +466,10 @@ async function* parseOpenAIStream(
           prompt_tokens?: number | undefined;
           input_tokens?: number | undefined;
           completion_tokens?: number | undefined;
-          prompt_tokens_details?: { cached_tokens?: number | undefined };
+          prompt_tokens_details?: {
+            cached_tokens?: number | undefined;
+            cache_write_tokens?: number | undefined;
+          };
           prompt_cache_hit_tokens?: number | undefined;
           prompt_cache_miss_tokens?: number | undefined;
         }
@@ -479,16 +482,21 @@ async function* parseOpenAIStream(
       const hasDeepSeekCacheFields =
         u.prompt_cache_hit_tokens !== undefined || u.prompt_cache_miss_tokens !== undefined;
       const cached = u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? 0;
+      const cacheWrite = u.prompt_tokens_details?.cache_write_tokens ?? 0;
       const promptTotal =
         u.prompt_tokens ?? u.input_tokens ??
         (hasDeepSeekCacheFields
           ? (u.prompt_cache_hit_tokens ?? 0) + (u.prompt_cache_miss_tokens ?? 0)
           : usage.input + cached);
-      usage = {
-        input: u.prompt_cache_miss_tokens ?? Math.max(0, promptTotal - cached),
+      const nextUsage: Usage = {
+        input: u.prompt_cache_miss_tokens ?? Math.max(0, promptTotal - cached - cacheWrite),
         output: u.completion_tokens ?? usage.output,
         cacheRead: cached || usage.cacheRead,
       };
+      if (cacheWrite || usage.cacheWrite !== undefined) {
+        nextUsage.cacheWrite = cacheWrite || usage.cacheWrite;
+      }
+      usage = nextUsage;
     }
   }
 

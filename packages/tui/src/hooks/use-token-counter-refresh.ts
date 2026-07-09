@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 export interface TokenRefreshData {
   usage: Usage;
   /** Last request prompt tokens from the counter, used when provider usage is unavailable. */
-  currentRequest: { input: number; cacheRead: number };
+  currentRequest: { input: number; cacheRead: number; cacheWrite?: number | undefined };
   cost: { input: number; output: number; total: number; currency: 'USD' };
   cacheStats: CacheStats;
 }

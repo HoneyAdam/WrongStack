@@ -24,7 +24,7 @@ function makeMockAgent(overrides: Partial<Agent> = {}): Agent {
       session: { append: vi.fn(), close: vi.fn() } as never,
       state: {} as never,
       tokenCounter: {
-        currentRequestTokens: () => ({ input: 100, output: 50, cacheRead: 0 }),
+        currentRequestTokens: () => ({ input: 100, output: 50, cacheRead: 0, cacheWrite: 0 }),
       } as never,
       modeStore: { get: vi.fn(), set: vi.fn() } as never,
       registerAbortHook: vi.fn(),

@@ -81,6 +81,18 @@ export interface Usage {
   cacheWrite1h?: number | undefined;
 }
 
+/**
+ * Effective prompt tokens loaded by the model for one request.
+ *
+ * Provider adapters normalize `Usage` to disjoint fields: `input` is fresh
+ * full-rate tokens, `cacheRead` is cached prefix tokens, and `cacheWrite` is
+ * the cache-written prefix segment. Context-window pressure cares about the
+ * full prompt the model saw, not only the bill-at-full-rate slice.
+ */
+export function effectiveInputTokens(usage: Usage): number {
+  return usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+}
+
 export interface ReasoningRequest {
   enabled?: boolean | undefined;
   effort?: ReasoningEffort | undefined;

@@ -248,11 +248,15 @@ export function tokenDisplayTotals(
         cacheWrite?: number | undefined;
       }
     | undefined,
-  currentRequest: { input: number; cacheRead: number } | undefined,
+  currentRequest:
+    | { input: number; cacheRead: number; cacheWrite?: number | undefined }
+    | undefined,
 ): TokenDisplayTotals {
   const usageInput = usage ? usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : 0;
   const usageOutput = usage?.output ?? 0;
-  const fallbackInput = currentRequest ? currentRequest.input + currentRequest.cacheRead : 0;
+  const fallbackInput = currentRequest
+    ? currentRequest.input + currentRequest.cacheRead + (currentRequest.cacheWrite ?? 0)
+    : 0;
   return {
     input: usageInput > 0 ? usageInput : fallbackInput,
     output: usageOutput,

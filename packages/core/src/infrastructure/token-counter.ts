@@ -34,6 +34,7 @@ export class DefaultTokenCounter implements TokenCounter {
   /** Most recently accounted request's tokens. Used for per-request context pressure. */
   private lastInput = 0;
   private lastCacheRead = 0;
+  private lastCacheWrite = 0;
 
   constructor(
     opts: {
@@ -62,6 +63,7 @@ export class DefaultTokenCounter implements TokenCounter {
     // Snapshot per-request tokens for context pressure tracking.
     this.lastInput = usage.input;
     this.lastCacheRead = usage.cacheRead ?? 0;
+    this.lastCacheWrite = usage.cacheWrite ?? 0;
 
     const price = model ? this.priceCache.get(model) : undefined;
     if (price) {
@@ -117,6 +119,7 @@ export class DefaultTokenCounter implements TokenCounter {
     // Snapshot per-request tokens for context pressure tracking.
     this.lastInput = usage.input;
     this.lastCacheRead = usage.cacheRead ?? 0;
+    this.lastCacheWrite = usage.cacheWrite ?? 0;
     const price = priceFromModel(resolved);
     if (this.priceCache.size >= PRICE_CACHE_MAX_SIZE) {
       const keys = [...this.priceCache.keys()];
@@ -136,13 +139,14 @@ export class DefaultTokenCounter implements TokenCounter {
     };
   }
 
-  currentRequestTokens(): { input: number; cacheRead: number } {
-    return { input: this.lastInput, cacheRead: this.lastCacheRead };
+  currentRequestTokens(): { input: number; cacheRead: number; cacheWrite: number } {
+    return { input: this.lastInput, cacheRead: this.lastCacheRead, cacheWrite: this.lastCacheWrite };
   }
 
-  setCurrentRequestTokens(input: number, cacheRead?: number): void {
+  setCurrentRequestTokens(input: number, cacheRead?: number, cacheWrite?: number): void {
     this.lastInput = input;
     this.lastCacheRead = cacheRead ?? 0;
+    this.lastCacheWrite = cacheWrite ?? 0;
   }
 
   estimateCost(): { input: number; output: number; total: number; currency: 'USD' } {
@@ -193,6 +197,7 @@ export class DefaultTokenCounter implements TokenCounter {
     this.costOutput = 0;
     this.lastInput = 0;
     this.lastCacheRead = 0;
+    this.lastCacheWrite = 0;
     this.emitAccounted();
   }
 

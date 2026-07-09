@@ -217,7 +217,10 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
       | {
           prompt_tokens?: number | undefined;
           completion_tokens?: number | undefined;
-          prompt_tokens_details?: { cached_tokens?: number | undefined };
+          prompt_tokens_details?: {
+            cached_tokens?: number | undefined;
+            cache_write_tokens?: number | undefined;
+          };
           prompt_cache_hit_tokens?: number | undefined;
           prompt_cache_miss_tokens?: number | undefined;
         }
@@ -229,16 +232,21 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
       const hasDeepSeekCacheFields =
         u.prompt_cache_hit_tokens !== undefined || u.prompt_cache_miss_tokens !== undefined;
       const cached = u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? 0;
+      const cacheWrite = u.prompt_tokens_details?.cache_write_tokens ?? 0;
       const promptTotal =
         u.prompt_tokens ??
         (hasDeepSeekCacheFields
           ? (u.prompt_cache_hit_tokens ?? 0) + (u.prompt_cache_miss_tokens ?? 0)
           : state.usage.input + cached);
-      state.usage = {
-        input: u.prompt_cache_miss_tokens ?? Math.max(0, promptTotal - cached),
+      const nextUsage: Usage = {
+        input: u.prompt_cache_miss_tokens ?? Math.max(0, promptTotal - cached - cacheWrite),
         output: u.completion_tokens ?? state.usage.output,
         cacheRead: cached || state.usage.cacheRead,
       };
+      if (cacheWrite || state.usage.cacheWrite !== undefined) {
+        nextUsage.cacheWrite = cacheWrite || state.usage.cacheWrite;
+      }
+      state.usage = nextUsage;
     }
 
     return out;

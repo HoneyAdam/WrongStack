@@ -1945,16 +1945,18 @@ export function App({
   // ctx.pct events keep activeMaxContext in sync with the live agent context.
   const maxContext = activeMaxContext ?? agent.ctx.provider.capabilities.maxContext;
 
-  // Per-request context pressure: current prompt tokens (input + cacheRead).
+  // Per-request context pressure: current prompt tokens (input + cacheRead +
+  // cacheWrite).
   // Unlike the cumulative tokenCounter.total() which grows across all turns,
   // this tracks the live request's context weight — what actually determines
   // how close we are to the maxContext ceiling.
-  // Cached tokens (cacheWrite) are excluded because they are an accounting
-  // artifact of THIS request (provider charges for them separately); they
-  // are already counted in usage.input as part of the prompt the model sees.
+  const currentRequestTokens = tokenCounter?.currentRequestTokens();
+  const currentCacheWrite =
+    (currentRequestTokens as { cacheWrite?: number } | undefined)?.cacheWrite ?? 0;
   const currentContextTokens =
-    (tokenCounter?.currentRequestTokens()?.input ?? 0) +
-    (tokenCounter?.currentRequestTokens()?.cacheRead ?? 0);
+    (currentRequestTokens?.input ?? 0) +
+    (currentRequestTokens?.cacheRead ?? 0) +
+    currentCacheWrite;
 
   const contextWindow = useMemo(() => {
     void state.contextChipVersion;

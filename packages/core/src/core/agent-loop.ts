@@ -4,6 +4,7 @@
  * compactContextIfNeeded, emitContextPct, and injectPendingBtwNotes.
  */
 import type { Request, Response } from '../types/provider.js';
+import { effectiveInputTokens } from '../types/provider.js';
 import type { ContentBlock, TextBlock } from '../types/blocks.js';
 import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
 import { toWrongStackError } from '../types/errors.js';
@@ -702,7 +703,7 @@ export function createAgentLoopHandler(
           const calibratedTotal = cal.calibrated
             ? Math.round(preFlight.total * Math.min(1.5, Math.max(0.5, cal.ratio)))
             : preFlight.total;
-          recordActualUsage(res.usage.input, calibratedTotal, key);
+          recordActualUsage(effectiveInputTokens(res.usage), calibratedTotal, key);
           recoveryRetries = 0;
         } catch (err) {
           if (controller.signal.aborted) {

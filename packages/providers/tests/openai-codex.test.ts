@@ -184,6 +184,28 @@ describe('OpenAICodexProvider stream parsing', () => {
     });
   });
 
+  it('normalizes Responses cache write tokens separately from full-rate input', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5.6-codex"}}',
+      '',
+      'data: {"type":"response.output_item.added","item":{"type":"message","id":"m1","role":"assistant"}}',
+      '',
+      'data: {"type":"response.output_text.delta","delta":"ok"}',
+      '',
+      'data: {"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":100,"output_tokens":5,"input_tokens_details":{"cached_tokens":40,"cache_write_tokens":10}}}}',
+      '',
+    ].join('\n');
+
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    const res = await p.complete(baseReq, { signal: new AbortController().signal });
+
+    expect(res.usage).toMatchObject({ input: 50, output: 5, cacheRead: 40, cacheWrite: 10 });
+  });
+
   it('recovers message text delivered only in output_text.done (no deltas)', async () => {
     const sse = [
       'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
