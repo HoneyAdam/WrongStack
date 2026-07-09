@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import { handleShellGitRoute, type ShellGitRouteHandlers } from '../../src/server/shell-git-routes.js';
+import { handleShellGitRoute, type ShellGitRouteHandlers } from '@wrongstack/webui-server';
 
 function mockWs() {
   return {

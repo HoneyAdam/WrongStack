@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { browserOpenCommand, openBrowser } from '../../src/server/open-browser.js';
+import { browserOpenCommand, openBrowser } from '@wrongstack/webui-server';
 
 describe('browserOpenCommand', () => {
   const url = 'http://127.0.0.1:3456';

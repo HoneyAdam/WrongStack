@@ -9,8 +9,10 @@ const allowedNegativeKillTests = new Set(['packages/tools/tests/spawn-background
 const allowedNegativeKillSources = new Set(['packages/tools/src/process-registry.ts']);
 const allowedDirectSignalSources = new Set([
   'packages/cli/src/slash-commands/session.ts',
-  'packages/webui/src/server/index.ts',
-  'packages/webui/src/server/message-dispatcher.ts',
+  // The WebUI server was extracted from packages/webui to the standalone
+  // @wrongstack/webui-server package. The webui.shutdown self-SIGINT now lives
+  // in the moved message-dispatcher.ts.
+  'packages/webui-server/src/server/message-dispatcher.ts',
 ]);
 const negativeProcessKillPattern = /process\.kill\s*\(\s*-/;
 const directProcessSignalPattern = /process\.kill\s*\([^,\n]+,\s*['"]SIG(?:KILL|TERM|INT|HUP)['"]/;
@@ -120,8 +122,9 @@ describe('POSIX signal safety in tests', () => {
 
   it('keeps WebUI shutdown self-signaling scoped to the current process', () => {
     // The webui.shutdown case + its process.kill(self, SIGINT) live in
-    // message-dispatcher.ts after the Phase 1b god-module split.
-    const file = path.join(repoRoot, 'packages/webui/src/server/message-dispatcher.ts');
+    // message-dispatcher.ts after the Phase 1b god-module split, now under the
+    // extracted @wrongstack/webui-server package.
+    const file = path.join(repoRoot, 'packages/webui-server/src/server/message-dispatcher.ts');
     const text = readFileSync(file, 'utf8');
 
     expect(text).toContain("case 'webui.shutdown'");

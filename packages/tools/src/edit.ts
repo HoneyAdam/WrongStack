@@ -59,7 +59,7 @@ export const editTool: Tool<EditInput, EditOutput> = {
     },
     required: ['path', 'old_string', 'new_string'],
   },
-  async execute(input, ctx) {
+  async execute(input, ctx, opts) {
     if (!input?.path) {
       throw new ToolValidationError({ message: 'edit: path is required', field: 'path' });
     }
@@ -176,6 +176,10 @@ export const editTool: Tool<EditInput, EditOutput> = {
       : fileLf.replace(oldLf, newLf);
     const newFile = toStyle(newFileLf, style);
 
+    // Last exit before mutating the filesystem: a run aborted during the
+    // read/match phase must not leave the edit behind. (atomicWrite itself
+    // is all-or-nothing — the file is old or new, never partial.)
+    opts?.signal?.throwIfAborted();
     await atomicWrite(absPath, newFile, { mode: updated.mode & 0o777 });
     const written = await fs.stat(absPath);
     // Record mtime so a later edit detects external modification, but tag as

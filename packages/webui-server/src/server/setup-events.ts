@@ -179,7 +179,11 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       ts: new Date().toISOString(),
       name: e.name,
       id: e.id,
-      event: { type: e.event.type, text: e.event.text, data: e.event.data },
+      event: {
+        type: e.event.type,
+        ...(e.event.text !== undefined ? { text: e.event.text } : {}),
+        ...(e.event.data !== undefined ? { data: e.event.data } : {}),
+      },
     });
   });
 

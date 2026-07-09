@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import { handleModeRoute, type ModeRouteHandlers } from '../../src/server/mode-routes.js';
+import { handleModeRoute, type ModeRouteHandlers } from '@wrongstack/webui-server';
 
 function mockWs() {
   return {

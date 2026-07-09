@@ -125,9 +125,12 @@ export default defineConfig({
         'packages/webui/src/components/**/*.tsx',
         'packages/webui/src/hooks/**/*.ts',
         'packages/webui/src/stores/**/*.ts',
-        // WebUI server entry points (require WebSocket/binding)
+        // WebUI server entry points (require WebSocket/binding).
+        // The server was extracted to @wrongstack/webui-server; the remaining
+        // packages/webui/src/server/index.ts is a thin back-compat shim.
         'packages/webui/src/server/index.ts',
-        'packages/webui/src/server/entry.ts',
+        'packages/webui-server/src/server/index.ts',
+        'packages/webui-server/src/server/entry.ts',
         // LSP search — requires a live language server; integration-tested separately
         'packages/plug-lsp/src/tools/codebase-lsp-search.ts',
         'packages/plug-lsp/src/tools/lsp-search.ts',

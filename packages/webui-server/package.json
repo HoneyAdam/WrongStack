@@ -1,0 +1,62 @@
+{
+  "name": "@wrongstack/webui-server",
+  "version": "0.283.1",
+  "license": "MIT",
+  "description": "WrongStack WebUI HTTP/WebSocket server module — extracted from @wrongstack/webui in PR #243/244 to remove the CLI -> @wrongstack/webui/server cross-package edge (audit §3.1.1). Pure backend: HTTP routes, WebSocket handlers, MCP tool wrappers, HTML serving. The web frontend lives in @wrongstack/webui; this package is the standalone server it can run on.",
+  "keywords": [
+    "wrongstack",
+    "webui",
+    "websocket",
+    "http"
+  ],
+  "homepage": "https://github.com/WrongStack/WrongStack#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WrongStack/WrongStack.git",
+    "directory": "packages/webui-server"
+  },
+  "bugs": {
+    "url": "https://github.com/WrongStack/WrongStack/issues"
+  },
+  "author": "ECOSTACK TECHNOLOGY OÜ",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "wstackui": "./dist/server/entry.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@wrongstack/core": "workspace:*",
+    "@wrongstack/mcp": "workspace:*",
+    "@wrongstack/providers": "workspace:*",
+    "@wrongstack/runtime": "workspace:*",
+    "@wrongstack/tools": "workspace:*",
+    "jszip": "^3.10.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

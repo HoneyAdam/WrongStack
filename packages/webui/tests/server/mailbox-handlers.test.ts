@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { WebSocket } from 'ws';
 import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleMailboxMessages } from '../../src/server/mailbox-handlers.js';
+import { handleMailboxMessages } from '@wrongstack/webui-server';
 
 function mockWs(): WebSocket & { send: ReturnType<typeof vi.fn> } {
   return { readyState: 1, send: vi.fn() } as never as WebSocket & { send: ReturnType<typeof vi.fn> };

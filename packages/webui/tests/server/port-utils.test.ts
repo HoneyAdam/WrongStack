@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import * as net from 'node:net';
-import { findFreePort, isPortFree } from '../../src/server/port-utils.js';
+import { findFreePort, isPortFree } from '@wrongstack/webui-server';
 
 const HOST = '127.0.0.1';
 const servers: net.Server[] = [];

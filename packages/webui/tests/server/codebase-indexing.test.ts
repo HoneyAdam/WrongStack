@@ -46,7 +46,7 @@ describe('WebUI codebase indexing', () => {
   });
 
   it('starts the startup index when enabled', async () => {
-    const { setupWebUICodebaseIndexing } = await import('../../src/server/codebase-indexing.js');
+    const { setupWebUICodebaseIndexing } = await import('@wrongstack/webui-server/server/codebase-indexing.js');
     const signal = new AbortController().signal;
     setupWebUICodebaseIndexing({
       config: {
@@ -72,7 +72,7 @@ describe('WebUI codebase indexing', () => {
   });
 
   it('does nothing when indexing config is absent', async () => {
-    const { setupWebUICodebaseIndexing } = await import('../../src/server/codebase-indexing.js');
+    const { setupWebUICodebaseIndexing } = await import('@wrongstack/webui-server/server/codebase-indexing.js');
     const controller = setupWebUICodebaseIndexing({
       config: {},
       context: { signal: new AbortController().signal, meta: {} } as never,
@@ -90,7 +90,7 @@ describe('WebUI codebase indexing', () => {
   });
 
   it('reindexes WebUI-saved files when onEdit is enabled', async () => {
-    const { setupWebUICodebaseIndexing } = await import('../../src/server/codebase-indexing.js');
+    const { setupWebUICodebaseIndexing } = await import('@wrongstack/webui-server/server/codebase-indexing.js');
     const controller = setupWebUICodebaseIndexing({
       config: {
         indexing: {
@@ -123,7 +123,7 @@ describe('WebUI codebase indexing', () => {
   });
 
   it('cleans up pending reindexes and the index host on dispose', async () => {
-    const { setupWebUICodebaseIndexing } = await import('../../src/server/codebase-indexing.js');
+    const { setupWebUICodebaseIndexing } = await import('@wrongstack/webui-server/server/codebase-indexing.js');
     const controller = setupWebUICodebaseIndexing({
       config: {
         indexing: {

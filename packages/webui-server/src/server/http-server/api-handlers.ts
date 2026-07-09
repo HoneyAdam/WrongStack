@@ -163,7 +163,14 @@ function mapWatchEntry(ev: Record<string, unknown>): WatchEntry | null {
       const input = ev['input'] ?? ev['args'];
       const text = input !== undefined && input !== null ? asString(input) : '';
       const toolUseId = typeof ev['id'] === 'string' ? ev['id'] : undefined;
-      return { ts, role: 'tool', tool: toolName, text, input, toolUseId };
+      return {
+        ts,
+        role: 'tool',
+        tool: toolName,
+        text,
+        input,
+        ...(toolUseId !== undefined ? { toolUseId } : {}),
+      };
     }
     case 'tool_call_end':
     case 'tool_result': {
@@ -174,7 +181,16 @@ function mapWatchEntry(ev: Record<string, unknown>): WatchEntry | null {
       const toolUseId = typeof ev['id'] === 'string' ? ev['id'] : undefined;
       const toolName = typeof ev['name'] === 'string' ? String(ev['name']) : '↳ result';
       if (!outStr.trim() && !isError) return null;
-      return { ts, role: isError ? 'error' : 'tool', tool: toolName, text: outStr, output: content, durationMs, isError, toolUseId };
+      return {
+        ts,
+        role: isError ? 'error' : 'tool',
+        tool: toolName,
+        text: outStr,
+        output: content,
+        isError,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(toolUseId !== undefined ? { toolUseId } : {}),
+      };
     }
     case 'error':
     case 'provider_error':
@@ -210,12 +226,12 @@ function correlateToolEvents(entries: WatchEntry[]): WatchEntry[] {
         ts: start.ts,
         role: e.isError ? 'error' : 'tool',
         text: e.text || start.text,
-        tool: start.tool,
-        input: start.input,
-        output: e.output,
-        durationMs: e.durationMs,
-        isError: e.isError,
-        toolUseId: e.toolUseId,
+        ...(e.isError !== undefined ? { isError: e.isError } : {}),
+        ...(start.tool !== undefined ? { tool: start.tool } : {}),
+        ...(start.input !== undefined ? { input: start.input } : {}),
+        ...(e.output !== undefined ? { output: e.output } : {}),
+        ...(e.durationMs !== undefined ? { durationMs: e.durationMs } : {}),
+        ...(e.toolUseId !== undefined ? { toolUseId: e.toolUseId } : {}),
       });
       continue;
     }

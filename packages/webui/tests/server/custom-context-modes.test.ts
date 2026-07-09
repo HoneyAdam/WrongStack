@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createCustomModeStore } from '../../src/server/custom-context-modes.js';
+import { createCustomModeStore } from '@wrongstack/webui-server';
 
 const mockAtomicWrite = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());

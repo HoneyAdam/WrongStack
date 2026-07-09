@@ -60,6 +60,15 @@ export default defineConfig({
       // Force @wrongstack/core to resolve from source (packages/core/src) instead
       // of going through the package's "exports" field which points to dist/.
       '@wrongstack/core': path.resolve(__dirname, '../../packages/core/src'),
+      // Force @wrongstack/webui-server to resolve from source (its src/) instead
+      // of the published dist bundle, so per-module vi.mock() boundaries and
+      // partial @wrongstack/core / node:fs mocks work exactly as they did when
+      // these suites imported ../../src/server/* before the PR-018b extraction.
+      '@wrongstack/webui-server': path.resolve(__dirname, '../../packages/webui-server/src'),
+      // jszip moved to @wrongstack/webui-server (PR-018b) and is no longer a
+      // direct webui dependency, but two suites still exercise zip logic
+      // directly. Resolve it from webui-server's installed copy.
+      jszip: path.resolve(__dirname, '../../packages/webui-server/node_modules/jszip'),
       '@wrongstack/tools/tool-icons': path.resolve(__dirname, '../../packages/tools/src/tool-icons.ts'),
       '@wrongstack/tools/next-steps': path.resolve(__dirname, '../../packages/tools/src/next-steps.ts'),
     },

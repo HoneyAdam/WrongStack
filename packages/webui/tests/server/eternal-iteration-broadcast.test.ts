@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEternalSubscription, type EternalBroadcast, type EternalSubscribe } from '../../src/server/eternal-iteration-broadcast.js';
+import { createEternalSubscription, type EternalBroadcast, type EternalSubscribe } from '@wrongstack/webui-server';
 
 /**
  * PR 4 of Phase 2: extract the eternal-iteration observer wiring into

@@ -234,8 +234,34 @@ export async function runLaunchPrompts(opts: {
     };
   }
 
+  // --- First run (no saved preferences): use the built-in defaults silently ---
+  // The user explicitly asked for "director mode on, yolo on, and autonomy auto
+  // by default at first install". No prompts on the first launch — the new
+  // defaults are applied without asking. The summary gate kicks in on the
+  // SECOND launch (after persistLaunchChoices has written the first run's
+  // values to the global config).
+  if (!lastChoices) {
+    return {
+      mode: modePinned ?? 'tui',
+      yolo: yoloPinned ?? true,
+      director: directorPinned ?? true,
+      autonomy: autonomyPinned ?? 'auto',
+    };
+  }
+
+  // --- Override detection: at least one CLI flag diverges from saved ---
+  // If the user has saved preferences but explicitly passes a different value
+  // for any of the 4 fields via CLI flags, skip the summary gate and go
+  // straight to individual prompts. The user is "explicitly changing
+  // settings from the start", which is what the request described.
+  const hasOverride =
+    (modePinned !== undefined && modePinned !== lastChoices.mode) ||
+    (yoloPinned !== undefined && yoloPinned !== lastChoices.yolo) ||
+    (directorPinned !== undefined && directorPinned !== lastChoices.director) ||
+    (autonomyPinned !== undefined && autonomyPinned !== lastChoices.autonomy);
+
   // --- Summary gate: when saved preferences exist, show them + one question ---
-  if (lastChoices) {
+  if (lastChoices && !hasOverride) {
     // Merge: pinned values override saved preferences.
     const effective = {
       mode: modePinned ?? lastChoices.mode,

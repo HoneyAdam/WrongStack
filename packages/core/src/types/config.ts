@@ -276,6 +276,42 @@ export interface ToolsConfig {
    * it is honored from any source.
    */
   exec?: ExecToolConfig | undefined;
+  /**
+   * Agent-loop repetition detector tuning. The detector watches two signals:
+   * consecutive effectively-identical iterations (same tool-name set + inputs
+   * + text) and per-call repeats (the same tool invoked with identical
+   * arguments N times within a sliding window, even when interleaved with
+   * other calls). In the default `steer-then-cut` mode the first detection
+   * folds a corrective note into the conversation and lets the run continue;
+   * only persistent repetition cuts the turn. Omitted fields use built-in
+   * defaults (see DEFAULT_TOOLS_CONFIG.loopDetection).
+   */
+  loopDetection?: LoopDetectionConfig | undefined;
+}
+
+/** Tuning for the agent-loop repetition detector (`tools.loopDetection`). */
+export interface LoopDetectionConfig {
+  /**
+   * `steer-then-cut` (default): inject a corrective note at the steer
+   * threshold, cut the turn only if repetition persists to the cut threshold.
+   * `cut`: legacy behavior — hard-stop at the steer threshold, per-call
+   * detector disabled. `off`: disable loop detection entirely.
+   */
+  mode?: 'steer-then-cut' | 'cut' | 'off' | undefined;
+  /** Consecutive identical iterations before the detector acts (default 3, min 2). */
+  steerThreshold?: number | undefined;
+  /**
+   * Consecutive identical iterations at which the turn is cut in
+   * `steer-then-cut` mode (default steerThreshold + 2, min steerThreshold + 1).
+   */
+  cutThreshold?: number | undefined;
+  /** Sliding window of recent tool calls for per-call repeat detection (default 12, min 4). */
+  windowSize?: number | undefined;
+  /**
+   * Identical (name + canonicalized args) calls within the window that
+   * trigger a steer note (default 4, min 2).
+   */
+  callRepeatThreshold?: number | undefined;
 }
 
 /** Allow/deny extension of the `exec` tool's built-in command allowlist. */

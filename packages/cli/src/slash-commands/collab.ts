@@ -75,7 +75,7 @@ function inviteCommand(sessionId: string | undefined): { message: string } {
   if (!sessionId) {
     return { message: color.yellow('No active session to invite to.') };
   }
-  // The webui binds to 127.0.0.1:3457 by default (see packages/webui/src/server/entry.ts).
+  // The webui binds to 127.0.0.1:3457 by default (see packages/webui-server/src/server/entry.ts).
   // For a teammate to join, the operator must be running the webui and
   // expose the port; we print the canonical URL the webui logs on start.
   const url = `http://127.0.0.1:3457/?session=${encodeURIComponent(sessionId)}`;

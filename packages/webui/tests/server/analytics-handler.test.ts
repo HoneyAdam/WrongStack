@@ -8,7 +8,7 @@ import {
   handleApiAnalyticsGet,
   handleApiAnalyticsPost,
   handleApiAnalyticsSummary,
-} from '../../src/server/http-server/analytics-handler.js';
+} from '@wrongstack/webui-server';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 function createMockReq(body: unknown, method = 'POST'): IncomingMessage {

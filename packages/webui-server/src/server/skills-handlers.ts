@@ -305,7 +305,7 @@ export async function handleSkillsCreate(
 
     // Parse description lines to build the skill content
     const lines = createPayload.description.trim().split('\n');
-    const firstLine = lines[0].trim();
+    const firstLine = (lines[0] ?? '').trim();
     const bodyLines = lines.slice(1).map((l) => l.trim()).filter(Boolean);
     const descriptionText = firstLine + (bodyLines.length > 0 ? `\n${bodyLines.join('\n')}` : '');
     const trigger = bodyLines.find((l) => l.toLowerCase().startsWith('triggers:')) ?? '';

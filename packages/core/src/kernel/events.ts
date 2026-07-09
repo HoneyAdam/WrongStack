@@ -292,12 +292,15 @@ export interface EventMap {
     decision: 'always' | 'deny';
   };
   /**
-   * Fired when the agent loop detects that the model is repeating the same
-   * response shape over and over — a tight loop that would otherwise burn
-   * iterations indefinitely. The loop breaks with status `max_iterations`
-   * after `repeatCount` consecutive identical iterations.
+   * Fired when the agent loop detects that the model is repeating itself —
+   * a tight loop that would otherwise burn iterations indefinitely. In the
+   * default `steer-then-cut` mode the first detection injects a corrective
+   * note into the conversation (`action: 'steer'`) and lets the run
+   * continue; persistent repetition cuts the turn with status
+   * `max_iterations` (`action: 'cut'`). Legacy `cut` mode hard-stops on
+   * first detection.
    *
-   * Two flavours caught by the same safety valve:
+   * Flavours caught by the same safety valve:
    *  - `kind: 'tool'` — the same tool(s) called with effectively the same
    *    inputs (catches k2p7's tendency to retry identical tool calls when
    *    a tool returns an unexpected empty result).
@@ -309,15 +312,15 @@ export interface EventMap {
    *  - `kind: 'mixed'` — both: the response contains tool calls AND text,
    *    and the combined fingerprint (tool names + text) repeats.
    *
-   * UIs can render a warning chip. The `kind` field is additive — older
-   * subscribers that only read `tools` continue to work.
+   * UIs can render a warning chip. The `kind`, `action`, and `scope` fields
+   * are additive — older subscribers that only read `tools` continue to work.
    */
   'tool.loop_detected': {
     sessionId?: string | undefined;
     ctx: Context;
     /** Comma-separated tool names involved in the loop, or empty string for pure message loops. */
     tools: string;
-    /** Number of consecutive identical iterations detected. */
+    /** Number of repeats detected (consecutive iterations, or identical calls within the window for `scope: 'call'`). */
     repeatCount: number;
     /** 0-based iteration index where the loop was detected. */
     iteration: number;
@@ -328,6 +331,20 @@ export interface EventMap {
      * pre-date the field.
      */
     kind?: 'tool' | 'message' | 'mixed' | undefined;
+    /**
+     * What the detector did. `steer` = a corrective note was folded into the
+     * conversation and the run continues; `cut` = the turn was ended with
+     * status `max_iterations`. Defaults to `cut` for subscribers that
+     * pre-date the field.
+     */
+    action?: 'steer' | 'cut' | undefined;
+    /**
+     * Which detector fired. `iteration` = consecutive effectively-identical
+     * iterations; `call` = the same (tool name + canonicalized args) call
+     * repeated within the sliding window, possibly interleaved with other
+     * calls (e.g. re-reading the same file for the 4th time).
+     */
+    scope?: 'iteration' | 'call' | undefined;
   };
   /**
    * `output` is a truncated preview of the tool's serialized result text

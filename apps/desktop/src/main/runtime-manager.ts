@@ -741,8 +741,15 @@ function resolveWebUiEntry(): string {
     return path.resolve(process.env['WRONGSTACK_WEBUI_ENTRY']);
   }
   const require = createRequire(import.meta.url);
-  const serverIndex = require.resolve('@wrongstack/webui/server');
-  return path.join(path.dirname(serverIndex), 'entry.js');
+  // After PR #018b, the server entry lives in @wrongstack/webui-server.
+  // Try the new package first; fall back to the legacy path for older builds.
+  try {
+    const serverPkgPath = require.resolve('@wrongstack/webui-server/package.json');
+    return path.join(path.dirname(serverPkgPath), 'dist', 'server', 'entry.js');
+  } catch {
+    const serverIndex = require.resolve('@wrongstack/webui/server');
+    return path.join(path.dirname(serverIndex), 'entry.js');
+  }
 }
 
 async function readGlobalProjectManifest(): Promise<DesktopProjectEntry[]> {

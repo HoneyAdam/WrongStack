@@ -27,7 +27,7 @@ import {
   handleSkillsUninstall,
   handleSkillsUpdate,
   type SkillsContext,
-} from '../../src/server/skills-handlers.js';
+} from '@wrongstack/webui-server';
 
 /** Build a SkillsContext with stubbed loader/installer (undefined by default). */
 function makeCtx(over: Partial<SkillsContext> = {}): SkillsContext {

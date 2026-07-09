@@ -1,11 +1,11 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
 import type { ResolvedProvider } from '@wrongstack/core';
-import { handleProviderRoute, type ProviderRouteHandlers } from '../../src/server/provider-routes.js';
+import { handleProviderRoute, type ProviderRouteHandlers } from '@wrongstack/webui-server';
 import {
   resolveProviderCatalogForModels,
   resolveProviderModelMetadata,
-} from '../../src/server/model-catalog.js';
+} from '@wrongstack/webui-server';
 
 function mockWs() {
   return {

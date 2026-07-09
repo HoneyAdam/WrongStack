@@ -7,7 +7,7 @@ import {
   loadManifest,
   projectsJsonPath,
   saveManifest,
-} from '../../src/server/projects-manifest.js';
+} from '@wrongstack/webui-server';
 
 describe('projects-manifest', () => {
   let tmp: string;

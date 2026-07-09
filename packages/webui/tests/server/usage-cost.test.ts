@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeUsageCost, getCostRates } from '../../src/server/usage-cost.js';
+import { computeUsageCost, getCostRates } from '@wrongstack/webui-server';
 
 /**
  * Cost math used by `session.start` (rates) and `stats.get` (dollar figure).

@@ -19,7 +19,7 @@ import {
   handlePromptsUsed,
   handlePromptsRecent,
   type PromptsContext,
-} from '../../src/server/prompts-handlers.js';
+} from '@wrongstack/webui-server';
 import type { WSServerMessage } from '../../src/types.js';
 
 function entry(slug: string, over: Partial<PromptEntry> = {}): PromptEntry {

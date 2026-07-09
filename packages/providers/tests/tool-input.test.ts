@@ -60,4 +60,66 @@ describe('parseToolInput (provider stream → canonical Record<string, unknown>)
       expect(Array.isArray(r)).toBe(false);
     }
   });
+
+  describe('repair ladder', () => {
+    it('unwraps a ```json fenced object', () => {
+      const r = parseToolInput('```json\n{"path":"a.ts","limit":5}\n```');
+      expect(r).toEqual({ path: 'a.ts', limit: 5 });
+    });
+
+    it('unwraps a bare ``` fence without a language tag', () => {
+      const r = parseToolInput('```\n{"a":1}\n```');
+      expect(r).toEqual({ a: 1 });
+    });
+
+    it('unwraps a fenced object whose closing fence was truncated away', () => {
+      const r = parseToolInput('```json\n{"a":1}');
+      expect(r).toEqual({ a: 1 });
+    });
+
+    it('extracts a fenced object embedded in prose', () => {
+      const r = parseToolInput('Here are the arguments:\n```json\n{"cmd":"ls"}\n```\nDone.');
+      expect(r).toEqual({ cmd: 'ls' });
+    });
+
+    it('repairs a fenced object that is also truncated', () => {
+      const r = parseToolInput('```json\n{"path":"a.ts","content":"hel');
+      expect(r).toEqual({ path: 'a.ts', content: 'hel' });
+    });
+
+    it('does not touch fences inside legitimate string values', () => {
+      const r = parseToolInput('{"text":"use ```js\\nfences\\n``` here"}');
+      expect(r).toEqual({ text: 'use ```js\nfences\n``` here' });
+    });
+
+    it('repairs trailing commas', () => {
+      const r = parseToolInput('{"a":1,"b":2,}');
+      expect(r).toEqual({ a: 1, b: 2 });
+    });
+
+    it('repairs single-line comments', () => {
+      const r = parseToolInput('{\n// the target file\n"path":"a.ts"\n}');
+      expect(r).toEqual({ path: 'a.ts' });
+    });
+
+    it('repairs literal control characters inside string values', () => {
+      const r = parseToolInput('{"old_string":"line1\nline2"}');
+      expect(r).toEqual({ old_string: 'line1\nline2' });
+    });
+
+    it('repairs a truncated payload that also carries raw newlines', () => {
+      const r = parseToolInput('{"content":"line1\nline2","path":"a.t');
+      expect(r).toEqual({ content: 'line1\nline2', path: 'a.t' });
+    });
+
+    it('salvages a double-wrapped string that contains a fenced object', () => {
+      const r = parseToolInput('"```json\\n{\\"a\\":1}\\n```"');
+      expect(r).toEqual({ a: 1 });
+    });
+
+    it('still wraps an unrecoverable fenced payload under __raw', () => {
+      const r = parseToolInput('```json\nnot json at all\n```');
+      expect(r).toHaveProperty('__raw');
+    });
+  });
 });

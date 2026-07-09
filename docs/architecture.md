@@ -431,17 +431,19 @@ A Vite+React web UI served by the CLI via `--webui` (or standalone via the
 compiled React app and wires it to the same EventBus and session store as
 the CLI/TUI, so all surfaces stay consistent with the agent run.
 
-The standalone server lives in `packages/webui/src/server/` and was
+The standalone server lives in `packages/webui-server/src/server/` (the
+`@wrongstack/webui-server` package, extracted in PR #018b) and was
 decomposed from a single ~2954-line god module (`index.ts`) into 11
-focused modules, each under 800 lines. The split preserves the package's
-public API (`exports["./server"]` → `index.ts`) and every
-`opts.services?` injection point the CLI's embedded `--webui` mode relies
-on.
+focused modules, each under 800 lines. `packages/webui/src/server/index.ts`
+remains a thin back-compat shim that re-exports `@wrongstack/webui-server`
+under the `@wrongstack/webui` package's `exports["./server"]` subpath, so
+the CLI's embedded `--webui` mode and every `opts.services?` injection
+point keep working unchanged until the shim is removed next minor.
 
 ### Module map
 
 ```
-packages/webui/src/server/
+packages/webui-server/src/server/
   index.ts                 (164)  Pure re-export barrel — the public API entry
   start-webui.ts           (777)  Server lifecycle orchestration
   pre-context-services.ts  (359)  Pre-context registries/stores factory

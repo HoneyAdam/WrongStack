@@ -33,10 +33,15 @@ import { ToolRegistry } from '../../src/registry/tool-registry.js';
 import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js';
 import { DefaultSecretScrubber } from '../../src/security/secret-scrubber.js';
 import { DefaultSessionStore } from '../../src/storage/session-store.js';
+import type { LoopDetectionConfig } from '../../src/types/config.js';
 import type { Tool } from '../../src/types/tool.js';
 import { MockProvider } from '../helpers/mock-provider.js';
 
-async function buildAgent(provider: MockProvider, extraTools: Tool[] = []) {
+async function buildAgent(
+  provider: MockProvider,
+  extraTools: Tool[] = [],
+  loopDetection?: LoopDetectionConfig,
+) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-loop-'));
   const trustFile = path.join(tmp, 'trust.json');
   const sessionDir = path.join(tmp, 'sessions');
@@ -92,9 +97,21 @@ async function buildAgent(provider: MockProvider, extraTools: Tool[] = []) {
     context: ctx,
     maxIterations: 25,
     toolExecutor,
+    loopDetection,
   });
   return { agent, ctx, tools, tmp, sessionStore };
 }
+
+const echoTool = (name = 'echo'): Tool => ({
+  name,
+  description: '',
+  inputSchema: { type: 'object' },
+  permission: 'auto',
+  mutating: false,
+  async execute() {
+    return 'ok';
+  },
+});
 
 describe('agent-loop fingerprint detector', () => {
   let cleanupDirs: string[] = [];
@@ -107,17 +124,8 @@ describe('agent-loop fingerprint detector', () => {
 
   // ── The k2p7 loop patterns the safety valve must catch ─────────────
 
-  it('breaks the run when the same tool is called with identical inputs 3 times in a row', async () => {
-    const echo: Tool = {
-      name: 'echo',
-      description: '',
-      inputSchema: { type: 'object' },
-      permission: 'auto',
-      mutating: false,
-      async execute() {
-        return 'ok';
-      },
-    };
+  it("breaks the run when the same tool is called with identical inputs 3 times in a row (legacy 'cut' mode)", async () => {
+    const echo = echoTool();
     // Three identical tool-use responses, then the model finally gives up —
     // but we break out at iteration 3 before the script is exhausted.
     const provider = new MockProvider([
@@ -136,7 +144,7 @@ describe('agent-loop fingerprint detector', () => {
       // Never reached — detector breaks the run on iteration 3.
       { content: [{ type: 'text', text: 'unreached' }], stopReason: 'end_turn' },
     ]);
-    const { agent, tmp } = await buildAgent(provider, [echo]);
+    const { agent, tmp } = await buildAgent(provider, [echo], { mode: 'cut' });
     cleanupDirs.push(tmp);
 
     const detected: Array<{ tools: string; kind?: string; repeatCount: number }> = [];
@@ -212,7 +220,7 @@ describe('agent-loop fingerprint detector', () => {
     expect(result.status).toBe('done');
   });
 
-  it('catches the k2p7 "assistant message repeats" pattern via autonomous-continue', async () => {
+  it("catches the k2p7 \"assistant message repeats\" pattern via autonomous-continue (legacy 'cut' mode)", async () => {
     // K2P7 in autonomous-continue mode echoes the same prose turn after
     // turn with no tool calls at all. The OLD detector only ran when there
     // was a tool_use, so this case was invisible. The NEW detector
@@ -230,7 +238,7 @@ describe('agent-loop fingerprint detector', () => {
       { content: [{ type: 'text', text: stuckText }], stopReason: 'end_turn' },
       { content: [{ type: 'text', text: stuckText }], stopReason: 'end_turn' },
     ]);
-    const { agent, tmp } = await buildAgent(provider);
+    const { agent, tmp } = await buildAgent(provider, [], { mode: 'cut' });
     cleanupDirs.push(tmp);
 
     const detected: Array<{ kind?: string; tools: string; repeatCount: number }> = [];
@@ -344,6 +352,180 @@ describe('agent-loop fingerprint detector', () => {
     );
 
     await agent.run('hi', { maxIterations: 20, autonomousContinue: true });
+    expect(detected).toEqual([]);
+  });
+
+  // ── steer-then-cut escalation (the default mode) ────────────────────
+
+  it('default mode: steers at the steer threshold, cuts only when repetition persists', async () => {
+    const echo = echoTool();
+    const identical = () => ({
+      content: [{ type: 'tool_use' as const, id: 'u', name: 'echo', input: { text: 'a' } }],
+      stopReason: 'tool_use' as const,
+    });
+    // Six identical responses scripted; the run must cut at iteration 5
+    // (steer at 3, cut at 5) without reaching the 6th.
+    const provider = new MockProvider([
+      identical(), identical(), identical(), identical(), identical(), identical(),
+    ]);
+    const { agent, ctx, tmp } = await buildAgent(provider, [echo]);
+    cleanupDirs.push(tmp);
+
+    const detected: Array<{ action?: string; scope?: string; repeatCount: number }> = [];
+    (agent as never as { events: EventBus }).events.on('tool.loop_detected', (e) =>
+      detected.push({ action: e.action, scope: e.scope, repeatCount: e.repeatCount }),
+    );
+
+    const result = await agent.run('loop', { maxIterations: 20 });
+
+    expect(result.status).toBe('max_iterations');
+    expect(provider.calls).toBe(5);
+
+    // First event: the iteration-scope steer at streak 3. Last event: the cut at 5.
+    expect(detected[0]).toEqual({ action: 'steer', scope: 'iteration', repeatCount: 3 });
+    expect(detected[detected.length - 1]).toEqual({
+      action: 'cut',
+      scope: 'iteration',
+      repeatCount: 5,
+    });
+
+    // The steer note must have been folded into the conversation as user-side
+    // text before the cut.
+    const userTexts = ctx.messages
+      .filter((m) => m.role === 'user')
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text);
+    expect(userTexts.some((t) => t.includes('[loop-detector]'))).toBe(true);
+  });
+
+  it('default mode: message loops in autonomous-continue steer first, then cut', async () => {
+    const stuckText = 'Still working on it.\n[continue]';
+    const stuck = () => ({
+      content: [{ type: 'text' as const, text: stuckText }],
+      stopReason: 'end_turn' as const,
+    });
+    const provider = new MockProvider([stuck(), stuck(), stuck(), stuck(), stuck(), stuck()]);
+    const { agent, tmp } = await buildAgent(provider);
+    cleanupDirs.push(tmp);
+
+    const detected: Array<{ action?: string; kind?: string; repeatCount: number }> = [];
+    (agent as never as { events: EventBus }).events.on('tool.loop_detected', (e) =>
+      detected.push({ action: e.action, kind: e.kind, repeatCount: e.repeatCount }),
+    );
+
+    const result = await agent.run('go', { maxIterations: 20, autonomousContinue: true });
+
+    expect(result.status).toBe('max_iterations');
+    expect(provider.calls).toBe(5);
+    expect(detected[0]).toMatchObject({ action: 'steer', kind: 'message', repeatCount: 3 });
+    expect(detected[detected.length - 1]).toMatchObject({
+      action: 'cut',
+      kind: 'message',
+      repeatCount: 5,
+    });
+  });
+
+  it('per-call window detector: catches the same call repeated non-consecutively (interleaved)', async () => {
+    // The iteration detector CANNOT see this pattern — the repeated read is
+    // interleaved with other calls, so the consecutive streak never exceeds 1.
+    // The sliding-window per-call detector catches the 4th identical read.
+    const tools = [echoTool('read'), echoTool('aux')];
+    const read = () => ({
+      content: [
+        { type: 'tool_use' as const, id: 'r', name: 'read', input: { path: 'same.txt' } },
+      ],
+      stopReason: 'tool_use' as const,
+    });
+    const aux = (n: number) => ({
+      content: [{ type: 'tool_use' as const, id: 'x', name: 'aux', input: { step: n } }],
+      stopReason: 'tool_use' as const,
+    });
+    const provider = new MockProvider([
+      read(), aux(1), read(), aux(2), read(), aux(3), read(),
+      { content: [{ type: 'text', text: 'ok, moving on' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, ctx, tmp } = await buildAgent(provider, tools);
+    cleanupDirs.push(tmp);
+
+    const detected: Array<{ action?: string; scope?: string; tools: string; repeatCount: number }> =
+      [];
+    (agent as never as { events: EventBus }).events.on('tool.loop_detected', (e) =>
+      detected.push({ action: e.action, scope: e.scope, tools: e.tools, repeatCount: e.repeatCount }),
+    );
+
+    const result = await agent.run('go', { maxIterations: 20 });
+
+    // Steer only — the run completes normally after the model changes course.
+    expect(result.status).toBe('done');
+    expect(detected).toHaveLength(1);
+    expect(detected[0]).toEqual({ action: 'steer', scope: 'call', tools: 'read', repeatCount: 4 });
+
+    const userTexts = ctx.messages
+      .filter((m) => m.role === 'user')
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text);
+    expect(userTexts.some((t) => t.includes('You have called read'))).toBe(true);
+  });
+
+  it('per-call detector normalizes argument key order', async () => {
+    // {a,b} vs {b,a} must count as the SAME call.
+    const tools = [echoTool('read'), echoTool('aux')];
+    const readAB = () => ({
+      content: [
+        { type: 'tool_use' as const, id: 'r', name: 'read', input: { path: 'f.txt', limit: 5 } },
+      ],
+      stopReason: 'tool_use' as const,
+    });
+    const readBA = () => ({
+      content: [
+        { type: 'tool_use' as const, id: 'r', name: 'read', input: { limit: 5, path: 'f.txt' } },
+      ],
+      stopReason: 'tool_use' as const,
+    });
+    const aux = (n: number) => ({
+      content: [{ type: 'tool_use' as const, id: 'x', name: 'aux', input: { step: n } }],
+      stopReason: 'tool_use' as const,
+    });
+    const provider = new MockProvider([
+      readAB(), aux(1), readBA(), aux(2), readAB(), aux(3), readBA(),
+      { content: [{ type: 'text', text: 'done' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, tools);
+    cleanupDirs.push(tmp);
+
+    const detected: Array<{ scope?: string; repeatCount: number }> = [];
+    (agent as never as { events: EventBus }).events.on('tool.loop_detected', (e) =>
+      detected.push({ scope: e.scope, repeatCount: e.repeatCount }),
+    );
+
+    await agent.run('go', { maxIterations: 20 });
+    expect(detected).toHaveLength(1);
+    expect(detected[0]).toEqual({ scope: 'call', repeatCount: 4 });
+  });
+
+  it("mode 'off' disables both detectors", async () => {
+    const echo = echoTool();
+    const identical = () => ({
+      content: [{ type: 'tool_use' as const, id: 'u', name: 'echo', input: { text: 'a' } }],
+      stopReason: 'tool_use' as const,
+    });
+    const provider = new MockProvider([
+      identical(), identical(), identical(), identical(), identical(), identical(),
+      { content: [{ type: 'text', text: 'finally done' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [echo], { mode: 'off' });
+    cleanupDirs.push(tmp);
+
+    const detected: Array<unknown> = [];
+    (agent as never as { events: EventBus }).events.on('tool.loop_detected', () =>
+      detected.push(true),
+    );
+
+    const result = await agent.run('go', { maxIterations: 20 });
+    expect(result.status).toBe('done');
+    expect(provider.calls).toBe(7);
     expect(detected).toEqual([]);
   });
 });

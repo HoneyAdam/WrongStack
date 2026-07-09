@@ -21,6 +21,8 @@ import type { ToolExecutorLike } from '../types/tool-executor.js';
 import {
   DEFAULT_MAX_ITERATIONS,
   normalizeInput,
+  resolveLoopDetection,
+  type ResolvedLoopDetectionConfig,
   type RunResult,
   type AgentInit,
   type AgentPipelines,
@@ -33,6 +35,8 @@ export {
   DEFAULT_MAX_ITERATIONS,
   normalizeInput,
   createDefaultPipelines,
+  resolveLoopDetection,
+  type ResolvedLoopDetectionConfig,
   type RunResult,
   type AgentInit,
   type AgentPipelines,
@@ -56,6 +60,8 @@ export class Agent {
   private readonly plugins: { plugin: Plugin; api: PluginAPI }[] = [];
   readonly toolExecutor: ToolExecutorLike;
   readonly autoExtendLimit: boolean;
+  /** Resolved loop-detector settings (see `tools.loopDetection`). */
+  readonly loopDetection: ResolvedLoopDetectionConfig;
   private readonly autonomousContinue: boolean;
   readonly tracer: Tracer | undefined;
   readonly extensions: ExtensionRegistry;
@@ -75,6 +81,7 @@ export class Agent {
     this.executionStrategy = init.executionStrategy ?? 'smart';
     this.perIterationOutputCapBytes = init.perIterationOutputCapBytes ?? 100_000;
     this.autoExtendLimit = init.autoExtendLimit ?? true;
+    this.loopDetection = resolveLoopDetection(init.loopDetection);
     this.autonomousContinue = init.autonomousContinue ?? false;
     this.tracer = init.tracer;
     this.extensions = init.extensions ?? new ExtensionRegistry();
@@ -155,6 +162,15 @@ export class Agent {
     const signal = controller.signal;
     this.ctx.signal = signal;
     controller.onAbort(() => this.ctx.drainAbortHooks());
+    // Abort durability: drain the buffered session writer the moment the run
+    // is cancelled. The loop's `finally` clears the in-flight marker, but the
+    // buffered JSONL events would otherwise sit in memory until the next
+    // periodic flush — a hard exit right after Ctrl+C would lose them.
+    controller.onAbort(async () => {
+      await this.ctx.session.flush().catch(() => {
+        /* best-effort — close()/checkpoint flush remains the backstop */
+      });
+    });
 
     // Refresh the live context's tool mirror from the registry. The provider
     // request reads `this.tools.list()` directly, but `ctx.tools` is a separate

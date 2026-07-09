@@ -774,6 +774,14 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     // Detach all listeners first so cleanup() doesn't race with process.exit()
     detachListeners();
     unregisterTuiClient();
+    // Hard exit skips every async teardown path, including the session
+    // writer's buffered flush — drain it synchronously so the last events
+    // of the aborted run survive on disk.
+    try {
+      opts.agent.ctx.session.flushSync?.();
+    } catch {
+      // best-effort — exiting either way
+    }
     stdout.write(BRACKETED_PASTE_OFF);
     stdout.write(MOUSE_OFF);
     process.exit(130);

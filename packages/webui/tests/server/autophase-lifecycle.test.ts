@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AutoPhaseWebSocketHandler } from '../../src/server/autophase-ws-handler.js';
+import { AutoPhaseWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal fake WS that records every JSON message the handler sends. */
 function mockWs() {

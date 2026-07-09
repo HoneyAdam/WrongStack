@@ -36,6 +36,17 @@ describe('write tool', () => {
     expect(await fs.readFile(path.join(sb.dir, 'new.txt'), 'utf8')).toBe('hello');
   });
 
+  it('aborted signal prevents the write from touching the filesystem', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(
+      writeTool.execute({ path: 'aborted.txt', content: 'never' }, sb.ctx, {
+        signal: ctrl.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(fs.access(path.join(sb.dir, 'aborted.txt'))).rejects.toThrow();
+  });
+
   it('streams each line before finalizing a new file write', async () => {
     const events = [];
     for await (const event of writeTool.executeStream!(

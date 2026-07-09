@@ -3,7 +3,7 @@ import {
   estimateContextBreakdown,
   estimateTokens,
   stringifyContent,
-} from '../../src/server/token-estimator.js';
+} from '@wrongstack/webui-server';
 
 /**
  * The per-section token breakdown behind `context.debug`. Pure maths, so these

@@ -149,7 +149,15 @@ export async function handleTaskUpdate(
       sendResult(ws, ctx, false, `Task "${payload.id}" not found.`);
       return;
     }
-    file.tasks[idx] = { ...file.tasks[idx], status: payload.status };
+    const existing = file.tasks[idx];
+    if (!existing) {
+      // noUncheckedIndexedAccess: array access can be undefined. We just
+      // confirmed idx is in-range via findIndex, but the type system needs
+      // the explicit guard.
+      sendResult(ws, ctx, false, `Task "${payload.id}" not found.`);
+      return;
+    }
+    file.tasks[idx] = { ...existing, status: payload.status };
     await saveTasks(taskPath, file);
     ctx.broadcast({ type: 'tasks.updated', payload: sessionPayload(ctx, { tasks: file.tasks }) });
     sendResult(ws, ctx, true, `Task "${payload.id}" marked ${payload.status}.`);

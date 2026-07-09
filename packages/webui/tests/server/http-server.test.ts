@@ -20,7 +20,7 @@ import {
   injectWsConfig,
   injectWsPort,
   isInsideDist,
-} from '../../src/server/http-server.js';
+} from '@wrongstack/webui-server';
 
 let distDir: string;
 let server: import('node:http').Server;

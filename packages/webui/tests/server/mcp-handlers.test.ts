@@ -12,7 +12,7 @@ import {
   handleMcpSleep,
   handleMcpUpdate,
   handleMcpWake,
-} from '../../src/server/mcp-handlers';
+} from '@wrongstack/webui-server';
 
 let tmp: string;
 let configPath: string;

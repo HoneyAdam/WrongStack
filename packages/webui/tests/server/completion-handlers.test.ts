@@ -46,7 +46,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   });
 
   it('combines LLM suggestions with codebase index suggestions', async () => {
-    const { handleCompletionRequest } = await import('../../src/server/completion-handlers.js');
+    const { handleCompletionRequest } = await import('@wrongstack/webui-server/server/completion-handlers.js');
     const complete = vi.fn(async (req: unknown) => ({
       content: [
         {
@@ -123,7 +123,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   });
 
   it('returns index suggestions without a provider', async () => {
-    const { handleCompletionRequest } = await import('../../src/server/completion-handlers.js');
+    const { handleCompletionRequest } = await import('@wrongstack/webui-server/server/completion-handlers.js');
     const ws = createMockWs();
 
     await handleCompletionRequest(
@@ -153,7 +153,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   });
 
   it('skips the LLM provider when allowLlm is false', async () => {
-    const { handleCompletionRequest } = await import('../../src/server/completion-handlers.js');
+    const { handleCompletionRequest } = await import('@wrongstack/webui-server/server/completion-handlers.js');
     const complete = vi.fn();
     const provider = {
       id: 'mock',
@@ -191,7 +191,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   });
 
   it('puts optional LSP suggestions before fallback suggestions', async () => {
-    const { handleCompletionRequest } = await import('../../src/server/completion-handlers.js');
+    const { handleCompletionRequest } = await import('@wrongstack/webui-server/server/completion-handlers.js');
     const lspCompletion = vi.fn(async () => [
       {
         label: 'findByEmail',
@@ -243,7 +243,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
 
   it('uses machine-readable LSP tool output when wrapping the tool source', async () => {
     const { createToolLspCompletionSource } = await import(
-      '../../src/server/completion-handlers.js'
+      '@wrongstack/webui-server'
     );
     const execute = vi.fn(async () => JSON.stringify({
       items: [
@@ -292,7 +292,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   });
 
   it('rejects invalid cursor positions before provider work', async () => {
-    const { handleCompletionRequest } = await import('../../src/server/completion-handlers.js');
+    const { handleCompletionRequest } = await import('@wrongstack/webui-server/server/completion-handlers.js');
     const complete = vi.fn();
     const lspCompletion = vi.fn();
     const provider = {
@@ -335,7 +335,7 @@ describe('completion WebSocket handler', { timeout: 30_000 }, () => {
   });
 
   it('rejects paths outside the project root', async () => {
-    const { handleCompletionRequest } = await import('../../src/server/completion-handlers.js');
+    const { handleCompletionRequest } = await import('@wrongstack/webui-server/server/completion-handlers.js');
     const provider = {
       id: 'mock',
       capabilities: { structuredOutput: false, jsonMode: false },

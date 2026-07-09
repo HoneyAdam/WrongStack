@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { CollaborationBus, EventBus } from '@wrongstack/core';
-import { CollaborationWebSocketHandler } from '../../src/server/collaboration-ws-handler.js';
+import { CollaborationWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal ws stub capturing sent JSON messages. */
 function fakeWs() {

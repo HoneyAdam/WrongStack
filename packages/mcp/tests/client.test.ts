@@ -518,6 +518,95 @@ describe('MCPClient', () => {
     });
   });
 
+  describe('request() — abort signal (MCP cancellation)', () => {
+    function makeAbortableClient() {
+      const c = new MCPClient({
+        name: 'abortable',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'process.stdin.resume()'],
+      });
+      const writes: string[] = [];
+      const mockChild = {
+        stdin: {
+          destroyed: false,
+          write: (s: string) => {
+            writes.push(s);
+            return true;
+          },
+          on: () => {},
+          removeListener: () => {},
+          once: () => {},
+        },
+        stdout: { on: () => {} },
+        stderr: { on: () => {} },
+        on: () => {},
+        kill: () => {},
+      };
+      const cAny = c as never as Record<string, unknown>;
+      Object.defineProperty(cAny, 'child', { value: mockChild, writable: true, configurable: true });
+      Object.defineProperty(cAny, '_drainPending', { value: false, writable: true, configurable: true });
+      const request = (
+        c as never as {
+          request: (
+            m: string,
+            p: unknown,
+            timeoutMs?: number,
+            opts?: { signal?: AbortSignal },
+          ) => Promise<unknown>;
+        }
+      ).request.bind(c);
+      return { c, writes, request };
+    }
+
+    it('rejects with AbortError and sends notifications/cancelled on abort', async () => {
+      const { c, writes, request } = makeAbortableClient();
+      const ctrl = new AbortController();
+      const p = request('tools/call', { name: 'slow', arguments: {} }, 60_000, {
+        signal: ctrl.signal,
+      });
+      ctrl.abort();
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      // The cancellation notification is fire-and-forget — allow a tick.
+      await new Promise((r) => setTimeout(r, 20));
+      const cancelled = writes.find((w) => w.includes('notifications/cancelled'));
+      expect(cancelled).toBeDefined();
+      expect(cancelled).toContain('"requestId"');
+      // The pending map must be drained so nothing leaks or resolves later.
+      expect((c as never as { pending: Map<unknown, unknown> }).pending.size).toBe(0);
+    });
+
+    it('rejects immediately when the signal is already aborted (nothing written)', async () => {
+      const { writes, request } = makeAbortableClient();
+      const ctrl = new AbortController();
+      ctrl.abort();
+      await expect(
+        request('tools/call', { name: 'x', arguments: {} }, 60_000, { signal: ctrl.signal }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(writes.filter((w) => w.includes('tools/call'))).toEqual([]);
+    });
+
+    it('a completed request never fires the abort path afterwards', async () => {
+      const { c, writes, request } = makeAbortableClient();
+      const ctrl = new AbortController();
+      const p = request('tools/list', {}, 60_000, { signal: ctrl.signal });
+      // Resolve the pending request as the server would.
+      const pending = (
+        c as never as {
+          pending: Map<number, { resolve: (r: unknown) => void }>;
+        }
+      ).pending;
+      const [id, entry] = [...pending.entries()][0]!;
+      pending.delete(id);
+      entry.resolve({ jsonrpc: '2.0', id, result: { tools: [] } });
+      await expect(p).resolves.toMatchObject({ result: { tools: [] } });
+      // Abort after completion: listener was detached, no cancel notification.
+      ctrl.abort();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(writes.some((w) => w.includes('notifications/cancelled'))).toBe(false);
+    });
+  });
+
   describe('notify() — drain backpressure paths', () => {
     it('notify() skips when _drainPending is already true (line 472-478)', async () => {
       const c = new MCPClient({

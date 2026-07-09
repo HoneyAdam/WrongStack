@@ -3,7 +3,7 @@ import {
   resolveAllPendingConfirms,
   resolveYoloEligiblePendingConfirms,
   type PendingConfirm,
-} from '../../src/server/pending-confirms';
+} from '@wrongstack/webui-server';
 
 describe('pending confirm resolution', () => {
   it('auto-approves only non-destructive confirms when YOLO is enabled', () => {

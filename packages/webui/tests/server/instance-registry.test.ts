@@ -10,7 +10,7 @@ import {
   registerInstance,
   registryPath,
   unregisterInstance,
-} from '../../src/server/instance-registry.js';
+} from '@wrongstack/webui-server';
 
 let baseDir: string;
 

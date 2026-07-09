@@ -32,8 +32,10 @@ export * from './glob-match.js';
 export { assertNotPrivateHost, expandIPv6, isPrivateIPv4, isPrivateIPv6 } from './ip-guard.js';
 export { completePartialObject } from './json-repair.js';
 export {
+  type CoercionResult,
   type ValidationError,
   type ValidationResult,
+  coerceAgainstSchema,
   validateAgainstSchema,
 } from './json-schema-validate.js';
 export { mergeCustomModelDefs } from './merge-custom-models.js';

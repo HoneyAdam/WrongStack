@@ -10,7 +10,7 @@ import type { RetryPolicy } from '../types/retry-policy.js';
 import type { ErrorHandler } from '../types/error-handler.js';
 import type { PermissionPolicy } from '../types/permission.js';
 import type { ToolExecutorLike } from '../types/tool-executor.js';
-import type { AgentPipelines } from './agent-types.js';
+import type { AgentPipelines, ResolvedLoopDetectionConfig } from './agent-types.js';
 
 /**
  * Minimal interface exposing the Agent fields that the extracted
@@ -29,6 +29,7 @@ export interface AgentInternals {
   readonly executionStrategy: 'parallel' | 'sequential' | 'smart';
   readonly perIterationOutputCapBytes: number;
   readonly autoExtendLimit: boolean;
+  readonly loopDetection: ResolvedLoopDetectionConfig;
   readonly toolExecutor: ToolExecutorLike;
   readonly extensions: ExtensionRegistry;
   readonly logger: Logger;

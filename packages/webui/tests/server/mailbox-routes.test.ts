@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import { handleMailboxRoute, type MailboxRouteHandlers } from '../../src/server/mailbox-routes.js';
-import type { WSClientMessage } from '../../src/server/types.js';
+import { handleMailboxRoute, type MailboxRouteHandlers } from '@wrongstack/webui-server';
+import type { WSClientMessage } from '@wrongstack/webui-server';
 
 function mockWs(): WebSocket & { send: ReturnType<typeof vi.fn> } {
   return { readyState: 1, send: vi.fn() } as never as WebSocket & { send: ReturnType<typeof vi.fn> };

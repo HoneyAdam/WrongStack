@@ -87,7 +87,7 @@ if ($Background) {
         param($dir, $port)
         Set-Location $dir
         $env:WS_PORT = $port
-        node packages/webui/dist/server/entry.js
+        node packages/webui-server/dist/server/entry.js
     } -ArgumentList $ScriptDir, $WEBSOCKET_PORT
 
     $webuiJob = Start-Job -Name "WebUI" -ScriptBlock {
@@ -112,7 +112,7 @@ if ($Background) {
     try {
         # Start WebUI backend (Agent + WebSocket server)
         $env:WS_PORT = $WEBSOCKET_PORT
-        $wsProc = Start-Process -FilePath "node" -ArgumentList "packages/webui/dist/server/entry.js" -PassThru -NoNewWindow -WorkingDirectory $ScriptDir
+        $wsProc = Start-Process -FilePath "node" -ArgumentList "packages/webui-server/dist/server/entry.js" -PassThru -NoNewWindow -WorkingDirectory $ScriptDir
         $pids += $wsProc.Id
         Write-Host "  Backend started (PID: $($wsProc.Id))" -ForegroundColor Cyan
 

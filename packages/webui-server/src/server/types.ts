@@ -106,3 +106,56 @@ export interface ConnectedClient {
    *  close (`String(ws)` is `"[object Object]"` for every socket). */
   connId: string;
 }
+
+// ── Cross-package shared types (PR #018b) ──────────────────────────────
+// These types were previously defined in packages/webui/src/types.ts (the
+// frontend) but used by both server handlers and the frontend. They live
+// in the server's types now because the server owns the WS protocol —
+// the frontend imports them from @wrongstack/webui-server (see webui's
+// tsconfig.json alias). This avoids the previous design where the server
+// depended on the frontend (cross-package inversion).
+
+/** Role a client declares on `collab.join`. Forward-compatible: 'controller' is
+ *  the future Phase 3 capability; Phase 1 only honors 'observer'. */
+export type CollabRole = 'observer' | 'annotator' | 'controller';
+
+/** Sent on connect and every 2s while at least one participant is watching. */
+export interface WSCollabState {
+  type: 'collab.state';
+  payload: {
+    sessionId: string;
+    participants: Array<{
+      participantId: string;
+      role: CollabRole;
+      joinedAt: string;
+    }>;
+  };
+}
+
+/** One worktree lane in the swim-lane / DAG view. */
+export interface WorktreeHandleView {
+  handleId: string;
+  ownerId: string;
+  ownerLabel: string;
+  /** Absolute checkout path (for open-in-terminal / remove). */
+  dir?: string | undefined;
+  branch: string;
+  baseBranch: string;
+  status: 'allocating' | 'active' | 'committing' | 'merging' | 'merged' | 'needs-review' | 'failed';
+  insertions: number;
+  deletions: number;
+  files: number;
+  conflictFiles?: string[] | undefined;
+  allocatedAt: number;
+  lastEventAt: number;
+  recentActivity: Array<{ kind: string; text: string; at: number }>;
+}
+
+/** One orphaned git artifact left by a previous/crashed run. */
+export interface WorktreeOrphanView {
+  /** Absolute checkout path (omitted for a branch-only orphan). */
+  dir?: string | undefined;
+  /** Branch name (`wstack/ap/*`), when known. */
+  branch?: string | undefined;
+  kind: 'worktree' | 'branch';
+}

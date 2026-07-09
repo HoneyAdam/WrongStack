@@ -11,7 +11,7 @@ const registry = vi.hoisted(() => ({
 vi.mock('@wrongstack/tools', () => ({ getProcessRegistry: () => registry }));
 
 const { handleProcessKill, handleProcessKillAll, handleProcessList } = await import(
-  '../../src/server/process-handlers.js'
+  '@wrongstack/webui-server/server/process-handlers.js'
 );
 
 /** Minimal ws mock that records parsed JSON sends. */

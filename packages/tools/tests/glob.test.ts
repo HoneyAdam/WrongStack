@@ -59,6 +59,15 @@ describe('glob tool', () => {
     ).rejects.toThrow(/pattern is required/);
   });
 
+  it('stops the walk when the abort signal is already aborted', async () => {
+    await fs.writeFile(path.join(sb.dir, 'a.ts'), '');
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const out = await globTool.execute({ pattern: '**/*.ts' }, sb.ctx, { signal: ctrl.signal });
+    expect(out.files).toEqual([]);
+    expect(out.truncated).toBe(true);
+  });
+
   it('returns no files when the base path is not a directory (readdir fails)', async () => {
     await fs.writeFile(path.join(sb.dir, 'afile.ts'), '');
     const out = await globTool.execute({ pattern: '*', path: 'afile.ts' }, sb.ctx, {

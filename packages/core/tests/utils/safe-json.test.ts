@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { safeParse, safeStringify, sanitizeJsonString } from '../../src/utils/safe-json.js';
+import {
+  safeParse,
+  safeStringify,
+  sanitizeJsonString,
+  stripCodeFences,
+} from '../../src/utils/safe-json.js';
 
 describe('safe-json', () => {
   it('safeParse returns value on valid', () => {
@@ -57,5 +62,30 @@ describe('safe-json', () => {
   it('sanitizeJsonString does not touch insignificant whitespace outside strings', () => {
     const raw = '{\n  "a": 1,\n  "b": 2\n}';
     expect(JSON.parse(sanitizeJsonString(raw)!)).toEqual({ a: 1, b: 2 });
+  });
+
+  describe('stripCodeFences', () => {
+    it('strips a ```json fence with closer', () => {
+      expect(stripCodeFences('```json\n{"a":1}\n```')).toBe('{"a":1}');
+    });
+    it('strips a bare ``` fence', () => {
+      expect(stripCodeFences('```\n{"a":1}\n```')).toBe('{"a":1}');
+    });
+    it('strips a fence whose closer is missing (truncated stream)', () => {
+      expect(stripCodeFences('```json\n{"a":1')).toBe('{"a":1');
+    });
+    it('strips a single-line fence without newlines', () => {
+      expect(stripCodeFences('```{"a":1}```')).toBe('{"a":1}');
+    });
+    it('tolerates surrounding whitespace', () => {
+      expect(stripCodeFences('  ```json\n{"a":1}\n```  ')).toBe('{"a":1}');
+    });
+    it('extracts the first complete fenced block embedded in prose', () => {
+      expect(stripCodeFences('Args below:\n```json\n{"a":1}\n```\nthanks')).toBe('{"a":1}');
+    });
+    it('returns null when no fence is present', () => {
+      expect(stripCodeFences('{"a":1}')).toBe(null);
+      expect(stripCodeFences('plain text')).toBe(null);
+    });
   });
 });

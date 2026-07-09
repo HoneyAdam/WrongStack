@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { statusProjectHashFromWatchFilename } from '@/server/setup-events';
+import { statusProjectHashFromWatchFilename } from '@wrongstack/webui-server';
 
 describe('setup-events status watcher filename filtering', () => {
   const projectsDir = path.join('C:', 'Users', 'dev', '.wrongstack', 'projects');

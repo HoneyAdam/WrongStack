@@ -346,6 +346,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
       config.tools?.defaultExecutionStrategy ?? DEFAULT_TOOLS_CONFIG.defaultExecutionStrategy,
     perIterationOutputCapBytes:
       config.tools?.perIterationOutputCapBytes ?? DEFAULT_TOOLS_CONFIG.perIterationOutputCapBytes,
+    loopDetection: config.tools?.loopDetection ?? DEFAULT_TOOLS_CONFIG.loopDetection,
     confirmAwaiter: undefined,
     toolExecutor,
   });

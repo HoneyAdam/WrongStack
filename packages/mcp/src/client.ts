@@ -395,19 +395,23 @@ export class MCPClient {
     this.state = 'connected';
   }
 
-  async callTool(name: string, input: unknown): Promise<ToolCallResult> {
+  async callTool(
+    name: string,
+    input: unknown,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<ToolCallResult> {
     if (this.state !== 'connected') {
       throw new Error(`MCP client "${this.opts.name}" not connected (state=${this.state})`);
     }
     // Delegate to the active transport
     if (this.sseTransport) {
-      return this.sseTransport.callTool(name, input);
+      return this.sseTransport.callTool(name, input, opts);
     }
     if (this.httpTransport) {
-      return this.httpTransport.callTool(name, input);
+      return this.httpTransport.callTool(name, input, opts);
     }
     // stdio
-    const res = await this.request('tools/call', { name, arguments: input });
+    const res = await this.request('tools/call', { name, arguments: input }, undefined, opts);
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
@@ -480,6 +484,7 @@ export class MCPClient {
     method: string,
     params: unknown,
     timeoutMs = this.opts.requestTimeoutMs ?? 60_000,
+    opts?: { signal?: AbortSignal | undefined },
   ): Promise<JsonRpcResponse> {
     // For HTTP transports, delegate to the transport's request method.
     // SSE and streamable-http both use postRaw which handles the full
@@ -488,11 +493,42 @@ export class MCPClient {
     if (this.httpTransport) return this.httpTransport.request(method, params, timeoutMs);
 
     // stdio path
+    const signal = opts?.signal;
+    if (signal?.aborted) {
+      const err = new Error(`MCP "${this.opts.name}" request "${method}" aborted before send`);
+      err.name = 'AbortError';
+      return Promise.reject(err);
+    }
     const id = this.nextId++;
     const req: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
     return new Promise((resolve, reject) => {
+      // Abort support: drop the pending entry, notify the server per the MCP
+      // cancellation spec (`notifications/cancelled`, best-effort — the
+      // server SHOULD stop processing), and surface an AbortError so the
+      // executor classifies it as user cancellation (never retried).
+      const onAbort = signal
+        ? () => {
+            const pending = this.pending.get(id);
+            this.pending.delete(id);
+            if (pending) clearTimeout(pending.timer);
+            void this.notify('notifications/cancelled', {
+              requestId: id,
+              reason: 'client aborted',
+            }).catch(() => {
+              /* best-effort — the child may already be gone */
+            });
+            const err = new Error(`MCP "${this.opts.name}" request "${method}" aborted by client`);
+            err.name = 'AbortError';
+            reject(err);
+          }
+        : undefined;
+      if (signal && onAbort) signal.addEventListener('abort', onAbort, { once: true });
+      const detach = () => {
+        if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+      };
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        detach();
         reject(
           new Error(`MCP "${this.opts.name}" request "${method}" timed out after ${timeoutMs}ms`),
         );
@@ -500,10 +536,12 @@ export class MCPClient {
       this.pending.set(id, {
         resolve: (res) => {
           clearTimeout(timer);
+          detach();
           resolve(res);
         },
         reject: (err) => {
           clearTimeout(timer);
+          detach();
           reject(err);
         },
         timer,
@@ -516,6 +554,7 @@ export class MCPClient {
         const pending = this.pending.get(id);
         this.pending.delete(id);
         if (pending) clearTimeout(pending.timer);
+        detach();
         reject(new Error(`MCP "${this.opts.name}" request "${method}": stdin not writable`));
         return;
       }
@@ -525,6 +564,7 @@ export class MCPClient {
         const pending = this.pending.get(id);
         this.pending.delete(id);
         if (pending) clearTimeout(pending.timer);
+        detach();
         reject(err);
       }
     });

@@ -325,7 +325,7 @@ Both systems can coexist: a user might set up a high-level plan with `/plan`, th
 | `packages/tui/src/components/todos-monitor.tsx` | F6 full-screen monitor overlay |
 | `packages/tui/src/components/status-bar.tsx` | Line 3 todos chip + `statusBarTodosSpan()` for mouse |
 | `packages/webui/src/components/TodosPanel.tsx` | Live todos panel with remove button |
-| `packages/webui/src/server/index.ts` | WS handlers for `todos.get`, `todos.clear`, `todos.remove` |
+| `packages/webui-server/src/server/index.ts` | WS handlers for `todos.get`, `todos.clear`, `todos.remove` |
 | `packages/webui/src/lib/ws-client.ts` | `getTodos()`, `clearTodos()`, `removeTodo()` methods |
 | `packages/webui/src/types.ts` | WS message types |
 | `packages/core/tests/storage/todos-checkpoint.test.ts` | Checkpoint round-trip, debounce, detach-flush tests |

@@ -15,6 +15,19 @@ export const DEFAULT_TOOLS_CONFIG = Object.freeze({
   disabledTools: Object.freeze([]) as readonly string[],
   autoExtendLimit: true,
   restrictToProjectRoot: false,
+  loopDetection: Object.freeze({
+    mode: 'steer-then-cut',
+    steerThreshold: 3,
+    cutThreshold: 5,
+    windowSize: 12,
+    callRepeatThreshold: 4,
+  }) as Readonly<{
+    mode: 'steer-then-cut' | 'cut' | 'off';
+    steerThreshold: number;
+    cutThreshold: number;
+    windowSize: number;
+    callRepeatThreshold: number;
+  }>,
 });
 
 /** Default context config — mirrors BEHAVIOR_DEFAULTS.context. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { JSONSchema } from '../../src/types/tool.js';
-import { validateAgainstSchema } from '../../src/utils/json-schema-validate.js';
+import { coerceAgainstSchema, validateAgainstSchema } from '../../src/utils/json-schema-validate.js';
 
 describe('json-schema-validate / validateAgainstSchema', () => {
   describe('primitive types', () => {
@@ -251,5 +251,74 @@ describe('json-schema-validate / validateAgainstSchema', () => {
       expect(r.ok).toBe(false);
       expect(r.errors.some((e) => e.message.includes('maximum depth'))).toBe(true);
     });
+  });
+});
+
+describe('json-schema-validate / coerceAgainstSchema', () => {
+  const objSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      limit: { type: 'integer' },
+      ratio: { type: 'number' },
+      force: { type: 'boolean' },
+    },
+    required: ['path'],
+  };
+
+  it('coerces numeric strings to numbers/integers', () => {
+    const r = coerceAgainstSchema({ path: 'a.ts', limit: '5', ratio: '0.75' }, objSchema);
+    expect(r.changed).toBe(true);
+    expect(r.value).toEqual({ path: 'a.ts', limit: 5, ratio: 0.75 });
+  });
+
+  it('coerces "true"/"false" strings to booleans (case-insensitive)', () => {
+    const r = coerceAgainstSchema({ path: 'a.ts', force: 'True' }, objSchema);
+    expect(r.changed).toBe(true);
+    expect(r.value).toEqual({ path: 'a.ts', force: true });
+  });
+
+  it('coerces numbers/booleans to strings when a string is expected', () => {
+    const r = coerceAgainstSchema({ path: 42 }, objSchema);
+    expect(r.changed).toBe(true);
+    expect(r.value).toEqual({ path: '42' });
+  });
+
+  it('revives a double-encoded object string', () => {
+    const nested: JSONSchema = {
+      type: 'object',
+      properties: { opts: { type: 'object', properties: { depth: { type: 'integer' } } } },
+    };
+    const r = coerceAgainstSchema({ opts: '{"depth":"3"}' }, nested);
+    expect(r.changed).toBe(true);
+    expect(r.value).toEqual({ opts: { depth: 3 } });
+  });
+
+  it('does NOT coerce lossy cases (non-numeric string, float for integer)', () => {
+    expect(coerceAgainstSchema({ path: 'a', limit: '12a' }, objSchema).changed).toBe(false);
+    expect(coerceAgainstSchema({ path: 'a', limit: '7.5' }, objSchema).changed).toBe(false);
+    expect(coerceAgainstSchema({ path: 'a', force: 'yes' }, objSchema).changed).toBe(false);
+  });
+
+  it('returns the original reference when nothing changed', () => {
+    const input = { path: 'a.ts', limit: 5 };
+    const r = coerceAgainstSchema(input, objSchema);
+    expect(r.changed).toBe(false);
+    expect(r.value).toBe(input);
+  });
+
+  it('coerces items inside arrays', () => {
+    const schema: JSONSchema = {
+      type: 'object',
+      properties: { lines: { type: 'array', items: { type: 'integer' } } },
+    };
+    const r = coerceAgainstSchema({ lines: ['1', 2, '3'] }, schema);
+    expect(r.changed).toBe(true);
+    expect(r.value).toEqual({ lines: [1, 2, 3] });
+  });
+
+  it('coerced output passes validation', () => {
+    const r = coerceAgainstSchema({ path: 'a.ts', limit: '10', force: 'false' }, objSchema);
+    expect(validateAgainstSchema(r.value, objSchema).ok).toBe(true);
   });
 });

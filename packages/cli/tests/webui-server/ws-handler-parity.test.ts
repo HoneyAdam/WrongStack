@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * There are two WebUI servers that drive the same browser client over the same
  * `WSClientMessage` protocol:
  *   - CLI-embedded  (`wrongstack --webui`) — packages/cli/src/webui-server.ts
- *   - standalone    (`wstackui`)           — packages/webui/src/server/index.ts
+ *   - standalone    (`wstackui`)           — packages/webui-server/src/server/index.ts
  *
  * Historically they drifted: a message type handled by one but not the other
  * silently breaks that surface (e.g. the embedded server once punted ALL
@@ -32,22 +32,22 @@ const embeddedPaths = [
   path.join(repoRoot, 'packages/cli/src/webui-server/message-router.ts'),
 ];
 const standalonePaths = [
-  path.join(repoRoot, 'packages/webui/src/server/index.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/message-dispatcher.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/provider-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/session-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/project-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/mode-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/shell-git-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/mailbox-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/kanban-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/brain-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/autophase-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/specs-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/sdd-board-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/sdd-wizard-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/mcp-routes.ts'),
-  path.join(repoRoot, 'packages/webui/src/server/prefs-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/index.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/message-dispatcher.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/provider-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/session-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/project-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/mode-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/shell-git-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/mailbox-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/kanban-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/brain-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/autophase-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/specs-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/sdd-board-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/sdd-wizard-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/mcp-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/prefs-routes.ts'),
 ];
 
 /** Extract the set of dispatched message-type labels from one or more source
@@ -224,7 +224,7 @@ describe('WebUI WS-handler parity (embedded vs standalone)', () => {
   // but not listed here, its cases go unscanned and drift inside it slips past the
   // guards above. This keeps `standalonePaths` honest against the files on disk.
   it('scans every *-routes.ts dispatch module (standalonePaths is complete)', () => {
-    const serverDir = path.join(repoRoot, 'packages/webui/src/server');
+    const serverDir = path.join(repoRoot, 'packages/webui-server/src/server');
     const onDisk = fs
       .readdirSync(serverDir)
       .filter((f) => f.endsWith('-routes.ts'))

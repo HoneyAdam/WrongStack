@@ -10,7 +10,7 @@ vi.mock('@wrongstack/core/utils', async (importOriginal) => {
   return { ...actual, resolveWstackPaths: () => ({ projectGoal: tmpGoal.path }) };
 });
 
-const { handleGoalGet } = await import('../../src/server/goal-handlers.js');
+const { handleGoalGet } = await import('@wrongstack/webui-server/server/goal-handlers.js');
 
 describe('handleGoalGet', () => {
   let dir: string;

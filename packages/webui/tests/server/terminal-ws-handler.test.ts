@@ -44,7 +44,7 @@ const { spawned, spawnMock } = vi.hoisted(() => {
   return { spawned: spawnedArr, spawnMock: mock };
 });
 
-import { TerminalWebSocketHandler } from '../../src/server/terminal-ws-handler.js';
+import { TerminalWebSocketHandler } from '@wrongstack/webui-server';
 
 // ── Fake WebSocket ───────────────────────────────────────────────────────────
 function makeWs() {
