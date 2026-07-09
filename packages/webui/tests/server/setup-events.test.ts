@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventBus, type Context, type SessionEventBridge } from '@wrongstack/core';
-import { setupEvents } from '../../src/server/setup-events.js';
+import { setupEvents } from '@wrongstack/webui-server';
 
 describe('setupEvents session scoping', () => {
   it('only appends audit events for the active session', () => {

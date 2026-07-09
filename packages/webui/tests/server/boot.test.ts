@@ -21,7 +21,7 @@ vi.mock('@wrongstack/core', () => ({
   DefaultSecretVault: class {},
 }));
 
-import { bootConfig, patchConfig } from '../../src/server/boot.js';
+import { bootConfig, patchConfig } from '@wrongstack/webui-server/server/boot.js';
 
 const coreResult = {
   cwd: '/tmp/test',

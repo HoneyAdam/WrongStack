@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SKIP_DIRS, isHiddenEntry, rankFiles } from '../../src/server/file-picker.js';
+import { SKIP_DIRS, isHiddenEntry, rankFiles } from '@wrongstack/webui-server';
 
 /**
  * Pure filtering + ranking behind the `files.list` `@`-mention picker. The

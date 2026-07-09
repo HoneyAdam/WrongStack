@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadSavedProviders, saveProviders } from '../../src/server/provider-config-io.js';
+import { loadSavedProviders, saveProviders } from '@wrongstack/webui-server/server/provider-config-io.js';
 
 const mockReadFile = vi.hoisted(() => vi.fn());
 const mockAtomicWrite = vi.hoisted(() => vi.fn());

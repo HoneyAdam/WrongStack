@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws';
 import {
   handleWorklistMessage,
   type WorklistContext,
-} from '../../src/server/handlers/worklist-handlers.js';
+} from '@wrongstack/webui-server';
 
 function createMockWs() {
   const ws = {

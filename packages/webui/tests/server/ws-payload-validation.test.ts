@@ -22,7 +22,7 @@ import {
   validateSkillsCreatePayload,
   validateSkillsEditPayload,
   validateWorkingDirSetPayload,
-} from '../../src/server/ws-payload-validation.js';
+} from '@wrongstack/webui-server';
 
 describe('WebUI WebSocket payload validation', () => {
   describe('validateModelSwitchPayload', () => {

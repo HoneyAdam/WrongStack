@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import { handleBrainRoute, type BrainRouteHandlers } from '../../src/server/brain-routes.js';
-import type { WSClientMessage } from '../../src/server/types.js';
+import { handleBrainRoute, type BrainRouteHandlers } from '@wrongstack/webui-server';
+import type { WSClientMessage } from '@wrongstack/webui-server';
 
 function mockWs(): WebSocket & { send: ReturnType<typeof vi.fn> } {
   return { readyState: 1, send: vi.fn() } as never as WebSocket & { send: ReturnType<typeof vi.fn> };

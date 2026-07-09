@@ -7,7 +7,7 @@ import {
   isWildcardBind,
   tokenMatches,
   verifyClient,
-} from '../../src/server/ws-auth.js';
+} from '@wrongstack/webui-server';
 
 const TOKEN = 'abc123def456';
 // A loopback Host header — required for the DNS-rebinding guard to pass on a

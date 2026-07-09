@@ -10,7 +10,7 @@ import {
   setActiveKey,
   upsertKey,
   writeKeysBack,
-} from '../../src/server/provider-keys.js';
+} from '@wrongstack/webui-server';
 
 /**
  * Pure provider/API-key record transforms behind the WebUI `key.*`/`provider.*`

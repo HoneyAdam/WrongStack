@@ -9,7 +9,7 @@ import {
   handleFilesRead,
   handleFilesTree,
   handleFilesWrite,
-} from '../../src/server/file-handlers.js';
+} from '@wrongstack/webui-server';
 
 // We'll test the actual implementation by creating temp directories
 // and checking the output

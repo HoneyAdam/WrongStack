@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventBus, type SddBoardSnapshot } from '@wrongstack/core';
-import { SddBoardWebSocketHandler } from '../../src/server/sdd-board-ws-handler.js';
+import { SddBoardWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal ws stub capturing sent JSON messages. */
 function fakeWs() {

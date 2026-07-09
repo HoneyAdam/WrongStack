@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DefaultSecretVault } from '@wrongstack/core/security';
 import { describe, expect, it } from 'vitest';
-import { persistPrefsToConfig } from '../../src/server/pref-helpers.js';
+import { persistPrefsToConfig } from '@wrongstack/webui-server';
 
 describe('persistPrefsToConfig', () => {
   it('persists YOLO to both autonomy.yolo and top-level yolo', async () => {

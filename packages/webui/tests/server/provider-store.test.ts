@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createProviderStore, createConfigWriteLock, type ProviderStore } from '../../src/server/provider-store.js';
+import { createProviderStore, createConfigWriteLock, type ProviderStore } from '@wrongstack/webui-server';
 import type { ProviderConfig } from '@wrongstack/core';
 
 // Hoisted so vi.mock can reference them at the top level

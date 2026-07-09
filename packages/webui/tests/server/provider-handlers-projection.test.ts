@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   projectSavedProviders,
   type SavedProviderView,
-} from '../../src/server/provider-handlers.js';
+} from '@wrongstack/webui-server';
 
 /**
  * `projectSavedProviders` is the canonical projection from

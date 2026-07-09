@@ -630,7 +630,7 @@ export function buildRoutes(
         typeof payload['modelMatrix'] === 'object' &&
         !Array.isArray(payload['modelMatrix'])
       ) {
-        cfg.modelMatrix = payload['modelMatrix'] as typeof cfg.modelMatrix;
+        cfg.modelMatrix = payload['modelMatrix'] as NonNullable<typeof cfg.modelMatrix>;
       }
       if (typeof payload['fallbackAuto'] === 'boolean') cfg.fallbackAuto = payload['fallbackAuto'];
 

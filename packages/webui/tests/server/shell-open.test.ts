@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { handleShellOpen, type ShellOpenRequest } from '../../src/server/shell-open.js';
+import { handleShellOpen, type ShellOpenRequest } from '@wrongstack/webui-server';
 
 /**
  * PR 5c of Phase 2: extract the `shell.open` WS message handler into

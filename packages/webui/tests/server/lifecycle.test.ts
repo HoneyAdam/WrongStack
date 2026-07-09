@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createShutdown, registerShutdownHandlers } from '../../src/server/lifecycle.js';
+import { createShutdown, registerShutdownHandlers } from '@wrongstack/webui-server';
 
 /**
  * Graceful shutdown was previously an inline closure that called the real

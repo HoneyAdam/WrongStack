@@ -6,12 +6,23 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('@wrongstack/webui package bin', () => {
-  it('publishes the standalone executable as wstackui, not webui', () => {
-    const pkg = JSON.parse(
+  it('no longer publishes a bin — the standalone server moved to @wrongstack/webui-server (PR-018b)', () => {
+    const webuiPkg = JSON.parse(
       fs.readFileSync(path.join(repoRoot, 'packages/webui/package.json'), 'utf8'),
     ) as { bin?: Record<string, string> };
 
-    expect(pkg.bin).toEqual({ wstackui: './dist/server/entry.js' });
-    expect(pkg.bin).not.toHaveProperty('webui');
+    // The HTTP/WebSocket server (and its `wstackui` executable) was extracted
+    // to @wrongstack/webui-server, so the frontend-only @wrongstack/webui
+    // package no longer ships an executable.
+    expect(webuiPkg.bin).toBeUndefined();
+  });
+
+  it('the standalone executable is published as wstackui by @wrongstack/webui-server, not webui', () => {
+    const serverPkg = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, 'packages/webui-server/package.json'), 'utf8'),
+    ) as { bin?: Record<string, string> };
+
+    expect(serverPkg.bin).toEqual({ wstackui: './dist/server/entry.js' });
+    expect(serverPkg.bin).not.toHaveProperty('webui');
   });
 });

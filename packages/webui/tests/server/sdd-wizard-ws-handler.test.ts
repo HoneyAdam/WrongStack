@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { SddInterviewDriver, SpecStore, TaskGraphStore } from '@wrongstack/core';
-import { SddWizardWebSocketHandler } from '../../src/server/sdd-wizard-ws-handler.js';
+import { SddWizardWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal ws stub capturing sent JSON messages. */
 function fakeWs() {

@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventBus } from '@wrongstack/core';
-import { WorktreeWebSocketHandler } from '../../src/server/worktree-ws-handler.js';
+import { WorktreeWebSocketHandler } from '@wrongstack/webui-server';
 import { deriveWorktreeGraph } from '../../src/components/WorktreeGraph.js';
 import type { WorktreeHandleView } from '../../src/types.js';
 

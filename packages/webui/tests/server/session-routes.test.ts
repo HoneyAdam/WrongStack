@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import { handleSessionRoute, type SessionRouteHandlers } from '../../src/server/session-routes.js';
+import { handleSessionRoute, type SessionRouteHandlers } from '@wrongstack/webui-server';
 
 function mockWs() {
   return {

@@ -1,12 +1,12 @@
 import type { ProviderConfig, SecretVault } from '@wrongstack/core';
 import type { WebSocket } from 'ws';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createProviderHandlers } from '../../src/server/provider-handlers.js';
+import { createProviderHandlers } from '@wrongstack/webui-server/server/provider-handlers.js';
 
 const mockLoadSavedProviders = vi.hoisted(() => vi.fn());
 const mockSaveProviders = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/server/provider-config-io.js', () => ({
+vi.mock('@wrongstack/webui-server/server/provider-config-io.js', () => ({
   loadSavedProviders: mockLoadSavedProviders,
   saveProviders: mockSaveProviders,
 }));

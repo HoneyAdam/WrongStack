@@ -276,17 +276,19 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       }
       const payload = parsed.value;
       const result = ctx.customModeStore.update(payload.id, {
-        name: payload.name,
-        description: payload.description,
-        thresholds: payload.thresholds
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.description !== undefined ? { description: payload.description } : {}),
+        ...(payload.thresholds
           ? {
-              warn: payload.thresholds.warn ?? 0.6,
-              soft: payload.thresholds.soft ?? 0.75,
-              hard: payload.thresholds.hard ?? 0.9,
+              thresholds: {
+                warn: payload.thresholds.warn ?? 0.6,
+                soft: payload.thresholds.soft ?? 0.75,
+                hard: payload.thresholds.hard ?? 0.9,
+              },
             }
-          : undefined,
-        preserveK: payload.preserveK,
-        eliseThreshold: payload.eliseThreshold,
+          : {}),
+        ...(payload.preserveK !== undefined ? { preserveK: payload.preserveK } : {}),
+        ...(payload.eliseThreshold !== undefined ? { eliseThreshold: payload.eliseThreshold } : {}),
       });
       sendResult(ws, result.ok, result.error ?? `Mode "${payload.id}" updated`);
     },

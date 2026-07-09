@@ -27,21 +27,21 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import type { WSClientMessage } from '../../src/server/types.js';
+import type { WSClientMessage } from '@wrongstack/webui-server';
 
-import { handleProviderRoute } from '../../src/server/provider-routes.js';
-import { handleSessionRoute } from '../../src/server/session-routes.js';
-import { handleProjectRoute } from '../../src/server/project-routes.js';
-import { handleModeRoute } from '../../src/server/mode-routes.js';
-import { handlePrefsRoute } from '../../src/server/prefs-routes.js';
-import { handleShellGitRoute } from '../../src/server/shell-git-routes.js';
-import { handleMailboxRoute } from '../../src/server/mailbox-routes.js';
-import { handleMcpRoute } from '../../src/server/mcp-routes.js';
-import { handleBrainRoute } from '../../src/server/brain-routes.js';
-import { handleAutoPhaseRoute } from '../../src/server/autophase-routes.js';
-import { handleSpecsRoute } from '../../src/server/specs-routes.js';
-import { handleSddBoardRoute } from '../../src/server/sdd-board-routes.js';
-import { handleSddWizardRoute } from '../../src/server/sdd-wizard-routes.js';
+import { handleProviderRoute } from '@wrongstack/webui-server';
+import { handleSessionRoute } from '@wrongstack/webui-server';
+import { handleProjectRoute } from '@wrongstack/webui-server';
+import { handleModeRoute } from '@wrongstack/webui-server';
+import { handlePrefsRoute } from '@wrongstack/webui-server';
+import { handleShellGitRoute } from '@wrongstack/webui-server';
+import { handleMailboxRoute } from '@wrongstack/webui-server';
+import { handleMcpRoute } from '@wrongstack/webui-server';
+import { handleBrainRoute } from '@wrongstack/webui-server';
+import { handleAutoPhaseRoute } from '@wrongstack/webui-server';
+import { handleSpecsRoute } from '@wrongstack/webui-server';
+import { handleSddBoardRoute } from '@wrongstack/webui-server';
+import { handleSddWizardRoute } from '@wrongstack/webui-server';
 
 /** ws stub — no real socket needed; we only assert resolved return values. */
 function fakeWs(): WebSocket {

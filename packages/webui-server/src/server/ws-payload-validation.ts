@@ -77,7 +77,15 @@ export function validateMailboxMessagesPayload(
       message: 'mailbox.messages payload.incompleteOnly must be a boolean when provided',
     };
   }
-  return { ok: true, value: { limit, agentId, unreadOnly, incompleteOnly } };
+  return {
+    ok: true,
+    value: {
+      ...(limit !== undefined ? { limit: limit as number } : {}),
+      ...(agentId !== undefined ? { agentId: agentId as string } : {}),
+      ...(unreadOnly !== undefined ? { unreadOnly: unreadOnly as boolean } : {}),
+      ...(incompleteOnly !== undefined ? { incompleteOnly: incompleteOnly as boolean } : {}),
+    },
+  };
 }
 
 export interface MailboxAgentsPayload {
@@ -98,7 +106,10 @@ export function validateMailboxAgentsPayload(
       message: 'mailbox.agents payload.onlineOnly must be a boolean when provided',
     };
   }
-  return { ok: true, value: { onlineOnly } };
+  return {
+    ok: true,
+    value: { ...(onlineOnly !== undefined ? { onlineOnly: onlineOnly as boolean } : {}) },
+  };
 }
 
 export interface MailboxPurgePayload {
@@ -139,7 +150,15 @@ export function validateMailboxPurgePayload(
         'mailbox.purge payload.incompleteMaxAgeMs must be a non-negative number when provided',
     };
   }
-  return { ok: true, value: { completedMaxAgeMs, incompleteMaxAgeMs } };
+  return {
+    ok: true,
+    value: {
+      ...(completedMaxAgeMs !== undefined ? { completedMaxAgeMs: completedMaxAgeMs as number } : {}),
+      ...(incompleteMaxAgeMs !== undefined
+        ? { incompleteMaxAgeMs: incompleteMaxAgeMs as number }
+        : {}),
+    },
+  };
 }
 
 export interface BrainRiskPayload {
@@ -662,9 +681,9 @@ export function validateContextModeUpdatePayload(
       }
     }
     validatedThresholds = {
-      warn: typeof thresholds['warn'] === 'number' ? thresholds['warn'] : undefined,
-      soft: typeof thresholds['soft'] === 'number' ? thresholds['soft'] : undefined,
-      hard: typeof thresholds['hard'] === 'number' ? thresholds['hard'] : undefined,
+      ...(typeof thresholds['warn'] === 'number' ? { warn: thresholds['warn'] } : {}),
+      ...(typeof thresholds['soft'] === 'number' ? { soft: thresholds['soft'] } : {}),
+      ...(typeof thresholds['hard'] === 'number' ? { hard: thresholds['hard'] } : {}),
     };
   }
 
@@ -688,11 +707,11 @@ export function validateContextModeUpdatePayload(
     ok: true,
     value: {
       id,
-      name: typeof name === 'string' ? name : undefined,
-      description: typeof description === 'string' ? description : undefined,
-      thresholds: validatedThresholds,
-      preserveK: typeof preserveK === 'number' ? preserveK : undefined,
-      eliseThreshold: typeof eliseThreshold === 'number' ? eliseThreshold : undefined,
+      ...(typeof name === 'string' ? { name } : {}),
+      ...(typeof description === 'string' ? { description } : {}),
+      ...(validatedThresholds !== undefined ? { thresholds: validatedThresholds } : {}),
+      ...(typeof preserveK === 'number' ? { preserveK } : {}),
+      ...(typeof eliseThreshold === 'number' ? { eliseThreshold } : {}),
     },
   };
 }
@@ -719,7 +738,13 @@ export function validateShellOpenPayload(
       message: 'shell.open payload.target must be "file" or "terminal" when provided',
     };
   }
-  return { ok: true, value: { path, target: target as ShellOpenPayload['target'] } };
+  return {
+    ok: true,
+    value: {
+      path,
+      ...(target !== undefined ? { target: target as 'file' | 'terminal' } : {}),
+    },
+  };
 }
 
 export interface GitDiffPayload {
@@ -759,7 +784,10 @@ export function validateProjectsAddPayload(
   if (name !== undefined && typeof name !== 'string') {
     return { ok: false, message: 'projects.add payload.name must be a string when provided' };
   }
-  return { ok: true, value: { root, name: typeof name === 'string' ? name : undefined } };
+  return {
+    ok: true,
+    value: { root, ...(typeof name === 'string' ? { name } : {}) },
+  };
 }
 
 export interface ProjectsSelectPayload {
@@ -781,5 +809,8 @@ export function validateProjectsSelectPayload(
   if (name !== undefined && typeof name !== 'string') {
     return { ok: false, message: 'projects.select payload.name must be a string when provided' };
   }
-  return { ok: true, value: { root, name: typeof name === 'string' ? name : undefined } };
+  return {
+    ok: true,
+    value: { root, ...(typeof name === 'string' ? { name } : {}) },
+  };
 }

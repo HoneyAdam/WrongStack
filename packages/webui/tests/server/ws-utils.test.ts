@@ -5,7 +5,7 @@ import {
   generateAuthToken,
   hostForBrowserUrl,
   resolveAuthToken,
-} from '../../src/server/ws-utils.js';
+} from '@wrongstack/webui-server';
 
 describe('errMessage', () => {
   it('extracts message from Error', () => {

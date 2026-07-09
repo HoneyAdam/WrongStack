@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createHttpServer } from '../../src/server/http-server.js';
+import { createHttpServer } from '@wrongstack/webui-server';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs/promises';
