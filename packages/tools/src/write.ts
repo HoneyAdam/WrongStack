@@ -47,17 +47,17 @@ export const writeTool: Tool<WriteInput, WriteOutput> = {
     },
     required: ['path', 'content'],
   },
-  async execute(input, ctx) {
-    return writeFile(input, ctx);
+  async execute(input, ctx, opts) {
+    return writeFile(input, ctx, opts?.signal);
   },
-  async *executeStream(input, ctx) {
+  async *executeStream(input, ctx, opts) {
     const prepared = await prepareWrite(input, ctx);
     if (!prepared.existed) {
       for (const line of input.content.split('\n')) {
         yield { type: 'partial_output', text: `${line}\n`, data: { livePreview: true } };
       }
     }
-    yield { type: 'final', output: await finishWrite(input, ctx, prepared) };
+    yield { type: 'final', output: await finishWrite(input, ctx, prepared, opts?.signal) };
   },
 };
 
@@ -67,8 +67,12 @@ type PreparedWrite = {
   prev: string;
 };
 
-async function writeFile(input: WriteInput, ctx: Context): Promise<WriteOutput> {
-  return finishWrite(input, ctx, await prepareWrite(input, ctx));
+async function writeFile(
+  input: WriteInput,
+  ctx: Context,
+  signal?: AbortSignal | undefined,
+): Promise<WriteOutput> {
+  return finishWrite(input, ctx, await prepareWrite(input, ctx), signal);
 }
 
 async function prepareWrite(input: WriteInput, ctx: Context): Promise<PreparedWrite> {
@@ -118,7 +122,13 @@ async function finishWrite(
   input: WriteInput,
   ctx: Context,
   prepared: PreparedWrite,
+  signal?: AbortSignal | undefined,
 ): Promise<WriteOutput> {
+  // Last exit before mutating the filesystem: a run aborted during
+  // prepare/diff must not leave a fresh write behind. (atomicWrite itself
+  // is all-or-nothing, so past this point the file is old or new — never
+  // partial.)
+  signal?.throwIfAborted();
   await atomicWrite(prepared.absPath, input.content);
 
   const diff = prepared.existed

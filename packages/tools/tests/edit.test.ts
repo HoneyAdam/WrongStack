@@ -47,6 +47,18 @@ describe('edit tool', () => {
     ).rejects.toThrow(/not a regular file/);
   });
 
+  it('aborted signal leaves the file untouched', async () => {
+    await fs.writeFile(path.join(sb.dir, 'a.txt'), 'hello world');
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(
+      editTool.execute({ path: 'a.txt', old_string: 'hello', new_string: 'bye' }, sb.ctx, {
+        signal: ctrl.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await fs.readFile(path.join(sb.dir, 'a.txt'), 'utf8')).toBe('hello world');
+  });
+
   it('auto-reads when no prior read is recorded and the edit is unambiguous', async () => {
     await fs.writeFile(path.join(sb.dir, 'a.txt'), 'hello world');
     const out = await editTool.execute(

@@ -54,8 +54,9 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
     },
     required: ['pattern'],
   },
-  async execute(input, ctx) {
+  async execute(input, ctx, opts) {
     if (!input?.pattern) throw new Error('glob: pattern is required');
+    const signal = opts?.signal;
     // `safeResolveReal` validates that the input base — even if symlinked —
     // resolves to a real path inside the project root (or `~/.wrongstack`).
     // Throws on escape, matching how single-file tools (`read`, `edit`,
@@ -90,6 +91,12 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
       }
     };
     const walk = async (dir: string, relPrefix: string): Promise<void> => {
+      // Abort check per directory: a huge tree walk must stop promptly on
+      // Ctrl+C instead of running to completion with a discarded result.
+      if (signal?.aborted) {
+        truncated = true;
+        return;
+      }
       /* v8 ignore start -- the inner limit guards (file push + post-recursion return) always stop first; this re-entry guard is defensive. */
       if (results.length >= limit) {
         truncated = true;

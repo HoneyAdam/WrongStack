@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
@@ -276,6 +277,28 @@ export class FileSessionWriter implements SessionWriter {
       this.flushTimer = null;
     }
     await this.flushBuffer();
+  }
+
+  /**
+   * Last-gasp synchronous drain for hard-exit paths (process.exit after
+   * rapid Ctrl+C). The async write chain cannot be awaited when the process
+   * is about to die, but whatever still sits in the in-memory buffer CAN be
+   * saved with a blocking append. Best-effort: an in-flight async write may
+   * be cut off by the exit regardless; errors here are swallowed.
+   */
+  flushSync(): void {
+    if (this.writeBuffer.length === 0 || !this.filePath) return;
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    const batch = this.writeBuffer.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    this.writeBuffer = [];
+    try {
+      appendFileSync(this.filePath, batch, 'utf8');
+    } catch {
+      // best-effort — the process is exiting either way
+    }
   }
 
   /** Schedule a deferred flush. No-op if a timer is already pending. */

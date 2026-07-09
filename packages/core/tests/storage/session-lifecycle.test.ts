@@ -28,6 +28,26 @@ describe('session lifecycle end-to-end (JSONL chain)', () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
+  it('flushSync drains the buffered events for hard-exit paths', async () => {
+    const writer = await store.create({ id: '', model: 'm', provider: 'p' });
+    // A non-critical event stays in the in-memory buffer (only user_input /
+    // llm_response force an immediate flush). Simulate a process.exit right
+    // after an abort: no async flush can complete, only flushSync runs.
+    await writer.append({
+      type: 'tool_result',
+      ts: ts(1),
+      id: 'tu-1',
+      content: 'about to die',
+      isError: false,
+    });
+    writer.flushSync?.();
+
+    const [shard, base] = writer.id.split('/') as [string, string];
+    const lines = await readJsonl(path.join(tmp, shard, `${base}.jsonl`));
+    expect(lines.some((l) => l['type'] === 'tool_result')).toBe(true);
+    await writer.close();
+  });
+
   it('create → events → end → close → resume → events → end → close', async () => {
     // ── Run 1: create with a date-sharded id (the production default) ──
     const writer1 = await store.create({ id: '', model: 'model-x', provider: 'prov-y' });

@@ -362,6 +362,14 @@ export interface SessionWriter {
    * Idempotent — safe to call even when the buffer is empty.
    */
   flush(): Promise<void>;
+  /**
+   * Last-gasp synchronous drain for hard-exit paths (e.g. `process.exit`
+   * after rapid Ctrl+C) where the async `flush()` cannot be awaited.
+   * Writes whatever is still in the in-memory buffer with a blocking
+   * append. Best-effort — errors are swallowed. Optional: in-memory
+   * writers have nothing durable to drain.
+   */
+  flushSync?(): void;
   close(): Promise<void>;
   /**
    * Register a file change for later snapshotting.
