@@ -1,12 +1,23 @@
 import { defineConfig } from 'tsup';
 
+// PR #018b extracted @wrongstack/webui/server into @wrongstack/webui-server.
+// The webui package now ships only the React + Vite frontend. The `./server`
+// export below is a 1-line back-compat shim re-exporting from
+// @wrongstack/webui-server; will be removed in a follow-up.
+//
+// Build-order note: the DTS step tries to resolve @wrongstack/webui-server
+// imports, which fails when the new package hasn't been built yet. We keep
+// the shim out of the DTS graph by emitting it as a JS-only entry (`dts: false`
+// for that entry, achieved by listing it in `noExternal`-style exclusion).
+// tsup doesn't support per-entry dts: false directly, so we drop the shim
+// entry from the tsup config and let the runtime fallback (the shim file is
+// still shipped — it just isn't pre-built by tsup; consumers that import
+// @wrongstack/webui/server hit Node's resolver which finds the
+// @wrongstack/webui-server dist at runtime).
 export default defineConfig({
   entry: {
     index: 'src/main.tsx',
     types: 'src/types.ts',
-    'server/entry': 'src/server/entry.ts',
-    'server/index': 'src/server/index.ts',
-    'server/handlers': 'src/server/handlers/index.ts',
   },
   format: ['esm'],
   target: 'es2022',
@@ -18,9 +29,8 @@ export default defineConfig({
     'react',
     'react-dom',
     '@wrongstack/core',
-    '@wrongstack/providers',
-    '@wrongstack/runtime',
     '@wrongstack/tools',
+    '@wrongstack/webui-server',
     'tailwindcss',
     './index.css',
     '@fontsource-variable/ibm-plex-sans',
@@ -30,20 +40,21 @@ export default defineConfig({
     options.conditions = ['module', 'jsnext:main', 'jsnext'];
     options.mainFields = ['module', 'jsnext:main', 'main'];
   },
-  // The `webui` bin maps to dist/server/entry.js. Without a shebang line
-  // the OS doesn't know to launch it with Node, so the bin is unusable
-  // after `npm i -g @wrongstack/webui`. tsup doesn't have a per-entry
-  // banner option for ESM, so we patch it in post-build.
+  // Build the back-compat shim to dist/server/index.js as a one-line re-export.
+  // We do this with a shell command in onSuccess so tsup's DTS step doesn't
+  // try to resolve @wrongstack/webui-server (which isn't built at this point).
   onSuccess: async () => {
     const fs = await import('node:fs/promises');
-    const path = 'dist/server/entry.js';
-    try {
-      const src = await fs.readFile(path, 'utf8');
-      if (!src.startsWith('#!')) {
-        await fs.writeFile(path, `#!/usr/bin/env node\n${src}`);
-      }
-    } catch {
-      /* dist not produced yet on a partial build — skip silently. */
-    }
+    const path = await import('node:path');
+    const outDir = 'dist/server';
+    await fs.mkdir(outDir, { recursive: true });
+    // Single-line re-export. Tree-shaking eliminates the indirection in
+    // bundlers; for unbundled Node ESM, the runtime resolution to
+    // @wrongstack/webui-server's index.js is handled by Node's exports map.
+    const content =
+      "export * from '@wrongstack/webui-server';\n" +
+      "import { startWebUI } from '@wrongstack/webui-server';\n" +
+      "export { startWebUI };\n";
+    await fs.writeFile(path.join(outDir, 'index.js'), content);
   },
 });
