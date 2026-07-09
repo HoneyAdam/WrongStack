@@ -36,6 +36,42 @@ describe('write tool', () => {
     expect(await fs.readFile(path.join(sb.dir, 'new.txt'), 'utf8')).toBe('hello');
   });
 
+  it('reports syntax errors in written TS content (file stays on disk)', async () => {
+    const out = await writeTool.execute({ path: 'broken.ts', content: 'const x = ;\n' }, sb.ctx, {
+      signal: newSignal(),
+    });
+    expect(out.syntax_errors).toBeDefined();
+    expect(out.syntax_errors?.length).toBeGreaterThan(0);
+    expect(out.note).toMatch(/parse error/);
+    expect(await fs.readFile(path.join(sb.dir, 'broken.ts'), 'utf8')).toBe('const x = ;\n');
+  });
+
+  it('plain .json is strict but tsconfig-style JSONC accepts comments/trailing commas', async () => {
+    // A trailing comma in plain .json is a real error the model must fix.
+    const bad = await writeTool.execute({ path: 'bad.json', content: '{ "a": 1, }' }, sb.ctx, {
+      signal: newSignal(),
+    });
+    expect(bad.syntax_errors).toBeDefined();
+
+    // The same content in tsconfig.json is valid JSONC — must NOT be flagged.
+    const jsonc = await writeTool.execute(
+      { path: 'tsconfig.json', content: '{\n  // comment\n  "a": 1,\n}' },
+      sb.ctx,
+      { signal: newSignal() },
+    );
+    expect(jsonc.syntax_errors).toBeUndefined();
+  });
+
+  it('clean TS content carries no syntax_errors', async () => {
+    const out = await writeTool.execute(
+      { path: 'ok.ts', content: 'export const x = 1;\n' },
+      sb.ctx,
+      { signal: newSignal() },
+    );
+    expect(out.syntax_errors).toBeUndefined();
+    expect(out.note).toBeUndefined();
+  });
+
   it('aborted signal prevents the write from touching the filesystem', async () => {
     const ctrl = new AbortController();
     ctrl.abort();

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import { type Tool, FsError, toErrorMessage, ToolValidationError } from '@wrongstack/core';
-import { isBinaryBuffer, safeResolveReal } from './_util.js';
+import { isBinaryBuffer, safeResolveReal, sha256hex } from './_util.js';
 
 interface ReadInput {
   path: string;
@@ -141,10 +141,15 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
     }
 
     const text = buf.toString('utf8');
+    // Content hash recorded alongside the mtime: `edit` uses it as the
+    // authoritative staleness check (mtime alone has a 2 s tolerance window
+    // on Windows). The full file is read even for offset/limit slices, so
+    // the hash always covers the whole content.
+    const contentHash = sha256hex(text);
     const allLines = text.split(/\r\n|\r|\n/);
     const total = allLines.length;
     if (input.mode === 'summary') {
-      ctx.recordRead(absPath, stat.mtimeMs);
+      ctx.recordRead(absPath, stat.mtimeMs, 'user', contentHash);
       rememberReadRange(ctx, absPath, stat.mtimeMs, total, 1, Math.min(total, 200));
       return {
         text: summarizeFile(input.path, stat.size, allLines),
@@ -155,7 +160,7 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
       };
     }
     if (limit === 0) {
-      ctx.recordRead(absPath, stat.mtimeMs);
+      ctx.recordRead(absPath, stat.mtimeMs, 'user', contentHash);
       rememberReadRange(ctx, absPath, stat.mtimeMs, total, 1, 0);
       return { text: '', total_lines: total, encoding: 'utf8', truncated: total > 0 };
     }
@@ -165,7 +170,7 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
     // same offset indefinitely — a tight tool-use loop that burns iterations
     // and context without making progress.
     if (offset > total) {
-      ctx.recordRead(absPath, stat.mtimeMs);
+      ctx.recordRead(absPath, stat.mtimeMs, 'user', contentHash);
       rememberReadRange(ctx, absPath, stat.mtimeMs, total, total + 1, total + 1);
       return {
         text: `[offset ${offset} is past end of file "${input.path}" — file has ${total} line(s). Do not retry this offset.]`,
@@ -183,7 +188,7 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
       .map((line, i) => `${String(offset + i).padStart(width, ' ')}→${line}`)
       .join('\n');
 
-    ctx.recordRead(absPath, stat.mtimeMs);
+    ctx.recordRead(absPath, stat.mtimeMs, 'user', contentHash);
     rememberReadRange(ctx, absPath, stat.mtimeMs, total, offset, offset + slice.length - 1);
 
     return {
