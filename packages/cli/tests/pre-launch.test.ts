@@ -207,11 +207,19 @@ describe('runLaunchPrompts', () => {
 
   it("'r' answer picks REPL mode", async () => {
     const renderer = makeRenderer();
-    // 4 prompts: mode, yolo, director, autonomy — all defaults except mode
+    // Force individual-prompt path by passing a CLI flag that diverges from
+    // saved preferences (PR-018b feature change: no lastChoices = silent defaults).
+    // 4 prompts: mode, yolo, director, autonomy — all defaults except mode.
     const reader = makeReader(['r', '', '', '']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      // Trigger the individual-prompts path via a CLI override.
+      yoloPinned: false,
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.mode).toBe('repl');
-    expect(result.yolo).toBe(true);
+    expect(result.yolo).toBe(false);
     expect(result.director).toBe(true);
     expect(result.autonomy).toBe('auto');
   });
@@ -219,14 +227,24 @@ describe('runLaunchPrompts', () => {
   it('empty answer defaults to TUI mode', async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', '', '', '']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: false, // trigger individual prompts
+      lastChoices: { mode: 'repl', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.mode).toBe('tui');
   });
 
   it("'y' on yolo prompt enables YOLO mode", async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', 'y', '', '']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: false, // trigger individual prompts
+      lastChoices: { mode: 'tui', yolo: false, director: true, autonomy: 'auto' },
+    });
     expect(result.yolo).toBe(true);
     const yoloPrompt = stripAnsi(String(vi.mocked(reader.readLine).mock.calls[1]?.[0] ?? ''));
     expect(yoloPrompt).toContain('auto-approve normal project work');
@@ -235,14 +253,24 @@ describe('runLaunchPrompts', () => {
   it("'n' on yolo prompt disables YOLO mode", async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', 'n', '', '']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: false, // trigger individual prompts
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.yolo).toBe(false);
   });
 
   it('empty answer on all prompts defaults to YOLO + Director + Autonomy enabled', async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', '', '', '']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: false, // trigger individual prompts
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.yolo).toBe(true);
     expect(result.director).toBe(true);
     expect(result.autonomy).toBe('auto');
@@ -251,14 +279,24 @@ describe('runLaunchPrompts', () => {
   it("'n' on director prompt disables Director", async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', '', 'n', '']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      directorPinned: false, // trigger individual prompts
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.director).toBe(false);
   });
 
   it("'n' on autonomy prompt sets autonomy off", async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', '', '', 'n']);
-    const result = await runLaunchPrompts({ renderer, reader });
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      autonomyPinned: 'off', // trigger individual prompts
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.autonomy).toBe('off');
   });
 
@@ -281,15 +319,30 @@ describe('runLaunchPrompts', () => {
 
   it("'q' on mode prompt throws LaunchAbortedError", async () => {
     const renderer = makeRenderer();
+    // Force individual prompts by passing a CLI override.
     const reader = makeReader(['q']);
-    await expect(runLaunchPrompts({ renderer, reader })).rejects.toThrow(LaunchAbortedError);
+    await expect(
+      runLaunchPrompts({
+        renderer,
+        reader,
+        yoloPinned: false,
+        lastChoices: { mode: 'repl', yolo: true, director: true, autonomy: 'auto' },
+      }),
+    ).rejects.toThrow(LaunchAbortedError);
     expect(reader.readLine).toHaveBeenCalledTimes(1);
   });
 
   it("'q' on yolo prompt throws LaunchAbortedError", async () => {
     const renderer = makeRenderer();
     const reader = makeReader(['', 'q']);
-    await expect(runLaunchPrompts({ renderer, reader })).rejects.toThrow(LaunchAbortedError);
+    await expect(
+      runLaunchPrompts({
+        renderer,
+        reader,
+        yoloPinned: false,
+        lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+      }),
+    ).rejects.toThrow(LaunchAbortedError);
     expect(reader.readLine).toHaveBeenCalledTimes(2);
   });
 
@@ -368,13 +421,124 @@ describe('runLaunchPrompts', () => {
     expect(reader.readLine).toHaveBeenCalledTimes(1);
   });
 
-  it('without lastChoices, prompts individually as before (backwards compat)', async () => {
+  it('on first run (no lastChoices), uses the new defaults silently with no prompts', async () => {
+    // The user explicitly asked for "director mode on, yolo on, and autonomy auto
+    // by default at first install". On the FIRST run (no saved preferences), the
+    // built-in defaults are applied without asking. No prompts.
     const renderer = makeRenderer();
-    const reader = makeReader(['t', '', '', '']);
+    const reader = makeReader([]); // no answers queued
     const result = await runLaunchPrompts({ renderer, reader });
+    expect(result).toEqual({ mode: 'tui', yolo: true, director: true, autonomy: 'auto' });
+    expect(reader.readLine).not.toHaveBeenCalled();
+  });
+
+  it('on first run with all CLI flags pinned, uses pinned values with no prompts', async () => {
+    // The CLI-pinned path takes priority over both the "no lastChoices" early
+    // return AND the "summary gate" path. Same as before the feature.
+    const renderer = makeRenderer();
+    const reader = makeReader([]);
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      modePinned: 'repl',
+      yoloPinned: false,
+      directorPinned: false,
+      autonomyPinned: 'off',
+    });
+    expect(result).toEqual({ mode: 'repl', yolo: false, director: false, autonomy: 'off' });
+    expect(reader.readLine).not.toHaveBeenCalled();
+  });
+
+  it('on first run with partial CLI flags, uses defaults for unset fields', async () => {
+    // mode is pinned to 'repl'; the rest fall back to the new defaults.
+    const renderer = makeRenderer();
+    const reader = makeReader([]);
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      modePinned: 'repl',
+    });
+    expect(result).toEqual({ mode: 'repl', yolo: true, director: true, autonomy: 'auto' });
+    expect(reader.readLine).not.toHaveBeenCalled();
+  });
+
+  it('with lastChoices AND no CLI flag override, shows summary gate (1 prompt)', async () => {
+    // Subsequent run with saved preferences. User accepts via the summary
+    // gate. No individual prompts.
+    const renderer = makeRenderer();
+    const reader = makeReader(['']); // accept defaults (Y)
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
+    expect(result).toEqual({ mode: 'tui', yolo: true, director: true, autonomy: 'auto' });
+    expect(reader.readLine).toHaveBeenCalledTimes(1);
+  });
+
+  it('with lastChoices AND a CLI flag that diverges, skips summary and prompts individually', async () => {
+    // The user has saved preferences but explicitly passes --no-yolo. The CLI
+    // override is detected; we skip the summary gate and go straight to the
+    // 4 individual prompts so the user can confirm the change.
+    const renderer = makeRenderer();
+    const reader = makeReader(['', 'n', '', '']); // mode=tui, yolo=n, director=y, autonomy=y
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: false, // explicitly disabled (diverges from saved yolo=true)
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
+    expect(result.mode).toBe('tui');
+    expect(result.yolo).toBe(false);
+    expect(result.director).toBe(true);
+    expect(result.autonomy).toBe('auto');
+    expect(reader.readLine).toHaveBeenCalledTimes(4);
+  });
+
+  it('with lastChoices AND multiple CLI flag overrides, prompts individually', async () => {
+    // Both yolo and director pinned; autonomy left to prompt.
+    const renderer = makeRenderer();
+    const reader = makeReader(['', '', '', 'n']); // mode=yolo=director=defaults, autonomy=n
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: false,
+      directorPinned: true,
+      lastChoices: { mode: 'tui', yolo: true, director: false, autonomy: 'auto' },
+    });
+    expect(result.yolo).toBe(false);
+    expect(result.director).toBe(true);
+    expect(result.autonomy).toBe('off');
+    expect(reader.readLine).toHaveBeenCalledTimes(4);
+  });
+
+  it('with lastChoices AND CLI flag matching saved, shows summary (no override)', async () => {
+    // The CLI flag matches the saved value exactly. No override. Summary gate.
+    const renderer = makeRenderer();
+    const reader = makeReader(['']); // accept
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      yoloPinned: true, // matches saved yolo=true
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
+    expect(result.yolo).toBe(true);
+    expect(reader.readLine).toHaveBeenCalledTimes(1);
+  });
+
+  it('individual prompts (with lastChoices + CLI override): each prompt uses defaults', async () => {
+    // Force the individual-prompt path by passing a CLI flag that diverges.
+    const renderer = makeRenderer();
+    const reader = makeReader(['', '', '', '']); // all defaults
+    const result = await runLaunchPrompts({
+      renderer,
+      reader,
+      directorPinned: false, // diverges from saved director=true
+      lastChoices: { mode: 'tui', yolo: true, director: true, autonomy: 'auto' },
+    });
     expect(result.mode).toBe('tui');
     expect(result.yolo).toBe(true);
-    expect(result.director).toBe(true);
+    expect(result.director).toBe(false);
     expect(result.autonomy).toBe('auto');
     expect(reader.readLine).toHaveBeenCalledTimes(4);
   });
