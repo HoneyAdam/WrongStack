@@ -173,7 +173,14 @@ Controls compaction behavior, token thresholds, and context window modes.
     "iterationTimeoutMs": 300000,
     "sessionTimeoutMs": 1800000,
     "perIterationOutputCapBytes": 1048576,
-    "autoExtendLimit": true
+    "autoExtendLimit": true,
+    "loopDetection": {
+      "mode": "steer-then-cut",
+      "steerThreshold": 3,
+      "cutThreshold": 5,
+      "windowSize": 12,
+      "callRepeatThreshold": 4
+    }
   }
 }
 ```
@@ -186,6 +193,21 @@ Controls compaction behavior, token thresholds, and context window modes.
 | `sessionTimeoutMs` | `number` | `1800000` | Total session timeout (30 minutes). |
 | `perIterationOutputCapBytes` | `number` | `1048576` | Max output bytes per iteration (1 MB). Excess is truncated. |
 | `autoExtendLimit` | `boolean` | `true` | Automatically extend iteration limit by 100 when hit. |
+| `loopDetection` | `object` | see below | Agent-loop repetition detector. All fields optional. |
+
+### `tools.loopDetection`
+
+The detector watches two signals: consecutive effectively-identical iterations (same tool-name set + inputs + text) and per-call repeats — the same tool invoked with identical arguments N times within a sliding window, even when interleaved with other calls (e.g. re-reading the same file for the 4th time).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | `string` | `"steer-then-cut"` | `steer-then-cut`: inject a corrective `[loop-detector]` note at the steer threshold, end the turn only if repetition persists to the cut threshold. `cut`: legacy hard-stop at the steer threshold (per-call detector off). `off`: disable detection. |
+| `steerThreshold` | `number` | `3` | Consecutive identical iterations before the detector acts (min 2). |
+| `cutThreshold` | `number` | `5` | Consecutive identical iterations at which the turn is cut in `steer-then-cut` mode (min `steerThreshold + 1`). |
+| `windowSize` | `number` | `12` | Sliding window of recent tool calls for per-call repeat detection (min 4). |
+| `callRepeatThreshold` | `number` | `4` | Identical (name + canonicalized args) calls within the window that trigger a steer note (min 2). |
+
+Every detection emits a `tool.loop_detected` event with `action` (`steer`/`cut`) and `scope` (`iteration`/`call`) so UIs can render a warning chip.
 
 ---
 
