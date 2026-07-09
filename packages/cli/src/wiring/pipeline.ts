@@ -224,6 +224,7 @@ export function createAgent(params: {
       maxToolTimeoutMs?: number | undefined;
       defaultExecutionStrategy: 'parallel' | 'sequential' | 'smart';
       perIterationOutputCapBytes: number;
+      loopDetection?: import('@wrongstack/core').LoopDetectionConfig | undefined;
     };
   };
   confirmAwaiter: import('@wrongstack/core').AgentInit['confirmAwaiter'];
@@ -296,6 +297,7 @@ export function createAgent(params: {
     iterationTimeoutMs: params.config.tools.iterationTimeoutMs,
     executionStrategy: params.config.tools.defaultExecutionStrategy,
     perIterationOutputCapBytes: params.config.tools.perIterationOutputCapBytes,
+    loopDetection: params.config.tools.loopDetection,
     confirmAwaiter: params.confirmAwaiter,
     toolExecutor,
     tracer: params.tracer,

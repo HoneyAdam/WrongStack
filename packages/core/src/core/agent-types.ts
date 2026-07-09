@@ -13,6 +13,7 @@ import { isTextBlock } from '../types/blocks.js';
 import type { WrongStackError } from '../types/errors.js';
 import type { Tracer } from '../types/observability.js';
 import type { PermissionPolicy } from '../types/permission.js';
+import type { LoopDetectionConfig } from '../types/config.js';
 import type { Request, Response } from '../types/provider.js';
 import type { Tool } from '../types/tool.js';
 import type { ToolExecutorLike } from '../types/tool-executor.js';
@@ -49,6 +50,34 @@ export interface AgentInit {
   tracer?: Tracer | undefined;
   extensions?: ExtensionRegistry | undefined;
   toolExecutor: ToolExecutorLike;
+  /** Loop-detector tuning (`tools.loopDetection`). Omitted fields use defaults. */
+  loopDetection?: LoopDetectionConfig | undefined;
+}
+
+/** Fully-resolved loop-detector settings (defaults applied, bounds clamped). */
+export interface ResolvedLoopDetectionConfig {
+  mode: 'steer-then-cut' | 'cut' | 'off';
+  steerThreshold: number;
+  cutThreshold: number;
+  windowSize: number;
+  callRepeatThreshold: number;
+}
+
+/**
+ * Apply defaults and sanity bounds to a (possibly partial) loop-detection
+ * config. Clamping keeps a bad config from disabling the safety valve by
+ * accident: the cut threshold always sits strictly above the steer
+ * threshold so 'steer-then-cut' can never cut before it has steered.
+ */
+export function resolveLoopDetection(cfg?: LoopDetectionConfig): ResolvedLoopDetectionConfig {
+  const steerThreshold = Math.max(2, cfg?.steerThreshold ?? 3);
+  return {
+    mode: cfg?.mode ?? 'steer-then-cut',
+    steerThreshold,
+    cutThreshold: Math.max(steerThreshold + 1, cfg?.cutThreshold ?? steerThreshold + 2),
+    windowSize: Math.max(4, cfg?.windowSize ?? 12),
+    callRepeatThreshold: Math.max(2, cfg?.callRepeatThreshold ?? 4),
+  };
 }
 
 export interface AgentPipelines {

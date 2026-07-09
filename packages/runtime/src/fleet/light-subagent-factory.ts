@@ -188,6 +188,7 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
       context: ctx,
       permissionPolicy,
       toolExecutor,
+      loopDetection: config.tools?.loopDetection,
     });
 
     // Fallback chain for THIS worker: a per-task `fallbackModels` (set in the

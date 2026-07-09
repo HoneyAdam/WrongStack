@@ -391,7 +391,7 @@ export function createAgentLoopHandler(
 
     const toolNameSet = Array.from(new Set(toolUses.map((u) => u.name))).sort();
     const firstInputHash = toolUses[0]
-      ? hashSmall(JSON.stringify(toolUses[0].input ?? {}))
+      ? hashSmall(stableStringify(toolUses[0].input ?? {}))
       : '';
     const textBlob = texts
       .map((t) => t.text)
@@ -409,11 +409,31 @@ export function createAgentLoopHandler(
   }
 
   /**
+   * JSON.stringify with recursively sorted object keys, so two inputs that
+   * differ only in property order produce the same fingerprint. Models
+   * routinely reorder argument keys between otherwise-identical calls.
+   */
+  function stableStringify(value: unknown): string {
+    return JSON.stringify(canonicalize(value));
+  }
+
+  function canonicalize(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object') {
+      const src = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(src).sort()) out[k] = canonicalize(src[k]);
+      return out;
+    }
+    return value;
+  }
+
+  /**
    * Tiny stable hash for short strings (the representative input + the
    * already-truncated text). 32-bit FNV-1a — collision rate is irrelevant
-   * here because we only ever compare against the immediately previous
-   * iteration's fingerprint, not a global set. Avoids pulling a real
-   * hash function for what is effectively an equality check.
+   * here because keys are only compared for equality within a small window
+   * (previous iteration's fingerprint, recent-call ring buffer). Avoids
+   * pulling a real hash function for what is effectively an equality check.
    */
   function hashSmall(s: string): string {
     let h = 0x811c9dc5;
@@ -510,27 +530,43 @@ export function createAgentLoopHandler(
     let recoveryRetries = 0;
 
     // ── Loop detection state ──────────────────────────────────────
-    // One counter, one fingerprint. Tracks the previous iteration's
-    // fingerprint (tool-name set + first tool input + text blob) and how
-    // many times in a row it has matched. When the same fingerprint
-    // repeats LOOP_THRESHOLD times consecutively the loop is broken with
-    // a `tool.loop_detected` event and a clear finalText.
+    // Two complementary detectors, tuned via `tools.loopDetection`:
     //
-    // The fingerprint covers THREE signals so the same safety valve catches
-    // both k2p7 failure modes:
-    //   (a) identical tool calls with identical inputs (the original
-    //       tool-loop case),
-    //   (b) text-only assistant-message repeats (the "echoing the same
-    //       prose" case in autonomous-continue mode).
+    //   1. ITERATION detector (the original): tracks the previous
+    //      iteration's fingerprint (tool-name set + first tool input +
+    //      text blob) and how many times in a row it has matched. Catches
+    //      whole-response repeats — identical tool calls AND the text-only
+    //      assistant-message echoes seen in autonomous-continue mode.
+    //   2. PER-CALL detector: a sliding window of (tool name +
+    //      canonicalized full args) hashes across recent tool calls.
+    //      Catches "reading the same file for the 4th time" even when the
+    //      repeats are interleaved with other calls — a pattern the
+    //      consecutive iteration detector cannot see.
+    //
+    // Escalation ladder in 'steer-then-cut' mode (the default): the first
+    // detection queues a corrective note that is folded into the
+    // conversation at the top of the next iteration (never mid-batch, so
+    // tool_use/tool_result adjacency is preserved) and the run continues.
+    // If the iteration streak persists to cutThreshold the turn is cut
+    // with `status: 'max_iterations'` exactly like the legacy hard-stop.
+    // mode 'cut' preserves the legacy behavior (hard-stop at
+    // steerThreshold, per-call detector off); 'off' disables both.
     //
     // Empty responses (pure thinking blocks, end-of-turn silence) reset
-    // the streak so a real loop after a silence is still caught from
-    // iteration 1. Threshold of 3 keeps the safety net tight: legitimate
-    // "I'm reasoning about the same file twice" runs hit 2 at most, but
-    // a stuck k2p7 hits 3 within a few seconds.
-    const LOOP_THRESHOLD = 3;
+    // the iteration streak so a real loop after a silence is still caught
+    // from iteration 1.
+    const loopCfg = a.loopDetection;
     let lastToolSignature = '';
     let toolLoopCount = 0;
+    let iterationSteerDone = false;
+    const recentCallKeys: string[] = [];
+    const steeredCallKeys = new Set<string>();
+    let pendingLoopSteer: string | null = null;
+
+    /** Accumulate a steer note; delivered at the top of the next iteration. */
+    function queueLoopSteer(text: string): void {
+      pendingLoopSteer = pendingLoopSteer ? `${pendingLoopSteer}\n${text}` : text;
+    }
 
     const onSubagentDone = ({ summary, ok }: { summary: string; ok: boolean }) => {
       delegateSummaries.push({ summary, ok });
@@ -593,6 +629,15 @@ export function createAgentLoopHandler(
 
         injectPendingBtwNotes();
         injectQueueAwareness();
+
+        // Deliver the loop-detector steer queued by the previous iteration.
+        // Folded here — after the previous tool batch's results have landed —
+        // so the note merges into the trailing user message and never splits
+        // a tool_use/tool_result pair.
+        if (pendingLoopSteer) {
+          foldBlockIntoConversation({ type: 'text', text: pendingLoopSteer });
+          pendingLoopSteer = null;
+        }
 
         // Fold the fleet-pulse peer digest in on its cadence (i=1, then
         // every N). Best-effort: the provider returns null on throttle,
@@ -734,18 +779,19 @@ export function createAgentLoopHandler(
         //       stuck directive.
         // The fingerprint also catches mixed-shape repeats (same tool + same
         // text). The check is *above* the no-tool-uses early-return so
-        // message loops get caught too. Empty responses (pure thinking
-        // blocks, end-of-turn silence) reset the streak so a real loop
-        // after a silence is still caught from iteration 1.
-        const sig = iterationFingerprint(res.content);
-        if (sig !== '__empty__') {
-          if (sig === lastToolSignature) {
-            toolLoopCount++;
-          } else {
-            lastToolSignature = sig;
-            toolLoopCount = 1;
-          }
-          if (toolLoopCount >= LOOP_THRESHOLD) {
+        // message loops get caught too. See the state block above for the
+        // steer-then-cut escalation ladder and the per-call window detector.
+        if (loopCfg.mode !== 'off') {
+          const sig = iterationFingerprint(res.content);
+          if (sig !== '__empty__') {
+            if (sig === lastToolSignature) {
+              toolLoopCount++;
+            } else {
+              lastToolSignature = sig;
+              toolLoopCount = 1;
+              iterationSteerDone = false;
+            }
+
             const names = toolUses.map((t) => t.name).join(', ');
             const hasText = res.content.some(isTextBlock);
             const kind: 'tool' | 'message' | 'mixed' =
@@ -760,33 +806,102 @@ export function createAgentLoopHandler(
                 : kind === 'mixed'
                   ? `"${names}" + same text repeated ${toolLoopCount} times in a row`
                   : `same assistant text repeated ${toolLoopCount} times in a row`;
-            a.logger.warn(
-              `Loop detected: ${detail} — stopping to prevent infinite loop.`,
-            );
-            a.events.emit('tool.loop_detected', {
-              sessionId: a.ctx.session.id,
-              ctx: a.ctx,
-              tools: names,
-              repeatCount: toolLoopCount,
-              iteration: i,
-              kind,
-            });
-            const summary =
-              kind === 'message'
-                ? `[Loop detected: same assistant message repeated ${toolLoopCount}× — stopping to prevent infinite repetition.]`
-                : `[Loop detected: ${detail} — stopping to prevent infinite repetition.]`;
-            return {
-              status: 'max_iterations',
-              iterations,
-              finalText: finalText || summary,
-              delegateSummaries,
-            };
+
+            const cutAt =
+              loopCfg.mode === 'cut' ? loopCfg.steerThreshold : loopCfg.cutThreshold;
+            if (toolLoopCount >= cutAt) {
+              a.logger.warn(
+                `Loop detected: ${detail} — stopping to prevent infinite loop.`,
+              );
+              a.events.emit('tool.loop_detected', {
+                sessionId: a.ctx.session.id,
+                ctx: a.ctx,
+                tools: names,
+                repeatCount: toolLoopCount,
+                iteration: i,
+                kind,
+                action: 'cut',
+                scope: 'iteration',
+              });
+              const summary =
+                kind === 'message'
+                  ? `[Loop detected: same assistant message repeated ${toolLoopCount}× — stopping to prevent infinite repetition.]`
+                  : `[Loop detected: ${detail} — stopping to prevent infinite repetition.]`;
+              return {
+                status: 'max_iterations',
+                iterations,
+                finalText: finalText || summary,
+                delegateSummaries,
+              };
+            }
+
+            if (
+              loopCfg.mode === 'steer-then-cut' &&
+              toolLoopCount >= loopCfg.steerThreshold &&
+              !iterationSteerDone
+            ) {
+              iterationSteerDone = true;
+              a.logger.warn(`Loop detected: ${detail} — steering the model to change approach.`);
+              a.events.emit('tool.loop_detected', {
+                sessionId: a.ctx.session.id,
+                ctx: a.ctx,
+                tools: names,
+                repeatCount: toolLoopCount,
+                iteration: i,
+                kind,
+                action: 'steer',
+                scope: 'iteration',
+              });
+              queueLoopSteer(
+                `[loop-detector] Your last ${toolLoopCount} responses were effectively identical (${detail}). ` +
+                  'This approach is not working. Change strategy: use a different tool, different arguments, ' +
+                  'or a different plan — or explain what is blocking you and stop. ' +
+                  `Repeating the same response ${cutAt - toolLoopCount} more time(s) will terminate the turn.`,
+              );
+            }
+          } else {
+            // Empty iteration: reset the streak so a real-loop after a silence
+            // is still caught from iteration 1.
+            lastToolSignature = '';
+            toolLoopCount = 0;
+            iterationSteerDone = false;
           }
-        } else {
-          // Empty iteration: reset the streak so a real-loop after a silence
-          // is still caught from iteration 1.
-          lastToolSignature = '';
-          toolLoopCount = 0;
+
+          // Per-call window detector: same (name + canonicalized args) call
+          // repeated across recent iterations, even when interleaved with
+          // other calls. Steer-only — persistence is caught by the iteration
+          // detector or the iteration budget. Disabled in legacy 'cut' mode.
+          if (loopCfg.mode === 'steer-then-cut') {
+            for (const u of toolUses) {
+              const key = `${u.name}:${hashSmall(stableStringify(u.input ?? {}))}`;
+              recentCallKeys.push(key);
+              if (recentCallKeys.length > loopCfg.windowSize) recentCallKeys.shift();
+              if (steeredCallKeys.has(key)) continue;
+              let count = 0;
+              for (const k of recentCallKeys) if (k === key) count++;
+              if (count < loopCfg.callRepeatThreshold) continue;
+              steeredCallKeys.add(key);
+              const preview = JSON.stringify(u.input ?? {}).slice(0, 160);
+              a.logger.warn(
+                `Loop detected: "${u.name}" called with identical arguments ${count}× within the last ${loopCfg.windowSize} tool calls — steering the model to change approach.`,
+              );
+              a.events.emit('tool.loop_detected', {
+                sessionId: a.ctx.session.id,
+                ctx: a.ctx,
+                tools: u.name,
+                repeatCount: count,
+                iteration: i,
+                kind: 'tool',
+                action: 'steer',
+                scope: 'call',
+              });
+              queueLoopSteer(
+                `[loop-detector] You have called ${u.name}(${preview}) ${count} times with identical arguments ` +
+                  `within the last ${loopCfg.windowSize} tool calls. The result will not change. Do not repeat ` +
+                  'this call — use what you already know, try a different approach, or explain the blocker.',
+              );
+            }
+          }
         }
 
         if (toolUses.length === 0) {

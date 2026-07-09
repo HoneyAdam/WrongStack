@@ -370,6 +370,7 @@ export function buildAcpServerAgentFactory(
       context,
       permissionPolicy,
       toolExecutor,
+      loopDetection: config.tools?.loopDetection,
     });
   };
 }

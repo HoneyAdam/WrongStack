@@ -1081,6 +1081,7 @@ export class MultiAgentHost {
         // user already authorized the work when they invoked the leader.
         permissionPolicy: new AutoApprovePermissionPolicy(subAllowedCaps),
         toolExecutor,
+        loopDetection: config.tools?.loopDetection,
       });
 
       // Subagents inherit the same fallback chain as the leader (explicit
