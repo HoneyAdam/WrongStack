@@ -2,17 +2,15 @@
   "name": "@wrongstack/webui",
   "version": "0.283.1",
   "license": "MIT",
-  "description": "Browser-based WebUI for WrongStack — React + Vite frontend with WebSocket backend that drives the same agent kernel as the CLI/TUI.",
+  "description": "Browser-based WebUI for WrongStack — React + Vite frontend. The WebSocket backend lives in the separate @wrongstack/webui-server package (extracted in PR #018b to remove the CLI -> @wrongstack/webui/server cross-package edge).",
   "keywords": [
     "wrongstack",
     "ai",
     "agent",
     "llm",
-    "claude",
     "openai",
     "webui",
-    "react",
-    "websocket"
+    "react"
   ],
   "homepage": "https://github.com/WrongStack/WrongStack#readme",
   "repository": {
@@ -49,14 +47,10 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "wstackui": "./dist/server/entry.js"
-  },
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsup",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/server/entry.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
@@ -73,10 +67,8 @@
     "@types/qrcode": "^1.5.6",
     "@uiw/react-textarea-code-editor": "^3.1.1",
     "@wrongstack/core": "workspace:*",
-    "@wrongstack/mcp": "workspace:*",
-    "@wrongstack/providers": "workspace:*",
-    "@wrongstack/runtime": "workspace:*",
     "@wrongstack/tools": "workspace:*",
+    "@wrongstack/webui-server": "workspace:*",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.1",
@@ -84,7 +76,6 @@
     "clsx": "^2.1.1",
     "i18next": "^26.3.4",
     "i18next-resources-to-backend": "^1.2.1",
-    "jszip": "^3.10.1",
     "lucide-react": "^1.22.0",
     "monaco-editor": "^0.55.1",
     "qrcode": "^1.5.4",
@@ -96,7 +87,6 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "virtua": "^0.49.1",
-    "ws": "^8.21.0",
     "zustand": "^5.0.14"
   },
   "peerDependencies": {
@@ -108,22 +98,22 @@
     }
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.61.0",
     "@tailwindcss/vite": "^4.3.1",
     "@testing-library/dom": "^10.4.1",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^26.0.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^6.0.3",
-    "@vitest/coverage-v8": "^4.1.9",
-    "jsdom": "^29.1.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "jsdom": "^29.1.0",
     "node-pty": "^1.1.0",
     "tailwindcss": "^4.3.1",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.0",
     "vite": "^8.1.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.0"
   }
 }

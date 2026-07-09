@@ -7,7 +7,7 @@ import type {
   CollabRole,
   WSCollabState,
   WSServerMessage,
-} from '../types.js';
+} from './types.js';
 
 /** How many historical events to replay to a late-joining observer. */
 const REPLAY_LIMIT = 50;

@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import type { WebSocket } from 'ws';
 import type { Logger } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import type { WSServerMessage } from '../types.js';
+import type { WSServerMessage } from './types.js';
 
 /** Loose inbound shape — matches the server's internal WSClientMessage. */
 type IncomingMessage = { type: string; payload?: unknown };
