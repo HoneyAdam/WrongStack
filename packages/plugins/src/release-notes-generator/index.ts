@@ -20,7 +20,7 @@
  * @public
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import type { Plugin } from '@wrongstack/core';
 
 const API_VERSION = '^0.1.10';
@@ -104,11 +104,17 @@ function formatCommit(c: Commit, includeScope: boolean): string {
   return line;
 }
 
+const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
+  encoding: 'utf-8',
+  stdio: ['pipe', 'pipe', 'ignore'],
+  shell: false,
+};
+
 function resolveFromRef(defaultFrom: string, inputFrom?: string): string {
   if (inputFrom) return inputFrom;
   if (defaultFrom === 'latest-tag') {
     try {
-      return execSync('git describe --tags --abbrev=0', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+      return execFileSync('git', ['describe', '--tags', '--abbrev=0'], GIT_OPTIONS).trim();
     } catch {
       return '';
     }
@@ -116,12 +122,26 @@ function resolveFromRef(defaultFrom: string, inputFrom?: string): string {
   return defaultFrom;
 }
 
+function resolveCommit(ref: string): string {
+  const resolved = execFileSync(
+    'git',
+    ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`],
+    GIT_OPTIONS,
+  ).trim();
+  if (!/^[0-9a-f]{40,64}$/i.test(resolved)) {
+    throw new Error(`git returned an invalid commit id for ref ${JSON.stringify(ref)}`);
+  }
+  return resolved;
+}
+
 function getCommits(from: string, to: string): Commit[] {
-  const range = from ? `${from}..${to}` : to;
-  const output = execSync(`git log --pretty=format:'%H%x09%s' ${range}`, {
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'ignore'],
-  });
+  const toCommit = resolveCommit(to);
+  const range = from ? `${resolveCommit(from)}..${toCommit}` : toCommit;
+  const output = execFileSync(
+    'git',
+    ['log', '--pretty=format:%H%x09%s', '--end-of-options', range],
+    GIT_OPTIONS,
+  );
   if (!output.trim()) return [];
 
   const commits: Commit[] = [];
