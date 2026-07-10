@@ -16,6 +16,7 @@ This is the on-ramp to the WrongStack documentation. If you're new to the projec
 | Read the architectural decision history | [ADRs](#architecture-decision-records-adrs) |
 | Configure runtime behavior | [configuration.md](configuration.md) |
 | Compare all official plugins at a glance | [feature-matrix.md](feature-matrix.md) |
+| Review plugin defaults, risks, findings, and roadmap | [plugin-audit-2026-07-10.md](plugin-audit-2026-07-10.md) |
 | Understand the release gates (`release:check` + `prepublishOnly`) | [release-process.md](release-process.md) |
 | Debug a problem | [troubleshooting.md](troubleshooting.md) |
 | Understand the security posture / report a vulnerability | [SECURITY.md](../SECURITY.md) |
@@ -57,6 +58,7 @@ How to add new things. Each guide is self-contained — read the one for the sur
 | [provider-author-guide.md](provider-author-guide.md) | How to add a new LLM provider: declarative `WireFormatConfig` path (preferred) or imperative `WireAdapter` subclass | Adding a new provider to `packages/providers/src/presets/` |
 | [help-modules.md](help-modules.md) | How to write a dedicated help module for a subcommand: the `customBody` delegation pattern, single-source-of-truth flag list, parser integration, byte-for-byte parity test | Adding help to a deep subcommand (e.g. `wstack <sub> <deep> --help`) |
 | [plugin-management.md](plugin-management.md) | How the plugin management commands work (`wstack plugin list`, `add`, `enable`, etc.) | Working on the plugin-management surface |
+| [plugin-audit-2026-07-10.md](plugin-audit-2026-07-10.md) | Full 73-plugin default-state, risk, security, and improvement audit | Reviewing plugin policy or planning follow-up work |
 
 ### Style guide
 
