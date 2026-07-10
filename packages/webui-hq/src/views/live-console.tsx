@@ -15,12 +15,9 @@ import type React from 'react';
 import { useMemo } from 'react';
 import { VList } from 'virtua';
 import { turnKey, useSessionTranscript } from '../lib/use-session-transcript.js';
-import { selectSession, useHqStore } from '../store.js';
+import { useHqStore } from '../store.js';
+import { FleetNav } from './fleet-nav.js';
 import { TranscriptTurn } from './transcript-turn.js';
-
-function shortSessionId(id: string): string {
-  return id.length > 28 ? `…${id.slice(-24)}` : id;
-}
 
 export function LiveConsoleView(): React.ReactElement {
   const state = useHqStore(['selectedSessionId', 'selectedAgentId', 'snapshot']);
@@ -37,96 +34,88 @@ export function LiveConsoleView(): React.ReactElement {
     [agentId, sessions],
   );
 
-  const picker = (
-    <select
-      className="hq-select hq-chat-picker"
-      value={sessionId ?? ''}
-      onChange={(ev) => selectSession(ev.target.value === '' ? null : ev.target.value)}
-    >
-      <option value="">— select a session —</option>
-      {sessions.map((s) => (
-        <option key={s.sessionId} value={s.sessionId}>
-          {s.projectName} · {s.clientKind} · {s.status} · {shortSessionId(s.sessionId)}
-        </option>
-      ))}
-      {sessionId !== null && !sessions.some((s) => s.sessionId === sessionId) && (
-        <option value={sessionId}>{shortSessionId(sessionId)} (ended)</option>
-      )}
-    </select>
-  );
-
   return (
-    <div className="hq-console">
-      <div className="hq-chat-header">
-        <MessageSquareText size={15} className="hq-chat-header-icon" />
-        <span className="hq-card-title" style={{ margin: 0 }}>
-          Console
-        </span>
-        {picker}
-        {viewingAgent && (
-          <span className="hq-pill active">
-            <Bot size={12} /> {selectedAgent?.name ?? agentId}
+    <div className="hq-console-shell">
+      <FleetNav
+        snapshot={state.snapshot ?? null}
+        selectedSessionId={sessionId}
+        selectedAgentId={agentId}
+      />
+      <div className="hq-console">
+        <div className="hq-chat-header">
+          <MessageSquareText size={15} className="hq-chat-header-icon" />
+          <span className="hq-card-title" style={{ margin: 0 }}>
+            Console
           </span>
-        )}
-        {meta.projectName !== undefined && !viewingAgent && <span className="hq-pill">{meta.projectName}</span>}
-        {meta.source !== undefined && !viewingAgent && (
-          <span className="hq-pill" title="disk = full replay, stream = live ring">
-            {meta.source}
+          {viewingAgent && (
+            <span className="hq-pill active">
+              <Bot size={12} /> {selectedAgent?.name ?? agentId}
+            </span>
+          )}
+          {meta.projectName !== undefined && !viewingAgent && (
+            <span className="hq-pill">{meta.projectName}</span>
+          )}
+          {meta.source !== undefined && !viewingAgent && (
+            <span className="hq-pill" title="disk = full replay, stream = live ring">
+              {meta.source}
+            </span>
+          )}
+          <span className="hq-chat-counts">
+            <span className="hq-pill">{stats.turns} turns</span>
+            <span className="hq-pill">{stats.tools} tools</span>
+            {stats.running > 0 && <span className="hq-pill running">{stats.running} running</span>}
+            {stats.errors > 0 && <span className="hq-pill error">{stats.errors} err</span>}
+            {!viewingAgent && !chat.full && meta.total > entries.length && (
+              <button
+                type="button"
+                className="hq-btn secondary hq-chat-fullbtn"
+                onClick={() => chat.setFull(true)}
+                title={`History is truncated — load all ${meta.total} turns`}
+              >
+                <History size={12} /> load all {meta.total}
+              </button>
+            )}
           </span>
-        )}
-        <span className="hq-chat-counts">
-          <span className="hq-pill">{stats.turns} turns</span>
-          <span className="hq-pill">{stats.tools} tools</span>
-          {stats.running > 0 && <span className="hq-pill running">{stats.running} running</span>}
-          {stats.errors > 0 && <span className="hq-pill error">{stats.errors} err</span>}
-          {!viewingAgent && !chat.full && meta.total > entries.length && (
-            <button
-              type="button"
-              className="hq-btn secondary hq-chat-fullbtn"
-              onClick={() => chat.setFull(true)}
-              title={`History is truncated — load all ${meta.total} turns`}
-            >
-              <History size={12} /> load all {meta.total}
-            </button>
-          )}
-        </span>
-      </div>
-
-      {sessionId === null ? (
-        <div className="hq-empty">Select a session above (or click one in the Fleet view).</div>
-      ) : chat.loading && entries.length === 0 ? (
-        <div className="hq-empty">{viewingAgent ? 'Loading agent history…' : 'Loading transcript…'}</div>
-      ) : chat.error !== null ? (
-        <div className="hq-empty">Error: {chat.error}</div>
-      ) : (
-        <div className="hq-chat-scroll">
-          {entries.length === 0 ? (
-            <div className="hq-empty">
-              {viewingAgent
-                ? `No messages from ${selectedAgent?.name ?? agentId ?? 'this agent'} yet.`
-                : 'No transcript entries yet.'}
-            </div>
-          ) : (
-            <VList ref={chat.listRef} onScroll={chat.onScroll} className="hq-chat-vlist">
-              {entries.map((entry, i) => (
-                <div key={turnKey(entry, i)} className="hq-chat-rowpad">
-                  <TranscriptTurn entry={entry} running={chat.isRunningAt(entry, i)} />
-                </div>
-              ))}
-            </VList>
-          )}
-          {!chat.pinned && entries.length > 0 && (
-            <button
-              type="button"
-              className="hq-chat-jump"
-              onClick={chat.jumpToLatest}
-              title="Jump to latest"
-            >
-              <ArrowDownToLine size={14} />
-            </button>
-          )}
         </div>
-      )}
+
+        {sessionId === null ? (
+          <div className="hq-empty">Pick a client or agent from the tree on the left.</div>
+        ) : chat.loading && entries.length === 0 ? (
+          <div className="hq-empty">
+            {viewingAgent ? 'Loading agent history…' : 'Loading transcript…'}
+          </div>
+        ) : chat.error !== null ? (
+          <div className="hq-empty">Error: {chat.error}</div>
+        ) : (
+          <div className="hq-chat-scroll">
+            {entries.length === 0 ? (
+              <div className="hq-empty">
+                {viewingAgent
+                  ? `No messages from ${selectedAgent?.name ?? agentId ?? 'this agent'} yet.`
+                  : 'No transcript entries yet.'}
+              </div>
+            ) : (
+              <VList ref={chat.listRef} onScroll={chat.onScroll} className="hq-chat-vlist">
+                {entries.map((entry, i) => (
+                  <div key={turnKey(entry, i)} className="hq-chat-rowpad">
+                    <TranscriptTurn entry={entry} running={chat.isRunningAt(entry, i)} />
+                  </div>
+                ))}
+              </VList>
+            )}
+            {!chat.pinned && entries.length > 0 && (
+              <button
+                type="button"
+                className="hq-chat-jump"
+                onClick={chat.jumpToLatest}
+                title="Jump to latest"
+              >
+                <ArrowDownToLine size={14} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
