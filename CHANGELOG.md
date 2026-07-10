@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Changed — docs & website
+- **Workspace package count refreshed** — README and the website now describe the
+  current workspace shape as 18 packages + 2 apps, update the package table with
+  `@wrongstack/kanban`, `@wrongstack/sdd`, `@wrongstack/security-scanner`,
+  `@wrongstack/webui-server`, and the published `wrongstack` app, and remove
+  stale workspace-count wording from release copy.
 
 ## [0.284.0] — 2026-07-10
 
@@ -21,7 +26,7 @@ _No unreleased changes yet._
 > cache prefix stays byte-stable; built-in tools declare structured selection
 > boundaries; ChatGPT/Codex OAuth gains a fallback loopback port and
 > `id_token` account recovery; and boot validates saved provider/model
-> defaults before offering them. All workspace packages and the website are
+> defaults before offering them. All 18 packages, 2 apps, and the website are
 > aligned to `0.284.0`.
 
 ### Added — HQ command center

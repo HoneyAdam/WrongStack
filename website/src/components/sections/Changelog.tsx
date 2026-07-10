@@ -20,7 +20,7 @@ export function Changelog() {
           eyebrow="Release history"
           title="Every version,"
           highlight="one sentence at a time"
-          description="All notable changes tracked in CHANGELOG.md following Keep a Changelog. Lockstep versioning across all 15 workspace packages — plus the marketing site — since 0.24.0."
+          description="All notable changes tracked in CHANGELOG.md following Keep a Changelog. Lockstep versioning across 18 packages, 2 apps, and the marketing site."
         />
 
         <div className="mt-14 space-y-6">

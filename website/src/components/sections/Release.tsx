@@ -15,7 +15,7 @@ export function Release() {
           eyebrow="How we ship"
           title="From a green CI run to"
           highlight="npm in 5 steps"
-          description="Every release is lockstep across all 15 workspace packages. A git tag triggers GitHub Actions, which typechecks, tests, builds, and publishes to npm on 3 platforms."
+          description="Every release is lockstep across 18 packages, 2 apps, and the website. A git tag triggers GitHub Actions, which typechecks, tests, builds, and publishes to npm on 3 platforms."
         />
 
         {/* Workflow banner */}

@@ -218,8 +218,9 @@ export const slashCommands = [
   '/yolo',
 ] as const;
 
-/** Published packages (subpath workspaces). */
+/** Published package/app workspaces. */
 export const packages = [
+  'wrongstack',
   '@wrongstack/core',
   '@wrongstack/cli',
   '@wrongstack/providers',
@@ -227,12 +228,18 @@ export const packages = [
   '@wrongstack/mcp',
   '@wrongstack/plug-lsp',
   '@wrongstack/runtime',
+  '@wrongstack/kanban',
+  '@wrongstack/sdd',
+  '@wrongstack/security-scanner',
   '@wrongstack/tui',
   '@wrongstack/webui',
+  '@wrongstack/webui-server',
+  '@wrongstack/webui-hq',
   '@wrongstack/telegram',
   '@wrongstack/plugins',
   '@wrongstack/bench',
   '@wrongstack/acp',
+  '@wrongstack/desktop',
 ] as const;
 
 /** 36 official plugins — README plugin table. */
@@ -757,7 +764,7 @@ export const releaseProcess: ReleaseStep[] = [
     phase: 'Version bump',
     steps: [
       'node scripts/bump-version.mjs <patch|minor|major>',
-      'Version bumped in all 15 workspace packages + website/',
+      'Version bumped in root + all 20 package/app workspace manifests + website/',
       'CHANGELOG.md updated with release date and highlights',
     ],
   },

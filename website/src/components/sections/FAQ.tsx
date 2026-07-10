@@ -39,7 +39,7 @@ const faqs = [
   },
   {
     q: 'How often is it released?',
-    a: 'WrongStack ships continuously. Push a git tag matching v* and GitHub Actions typechecks, builds, and tests on Ubuntu, macOS, and Windows — then publishes all 15 workspace packages to npm. Every release is lockstep (all packages at the same version) and documented in the changelog.',
+    a: 'WrongStack ships continuously. Push a git tag matching v* and GitHub Actions typechecks, builds, and tests on Ubuntu, macOS, and Windows — then publishes all 20 package/app workspace manifests to npm. Every release is lockstep and documented in the changelog.',
   },
 ];
 

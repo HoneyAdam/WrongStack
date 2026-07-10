@@ -4,28 +4,34 @@
 
 ## Project brief
 
-WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that auto-approves trusted/YOLO-normal project work while gating destructive or project-escaping calls. Monorepo: 14 packages + 2 apps. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron). Entry: `apps/wrongstack/src/main.ts` → `packages/cli/src/index.ts`.
+WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that auto-approves trusted/YOLO-normal project work while gating destructive or project-escaping calls. Monorepo: 18 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron). Entry: `apps/wrongstack/src/main.ts` → `packages/cli/src/index.ts`.
 
 ## Package map
 
 ```
-core/      — Kernel: Container, Pipeline, EventBus, RunController, Context
-providers/ — Anthropic, OpenAI, Google, OpenAI-compatible adapters
-tools/     — Builtin tools: read, write, bash, exec, git, grep, glob, ...
-mcp/       — MCP client + registry + stdio/SSE/streamable-http transports
-plug-lsp/  — LSP bridge (/lsp:start, /lsp:diag, /lsp:goto)
-acp/       — Agent Client Protocol: client + agent (Zed, JetBrains, VSCode)
-cli/       — REPL, subcommands, slash commands, plugin management
-tui/       — React/Ink terminal UI (lazy-loaded behind --tui)
-runtime/   — Default runtime wiring: makeDefaultRuntime()
-telegram/  — Telegram bridge plugin
-webui/     — Vite+React web UI: `webui` binary + CLI --webui (docs/webui.md)
-plugins/   — Built-in plugin host: cron, file-watcher, session-tracker, subagent
-bench/     — Benchmark harness (Aider polyglot + SWE-bench); docs/subcommands/bench.md
-apps/wrongstack/ — bin entry (wrongstack / wstack)
+core/              — Kernel: Container, Pipeline, EventBus, RunController, Context
+providers/         — Anthropic, OpenAI, Google, OpenAI-compatible adapters
+tools/             — Builtin tools: read, write, bash, exec, git, grep, glob, ...
+mcp/               — MCP client + registry + stdio/SSE/streamable-http transports
+plug-lsp/          — LSP bridge (/lsp:start, /lsp:diag, /lsp:goto)
+acp/               — Agent Client Protocol: client + agent (Zed, JetBrains, VSCode)
+cli/               — REPL, subcommands, slash commands, plugin management
+tui/               — React/Ink terminal UI (lazy-loaded behind --tui)
+runtime/           — Default runtime wiring: makeDefaultRuntime()
+kanban/            — Kanban/task-board primitives and queue state helpers
+sdd/               — Spec-Driven Development stores, trackers, and workflow helpers
+security-scanner/  — Security scanning package surface
+telegram/          — Telegram bridge plugin
+webui/             — Vite+React web UI frontend and client state (docs/webui.md)
+webui-server/      — Shared Node WebUI backend used by standalone, CLI, and Desktop
+webui-hq/          — React HQ Command Center dashboard
+plugins/           — Built-in plugin host: cron, file-watcher, session-tracker, subagent
+bench/             — Benchmark harness (Aider polyglot + SWE-bench); docs/subcommands/bench.md
+apps/wrongstack/   — bin entry (wrongstack / wstack)
+apps/desktop/      — Electron desktop shell
 ```
 
-**Dependency direction:** `core` → nothing internal. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/skills/bench` → `core`. `cli/tui` → everything beneath. Never reverse.
+**Dependency direction:** `core` stays at the bottom of the runtime graph and must not depend on `cli`, `tui`, `webui`, `webui-server`, `webui-hq`, or apps. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/bench/kanban/sdd/security-scanner` sit above or beside `core` according to package contracts. `cli/tui/webui-server/webui-hq/apps` compose the lower packages. Never reverse a surface dependency into the kernel.
 
 ## Kernel (~1670 lines, `packages/core/src/kernel/`)
 

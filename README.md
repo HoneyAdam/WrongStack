@@ -758,12 +758,17 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
 | `@wrongstack/acp` | Agent Client Protocol client + agent support |
 | `@wrongstack/bench` | Model-independent benchmark harness (Aider polyglot + SWE-bench Verified) |
+| `@wrongstack/kanban` | Kanban/task-board primitives for queues, recovery, cost guardrails, and lane state |
+| `@wrongstack/sdd` | Spec-Driven Development stores, trackers, and workflow helpers |
+| `@wrongstack/security-scanner` | Security-scanning package surface for WrongStack security checks |
 | `@wrongstack/cli` | REPL, subcommands, slash commands, terminal renderer |
 | `@wrongstack/tui` | Ink-based TUI (lazy-loaded behind `--tui`) |
 | `@wrongstack/plug-lsp` | LSP plugin (`wrongstack-lsp-setup` binary) |
 | `@wrongstack/telegram` | Telegram plugin: send/read/notifications, `/telegram:*` slash commands |
 | `@wrongstack/webui` | Standalone web UI — `wstackui` binary, also via `wrongstack --webui` |
+| `@wrongstack/webui-server` | Shared Node WebUI backend used by standalone, CLI-hosted, and desktop surfaces |
 | `@wrongstack/webui-hq` | React HQ Command Center dashboard for `wrongstack --hq` |
+| `wrongstack` | Published CLI app entry (`wrongstack` / `wstack`) |
 | `@wrongstack/desktop` | Electron desktop shell — `wrongstack --desktop`, `wstack desktop`, `wrongstack-desktop` |
 | `@wrongstack/plugins` | Official plugin collection — 36 plugins via subpath exports |
 
@@ -791,7 +796,7 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 - **9300+ tests passing** across 500+ test files in the release gate
 - Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
-- All workspace packages build clean with TypeScript strict + `noUncheckedIndexedAccess`
+- All 18 packages + 2 apps build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22.19+ only, ESM-only, no CommonJS bundles
 - Release gate verified locally: `pnpm audit --audit-level=moderate` + `pnpm typecheck` + `pnpm test` + `pnpm build`
 - Threat model: [`SECURITY.md`](SECURITY.md)
