@@ -5,222 +5,37 @@
  * (diffs, terminal output, numbered reads, JSON, todos), and subtle
  * system/error lines.
  *
- * Data flow: an initial `/api/sessions/:id/events` fetch (merged history),
- * then live `session.transcript` batches folded in exactly once via
- * `lib/transcript-store` (per-batch keys + toolUseId result merging + content
- * dedup). The list is virtualized with virtua and stays pinned to the newest
- * turn while the user is at the bottom.
+ * The transcript pipeline (seed fetch + live folding + pinning) lives in
+ * `lib/use-session-transcript` and is shared with the Fleet Topology chat
+ * drawer; this view owns only the console chrome (picker, pills, layout).
  */
 
-import type { HqAgentMessagePayload, HqTranscriptAppendPayload, HqTranscriptEntry } from '@wrongstack/core';
 import { ArrowDownToLine, Bot, History, MessageSquareText } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { VList, type VListHandle } from 'virtua';
-import {
-  applyFetch,
-  applyLiveBatch,
-  createTranscriptState,
-  isToolRunning,
-  type TranscriptState,
-} from '../lib/transcript-store.js';
-import { fetchJson, selectSession, useHqStore } from '../store.js';
+import { useMemo } from 'react';
+import { VList } from 'virtua';
+import { turnKey, useSessionTranscript } from '../lib/use-session-transcript.js';
+import { selectSession, useHqStore } from '../store.js';
 import { TranscriptTurn } from './transcript-turn.js';
-
-interface TranscriptResponse {
-  sessionId: string;
-  source?: 'disk' | 'stream';
-  projectName?: string;
-  total: number;
-  entries: HqTranscriptEntry[];
-}
-
-/** Stable key for a turn — index + identity fields keep React from thrashing. */
-function turnKey(entry: HqTranscriptEntry, i: number): string {
-  return `${i}:${entry.ts}:${entry.role}:${entry.toolUseId ?? ''}`;
-}
 
 function shortSessionId(id: string): string {
   return id.length > 28 ? `…${id.slice(-24)}` : id;
 }
 
-function entryFromAgentMessage(payload: HqAgentMessagePayload): HqTranscriptEntry {
-  const role: HqTranscriptEntry['role'] =
-    payload.kind === 'thinking'
-      ? 'thinking'
-      : payload.kind === 'tool_use' || payload.kind === 'tool_result'
-        ? 'tool'
-        : payload.kind === 'error'
-          ? 'error'
-          : payload.kind === 'system' || payload.kind === 'status'
-            ? 'system'
-            : 'assistant';
-  return {
-    ts: payload.ts,
-    role,
-    text: payload.content,
-    ...(payload.toolName !== undefined ? { tool: payload.toolName } : {}),
-    ...(payload.kind === 'error' ? { isError: true } : {}),
-    agentId: payload.subagentId,
-  };
-}
-
 export function LiveConsoleView(): React.ReactElement {
-  const state = useHqStore(['events', 'selectedSessionId', 'selectedAgentId', 'snapshot']);
+  const state = useHqStore(['selectedSessionId', 'selectedAgentId', 'snapshot']);
   const sessionId = state.selectedSessionId;
   const agentId = state.selectedAgentId;
   const viewingAgent = agentId !== null;
-  const [transcript, setTranscript] = useState<TranscriptState>(createTranscriptState);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [full, setFull] = useState(false);
-  const [meta, setMeta] = useState<{ source?: string; projectName?: string; total: number }>({
-    total: 0,
-  });
-  const listRef = useRef<VListHandle | null>(null);
-  const [pinned, setPinned] = useState(true);
-  const pinnedRef = useRef(true);
-  const setPin = (v: boolean) => {
-    pinnedRef.current = v;
-    setPinned(v);
-  };
-  // How many store events we already folded in (the ring is append-only up to
-  // its cap; batch keys inside the store make re-scans harmless anyway).
-  const transcriptRef = useRef(transcript);
-  transcriptRef.current = transcript;
+
+  const chat = useSessionTranscript(sessionId, agentId);
+  const { entries, meta, stats } = chat;
 
   const sessions = state.snapshot?.liveSessions ?? [];
   const selectedAgent = useMemo(
     () => sessions.flatMap((s) => s.agents).find((a) => a.id === agentId) ?? null,
     [agentId, sessions],
   );
-
-  // ── Subagent history ────────────────────────────────────────────────────
-  // Seed from the server's PER-AGENT transcript ring (/api/agents/:id/messages
-  // — 4000 entries per subagent, fed by every agent.message the server ever
-  // saw), then fold in live agent.message envelopes from the in-memory store
-  // ring. The old approach read only the shared /api/events log, where one
-  // busy agent could evict another's history.
-  const [agentSeed, setAgentSeed] = useState<HqTranscriptEntry[]>([]);
-  const [agentLoading, setAgentLoading] = useState(false);
-  useEffect(() => {
-    setAgentSeed([]);
-    if (agentId === null) return;
-    let cancelled = false;
-    setAgentLoading(true);
-    fetchJson<{ subagentId: string; total: number; entries: HqTranscriptEntry[] }>(
-      `/api/agents/${encodeURIComponent(agentId)}/messages?full=1`,
-    )
-      .then((data) => {
-        if (cancelled) return;
-        setAgentSeed((data.entries ?? []).map((e) => ({ ...e, agentId })));
-        setAgentLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setAgentLoading(false); // ring may be empty — live-only
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId]);
-
-  const agentEntries = useMemo(() => {
-    if (agentId === null) return [];
-    const live = state.events
-      .filter((event) => event.type === 'agent.message')
-      .map((event) => event.payload as Partial<HqAgentMessagePayload>)
-      .filter((payload): payload is HqAgentMessagePayload => payload.subagentId === agentId)
-      .map(entryFromAgentMessage);
-    // The seed already contains every message the server saw — including the
-    // ones mirrored in our live ring — so dedupe on (ts, role, text).
-    const seen = new Set<string>();
-    const out: HqTranscriptEntry[] = [];
-    for (const entry of [...agentSeed, ...live]) {
-      const key = `${entry.ts}|${entry.role}|${entry.text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(entry);
-    }
-    return out;
-  }, [agentSeed, state.events, agentId]);
-
-  // ── Initial (re)fetch ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (sessionId === null || viewingAgent) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    pinnedRef.current = true;
-    setPinned(true);
-    const qs = full ? 'full=1' : 'limit=1000';
-    fetchJson<TranscriptResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/events?${qs}`)
-      .then((data) => {
-        if (cancelled) return;
-        setTranscript((prev) => applyFetch(prev, data.entries));
-        setMeta({ source: data.source, projectName: data.projectName, total: data.total });
-        setLoading(false);
-      })
-      .catch((err: Error) => {
-        if (cancelled) return;
-        setError(err.message);
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, full, viewingAgent]);
-
-  // Reset when switching sessions.
-  useEffect(() => {
-    setTranscript(createTranscriptState());
-    setMeta({ total: 0 });
-    setFull(false);
-  }, [sessionId, agentId]);
-
-  // ── Live appends ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (sessionId === null || viewingAgent) return;
-    let next = transcriptRef.current;
-    for (const e of state.events) {
-      if (e.type !== 'session.transcript' || e.sessionId !== sessionId) continue;
-      const payload = e.payload as HqTranscriptAppendPayload;
-      if (!Array.isArray(payload.entries)) continue;
-      next = applyLiveBatch(next, payload.fromSeq, payload.entries);
-    }
-    if (next !== transcriptRef.current) setTranscript(next);
-  }, [state.events, sessionId, viewingAgent]);
-
-  // ── Follow the newest turn while pinned ───────────────────────────────────
-  const entries = viewingAgent ? agentEntries : transcript.entries;
-  useEffect(() => {
-    if (pinnedRef.current && entries.length > 0) {
-      listRef.current?.scrollToIndex(entries.length - 1, { align: 'end' });
-    }
-  }, [entries.length, transcript.rev]);
-
-  const onScroll = () => {
-    const h = listRef.current;
-    if (!h) return;
-    setPin(h.scrollSize - h.scrollOffset - h.viewportSize < 80);
-  };
-
-  // A result-less tool only counts as "running" near the tail — an old call
-  // that never recorded a result is dead, not in flight.
-  const runningFrom = Math.max(0, entries.length - 8);
-  const isRunningAt = (e: HqTranscriptEntry, i: number) => isToolRunning(e) && i >= runningFrom;
-
-  const stats = useMemo(() => {
-    let tools = 0;
-    let errors = 0;
-    let running = 0;
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i]!;
-      if (e.tool !== undefined) tools++;
-      if (e.role === 'error' || e.isError) errors++;
-      if (isToolRunning(e) && i >= runningFrom) running++;
-    }
-    return { turns: entries.length, tools, errors, running };
-  }, [entries, runningFrom]);
 
   const picker = (
     <select
@@ -264,11 +79,11 @@ export function LiveConsoleView(): React.ReactElement {
           <span className="hq-pill">{stats.tools} tools</span>
           {stats.running > 0 && <span className="hq-pill running">{stats.running} running</span>}
           {stats.errors > 0 && <span className="hq-pill error">{stats.errors} err</span>}
-          {!viewingAgent && !full && meta.total > entries.length && (
+          {!viewingAgent && !chat.full && meta.total > entries.length && (
             <button
               type="button"
               className="hq-btn secondary hq-chat-fullbtn"
-              onClick={() => setFull(true)}
+              onClick={() => chat.setFull(true)}
               title={`History is truncated — load all ${meta.total} turns`}
             >
               <History size={12} /> load all {meta.total}
@@ -279,12 +94,10 @@ export function LiveConsoleView(): React.ReactElement {
 
       {sessionId === null ? (
         <div className="hq-empty">Select a session above (or click one in the Fleet view).</div>
-      ) : viewingAgent && agentLoading && entries.length === 0 ? (
-        <div className="hq-empty">Loading agent history…</div>
-      ) : !viewingAgent && loading && entries.length === 0 ? (
-        <div className="hq-empty">Loading transcript…</div>
-      ) : error !== null ? (
-        <div className="hq-empty">Error: {error}</div>
+      ) : chat.loading && entries.length === 0 ? (
+        <div className="hq-empty">{viewingAgent ? 'Loading agent history…' : 'Loading transcript…'}</div>
+      ) : chat.error !== null ? (
+        <div className="hq-empty">Error: {chat.error}</div>
       ) : (
         <div className="hq-chat-scroll">
           {entries.length === 0 ? (
@@ -294,22 +107,19 @@ export function LiveConsoleView(): React.ReactElement {
                 : 'No transcript entries yet.'}
             </div>
           ) : (
-            <VList ref={listRef} onScroll={onScroll} className="hq-chat-vlist">
+            <VList ref={chat.listRef} onScroll={chat.onScroll} className="hq-chat-vlist">
               {entries.map((entry, i) => (
                 <div key={turnKey(entry, i)} className="hq-chat-rowpad">
-                  <TranscriptTurn entry={entry} running={isRunningAt(entry, i)} />
+                  <TranscriptTurn entry={entry} running={chat.isRunningAt(entry, i)} />
                 </div>
               ))}
             </VList>
           )}
-          {!pinned && entries.length > 0 && (
+          {!chat.pinned && entries.length > 0 && (
             <button
               type="button"
               className="hq-chat-jump"
-              onClick={() => {
-                setPin(true);
-                listRef.current?.scrollToIndex(entries.length - 1, { align: 'end' });
-              }}
+              onClick={chat.jumpToLatest}
               title="Jump to latest"
             >
               <ArrowDownToLine size={14} />

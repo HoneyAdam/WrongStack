@@ -571,6 +571,77 @@ a {
   gap: 6px;
   font-size: 12px;
 }
+
+/* ── Fleet chat drawer — instant transcript over the topology canvas ── */
+.hq-fleet-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 88%);
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -18px 0 44px hsl(240 16% 3% / 0.45);
+  animation: hq-drawer-in 160ms ease-out;
+}
+@keyframes hq-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.hq-fleet-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.hq-fleet-drawer-title {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.hq-fleet-drawer-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.hq-fleet-drawer-actions .hq-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+}
+.hq-fleet-drawer-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.hq-fleet-drawer-body {
+  flex: 1;
+  min-height: 0;
+  /* Edge-to-edge inside the drawer — the panel already draws the frame. */
+  border: 0;
+  border-radius: 0;
+}
 .hq-flow-node {
   width: 220px;
   min-height: 104px;

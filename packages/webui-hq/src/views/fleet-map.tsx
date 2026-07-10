@@ -16,8 +16,13 @@ import {
 } from '@xyflow/react';
 import { Bot, FolderGit2, GitBranch, LayoutGrid, MonitorSmartphone, SquareTerminal } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { selectAgent, selectSession, setActiveView, useHqStore } from '../store.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { selectAgent, selectSession, useHqStore } from '../store.js';
+import {
+  chatTargetFromNode,
+  FleetChatDrawer,
+  type FleetChatTarget,
+} from './fleet-chat-drawer.js';
 import {
   buildFleetTopology,
   layoutFleetTopology,
@@ -132,6 +137,12 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
     window.setTimeout(() => void fitView({ padding: 0.18, duration: 400 }), 50);
   }, [topology, setNodes, fitView]);
 
+  // Instant chat: clicking a terminal/agent opens the transcript drawer
+  // right over the map. The global selection is synced too, so the drawer's
+  // "Console" button (and the Console tab itself) land on the same
+  // conversation.
+  const [chatTarget, setChatTarget] = useState<FleetChatTarget | null>(null);
+
   return (
     <div className="hq-flow-canvas" data-testid="hq-react-flow-fleet">
       <button
@@ -159,13 +170,11 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
         nodesConnectable={false}
         elementsSelectable
         onNodeClick={(_, node) => {
-          if (node.data.sessionId !== undefined && node.data.agentId !== undefined) {
-            selectAgent(node.data.sessionId, node.data.agentId);
-            setActiveView('console');
-          } else if (node.data.sessionId !== undefined) {
-            selectSession(node.data.sessionId);
-            setActiveView('console');
-          }
+          const target = chatTargetFromNode(node.data);
+          if (target === null) return;
+          if (target.agentId !== null) selectAgent(target.sessionId, target.agentId);
+          else selectSession(target.sessionId);
+          setChatTarget(target);
         }}
       >
         <Background color="rgba(148, 163, 184, 0.16)" gap={22} />
@@ -183,6 +192,9 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
         />
         <Controls className="hq-flow-controls" />
       </ReactFlow>
+      {chatTarget !== null && (
+        <FleetChatDrawer target={chatTarget} onClose={() => setChatTarget(null)} />
+      )}
     </div>
   );
 }
