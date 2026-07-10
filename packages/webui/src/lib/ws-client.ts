@@ -47,6 +47,12 @@ export class WrongStackWebSocketClient {
   private reconnectDelay = 1000;
   private shouldReconnect = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectPromise: Promise<void> | null = null;
+  /** Monotonic generation counter. Each openSocket() call increments it;
+   *  event handlers capture the generation at creation time and ignore
+   *  events from older sockets (e.g. a timed-out socket that fires onopen
+   *  late). */
+  private socketGeneration = 0;
   private messageQueue: WSClientMessage[] = [];
   // Cap on the offline-queue depth. Past this, send() drops the OLDEST
   // queued message before appending the new one (FIFO drop). Bounds
@@ -153,7 +159,17 @@ export class WrongStackWebSocketClient {
     }
   }
 
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
+    if (this.connectPromise) return this.connectPromise;
+
+    this.connectPromise = this.openSocket().finally(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
+  }
+
+  private async openSocket(): Promise<void> {
     // Bootstrap the HttpOnly auth cookie before the first connect.
     // After this resolves, the browser sends `Cookie: ws_token=…` on
     // the WS upgrade automatically, so we can drop the `?token=` from
@@ -169,15 +185,36 @@ export class WrongStackWebSocketClient {
 
       this.setStatus({ state: 'connecting' });
 
+      // Increment generation so handlers from any previous (timed-out or
+      // orphaned) socket are ignored.
+      const gen = ++this.socketGeneration;
+
       try {
         // Prefer the cookie path (C-2 fix): the browser already sends
         // `Cookie: ws_token=…` on the WS upgrade after `ensureAuthCookie`.
         // If the first-load URL carried `?token=...`, ensureAuthCookie()
         // strips it from this.url after the cookie exchange succeeds.
-        this.ws = new WebSocket(this.url);
-        this.ws.binaryType = 'arraybuffer';
+        const ws = new WebSocket(this.url);
+        this.ws = ws;
+        ws.binaryType = 'arraybuffer';
 
         const connectTimeout = setTimeout(() => {
+          // Timeout: close the orphaned socket so a late onopen doesn't
+          // leave it dangling. Only act if this is still the current
+          // generation — a newer openSocket() may have already replaced
+          // this.ws.
+          if (this.ws === ws) {
+            try {
+              ws.onopen = null;
+              ws.onmessage = null;
+              ws.onerror = null;
+              ws.onclose = null;
+              ws.close();
+            } catch {
+              // close() may throw if already in CLOSING/CLOSED — ignore.
+            }
+            if (this.ws === ws) this.ws = null;
+          }
           reject(new Error('Connection timeout'));
         }, 10000);
 
@@ -187,7 +224,8 @@ export class WrongStackWebSocketClient {
         // awaiting connect() hanging forever.
         let established = false;
 
-        this.ws.onopen = () => {
+        ws.onopen = () => {
+          if (this.socketGeneration !== gen) return; // stale socket
           clearTimeout(connectTimeout);
           established = true;
           this.reconnectAttempts = 0;
@@ -197,7 +235,8 @@ export class WrongStackWebSocketClient {
           resolve();
         };
 
-        this.ws.onmessage = (event) => {
+        ws.onmessage = (event) => {
+          if (this.socketGeneration !== gen) return; // stale socket
           try {
             const msg = JSON.parse(event.data) as WSServerMessage;
             this.handleMessage(msg);
@@ -211,7 +250,8 @@ export class WrongStackWebSocketClient {
           }
         };
 
-        this.ws.onerror = (error) => {
+        ws.onerror = (error) => {
+          if (this.socketGeneration !== gen) return; // stale socket
           console.error(JSON.stringify({
             level: 'error',
             event: 'ws_client.error',
@@ -225,15 +265,22 @@ export class WrongStackWebSocketClient {
           if (!established) {
             clearTimeout(connectTimeout);
             reject(new Error(this.lastErrorText));
+            // Trigger a reconnect so the client doesn't sit idle after
+            // an initial connection failure.
+            this.attemptReconnect();
           }
         };
 
-        this.ws.onclose = (ev) => {
+        ws.onclose = (ev) => {
+          if (this.socketGeneration !== gen) return; // stale socket
           if (!established) {
             clearTimeout(connectTimeout);
             const reason = ev.reason || `Closed with code ${ev.code}`;
             this.lastErrorText = reason;
             reject(new Error(reason));
+            // Trigger a reconnect so the client recovers from a
+            // failed initial handshake (e.g. server still starting).
+            this.attemptReconnect();
             return;
           }
           if (ev.reason && !this.lastErrorText) {
@@ -244,6 +291,7 @@ export class WrongStackWebSocketClient {
           this.attemptReconnect();
         };
       } catch (err) {
+        if (this.socketGeneration !== gen) return; // stale
         this.lastErrorText = err instanceof Error ? err.message : String(err);
         this.setStatus({ state: 'closed', error: this.lastErrorText });
         reject(err);
@@ -269,6 +317,7 @@ export class WrongStackWebSocketClient {
     });
 
     this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
       if (this.shouldReconnect) {
         try {
           await this.connect();
