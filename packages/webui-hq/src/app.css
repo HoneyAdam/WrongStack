@@ -1328,7 +1328,7 @@ a {
   .hq-console-shell {
     grid-template-columns: minmax(0, 1fr);
   }
-  .hq-nav {
+  .hq-fleetnav {
     max-height: 220px;
   }
 }
@@ -1339,8 +1339,9 @@ a {
   min-height: 0;
 }
 
-/* ── Fleet navigator tree ── */
-.hq-nav {
+/* ── Fleet navigator tree (distinct from .hq-nav, the top tab bar) ── */
+.hq-fleetnav {
+  display: block;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);

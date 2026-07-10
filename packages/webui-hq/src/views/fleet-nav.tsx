@@ -122,7 +122,7 @@ export function FleetNav({
 
   if (machines.length === 0) {
     return (
-      <div className="hq-nav">
+      <div className="hq-fleetnav">
         <div className="hq-empty" style={{ padding: 16, fontSize: 12 }}>
           No live sessions. Open a WrongStack CLI/TUI/WebUI connected to HQ.
         </div>
@@ -131,7 +131,7 @@ export function FleetNav({
   }
 
   return (
-    <div className="hq-nav" role="tree" aria-label="Fleet navigator">
+    <div className="hq-fleetnav" role="tree" aria-label="Fleet navigator">
       {machines.map((machine) => {
         const mOpen = !collapsed.has(machine.id);
         return (
