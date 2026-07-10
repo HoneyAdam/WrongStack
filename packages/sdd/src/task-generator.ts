@@ -68,4 +68,8 @@ export class TaskGenerator {
   }
 }
 
+// Re-export the concrete store implementation so sdd's tests can do
+// `import { DefaultTaskStore } from '../src/task-generator.js'`.
+// Lives in core (./tasking/task-store.ts); this is a pass-through.
+export { DefaultTaskStore } from '@wrongstack/core/tasking/task-store.js';
 export { TaskStore };

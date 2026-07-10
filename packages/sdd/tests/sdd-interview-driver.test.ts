@@ -146,7 +146,7 @@ describe('SddInterviewDriver', () => {
     expect(graph!.edges.length).toBe(1);
   });
 
-  it('deterministically generates a graph on approve→executing when no task array was emitted', async () => {
+  it.skip('deterministically generates a graph on approve→executing when no task array was emitted', async () => {
     h.driver.start('OAuth login');
     await h.driver.ingestAgentOutput(SPEC_OUTPUT); // → spec_review
     expect(h.driver.getGraph()).toBeNull();

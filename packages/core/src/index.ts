@@ -598,3 +598,24 @@ export {
   type WorktreeRunResult,
   type WorktreeStatus,
 } from './worktree/index.js';
+// TaskTracker + TaskStore (the public task-graph mutation API). Lives
+// under `tasking/` so it's not bundled with the heavy `types/` chain.
+// Previously re-exported via `packages/sdd/src/task-tracker.js` only;
+// the core re-export was missing, which broke consumers that tried
+// `import { TaskTracker } from '@wrongstack/core/tasking/task-tracker.js'`
+// (Node 16+ refuses the subpath under the new package.json exports
+// contract, and the SDD re-export was never wired up to do it for them).
+export {
+  type TaskStore,
+  type TaskTrackerOptions,
+  type TaskTransition,
+  type TaskTrackerChange,
+  type TaskTrackerListener,
+  TaskTracker,
+} from './tasking/task-tracker.js';
+export {
+  type StoreOptions,
+  type WorktreeManagerOptions,
+  type WorktreeRunResult,
+  type WorktreeStatus,
+} from './worktree/index.js';
