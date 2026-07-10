@@ -55,9 +55,16 @@ export function LiveConsoleView(): React.ReactElement {
           {meta.projectName !== undefined && !viewingAgent && (
             <span className="hq-pill">{meta.projectName}</span>
           )}
-          {meta.source !== undefined && !viewingAgent && (
-            <span className="hq-pill" title="disk = full replay, stream = live ring">
-              {meta.source}
+          {meta.source !== undefined && (
+            <span
+              className="hq-pill"
+              title={
+                meta.source === 'disk'
+                  ? 'disk = full history replayed from this machine'
+                  : 'stream = live ring only (remote or not yet persisted)'
+              }
+            >
+              {meta.source === 'disk' ? 'full history' : 'live ring'}
             </span>
           )}
           <span className="hq-chat-counts">

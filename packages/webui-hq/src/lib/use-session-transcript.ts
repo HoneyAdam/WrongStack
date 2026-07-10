@@ -155,12 +155,14 @@ export function useSessionTranscript(
     if (agentId === null || sessionId === null || !viewingSubagent) return;
     let cancelled = false;
     setAgentLoading(true);
-    fetchJson<{ subagentId: string; total: number; entries: HqTranscriptEntry[] }>(
+    fetchJson<{ subagentId: string; total: number; entries: HqTranscriptEntry[]; source?: string }>(
       `/api/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/messages?full=1`,
     )
       .then((data) => {
         if (cancelled) return;
         setAgentSeed((data.entries ?? []).map((e) => ({ ...e, agentId })));
+        // 'disk' = full history (local session); 'stream' = live ring only.
+        setMeta((m) => ({ ...m, source: data.source }));
         setAgentLoading(false);
       })
       .catch(() => {

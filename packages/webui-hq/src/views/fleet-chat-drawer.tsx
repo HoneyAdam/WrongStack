@@ -89,6 +89,18 @@ export function FleetChatDrawer({
         <span className="hq-pill">{chat.stats.tools} tools</span>
         {chat.stats.running > 0 && <span className="hq-pill running">{chat.stats.running} running</span>}
         {chat.stats.errors > 0 && <span className="hq-pill error">{chat.stats.errors} err</span>}
+        {chat.meta.source !== undefined && (
+          <span
+            className="hq-pill"
+            title={
+              chat.meta.source === 'disk'
+                ? 'full history replayed from this machine'
+                : 'live ring only (remote or not yet persisted)'
+            }
+          >
+            {chat.meta.source === 'disk' ? 'full history' : 'live ring'}
+          </span>
+        )}
       </div>
       <div className="hq-chat-scroll hq-fleet-drawer-body">
         {chat.loading && entries.length === 0 ? (

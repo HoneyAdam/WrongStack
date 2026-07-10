@@ -182,23 +182,69 @@ function agentRingKey(sessionId: string | undefined, subId: string): string {
   return sessionId !== undefined && sessionId.length > 0 ? `${sessionId}::${subId}` : subId;
 }
 
-/** Map a raw `agent.message` payload to a transcript entry for the subagent ring. */
+/** Map a raw `agent.message` payload to a transcript entry for the subagent
+ *  ring. Mirrors the client's entryFromAgentMessage so a disk replay renders
+ *  identically to the live stream (thinking→thinking, system/status→system). */
 function agentMessageToEntry(p: Record<string, unknown>): HqTranscriptEntry {
   const kind = typeof p['kind'] === 'string' ? p['kind'] : 'text';
   const role: HqTranscriptEntry['role'] =
-    kind === 'tool_use' || kind === 'tool_result'
-      ? 'tool'
-      : kind === 'error'
-        ? 'error'
-        : kind === 'status'
-          ? 'system'
-          : 'assistant';
+    kind === 'thinking'
+      ? 'thinking'
+      : kind === 'tool_use' || kind === 'tool_result'
+        ? 'tool'
+        : kind === 'error'
+          ? 'error'
+          : kind === 'status' || kind === 'system'
+            ? 'system'
+            : 'assistant';
   return {
     ts: typeof p['ts'] === 'string' ? p['ts'] : new Date().toISOString(),
     role,
     text: typeof p['content'] === 'string' ? p['content'] : '',
     ...(typeof p['toolName'] === 'string' ? { tool: p['toolName'] } : {}),
+    ...(kind === 'error' ? { isError: true } : {}),
   };
+}
+
+/**
+ * Read one local subagent's FULL conversation from disk. The agent monitor
+ * writes every timeline entry to
+ *   <projectSessions>/<sessionId>/subagents/transcripts/<subId>/transcript.jsonl
+ * so for sessions on THIS machine we can serve the complete history — not
+ * just the ≤4000-entry live ring. Returns null when the session isn't local
+ * or the file is absent (caller falls back to the ring).
+ */
+export async function readLocalSubagentTranscript(
+  sessionId: string,
+  subagentId: string,
+): Promise<HqTranscriptEntry[] | null> {
+  try {
+    const { SessionRegistry, resolveWstackPaths, sessionScopedPath } = await import(
+      '@wrongstack/core'
+    );
+    const globalRoot = path.dirname(resolveHqDataDir());
+    const registry = new SessionRegistry(globalRoot);
+    const entry = await registry.get(sessionId).catch(() => null);
+    if (!entry) return null; // remote session — no local disk to read
+    const paths = resolveWstackPaths({ projectRoot: entry.projectRoot, globalRoot });
+    const sessionDir = sessionScopedPath(paths.projectSessions, sessionId, '');
+    const file = path.join(sessionDir, 'subagents', 'transcripts', subagentId, 'transcript.jsonl');
+    const raw = await fs.readFile(file, 'utf8').catch(() => null);
+    if (raw === null) return null;
+    const out: HqTranscriptEntry[] = [];
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      try {
+        out.push(agentMessageToEntry(JSON.parse(trimmed) as Record<string, unknown>));
+      } catch {
+        // Skip a torn/partial trailing line — best-effort replay.
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -1117,12 +1163,17 @@ function startHqServerWithAuth(
         const sid = decodeURIComponent(sessionAgentMsgMatch[1]!);
         const aid = decodeURIComponent(sessionAgentMsgMatch[2]!);
         const full = url.searchParams.get('full') === '1';
-        // Prefer the session-scoped ring; fall back to a bare-id ring left by
-        // a legacy client that published without a session id.
-        const ring = agentMessages.get(agentRingKey(sid, aid)) ?? agentMessages.get(aid) ?? [];
-        const entries = full ? ring : ring.slice(-200);
+        // Prefer the FULL on-disk transcript for local sessions (complete
+        // history, start to end); fall back to the live ring for remote or
+        // not-yet-persisted sessions. The bare-id ring covers a legacy
+        // client that published without a session id.
+        const disk = await readLocalSubagentTranscript(sid, aid);
+        const source: 'disk' | 'stream' = disk !== null ? 'disk' : 'stream';
+        const all =
+          disk !== null ? disk : agentMessages.get(agentRingKey(sid, aid)) ?? agentMessages.get(aid) ?? [];
+        const entries = full ? all : all.slice(-200);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ subagentId: aid, sessionId: sid, total: ring.length, entries }));
+        res.end(JSON.stringify({ subagentId: aid, sessionId: sid, source, total: all.length, entries }));
         return;
       }
 
