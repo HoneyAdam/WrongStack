@@ -34,6 +34,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
+import {
+  type LanguageRuntime,
+  resolveRunnerCommand,
+  runRunnerCommand,
+  sanitizeRunnerPath,
+} from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -129,106 +135,26 @@ function withinProject(p: string): boolean {
   return true;
 }
 
-const ALLOWED_COMMAND_TOKENS = new Set<string>([
-  'npx',
-  'pnpm',
-  'npm',
-  'yarn',
-  'tsc',
-]);
-const ALLOWED_TSC_FLAGS = new Set<string>([
-  '--noEmit',
-  '--pretty',
-  '--pretty=false',
-  '--incremental',
-  '--watch',
-  '--build',
-]);
-const ALLOWED_PNPM_TSC_FLAGS = new Set<string>([
-  '--noEmit',
-  '--pretty',
-  '--pretty=false',
-  '--incremental',
-  '--filter',
-]);
-
-function hasLeadingDash(arg: string): boolean {
-  return arg.length > 0 && arg.startsWith('-');
-}
-
-function tokenizeCommand(command: string): string[] | null {
-  const trimmed = command.trim();
-  if (!trimmed || /["'`;&|<>\r\n]/.test(trimmed)) return null;
-  return trimmed.split(/\s+/).filter(Boolean);
-}
-
-function resolveAllowedCommand(customCommand: string): { cmd: string; args: string[] } | null {
-  const tokens = tokenizeCommand(customCommand);
-  if (!tokens) return null;
-  const [head, second, ...rest] = tokens;
-  if (!head) return null;
-
-  // The first argv element passed to the launcher must be a recognized
-  // runner argument — never the launcher's own "run" / subcommand. This
-  // kills `npx run`, `pnpm exec`, etc. being used as argv smuggling.
-  // Each supported spelling must spell the runner (tsc) explicitly.
-
-  // npx tsc [--allowed-tsc-flag ...]
-  if (head === 'npx' && second === 'tsc') {
-    if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
-    return { cmd: head, args: [second, ...rest] };
-  }
-  // pnpm exec tsc [--allowed-tsc-flag ...]
-  if (head === 'pnpm' && second === 'exec' && rest[0] === 'tsc') {
-    const tail = rest.slice(1);
-    if (tail.some((arg) => !ALLOWED_PNPM_TSC_FLAGS.has(arg))) return null;
-    return { cmd: head, args: [second, 'tsc', ...tail] };
-  }
-  // pnpm tsc [--allowed-tsc-flag ...]
-  if (head === 'pnpm' && second === 'tsc') {
-    if (rest.some((arg) => !ALLOWED_PNPM_TSC_FLAGS.has(arg))) return null;
-    return { cmd: head, args: [second, ...rest] };
-  }
-  // npm exec tsc [--allowed-tsc-flag ...]
-  if (head === 'npm' && second === 'exec' && rest[0] === 'tsc') {
-    const tail = rest.slice(1);
-    if (tail.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
-    return { cmd: head, args: [second, 'tsc', ...tail] };
-  }
-  // yarn tsc [--allowed-tsc-flag ...]
-  if (head === 'yarn' && second === 'tsc') {
-    if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
-    return { cmd: head, args: [second, ...rest] };
-  }
-
-  // Absolute path under the project, basename matches a known launcher,
-  // and the second token must again spell the runner.
-  if (isAbsolute(head)) {
-    if (!withinProject(head)) return null;
-    const base = head.split(/[/\\]/).pop() ?? '';
-    if (ALLOWED_COMMAND_TOKENS.has(base)) {
-      // The launcher must invoke the runner as its second token.
-      if (second !== 'tsc') return null;
-      if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
-      return { cmd: head, args: [second, ...rest] };
-    }
-  }
-  // Allow the bare `tsc` binary if installed directly on PATH — its flags
-  // are restricted to ALLOWED_TSC_FLAGS, and an attacker-configured `tsc`
-  // alone cannot escape argv form.
-  if (head === 'tsc') {
-    if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
-    return { cmd: head, args: rest };
-  }
-  return null;
-}
+const TSC_RUNTIME: LanguageRuntime = {
+  id: 'typescript',
+  packageManager: 'pnpm',
+  executable: 'tsc',
+  allowedFlags: new Set([
+    '--noEmit',
+    '--pretty',
+    '--pretty=false',
+    '--incremental',
+    '--watch',
+    '--build',
+    '--filter',
+  ]),
+  subcommands: ['exec'],
+  defaultCommand: 'pnpm exec tsc --noEmit',
+};
 
 function validateTsConfigPath(p: string): string | null {
-  if (!withinProject(p)) return null;
-  // hasLeadingDash guard shared with command argv — tsConfigPath is
-  // appended as `-p <value>` and could otherwise smuggle a flag.
-  if (hasLeadingDash(p)) return null;
-  return p;
+  const sanitized = sanitizeRunnerPath(p);
+  return sanitized;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,19 +179,15 @@ function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
   }
   const tsConfig = validTsConfig ?? (rawTsConfig || 'tsconfig.json');
 
-  let cmd: string;
-  let args: string[];
-
+  let argv: readonly string[];
   if (cfg.command) {
-    const resolved = resolveAllowedCommand(cfg.command);
+    const resolved = resolveRunnerCommand(TSC_RUNTIME, cfg.command);
     if (!resolved) return null;
-    cmd = resolved.cmd;
-    args = resolved.args;
+    argv = [resolved.cmd, ...resolved.args];
   } else {
-    cmd = 'npx';
-    args = ['tsc', '--noEmit'];
+    argv = ['npx', 'tsc', '--noEmit'];
     if (tsConfig && tsConfig !== 'tsconfig.json') {
-      args.push('-p', tsConfig);
+      argv = [...argv, '-p', tsConfig];
     }
   }
 
@@ -274,10 +196,12 @@ function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
     return null;
   }
 
+  // Synchronous runner for ts completion — leverage execFileSync through the
+  // helper's argv contract. We only need stdout/stderr/exit code here.
   let stdout = '';
   let stderr = '';
   try {
-    const out = execFileSync(cmd, args, {
+    const out = execFileSync(argv[0]!, argv.slice(1) as string[], {
       encoding: 'utf-8',
       timeout: cfg.timeoutMs,
       cwd: process.cwd(),
@@ -286,11 +210,12 @@ function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
     });
     stdout = out;
   } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; killed?: boolean };
+    const e = err as { stdout?: string; stderr?: string; killed?: boolean; status?: number | null };
     if (e.killed) return null; // timeout
     stdout = e.stdout ?? '';
     stderr = e.stderr ?? '';
   }
+  void runRunnerCommand; // async helper available for future hooks
 
   const combined = `${stdout}\n${stderr}`.trim();
   const durationMs = Date.now() - start;

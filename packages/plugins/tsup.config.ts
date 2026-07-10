@@ -68,6 +68,7 @@ export default defineConfig({
     'release-notes-generator': 'src/release-notes-generator/index.ts',
     'smart-rename': 'src/smart-rename/index.ts',
     'test-generator': 'src/test-generator/index.ts',
+    runtime: 'src/runtime/index.ts',
   },
   format: ['esm'],
   dts: skipDts ? false : true,

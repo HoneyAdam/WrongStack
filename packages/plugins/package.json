@@ -263,6 +263,10 @@
     "./test-generator": {
       "types": "./dist/test-generator.d.ts",
       "import": "./dist/test-generator.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "files": [

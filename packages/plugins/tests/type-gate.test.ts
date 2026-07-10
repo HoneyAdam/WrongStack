@@ -188,10 +188,10 @@ describe('type-gate plugin', () => {
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
-  it('passes argv with shell:false for an allowlisted npx tsc command', async () => {
+  it('passes argv with shell:false for the canonical pnpm exec tsc command', async () => {
     vi.mocked(execFileSync).mockReturnValue('');
     const api = makeApi({
-      extensions: { 'type-gate': { enabled: true, command: 'npx tsc --noEmit --pretty' } },
+      extensions: { 'type-gate': { enabled: true, command: 'pnpm exec tsc --noEmit --pretty' } },
     });
     typeGatePlugin.setup(api as never);
     const hook = getHook(api);
@@ -200,9 +200,11 @@ describe('type-gate plugin', () => {
       toolInput: { path: 'src/foo.ts' },
       toolResult: { content: '', isError: false },
     });
+    // Helper returns the launcher as `cmd` and the runner+flags as `args`
+    // for bare-launcher spellings; the plugin concatenates verbatim.
     expect(execFileSync).toHaveBeenCalledWith(
-      'npx',
-      ['tsc', '--noEmit', '--pretty'],
+      'pnpm',
+      ['exec', 'tsc', '--noEmit', '--pretty'],
       expect.objectContaining({ shell: false }),
     );
   });
