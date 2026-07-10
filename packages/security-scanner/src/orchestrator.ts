@@ -23,6 +23,17 @@ export interface SecurityScannerOptions {
   skipGitignore?: boolean | undefined;
   /** Optional model name to pass to the LLM provider (defaults to the provider's default). */
   model?: string | undefined;
+  /**
+   * Optional external abort signal. When aborted, all in-flight LLM calls
+   * and retry backoff sleeps are cancelled immediately.
+   */
+  signal?: AbortSignal | undefined;
+  /**
+   * Optional deadline in milliseconds for the entire scan. When the deadline
+   * expires, the effective abort signal fires and the scan stops. Defaults
+   * to no timeout (the scan runs until the provider returns or errors).
+   */
+  timeoutMs?: number | undefined;
 }
 
 /** Accepts a full Context or just the provider+model needed for LLM calls. */
@@ -104,7 +115,17 @@ export class SecurityScannerOrchestrator {
         }),
       );
 
-      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, delay);
+        abortController.signal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            reject(new Error('Retry backoff aborted'));
+          },
+          { once: true },
+        );
+      });
       return this.completeWithRetry(provider, request, abortController, attempt + 1);
     }
   }
@@ -114,9 +135,27 @@ export class SecurityScannerOrchestrator {
    * Accepts a full Context (active agent run) or just provider+model (pre-agent session).
    */
   async run(ctx: SecurityScannerContext, options: SecurityScannerOptions): Promise<FullScanResult> {
-    const { projectRoot, reportOptions, skipGitignore, model: explicitModel } = options;
+    const { projectRoot, reportOptions, skipGitignore, model: explicitModel, signal: externalSignal, timeoutMs } = options;
     const provider = 'provider' in ctx && ctx.provider ? ctx.provider : (ctx as never as Provider);
     const model = explicitModel ?? ('model' in ctx ? ctx.model : undefined);
+
+    // Create a shared AbortController that combines the external signal
+    // and the optional timeout deadline. All LLM calls and retry backoff
+    // sleeps honour this controller.
+    const abortController = new AbortController();
+    const timeoutId = timeoutMs
+      ? setTimeout(() => abortController.abort(), timeoutMs)
+      : undefined;
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        abortController.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => abortController.abort(), { once: true });
+      }
+    }
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
 
     // Step 1: Detect tech stack (static, fast)
     const detectionResult = await this.detector.detect(projectRoot);
@@ -131,7 +170,7 @@ export class SecurityScannerOrchestrator {
     const techStack = expectDefined(detectionResult.detectedStacks[0]);
 
     // Step 2: Generate project-specific security skill via LLM
-    const generatedSkill = await this.generateSkillLLM(provider, model, projectRoot, techStack);
+    const generatedSkill = await this.generateSkillLLM(provider, model, projectRoot, techStack, abortController);
 
     // Step 3: Scan code using LLM
     const scanResult = await this.scanWithLLM(
@@ -141,6 +180,7 @@ export class SecurityScannerOrchestrator {
       generatedSkill,
       techStack,
       options,
+      abortController,
     );
 
     // Step 4: Synthesize report via LLM
@@ -150,6 +190,7 @@ export class SecurityScannerOrchestrator {
       projectRoot,
       techStack,
       scanResult,
+      abortController,
     );
 
     // Step 5: Write report to file
@@ -161,14 +202,18 @@ export class SecurityScannerOrchestrator {
       gitignoreResult = await this.gitignoreUpdater.update();
     }
 
-    return {
-      detectionResult,
-      generatedSkill,
-      scanResult,
-      reportPath,
-      synthesizedReport,
-      gitignoreResult,
-    };
+    try {
+      return {
+        detectionResult,
+        generatedSkill,
+        scanResult,
+        reportPath,
+        synthesizedReport,
+        gitignoreResult,
+      };
+    } finally {
+      cleanup();
+    }
   }
 
   /**
@@ -180,6 +225,7 @@ export class SecurityScannerOrchestrator {
     model: string | undefined,
     projectRoot: string,
     techStack: TechStackInfo,
+    abortController: AbortController,
   ): Promise<GeneratedSkill> {
     // Gather project info for LLM context
     const projectInfo = await this.gatherProjectInfo(projectRoot, techStack);
@@ -216,7 +262,6 @@ export class SecurityScannerOrchestrator {
     };
 
     try {
-      const abortController = new AbortController();
       const response = await this.completeWithRetry(provider, request, abortController);
       const text = response.content
         .filter((b) => b.type === 'text')
@@ -270,6 +315,7 @@ export class SecurityScannerOrchestrator {
     skill: GeneratedSkill,
     techStack: TechStackInfo,
     options: SecurityScannerOptions,
+    abortController: AbortController,
   ): Promise<ScanResult> {
     const startTime = Date.now();
     const findings: Finding[] = [];
@@ -287,7 +333,8 @@ export class SecurityScannerOrchestrator {
     const batchSize = 10;
     for (let i = 0; i < files.length; i += batchSize) {
       const batch = files.slice(i, i + batchSize);
-      const batchFindings = await this.scanFileBatchLLM(provider, model, batch, skill, techStack);
+      const batchFindings = await this.scanFileBatchLLM(provider, model, batch, skill, techStack, abortController);
+      if (abortController.signal.aborted) break;
       findings.push(...batchFindings);
       scannedFiles += batch.length;
     }
@@ -325,6 +372,7 @@ export class SecurityScannerOrchestrator {
     files: string[],
     skill: GeneratedSkill,
     _techStack: TechStackInfo,
+    abortController: AbortController,
   ): Promise<Finding[]> {
     const fileContents: string[] = [];
     for (const file of files) {
@@ -359,7 +407,6 @@ export class SecurityScannerOrchestrator {
         maxTokens: 4096,
       };
 
-      const abortController = new AbortController();
       const response = await this.completeWithRetry(provider, request, abortController);
       const text = response.content
         .filter((b) => b.type === 'text')
@@ -419,6 +466,7 @@ export class SecurityScannerOrchestrator {
     projectRoot: string,
     techStack: TechStackInfo,
     scanResult: ScanResult,
+    abortController: AbortController,
   ): Promise<string> {
     const prompt = renderInstructionTemplate(
       readBundledInstructionText('security-scanner/synthesize-report.md'),
@@ -457,7 +505,6 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
         maxTokens: 8192,
       };
 
-      const abortController = new AbortController();
       const response = await this.completeWithRetry(provider, request, abortController);
       return response.content
         .filter((b) => b.type === 'text')
