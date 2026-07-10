@@ -108,7 +108,7 @@ wrongstack-desktop
 **HQ Command Center** (`--hq` / `wstack hq`): a project-independent HTTP+WebSocket dashboard on `127.0.0.1:3499` that aggregates every connected REPL, TUI, CLI-hosted WebUI, and standalone WebUI. It is the one deliberate cross-machine surface in WrongStack; the normal WebUI, mailbox server, and MCP server stay loopback-first.
 
 - Same-machine clients auto-discover `~/.wrongstack/hq/runtime.json` and the first client token from `auth.json`, even if HQ starts after them or restarts on a new port
-- Browser and client tokens are separate, capability-scoped, and stored in `~/.wrongstack/hq/auth.json`
+- Browser and client tokens are separate, capability-scoped, and stored in `~/.wrongstack/hq/auth.json`; in token mode the dashboard shell stays public while every `/api/*` route and WS upgrade is gated, and a token-less browser gets a full-screen token-entry gate instead of a bare 401
 - Live HQ views include sessions, transcripts, agents, fleet snapshots, mailbox rollups, Brain events, worktrees, tool events, cost trends, and active alerts
 - Live Console renders selected sessions as chat turns with user/assistant bubbles, collapsible tool cards, diffs for edits/writes, terminal output, JSON/input views, and todo checklists
 - PromptDock can send `steer`, `btw`, or `queue` prompts. Online clients receive them through `/api/command`; offline projects fall back to direct mailbox delivery via `/api/mailbox-send`
@@ -489,12 +489,14 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current package line: 0.282.1.** Highlights include the 0.282.0 fleet
-awareness, HQ control plane, Desktop, skills, and 36-plugin release, plus patch
-fixes for max tool timeout wiring, MCP preset/env handling, and WebUI polish:
-legacy `<next_steps>` blocks are stripped from persisted subagent output and
-the `Ctrl+M` model switcher now searches model descriptions as well as ids and
-names.
+**Current package line: 0.284.0.** Highlights include the HQ browser token
+gate with a single sessionStorage-backed token source, the rebuilt
+machine→project→terminal→agent fleet topology map, a mailbox composer with
+server-routed message actions, system-prompt core/session/volatile regions
+with frozen prompt epochs for byte-stable provider cache prefixes, structured
+tool selection boundaries on eight built-ins, ChatGPT/Codex OAuth loopback
+fallback + `id_token` account recovery, and saved provider/model validation at
+boot.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 

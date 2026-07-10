@@ -9,6 +9,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes yet._
 
+## [0.284.0] — 2026-07-10
+
+> The **HQ dashboard hardening and prompt-cache stability** release. The HQ
+> browser gets a real token layer — a full-screen token gate, a single
+> sessionStorage-backed token source, and an auth scope that gates exactly the
+> data channels — plus a machine→project→terminal→agent fleet topology map, a
+> mailbox composer with server-routed message actions, and per-agent live
+> transcripts in the Console. The core agent freezes each system-prompt epoch
+> and splits the prompt into core/session/volatile regions so the provider
+> cache prefix stays byte-stable; built-in tools declare structured selection
+> boundaries; ChatGPT/Codex OAuth gains a fallback loopback port and
+> `id_token` account recovery; and boot validates saved provider/model
+> defaults before offering them. All workspace packages and the website are
+> aligned to `0.284.0`.
+
+### Added — HQ command center
+- **Browser token gate** — when HQ runs in browser-token mode, a token-less or
+  stale-token tab now renders a full-screen token-entry gate instead of a bare
+  JSON 401 or an endless "reconnecting…"; submitting stores the token and
+  reloads the dashboard authenticated.
+- **Single browser-token source** — a new `lib/auth.ts` reads the `?token=`
+  startup URL once, persists it to `sessionStorage`, and feeds every consumer:
+  HTTP requests through `authorizedFetch` (`Authorization: Bearer`) and the WS
+  client through `?token=`.
+- **Fleet topology map** — the Fleet Map view is rebuilt on a pure
+  machine → project → terminal → agent topology builder with live agent badges
+  and dedicated regression tests.
+- **Mailbox composer + message actions** — compose mailbox messages from the
+  dashboard and act on existing ones (mark read, acknowledge, reopen, soft
+  delete, restore) through `POST /api/mailbox/messages/:id/action`; the server
+  resolves the target project mailbox from `sessionId`/`projectId` so a
+  browser can never supply a raw filesystem path.
+- **Per-agent Console transcripts** — the Live Console merges subagent
+  `agent.message` payloads into transcript entries, so selected agents render
+  chat-style thinking/tool/error turns the same way sessions do.
+- **Publisher connect diagnostics** — after five consecutive failed HQ
+  connects the publisher emits one structured warning naming both possible
+  causes (unreachable server vs rejected client token) instead of queueing
+  silently forever.
+
+### Added — core agent & tools
+- **System-prompt regions** — `SystemPromptBuilder.buildRegions()` splits the
+  prompt into `core` / `session` / `volatile` regions; core + session form the
+  provider-cache prefix and stay byte-for-byte stable, while volatile blocks
+  (active plan, plugin contributors) are appended at request time.
+- **Frozen prompt epochs** — each system-prompt array is frozen at its first
+  request boundary so turn-time code cannot silently invalidate the provider
+  cache prefix; the completed-work ledger now rides as a volatile request-time
+  block instead of mutating the prompt in place.
+- **Tool selection boundaries** — tools can declare
+  `selection: { doNotUseWhen, useInstead }`; eight built-ins (`read`, `write`,
+  `edit`, `bash`, `exec`, `glob`, `grep`, `patch`) ship boundaries and the
+  system prompt renders them next to each tool listing.
+
+### Changed
+- **HQ auth scope** — the dashboard shell (index.html, `/assets/*`, SPA
+  fallback) is served publicly; browser tokens now gate exactly the data
+  channels — every `/api/*` route and the WS upgrades.
+- **ChatGPT/Codex OAuth hardening** — the loopback server falls back to port
+  `1457` when `1455` is busy, the authorize URL carries the actual bound port,
+  scopes include the connectors API, and the account id is recovered from the
+  `id_token` when the access token lacks it.
+- **Saved-default validation at boot** — before offering "Continue with
+  these?", boot verifies the saved provider still exists, has a usable
+  credential, and that the saved model is still visible; invalid defaults
+  route to the picker with a reason (or exit with guidance in
+  `--no-interactive` runs) instead of crashing later in provider setup.
+- **Catalog-backed model lists** — for ChatGPT/OpenAI/Codex the saved config
+  model list is treated as a cache/visibility hint augmented from the curated
+  catalog, and provider mutations clear stale top-level provider/model
+  defaults (`clearStaleProviderDefaults`).
+- **TUI auth panel URLs** — OAuth flow URLs render fully wrapped in a hint
+  color instead of truncating, so they can be copied or clicked.
+- **Desktop project manifests** — `projects.json` and desktop state entries
+  are normalized and deduped through one shape-tolerant parser (accepts
+  `projects`, `recentProjects`, and `recents` arrays).
+- **Docs** — `AGENTS.md` consolidated as the single agent-facing project
+  reference (`CLAUDE.md` removed); the tool-author guide documents the new
+  `selection` boundary field.
+
+### Fixed
+- **Desktop recents survival** — unregistering a project no longer removes it
+  from the recent-projects list.
+- **HQ mailbox project resolution** — `projectId` now matches both the
+  registry `projectSlug` and the sha-derived id publishers stamp on event
+  envelopes, so mailbox sends and actions reach projects regardless of id
+  scheme.
+
 ## [0.283.1] — 2026-07-08
 
 > The **HQ prompt delivery and picker polish** patch. HQ PromptDock can now
