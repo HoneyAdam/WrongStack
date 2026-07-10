@@ -29,6 +29,10 @@ export interface PendingConfirm {
   resolve: (decision: ConfirmDecision) => void;
   decisionSource?: string | undefined;
   riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
+  /** The exact `tool.confirm_needed` broadcast payload, kept so the prompt
+   *  can be replayed to clients that connect while the confirm is pending
+   *  (e.g. a browser refresh mid-prompt). */
+  payload?: Record<string, unknown> | undefined;
 }
 
 export function isDestructivePendingConfirm(confirm: PendingConfirm): boolean {

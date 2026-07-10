@@ -45,6 +45,7 @@
  * Public surface: `runWebUI` plus the `WSServerMessage` / `WSClientMessage`
  * message shapes. Everything else is internal to the run.
  */
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -89,6 +90,7 @@ import {
   SddWizardWebSocketHandler,
   type SkillsContext,
   SpecsWebSocketHandler,
+  TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
 } from '@wrongstack/webui/server';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -362,6 +364,32 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     opts.projectRoot,
   );
   const worktreeHandler = new WorktreeWebSocketHandler(opts.events, consoleLogger);
+
+  // Integrated terminal — the shared per-client node-pty transport. node-pty
+  // is an optional dependency of @wrongstack/webui (where the prebuilds
+  // live), so under pnpm it is NOT resolvable from the handler's own module
+  // — resolve it through the webui package instead and hand the loader in.
+  const requireFromCli = createRequire(import.meta.url);
+  let cachedNodePty: unknown;
+  const loadNodePtyViaWebui = () => {
+    if (cachedNodePty !== undefined) return cachedNodePty as never;
+    try {
+      const webuiPkg = requireFromCli.resolve('@wrongstack/webui/package.json');
+      cachedNodePty = createRequire(webuiPkg)('node-pty');
+    } catch {
+      try {
+        cachedNodePty = requireFromCli('node-pty');
+      } catch {
+        cachedNodePty = null;
+      }
+    }
+    return cachedNodePty as never;
+  };
+  const terminalHandler = new TerminalWebSocketHandler(
+    () => (opts.agent.ctx as Context).cwd ?? opts.projectRoot ?? process.cwd(),
+    consoleLogger,
+    loadNodePtyViaWebui,
+  );
 
   // Specs handler — FORGE-style dependency board over the shared per-project
   // SDD stores (where /sdd persists specs + task graphs).
@@ -859,6 +887,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     sddBoardHandler,
     sddWizardHandler,
     worktreeHandler,
+    terminalHandler,
   });
 
   const stopped = new Promise<void>((resolve) => {
@@ -902,6 +931,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         sddBoardHandler,
         sddWizardHandler,
         worktreeHandler,
+        terminalHandler,
         rateLimitMax,
         send,
         sessionPayload,
@@ -984,6 +1014,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     credentialWatcherClose?.();
     flushAllStreamBuffers();
     worktreeHandler.dispose();
+    terminalHandler.dispose();
     unregisterWebuiClient();
     httpServer?.server.close();
     opts.onExit?.();

@@ -25,6 +25,7 @@ import type {
   SddWizardWebSocketHandler,
   SkillsContext,
   SpecsWebSocketHandler,
+  TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
 } from '@wrongstack/webui/server';
 import {
@@ -197,6 +198,7 @@ export interface MessageRouterDeps {
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler | null;
   worktreeHandler: WorktreeWebSocketHandler;
+  terminalHandler: TerminalWebSocketHandler;
 }
 
 export type MessageRouter = (
@@ -237,6 +239,9 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
 
   type WsRouteHandler = (msg: WSClientMessage, ws: WebSocket) => void | Promise<void>;
   const noop = () => {};
+  const terminalRoute: WsRouteHandler = (msg, ws) => {
+    deps.terminalHandler.handleMessage(ws, msg as { type: string; payload?: unknown });
+  };
   const sessionBoundRouteTypes = new Set<string>([
     'user_message',
     'abort',
@@ -753,10 +758,12 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     'collab.resume': noop,
     'collab.grant_control': noop,
     'collab.inject_tool': noop,
-    'terminal.create': noop,
-    'terminal.input': noop,
-    'terminal.resize': noop,
-    'terminal.close': noop,
+    // Integrated terminal — the shared per-client node-pty transport
+    // (clients are registered by the connection handler on connect).
+    'terminal.create': terminalRoute,
+    'terminal.input': terminalRoute,
+    'terminal.resize': terminalRoute,
+    'terminal.close': terminalRoute,
   };
 
   return async function handleMessage(

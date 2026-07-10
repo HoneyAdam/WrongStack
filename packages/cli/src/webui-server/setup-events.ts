@@ -536,23 +536,22 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
       eventUnsubscribers.push(
         deps.events.on('tool.confirm_needed', (e) => {
           const id = e.toolUseId ?? `confirm_${Date.now()}`;
+          const payload = sessionPayload({
+            sessionId: e.sessionId,
+            id,
+            toolName: e.tool?.name ?? 'unknown',
+            input: secretScrubber.scrubObject(e.input),
+            suggestedPattern: e.suggestedPattern,
+            decisionSource: e.decisionSource,
+            riskTier: e.riskTier,
+          });
           pendingConfirms.set(id, {
             resolve: e.resolve,
             decisionSource: e.decisionSource,
             riskTier: e.riskTier,
+            payload,
           });
-          broadcast({
-            type: 'tool.confirm_needed',
-            payload: sessionPayload({
-              sessionId: e.sessionId,
-              id,
-              toolName: e.tool?.name ?? 'unknown',
-              input: secretScrubber.scrubObject(e.input),
-              suggestedPattern: e.suggestedPattern,
-              decisionSource: e.decisionSource,
-              riskTier: e.riskTier,
-            }),
-          });
+          broadcast({ type: 'tool.confirm_needed', payload });
         }),
       );
 

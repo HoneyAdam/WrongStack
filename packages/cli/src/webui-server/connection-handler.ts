@@ -17,6 +17,7 @@ import type {
   SddBoardWebSocketHandler,
   SddWizardWebSocketHandler,
   SpecsWebSocketHandler,
+  TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
 } from '@wrongstack/webui/server';
 import { verifyClient as verifyWsClient } from '@wrongstack/webui/server';
@@ -31,6 +32,14 @@ export interface ConnectedClient {
 
 const REPLAY_MESSAGE_CAP = 2_000;
 
+/**
+ * How long to wait after the LAST client disconnects before auto-denying
+ * pending permission confirms. A browser refresh drops the client count to
+ * zero for a moment — draining immediately would deny a prompt the user is
+ * about to see again (pending confirms are replayed on connect).
+ */
+const CONFIRM_DRAIN_GRACE_MS = 30_000;
+
 export interface ConnectionHandlerDeps {
   host: string;
   wsToken: string;
@@ -44,6 +53,7 @@ export interface ConnectionHandlerDeps {
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler | null;
   worktreeHandler: WorktreeWebSocketHandler;
+  terminalHandler: TerminalWebSocketHandler;
   /** 0 = disabled (default; this is a local, single-user tool). */
   rateLimitMax: number;
   send: (ws: WebSocket, msg: WSServerMessage) => void;
@@ -67,6 +77,8 @@ export interface ConnectionHandlerDeps {
 export function createConnectionHandler(
   deps: ConnectionHandlerDeps,
 ): (ws: WebSocket, req: IncomingMessage) => Promise<void> {
+  // Grace timer for draining pending confirms once the last client is gone.
+  let confirmDrainTimer: ReturnType<typeof setTimeout> | null = null;
   return async function handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
     // Per-connection error handler, attached FIRST (before any awaited
     // work or even the auth check). Without it, a socket-level error —
@@ -123,6 +135,19 @@ export function createConnectionHandler(
     deps.sddBoardHandler.addClient(ws);
     deps.sddWizardHandler?.addClient(ws);
     deps.worktreeHandler.addClient(ws);
+    deps.terminalHandler.addClient(ws);
+
+    // A client is back — cancel any scheduled auto-deny of pending confirms
+    // and replay the prompts so a refreshed tab can still answer them.
+    if (confirmDrainTimer) {
+      clearTimeout(confirmDrainTimer);
+      confirmDrainTimer = null;
+    }
+    for (const confirm of deps.pendingConfirms.values()) {
+      if (confirm.payload) {
+        deps.send(ws, { type: 'tool.confirm_needed', payload: confirm.payload } as WSServerMessage);
+      }
+    }
 
     // Per-connection rate limiting — disabled unless WEBUI_RATE_LIMIT > 0.
     let msgCount = 0;
@@ -169,9 +194,19 @@ export function createConnectionHandler(
       deps.abortControllers.delete(ws);
       // If the last client leaves while a permission prompt is pending, deny
       // it so the agent loop doesn't hang waiting for an answer that will
-      // never arrive (the terminal no longer prompts in --webui mode).
-      if (deps.clients.size === 0 && deps.pendingConfirms.size > 0) {
-        resolveAllPendingConfirms(deps.pendingConfirms, 'no');
+      // never arrive (the terminal no longer prompts in --webui mode). The
+      // deny is deferred by a grace window: a browser refresh drops the
+      // client count to zero for a moment, and an instant drain would deny
+      // a prompt the user is about to see again (confirms are replayed on
+      // connect).
+      if (deps.clients.size === 0 && deps.pendingConfirms.size > 0 && !confirmDrainTimer) {
+        confirmDrainTimer = setTimeout(() => {
+          confirmDrainTimer = null;
+          if (deps.clients.size === 0) {
+            resolveAllPendingConfirms(deps.pendingConfirms, 'no');
+          }
+        }, CONFIRM_DRAIN_GRACE_MS);
+        confirmDrainTimer.unref?.();
       }
     });
 
