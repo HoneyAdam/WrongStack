@@ -1,6 +1,12 @@
 import type { HqSnapshot } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
-import { buildFleetTopology } from '../src/views/fleet-topology.js';
+import {
+  buildFleetTopology,
+  FLEET_COLUMN_GAP,
+  FLEET_LEAF_H,
+  layoutFleetTopology,
+  type FleetTopologyNode,
+} from '../src/views/fleet-topology.js';
 
 function baseSnapshot(overrides: Partial<HqSnapshot> = {}): HqSnapshot {
   return {
@@ -132,5 +138,84 @@ describe('buildFleetTopology', () => {
     expect(terminal?.clientKind).toBe('webui');
     expect(terminal?.sub).toBe('waiting for session telemetry');
     expect(topology.edges.map((e) => e.target)).toContain('terminal:client:client-1');
+  });
+});
+
+describe('layoutFleetTopology', () => {
+  /** Minimal topology nodes — layout only reads kind/id/machineId/projectId/sessionId. */
+  const N = (
+    kind: FleetTopologyNode['kind'],
+    id: string,
+    rest: Partial<FleetTopologyNode> = {},
+  ): FleetTopologyNode => ({ id, kind, label: id, chips: [], ...rest });
+
+  const fleet: FleetTopologyNode[] = [
+    N('machine', 'machine:m1', { machineId: 'm1' }),
+    N('machine', 'machine:m2', { machineId: 'm2' }),
+    N('project', 'project:m1:p1', { machineId: 'm1', projectId: 'p1' }),
+    N('project', 'project:m2:p2', { machineId: 'm2', projectId: 'p2' }),
+    N('terminal', 'terminal:s1', { machineId: 'm1', projectId: 'p1', sessionId: 's1' }),
+    N('terminal', 'terminal:s2', { machineId: 'm1', projectId: 'p1', sessionId: 's2' }),
+    N('terminal', 'terminal:s3', { machineId: 'm2', projectId: 'p2', sessionId: 's3' }),
+    N('agent', 'agent:s1:a1', { machineId: 'm1', projectId: 'p1', sessionId: 's1', agentId: 'a1' }),
+    N('agent', 'agent:s1:a2', { machineId: 'm1', projectId: 'p1', sessionId: 's1', agentId: 'a2' }),
+    N('agent', 'agent:s1:a3', { machineId: 'm1', projectId: 'p1', sessionId: 's1', agentId: 'a3' }),
+  ];
+
+  it('assigns each kind to its own column', () => {
+    const pos = layoutFleetTopology(fleet);
+    expect(pos.get('machine:m1')?.x).toBe(0);
+    expect(pos.get('project:m1:p1')?.x).toBe(FLEET_COLUMN_GAP);
+    expect(pos.get('terminal:s1')?.x).toBe(FLEET_COLUMN_GAP * 2);
+    expect(pos.get('agent:s1:a1')?.x).toBe(FLEET_COLUMN_GAP * 3);
+  });
+
+  it('centers each parent over its own children', () => {
+    const pos = layoutFleetTopology(fleet);
+    const a1 = pos.get('agent:s1:a1')!.y;
+    const a3 = pos.get('agent:s1:a3')!.y;
+    expect(pos.get('terminal:s1')?.y).toBe((a1 + a3) / 2);
+    const t1 = pos.get('terminal:s1')!.y;
+    const t2 = pos.get('terminal:s2')!.y;
+    expect(pos.get('project:m1:p1')?.y).toBe((t1 + t2) / 2);
+    expect(pos.get('machine:m1')?.y).toBe(pos.get('project:m1:p1')?.y);
+  });
+
+  it('keeps machine groups vertically disjoint (no cross-machine interleaving)', () => {
+    const pos = layoutFleetTopology(fleet);
+    const m1Ys = [...pos.entries()]
+      .filter(([id]) => id.includes('m1') || id.includes('s1') || id.includes('s2'))
+      .map(([, p]) => p.y);
+    const m2Ys = [...pos.entries()]
+      .filter(([id]) => id.includes('m2') || id.includes('s3'))
+      .map(([, p]) => p.y);
+    expect(Math.max(...m1Ys)).toBeLessThan(Math.min(...m2Ys));
+  });
+
+  it('never overlaps two nodes in the same column', () => {
+    const pos = layoutFleetTopology(fleet);
+    const byColumn = new Map<number, number[]>();
+    for (const p of pos.values()) {
+      const list = byColumn.get(p.x) ?? [];
+      list.push(p.y);
+      byColumn.set(p.x, list);
+    }
+    for (const ys of byColumn.values()) {
+      const sorted = [...ys].sort((a, b) => a - b);
+      for (let i = 1; i < sorted.length; i++) {
+        expect(sorted[i]! - sorted[i - 1]!).toBeGreaterThanOrEqual(FLEET_LEAF_H / 2);
+      }
+    }
+  });
+
+  it('gives lonely machines and empty projects their own slot', () => {
+    const pos = layoutFleetTopology([
+      N('machine', 'machine:solo', { machineId: 'solo' }),
+      N('machine', 'machine:m1', { machineId: 'm1' }),
+      N('project', 'project:m1:p1', { machineId: 'm1', projectId: 'p1' }),
+    ]);
+    expect(pos.get('machine:solo')).toBeDefined();
+    expect(pos.get('machine:m1')?.y).not.toBe(pos.get('machine:solo')?.y);
+    expect(pos.get('project:m1:p1')).toBeDefined();
   });
 });

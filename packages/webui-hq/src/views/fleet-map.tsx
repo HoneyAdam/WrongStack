@@ -8,20 +8,25 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
   type Edge,
   type Node,
 } from '@xyflow/react';
-import { Bot, FolderGit2, GitBranch, MonitorSmartphone, SquareTerminal } from 'lucide-react';
+import { Bot, FolderGit2, GitBranch, LayoutGrid, MonitorSmartphone, SquareTerminal } from 'lucide-react';
 import type React from 'react';
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { selectAgent, selectSession, setActiveView, useHqStore } from '../store.js';
-import { buildFleetTopology, type FleetTopologyNode } from './fleet-topology.js';
+import {
+  buildFleetTopology,
+  layoutFleetTopology,
+  type FleetTopology,
+  type FleetTopologyNode,
+} from './fleet-topology.js';
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 104;
-const COLUMN_GAP = 300;
-const ROW_GAP = 146;
-const AGENT_ROW_GAP = 118;
 
 function kindIcon(kind: FleetTopologyNode['kind'], clientKind?: string): React.ReactNode {
   if (kind === 'machine') return <MonitorSmartphone size={14} className="hq-fleet-node-icon" />;
@@ -36,6 +41,10 @@ function statusClass(status: string | undefined): string {
   if (status === 'waiting_user') return 'warn';
   if (status === 'error' || status === 'stale' || status === 'closing') return 'error';
   return status;
+}
+
+function isLiveStatus(status: string | undefined): boolean {
+  return status === 'active' || status === 'running' || status === 'streaming';
 }
 
 function FleetFlowNode({ data, selected }: NodeProps<Node<FleetTopologyNode, 'fleet'>>): React.ReactElement {
@@ -66,58 +75,116 @@ function FleetFlowNode({ data, selected }: NodeProps<Node<FleetTopologyNode, 'fl
 
 const nodeTypes = { fleet: FleetFlowNode };
 
-function columnFor(kind: FleetTopologyNode['kind']): number {
-  if (kind === 'machine') return 0;
-  if (kind === 'project') return 1;
-  if (kind === 'terminal') return 2;
-  return 3;
+/** Materialize the pure hierarchical layout into React Flow nodes. */
+function layoutNodes(nodes: FleetTopologyNode[]): Node<FleetTopologyNode, 'fleet'>[] {
+  const positions = layoutFleetTopology(nodes);
+  return nodes.map((node) => ({
+    id: node.id,
+    type: 'fleet' as const,
+    data: node,
+    position: positions.get(node.id) ?? { x: 0, y: 0 },
+    style: { width: NODE_WIDTH, minHeight: NODE_HEIGHT },
+  }));
 }
 
-function layoutNodes(nodes: FleetTopologyNode[]): Node<FleetTopologyNode, 'fleet'>[] {
-  const machineOrder = new Map<string, number>();
-  const projectOrder = new Map<string, number>();
-  const terminalOrder = new Map<string, number>();
-  let nextMachine = 0;
-  let nextProject = 0;
-  let nextTerminal = 0;
-
-  for (const node of nodes) {
-    if (node.kind === 'machine' && !machineOrder.has(node.id)) machineOrder.set(node.id, nextMachine++);
-    if (node.kind === 'project' && !projectOrder.has(node.id)) projectOrder.set(node.id, nextProject++);
-    if (node.kind === 'terminal' && !terminalOrder.has(node.id)) terminalOrder.set(node.id, nextTerminal++);
-  }
-
-  const agentIndexByTerminal = new Map<string, number>();
-  const agentCountByTerminal = new Map<string, number>();
-  for (const node of nodes) {
-    if (node.kind === 'agent' && node.sessionId !== undefined) {
-      agentCountByTerminal.set(node.sessionId, (agentCountByTerminal.get(node.sessionId) ?? 0) + 1);
-    }
-  }
-
-  return nodes.map((node) => {
-    const col = columnFor(node.kind);
-    let row = 0;
-    if (node.kind === 'machine') row = machineOrder.get(node.id) ?? 0;
-    else if (node.kind === 'project') row = projectOrder.get(node.id) ?? 0;
-    else if (node.kind === 'terminal') row = terminalOrder.get(node.id) ?? 0;
-    else {
-      const terminalSessionId = node.sessionId ?? '';
-      const terminalRow = terminalOrder.get(`terminal:${terminalSessionId}`) ?? 0;
-      const index = agentIndexByTerminal.get(terminalSessionId) ?? 0;
-      agentIndexByTerminal.set(terminalSessionId, index + 1);
-      const total = agentCountByTerminal.get(terminalSessionId) ?? 1;
-      row = terminalRow + (index - (total - 1) / 2) * (AGENT_ROW_GAP / ROW_GAP);
-    }
-
+/** Edges styled from live node status — active agents get animated wires. */
+function buildEdges(topology: FleetTopology): Edge[] {
+  const statusById = new Map(topology.nodes.map((n) => [n.id, n.status]));
+  return topology.edges.map((edge) => {
+    const live = isLiveStatus(statusById.get(edge.target));
     return {
-      id: node.id,
-      type: 'fleet',
-      data: node,
-      position: { x: col * COLUMN_GAP, y: row * ROW_GAP },
-      style: { width: NODE_WIDTH, minHeight: NODE_HEIGHT },
+      ...edge,
+      type: 'smoothstep',
+      animated: live,
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+      className: `hq-flow-edge${live ? ' live' : ''}`,
     };
   });
+}
+
+function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElement {
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<FleetTopologyNode, 'fleet'>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const { fitView } = useReactFlow();
+  // Once the user drags a node we stop re-laying-out on every snapshot poll
+  // (which would fight their arrangement) and only refresh node DATA in
+  // place; the Auto-arrange button re-applies the layout and re-enables
+  // live tidy mode.
+  const userArrangedRef = useRef(false);
+
+  useEffect(() => {
+    const laid = layoutNodes(topology.nodes);
+    setNodes((prev) => {
+      if (!userArrangedRef.current) return laid;
+      const prevPos = new Map(prev.map((n) => [n.id, n.position]));
+      return laid.map((n) => {
+        const kept = prevPos.get(n.id);
+        return kept !== undefined ? { ...n, position: kept } : n;
+      });
+    });
+    setEdges(buildEdges(topology));
+  }, [topology, setNodes, setEdges]);
+
+  const autoArrange = useCallback(() => {
+    userArrangedRef.current = false;
+    setNodes(layoutNodes(topology.nodes));
+    // Let the new positions commit before framing them.
+    window.setTimeout(() => void fitView({ padding: 0.18, duration: 400 }), 50);
+  }, [topology, setNodes, fitView]);
+
+  return (
+    <div className="hq-flow-canvas" data-testid="hq-react-flow-fleet">
+      <button
+        type="button"
+        className="hq-btn secondary hq-flow-arrange"
+        onClick={autoArrange}
+        title="Re-run the hierarchical layout and frame the whole fleet"
+      >
+        <LayoutGrid size={13} /> Auto arrange
+      </button>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeDragStop={() => {
+          userArrangedRef.current = true;
+        }}
+        fitView
+        fitViewOptions={{ padding: 0.18 }}
+        minZoom={0.25}
+        maxZoom={1.4}
+        nodesDraggable
+        nodesConnectable={false}
+        elementsSelectable
+        onNodeClick={(_, node) => {
+          if (node.data.sessionId !== undefined && node.data.agentId !== undefined) {
+            selectAgent(node.data.sessionId, node.data.agentId);
+            setActiveView('console');
+          } else if (node.data.sessionId !== undefined) {
+            selectSession(node.data.sessionId);
+            setActiveView('console');
+          }
+        }}
+      >
+        <Background color="rgba(148, 163, 184, 0.16)" gap={22} />
+        <MiniMap
+          pannable
+          zoomable
+          className="hq-flow-minimap"
+          nodeColor={(node) => {
+            const kind = (node.data as FleetTopologyNode | undefined)?.kind;
+            if (kind === 'machine') return 'hsl(190 86% 54%)';
+            if (kind === 'project') return 'hsl(258 84% 74%)';
+            if (kind === 'terminal') return 'hsl(38 94% 58%)';
+            return 'hsl(150 64% 46%)';
+          }}
+        />
+        <Controls className="hq-flow-controls" />
+      </ReactFlow>
+    </div>
+  );
 }
 
 export function FleetMapView(): React.ReactElement {
@@ -125,23 +192,11 @@ export function FleetMapView(): React.ReactElement {
   const snap = state.snapshot;
   const topology = useMemo(() => buildFleetTopology(snap), [snap]);
 
-  const nodes = useMemo(() => layoutNodes(topology.nodes), [topology.nodes]);
-  const edges = useMemo<Edge[]>(
-    () =>
-      topology.edges.map((edge) => ({
-        ...edge,
-        type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-        className: 'hq-flow-edge',
-      })),
-    [topology.edges],
-  );
-
   if (snap === null) {
     return <div className="hq-empty">Waiting for fleet data…</div>;
   }
 
-  if (nodes.length === 0) {
+  if (topology.nodes.length === 0) {
     return (
       <div className="hq-empty">
         No machines or connected clients yet. Open a WrongStack CLI/TUI/WebUI with HQ running and
@@ -153,6 +208,7 @@ export function FleetMapView(): React.ReactElement {
   const machines = snap.machines?.length ?? new Set(topology.nodes.map((n) => n.machineId).filter(Boolean)).size;
   const terminals = topology.nodes.filter((n) => n.kind === 'terminal').length;
   const agents = topology.nodes.filter((n) => n.kind === 'agent').length;
+  const liveAgents = topology.nodes.filter((n) => n.kind === 'agent' && isLiveStatus(n.status)).length;
 
   return (
     <div className="hq-flow-shell">
@@ -169,48 +225,13 @@ export function FleetMapView(): React.ReactElement {
         <div className="hq-flow-stats">
           <span className="hq-pill info">{machines} machines</span>
           <span className="hq-pill info">{terminals} terminals</span>
-          <span className="hq-pill active">{agents} agents</span>
+          <span className={`hq-pill ${liveAgents > 0 ? 'active' : 'info'}`}>
+            {liveAgents > 0 ? `${liveAgents}/${agents} agents live` : `${agents} agents`}
+          </span>
         </div>
       </div>
       <ReactFlowProvider>
-        <div className="hq-flow-canvas" data-testid="hq-react-flow-fleet">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.18 }}
-            minZoom={0.25}
-            maxZoom={1.4}
-            nodesDraggable
-            nodesConnectable={false}
-            elementsSelectable
-            onNodeClick={(_, node) => {
-              if (node.data.sessionId !== undefined && node.data.agentId !== undefined) {
-                selectAgent(node.data.sessionId, node.data.agentId);
-                setActiveView('console');
-              } else if (node.data.sessionId !== undefined) {
-                selectSession(node.data.sessionId);
-                setActiveView('console');
-              }
-            }}
-          >
-            <Background color="rgba(148, 163, 184, 0.16)" gap={22} />
-            <MiniMap
-              pannable
-              zoomable
-              className="hq-flow-minimap"
-              nodeColor={(node) => {
-                const kind = (node.data as FleetTopologyNode | undefined)?.kind;
-                if (kind === 'machine') return 'hsl(190 86% 54%)';
-                if (kind === 'project') return 'hsl(258 84% 74%)';
-                if (kind === 'terminal') return 'hsl(38 94% 58%)';
-                return 'hsl(150 64% 46%)';
-              }}
-            />
-            <Controls className="hq-flow-controls" />
-          </ReactFlow>
-        </div>
+        <FleetFlow topology={topology} />
       </ReactFlowProvider>
       <div className="hq-flow-legend">
         <span><MonitorSmartphone size={12} /> machine</span>

@@ -38,6 +38,126 @@ export interface FleetTopology {
   edges: FleetTopologyEdge[];
 }
 
+// ── Hierarchical auto-layout ────────────────────────────────────────────
+//
+// Tidy-tree over the four fixed columns (machine → project → terminal →
+// agent). Children are packed depth-first: a terminal's agents occupy
+// consecutive leaf slots, the terminal centers over them, the project
+// centers over its terminals, the machine over its projects. Parents
+// therefore always sit beside their own subtree and edges never cross
+// between machine groups. (A naive per-column row counter numbers each
+// column independently, so a project can land rows away from its machine.)
+
+export interface FleetLayoutPosition {
+  x: number;
+  y: number;
+}
+
+/** Horizontal distance between the four columns. */
+export const FLEET_COLUMN_GAP = 300;
+/** Vertical footprint of one leaf slot (an agent, or a terminal without agents). */
+export const FLEET_LEAF_H = 118;
+/** Extra breathing room between terminal blocks under the same project. */
+export const FLEET_TERMINAL_PAD = 18;
+/** Extra gap between project blocks under the same machine. */
+export const FLEET_PROJECT_PAD = 42;
+/** Extra gap between machine blocks. */
+export const FLEET_MACHINE_PAD = 64;
+
+export function fleetColumnFor(kind: FleetTopologyNodeKind): number {
+  if (kind === 'machine') return 0;
+  if (kind === 'project') return 1;
+  if (kind === 'terminal') return 2;
+  return 3;
+}
+
+export function layoutFleetTopology(nodes: FleetTopologyNode[]): Map<string, FleetLayoutPosition> {
+  const machines = nodes.filter((n) => n.kind === 'machine');
+  const projectsByMachine = new Map<string, FleetTopologyNode[]>();
+  const terminalsByProject = new Map<string, FleetTopologyNode[]>();
+  const agentsByTerminal = new Map<string, FleetTopologyNode[]>();
+
+  for (const node of nodes) {
+    if (node.kind === 'project' && node.machineId !== undefined) {
+      const list = projectsByMachine.get(node.machineId) ?? [];
+      list.push(node);
+      projectsByMachine.set(node.machineId, list);
+    } else if (node.kind === 'terminal') {
+      const key = projectKey(node.machineId ?? '', node.projectId ?? '');
+      const list = terminalsByProject.get(key) ?? [];
+      list.push(node);
+      terminalsByProject.set(key, list);
+    } else if (node.kind === 'agent' && node.sessionId !== undefined) {
+      const list = agentsByTerminal.get(node.sessionId) ?? [];
+      list.push(node);
+      agentsByTerminal.set(node.sessionId, list);
+    }
+  }
+
+  const yById = new Map<string, number>();
+  let y = 0;
+  const center = (ys: number[]): number =>
+    ys.length === 0 ? 0 : ((ys[0] ?? 0) + (ys[ys.length - 1] ?? 0)) / 2;
+
+  for (const machine of machines) {
+    const projects = projectsByMachine.get(machine.machineId ?? '') ?? [];
+    const projectYs: number[] = [];
+
+    for (const project of projects) {
+      const terminals = terminalsByProject.get(project.id) ?? [];
+      const terminalYs: number[] = [];
+
+      for (const terminal of terminals) {
+        const agents = agentsByTerminal.get(terminal.sessionId ?? '') ?? [];
+        let terminalY: number;
+        if (agents.length > 0) {
+          const agentYs: number[] = [];
+          for (const agent of agents) {
+            yById.set(agent.id, y);
+            agentYs.push(y);
+            y += FLEET_LEAF_H;
+          }
+          terminalY = center(agentYs);
+        } else {
+          terminalY = y;
+          y += FLEET_LEAF_H;
+        }
+        yById.set(terminal.id, terminalY);
+        terminalYs.push(terminalY);
+        y += FLEET_TERMINAL_PAD;
+      }
+
+      let projectY: number;
+      if (terminalYs.length > 0) {
+        projectY = center(terminalYs);
+      } else {
+        projectY = y;
+        y += FLEET_LEAF_H;
+      }
+      yById.set(project.id, projectY);
+      projectYs.push(projectY);
+      y += FLEET_PROJECT_PAD;
+    }
+
+    if (projectYs.length > 0) {
+      yById.set(machine.id, center(projectYs));
+    } else {
+      yById.set(machine.id, y);
+      y += FLEET_LEAF_H;
+    }
+    y += FLEET_MACHINE_PAD;
+  }
+
+  const positions = new Map<string, FleetLayoutPosition>();
+  for (const node of nodes) {
+    positions.set(node.id, {
+      x: fleetColumnFor(node.kind) * FLEET_COLUMN_GAP,
+      y: yById.get(node.id) ?? 0,
+    });
+  }
+  return positions;
+}
+
 function machineKey(machineId: string): string {
   return `machine:${machineId}`;
 }

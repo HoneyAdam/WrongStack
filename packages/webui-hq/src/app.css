@@ -554,11 +554,22 @@ a {
   flex-wrap: wrap;
 }
 .hq-flow-canvas {
+  position: relative;
   flex: 1;
   min-height: 0;
   background:
     radial-gradient(circle at 20% 10%, hsl(190 86% 54% / 0.08), transparent 28%),
     linear-gradient(180deg, var(--inset), var(--bg));
+}
+.hq-flow-arrange {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
 }
 .hq-flow-node {
   width: 220px;
@@ -647,6 +658,12 @@ a {
 .hq-flow-edge .react-flow__edge-path {
   stroke: hsl(190 86% 54% / 0.46);
   stroke-width: 1.6;
+}
+/* Wires feeding a live (active/running/streaming) node glow green; the
+   dash animation itself comes from React Flow's `animated` flag. */
+.hq-flow-edge.live .react-flow__edge-path {
+  stroke: hsl(150 64% 46% / 0.75);
+  stroke-width: 2;
 }
 .hq-flow-minimap {
   background: var(--panel) !important;
