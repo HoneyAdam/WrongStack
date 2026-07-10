@@ -740,6 +740,11 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
 
   // Track cleanup state so signal handlers don't double-disable.
   let cleaned = false;
+
+  // Hoisted Ink instance reference — signal handlers (registered before the
+  // Promise constructor where `instance` lives) need to call unmount() on
+  // external signals. Assigned when render() runs.
+  let inkInstance: { unmount: () => void } | null = null;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
@@ -792,8 +797,20 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // If the process is killed externally (terminal closed, SIGTERM from a
   // supervisor) waitUntilExit's .then/.catch never runs. Register signal +
   // exit listeners so the terminal isn't left in bracketed-paste mode.
+  //
+  // Node.js default signal behavior is overridden once a listener is
+  // registered. We MUST explicitly exit after cleanup — otherwise Ink's
+  // event loop keeps running and the process appears to hang. The unmount
+  // triggers settle() via waitUntilExit's resolution; the hard-exit timer
+  // is a safety net for when Ink's unmount itself hangs.
   const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP', 'SIGINT'];
-  const signalHandler = () => cleanup();
+  const signalHandler = () => {
+    cleanup();
+    inkInstance?.unmount();
+    // If Ink's unmount hangs, force-exit after 5s.
+    const sig = setTimeout(() => process.exit(143), 5_000);
+    sig.unref();
+  };
   const exitHandler = () => cleanup();
 
   // SIGINT (Ctrl+C) gets special treatment: track rapid presses.
@@ -809,8 +826,14 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       forceExitViaRapidCtrlC();
       return;
     }
-    // First or second press — normal cleanup; the user can press again
+    // First or second press — clean shutdown via Ink unmount. The unmount
+    // restores terminal state and resolves waitUntilExit(). If Ink hangs,
+    // the 5s deadline in signalHandler's pattern fires — but sigintHandler
+    // is separate so we replicate the safety net here.
     cleanup();
+    inkInstance?.unmount();
+    const sig = setTimeout(() => process.exit(130), 5_000);
+    sig.unref();
   };
 
   process.on('SIGINT', sigintHandler);
@@ -992,7 +1015,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       // would skip this and leave the terminal in a broken state.
       // Hard-exit ONLY if Ink's unmount hangs (settle() cancels this timer
       // on the normal path).
-      instance?.unmount();
+      inkInstance?.unmount();
       hardExitTimer = setTimeout(() => process.exit(code), 5_000);
       hardExitTimer.unref();
     };
@@ -1128,6 +1151,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
         }),
         { exitOnCtrlC: false, stdin: inkStdin },
       );
+      // Wire the hoisted reference so signal handlers can unmount Ink.
+      inkInstance = instance;
     } catch (err) {
       writeErr(
         `wstack: TUI failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
