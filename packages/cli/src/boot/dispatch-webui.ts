@@ -225,6 +225,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     projectRoot,
     appConfig: config,
     open: !!flags.open,
+    hqAllowExec: flagBoolean(['hq-allow-exec']) ?? false,
     modelsRegistry,
     globalConfigPath,
     mcpRegistry,

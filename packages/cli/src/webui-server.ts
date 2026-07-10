@@ -215,6 +215,13 @@ export interface CliWebUIOptions {
   /** Callback to invoke when the WebUI is shut down by a client request. */
   onExit?: (() => void) | undefined;
   /**
+   * When true, HQ `run-command` control commands are allowed to route to
+   * this WebUI's agent (still delivered as a steer, so the agent's own
+   * permission policy applies). Mirrors the CLI's `--hq-allow-exec`. Off by
+   * default — without it, HQ run-command is rejected.
+   */
+  hqAllowExec?: boolean | undefined;
+  /**
    * Per-task agent factory (the host's director-backed `makeSubagentFactory`).
    * When present, the WebUI exposes the "New SDD Project" wizard, which runs the
    * same multi-agent fleet as `/sdd execute`. Omitted → wizard is unavailable.
@@ -457,6 +464,28 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       events: opts.events,
       hqSessionId: opts.session.id,
       getSessionId: () => opts.agent.ctx.session?.id ?? opts.session.id,
+      // Two-way HQ control for the WebUI client: steer/btw/queue/broadcast
+      // land in the project mailbox (the WebUI's agent reads it like any
+      // other surface), and abort tears down every in-flight run on this
+      // instance. Without this block the WebUI would be HQ-invisible to the
+      // Control tab — telemetry only.
+      hqControl: {
+        interruptLeader: () => {
+          let aborted = false;
+          if (abortController) {
+            abortController.abort();
+            abortController = null;
+            aborted = true;
+          }
+          for (const c of abortControllers.values()) {
+            c.abort();
+            aborted = true;
+          }
+          abortControllers.clear();
+          return aborted;
+        },
+        allowRunCommand: () => opts.hqAllowExec === true,
+      },
     });
 
   // Register immediately (fire-and-forget so it doesn't block server startup)
