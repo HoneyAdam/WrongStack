@@ -84,10 +84,10 @@ function readPkgMeta(pkgDir) {
 // missing .js) the build silently "succeeds" but ships an unloadable runtime
 // (ERR_MODULE_NOT_FOUND). Ties are broken alphabetically for determinism.
 //
-// Known cycles: core ↔ sdd and core ↔ security-scanner (core re-exports from
-// both, and they import types from core).  We break cycles by placing CORE
-// first among the cycle participants — core has the most downstream consumers
-// and its types are needed by every other cyclic package.
+// PR-11 (2026-07): the historical workspace cycles
+// (core↔sdd and core↔security-scanner) were broken by PR-08 + PR-10.
+// The build runner no longer tolerates cycles — if a cycle is detected,
+// the build fails with the cycle path so it can be fixed at source.
 function topoSort(metas) {
   const byName = new Map(metas.map((m) => [m.name, m]));
   const visited = new Set();
@@ -97,14 +97,11 @@ function topoSort(metas) {
   const visit = (m, ancestors) => {
     if (visited.has(m.name)) return;
     if (onStack.has(m.name)) {
-      if (!cycles.includes(m.name)) cycles.push(m.name);
-      // When a cycle is detected, the back-edge is m → ancestor.
-      // If the ancestor is `@wrongstack/core`, reorder core earlier
-      // so its types are built before dependents need them.
-      if (m.name === '@wrongstack/core') {
-        // core's dep is in the cycle — core will be placed early by
-        // its own visit call later; nothing special to do here.
-      }
+      const cycleStart = ancestors.indexOf(m.name);
+      const cyclePath = cycleStart >= 0
+        ? [...ancestors.slice(cycleStart), m.name].join(' → ')
+        : m.name;
+      if (!cycles.includes(cyclePath)) cycles.push(cyclePath);
       return;
     }
     onStack.add(m.name);
@@ -112,26 +109,21 @@ function topoSort(metas) {
       .map((d) => byName.get(d))
       .filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name));
-    for (const dep of deps) visit(dep);
+    for (const dep of deps) visit(dep, [...ancestors, m.name]);
     onStack.delete(m.name);
     visited.add(m.name);
-    // Push packages that are depended-on by many to the front
-    // (reverse-topo style) so they are built first.
-    if (m.name === '@wrongstack/core') {
-      ordered.unshift(m); // core first: needed by almost everything
-    } else {
-      ordered.push(m);
-    }
+    ordered.push(m);
   };
   for (const m of [...metas].sort((a, b) => a.name.localeCompare(b.name))) {
     visit(m, []);
   }
   if (cycles.length > 0) {
-    console.warn(`⚠️  ${cycles.length} cycle(s) detected (build order may be imprecise):`);
-    for (const c of cycles) console.warn(`   ${c}`);
+    console.error(`❌ ${cycles.length} workspace dependency cycle(s) detected:`);
+    for (const c of cycles) console.error(`   ${c}`);
+    console.error('The workspace package graph must be a DAG. Fix the cycle before building.');
+    process.exit(1);
   }
-  // Ensure deduplication: core might have been unshifted AND pushed.
-  return [...new Map(ordered.map((m) => [m.name, m])).values()];
+  return ordered;
 }
 
 function selectBuildSet(ordered, targets) {

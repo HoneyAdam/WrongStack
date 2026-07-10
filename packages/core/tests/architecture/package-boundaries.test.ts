@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -541,6 +542,134 @@ describe('core bidirectional coupling', () => {
 
     for (const node of adj.keys()) {
       if (colour.get(node) === WHITE) dfs(node, []);
+    }
+
+    expect(cycles).toEqual([]);
+  });
+});
+
+// ── P0/P1 manifest regression ────────────────────────────────────────────────
+
+/**
+ * Pin the manifest contracts sealed by PR-08 and PR-10: core no longer
+ * declares `@wrongstack/security-scanner` (PR-08) or
+ * `@wrongstack/sdd` (PR-10) as workspace dependencies. The cross-package
+ * boundary test above only scans runtime imports in core/src, so a future
+ * contributor could silently restore either edge by re-adding the entry
+ * to package.json without any import. These assertions keep the
+ * workspace-DAG PR-11 contract honest and break loudly if either edge
+ * creeps back.
+ */
+describe('P0/P1 manifest regression (PR-08 + PR-10)', () => {
+  it('core does not declare forbidden workspace dependencies in package.json', async () => {
+    const pkgRaw = await fs.readFile(
+      path.resolve(process.cwd(), 'packages/core/package.json'),
+      'utf8',
+    );
+    const pkg = JSON.parse(pkgRaw) as {
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const FORBIDDEN = ['@wrongstack/security-scanner', '@wrongstack/sdd'] as const;
+    const edges: Array<{ field: string; spec: string }> = [];
+    for (const [field, set] of [
+      ['dependencies', pkg.dependencies],
+      ['optionalDependencies', pkg.optionalDependencies],
+      ['peerDependencies', pkg.peerDependencies],
+      ['devDependencies', pkg.devDependencies],
+    ] as const) {
+      for (const spec of Object.keys(set ?? {})) {
+        if ((FORBIDDEN as readonly string[]).includes(spec)) {
+          edges.push({ field, spec });
+        }
+      }
+    }
+    expect(edges).toEqual([]);
+  });
+});
+
+// ── Workspace DAG assertion (PR-11) ──────────────────────────────────────────
+
+/**
+ * The workspace package graph (dependencies + optionalDependencies +
+ * peerDependencies) must be a DAG. Before PR-08 + PR-10, two cycles
+ * existed (core↔sdd and core↔security-scanner); both are now broken.
+ * This test prevents them from silently creeping back.
+ */
+describe('workspace DAG (PR-11)', () => {
+  const WORKSPACE_PACKAGES_DIR = path.resolve(process.cwd(), 'packages');
+
+  async function collectWorkspaceGraphEdges(): Promise<Set<string>> {
+    const entries = await fs.readdir(WORKSPACE_PACKAGES_DIR, { withFileTypes: true });
+    const edges = new Set<string>();
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const pkgPath = path.join(WORKSPACE_PACKAGES_DIR, entry.name, 'package.json');
+      if (!existsSync(pkgPath)) continue;
+      const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf8')) as {
+        name: string;
+        dependencies?: Record<string, string>;
+        optionalDependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+      };
+      const depFields = [
+        pkg.dependencies,
+        pkg.optionalDependencies,
+        pkg.peerDependencies,
+      ];
+      for (const field of depFields) {
+        for (const depName of Object.keys(field ?? {})) {
+          if (depName.startsWith('@wrongstack/')) {
+            edges.add(`${pkg.name} → ${depName}`);
+          }
+        }
+      }
+    }
+    return edges;
+  }
+
+  it('the workspace dependency graph has no cycles', async () => {
+    const edges = await collectWorkspaceGraphEdges();
+
+    // Build adjacency list.
+    const adj = new Map<string, Set<string>>();
+    const nodeSet = new Set<string>();
+    for (const edge of edges) {
+      const [from, to] = edge.split(' → ');
+      nodeSet.add(from);
+      nodeSet.add(to);
+      if (!adj.has(from)) adj.set(from, new Set());
+      adj.get(from)!.add(to);
+    }
+
+    // DFS cycle detection (white-gray-black).
+    const WHITE = 0, GRAY = 1, BLACK = 2;
+    const colour = new Map<string, number>();
+    for (const n of nodeSet) colour.set(n, WHITE);
+    const cycles: string[] = [];
+
+    function dfs(node: string, path: string[]): void {
+      colour.set(node, GRAY);
+      const neighbours = adj.get(node) ?? new Set<string>();
+      for (const next of neighbours) {
+        if (colour.get(next) === GRAY) {
+          const cyclePath = [...path, node, next].join(' → ');
+          cycles.push(cyclePath);
+          return;
+        }
+        if (colour.get(next) === WHITE) {
+          dfs(next, [...path, node]);
+        }
+      }
+      colour.set(node, BLACK);
+    }
+
+    for (const node of [...nodeSet].sort()) {
+      if (colour.get(node) === WHITE) {
+        dfs(node, []);
+      }
     }
 
     expect(cycles).toEqual([]);
