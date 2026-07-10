@@ -12,7 +12,20 @@ import { describe, expect, it } from 'vitest';
  */
 const OVERLAY = JSON.parse(
   readFileSync(fileURLToPath(new URL('../data/providers.json', import.meta.url)), 'utf8'),
-) as Record<string, { models?: Record<string, { id: string; name: string; description?: string }> }>;
+) as Record<
+  string,
+  {
+    models?: Record<
+      string,
+      {
+        id: string;
+        name: string;
+        description?: string;
+        limit?: { context?: number; output?: number };
+      }
+    >;
+  }
+>;
 
 describe('openai-codex overlay ↔ core floor parity', () => {
   it('providers.json declares a dedicated openai-codex provider', () => {
@@ -41,6 +54,13 @@ describe('openai-codex overlay ↔ core floor parity', () => {
     const models = OVERLAY['openai-codex']?.models ?? {};
     for (const m of Object.values(models)) {
       expect(m.description, `${m.id} is missing a description`).toBeTruthy();
+    }
+  });
+
+  it('declares the published GPT-5.6 context and output limits', () => {
+    const models = OVERLAY['openai-codex']?.models ?? {};
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+      expect(models[id]?.limit, id).toEqual({ context: 1_050_000, output: 128_000 });
     }
   });
 
