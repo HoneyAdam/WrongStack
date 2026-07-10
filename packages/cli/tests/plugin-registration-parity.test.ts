@@ -1,0 +1,95 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { PLUGIN_AUDIT_ENTRIES } from '../src/plugin-management.js';
+
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const pluginsRoot = path.resolve(testDir, '..', '..', 'plugins');
+const cliRoot = path.resolve(testDir, '..');
+const NON_PACKAGE_AUDIT_NAMES = new Set([
+  'wstack-prompts',
+  'wstack-sync',
+  'wstack-git',
+  'wstack-observability',
+  'wstack-security',
+  'wstack-chimera',
+  'wstack-skills',
+  'wstack-plan',
+  '@wrongstack/plug-lsp',
+  'telegram',
+]);
+
+async function bundledPluginNames(): Promise<string[]> {
+  const entries = await fs.readdir(path.join(pluginsRoot, 'src'), { withFileTypes: true });
+  const names = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        try {
+          await fs.access(path.join(pluginsRoot, 'src', entry.name, 'index.ts'));
+          return entry.name;
+        } catch {
+          return null;
+        }
+      }),
+  );
+  return names.filter((name): name is string => name !== null).sort();
+}
+
+function matches(source: string, pattern: RegExp): string[] {
+  return [...source.matchAll(pattern)].map((match) => match[1]).filter((name): name is string => Boolean(name));
+}
+
+function expectSameNames(surface: string, expected: string[], actual: Iterable<string>): void {
+  const allActualNames = [...actual].sort();
+  const actualNames = [...new Set(allActualNames)];
+  const expectedSet = new Set(expected);
+  const actualSet = new Set(actualNames);
+  expect(
+    {
+      surface,
+      missing: expected.filter((name) => !actualSet.has(name)),
+      extra: actualNames.filter((name) => !expectedSet.has(name)),
+      duplicates: actualNames.filter(
+        (name) => allActualNames.indexOf(name) !== allActualNames.lastIndexOf(name),
+      ),
+    },
+  ).toEqual({ surface, missing: [], extra: [], duplicates: [] });
+}
+
+describe('@wrongstack/plugins registration parity', () => {
+  it('keeps source, package, build, export, catalog, and CLI factory surfaces in sync', async () => {
+    const expected = await bundledPluginNames();
+    const [packageText, tsupSource, indexSource, wiringSource] = await Promise.all([
+      fs.readFile(path.join(pluginsRoot, 'package.json'), 'utf8'),
+      fs.readFile(path.join(pluginsRoot, 'tsup.config.ts'), 'utf8'),
+      fs.readFile(path.join(pluginsRoot, 'src', 'index.ts'), 'utf8'),
+      fs.readFile(path.join(cliRoot, 'src', 'wiring', 'plugins.ts'), 'utf8'),
+    ]);
+
+    const packageJson = JSON.parse(packageText) as {
+      description?: string;
+      exports?: Record<string, unknown>;
+    };
+    const packageExports = Object.keys(packageJson.exports ?? {})
+      .filter((specifier) => specifier.startsWith('./'))
+      .map((specifier) => specifier.slice(2));
+    const tsupEntries = matches(tsupSource, /['"]([^'"]+)['"]\s*:\s*['"]src\/\1\/index\.ts['"]/g);
+    const indexExports = matches(indexSource, /from ['"]\.\/([^/'"]+)\/index\.js['"]/g);
+    const factoryImports = matches(
+      wiringSource,
+      /import\(['"]@wrongstack\/plugins\/([^'"]+)['"]\)/g,
+    );
+    const auditNames = PLUGIN_AUDIT_ENTRIES.map((entry) => entry.name).filter(
+      (name) => !NON_PACKAGE_AUDIT_NAMES.has(name),
+    );
+
+    expectSameNames('package.json exports', expected, packageExports);
+    expectSameNames('tsup entries', expected, tsupEntries);
+    expectSameNames('src/index.ts exports', expected, indexExports);
+    expectSameNames('PLUGIN_AUDIT_ENTRIES', expected, auditNames);
+    expectSameNames('BUILTIN_PLUGIN_FACTORIES imports', expected, factoryImports);
+    expect(packageJson.description).toContain(`${expected.length} focused`);
+  });
+});

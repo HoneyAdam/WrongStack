@@ -1,15 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Config } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from '../src/plugin-management.js';
 
 let tmpDir: string;
 let configPath: string;
-
-const testDir = path.dirname(fileURLToPath(import.meta.url));
 
 function config(overrides: Partial<Config> = {}): Config {
   return {
@@ -68,30 +65,6 @@ describe('plugin management', () => {
         expect.objectContaining({ name, defaultState: 'inactive' }),
       );
     }
-  });
-
-  it('includes every bundled @wrongstack/plugins source directory in the TUI plugin picker audit list', async () => {
-    const pluginSrc = path.resolve(testDir, '..', '..', 'plugins', 'src');
-    const bundledPluginDirs = (
-      await Promise.all(
-        (await fs.readdir(pluginSrc, { withFileTypes: true }))
-          .filter((entry) => entry.isDirectory())
-          .map(async (entry) => {
-            const indexPath = path.join(pluginSrc, entry.name, 'index.ts');
-            try {
-              await fs.access(indexPath);
-              return entry.name;
-            } catch {
-              return null;
-            }
-          }),
-      )
-    )
-      .filter((name): name is string => Boolean(name))
-      .sort();
-    const pickerNames = new Set(PLUGIN_AUDIT_ENTRIES.map((entry) => entry.name));
-
-    expect(bundledPluginDirs.filter((name) => !pickerNames.has(name))).toEqual([]);
   });
 
   it('toggles a default-active plugin off by writing a disabled override', async () => {

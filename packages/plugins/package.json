@@ -1,7 +1,7 @@
 {
   "name": "@wrongstack/plugins",
   "version": "0.284.1",
-  "description": "Official WrongStack plugin collection — 62 focused, single-purpose plugins for code quality, security, observability, planning, and agent coordination",
+  "description": "Official WrongStack plugin collection — 63 focused, single-purpose plugins for code quality, security, observability, planning, and agent coordination",
   "license": "MIT",
   "author": "ECOSTACK TECHNOLOGY OÜ",
   "type": "module",
