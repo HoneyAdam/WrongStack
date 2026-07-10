@@ -14,7 +14,7 @@
  */
 import type { EventBus, EventMap } from '@wrongstack/core/kernel';
 import type { TaskGraph } from '@wrongstack/core/types';
-import type { TaskTracker } from './task-tracker.js';
+import type { TaskTracker } from '@wrongstack/core/tasking';
 import {
   buildBoardSnapshot,
   shortIdMap,

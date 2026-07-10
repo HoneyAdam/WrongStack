@@ -12,7 +12,7 @@ import type { Agent } from '@wrongstack/core';
 import type { AgentFactory } from '@wrongstack/core';
 import type { EventBus } from '@wrongstack/core/kernel';
 import type { TaskGraph } from '@wrongstack/core/types';
-import type { TaskTracker } from './task-tracker.js';
+import type { TaskTracker } from '@wrongstack/core/tasking';
 import type { WorktreeManager } from '@wrongstack/core';
 import { SddBoardProjector } from './sdd-board-projector.js';
 import type { SddBoardStore } from './sdd-board-store.js';

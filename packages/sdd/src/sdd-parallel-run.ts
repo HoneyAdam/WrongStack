@@ -29,7 +29,7 @@ import type { EventBus } from '@wrongstack/core/kernel';
 import type { WorktreeHandle, WorktreeManager } from '@wrongstack/core';
 import type { MultiAgentConfig } from '@wrongstack/core/types';
 import type { TaskGraph, TaskNode, TaskProgress } from '@wrongstack/core/types';
-import type { TaskTracker } from './task-tracker.js';
+import type { TaskTracker } from '@wrongstack/core/tasking';
 import { SddError, ERROR_CODES } from '@wrongstack/core';
 import { SddTaskDecomposer, type TaskBatch } from './sdd-task-decomposer.js';
 /** A sub-task produced by splitting a parent task (see `splitTask`). */

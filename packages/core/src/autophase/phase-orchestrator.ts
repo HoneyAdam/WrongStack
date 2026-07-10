@@ -1,8 +1,8 @@
-import { createRequire } from 'node:module';
 import type { EventBus } from '../kernel/events.js';
+import { DefaultTaskStore, TaskTracker } from '../tasking/index.js';
 import type { TaskNode } from '../types/task-graph.js';
-import type { WorktreeHandle, WorktreeManager } from '../worktree/worktree-manager.js';
 import { toErrorMessage } from '../utils/error.js';
+import type { WorktreeHandle, WorktreeManager } from '../worktree/worktree-manager.js';
 import type {
   AutoPhaseOptions,
   PhaseEventMap,
@@ -13,12 +13,6 @@ import type {
   PhaseProgress,
   PhaseStatus,
 } from './types.js';
-
-/** Lazy synchronous import of @wrongstack/sdd — avoids a DTS dependency for type generation. */
-function sdd(): { DefaultTaskStore: any; TaskTracker: any } {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return createRequire(import.meta.url)('@wrongstack/sdd') as any;
-}
 
 export interface PhaseOrchestratorOptions extends AutoPhaseOptions {
   graph: PhaseGraph;
@@ -68,7 +62,7 @@ export class PhaseOrchestrator {
   private paused = false;
   private runningPhases = new Set<string>();
   private tickInterval: ReturnType<typeof setInterval> | null = null;
-  private trackerCache = new Map<string, any>();
+  private trackerCache = new Map<string, TaskTracker>();
   private taskRetryCounts = new Map<string, number>();
 
   // ── Git-worktree isolation (optional) ──────────────────────────────────────
@@ -785,14 +779,11 @@ export class PhaseOrchestrator {
       });
   }
 
-  private getTrackerForPhase(phase: PhaseNode): any {
-    if (this.trackerCache.has(phase.id)) {
-      return this.trackerCache.get(phase.id);
-    }
+  private getTrackerForPhase(phase: PhaseNode): TaskTracker {
+    const cached = this.trackerCache.get(phase.id);
+    if (cached) return cached;
 
-    const { DefaultTaskStore: SddTaskStore, TaskTracker: SddTaskTracker } = sdd();
-    const store = new SddTaskStore();
-    const tracker = new SddTaskTracker({ store });
+    const tracker = new TaskTracker({ store: new DefaultTaskStore() });
     tracker.setGraph(phase.taskGraph);
     this.trackerCache.set(phase.id, tracker);
     return tracker;

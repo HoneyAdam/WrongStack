@@ -26,6 +26,8 @@ export default defineConfig({
     'src/hq/index.ts',
     // Skill installer
     'src/skills/index.ts',
+    // Tasking subpath (PR-10: shared TaskTracker + DefaultTaskStore)
+    'src/tasking/index.ts',
   ],
   format: ['esm'],
   dts: skipDts ? false : true,

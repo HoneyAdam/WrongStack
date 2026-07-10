@@ -202,12 +202,6 @@ importers:
       '@wrongstack/kanban':
         specifier: workspace:*
         version: link:../kanban
-      '@wrongstack/sdd':
-        specifier: workspace:*
-        version: link:../sdd
-      '@wrongstack/security-scanner':
-        specifier: workspace:*
-        version: link:../security-scanner
     devDependencies:
       '@types/node':
         specifier: ^26.0.1

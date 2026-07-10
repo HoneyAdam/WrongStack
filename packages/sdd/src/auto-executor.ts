@@ -1,7 +1,7 @@
 import type { TaskGraph, TaskNode } from '@wrongstack/core/types';
 import type { Specification } from '@wrongstack/core/types';
 import type { EventBus } from '@wrongstack/core/kernel';
-import type { TaskTracker } from './task-tracker.js';
+import type { TaskTracker } from '@wrongstack/core/tasking';
 import { analyzeCriticalPath } from './critical-path.js';
 
 export interface AutoExecutorOptions {

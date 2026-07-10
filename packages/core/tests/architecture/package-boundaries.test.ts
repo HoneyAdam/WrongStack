@@ -546,3 +546,45 @@ describe('core bidirectional coupling', () => {
     expect(cycles).toEqual([]);
   });
 });
+
+// ── P0/P1 manifest regression ────────────────────────────────────────────────
+
+/**
+ * Pin the manifest contracts sealed by PR-08 and PR-10: core no longer
+ * declares `@wrongstack/security-scanner` (PR-08) or
+ * `@wrongstack/sdd` (PR-10) as workspace dependencies. The cross-package
+ * boundary test above only scans runtime imports in core/src, so a future
+ * contributor could silently restore either edge by re-adding the entry
+ * to package.json without any import. These assertions keep the
+ * workspace-DAG PR-11 contract honest and break loudly if either edge
+ * creeps back.
+ */
+describe('P0/P1 manifest regression (PR-08 + PR-10)', () => {
+  it('core does not declare forbidden workspace dependencies in package.json', async () => {
+    const pkgRaw = await fs.readFile(
+      path.resolve(process.cwd(), 'packages/core/package.json'),
+      'utf8',
+    );
+    const pkg = JSON.parse(pkgRaw) as {
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const FORBIDDEN = ['@wrongstack/security-scanner', '@wrongstack/sdd'] as const;
+    const edges: Array<{ field: string; spec: string }> = [];
+    for (const [field, set] of [
+      ['dependencies', pkg.dependencies],
+      ['optionalDependencies', pkg.optionalDependencies],
+      ['peerDependencies', pkg.peerDependencies],
+      ['devDependencies', pkg.devDependencies],
+    ] as const) {
+      for (const spec of Object.keys(set ?? {})) {
+        if ((FORBIDDEN as readonly string[]).includes(spec)) {
+          edges.push({ field, spec });
+        }
+      }
+    }
+    expect(edges).toEqual([]);
+  });
+});

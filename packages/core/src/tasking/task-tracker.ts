@@ -4,10 +4,10 @@ import type {
   TaskNode,
   TaskProgress,
   TaskSort,
-} from '@wrongstack/core/types';
-import { computeTaskProgress } from '@wrongstack/core/types';
-import { SddError, ERROR_CODES } from '@wrongstack/core';
-import { toErrorMessage } from '@wrongstack/core';
+} from '../types/task-graph.js';
+import { computeTaskProgress } from '../types/task-graph.js';
+import { ERROR_CODES, SddError } from '../types/errors.js';
+import { toErrorMessage } from '../utils/error.js';
 
 export interface TaskStore {
   saveGraph(graph: TaskGraph): Promise<void>;

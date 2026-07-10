@@ -19,8 +19,8 @@ import type { TaskGraph, TaskNode } from '@wrongstack/core/types';
 import { AISpecBuilder, type AISpecPhase } from './spec-builder.js';
 import type { SpecStore } from './spec-store.js';
 import type { TaskGraphStore } from './task-graph-store.js';
-import { TaskTracker } from './task-tracker.js';
-import { DefaultTaskStore, TaskGenerator } from './task-generator.js';
+import { TaskTracker, DefaultTaskStore } from '@wrongstack/core/tasking';
+import { TaskGenerator } from './task-generator.js';
 import { buildBoardTasks, type SddBoardTask, type SddBoardColumn } from './board-types.js';
 
 export interface SddInterviewDriverOptions {

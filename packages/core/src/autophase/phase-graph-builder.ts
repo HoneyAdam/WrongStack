@@ -1,21 +1,6 @@
+import { DefaultTaskStore, TaskTracker, type TaskStore } from '../tasking/index.js';
+import type { TaskGraph, TaskPriority } from '../types/task-graph.js';
 import type { PhaseGraph, PhaseNode, PhaseTemplate } from './types.js';
-import type { TaskGraph } from '../types/task-graph.js';
-
-import { createRequire } from 'node:module';
-
-/** Minimal TaskStore interface — mirrors @wrongstack/sdd's TaskStore so no dep on sdd's .d.ts. */
-interface TaskStore {
-  saveGraph(graph: TaskGraph): Promise<void>;
-  loadGraph(id: string): Promise<TaskGraph | null>;
-  loadAllGraphs(): Promise<Map<string, TaskGraph>>;
-  deleteGraph(id: string): Promise<void>;
-}
-
-/** Lazy synchronous import of @wrongstack/sdd — avoids a DTS dependency for type generation. */
-function sdd(): { DefaultTaskStore: any; TaskTracker: any } {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return createRequire(import.meta.url)('@wrongstack/sdd') as any;
-}
 
 export interface PhaseGraphBuilderOptions {
   title: string;
@@ -60,10 +45,9 @@ export class PhaseGraphBuilder {
       const phaseId = crypto.randomUUID();
       phaseIds.push(phaseId);
 
-      // Use the external store or create a new DefaultTaskStore.
-      const { DefaultTaskStore: SddTaskStore, TaskTracker: SddTaskTracker } = sdd();
-      const store = this.opts.externalTaskStore ?? new SddTaskStore();
-      const tracker = new SddTaskTracker({ store });
+      // Use the external store or create a new in-memory task store.
+      const store = this.opts.externalTaskStore ?? new DefaultTaskStore();
+      const tracker = new TaskTracker({ store });
       const taskGraph = await tracker.createGraph(phaseId, `${tmpl.name} Tasks`);
 
       // Add task templates when present.
@@ -164,14 +148,22 @@ export class PhaseGraphBuilder {
       if (degree === 0) queue.push(id);
     }
 
+    const prioOrder: Record<TaskPriority, number> = {
+      critical: 0,
+      high: 1,
+      medium: 2,
+      low: 3,
+    };
+
     const topoSorted: string[] = [];
     while (queue.length > 0) {
       // Prioritize by critical → high → medium → low within the same level.
       queue.sort((a, b) => {
         const na = taskGraph.nodes.get(a);
         const nb = taskGraph.nodes.get(b);
-        const prioOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-        return ((na && prioOrder[na.priority]) ?? 4) - ((nb && prioOrder[nb.priority]) ?? 4);
+        const naPrio = na ? prioOrder[na.priority] : 4;
+        const nbPrio = nb ? prioOrder[nb.priority] : 4;
+        return naPrio - nbPrio;
       });
       const id = queue.shift()!;
       topoSorted.push(id);

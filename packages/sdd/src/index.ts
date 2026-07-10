@@ -4,19 +4,22 @@
 export { SpecParser } from './spec-parser.js';
 export {
   TaskGenerator,
-  DefaultTaskStore,
   extractVerificationCommand,
   type TaskGeneratorOptions,
   type GeneratedTask,
 } from './task-generator.js';
+// TaskTracker and DefaultTaskStore moved to @wrongstack/core/tasking in
+// PR-10; re-exported here so existing `@wrongstack/sdd` consumers keep
+// working. New code should import directly from `@wrongstack/core/tasking`.
 export {
   TaskTracker,
+  DefaultTaskStore,
   type TaskStore,
   type TaskTrackerOptions,
   type TaskTransition,
   type TaskTrackerChange,
   type TaskTrackerListener,
-} from './task-tracker.js';
+} from '@wrongstack/core/tasking';
 export {
   TaskFlow,
   SpecDrivenDev,

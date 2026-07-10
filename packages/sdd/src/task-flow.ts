@@ -4,8 +4,8 @@ import type { SpecAnalysis, Specification } from '@wrongstack/core/types';
 import type { TaskGraph, TaskNode } from '@wrongstack/core/types';
 import { SddError, ERROR_CODES } from '@wrongstack/core';
 import { SpecParser } from './spec-parser.js';
-import { DefaultTaskStore, TaskGenerator } from './task-generator.js';
-import { TaskTracker } from './task-tracker.js';
+import { TaskGenerator } from './task-generator.js';
+import { DefaultTaskStore, TaskTracker } from '@wrongstack/core/tasking';
 
 /**
  * Extended event map used internally by TaskFlow and multi-agent components.
