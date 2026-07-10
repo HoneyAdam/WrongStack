@@ -87,6 +87,14 @@ export interface HqPublisherOptions {
   resolveEndpoint?: () => { url: string; token?: string | undefined } | undefined;
   /** Dormant re-check interval while `resolveEndpoint` yields nothing. Default 5s. */
   discoveryPollMs?: number;
+  /**
+   * Diagnostic sink for the one-time consecutive-connect-failure warning.
+   * The publisher is otherwise deliberately silent (dormant queueing), which
+   * made auth failures invisible: a token the server rejects — e.g. a wrong
+   * `WRONGSTACK_HQ_TOKEN` against a remote HQ — looked exactly like "HQ not
+   * running". Defaults to a single structured `console.warn` line.
+   */
+  warn?: (message: string) => void;
 }
 
 export interface HqPublishEventOptions {
@@ -98,6 +106,13 @@ export interface HqPublishEventOptions {
 }
 
 const OPEN_STATE = 1;
+/**
+ * After this many consecutive failed connects (never reaching `open`), emit
+ * ONE diagnostic warning. The WS handshake gives the browser-style socket no
+ * HTTP status, so a 401 (token mismatch) is indistinguishable from a dead
+ * server at this layer — the warning names both possibilities.
+ */
+const CONNECT_WARN_AFTER_FAILURES = 5;
 const DEFAULT_RECONNECT_BASE_MS = 1_000;
 const DEFAULT_RECONNECT_MAX_MS = 30_000;
 const DEFAULT_DISCOVERY_POLL_MS = 5_000;
@@ -161,6 +176,8 @@ export class HqPublisher {
   private queue: string[] = [];
   private stopped = false;
   private reconnectAttempt = 0;
+  private connectWarningEmitted = false;
+  private lastAttempt: { url: string; hadToken: boolean } | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private commandPollTimer: ReturnType<typeof setInterval> | null = null;
   private lastCommandId: string | undefined;
@@ -198,6 +215,7 @@ export class HqPublisher {
       url = endpoint.url;
       token = endpoint.token ?? token;
     }
+    this.lastAttempt = { url, hadToken: token !== undefined };
 
     let socket: HqSocketLike;
     try {
@@ -532,11 +550,43 @@ export class HqPublisher {
     if (this.stopped || !this.reconnect || this.reconnectTimer !== null) return;
     const delay = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * 2 ** this.reconnectAttempt);
     this.reconnectAttempt += 1;
+    // One-time visibility for persistent failures. `reconnectAttempt` resets
+    // on every successful open, so reaching the threshold means the endpoint
+    // has NEVER accepted us in this streak — dead server or rejected token.
+    if (!this.connectWarningEmitted && this.reconnectAttempt >= CONNECT_WARN_AFTER_FAILURES) {
+      this.connectWarningEmitted = true;
+      this.emitConnectWarning();
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
     this.reconnectTimer.unref?.();
+  }
+
+  private emitConnectWarning(): void {
+    const attempt = this.lastAttempt;
+    const message =
+      `WrongStack HQ publisher: ${this.reconnectAttempt} consecutive connection failures` +
+      `${attempt !== null ? ` to ${attempt.url} (client token ${attempt.hadToken ? 'present' : 'absent'})` : ''}. ` +
+      'Either the HQ server is unreachable or it rejected the token (401). ' +
+      'If HQ runs in client-token mode, verify WRONGSTACK_HQ_TOKEN / auth.json. Retries continue with backoff.';
+    const warn =
+      this.options.warn ??
+      ((msg: string) =>
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'hq.publisher.connect_failed',
+            message: msg,
+            timestamp: this.now(),
+          }),
+        ));
+    try {
+      warn(message);
+    } catch {
+      /* diagnostics must never break publishing */
+    }
   }
 
   /**

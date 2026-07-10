@@ -14,7 +14,9 @@ import type {
   BuildContext,
   ModelCapabilities,
   SystemPromptBuilder,
+  SystemPromptRegions,
 } from '../types/system-prompt.js';
+import { flattenSystemPromptRegions } from '../types/system-prompt.js';
 import type { SystemPromptContributor } from '../types/system-prompt-contributor.js';
 import type { Tool } from '../types/tool.js';
 import { buildChildEnv } from '../utils/child-env.js';
@@ -250,6 +252,10 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
   }
 
   async build(ctx: BuildContext): Promise<TextBlock[]> {
+    return flattenSystemPromptRegions(await this.buildRegions(ctx));
+  }
+
+  async buildRegions(ctx: BuildContext): Promise<SystemPromptRegions> {
     this._lastBuildTools = ctx.tools;
     // Pre-load skill entries so we can include them in the environment block
     // (which is cached). Skills are static per-session, so this is safe.
@@ -283,14 +289,15 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // they weren't supposed to touch.
     const layer6 = ctx.subagent ? '' : await this.buildActivePlan();
 
-    const blocks: TextBlock[] = [
+    const core: TextBlock[] = [
       { type: 'text', text: layer1 },
       { type: 'text', text: layer2 },
-      { type: 'text', text: layer3WithDir },
     ];
+    const session: TextBlock[] = [{ type: 'text', text: layer3WithDir }];
+    const volatile: TextBlock[] = [];
 
     if (layer4.trim()) {
-      blocks.push({
+      session.push({
         type: 'text',
         text: layer4,
         cache_control: { type: 'ephemeral' },
@@ -298,7 +305,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     if (layer5.trim()) {
-      blocks.push({
+      session.push({
         type: 'text',
         text: layer5,
         cache_control: { type: 'ephemeral' },
@@ -315,7 +322,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
           const loadedNames = new Set(skills.map((s) => s.name));
           const available = activeMode.suggestedSkills.filter((n) => loadedNames.has(n));
           if (available.length > 0) {
-            blocks.push({
+            session.push({
               type: 'text',
               text: `Mode "${activeMode.id}" works best with these skills: ${available.join(', ')}. Their full instructions are in the Active Skills block above.`,
               cache_control: { type: 'ephemeral' },
@@ -328,7 +335,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     if (layer6.trim()) {
-      blocks.push({
+      volatile.push({
         type: 'text',
         text: layer6,
         cache_control: { type: 'ephemeral' },
@@ -340,7 +347,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       for (const c of this.opts.contributors) {
         try {
           const contributed = await c(ctx);
-          blocks.push(...contributed);
+          volatile.push(...contributed);
         } catch {
           // Contributor errors are swallowed — a bad plugin shouldn't
           // break the system prompt assembly.
@@ -355,13 +362,13 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // specs/plans. Lives outside layer1 so the host keeps it in EVERY mode while
     // no subagent ever receives it.
     if (!ctx.subagent) {
-      blocks.push({
+      session.push({
         type: 'text',
         text: instructions.system?.leaderAfterTask ?? LEADER_AFTER_TASK_PROMPT,
       });
     }
 
-    return blocks;
+    return { core, session, volatile };
   }
 
   private async instructions(): Promise<InstructionBundle> {
@@ -512,6 +519,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
               (hint.length > descLimit ? '…' : '')
             : hint.trim();
         lines.push(`- **${t.name}** — ${desc}`);
+        const boundary = this.renderToolSelectionBoundary(t);
+        if (boundary) lines.push(`  ${boundary}`);
       }
     }
 
@@ -521,6 +530,8 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       for (const t of uncategorized) {
         const hint = t.usageHint ?? t.description;
         lines.push(`\n### ${t.name}\n${hint.trim()}`);
+        const boundary = this.renderToolSelectionBoundary(t);
+        if (boundary) lines.push(boundary);
       }
     }
 
@@ -685,6 +696,14 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     const text = lines.join('\n');
     this._toolsUsageCache = { toolsRef: tools, agentsHash, tier, text };
     return text;
+  }
+
+  private renderToolSelectionBoundary(tool: Tool): string {
+    const selection = tool.selection;
+    if (!selection?.doNotUseWhen.trim()) return '';
+    const alternatives = selection.useInstead?.filter(Boolean) ?? [];
+    const instead = alternatives.length > 0 ? ` Use ${alternatives.map((name) => `\`${name}\``).join(' or ')} instead.` : '';
+    return `Do not use when ${selection.doNotUseWhen.trim()}${instead}`;
   }
 
   /**

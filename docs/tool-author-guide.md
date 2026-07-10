@@ -57,6 +57,7 @@ interface Tool<I, O> {
 |---|---|
 | `name` | Must match `/^[a-z][a-z0-9_-]*$/`. MCP tools are prefixed `mcp__<server>__`. |
 | `description` | Goes into the system prompt under `## Tool usage`. Be terse and concrete — the model reads every line of this. |
+| `selection` | Negative selection boundary for similar tools: say when not to use this tool and name the preferred alternative(s). |
 | `usageHint` | Replaces `description` in the prompt when set. Use for richer guidance. |
 | `inputSchema` | JSON Schema subset (no `$ref`, no `format`). Validated by `validateAgainstSchema` before `execute` runs. |
 | `permission` | `auto` runs without prompting. `confirm` prompts the user. `deny` rejects calls without prompting (useful for read-only modes). |

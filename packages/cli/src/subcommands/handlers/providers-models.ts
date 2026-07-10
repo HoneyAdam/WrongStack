@@ -12,6 +12,7 @@ import {
   type WireFamily,
 } from '@wrongstack/core';
 import { mutateConfigProviders } from '../../provider-config-utils.js';
+import { visibleModelIds } from '../../provider-helpers.js';
 import type { SubcommandHandler } from '../index.js';
 export const providersCmd: SubcommandHandler = async (args, deps) => {
   const showAll = args.includes('--all');
@@ -173,20 +174,27 @@ export const modelsCmd: SubcommandHandler = async (args, deps) => {
   deps.renderer.write(`${color.bold(provider.name)} ${color.dim(`(${provider.id})`)}\n`);
   if (provider.doc) deps.renderer.write(color.dim(`Docs: ${provider.doc}\n`));
 
-  const userModels = deps.config.providers?.[providerId]?.models;
+  const savedProvider = deps.config.providers?.[providerId];
+  const userModels = savedProvider?.models;
   const catalogById = new Map(provider.models.map((m) => [m.id, m]));
   const allKnownSorted = [...provider.models].sort((a, b) =>
     (b.release_date ?? '').localeCompare(a.release_date ?? ''),
   );
-  const allSorted =
-    userModels !== undefined
-      ? userModels.map((id) => catalogById.get(id) ?? { id, name: id })
-      : allKnownSorted;
+  const visibleIds = visibleModelIds(
+    providerId,
+    deps.config,
+    allKnownSorted.map((m) => m.id),
+    savedProvider,
+  );
+  const allSorted = visibleIds.map((id) => catalogById.get(id) ?? { id, name: id });
 
   if (userModels !== undefined) {
-    const hiddenCount = Math.max(0, allKnownSorted.length - userModels.length);
+    const hiddenCount = Math.max(0, allKnownSorted.length - visibleIds.length);
+    const restoredCount = Math.max(0, visibleIds.length - userModels.length);
     deps.renderer.write(
-      color.dim(`(${userModels.length} visible model(s) from your saved config${hiddenCount > 0 ? `, ${hiddenCount} hidden` : ''})\n`),
+      color.dim(
+        `(${visibleIds.length} visible model(s)${restoredCount > 0 ? `, ${restoredCount} from providers.json/catalog fallback` : ' from your saved config'}${hiddenCount > 0 ? `, ${hiddenCount} hidden` : ''})\n`,
+      ),
     );
   }
 

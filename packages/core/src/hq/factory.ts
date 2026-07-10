@@ -53,6 +53,21 @@ function readFirstClientTokenFromAuthFile(dataDir: string): string | undefined {
   }
 }
 
+/**
+ * True when an explicit HQ URL targets this machine. Falling back to the
+ * LOCAL auth.json client token is only valid for same-machine servers — a
+ * remote HQ has its own auth.json, and sending the local token would put the
+ * publisher into a silent 401 reconnect loop.
+ */
+function isLoopbackHqUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]' || host === '0.0.0.0';
+  } catch {
+    return false;
+  }
+}
+
 export function resolveHqConfigFromEnv(env: NodeJS.ProcessEnv = process.env): HqPublisherEnvConfig | undefined {
   return resolveHqConfig({ env });
 }
@@ -72,9 +87,16 @@ export function resolveHqConfig(options: {
     ? envEnabledRaw !== '0'
     : fileConfig?.enabled;
   const dataDir = resolveHqDataDir(fileConfig?.dataDir, env);
-  const token = envToken || configToken || readFirstClientTokenFromAuthFile(dataDir);
+  const explicitToken = envToken || configToken;
   const runtimeUrl = readHqRuntimeFileSync(dataDir)?.url.trim();
   const url = envUrl || configUrl;
+  // The local auth.json client token is only a valid fallback for
+  // same-machine endpoints (discovery, or an explicit loopback URL). For a
+  // remote URL without an explicit token, send NO token — the server's 401
+  // is then an honest signal instead of a guaranteed-wrong local token.
+  const localFallbackToken =
+    !url || isLoopbackHqUrl(url) ? readFirstClientTokenFromAuthFile(dataDir) : undefined;
+  const token = explicitToken || localFallbackToken;
 
   if (!url) {
     if (enabled === false) return undefined;

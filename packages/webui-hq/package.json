@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/webui-hq",
-  "version": "0.283.1",
+  "version": "0.284.0",
   "license": "MIT",
   "description": "HQ Command Center dashboard — offline React app for the cross-machine coordination surface (port 3499).",
   "type": "module",
@@ -21,6 +21,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@wrongstack/core": "workspace:*",
     "@wrongstack/tools": "workspace:*",
+    "@xyflow/react": "^12.11.1",
     "lucide-react": "^1.22.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

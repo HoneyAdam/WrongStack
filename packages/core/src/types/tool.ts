@@ -96,6 +96,13 @@ export interface Tool<I = unknown, O = unknown> {
    */
   _estDefTokens?: number | undefined;
   usageHint?: string | undefined;
+  /** Structured guidance for choosing between similar tools. */
+  selection?: {
+    /** A concise boundary where this tool should not be selected. */
+    doNotUseWhen: string;
+    /** Tool names the model should prefer for that boundary. */
+    useInstead?: readonly string[] | undefined;
+  } | undefined;
   /** Optional category for grouping in help lists and system prompts. */
   category?: string | undefined;
   inputSchema: JSONSchema;

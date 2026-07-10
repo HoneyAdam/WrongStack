@@ -27,14 +27,14 @@ export interface Pkce {
 
 /** Generate a PKCE verifier + S256 challenge. */
 export function generatePkce(): Pkce {
-  const verifier = base64url(randomBytes(32));
+  const verifier = base64url(randomBytes(64));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
   return { verifier, challenge };
 }
 
-/** Random CSRF state (hex). */
+/** Random CSRF state, URL-safe like the upstream Codex OAuth flow. */
 export function createState(): string {
-  return randomBytes(16).toString('hex');
+  return base64url(randomBytes(32));
 }
 
 // ── Manual-paste parsing ──────────────────────────────────────────────────────
@@ -92,12 +92,15 @@ export interface LoopbackServer {
   /** Resolves with `{ code, state }`, or null if cancelled / failed to bind. */
   waitForCode(): Promise<{ code: string; state: string } | null>;
   close(): void;
-  /** True when the server bound to the port; false means the port was busy. */
+  /** True when the server bound to a callback port; false means all ports were busy. */
   readonly bound: boolean;
+  /** Actual callback port selected by the listener. */
+  readonly port: number;
 }
 
 export interface LoopbackOptions {
   port: number;
+  fallbackPorts?: number[] | undefined;
   host: string;
   /** Expected callback path, e.g. `/auth/callback` or `/callback`. */
   path: string;
@@ -113,7 +116,7 @@ export interface LoopbackOptions {
  * is false and the caller falls back to manual paste).
  */
 export function startLoopbackServer(opts: LoopbackOptions): Promise<LoopbackServer> {
-  const { port, host, path, expectedState, signal } = opts;
+  const { port, fallbackPorts = [], host, path, expectedState, signal } = opts;
   let resolveCode: (v: { code: string; state: string } | null) => void = () => {};
   const codePromise = new Promise<{ code: string; state: string } | null>((resolve) => {
     let settled = false;
@@ -179,34 +182,48 @@ export function startLoopbackServer(opts: LoopbackOptions): Promise<LoopbackServ
   }
 
   return new Promise<LoopbackServer>((resolve) => {
-    server.on('error', () => {
-      // Port busy / cannot bind — signal manual fallback.
+    const ports = [port, ...fallbackPorts];
+    let index = 0;
+
+    const close = (): void => {
+      resolveCode(null);
+      try {
+        server.close();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const fail = (): void => {
       resolveCode(null);
       resolve({
         bound: false,
+        port,
         waitForCode: () => Promise.resolve(null),
-        close: () => {
-          try {
-            server.close();
-          } catch {
-            /* ignore */
-          }
-        },
+        close,
       });
+    };
+
+    server.on('error', () => {
+      index += 1;
+      const nextPort = ports[index];
+      if (nextPort !== undefined) {
+        server.listen(nextPort, host);
+        return;
+      }
+      // All requested callback ports are busy / unavailable — signal manual fallback.
+      fail();
     });
-    server.listen(port, host, () => {
+    server.on('listening', () => {
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address ? address.port : ports[index] ?? port;
       resolve({
         bound: true,
+        port: actualPort,
         waitForCode: () => codePromise,
-        close: () => {
-          resolveCode(null);
-          try {
-            server.close();
-          } catch {
-            /* ignore */
-          }
-        },
+        close,
       });
     });
+    server.listen(ports[index] ?? port, host);
   });
 }

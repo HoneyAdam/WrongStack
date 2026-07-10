@@ -52,6 +52,8 @@ import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { printLaunchHints } from './launch-hints.js';
 import { type PickerResult, runPicker, saveToGlobalConfig } from './picker.js';
+import { resolveActiveApiKey } from './provider-config-utils.js';
+import { isKeylessLocalProvider, visibleModelIds } from './provider-helpers.js';
 import {
   LaunchAbortedError,
   maybeAskAboutIndexing,
@@ -64,6 +66,45 @@ import { loadManifest, touchProjectInManifest } from './slash-commands/project-u
 import { subcommands } from './subcommands/index.js';
 import { checkForUpdate, type UpdateInfo } from './update-check.js';
 import { patchConfig } from './utils.js';
+
+interface SavedDefaultStatus {
+  ok: boolean;
+  reason?: string;
+}
+
+async function validateSavedProviderModel(
+  config: Config,
+  modelsRegistry: ModelsRegistry,
+): Promise<SavedDefaultStatus> {
+  const providerId = config.provider;
+  const modelId = config.model;
+  if (!providerId || !modelId) return { ok: false, reason: 'missing provider/model' };
+
+  const saved = config.providers?.[providerId];
+  const lookupId = saved?.type && saved.type !== providerId ? saved.type : providerId;
+  const catalogProvider = await modelsRegistry.getProvider(lookupId).catch(() => undefined);
+  if (!catalogProvider && !saved?.family) return { ok: false, reason: `provider "${providerId}" is no longer available` };
+
+  const hasCredential =
+    (catalogProvider?.envVars ?? saved?.envVars ?? []).some((envVar) => Boolean(process.env[envVar])) ||
+    (saved !== undefined && resolveActiveApiKey(saved) !== undefined) ||
+    isKeylessLocalProvider({
+      apiBase: saved?.baseUrl ?? catalogProvider?.apiBase,
+      envVars: saved?.envVars ?? catalogProvider?.envVars,
+    });
+  if (!hasCredential) return { ok: false, reason: `provider "${providerId}" has no usable key` };
+
+  const visible = visibleModelIds(
+    providerId,
+    config,
+    (catalogProvider?.models ?? []).map((m) => m.id),
+    saved,
+  );
+  if (visible.length > 0 && !visible.includes(modelId)) {
+    return { ok: false, reason: `model "${modelId}" is no longer available for provider "${providerId}"` };
+  }
+  return { ok: true };
+}
 
 export interface BootContext {
   config: Config;
@@ -310,28 +351,35 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       const savedProvider = config.provider;
       const savedModel = config.model;
       if (savedProvider && savedModel) {
+        const savedStatus = await validateSavedProviderModel(config, modelsRegistry);
         renderer.write(
           `\n  ${color.dim('Last settings:')} ${color.bold(savedProvider)} / ${color.bold(savedModel)}\n`,
         );
-        const answer = (
-          await reader.readLine(
-            `  ${color.amber('?')} Continue with these? ${color.dim('[Y/n/q]')} ${color.dim('(auto Y in 5s)')} `,
-            { timeoutMs: 5000, defaultAnswer: 'y' },
-          )
-        )
-          .trim()
-          .toLowerCase();
-        if (answer === 'q') {
-          renderer.write(color.dim('  Goodbye!\n'));
-          await reader.close();
-          return 0;
-        }
-        if (answer !== 'n' && answer !== 'no') {
-          // Accepted — use saved values, skip the picker entirely
-          skipPicker = true;
-          renderer.write(
-            `\n  ${color.green('▶')} ${color.bold(savedProvider)} / ${color.bold(savedModel)}\n\n`,
+        if (!savedStatus.ok) {
+          renderer.writeWarning(
+            `Saved provider/model is no longer usable (${savedStatus.reason ?? 'unknown reason'}); choose a provider.\n`,
           );
+        } else {
+          const answer = (
+            await reader.readLine(
+              `  ${color.amber('?')} Continue with these? ${color.dim('[Y/n/q]')} ${color.dim('(auto Y in 5s)')} `,
+              { timeoutMs: 5000, defaultAnswer: 'y' },
+            )
+          )
+            .trim()
+            .toLowerCase();
+          if (answer === 'q') {
+            renderer.write(color.dim('  Goodbye!\n'));
+            await reader.close();
+            return 0;
+          }
+          if (answer !== 'n' && answer !== 'no') {
+            // Accepted — use saved values, skip the picker entirely
+            skipPicker = true;
+            renderer.write(
+              `\n  ${color.green('▶')} ${color.bold(savedProvider)} / ${color.bold(savedModel)}\n\n`,
+            );
+          }
         }
       }
 
@@ -378,6 +426,15 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       );
       await reader.close();
       return 2;
+    } else {
+      const savedStatus = await validateSavedProviderModel(config, modelsRegistry);
+      if (!savedStatus.ok) {
+        writeErr(
+          `Saved provider/model is no longer usable (${savedStatus.reason ?? 'unknown reason'}). Run \`wstack auth\` or pass --provider <id> --model <id>.\n`,
+        );
+        await reader.close();
+        return 2;
+      }
     }
   }
 

@@ -27,6 +27,9 @@ describe('oauth engine — authorize URLs', () => {
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('state')).toBe('STATE');
     expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:1455/auth/callback');
+    expect(url.searchParams.get('scope')).toBe(
+      'openid profile email offline_access api.connectors.read api.connectors.invoke',
+    );
     expect(url.searchParams.get('originator')).toBe('wrongstack');
   });
 

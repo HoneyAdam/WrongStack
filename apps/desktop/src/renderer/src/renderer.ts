@@ -432,9 +432,9 @@ function renderLauncher(active: DesktopRuntimeRecord | undefined): string {
 }
 
 function renderProjectPicker(variant: ProjectPickerVariant): string {
-  const allProjects = dedupeProjects([...state.recentProjects, ...state.registeredProjects]);
   const recentProjects = dedupeProjects(state.recentProjects);
   const registeredProjects = dedupeProjects(state.registeredProjects);
+  const allProjects = dedupeProjects([...registeredProjects, ...recentProjects]);
   const tabProjects =
     projectPickerTab === 'recent'
       ? recentProjects
@@ -530,32 +530,43 @@ function renderProjectTab(tab: ProjectPickerTab, label: string, count: number): 
 
 function renderProjectItem(project: DesktopProjectEntry): string {
   const openRuntime = state.runtimes.find((runtime) => sameProjectRoot(runtime.root, project.root));
+  const registered = state.registeredProjects.some((item) => sameProjectRoot(item.root, project.root));
+  const recent = state.recentProjects.some((item) => sameProjectRoot(item.root, project.root));
   const title = project.name || basenameFromPath(project.root) || project.root;
   const subtitle = project.lastWorkingDir || project.root;
+  const actionLabel = openRuntime ? t('quickView') : registered ? t('openRegisteredProject') : t('openProject');
   return `
-    <div class="project-item-row ${openRuntime ? 'open' : ''}">
+    <div class="project-item-row ${openRuntime ? 'open' : ''} ${registered ? 'registered' : ''} ${recent ? 'recent' : ''}">
       <button
         class="project-item-main"
         data-action="${openRuntime ? 'activate' : 'open-project-path'}"
         ${openRuntime ? `data-runtime="${escapeAttr(openRuntime.id)}"` : `data-project-root="${escapeAttr(project.root)}"`}
-        title="${escapeAttr(project.root)}"
+        title="${escapeAttr(`${actionLabel} · ${project.root}`)}"
       >
-        ${iconSvg(openRuntime ? 'project' : 'folder')}
+        ${iconSvg(openRuntime ? 'project' : registered ? 'folder-plus' : 'folder')}
         <span class="project-item-copy">
           <span class="project-item-title">${escapeHtml(title)}</span>
           <span class="project-item-path">${escapeHtml(subtitle)}</span>
         </span>
+        <span class="project-source-tags">
+          ${registered ? `<span class="project-source-tag registered-tag">${t('registered')}</span>` : ''}
+          ${recent ? `<span class="project-source-tag recent-tag">${t('recent')}</span>` : ''}
+        </span>
         ${openRuntime ? `<span class="project-open-dot" title="${t('open')}"></span>` : ''}
       </button>
-      <button
+      ${
+        registered
+          ? `<button
         class="project-remove-button"
         data-action="unregister-project"
         data-project-root="${escapeAttr(project.root)}"
-        title="${t('removeFromRegistry')}"
-        aria-label="${t('removeFromRegistry')}"
+        title="${t('removeFromProjectRegistry')}"
+        aria-label="${t('removeFromProjectRegistry')}"
       >
         ${iconSvg('x')}
-      </button>
+      </button>`
+          : '<span></span>'
+      }
     </div>
   `;
 }

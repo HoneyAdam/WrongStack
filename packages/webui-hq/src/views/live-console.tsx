@@ -12,8 +12,8 @@
  * turn while the user is at the bottom.
  */
 
-import type { HqTranscriptAppendPayload, HqTranscriptEntry } from '@wrongstack/core';
-import { ArrowDownToLine, History, MessageSquareText } from 'lucide-react';
+import type { HqAgentMessagePayload, HqTranscriptAppendPayload, HqTranscriptEntry } from '@wrongstack/core';
+import { ArrowDownToLine, Bot, History, MessageSquareText } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { VList, type VListHandle } from 'virtua';
@@ -44,9 +44,32 @@ function shortSessionId(id: string): string {
   return id.length > 28 ? `…${id.slice(-24)}` : id;
 }
 
+function entryFromAgentMessage(payload: HqAgentMessagePayload): HqTranscriptEntry {
+  const role: HqTranscriptEntry['role'] =
+    payload.kind === 'thinking'
+      ? 'thinking'
+      : payload.kind === 'tool_use' || payload.kind === 'tool_result'
+        ? 'tool'
+        : payload.kind === 'error'
+          ? 'error'
+          : payload.kind === 'system' || payload.kind === 'status'
+            ? 'system'
+            : 'assistant';
+  return {
+    ts: payload.ts,
+    role,
+    text: payload.content,
+    ...(payload.toolName !== undefined ? { tool: payload.toolName } : {}),
+    ...(payload.kind === 'error' ? { isError: true } : {}),
+    agentId: payload.subagentId,
+  };
+}
+
 export function LiveConsoleView(): React.ReactElement {
-  const state = useHqStore(['events', 'selectedSessionId', 'snapshot']);
+  const state = useHqStore(['events', 'selectedSessionId', 'selectedAgentId', 'snapshot']);
   const sessionId = state.selectedSessionId;
+  const agentId = state.selectedAgentId;
+  const viewingAgent = agentId !== null;
   const [transcript, setTranscript] = useState<TranscriptState>(createTranscriptState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,10 +90,63 @@ export function LiveConsoleView(): React.ReactElement {
   transcriptRef.current = transcript;
 
   const sessions = state.snapshot?.liveSessions ?? [];
+  const selectedAgent = useMemo(
+    () => sessions.flatMap((s) => s.agents).find((a) => a.id === agentId) ?? null,
+    [agentId, sessions],
+  );
+
+  // ── Subagent history ────────────────────────────────────────────────────
+  // Seed from the server's PER-AGENT transcript ring (/api/agents/:id/messages
+  // — 4000 entries per subagent, fed by every agent.message the server ever
+  // saw), then fold in live agent.message envelopes from the in-memory store
+  // ring. The old approach read only the shared /api/events log, where one
+  // busy agent could evict another's history.
+  const [agentSeed, setAgentSeed] = useState<HqTranscriptEntry[]>([]);
+  const [agentLoading, setAgentLoading] = useState(false);
+  useEffect(() => {
+    setAgentSeed([]);
+    if (agentId === null) return;
+    let cancelled = false;
+    setAgentLoading(true);
+    fetchJson<{ subagentId: string; total: number; entries: HqTranscriptEntry[] }>(
+      `/api/agents/${encodeURIComponent(agentId)}/messages?full=1`,
+    )
+      .then((data) => {
+        if (cancelled) return;
+        setAgentSeed((data.entries ?? []).map((e) => ({ ...e, agentId })));
+        setAgentLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentLoading(false); // ring may be empty — live-only
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  const agentEntries = useMemo(() => {
+    if (agentId === null) return [];
+    const live = state.events
+      .filter((event) => event.type === 'agent.message')
+      .map((event) => event.payload as Partial<HqAgentMessagePayload>)
+      .filter((payload): payload is HqAgentMessagePayload => payload.subagentId === agentId)
+      .map(entryFromAgentMessage);
+    // The seed already contains every message the server saw — including the
+    // ones mirrored in our live ring — so dedupe on (ts, role, text).
+    const seen = new Set<string>();
+    const out: HqTranscriptEntry[] = [];
+    for (const entry of [...agentSeed, ...live]) {
+      const key = `${entry.ts}|${entry.role}|${entry.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(entry);
+    }
+    return out;
+  }, [agentSeed, state.events, agentId]);
 
   // ── Initial (re)fetch ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (sessionId === null) return;
+    if (sessionId === null || viewingAgent) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -92,18 +168,18 @@ export function LiveConsoleView(): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, full]);
+  }, [sessionId, full, viewingAgent]);
 
   // Reset when switching sessions.
   useEffect(() => {
     setTranscript(createTranscriptState());
     setMeta({ total: 0 });
     setFull(false);
-  }, [sessionId]);
+  }, [sessionId, agentId]);
 
   // ── Live appends ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (sessionId === null) return;
+    if (sessionId === null || viewingAgent) return;
     let next = transcriptRef.current;
     for (const e of state.events) {
       if (e.type !== 'session.transcript' || e.sessionId !== sessionId) continue;
@@ -112,10 +188,10 @@ export function LiveConsoleView(): React.ReactElement {
       next = applyLiveBatch(next, payload.fromSeq, payload.entries);
     }
     if (next !== transcriptRef.current) setTranscript(next);
-  }, [state.events, sessionId]);
+  }, [state.events, sessionId, viewingAgent]);
 
   // ── Follow the newest turn while pinned ───────────────────────────────────
-  const entries = transcript.entries;
+  const entries = viewingAgent ? agentEntries : transcript.entries;
   useEffect(() => {
     if (pinnedRef.current && entries.length > 0) {
       listRef.current?.scrollToIndex(entries.length - 1, { align: 'end' });
@@ -172,8 +248,13 @@ export function LiveConsoleView(): React.ReactElement {
           Console
         </span>
         {picker}
-        {meta.projectName !== undefined && <span className="hq-pill">{meta.projectName}</span>}
-        {meta.source !== undefined && (
+        {viewingAgent && (
+          <span className="hq-pill active">
+            <Bot size={12} /> {selectedAgent?.name ?? agentId}
+          </span>
+        )}
+        {meta.projectName !== undefined && !viewingAgent && <span className="hq-pill">{meta.projectName}</span>}
+        {meta.source !== undefined && !viewingAgent && (
           <span className="hq-pill" title="disk = full replay, stream = live ring">
             {meta.source}
           </span>
@@ -183,7 +264,7 @@ export function LiveConsoleView(): React.ReactElement {
           <span className="hq-pill">{stats.tools} tools</span>
           {stats.running > 0 && <span className="hq-pill running">{stats.running} running</span>}
           {stats.errors > 0 && <span className="hq-pill error">{stats.errors} err</span>}
-          {!full && meta.total > entries.length && (
+          {!viewingAgent && !full && meta.total > entries.length && (
             <button
               type="button"
               className="hq-btn secondary hq-chat-fullbtn"
@@ -198,14 +279,20 @@ export function LiveConsoleView(): React.ReactElement {
 
       {sessionId === null ? (
         <div className="hq-empty">Select a session above (or click one in the Fleet view).</div>
-      ) : loading && entries.length === 0 ? (
+      ) : viewingAgent && agentLoading && entries.length === 0 ? (
+        <div className="hq-empty">Loading agent history…</div>
+      ) : !viewingAgent && loading && entries.length === 0 ? (
         <div className="hq-empty">Loading transcript…</div>
       ) : error !== null ? (
         <div className="hq-empty">Error: {error}</div>
       ) : (
         <div className="hq-chat-scroll">
           {entries.length === 0 ? (
-            <div className="hq-empty">No transcript entries yet.</div>
+            <div className="hq-empty">
+              {viewingAgent
+                ? `No messages from ${selectedAgent?.name ?? agentId ?? 'this agent'} yet.`
+                : 'No transcript entries yet.'}
+            </div>
           ) : (
             <VList ref={listRef} onScroll={onScroll} className="hq-chat-vlist">
               {entries.map((entry, i) => (

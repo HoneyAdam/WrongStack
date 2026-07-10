@@ -69,6 +69,8 @@ type Catalog = Record<string, string>;
 const en: Catalog = {
   desktopNavAria: 'Desktop navigation',
   openProjectFolderTitle: 'Open project folder',
+  openRegisteredProject: 'Open project from projects.json',
+  removeFromProjectRegistry: 'Remove from projects.json',
   dismiss: 'Dismiss',
   active: 'Active',
   globalSettingsWorkspace: 'Global settings workspace',

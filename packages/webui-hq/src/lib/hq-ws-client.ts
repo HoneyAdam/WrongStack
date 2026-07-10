@@ -24,6 +24,7 @@ export interface HqWsClientOptions {
 }
 
 import type { HqBrowserMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import { resolveHqToken } from './auth.js';
 
 const DEFAULT_HEARTBEAT_INTERVAL = 25_000;
 const DEFAULT_HEARTBEAT_TIMEOUT = 10_000;
@@ -60,11 +61,12 @@ export class HqWsClient {
           ? window.location
           : { host: '127.0.0.1:3499', protocol: 'http:' };
       const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-      const token = new URLSearchParams(
-        typeof window !== 'undefined' ? window.location.search : '',
-      ).get('token');
+      // Shared token source (?token= then sessionStorage) so a token entered
+      // through the gate — or one from a previous navigation — still
+      // authenticates the socket when the current URL carries no query.
+      const token = resolveHqToken();
       const base = `${wsProto}//${loc.host}/ws/browser`;
-      this.url = token ? `${base}?token=${encodeURIComponent(token)}` : base;
+      this.url = token !== null ? `${base}?token=${encodeURIComponent(token)}` : base;
     }
   }
 

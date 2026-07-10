@@ -2,6 +2,7 @@ import type { ProviderConfig } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import {
   activeLabel,
+  clearStaleProviderDefaults,
   maskedKey,
   normalizeKeys,
   nowIso,
@@ -158,6 +159,65 @@ describe('resolveActiveApiKey', () => {
   it('returns undefined for empty-string legacy apiKey', () => {
     const cfg = { apiKey: '' } as ProviderConfig;
     expect(resolveActiveApiKey(cfg)).toBeUndefined();
+  });
+});
+
+describe('clearStaleProviderDefaults', () => {
+  it('clears top-level provider/model when the provider was removed', () => {
+    const config: Record<string, unknown> = {
+      provider: 'openai',
+      model: 'gpt-4o',
+      providers: {},
+    };
+    clearStaleProviderDefaults(config);
+    expect(config.provider).toBeUndefined();
+    expect(config.model).toBeUndefined();
+  });
+
+  it('clears top-level provider/model when the active provider has no usable key', () => {
+    const config: Record<string, unknown> = {
+      provider: 'openai',
+      model: 'gpt-4o',
+      providers: { openai: { type: 'openai', apiKeys: [] } },
+    };
+    clearStaleProviderDefaults(config);
+    expect(config.provider).toBeUndefined();
+    expect(config.model).toBeUndefined();
+  });
+
+  it('clears only the default model when it is no longer in the provider model list', () => {
+    const config: Record<string, unknown> = {
+      provider: 'openai',
+      model: 'old-model',
+      providers: {
+        openai: {
+          type: 'openai',
+          apiKeys: [{ label: 'default', apiKey: 'sk-test', createdAt: '' }],
+          models: ['new-model'],
+        },
+      },
+    };
+    clearStaleProviderDefaults(config);
+    expect(config.provider).toBe('openai');
+    expect(config.model).toBeUndefined();
+  });
+
+  it('keeps keyless loopback providers as usable defaults', () => {
+    const config: Record<string, unknown> = {
+      provider: 'ollama',
+      model: 'llama3',
+      providers: {
+        ollama: {
+          type: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434/v1',
+          envVars: [],
+          models: ['llama3'],
+        },
+      },
+    };
+    clearStaleProviderDefaults(config);
+    expect(config.provider).toBe('ollama');
+    expect(config.model).toBe('llama3');
   });
 });
 

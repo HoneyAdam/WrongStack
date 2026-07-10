@@ -178,6 +178,37 @@ describe('direct mutations', () => {
     expect(raw.providers.anthropic).toBeDefined();
   });
 
+  it('removeProvider clears stale default provider/model', async () => {
+    const { host, configPath } = await setup({
+      preExisting: { ...TWO_KEYS_CONFIG, provider: 'anthropic', model: 'claude-old' },
+    });
+    expect(await host.removeProvider('anthropic')).toBeNull();
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers.anthropic).toBeUndefined();
+    expect(raw.provider).toBeUndefined();
+    expect(raw.model).toBeUndefined();
+  });
+
+  it('deleteKey clears stale default provider/model when the last key is removed', async () => {
+    const { host, configPath } = await setup({
+      preExisting: {
+        provider: 'anthropic',
+        model: 'claude-old',
+        providers: {
+          anthropic: {
+            type: 'anthropic',
+            apiKeys: [{ label: 'only', apiKey: 'sk-only', createdAt: '2026-01-01' }],
+            activeKey: 'only',
+          },
+        },
+      },
+    });
+    expect(await host.deleteKey('anthropic', 'only')).toBeNull();
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.provider).toBeUndefined();
+    expect(raw.model).toBeUndefined();
+  });
+
   it('surfaces errors as strings instead of throwing', async () => {
     const { host } = await setup({ preExisting: TWO_KEYS_CONFIG });
     expect(await host.setActiveKey('nope', 'x')).toMatch(/no longer in config/);

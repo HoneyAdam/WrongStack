@@ -245,9 +245,9 @@ export interface RecordCompletedWorkInput {
 }
 
 /**
- * Append one finished unit of work to the session ledger and refresh the
- * `[completed_work_ledger]` system-prompt block. Deduped by `key` (newest
- * wins), bounded to {@link MAX_COMPLETED_WORK} entries.
+ * Append one finished unit of work to the session ledger. The provider request
+ * composer renders this state as a volatile tail block; the stable system-prompt
+ * prefix is never mutated here.
  */
 export function recordCompletedWorkEvidence(
   ctx: Context,
@@ -268,7 +268,6 @@ export function recordCompletedWorkEvidence(
     state.completedWork.splice(0, state.completedWork.length - MAX_COMPLETED_WORK);
   }
   state.updatedAt = Date.now();
-  syncCompletedWorkLedgerBlock(ctx);
   return entry;
 }
 
@@ -287,23 +286,23 @@ export function formatCompletedWorkLedger(items: readonly CompletedWorkEvidence[
   );
 }
 
+/** Build the current volatile completed-work block without mutating the prompt. */
+export function buildCompletedWorkLedgerBlock(ctx: Context): TextBlock | undefined {
+  const items = ensureEvidence(ctx).completedWork;
+  if (items.length === 0) return undefined;
+  return {
+    type: 'text',
+    text: formatCompletedWorkLedger(items),
+    cache_control: { type: 'ephemeral' },
+  };
+}
+
 /**
- * Upsert the `[completed_work_ledger]` block in `ctx.systemPrompt` (removed
- * again when the ledger is empty). Idempotent — safe to call after every
- * ledger mutation.
+ * @deprecated Volatile state must be composed at request time. Kept as a
+ * compatibility no-op for embedders importing the old helper.
  */
-export function syncCompletedWorkLedgerBlock(ctx: Context): void {
-  const state = ensureEvidence(ctx);
-  const idx = ctx.systemPrompt.findIndex(
-    (block) => block.type === 'text' && block.text.startsWith(COMPLETED_WORK_LEDGER_MARKER),
-  );
-  if (state.completedWork.length === 0) {
-    if (idx >= 0) ctx.systemPrompt.splice(idx, 1);
-    return;
-  }
-  const block: TextBlock = { type: 'text', text: formatCompletedWorkLedger(state.completedWork) };
-  if (idx >= 0) ctx.systemPrompt[idx] = block;
-  else ctx.systemPrompt.push(block);
+export function syncCompletedWorkLedgerBlock(_ctx: Context): void {
+  // Intentionally empty. Mutating ctx.systemPrompt invalidates provider prefix caches.
 }
 
 function isGoalish(text: string): boolean {

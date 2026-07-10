@@ -1,20 +1,19 @@
 :root {
   color-scheme: dark;
   --sidebar: 292px;
-  --bg: #101114;
-  --sidebar-bg: #151617;
-  --panel: #1d1f20;
-  --panel-2: #242728;
-  --border: #34383a;
-  --text: #f1f0e8;
-  --muted: #adaca3;
-  --faint: #777b73;
-  --accent: #d59b2d;
-  --accent-2: #78ba8f;
-  --red: #e06767;
-  --blue: #73a9d9;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: oklch(15% 0.02 150);
+  --sidebar-bg: oklch(19% 0.03 150);
+  --panel: oklch(19% 0.03 150);
+  --panel-2: oklch(19% 0.03 150);
+  --border: oklch(40% 0.1 145);
+  --text: oklch(85% 0.18 145);
+  --muted: oklch(60% 0.12 145);
+  --faint: oklch(60% 0.12 145);
+  --accent: oklch(80% 0.15 75);
+  --accent-2: oklch(85% 0.18 145);
+  --red: oklch(65% 0.2 25);
+  --blue: oklch(85% 0.18 145);
+  font-family: JetBrains Mono, IBM Plex Mono, VT323, ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 * {
@@ -976,21 +975,27 @@ button {
 }
 
 .project-item-row:hover,
-.project-item-row.open {
+.project-item-row.open,
+.project-item-row.registered {
   border-color: var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  background: oklch(19% 0.03 150 / 0.88);
   color: var(--text);
 }
 
+.project-item-row.registered {
+  border-left-color: var(--accent);
+}
+
 .project-item-row.open {
-  border-color: rgba(120, 186, 143, 0.35);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 8px oklch(85% 0.18 145 / 0.22);
 }
 
 .project-item-main {
   min-width: 0;
   min-height: 28px;
   display: grid;
-  grid-template-columns: 17px minmax(0, 1fr) auto;
+  grid-template-columns: 17px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 7px;
   border: 0;
@@ -1035,12 +1040,43 @@ button {
   font: 10px/1.25 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+.project-source-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.project-source-tag {
+  max-width: 72px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  padding: 1px 4px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.registered-tag {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.recent-tag {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
 .project-open-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--accent-2);
-  box-shadow: 0 0 7px rgba(120, 186, 143, 0.62);
+  box-shadow: 0 0 8px oklch(85% 0.18 145 / 0.4);
 }
 
 .project-remove-button {

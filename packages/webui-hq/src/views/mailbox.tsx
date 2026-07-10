@@ -19,26 +19,14 @@ import type {
   HqEventEnvelope,
   HqMailboxEventPayload,
   HqMailboxMessageSummary,
-  HqMailboxMessageType,
 } from '@wrongstack/core';
 import { useMemo, useState } from 'react';
 import { useBackfilledEvents } from '../lib/use-backfilled-events.js';
 import { useHqStore } from '../store.js';
+import { MailboxComposer } from './mailbox-composer.js';
 import { type FlatMessage, groupMailboxEvents, type ProjectGroup } from './mailbox-grouping.js';
 import { LiveMailboxView } from './mailbox-live-view.js';
-
-const TYPE_LABEL: Record<HqMailboxMessageType, { icon: string; tone: string }> = {
-  note: { icon: '📝', tone: 'info' },
-  ask: { icon: '❓', tone: 'warn' },
-  assign: { icon: '📌', tone: 'warn' },
-  steer: { icon: '🛞', tone: 'warn' },
-  btw: { icon: '💬', tone: 'info' },
-  broadcast: { icon: '📣', tone: 'info' },
-  status: { icon: '📊', tone: 'idle' },
-  result: { icon: '✅', tone: 'running' },
-  review: { icon: '🔍', tone: 'info' },
-  control: { icon: '⚙️', tone: 'error' },
-};
+import { MessageRow } from './mailbox-row.js';
 
 const ACTION_LABEL: Record<HqMailboxEventPayload['action'], string> = {
   'message.sent': 'sent',
@@ -50,17 +38,6 @@ const ACTION_LABEL: Record<HqMailboxEventPayload['action'], string> = {
   'agent.offline': 'agent offline',
   'agent.deregistered': 'agent deregistered',
 };
-
-function formatTime(ts: string): string {
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return ts;
-  return d.toLocaleString();
-}
-
-function shortId(s: string): string {
-  if (s.length <= 14) return s;
-  return `${s.slice(0, 8)}…${s.slice(-4)}`;
-}
 
 export function MailboxView(): React.ReactElement {
   const state = useHqStore(['snapshot', 'events']);
@@ -84,7 +61,21 @@ export function MailboxView(): React.ReactElement {
   const totalUnread = snapshot?.totals.unreadMailboxMessages ?? 0;
   const totalIncomplete = snapshot?.totals.incompleteMailboxMessages ?? 0;
 
-  if (projects.length === 0) {
+  // Compose targets: every project HQ knows about — mailbox groups plus the
+  // snapshot's project records (a project can be a valid target before any
+  // mailbox activity streamed). Labels prefer the snapshot's human name.
+  const composerProjects = useMemo(() => {
+    const byId = new Map<string, { projectId: string; label?: string | undefined }>();
+    for (const p of snapshot?.projects ?? []) {
+      byId.set(p.projectId, { projectId: p.projectId, label: p.projectName });
+    }
+    for (const g of projects) {
+      if (!byId.has(g.projectId)) byId.set(g.projectId, { projectId: g.projectId });
+    }
+    return Array.from(byId.values());
+  }, [snapshot, projects]);
+
+  if (projects.length === 0 && composerProjects.length === 0) {
     return <div className="hq-empty">No mailbox activity reported by connected clients.</div>;
   }
 
@@ -95,6 +86,7 @@ export function MailboxView(): React.ReactElement {
         {totalUnread} unread · {totalIncomplete} incomplete
         {hasAnyActivity ? ' · showing detailed messages' : ''}
       </div>
+      <MailboxComposer projects={composerProjects} />
       <div className="hq-mailbox-modebar" role="tablist" aria-label="Mailbox view mode">
         <button
           type="button"
@@ -185,106 +177,6 @@ function ProjectSection({ group }: ProjectSectionProps): React.ReactElement {
         <div className="hq-empty" style={{ padding: 16, fontSize: 12 }}>
           Snapshot counters reported for this project, but no detailed mailbox events have streamed
           yet.
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface MessageRowProps {
-  flat: FlatMessage;
-}
-
-function MessageRow({ flat }: MessageRowProps): React.ReactElement {
-  const m = flat.message;
-  const [open, setOpen] = useState(false);
-  const hasBody = m.hasBody || (m.bodyPreview !== undefined && m.bodyPreview.length > 0);
-  const typeMeta = TYPE_LABEL[m.type] ?? { icon: '✉️', tone: 'info' };
-  const fromTo = `${m.from} → ${m.to}`;
-
-  return (
-    <div className={'hq-msg' + (m.completed ? ' done' : '')}>
-      <div className="hq-msg-head" onClick={() => hasBody && setOpen((v) => !v)}>
-        <span className="hq-msg-icon" title={m.type}>
-          {typeMeta.icon}
-        </span>
-        <span className={'hq-pill ' + typeMeta.tone}>{m.type}</span>
-        {m.priority === 'high' && <span className="hq-pill error">high</span>}
-        {m.priority === 'low' && <span className="hq-pill idle">low</span>}
-        <span className="hq-msg-subject" title={m.subject}>
-          {m.subject || '(no subject)'}
-        </span>
-        <span className="hq-mono hq-msg-route">{fromTo}</span>
-        <span className="hq-mono hq-msg-time" title={m.timestamp}>
-          {formatTime(m.timestamp)}
-        </span>
-        <span className="hq-mono hq-msg-id">{shortId(m.messageId)}</span>
-        <span className={'hq-msg-flag ' + (m.completed ? 'done' : 'open')}>
-          {m.completed
-            ? `completed${m.completedBy !== undefined ? ` by ${m.completedBy}` : ''}`
-            : 'open'}
-        </span>
-        {hasBody && (
-          <button
-            type="button"
-            className="hq-toggle hq-msg-toggle"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen((v) => !v);
-            }}
-            aria-label={open ? 'Collapse body' : 'Expand body'}
-          >
-            {open ? '▾' : '▸'}
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className="hq-msg-body">
-          {m.bodyPreview !== undefined && m.bodyPreview.length > 0 ? (
-            <pre className="hq-msg-pre">{m.bodyPreview}</pre>
-          ) : (
-            <div className="hq-empty" style={{ padding: 8, fontSize: 12 }}>
-              (empty body)
-            </div>
-          )}
-          {m.outcomePreview !== undefined && m.outcomePreview.length > 0 && (
-            <>
-              <div className="hq-msg-sublabel">outcome</div>
-              <pre className="hq-msg-pre">{m.outcomePreview}</pre>
-            </>
-          )}
-          <div className="hq-msg-meta">
-            <span>
-              <strong>source:</strong> {flat.source}
-            </span>
-            {m.replyTo !== undefined && (
-              <span>
-                <strong>reply to:</strong> {shortId(m.replyTo)}
-              </span>
-            )}
-            {m.senderSessionId !== undefined && (
-              <span>
-                <strong>sender session:</strong> {shortId(m.senderSessionId)}
-              </span>
-            )}
-            {(m.readCount ?? 0) > 0 && (
-              <span>
-                <strong>reads:</strong> {m.readCount}
-              </span>
-            )}
-            {m.unreadCount !== undefined && m.unreadCount > 0 && (
-              <span>
-                <strong>unread:</strong> {m.unreadCount}
-              </span>
-            )}
-            {m.task !== undefined && (
-              <span>
-                <strong>task:</strong> {m.task.taskId ?? '—'}
-                {m.task.agentName !== undefined ? ` · ${m.task.agentName}` : ''}
-                {m.task.status !== undefined ? ` (${m.task.status})` : ''}
-              </span>
-            )}
-          </div>
         </div>
       )}
     </div>

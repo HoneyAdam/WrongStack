@@ -31,10 +31,10 @@ const AUTH_BASE_URL = 'https://auth.openai.com';
 const AUTHORIZE_URL = `${AUTH_BASE_URL}/oauth/authorize`;
 const TOKEN_URL = `${AUTH_BASE_URL}/oauth/token`;
 const REDIRECT_PORT = 1455;
+const FALLBACK_REDIRECT_PORT = 1457;
 const REDIRECT_HOST = '127.0.0.1';
 const REDIRECT_PATH = '/auth/callback';
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}${REDIRECT_PATH}`;
-const SCOPE = 'openid profile email offline_access';
+const SCOPE = 'openid profile email offline_access api.connectors.read api.connectors.invoke';
 const ORIGINATOR = 'wrongstack';
 export const CODEX_PROVIDER_ID = 'openai-codex';
 export const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
@@ -44,6 +44,7 @@ interface CodexTokens {
   refresh: string;
   /** Absolute expiry in epoch milliseconds. */
   expires: number;
+  idToken?: string | undefined;
 }
 
 interface TokenEndpointResponse {
@@ -53,12 +54,16 @@ interface TokenEndpointResponse {
   id_token?: string;
 }
 
+function redirectUri(port: number): string {
+  return `http://localhost:${port}${REDIRECT_PATH}`;
+}
+
 /** Build the full authorize URL with all Codex-required query params. */
-export function buildCodexAuthorizeUrl(challenge: string, state: string): string {
+export function buildCodexAuthorizeUrl(challenge: string, state: string, port = REDIRECT_PORT): string {
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', CLIENT_ID);
-  url.searchParams.set('redirect_uri', REDIRECT_URI);
+  url.searchParams.set('redirect_uri', redirectUri(port));
   url.searchParams.set('scope', SCOPE);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
@@ -181,6 +186,7 @@ async function readTokens(res: Response, op: string): Promise<CodexTokens> {
     access: json.access_token,
     refresh: json.refresh_token,
     expires: Date.now() + json.expires_in * 1000,
+    idToken: json.id_token,
   };
 }
 
@@ -188,6 +194,7 @@ async function exchangeAuthorizationCode(
   code: string,
   verifier: string,
   signal?: AbortSignal,
+  port = REDIRECT_PORT,
 ): Promise<CodexTokens> {
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -197,7 +204,7 @@ async function exchangeAuthorizationCode(
       client_id: CLIENT_ID,
       code,
       code_verifier: verifier,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirectUri(port),
     }).toString(),
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
@@ -213,7 +220,7 @@ async function buildOutcome(
   tokens: CodexTokens,
   signal?: AbortSignal,
 ): Promise<OAuthLoginOutcome> {
-  const accountId = extractAccountId(tokens.access);
+  const accountId = extractAccountId(tokens.access) ?? (tokens.idToken ? extractAccountId(tokens.idToken) : null);
   if (!accountId) {
     throw new ParseError({
       message:
@@ -250,15 +257,16 @@ export async function beginChatGPTLogin(
 ): Promise<OAuthSession> {
   const pkce = generatePkce();
   const state = createState();
-  const authorizeUrl = buildCodexAuthorizeUrl(pkce.challenge, state);
 
   const server: LoopbackServer = await startLoopbackServer({
     port: REDIRECT_PORT,
+    fallbackPorts: [FALLBACK_REDIRECT_PORT],
     host: REDIRECT_HOST,
     path: REDIRECT_PATH,
     expectedState: state,
     signal,
   });
+  const authorizeUrl = buildCodexAuthorizeUrl(pkce.challenge, state, server.port);
 
   return {
     kind: 'chatgpt',
@@ -269,7 +277,7 @@ export async function beginChatGPTLogin(
       if (!server.bound) return null;
       const got = await server.waitForCode();
       if (!got?.code) return null;
-      const tokens = await exchangeAuthorizationCode(got.code, pkce.verifier, waitSignal ?? signal);
+      const tokens = await exchangeAuthorizationCode(got.code, pkce.verifier, waitSignal ?? signal, server.port);
       return buildOutcome(deps, tokens, waitSignal ?? signal);
     },
     async completeWithCode(input: string, codeSignal?: AbortSignal): Promise<OAuthLoginOutcome> {
@@ -282,6 +290,7 @@ export async function beginChatGPTLogin(
         parsed.code,
         pkce.verifier,
         codeSignal ?? signal,
+        server.port,
       );
       return buildOutcome(deps, tokens, codeSignal ?? signal);
     },

@@ -2,6 +2,52 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MailboxAgentStatus, MailboxMessage } from '../../src/coordination/mailbox-types.js';
 import { HqPublisher, type HqSocketLike } from '../../src/hq/publisher.js';
 
+describe('HqPublisher connect-failure diagnostics', () => {
+  it('emits ONE warning after repeated consecutive connect failures', async () => {
+    const warn = vi.fn();
+    const publisher = new HqPublisher({
+      url: 'http://127.0.0.1:9',
+      token: 'some-token',
+      client,
+      project,
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 2,
+      warn,
+      socketFactory: () => {
+        throw new Error('connect refused');
+      },
+    });
+
+    publisher.connect();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    // The warning is one-shot — further failures stay silent.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = warn.mock.calls[0]?.[0] as string;
+    expect(message).toContain('consecutive connection failures');
+    expect(message).toContain('http://127.0.0.1:9');
+    expect(message).toContain('client token present');
+    publisher.close();
+  });
+
+  it('stays silent while connections succeed', async () => {
+    const warn = vi.fn();
+    const socket = new FakeSocket();
+    const publisher = new HqPublisher({
+      url: 'http://127.0.0.1:3499',
+      client,
+      project,
+      warn,
+      socketFactory: () => socket,
+    });
+    publisher.connect();
+    socket.open();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(warn).not.toHaveBeenCalled();
+    publisher.close();
+  });
+});
+
 class FakeSocket implements HqSocketLike {
   readyState = 0;
   readonly sent: string[] = [];

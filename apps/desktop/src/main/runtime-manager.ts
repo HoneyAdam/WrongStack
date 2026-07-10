@@ -384,7 +384,6 @@ export class DesktopRuntimeManager extends EventEmitter {
   async unregisterProject(projectRoot: string): Promise<void> {
     const resolved = path.resolve(projectRoot);
     this.registeredProjects = await removeGlobalProjectManifest(resolved);
-    this.recentProjects = this.recentProjects.filter((project) => !samePath(project.root, resolved));
     await this.saveDesktopState();
     this.emitChanged();
   }
@@ -456,7 +455,7 @@ export class DesktopRuntimeManager extends EventEmitter {
         openProjects,
       );
       return {
-        recentProjects: Array.isArray(parsed.recentProjects) ? parsed.recentProjects : [],
+        recentProjects: normalizeProjectEntries(parsed.recentProjects),
         openProjects,
         openProjectSessions,
         activeRuntimeId: normalizeRuntimeId(parsed.activeRuntimeId) ?? null,
@@ -796,21 +795,69 @@ async function readGlobalProjectManifest(): Promise<DesktopProjectEntry[]> {
   const manifestFile = path.join(wstackGlobalRoot(), 'projects.json');
   try {
     const raw = await fs.readFile(manifestFile, 'utf8');
-    const parsed = JSON.parse(raw) as { projects?: DesktopProjectEntry[] | undefined };
-    const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
-    return projects
-      .filter((project) => typeof project?.root === 'string' && project.root.trim())
-      .map((project) => ({
-        ...project,
-        name: project.name || path.basename(project.root) || project.root,
-        root: path.resolve(project.root),
-        slug: project.slug || projectSlug(path.resolve(project.root)),
-      }))
-      .sort((a, b) => (b.lastSeen ?? b.createdAt ?? '').localeCompare(a.lastSeen ?? a.createdAt ?? ''))
-      .slice(0, 80);
+    return normalizeProjectManifest(JSON.parse(raw) as unknown);
   } catch {
     return [];
   }
+}
+
+export function normalizeProjectManifest(value: unknown): DesktopProjectEntry[] {
+  if (Array.isArray(value)) return normalizeProjectEntries(value).slice(0, 80);
+  if (!value || typeof value !== 'object') return [];
+  const manifest = value as { projects?: unknown; recentProjects?: unknown; recents?: unknown };
+  const source = Array.isArray(manifest.projects)
+    ? manifest.projects
+    : Array.isArray(manifest.recentProjects)
+      ? manifest.recentProjects
+      : Array.isArray(manifest.recents)
+        ? manifest.recents
+        : [];
+  return normalizeProjectEntries(source).slice(0, 80);
+}
+
+function normalizeProjectEntries(value: unknown): DesktopProjectEntry[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const projects: DesktopProjectEntry[] = [];
+  for (const item of value) {
+    const project = normalizeProjectEntry(item);
+    if (!project) continue;
+    const key = pathKey(project.root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    projects.push(project);
+  }
+  return projects.sort((a, b) =>
+    (b.lastSeen ?? b.createdAt ?? '').localeCompare(a.lastSeen ?? a.createdAt ?? ''),
+  );
+}
+
+function normalizeProjectEntry(value: unknown): DesktopProjectEntry | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<DesktopProjectEntry>;
+  if (typeof candidate.root !== 'string' || !candidate.root.trim()) return null;
+  const root = path.resolve(candidate.root);
+  const name = typeof candidate.name === 'string' && candidate.name.trim()
+    ? candidate.name.trim()
+    : path.basename(root) || root;
+  const entry: DesktopProjectEntry = {
+    name,
+    root,
+    slug:
+      typeof candidate.slug === 'string' && candidate.slug.trim()
+        ? candidate.slug.trim()
+        : projectSlug(root),
+  };
+  if (typeof candidate.lastSeen === 'string' && candidate.lastSeen.trim()) {
+    entry.lastSeen = candidate.lastSeen.trim();
+  }
+  if (typeof candidate.createdAt === 'string' && candidate.createdAt.trim()) {
+    entry.createdAt = candidate.createdAt.trim();
+  }
+  if (typeof candidate.lastWorkingDir === 'string' && candidate.lastWorkingDir.trim()) {
+    entry.lastWorkingDir = path.resolve(candidate.lastWorkingDir);
+  }
+  return entry;
 }
 
 async function touchGlobalProjectManifest(entry: DesktopProjectEntry): Promise<DesktopProjectEntry[]> {

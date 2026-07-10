@@ -5,8 +5,34 @@
  */
 import type { Config, ModelsRegistry, ProviderConfig, ResolvedProvider } from '@wrongstack/core';
 
-/** Return the provider's visible model ids. When `cfg.models` is defined, it is
- * the allowlist; otherwise the catalog/default list is used. */
+const CATALOG_REFRESHABLE_MODEL_PROVIDERS = new Set(['chatgpt', 'openai', 'codex', 'openai-codex']);
+
+function uniqueModelIds(primary: readonly string[], fallback: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of [...primary, ...fallback]) {
+    const trimmed = id.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function canRefreshModelsFromCatalog(providerId: string, entry: ProviderConfig | undefined): boolean {
+  const ids = [providerId, entry?.type, entry?.family].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  return ids.some((id) => CATALOG_REFRESHABLE_MODEL_PROVIDERS.has(id));
+}
+
+/** Return the provider's visible model ids.
+ *
+ * For most providers, `cfg.models` is a strict user allowlist. ChatGPT/OpenAI/Codex
+ * are catalog-backed by the curated providers.json overlay, so their saved config
+ * model list is treated as a cache/visibility hint: an empty list falls back to
+ * refreshed catalog models, and a non-empty list is augmented with catalog models
+ * so newly-added providers.json entries can be fetched again when needed. */
 export function visibleModelIds(
   providerId: string,
   config: Config,
@@ -14,7 +40,9 @@ export function visibleModelIds(
   cfg?: ProviderConfig | undefined,
 ): string[] {
   const entry = cfg ?? config.providers?.[providerId];
-  return entry?.models !== undefined ? [...entry.models] : [...catalogModelIds];
+  if (entry?.models === undefined) return [...catalogModelIds];
+  if (!canRefreshModelsFromCatalog(providerId, entry)) return [...entry.models];
+  return uniqueModelIds(entry.models, catalogModelIds);
 }
 
 /**

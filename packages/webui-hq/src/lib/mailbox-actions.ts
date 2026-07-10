@@ -1,16 +1,26 @@
 /**
- * WebUI client for mailbox message actions (skeleton).
+ * WebUI client for mailbox message actions.
  *
- * Phase 3 skeleton: thin `fetch` wrappers around the server routes
- * that will land in `feat/hq-mailbox-message-actions` Phase 4. Each
- * wrapper returns the parsed JSON or throws on a non-2xx response so
- * the caller can show a meaningful error in the toast / inline
- * status row.
+ * Thin `fetch` wrappers around `POST /api/mailbox/messages/:id/action`
+ * on the HQ server. Each wrapper returns the parsed JSON or throws on
+ * a non-2xx response so the caller can show a meaningful error in the
+ * toast / inline status row.
+ *
+ * The HQ server resolves the target project mailbox SERVER-SIDE from
+ * `projectId`/`sessionId` (same trust model as /api/mailbox-send), so
+ * every call must carry the projectId of the message's group.
  *
  * Optimistic updates are not handled here — they live in the React
- * component (Phase 4) so the server remains the source of truth.
+ * component so the server remains the source of truth.
  */
 import type { MailboxActionInput, MailboxActionResult } from '@wrongstack/core';
+import { authorizedFetch } from './auth.js';
+
+/** Wire input: the core action input + the HQ project routing key. */
+export type HqMailboxActionInput = MailboxActionInput & {
+  projectId?: string | undefined;
+  sessionId?: string | undefined;
+};
 
 interface ServerError {
   error: { code: string; message: string };
@@ -24,8 +34,9 @@ function isServerError(value: unknown): value is ServerError {
   return typeof e.code === 'string' && typeof e.message === 'string';
 }
 
-async function postAction(input: MailboxActionInput): Promise<MailboxActionResult> {
-  const res = await fetch(`/api/mailbox/messages/${encodeURIComponent(input.mailId)}/action`, {
+async function postAction(input: HqMailboxActionInput): Promise<MailboxActionResult> {
+  const path = `/api/mailbox/messages/${encodeURIComponent(input.mailId)}/action`;
+  const res = await authorizedFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -44,17 +55,18 @@ async function postAction(input: MailboxActionInput): Promise<MailboxActionResul
 }
 
 export const mailboxActions = {
-  markRead: (input: Omit<MailboxActionInput, 'action'>) =>
+  markRead: (input: Omit<HqMailboxActionInput, 'action'>) =>
     postAction({ ...input, action: 'mark-read' }),
 
-  acknowledge: (input: Omit<MailboxActionInput, 'action'>) =>
+  acknowledge: (input: Omit<HqMailboxActionInput, 'action'>) =>
     postAction({ ...input, action: 'acknowledge' }),
 
-  reopen: (input: Omit<MailboxActionInput, 'action'>) => postAction({ ...input, action: 'reopen' }),
+  reopen: (input: Omit<HqMailboxActionInput, 'action'>) =>
+    postAction({ ...input, action: 'reopen' }),
 
-  softDelete: (input: Omit<MailboxActionInput, 'action'>) =>
+  softDelete: (input: Omit<HqMailboxActionInput, 'action'>) =>
     postAction({ ...input, action: 'soft-delete' }),
 
-  restore: (input: Omit<MailboxActionInput, 'action'>) =>
+  restore: (input: Omit<HqMailboxActionInput, 'action'>) =>
     postAction({ ...input, action: 'restore' }),
 } as const;

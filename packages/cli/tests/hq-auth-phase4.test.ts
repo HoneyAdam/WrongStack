@@ -463,7 +463,11 @@ describe('HQ — HTTP route token auth (browser TOKEN MODE)', () => {
     expect(body.totals).toBeDefined();
   });
 
-  it('rejects dashboard HTML (/) without token in browser TOKEN MODE', async () => {
+  it('serves dashboard HTML (/) without token in browser TOKEN MODE (shell is public, data stays gated)', async () => {
+    // The shell must load token-less so the React app can render its
+    // token-entry gate — a gated shell means a bare JSON 401 and no way to
+    // enter a token. All telemetry still flows through /api/* and /ws/*,
+    // which remain token-gated (asserted by the surrounding tests).
     const browserToken = 'browser-token-html';
     const authFile: HqAuthFile = {
       version: HQ_AUTH_FILE_VERSION,
@@ -478,7 +482,13 @@ describe('HQ — HTTP route token auth (browser TOKEN MODE)', () => {
     handle = await startHqServer({ port, dataDir });
 
     const res = await fetch(`http://127.0.0.1:${handle.port}/`);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html.toLowerCase()).toContain('<!doctype html>');
+
+    // The data plane is NOT opened up by the public shell.
+    const api = await fetch(`http://127.0.0.1:${handle.port}/api/snapshot`);
+    expect(api.status).toBe(401);
   });
 
   it('accepts dashboard HTML (/) with ?token= in browser TOKEN MODE', async () => {

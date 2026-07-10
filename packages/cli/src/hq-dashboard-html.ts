@@ -414,7 +414,20 @@ var Store = {
   set: function(p){ Object.assign(this, p); this.emit(); }
 };
 
-function tokenStr(){ try { return new URL(location.href).searchParams.get('token') || ''; } catch(e){ return ''; } }
+// Token source shared with the React dashboard (same sessionStorage key —
+// see webui-hq/src/lib/auth.ts): a ?token= from the startup URL is persisted
+// so navigation that loses the query param keeps working, and a token saved
+// by the React app is honored when this fallback serves the same tab.
+function tokenStr(){
+  try {
+    var fromUrl = new URL(location.href).searchParams.get('token');
+    if (fromUrl) {
+      try { sessionStorage.setItem('wrongstack.hq.token.v1', fromUrl); } catch(e){}
+      return fromUrl;
+    }
+    try { return sessionStorage.getItem('wrongstack.hq.token.v1') || ''; } catch(e){ return ''; }
+  } catch(e){ return ''; }
+}
 function withTok(p){ var u = new URL(p, location.href); var t = tokenStr(); if (t) u.searchParams.set('token', t); return u.pathname + u.search; }
 function shortId(s){ if(!s) return '—'; s=String(s); var leaf=s.split('/').pop()||s; return leaf.length>16 ? leaf.slice(0,12)+'…'+leaf.slice(-5) : leaf; }
 function fmtTime(iso){ if(!iso) return ''; var d=new Date(iso); return isNaN(d.getTime())?'':d.toLocaleTimeString(); }
