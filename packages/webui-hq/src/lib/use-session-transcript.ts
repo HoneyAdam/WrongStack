@@ -32,6 +32,9 @@ interface TranscriptResponse {
   entries: HqTranscriptEntry[];
 }
 
+/** The id the agent-status tracker assigns the session's main/leader agent. */
+export const LEADER_AGENT_ID = 'leader';
+
 /** Stable key for a turn — index + identity fields keep React from thrashing. */
 export function turnKey(entry: HqTranscriptEntry, i: number): string {
   return `${i}:${entry.ts}:${entry.role}:${entry.toolUseId ?? ''}`;
@@ -114,7 +117,13 @@ export function useSessionTranscript(
   agentId: string | null,
 ): SessionTranscript {
   const state = useHqStore(['events']);
-  const viewingAgent = agentId !== null;
+  // The session LEADER (id 'leader') is the main terminal agent — its
+  // conversation IS the session transcript, not a per-agent ring (only
+  // director-spawned subagents get their own agent.message ring). So a
+  // leader selection reads the session plane; only real subagents use the
+  // per-agent path.
+  const isLeader = agentId === LEADER_AGENT_ID;
+  const viewingSubagent = agentId !== null && !isLeader;
   const [transcript, setTranscript] = useState<TranscriptState>(createTranscriptState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +150,9 @@ export function useSessionTranscript(
   const [agentLoading, setAgentLoading] = useState(false);
   useEffect(() => {
     setAgentSeed([]);
-    if (agentId === null || sessionId === null) return;
+    // The leader has no per-agent ring — its history is the session
+    // transcript, fetched by the session effect below.
+    if (agentId === null || sessionId === null || !viewingSubagent) return;
     let cancelled = false;
     setAgentLoading(true);
     fetchJson<{ subagentId: string; total: number; entries: HqTranscriptEntry[] }>(
@@ -158,10 +169,10 @@ export function useSessionTranscript(
     return () => {
       cancelled = true;
     };
-  }, [agentId, sessionId]);
+  }, [agentId, sessionId, viewingSubagent]);
 
   const agentEntries = useMemo(() => {
-    if (agentId === null) return [];
+    if (!viewingSubagent || agentId === null) return [];
     const live = state.events
       .filter(
         (event) =>
@@ -185,11 +196,11 @@ export function useSessionTranscript(
     }
     // Fold the per-delta stream back into whole turns.
     return coalesceStreamedText(merged);
-  }, [agentSeed, state.events, agentId, sessionId]);
+  }, [agentSeed, state.events, agentId, sessionId, viewingSubagent]);
 
   // ── Initial (re)fetch ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (sessionId === null || viewingAgent) return;
+    if (sessionId === null || viewingSubagent) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -211,7 +222,7 @@ export function useSessionTranscript(
     return () => {
       cancelled = true;
     };
-  }, [sessionId, full, viewingAgent]);
+  }, [sessionId, full, viewingSubagent]);
 
   // Reset when switching sessions or agents.
   useEffect(() => {
@@ -222,7 +233,7 @@ export function useSessionTranscript(
 
   // ── Live appends ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (sessionId === null || viewingAgent) return;
+    if (sessionId === null || viewingSubagent) return;
     let next = transcriptRef.current;
     for (const e of state.events) {
       if (e.type !== 'session.transcript' || e.sessionId !== sessionId) continue;
@@ -231,7 +242,7 @@ export function useSessionTranscript(
       next = applyLiveBatch(next, payload.fromSeq, payload.entries);
     }
     if (next !== transcriptRef.current) setTranscript(next);
-  }, [state.events, sessionId, viewingAgent]);
+  }, [state.events, sessionId, viewingSubagent]);
 
   // ── Follow the newest turn while pinned ───────────────────────────────────
   // Both planes stream text one delta per entry; fold them into whole turns.
@@ -240,7 +251,7 @@ export function useSessionTranscript(
     () => coalesceStreamedText(transcript.entries),
     [transcript.entries],
   );
-  const entries = viewingAgent ? agentEntries : sessionEntries;
+  const entries = viewingSubagent ? agentEntries : sessionEntries;
   useEffect(() => {
     if (pinnedRef.current && entries.length > 0) {
       listRef.current?.scrollToIndex(entries.length - 1, { align: 'end' });
@@ -278,7 +289,7 @@ export function useSessionTranscript(
 
   return {
     entries,
-    loading: viewingAgent ? agentLoading : loading,
+    loading: viewingSubagent ? agentLoading : loading,
     error,
     meta,
     full,

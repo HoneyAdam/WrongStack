@@ -204,7 +204,12 @@ export function FleetNav({
                             </div>
                             {cOpen &&
                               client.agents.map((agent) => {
-                                const agentSelected = selectedAgentId === agent.id;
+                                // Scope the highlight to THIS session — every
+                                // leader shares id 'leader', so an agentId-only
+                                // check would light up every leader at once.
+                                const agentSelected =
+                                  selectedSessionId === client.sessionId &&
+                                  selectedAgentId === agent.id;
                                 return (
                                   <button
                                     key={agent.id}
