@@ -22,6 +22,10 @@ export interface HqLocalPrefs {
     cmdType: 'steer' | 'btw' | 'queue' | 'abort' | 'spawn' | 'broadcast' | 'run-command';
     abortTarget: 'leader' | 'fleet';
     spawnRole: string;
+    /** Spawn's initial-task draft — separate from steerBody so composing a
+     *  spawn doesn't clobber an in-progress steer message (they used to
+     *  share one field). */
+    spawnTask: string;
     steerTo: string;
     steerSubject: string;
     steerBody: string;
@@ -43,6 +47,7 @@ const DEFAULT_PREFS: HqLocalPrefs = {
     cmdType: 'steer',
     abortTarget: 'leader',
     spawnRole: 'bug-hunter',
+    spawnTask: '',
     steerTo: 'leader',
     steerSubject: '',
     steerBody: '',
@@ -108,6 +113,8 @@ function mergeWithDefaults(input: unknown): HqLocalPrefs {
         typeof ctl['spawnRole'] === 'string' && ctl['spawnRole'].length > 0
           ? ctl['spawnRole']
           : DEFAULT_PREFS.control.spawnRole,
+      spawnTask:
+        typeof ctl['spawnTask'] === 'string' ? ctl['spawnTask'] : DEFAULT_PREFS.control.spawnTask,
       steerTo: typeof ctl['steerTo'] === 'string' ? ctl['steerTo'] : DEFAULT_PREFS.control.steerTo,
       steerSubject:
         typeof ctl['steerSubject'] === 'string'

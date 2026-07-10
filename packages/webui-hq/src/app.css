@@ -1124,6 +1124,81 @@ a {
   display: grid;
   gap: 7px;
 }
+/* Entries for other clients stay readable but recede, so the selected
+   target's lifecycle stands out. */
+.hq-audit-row.other-client {
+  opacity: 0.55;
+}
+/* The row for the command just dispatched flashes so the eye lands on it. */
+.hq-audit-row.just-dispatched {
+  animation: hq-audit-flash 1.6s ease-out;
+  border-color: hsl(190 86% 54% / 0.7);
+}
+@keyframes hq-audit-flash {
+  0% {
+    background: hsl(190 86% 54% / 0.22);
+  }
+  100% {
+    background: var(--inset);
+  }
+}
+
+/* ── Control layout: composer | audit rail ── */
+.hq-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .hq-control-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.hq-control-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hq-control-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--inset);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.hq-control-type:hover {
+  color: var(--text);
+  border-color: hsl(190 86% 54% / 0.5);
+}
+.hq-control-type.selected {
+  color: var(--text);
+  border-color: hsl(190 86% 54% / 0.8);
+  background: hsl(190 86% 54% / 0.12);
+}
+.hq-control-type.danger {
+  border-color: hsl(0 70% 55% / 0.35);
+}
+.hq-control-type.danger:hover,
+.hq-control-type.danger.selected {
+  color: var(--text);
+  border-color: hsl(0 70% 55% / 0.75);
+  background: hsl(0 70% 55% / 0.1);
+}
+.hq-control-typedesc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .hq-audit-main,
 .hq-audit-meta {
   display: flex;

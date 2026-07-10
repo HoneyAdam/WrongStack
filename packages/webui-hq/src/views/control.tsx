@@ -1,7 +1,25 @@
 /**
- * Control view — staged command composer for connected HQ clients.
- * Only clients advertising `control.receive` are targetable.
+ * Control view — staged remote-command composer for connected HQ clients.
+ *
+ * Flow: pick a target client → pick a command type → compose → preview the
+ * exact payload → dispatch (destructive types additionally demand a typed
+ * confirm word). Everything dispatched lands in the audit rail on the right,
+ * which live-tracks the queued → delivered → acked lifecycle.
+ *
+ * Only clients advertising `control.receive` are targetable; `run-command`
+ * additionally needs the client started with `--hq-allow-exec` and a token
+ * carrying `control.execute`.
  */
+import {
+  AlertTriangle,
+  Bot,
+  ListPlus,
+  MessageSquareText,
+  Megaphone,
+  OctagonX,
+  SquareTerminal,
+  Zap,
+} from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchJson, postCommand, selectClient, useHqStore } from '../store.js';
@@ -34,6 +52,51 @@ interface CommandsResponse {
   commands: CommandAuditEntry[];
 }
 
+/** What each command type does — rendered on the type cards so the tab
+ *  explains itself instead of presenting seven bare words. */
+const CMD_META: Record<
+  CmdType,
+  { label: string; icon: React.ReactNode; desc: string; danger?: boolean }
+> = {
+  steer: {
+    label: 'steer',
+    icon: <Zap size={13} />,
+    desc: 'High-priority course correction — interrupts the agent at the next turn.',
+  },
+  btw: {
+    label: 'btw',
+    icon: <MessageSquareText size={13} />,
+    desc: 'Non-urgent FYI — rides alongside the run without interrupting it.',
+  },
+  queue: {
+    label: 'queue',
+    icon: <ListPlus size={13} />,
+    desc: 'Queue a prompt — picked up after the current run finishes.',
+  },
+  abort: {
+    label: 'abort',
+    icon: <OctagonX size={13} />,
+    desc: 'Stop the leader run or every subagent on the client. Destructive.',
+    danger: true,
+  },
+  spawn: {
+    label: 'spawn',
+    icon: <Bot size={13} />,
+    desc: 'Launch a role subagent (bug-hunter, critic, …) with an optional task.',
+  },
+  broadcast: {
+    label: 'broadcast',
+    icon: <Megaphone size={13} />,
+    desc: 'Mailbox message to every agent in the client’s project.',
+  },
+  'run-command': {
+    label: 'run-command',
+    icon: <SquareTerminal size={13} />,
+    desc: 'Route a shell command to the client. RCE-gated (--hq-allow-exec + control.execute).',
+    danger: true,
+  },
+};
+
 export function ControlView(): React.ReactElement {
   const state = useHqStore(['snapshot', 'selectedClientId']);
   const clients = (state.snapshot?.clients ?? []).filter((c) =>
@@ -51,6 +114,7 @@ export function ControlView(): React.ReactElement {
   const [steerSubject, setSteerSubject] = useState(pctl.steerSubject);
   const [steerBody, setSteerBody] = useState(pctl.steerBody);
   const [spawnRole, setSpawnRole] = useState(pctl.spawnRole);
+  const [spawnTask, setSpawnTask] = useState(pctl.spawnTask);
   const [abortTarget, setAbortTarget] = useState(pctl.abortTarget);
   const [broadcastSubject, setBroadcastSubject] = useState(pctl.broadcastSubject);
   const [broadcastBody, setBroadcastBody] = useState(pctl.broadcastBody);
@@ -63,6 +127,9 @@ export function ControlView(): React.ReactElement {
   const [auditEntries, setAuditEntries] = useState<CommandAuditEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  /** Command id of the most recent dispatch — its audit row flashes so the
+   *  eye lands on the lifecycle it should be watching. */
+  const [lastDispatchedId, setLastDispatchedId] = useState<string | null>(null);
 
   const draft = useMemo<DraftCommand>(
     () => buildDraft(),
@@ -72,6 +139,7 @@ export function ControlView(): React.ReactElement {
       steerSubject,
       steerBody,
       spawnRole,
+      spawnTask,
       abortTarget,
       broadcastSubject,
       broadcastBody,
@@ -86,6 +154,7 @@ export function ControlView(): React.ReactElement {
     selected !== null &&
     draft.disabledReason === null &&
     (!confirmRequired || confirmText === confirmWord);
+  const canPreview = draft.disabledReason === null && selected !== null;
 
   function resetPreview(): void {
     setStage('compose');
@@ -115,7 +184,11 @@ export function ControlView(): React.ReactElement {
 
   useEffect(() => {
     void loadAudit();
-    const timer = setInterval(() => void loadAudit(), 5_000);
+    // Skip refreshes while the tab is hidden — the audit only matters when
+    // someone is looking at it.
+    const timer = setInterval(() => {
+      if (!document.hidden) void loadAudit();
+    }, 5_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -127,6 +200,7 @@ export function ControlView(): React.ReactElement {
     try {
       const res = await postCommand(selected, draft.type, draft.payload);
       setStatus(`queued ${draft.type} command ${res.commandId}`);
+      setLastDispatchedId(res.commandId);
       setStage('compose');
       setConfirmText('');
       void loadAudit();
@@ -136,6 +210,23 @@ export function ControlView(): React.ReactElement {
       setBusy(false);
     }
   }
+
+  // Ctrl+Enter advances the staged flow: compose → preview → dispatch.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      if (stage === 'compose' && canPreview) {
+        setStage('preview');
+        setStatus(null);
+        setError(null);
+      } else if (stage === 'preview' && canDispatch && !busy) {
+        void dispatch();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   function buildDraft(): DraftCommand {
     if (cmdType === 'steer' || cmdType === 'btw' || cmdType === 'queue') {
@@ -183,7 +274,7 @@ export function ControlView(): React.ReactElement {
       };
     }
     if (cmdType === 'spawn') {
-      const task = steerBody.trim();
+      const task = spawnTask.trim();
       return {
         type: 'spawn',
         payload: { role: spawnRole, ...(task ? { task } : {}) },
@@ -216,338 +307,366 @@ export function ControlView(): React.ReactElement {
   }
 
   return (
-    <div>
-      <div className="hq-card-title">Command Target</div>
-      <div className="hq-card hq-control-target">
-        <label className="hq-label">Client</label>
-        <select
-          className="hq-select"
-          value={selected ?? ''}
-          onChange={(e) => {
-            selectClient(e.target.value);
-            resetPreview();
-          }}
-        >
-          {clients.map((c) => (
-            <option key={c.clientId} value={c.clientId}>
-              {c.kind} — {c.hostname ?? c.clientId} ({c.projectId})
-            </option>
-          ))}
-        </select>
-        {selectedClient !== null && (
-          <div className="hq-control-meta">
-            <span>
-              <strong>kind</strong> {selectedClient.kind}
-            </span>
-            <span>
-              <strong>host</strong> {selectedClient.hostname ?? 'unknown'}
-            </span>
-            <span>
-              <strong>project</strong> {selectedClient.projectId}
-            </span>
-            <span>
-              <strong>client</strong> {shortId(selectedClient.clientId)}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="hq-card-title">Command Type</div>
-      <div className="hq-control-steps" aria-label="Control command stages">
-        <span className="hq-step active">1 compose</span>
-        <span className={'hq-step' + (stage === 'preview' ? ' active' : '')}>2 preview</span>
-        <span className={'hq-step' + (status !== null ? ' active' : '')}>3 queued</span>
-      </div>
-      <div className="hq-row">
-        {(['steer', 'btw', 'queue', 'abort', 'spawn', 'broadcast', 'run-command'] as CmdType[]).map(
-          (t) => (
-            <button
-              key={t}
-              className={'hq-btn secondary' + (cmdType === t ? ' hq-btn-selected' : '')}
-              onClick={() => chooseType(t)}
-            >
-              {t}
-            </button>
-          ),
-        )}
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        {(cmdType === 'steer' || cmdType === 'btw' || cmdType === 'queue') && (
-          <div className="hq-card">
-            <label className="hq-label">
-              To (agent address — e.g. <code>leader</code>, <code>leader@sessionTag</code>, or a
-              subagent id)
-            </label>
-            <input
-              className="hq-input"
-              value={steerTo}
-              onChange={(e) => {
-                setSteerTo(e.target.value);
-                setHqControlPrefs({ steerTo: e.target.value });
-              }}
-              placeholder="leader"
-            />
-            <label className="hq-label" style={{ marginTop: 8 }}>
-              Subject
-            </label>
-            <input
-              className="hq-input"
-              value={steerSubject}
-              onChange={(e) => {
-                setSteerSubject(e.target.value);
-                setHqControlPrefs({ steerSubject: e.target.value });
-              }}
-            />
-            <label className="hq-label" style={{ marginTop: 8 }}>
-              Body
-            </label>
-            <textarea
-              className="hq-textarea"
-              value={steerBody}
-              onChange={(e) => {
-                setSteerBody(e.target.value);
-                setHqControlPrefs({ steerBody: e.target.value });
-              }}
-            />
-          </div>
-        )}
-
-        {cmdType === 'abort' && (
-          <div className="hq-card hq-card-danger">
-            <label className="hq-label">Target</label>
-            <select
-              className="hq-select"
-              value={abortTarget}
-              onChange={(e) => {
-                setAbortTarget(e.target.value as 'leader' | 'fleet');
-                setHqControlPrefs({ abortTarget: e.target.value as 'leader' | 'fleet' });
-              }}
-            >
-              <option value="leader">leader (session leader)</option>
-              <option value="fleet">fleet (all subagents)</option>
-            </select>
-            <div className="hq-control-warning">
-              Abort is destructive. Preview requires typing <strong>ABORT</strong> before dispatch.
-            </div>
-          </div>
-        )}
-
-        {cmdType === 'spawn' && (
-          <div className="hq-card">
-            <label className="hq-label">Role</label>
-            <select
-              className="hq-select"
-              value={spawnRole}
-              onChange={(e) => {
-                setSpawnRole(e.target.value);
-                setHqControlPrefs({ spawnRole: e.target.value });
-              }}
-            >
-              <option value="bug-hunter">bug-hunter</option>
-              <option value="refactor-planner">refactor-planner</option>
-              <option value="critic">critic</option>
-              <option value="security-scanner">security-scanner</option>
-              <option value="code-reviewer">code-reviewer</option>
-            </select>
-            <label className="hq-label" style={{ marginTop: 8 }}>
-              Task (optional)
-            </label>
-            <textarea
-              className="hq-textarea"
-              value={steerBody}
-              onChange={(e) => {
-                setSteerBody(e.target.value);
-                setHqControlPrefs({ steerBody: e.target.value });
-              }}
-              placeholder="Describe the task…"
-            />
-          </div>
-        )}
-
-        {cmdType === 'run-command' && (
-          <div className="hq-card hq-card-danger">
-            <label className="hq-label">Shell command</label>
-            <textarea
-              className="hq-textarea"
-              value={runCommand}
-              onChange={(e) => setRunCommand(e.target.value)}
-              placeholder="pnpm test"
-            />
-            <label className="hq-label" style={{ marginTop: 8 }}>
-              Working directory (optional — defaults to the agent's project root)
-            </label>
-            <input
-              className="hq-input"
-              value={runCwd}
-              onChange={(e) => setRunCwd(e.target.value)}
-              placeholder=""
-            />
-            <div className="hq-control-warning">
-              RCE-gated: the client must run with <code>--hq-allow-exec</code> and your token needs
-              the <code>control.execute</code> capability — otherwise the server rejects this.
-              Preview requires typing <strong>RUN</strong> before dispatch.
-            </div>
-          </div>
-        )}
-
-        {cmdType === 'broadcast' && (
-          <div className="hq-card">
-            <label className="hq-label">Subject</label>
-            <input
-              className="hq-input"
-              value={broadcastSubject}
-              onChange={(e) => {
-                setBroadcastSubject(e.target.value);
-                setHqControlPrefs({ broadcastSubject: e.target.value });
-              }}
-            />
-            <label className="hq-label" style={{ marginTop: 8 }}>
-              Body
-            </label>
-            <textarea
-              className="hq-textarea"
-              value={broadcastBody}
-              onChange={(e) => {
-                setBroadcastBody(e.target.value);
-                setHqControlPrefs({ broadcastBody: e.target.value });
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="hq-card-title">Dispatch Gate</div>
-      <div
-        className={
-          'hq-card hq-command-preview' + (draft.risk === 'danger' ? ' hq-card-danger' : '')
-        }
-      >
-        <div className="hq-row">
-          <span className={'hq-pill ' + (draft.risk === 'danger' ? 'error' : 'info')}>
-            {draft.risk}
-          </span>
-          <span>{draft.summary}</span>
-          {draft.disabledReason !== null && (
-            <span className="hq-pill warn">{draft.disabledReason}</span>
-          )}
-        </div>
-        {stage === 'preview' ? (
-          <>
-            <div className="hq-msg-sublabel">payload preview</div>
-            <pre className="hq-msg-pre">
-              {JSON.stringify(
-                { clientId: selected, type: draft.type, payload: draft.payload },
-                null,
-                2,
-              )}
-            </pre>
-            {confirmRequired && (
-              <>
-                <label className="hq-label" style={{ marginTop: 12 }}>
-                  Confirm destructive dispatch
-                </label>
-                <input
-                  className="hq-input"
-                  value={confirmText}
-                  onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder={`Type ${confirmWord}`}
-                />
-              </>
-            )}
-            <div className="hq-row" style={{ marginTop: 12 }}>
-              <button
-                className="hq-btn"
-                disabled={busy || !canDispatch}
-                onClick={() => void dispatch()}
-              >
-                {busy ? 'Dispatching…' : 'Dispatch Command'}
-              </button>
-              <button className="hq-btn secondary" disabled={busy} onClick={resetPreview}>
-                Back to Compose
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            className="hq-btn"
-            disabled={draft.disabledReason !== null || selected === null}
-            onClick={() => {
-              setStage('preview');
-              setStatus(null);
-              setError(null);
+    <div className="hq-control-grid">
+      <div className="hq-control-composer">
+        <div className="hq-card-title">Command Target</div>
+        <div className="hq-card hq-control-target">
+          <label className="hq-label">Client</label>
+          <select
+            className="hq-select"
+            value={selected ?? ''}
+            onChange={(e) => {
+              selectClient(e.target.value);
+              resetPreview();
             }}
           >
-            Preview Command
-          </button>
-        )}
-      </div>
-
-      <div className="hq-card-title">Command Audit</div>
-      <div className="hq-card hq-command-audit">
-        <div className="hq-row">
-          <span className="hq-pill info">recent {auditEntries.length}</span>
-          {auditLoading && <span className="hq-pill idle">refreshing</span>}
-          {auditError !== null && <span className="hq-pill error">{auditError}</span>}
-          <button
-            className="hq-btn secondary"
-            style={{ marginLeft: 'auto' }}
-            onClick={() => void loadAudit()}
-          >
-            Refresh
-          </button>
-        </div>
-        {auditEntries.length === 0 ? (
-          <div className="hq-empty" style={{ padding: 16, fontSize: 12 }}>
-            No command audit entries yet.
-          </div>
-        ) : (
-          <div className="hq-audit-list">
-            {auditEntries.map((entry) => (
-              <div key={entry.commandId} className="hq-audit-row">
-                <div className="hq-audit-main">
-                  <span className={'hq-pill ' + auditTone(entry)}>{entry.status}</span>
-                  <span className="hq-pill info">{entry.type}</span>
-                  <span className="hq-mono">{shortId(entry.commandId)}</span>
-                  {entry.ackStatus !== undefined && (
-                    <span className="hq-pill active">ack {entry.ackStatus}</span>
-                  )}
-                </div>
-                <div className="hq-audit-meta">
-                  <span>
-                    <strong>client</strong> {shortId(entry.clientId)}
-                  </span>
-                  <span>
-                    <strong>by</strong> {entry.enqueuedBy}
-                  </span>
-                  <span>
-                    <strong>queued</strong> {formatTime(entry.enqueuedAt)}
-                  </span>
-                  {entry.ackedAt !== undefined && (
-                    <span>
-                      <strong>acked</strong> {formatTime(entry.ackedAt)}
-                    </span>
-                  )}
-                </div>
-                {entry.ackMessage !== undefined && entry.ackMessage.length > 0 && (
-                  <div className="hq-audit-message">{entry.ackMessage}</div>
-                )}
-              </div>
+            {clients.map((c) => (
+              <option key={c.clientId} value={c.clientId}>
+                {c.kind} — {c.hostname ?? c.clientId} ({c.projectId})
+              </option>
             ))}
+          </select>
+          {selectedClient !== null && (
+            <div className="hq-control-meta">
+              <span>
+                <strong>kind</strong> {selectedClient.kind}
+              </span>
+              <span>
+                <strong>host</strong> {selectedClient.hostname ?? 'unknown'}
+              </span>
+              <span>
+                <strong>project</strong> {selectedClient.projectId}
+              </span>
+              <span>
+                <strong>client</strong> {shortId(selectedClient.clientId)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="hq-card-title">Command Type</div>
+        <div className="hq-control-steps" aria-label="Control command stages">
+          <span className="hq-step active">1 compose</span>
+          <span className={'hq-step' + (stage === 'preview' ? ' active' : '')}>2 preview</span>
+          <span className={'hq-step' + (status !== null ? ' active' : '')}>3 queued</span>
+        </div>
+        <div className="hq-control-types">
+          {(Object.keys(CMD_META) as CmdType[]).map((t) => {
+            const meta = CMD_META[t];
+            return (
+              <button
+                key={t}
+                type="button"
+                title={meta.desc}
+                className={
+                  'hq-control-type' +
+                  (cmdType === t ? ' selected' : '') +
+                  (meta.danger === true ? ' danger' : '')
+                }
+                onClick={() => chooseType(t)}
+              >
+                {meta.icon}
+                {meta.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="hq-control-typedesc">
+          {CMD_META[cmdType].danger === true && <AlertTriangle size={12} />}
+          {CMD_META[cmdType].desc}
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          {(cmdType === 'steer' || cmdType === 'btw' || cmdType === 'queue') && (
+            <div className="hq-card">
+              <label className="hq-label">
+                To (agent address — e.g. <code>leader</code>, <code>leader@sessionTag</code>, or a
+                subagent id)
+              </label>
+              <input
+                className="hq-input"
+                value={steerTo}
+                onChange={(e) => {
+                  setSteerTo(e.target.value);
+                  setHqControlPrefs({ steerTo: e.target.value });
+                }}
+                placeholder="leader"
+              />
+              <label className="hq-label" style={{ marginTop: 8 }}>
+                Subject
+              </label>
+              <input
+                className="hq-input"
+                value={steerSubject}
+                onChange={(e) => {
+                  setSteerSubject(e.target.value);
+                  setHqControlPrefs({ steerSubject: e.target.value });
+                }}
+              />
+              <label className="hq-label" style={{ marginTop: 8 }}>
+                Body
+              </label>
+              <textarea
+                className="hq-textarea"
+                value={steerBody}
+                onChange={(e) => {
+                  setSteerBody(e.target.value);
+                  setHqControlPrefs({ steerBody: e.target.value });
+                }}
+              />
+            </div>
+          )}
+
+          {cmdType === 'abort' && (
+            <div className="hq-card hq-card-danger">
+              <label className="hq-label">Target</label>
+              <select
+                className="hq-select"
+                value={abortTarget}
+                onChange={(e) => {
+                  setAbortTarget(e.target.value as 'leader' | 'fleet');
+                  setHqControlPrefs({ abortTarget: e.target.value as 'leader' | 'fleet' });
+                }}
+              >
+                <option value="leader">leader (session leader)</option>
+                <option value="fleet">fleet (all subagents)</option>
+              </select>
+              <div className="hq-control-warning">
+                Abort is destructive. Preview requires typing <strong>ABORT</strong> before
+                dispatch.
+              </div>
+            </div>
+          )}
+
+          {cmdType === 'spawn' && (
+            <div className="hq-card">
+              <label className="hq-label">Role</label>
+              <select
+                className="hq-select"
+                value={spawnRole}
+                onChange={(e) => {
+                  setSpawnRole(e.target.value);
+                  setHqControlPrefs({ spawnRole: e.target.value });
+                }}
+              >
+                <option value="bug-hunter">bug-hunter</option>
+                <option value="refactor-planner">refactor-planner</option>
+                <option value="critic">critic</option>
+                <option value="security-scanner">security-scanner</option>
+                <option value="code-reviewer">code-reviewer</option>
+              </select>
+              <label className="hq-label" style={{ marginTop: 8 }}>
+                Task (optional)
+              </label>
+              <textarea
+                className="hq-textarea"
+                value={spawnTask}
+                onChange={(e) => {
+                  setSpawnTask(e.target.value);
+                  setHqControlPrefs({ spawnTask: e.target.value });
+                }}
+                placeholder="Describe the task…"
+              />
+            </div>
+          )}
+
+          {cmdType === 'run-command' && (
+            <div className="hq-card hq-card-danger">
+              <label className="hq-label">Shell command</label>
+              <textarea
+                className="hq-textarea"
+                value={runCommand}
+                onChange={(e) => setRunCommand(e.target.value)}
+                placeholder="pnpm test"
+              />
+              <label className="hq-label" style={{ marginTop: 8 }}>
+                Working directory (optional — defaults to the agent's project root)
+              </label>
+              <input
+                className="hq-input"
+                value={runCwd}
+                onChange={(e) => setRunCwd(e.target.value)}
+                placeholder=""
+              />
+              <div className="hq-control-warning">
+                RCE-gated: the client must run with <code>--hq-allow-exec</code> and your token
+                needs the <code>control.execute</code> capability — otherwise the server rejects
+                this. Preview requires typing <strong>RUN</strong> before dispatch.
+              </div>
+            </div>
+          )}
+
+          {cmdType === 'broadcast' && (
+            <div className="hq-card">
+              <label className="hq-label">Subject</label>
+              <input
+                className="hq-input"
+                value={broadcastSubject}
+                onChange={(e) => {
+                  setBroadcastSubject(e.target.value);
+                  setHqControlPrefs({ broadcastSubject: e.target.value });
+                }}
+              />
+              <label className="hq-label" style={{ marginTop: 8 }}>
+                Body
+              </label>
+              <textarea
+                className="hq-textarea"
+                value={broadcastBody}
+                onChange={(e) => {
+                  setBroadcastBody(e.target.value);
+                  setHqControlPrefs({ broadcastBody: e.target.value });
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="hq-card-title">Dispatch Gate</div>
+        <div
+          className={
+            'hq-card hq-command-preview' + (draft.risk === 'danger' ? ' hq-card-danger' : '')
+          }
+        >
+          <div className="hq-row">
+            <span className={'hq-pill ' + (draft.risk === 'danger' ? 'error' : 'info')}>
+              {draft.risk}
+            </span>
+            <span>{draft.summary}</span>
+            {draft.disabledReason !== null && (
+              <span className="hq-pill warn">{draft.disabledReason}</span>
+            )}
+          </div>
+          {stage === 'preview' ? (
+            <>
+              <div className="hq-msg-sublabel">payload preview</div>
+              <pre className="hq-msg-pre">
+                {JSON.stringify(
+                  { clientId: selected, type: draft.type, payload: draft.payload },
+                  null,
+                  2,
+                )}
+              </pre>
+              {confirmRequired && (
+                <>
+                  <label className="hq-label" style={{ marginTop: 12 }}>
+                    Confirm destructive dispatch
+                  </label>
+                  <input
+                    className="hq-input"
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    placeholder={`Type ${confirmWord}`}
+                  />
+                </>
+              )}
+              <div className="hq-row" style={{ marginTop: 12 }}>
+                <button
+                  className="hq-btn"
+                  disabled={busy || !canDispatch}
+                  onClick={() => void dispatch()}
+                  title="Ctrl+Enter"
+                >
+                  {busy ? 'Dispatching…' : 'Dispatch Command'}
+                </button>
+                <button className="hq-btn secondary" disabled={busy} onClick={resetPreview}>
+                  Back to Compose
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              className="hq-btn"
+              disabled={!canPreview}
+              onClick={() => {
+                setStage('preview');
+                setStatus(null);
+                setError(null);
+              }}
+              title="Ctrl+Enter"
+            >
+              Preview Command
+            </button>
+          )}
+        </div>
+
+        {status && (
+          <div className="hq-pill active" style={{ marginTop: 12 }}>
+            {status}
+          </div>
+        )}
+        {error && (
+          <div className="hq-pill error" style={{ marginTop: 12 }}>
+            {error}
           </div>
         )}
       </div>
 
-      {status && (
-        <div className="hq-pill active" style={{ marginTop: 12 }}>
-          {status}
+      <div className="hq-control-audit">
+        <div className="hq-card-title">Command Audit</div>
+        <div className="hq-card hq-command-audit">
+          <div className="hq-row">
+            <span className="hq-pill info">recent {auditEntries.length}</span>
+            {auditLoading && <span className="hq-pill idle">refreshing</span>}
+            {auditError !== null && <span className="hq-pill error">{auditError}</span>}
+            <button
+              className="hq-btn secondary"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => void loadAudit()}
+            >
+              Refresh
+            </button>
+          </div>
+          {auditEntries.length === 0 ? (
+            <div className="hq-empty" style={{ padding: 16, fontSize: 12 }}>
+              No command audit entries yet.
+            </div>
+          ) : (
+            <div className="hq-audit-list">
+              {auditEntries.map((entry) => (
+                <div
+                  key={entry.commandId}
+                  className={
+                    'hq-audit-row' +
+                    (entry.commandId === lastDispatchedId ? ' just-dispatched' : '') +
+                    (selected !== null && entry.clientId === selected ? '' : ' other-client')
+                  }
+                >
+                  <div className="hq-audit-main">
+                    <span className={'hq-pill ' + auditTone(entry)}>{entry.status}</span>
+                    <span className="hq-pill info">{entry.type}</span>
+                    <span className="hq-mono">{shortId(entry.commandId)}</span>
+                    {entry.ackStatus !== undefined && (
+                      <span className={'hq-pill ' + ackTone(entry.ackStatus)}>
+                        ack {entry.ackStatus}
+                      </span>
+                    )}
+                  </div>
+                  <div className="hq-audit-meta">
+                    <span>
+                      <strong>client</strong> {shortId(entry.clientId)}
+                    </span>
+                    <span>
+                      <strong>by</strong> {entry.enqueuedBy}
+                    </span>
+                    <span>
+                      <strong>queued</strong> {relativeTime(entry.enqueuedAt)}
+                    </span>
+                    {entry.ackedAt !== undefined && (
+                      <span>
+                        <strong>acked</strong> {relativeTime(entry.ackedAt)}
+                      </span>
+                    )}
+                  </div>
+                  {entry.ackMessage !== undefined && entry.ackMessage.length > 0 && (
+                    <div className="hq-audit-message">{entry.ackMessage}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-      {error && (
-        <div className="hq-pill error" style={{ marginTop: 12 }}>
-          {error}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -556,9 +675,14 @@ function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-6)}` : id;
 }
 
-function formatTime(ts: string): string {
+/** "12s ago" / "3m ago" / clock time past an hour — audit rows are about
+ *  recency, and absolute clock times force mental subtraction. */
+export function relativeTime(ts: string, now = Date.now()): string {
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return ts;
+  const delta = Math.max(0, now - date.getTime());
+  if (delta < 60_000) return `${Math.floor(delta / 1000)}s ago`;
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
   return date.toLocaleTimeString();
 }
 
@@ -568,4 +692,10 @@ function auditTone(entry: CommandAuditEntry): 'active' | 'info' | 'idle' | 'erro
   if (entry.status === 'delivered') return 'info';
   if (entry.status === 'queued') return 'warn';
   return 'idle';
+}
+
+function ackTone(ackStatus: string): 'active' | 'error' | 'info' {
+  if (ackStatus === 'failed' || ackStatus === 'rejected') return 'error';
+  if (ackStatus === 'completed') return 'active';
+  return 'info';
 }
