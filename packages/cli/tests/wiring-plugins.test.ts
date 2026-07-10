@@ -74,6 +74,7 @@ vi.mock('@wrongstack/plugins/auto-escalate', () => ({ default: { name: 'auto-esc
 vi.mock('@wrongstack/plugins/test-coverage-gate', () => ({ default: { name: 'test-coverage-gate', register: vi.fn() } }), { virtual: true });
 vi.mock('@wrongstack/plugins/type-gate', () => ({ default: { name: 'type-gate', register: vi.fn() } }), { virtual: true });
 vi.mock('@wrongstack/plugins/token-throttle', () => ({ default: { name: 'token-throttle', register: vi.fn() } }), { virtual: true });
+vi.mock('@wrongstack/plugins/plugin-stack-observer', () => ({ default: { name: 'plugin-stack-observer', register: vi.fn() } }), { virtual: true });
 vi.mock('@wrongstack/plugins/dead-code-detector', () => ({ default: { name: 'dead-code-detector', register: vi.fn() } }), { virtual: true });
 vi.mock('@wrongstack/plugins/dependency-vulnerability-gate', () => ({ default: { name: 'dependency-vulnerability-gate', register: vi.fn() } }), { virtual: true });
 vi.mock('@wrongstack/plugins/migration-planner', () => ({ default: { name: 'migration-planner', register: vi.fn() } }), { virtual: true });
@@ -250,8 +251,27 @@ describe('setupPlugins', () => {
     expect(names).toEqual(expect.arrayContaining(EXPECTED_BUILTINS));
     expect(names).not.toContain('duplicate-code-detector');
     expect(names).not.toContain('format-on-save');
+    expect(names).not.toContain('wstack-chimera');
+    expect(names).not.toContain('agent-handoff');
+    expect(names).not.toContain('branch-guard');
+    expect(names).not.toContain('commit-validator');
+    expect(names).not.toContain('path-guard');
+    expect(names).not.toContain('checkpoint');
+    expect(names).not.toContain('dependency-vulnerability-gate');
+    expect(names).not.toContain('plugin-stack-observer');
     expect(names).not.toContain('@wrongstack/plug-lsp');
     expect(names).not.toContain('telegram');
+  });
+
+  it('loads an opt-in built-in only when explicitly enabled', async () => {
+    const deps = {
+      ...baseDeps({ plugins: [{ name: 'plugin-stack-observer', enabled: true }] as never }),
+      paths: fakePaths(),
+    };
+    await setupPlugins(deps as never);
+    const [plugins] = loadPluginsMock.mock.calls[0]!;
+    const names = (plugins as Array<{ name: string }>).map((p) => p.name);
+    expect(names).toContain('plugin-stack-observer');
   });
 
   // ── todo-tracker project-scoped filePath defaulting ───────────────────────

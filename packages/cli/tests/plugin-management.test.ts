@@ -46,7 +46,7 @@ describe('plugin management', () => {
       expect.objectContaining({
         name: 'branch-guard',
         canDisable: true,
-        defaultState: 'active',
+        defaultState: 'inactive',
       }),
     );
     expect(PLUGIN_AUDIT_ENTRIES).toContainEqual(
@@ -56,6 +56,18 @@ describe('plugin management', () => {
         defaultState: 'active',
       }),
     );
+    for (const name of [
+      'wstack-chimera',
+      'agent-handoff',
+      'commit-validator',
+      'path-guard',
+      'checkpoint',
+      'dependency-vulnerability-gate',
+    ]) {
+      expect(PLUGIN_AUDIT_ENTRIES).toContainEqual(
+        expect.objectContaining({ name, defaultState: 'inactive' }),
+      );
+    }
   });
 
   it('includes every bundled @wrongstack/plugins source directory in the TUI plugin picker audit list', async () => {
@@ -188,7 +200,7 @@ describe('plugin management', () => {
     });
   });
 
-  it('toggles branch-guard off by writing a disabled override', async () => {
+  it('toggles default-inactive branch-guard on by writing an enabled override', async () => {
     await fs.writeFile(configPath, JSON.stringify({ features: { plugins: true } }));
 
     const result = await runPluginManagementCommand(['toggle', 'branch-guard'], {
@@ -197,11 +209,10 @@ describe('plugin management', () => {
     });
 
     expect(result.code).toBe(0);
-    expect(result.restartRequired).toBeUndefined();
-    expect(result.message).toContain('disable itself');
-    expect(result.patch?.plugins).toEqual([{ name: 'branch-guard', enabled: false }]);
+    expect(result.restartRequired).toBe(true);
+    expect(result.patch?.plugins).toEqual(['branch-guard']);
     await expect(readConfig()).resolves.toMatchObject({
-      plugins: [{ name: 'branch-guard', enabled: false }],
+      plugins: ['branch-guard'],
       features: { plugins: true },
     });
   });

@@ -131,13 +131,19 @@ Plugin loading and plugin options are separate:
 ```
 
 - `plugins` controls which packages are loaded.
-- A string entry is enabled by default.
-- Object entries can be disabled with `enabled: false`.
+- `PLUGIN_AUDIT_ENTRIES.defaultState` is the canonical default for bundled plugins.
+- A string entry or `{ name, enabled: true }` explicitly enables an opt-in bundled plugin.
+- Object entries can disable a default-active plugin with `enabled: false`.
 - `extensions.<pluginName>` stores that plugin's options and is validated
   against the plugin's `configSchema` during boot.
 - Object entries can also carry `options`; WrongStack merges
   `plugins[].options` with `extensions.<pluginName>`, with `extensions`
   taking precedence.
+
+Bundled plugins are default-off when they automatically mutate files, enforce
+project-specific policy, publish data, start background work, run expensive
+subprocesses, or change provider-call semantics. Use `wstack plugin report` to
+see the effective state and `wstack plugin enable <name>` to opt in.
 
 ## Telegram
 

@@ -61,8 +61,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'wstack-chimera',
     risk: 'medium',
-    summary: 'Post-session code quality review agent.',
-    defaultState: 'active',
+    summary: 'Spawns a post-session code review subagent when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -82,8 +82,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'agent-handoff',
     risk: 'medium',
-    summary: 'Mailbox-backed handoff notes and task transfer helpers.',
-    defaultState: 'active',
+    summary: 'Automatically posts subagent results to the mailbox when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -187,8 +187,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'branch-guard',
     risk: 'high',
-    summary: 'Blocks commits, pushes, and merges on protected branches.',
-    defaultState: 'active',
+    summary: 'Enforces project-specific protected-branch policy when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -201,8 +201,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'commit-validator',
     risk: 'medium',
-    summary: 'Validates conventional commit format before commits.',
-    defaultState: 'active',
+    summary: 'Enforces conventional-commit policy when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -271,8 +271,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'path-guard',
     risk: 'medium',
-    summary: 'Blocks writes and destructive commands on protected paths.',
-    defaultState: 'active',
+    summary: 'Enforces project-specific protected-path policy when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -285,8 +285,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'checkpoint',
     risk: 'medium',
-    summary: 'Snapshots files before edits and restores pre-edit states.',
-    defaultState: 'active',
+    summary: 'Retains pre-edit file contents in memory when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {
@@ -306,8 +306,8 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
   {
     name: 'dependency-vulnerability-gate',
     risk: 'high',
-    summary: 'Audits installed dependencies and blocks vulnerable installs.',
-    defaultState: 'active',
+    summary: 'Runs a blocking dependency audit after installs when explicitly enabled.',
+    defaultState: 'inactive',
     canDisable: true,
   },
   {

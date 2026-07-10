@@ -265,6 +265,7 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
   async () => (await import('@wrongstack/plugins/test-coverage-gate')).default,
   async () => (await import('@wrongstack/plugins/type-gate')).default,
   async () => (await import('@wrongstack/plugins/token-throttle')).default,
+  async () => (await import('@wrongstack/plugins/plugin-stack-observer')).default,
   async () => (await import('@wrongstack/plugins/dead-code-detector')).default,
   async () => (await import('@wrongstack/plugins/dependency-vulnerability-gate')).default,
   async () => (await import('@wrongstack/plugins/migration-planner')).default,

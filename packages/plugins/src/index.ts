@@ -1,8 +1,8 @@
 /**
  * @wrongstack/plugins — Official WrongStack Plugin Suite
  *
- * Exported plugins (62 total; 1–36 use PreToolUse/PostToolUse/Stop or
- * tools, 37–41 are deep-hook plugins that register a full AgentExtension
+ * Exported plugins (63 total; most use tools or lifecycle hooks, while
+ * provider-wire plugins register a full AgentExtension
  * — wrapProviderRunner / onError — wrapping the provider call itself):
  *  1. auto-doc         — Auto-generates JSDoc/TSDoc (dryRun for preview)
  *  2. git-autocommit  — AI-powered commit messages (git_autocommit/status_summary removed)

@@ -1,9 +1,10 @@
 # @wrongstack/plugins
 
 First-party plugin collection for [WrongStack](https://github.com/WrongStack/WrongStack).
-Sixty-three focused, single-purpose plugins ship in this package. Core safety
-plugins load automatically for every `wstack` session; provider-wire plugins
-are opt-in because they can change model-call semantics.
+Sixty-three focused, single-purpose plugins ship in this package. Passive,
+broadly applicable diagnostics and bounded safety checks load automatically;
+plugins with automatic mutation, policy enforcement, network egress, background
+work, or provider-call semantic changes are opt-in.
 
 ## What this is
 
@@ -15,8 +16,10 @@ exports a default `Plugin` object. The host's plugin loader
 `secret-scanner` registers `PreToolUse` + `PostToolUse` hooks).
 
 Plugins are loaded lazily by `packages/cli/src/wiring/plugins.ts`
-under the `BUILTIN_PLUGIN_FACTORIES` array. To opt out, add
-`{ name: '<plugin>', enabled: false }` to `config.plugins`.
+under the `BUILTIN_PLUGIN_FACTORIES` array. The canonical default is
+`PLUGIN_AUDIT_ENTRIES.defaultState`: list an inactive plugin with
+`{ name: '<plugin>', enabled: true }` to opt in, or list an active plugin with
+`enabled: false` to opt out.
 
 ## Plugin catalog
 
@@ -34,9 +37,9 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. To opt out, add
 | 10 | [`todo-tracker`](./src/todo-tracker) | `todo_tracker_*` | — | Persistent project-scoped backlog that survives sessions |
 | 11 | [`token-budget`](./src/token-budget) | `token_budget_status` | `Stop` + `PostToolUse` | Tracks token use and can warn/stop at configured limits |
 | 12 | [`lint-gate`](./src/lint-gate) | `lint_gate_status` | `PreToolUse` | Lints would-be write/edit content before mutation |
-| 13 | [`branch-guard`](./src/branch-guard) | `branch_guard_status` | `PreToolUse` | Blocks or warns on commits, pushes, and merges on protected branches |
+| 13 | [`branch-guard`](./src/branch-guard) | `branch_guard_status` | `PreToolUse` | Opt-in protected-branch policy for commits, pushes, and merges |
 | 14 | [`diff-summary`](./src/diff-summary) | `diff_summary_status` | `PostToolUse` | Injects compact git diff context after write/edit |
-| 15 | [`commit-validator`](./src/commit-validator) | `commit_validator_status` | `PreToolUse` | Validates conventional-commit messages |
+| 15 | [`commit-validator`](./src/commit-validator) | `commit_validator_status` | `PreToolUse` | Opt-in conventional-commit policy |
 | 16 | [`format-on-save`](./src/format-on-save) | `format_on_save_status` | `PostToolUse` | Runs formatter after write/edit |
 | 17 | [`test-runner-gate`](./src/test-runner-gate) | `test_gate_status` | `PostToolUse` | Runs relevant tests after source edits |
 | 18 | [`import-organizer`](./src/import-organizer) | `import_organizer_status` | `PostToolUse` | Organizes imports and applies safe fixes after write/edit |
@@ -44,9 +47,9 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. To opt out, add
 | 20 | [`session-recap`](./src/session-recap) | `session_recap_status` | `Stop` | Posts a compact session recap to the project mailbox |
 | 21 | [`spec-linker`](./src/spec-linker) | `spec_linker_status` | `PreToolUse` + `PostToolUse` | Detects unlinked plugin references in markdown docs |
 | 22 | [`loop-breaker`](./src/loop-breaker) | `loop_breaker_status` | `PreToolUse` | Detects repeated tool-call loops and oscillations |
-| 23 | [`path-guard`](./src/path-guard) | `path_guard_status` | `PreToolUse` | Guards protected paths from writes and destructive shell commands |
+| 23 | [`path-guard`](./src/path-guard) | `path_guard_status` | `PreToolUse` | Opt-in protected-path policy for writes and destructive commands |
 | 24 | [`context-pins`](./src/context-pins) | `pin_add`, `pin_remove`, `pin_list` | System prompt contributor | Persists short pinned facts across compaction/session boundaries |
-| 25 | [`checkpoint`](./src/checkpoint) | `checkpoint_create`, `checkpoint_list`, `checkpoint_restore` | `PreToolUse` | Captures file snapshots before risky edits and restores them on demand |
+| 25 | [`checkpoint`](./src/checkpoint) | `checkpoint_create`, `checkpoint_list`, `checkpoint_restore` | `PreToolUse` | Opt-in in-memory snapshots of pre-edit file contents |
 | 26 | [`error-lens`](./src/error-lens) | `error_lens_history` | `PostToolUse` | Summarizes failed tool output and repeated failure patterns |
 | 27 | [`dep-guard`](./src/dep-guard) | `dep_guard_status` | `PreToolUse` | Supervises dependency installs for deny-list and supply-chain warnings |
 | 28 | [`config-validator`](./src/config-validator) | `config_validator_status` | `PostToolUse` | Validates edited JSON/JSONC/YAML/TOML config files |
@@ -61,10 +64,10 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. To opt out, add
 | 37 | [`type-gate`](./src/type-gate) | `type_gate_status` | `PostToolUse` | Runs `tsc --noEmit` after `write`/`edit` to catch type regressions |
 | 38 | [`test-coverage-gate`](./src/test-coverage-gate) | `coverage_gate_status` | `PostToolUse` | Detects test-coverage regressions after source-file edits |
 | 39 | [`pr-drafter`](./src/pr-drafter) | `pr_draft` | `Stop` + event subscriptions | Drafts a pull-request description from session commits/files/diff |
-| 40 | [`agent-handoff`](./src/agent-handoff) | `handoff_note`, `handoff_status` | `subagent.done` event listener | Posts structured handoff notes when subagents finish |
+| 40 | [`agent-handoff`](./src/agent-handoff) | `handoff_note`, `handoff_status` | `subagent.done` event listener | Opt-in mailbox publication of subagent results |
 | 41 | [`knowledge-graph`](./src/knowledge-graph) | `kg_add_fact`, `kg_query`, `kg_remove_fact`, `kg_status` | System prompt contributor | Persistent structured (subject, relation, object) project facts |
 | 42 | [`dead-code-detector`](./src/dead-code-detector) | `dead_code_scan` | `PostToolUse` | Regex-based scan for exported identifiers that appear unused |
-| 43 | [`dependency-vulnerability-gate`](./src/dependency-vulnerability-gate) | `dependency_audit_status` | `PostToolUse` | Runs `npm/pnpm audit` after installs and blocks on severe vulnerabilities |
+| 43 | [`dependency-vulnerability-gate`](./src/dependency-vulnerability-gate) | `dependency_audit_status` | `PostToolUse` | Opt-in blocking `npm/pnpm audit` after installs |
 | 44 | [`migration-planner`](./src/migration-planner) | `migration_plan`, `migration_status` | `PostToolUse` | Reads changelogs and produces version-migration checklists |
 | 45 | [`semantic-search-indexer`](./src/semantic-search-indexer) | `semantic_search`, `semantic_index_status` | — | Lightweight keyword index over project source files |
 | 46 | [`auto-i18n-extractor`](./src/auto-i18n-extractor) | `i18n_extract`, `i18n_status` | `PostToolUse` | Detects hardcoded user-facing strings and suggests i18n keys |
@@ -722,7 +725,7 @@ the PostToolUse context tells the LLM what to fix.
 
 **Detection rules** (both hooks):
 - Source matches `config.fileGlobs` (default: `**/*.md`, `**/*.mdx`)
-- The reference matches one of the 62 known plugin names
+- The reference matches one of the 63 known plugin names
   (case-insensitive)
 - It is NOT already wrapped in a markdown link `[name](...)` or
   inline code `` `name` ``
