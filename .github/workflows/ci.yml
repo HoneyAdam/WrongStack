@@ -42,6 +42,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # node-pty prebuilt smoke check. Catches pnpm 11 + Node 22/24 +
+      # optionalDependencies regressions that the rest of CI misses
+      # because vitest never actually loads the native binary (it just
+      # mocks require). Must run after install (which fetches the
+      # prebuilt) and before build (so a broken optional dep fails
+      # fast, before we spend 60 s compiling 22 packages).
+      # See scripts/check-node-pty.mjs for the rationale.
+      - name: Smoke test node-pty prebuilt
+        run: pnpm check:node-pty
+
       # Security: fail CI on known dependency vulnerabilities (moderate+).
       # --audit-level=moderate catches anything that pnpm audit considers
       # moderate severity or above.  Low/informational findings pass through.
