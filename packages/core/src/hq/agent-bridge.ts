@@ -35,7 +35,7 @@ export function startAgentMonitorEventBridge(opts: AgentMonitorEventBridgeOption
     return seq.current;
   }
 
-  function buildEnvelope<T>(type: string, payload: T): HqEventEnvelope<T> {
+  function buildEnvelope<T>(type: string, payload: T, sessionId?: string): HqEventEnvelope<T> {
     return createHqEventEnvelope({
       id: `${Date.now().toString(36)}-${nextSeq()}`,
       type: type as never,
@@ -44,6 +44,10 @@ export function startAgentMonitorEventBridge(opts: AgentMonitorEventBridgeOption
       projectId,
       seq: nextSeq(),
       payload,
+      // Carry the parent session id so HQ can scope per-agent transcripts by
+      // (sessionId, subagentId) — without it, two sessions whose leaders both
+      // use the default id 'leader' would collide into one shared ring.
+      ...(sessionId !== undefined ? { sessionId } : {}),
     }) as HqEventEnvelope<T>;
   }
 
@@ -59,7 +63,7 @@ export function startAgentMonitorEventBridge(opts: AgentMonitorEventBridgeOption
     };
     if (payload.toolName !== undefined) msgPayload.toolName = payload.toolName;
     if (payload.costUsd !== undefined) msgPayload.costUsd = payload.costUsd;
-    publish(buildEnvelope('agent.message', msgPayload));
+    publish(buildEnvelope('agent.message', msgPayload, payload.sessionId));
   });
 
   const offStatus = events.on('agent.status_changed', (payload) => {

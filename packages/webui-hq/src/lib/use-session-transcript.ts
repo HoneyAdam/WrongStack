@@ -37,6 +37,40 @@ export function turnKey(entry: HqTranscriptEntry, i: number): string {
   return `${i}:${entry.ts}:${entry.role}:${entry.toolUseId ?? ''}`;
 }
 
+/**
+ * Fold a delta stream back into whole turns. The agent monitor emits one
+ * entry per `provider.text_delta` / `thinking_delta`, so a single streamed
+ * message arrives as dozens of one-word entries. Merge consecutive
+ * assistant/thinking entries (same role, same agent, neither carrying a
+ * tool) into one growing bubble; any tool/system/error/user entry between
+ * them acts as a turn boundary. Exported for tests.
+ */
+export function coalesceStreamedText(entries: readonly HqTranscriptEntry[]): HqTranscriptEntry[] {
+  const out: HqTranscriptEntry[] = [];
+  const isMergeable = (e: HqTranscriptEntry): boolean =>
+    (e.role === 'assistant' || e.role === 'thinking') &&
+    e.tool === undefined &&
+    e.toolUseId === undefined &&
+    e.isError !== true;
+  for (const e of entries) {
+    const prev = out[out.length - 1];
+    if (
+      prev !== undefined &&
+      isMergeable(e) &&
+      isMergeable(prev) &&
+      prev.role === e.role &&
+      (prev.agentId ?? '') === (e.agentId ?? '')
+    ) {
+      // Deltas are raw fragments — concatenate with no separator. Keep the
+      // earliest ts so ordering is stable across re-renders.
+      out[out.length - 1] = { ...prev, text: prev.text + e.text };
+    } else {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
 function entryFromAgentMessage(payload: HqAgentMessagePayload): HqTranscriptEntry {
   const role: HqTranscriptEntry['role'] =
     payload.kind === 'thinking'
@@ -99,19 +133,19 @@ export function useSessionTranscript(
   transcriptRef.current = transcript;
 
   // ── Subagent history ────────────────────────────────────────────────────
-  // Seed from the server's PER-AGENT transcript ring (/api/agents/:id/messages
-  // — 4000 entries per subagent, fed by every agent.message the server ever
-  // saw), then fold in live agent.message envelopes from the in-memory store
-  // ring.
+  // Seed from the server's PER-AGENT transcript ring, scoped by session so
+  // same-named agents in different sessions (every leader is id 'leader')
+  // don't share one ring. Then fold in live agent.message envelopes that
+  // match BOTH this session and this agent.
   const [agentSeed, setAgentSeed] = useState<HqTranscriptEntry[]>([]);
   const [agentLoading, setAgentLoading] = useState(false);
   useEffect(() => {
     setAgentSeed([]);
-    if (agentId === null) return;
+    if (agentId === null || sessionId === null) return;
     let cancelled = false;
     setAgentLoading(true);
     fetchJson<{ subagentId: string; total: number; entries: HqTranscriptEntry[] }>(
-      `/api/agents/${encodeURIComponent(agentId)}/messages?full=1`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/messages?full=1`,
     )
       .then((data) => {
         if (cancelled) return;
@@ -124,27 +158,34 @@ export function useSessionTranscript(
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, sessionId]);
 
   const agentEntries = useMemo(() => {
     if (agentId === null) return [];
     const live = state.events
-      .filter((event) => event.type === 'agent.message')
+      .filter(
+        (event) =>
+          event.type === 'agent.message' &&
+          // Scope to THIS session too — otherwise another session's 'leader'
+          // messages leak into this agent's transcript.
+          (event.sessionId === undefined || event.sessionId === sessionId),
+      )
       .map((event) => event.payload as Partial<HqAgentMessagePayload>)
       .filter((payload): payload is HqAgentMessagePayload => payload.subagentId === agentId)
-      .map(entryFromAgentMessage);
+      .map((p) => ({ ...entryFromAgentMessage(p), agentId }));
     // The seed already contains every message the server saw — including the
     // ones mirrored in our live ring — so dedupe on (ts, role, text).
     const seen = new Set<string>();
-    const out: HqTranscriptEntry[] = [];
+    const merged: HqTranscriptEntry[] = [];
     for (const entry of [...agentSeed, ...live]) {
       const key = `${entry.ts}|${entry.role}|${entry.text}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push(entry);
+      merged.push(entry);
     }
-    return out;
-  }, [agentSeed, state.events, agentId]);
+    // Fold the per-delta stream back into whole turns.
+    return coalesceStreamedText(merged);
+  }, [agentSeed, state.events, agentId, sessionId]);
 
   // ── Initial (re)fetch ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -193,7 +234,13 @@ export function useSessionTranscript(
   }, [state.events, sessionId, viewingAgent]);
 
   // ── Follow the newest turn while pinned ───────────────────────────────────
-  const entries = viewingAgent ? agentEntries : transcript.entries;
+  // Both planes stream text one delta per entry; fold them into whole turns.
+  // (agentEntries is already coalesced; the session transcript store is not.)
+  const sessionEntries = useMemo(
+    () => coalesceStreamedText(transcript.entries),
+    [transcript.entries],
+  );
+  const entries = viewingAgent ? agentEntries : sessionEntries;
   useEffect(() => {
     if (pinnedRef.current && entries.length > 0) {
       listRef.current?.scrollToIndex(entries.length - 1, { align: 'end' });

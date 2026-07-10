@@ -173,6 +173,15 @@ interface TranscriptRing {
   machineId?: string;
 }
 
+/**
+ * Ring key for one subagent's transcript. Scoped by session so same-named
+ * agents in different sessions (every leader is id 'leader') stay separate.
+ * Falls back to the bare subId when no session id is known (legacy clients).
+ */
+function agentRingKey(sessionId: string | undefined, subId: string): string {
+  return sessionId !== undefined && sessionId.length > 0 ? `${sessionId}::${subId}` : subId;
+}
+
 /** Map a raw `agent.message` payload to a transcript entry for the subagent ring. */
 function agentMessageToEntry(p: Record<string, unknown>): HqTranscriptEntry {
   const kind = typeof p['kind'] === 'string' ? p['kind'] : 'text';
@@ -1098,15 +1107,43 @@ function startHqServerWithAuth(
         return;
       }
 
-      // ── Subagent message history (full conversation of one shadow agent) ──
+      // ── Subagent message history, session-scoped (preferred) ──
+      // GET /api/sessions/:sid/agents/:aid/messages — the (sessionId, agentId)
+      // key keeps same-named leaders from different sessions distinct.
+      const sessionAgentMsgMatch = url.pathname.match(
+        /^\/api\/sessions\/([^/]+)\/agents\/([^/]+)\/messages$/,
+      );
+      if (sessionAgentMsgMatch && req.method === 'GET') {
+        const sid = decodeURIComponent(sessionAgentMsgMatch[1]!);
+        const aid = decodeURIComponent(sessionAgentMsgMatch[2]!);
+        const full = url.searchParams.get('full') === '1';
+        // Prefer the session-scoped ring; fall back to a bare-id ring left by
+        // a legacy client that published without a session id.
+        const ring = agentMessages.get(agentRingKey(sid, aid)) ?? agentMessages.get(aid) ?? [];
+        const entries = full ? ring : ring.slice(-200);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ subagentId: aid, sessionId: sid, total: ring.length, entries }));
+        return;
+      }
+
+      // ── Subagent message history (legacy, un-scoped) ──
+      // GET /api/agents/:aid/messages — kept for back-compat. When multiple
+      // sessions share an agent id, this merges their rings; prefer the
+      // session-scoped route above.
       const agentMsgMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
       if (agentMsgMatch && req.method === 'GET') {
         const id = decodeURIComponent(agentMsgMatch[1]!);
         const full = url.searchParams.get('full') === '1';
-        const ring = agentMessages.get(id) ?? [];
-        const entries = full ? ring : ring.slice(-200);
+        // Concatenate every ring for this bare id across sessions (best-effort
+        // for old callers), plus any exact bare-key ring.
+        const merged: HqTranscriptEntry[] = [];
+        for (const [key, ring] of agentMessages) {
+          if (key === id || key.endsWith(`::${id}`)) merged.push(...ring);
+        }
+        merged.sort((a, b) => a.ts.localeCompare(b.ts));
+        const entries = full ? merged : merged.slice(-200);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ subagentId: id, total: ring.length, entries }));
+        res.end(JSON.stringify({ subagentId: id, total: merged.length, entries }));
         return;
       }
 
@@ -1589,18 +1626,22 @@ function handleClient(
         return;
       }
 
-      // Subagent conversation — buffer per subagentId so late-connecting
-      // browsers (incl. on other machines) can replay the full history.
+      // Subagent conversation — buffer per (sessionId, subagentId) so
+      // late-connecting browsers (incl. on other machines) can replay the
+      // full history. Scoping by session is essential: every session's
+      // leader uses the default id 'leader', so a bare-subId key would merge
+      // every leader's transcript into one shared ring.
       if (event.type === 'agent.message') {
         const p = event.payload as Record<string, unknown> | undefined;
         const subId = p && typeof p['subagentId'] === 'string' ? (p['subagentId'] as string) : undefined;
         if (subId) {
-          let ring = agentMessages.get(subId);
+          const key = agentRingKey(event.sessionId, subId);
+          let ring = agentMessages.get(key);
           if (!ring) ring = [];
           ring.push(agentMessageToEntry(p as Record<string, unknown>));
           if (ring.length > TRANSCRIPT_RING_MAX) ring.splice(0, ring.length - TRANSCRIPT_RING_MAX);
-          agentMessages.delete(subId);
-          agentMessages.set(subId, ring);
+          agentMessages.delete(key);
+          agentMessages.set(key, ring);
           evictOldest(agentMessages, MAX_AGENT_RINGS);
         }
         persistEvent(event);

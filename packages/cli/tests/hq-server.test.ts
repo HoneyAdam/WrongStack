@@ -1369,6 +1369,48 @@ describe('HQ server fleet telemetry', () => {
     client.close();
   });
 
+  it('keeps same-named agents in different sessions separate (session-scoped rings)', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrame('c1', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Two sessions, each with a leader whose id is the default 'leader'.
+    function leaderMsg(sessionId: string, seq: number, content: string): string {
+      return JSON.stringify({
+        type: 'client.event',
+        event: {
+          id: `lm-${sessionId}-${seq}`, type: 'agent.message', schemaVersion: HQ_PROTOCOL_VERSION,
+          timestamp: new Date().toISOString(), clientId: 'c1', projectId: 'projX', seq, sessionId,
+          payload: { subagentId: 'leader', agentName: 'leader', content, kind: 'text', iteration: seq, ts: new Date().toISOString() },
+        },
+      });
+    }
+    client.send(leaderMsg('sess-A', 1, 'A: hello from session A'));
+    client.send(leaderMsg('sess-B', 1, 'B: hello from session B'));
+    client.send(leaderMsg('sess-A', 2, 'A: second line'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    const resA = await fetch(
+      `http://127.0.0.1:${handle.port}/api/sessions/sess-A/agents/leader/messages?full=1`,
+    );
+    const bodyA = (await resA.json()) as { total: number; entries: { text: string }[] };
+    expect(bodyA.total).toBe(2);
+    expect(bodyA.entries.map((e) => e.text)).toEqual(['A: hello from session A', 'A: second line']);
+
+    const resB = await fetch(
+      `http://127.0.0.1:${handle.port}/api/sessions/sess-B/agents/leader/messages?full=1`,
+    );
+    const bodyB = (await resB.json()) as { total: number; entries: { text: string }[] };
+    expect(bodyB.total).toBe(1);
+    expect(bodyB.entries[0]!.text).toBe('B: hello from session B');
+
+    client.close();
+  });
+
   it('aggregates fleet.snapshot into the fleets[] rollup and derives sessions[] from liveSessions', async () => {
     const port = getPort();
     handle = await startOpenHqServer({ port });
