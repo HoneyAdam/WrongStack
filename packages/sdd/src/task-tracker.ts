@@ -5,9 +5,12 @@
 // TypeScript source directly without going through the exports field).
 //
 // If a consumer outside sdd wants TaskTracker, import it from
-// '@wrongstack/core/tasking/task-tracker.js' or just from
-// '@wrongstack/core' (the latter is re-exported as of the regression
-// fix that motivated this file's existence).
+// '@wrongstack/core' — the root re-exports TaskTracker + all its
+// types. The deeper subpath `@wrongstack/core/tasking/task-tracker.js`
+// does NOT work because @wrongstack/core's package.json `exports`
+// field only declares the whole `./tasking` subpath, not individual
+// files under it (Node 16+ refuses to fall back to the dist tree
+// when an undeclared subpath is requested).
 export {
   type TaskStore,
   type TaskTrackerOptions,
@@ -15,4 +18,4 @@ export {
   type TaskTrackerChange,
   type TaskTrackerListener,
   TaskTracker,
-} from '@wrongstack/core/tasking/task-tracker.js';
+} from '@wrongstack/core';

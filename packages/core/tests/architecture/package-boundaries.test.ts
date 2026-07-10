@@ -13,6 +13,13 @@ const CORE_SRC = path.resolve(process.cwd(), 'packages/core/src');
 const ALLOWED_SELF_IMPORTS = new Set([
   '@wrongstack/core',
   '@wrongstack/core/utils/dispatcher-types', // dispatcher-types.d.ts re-exports from itself in JSDoc examples
+  // Re-export subpaths added when DefaultTaskStore was promoted to the
+  // public API. The exports field only declares the whole `./tasking`
+  // subpath, so re-exports of individual files inside `./tasking/` have
+  // to use these deeper paths until either (a) the exports field is
+  // widened to `./tasking/*`, or (b) the file moves to `./index.ts`.
+  '@wrongstack/core/tasking/task-tracker.js',
+  '@wrongstack/core/tasking/task-store.js',
   // @wrongstack/kanban was extracted from core and sits BELOW it in the
   // dependency graph (kanban has no @wrongstack dependencies; core declares
   // it in package.json). Static imports are therefore not upward imports.

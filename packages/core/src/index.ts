@@ -613,9 +613,10 @@ export {
   type TaskTrackerListener,
   TaskTracker,
 } from './tasking/task-tracker.js';
-export {
-  type StoreOptions,
-  type WorktreeManagerOptions,
-  type WorktreeRunResult,
-  type WorktreeStatus,
-} from './worktree/index.js';
+// DefaultTaskStore lives in task-store.ts (a sibling of task-tracker.ts).
+// Re-exporting here from the package root so consumers can do
+// `import { DefaultTaskStore, TaskTracker } from '@wrongstack/core'`
+// without depending on the undeclared
+// `@wrongstack/core/tasking/task-store.js` subpath (the package's
+// `exports` field only declares the whole `./tasking` directory).
+export { DefaultTaskStore } from './tasking/task-store.js';
