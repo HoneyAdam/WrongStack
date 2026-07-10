@@ -189,3 +189,77 @@ PR-00 is complete when:
 
 The full test suite remains **incomplete**, not passing. PR-15 must repeat it in
 a clean release-verification environment after P0/P1 fixes land.
+
+## PR-10 — Deferral and Inventory (attempted 2026-07-10)
+
+Attempted on `refactor/pr-10-core-autophase-edge` from `351744e4` baseline.
+PR-10 cannot be applied in a single independently-revertible PR from the
+current session because it requires touching the same files the live peer
+workstream owns. Inventory captured for the next session:
+
+### Core `createRequire('@wrongstack/sdd')` call sites (2)
+
+- `packages/core/src/autophase/phase-graph-builder.ts:14-18` — used at
+  `:64-66` to materialise `DefaultTaskStore` + `TaskTracker` and call
+  `tracker.createGraph`.
+- `packages/core/src/autophase/phase-orchestrator.ts:17-21` — used at
+  `:793-797` to materialise the per-phase tracker via
+  `getTrackerForPhase(phase)`.
+
+### Production consumers (3 sites, 2 packages)
+
+- `packages/core/src/autophase/auto-phase-runner.ts:96-130` — instantiates
+  both `PhaseGraphBuilder` and `PhaseOrchestrator` directly inside core.
+- `packages/cli/src/autophase-host.ts:516,557,715` — three sites build and
+  run AutoPhase phases (interactive/verify/conflict-resolution paths).
+  **Peer-owned worktree at capture time.**
+- `packages/webui-server/src/server/autophase-ws-handler.ts:268,310` — one
+  build + one orchestrator for the HQ interactive run. **Peer-owned
+  worktree at capture time.**
+
+### Test consumers (5)
+
+- `packages/core/tests/autophase/phase-store.test.ts` (3 sites)
+- `packages/core/tests/autophase/phase-orchestrator.test.ts` (11 sites)
+- `packages/core/tests/autophase/phase-orchestrator-extra.test.ts` (2 sites)
+- `packages/core/tests/autophase/phase-graph-builder.test.ts` (3 sites)
+- `packages/core/tests/autophase/checkpoint.test.ts` (1 site)
+
+### Required design
+
+`PhaseOrchestratorOptions` and `PhaseGraphBuilderOptions` need an optional
+`trackerFactory?: () => { store: TaskStore; TaskTracker: TaskGraphTracker }`
+(plus `storeFactory?` for cases where the test wants a custom store without
+a tracker). The default factory uses an in-core in-memory implementation
+that mirrors `DefaultTaskStore`'s API and a `TaskTracker` that operates on
+the in-memory store. Consumers in `cli` and `webui-server` keep importing
+`DefaultTaskStore` + `TaskTracker` from `@wrongstack/sdd` and pass a
+factory that wires them in. This keeps the core contract independent of
+SDD at the type level while preserving every existing call site behaviour.
+
+### Conflict with the PR-00 ownership window
+
+`cli/src/autophase-host.ts` and `webui-server/src/server/autophase-ws-handler.ts`
+are listed in the shared main worktree as modified by active peer work
+(38 unstaged files at capture time). Touching them in the same commit as
+the core change would either absorb that peer work or fail the
+corruption guard. The session is therefore stopping at this decision
+record; PR-10 becomes the first concrete refactor of the next session,
+coordinated with whatever peer branches land first.
+
+### Hardening companion test (mirrors PR-08)
+
+Add to `packages/core/tests/architecture/package-boundaries.test.ts`:
+
+```ts
+describe('P0/P1 manifest regression (PR-10)', () => {
+  it('core does not declare @wrongstack/sdd in package.json', async () => {
+    // identical pattern to the PR-08 scanner regression
+  });
+});
+```
+
+This test cannot be added in this session because the manifest still
+declares the edge; the assertion is staged in the plan and will be
+written together with the core source change.
+
