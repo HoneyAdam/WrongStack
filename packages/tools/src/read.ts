@@ -33,6 +33,10 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
     '- Use `offset` + `limit` for very large files instead of reading everything at once.\n' +
     '- Default limit is generous (2000 lines) but can be increased.\n' +
     '- The output format is designed to be directly usable as context for `edit` operations.',
+  selection: {
+    doNotUseWhen: 'you need to search many files for matching content.',
+    useInstead: ['grep'],
+  },
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],

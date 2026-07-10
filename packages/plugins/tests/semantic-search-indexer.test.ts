@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('node:fs', () => ({
-  readdirSync: vi.fn(),
-  readFileSync: vi.fn(),
-  statSync: vi.fn(),
+vi.mock('node:fs/promises', () => ({
+  readdir: vi.fn(),
+  readFile: vi.fn(),
+  stat: vi.fn(),
 }));
 
-const { readdirSync, readFileSync, statSync } = await import('node:fs');
+const { readdir, readFile, stat } = await import('node:fs/promises');
 const plugin = (await import('../src/semantic-search-indexer')).default;
 
 interface MockApi {
@@ -64,7 +64,7 @@ function createDirent(name: string, kind: 'dir' | 'file') {
 }
 
 function mockTree(tree: Tree) {
-  vi.mocked(readdirSync).mockImplementation((path) => {
+  vi.mocked(readdir).mockImplementation(async (path) => {
     const entry = tree[path as string];
     if (!entry || entry.type !== 'dir') {
       const err = new Error(`ENOTDIR ${path}`) as Error & { code: string };
@@ -77,10 +77,10 @@ function mockTree(tree: Tree) {
       const child = tree[childPath];
       const kind = child?.type === 'dir' ? 'dir' : 'file';
       return createDirent(name, kind);
-    });
+    }) as never;
   });
 
-  vi.mocked(statSync).mockImplementation((path) => {
+  vi.mocked(stat).mockImplementation(async (path) => {
     const entry = tree[path as string];
     if (!entry) {
       const err = new Error(`ENOENT ${path}`) as Error & { code: string };
@@ -92,10 +92,10 @@ function mockTree(tree: Tree) {
       isFile: () => entry.type === 'file',
       isDirectory: () => entry.type === 'dir',
       size,
-    } as unknown as ReturnType<typeof statSync>;
+    } as never;
   });
 
-  vi.mocked(readFileSync).mockImplementation((path) => {
+  vi.mocked(readFile).mockImplementation(async (path) => {
     const entry = tree[path as string];
     if (!entry || entry.type !== 'file') {
       const err = new Error(`EISDIR ${path}`) as Error & { code: string };
@@ -173,6 +173,31 @@ describe('semantic-search-indexer plugin', () => {
     expect(result.results).toHaveLength(1);
     expect(result.results[0]?.path).toBe('src/helpers.ts');
     expect(result.results[0]?.score).toBe(2);
+  });
+
+  it('returns bounded top results ordered by score then path', async () => {
+    mockTree({
+      '/project': { type: 'dir', entries: ['src'] },
+      '/project/src': { type: 'dir', entries: ['z.ts', 'b.ts', 'c.ts', 'a.ts'] },
+      '/project/src/z.ts': { type: 'file', content: 'function helper() {}\n' },
+      '/project/src/b.ts': { type: 'file', content: 'function helper() {}\nfunction helper() {}\n' },
+      '/project/src/c.ts': { type: 'file', content: 'function helper() {}\n' },
+      '/project/src/a.ts': { type: 'file', content: 'function helper() {}\nfunction helper() {}\n' },
+    });
+
+    const api = makeApi();
+    plugin.setup(api as never);
+    const search = getTool(api, 'semantic_search');
+    const result = (await search({ query: 'helper', limit: 2 })) as {
+      ok: boolean;
+      results: Array<{ path: string; score: number }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.results).toEqual([
+      expect.objectContaining({ path: 'src/a.ts', score: 2 }),
+      expect.objectContaining({ path: 'src/b.ts', score: 2 }),
+    ]);
   });
 
   it('respects the path input and excludes configured patterns', async () => {

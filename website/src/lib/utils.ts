@@ -11,7 +11,7 @@ export function cn(...inputs: ClassValue[]) {
    ========================================================================= */
 
 export const META = {
-  version: '0.283.1',
+  version: '0.284.0',
   repo: 'https://github.com/WrongStack/WrongStack',
   npm: 'wrongstack',
   node: '22',
@@ -293,9 +293,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.284.0',
+    date: '2026-07-10',
+    latest: true,
+    tagline: 'HQ dashboard hardening and prompt-cache stability',
+    highlights: [
+      'HQ browser token gate: the dashboard shell stays public while /api/* and WS channels are token-gated, with a full-screen token-entry screen instead of a bare 401',
+      'Fleet Map rebuilt on a machine → project → terminal → agent topology with live agent badges',
+      'Mailbox composer and server-routed message actions (read, acknowledge, reopen, delete, restore) from the HQ dashboard',
+      'System prompt split into core/session/volatile regions with frozen prompt epochs for byte-stable provider cache prefixes',
+      'Built-in tools declare structured selection boundaries (doNotUseWhen / useInstead) rendered in the system prompt',
+      'ChatGPT/Codex OAuth falls back to a second loopback port and recovers the account id from the id_token',
+    ],
+  },
+  {
     version: '0.283.1',
     date: '2026-07-08',
-    latest: true,
     tagline: 'HQ prompt delivery, transcript rendering, and picker polish',
     highlights: [
       'HQ PromptDock can send steer, BTW, or queued prompts with subjects derived from the selected send type',

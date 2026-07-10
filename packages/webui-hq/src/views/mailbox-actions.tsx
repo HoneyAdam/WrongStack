@@ -1,26 +1,23 @@
 /**
- * Per-message action buttons (skeleton).
+ * Per-message action buttons.
  *
- * Phase 4 skeleton: renders the four primary actions on each mailbox
- * message — mark-read, acknowledge, soft-delete, restore. Buttons are
- * wired to {@link mailboxActions} (the client wrapper) but the actual
- * server routes + optimistics land in the follow-up Phase 4 PR so the
- * diff stays reviewable.
+ * Renders the primary actions on each mailbox message — mark-read,
+ * acknowledge, reopen, soft-delete (and restore for deleted rows) — wired to
+ * {@link mailboxActions}, which posts to the HQ server's
+ * `POST /api/mailbox/messages/:id/action` route. The server resolves the
+ * target project mailbox from `projectId`, so rows without a known projectId
+ * should not render this component.
  *
  * Showing the right subset of actions per message keeps the row
  * scannable. The visibility rules deliberately mirror the rules
- * the server uses (so the user never sees a button that would 4xx).
- *
- * Visibility model:
+ * the server uses (so the user never sees a button that would 4xx):
  *   - `mark-read` / `acknowledge` / `reopen` / `soft-delete` are
  *     always shown for the basic case; the server is the source of
  *     truth for what the user has already done (the action is a
  *     no-op on the server when the user has already performed it).
  *   - `restore` is only shown when the message is soft-deleted. The
  *     `isDeleted` flag here is a UI hint; the server enforces the
- *     actual rule (`Mailbox.restore` on a non-deleted message
- *     returns the unchanged message and the WebUI just shows a
- *     silent no-op).
+ *     actual rule.
  */
 import { useState } from 'react';
 import { mailboxActions } from '../lib/mailbox-actions.js';
@@ -37,6 +34,8 @@ export interface MessageActionsProps {
   mailId: string;
   /** Agent id of the acting user (read from session). */
   actorId: string;
+  /** HQ projectId of the message's group — the server-side routing key. */
+  projectId: string;
   /**
    * When true, the `restore` button is rendered. The parent decides
    * this from the live HQ event stream (e.g. when a soft-deleted
@@ -56,22 +55,29 @@ export interface MessageActionsProps {
 export function MessageActions({
   mailId,
   actorId,
+  projectId,
   isDeleted = false,
   onAction,
   disabled = false,
 }: MessageActionsProps): React.ReactElement {
   const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const run = async (label: string, action: () => Promise<unknown>) => {
     if (disabled || pending !== null) return;
     setPending(label);
+    setError(null);
     try {
       await action();
       onAction?.(mailId, label);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setPending(null);
     }
   };
+
+  const input = { mailId, readerId: actorId, projectId };
 
   return (
     <div className="hq-msg-actions">
@@ -80,9 +86,7 @@ export function MessageActions({
           type="button"
           className="hq-btn secondary"
           disabled={disabled || pending !== null}
-          onClick={() =>
-            run('mark-read', () => mailboxActions.markRead({ mailId, readerId: actorId }))
-          }
+          onClick={() => run('mark-read', () => mailboxActions.markRead(input))}
         >
           {pending === 'mark-read' ? '…' : 'Mark read'}
         </button>
@@ -92,9 +96,7 @@ export function MessageActions({
           type="button"
           className="hq-btn"
           disabled={disabled || pending !== null}
-          onClick={() =>
-            run('acknowledge', () => mailboxActions.acknowledge({ mailId, readerId: actorId }))
-          }
+          onClick={() => run('acknowledge', () => mailboxActions.acknowledge(input))}
         >
           {pending === 'acknowledge' ? '…' : 'Acknowledge'}
         </button>
@@ -104,7 +106,7 @@ export function MessageActions({
           type="button"
           className="hq-btn secondary"
           disabled={disabled || pending !== null}
-          onClick={() => run('reopen', () => mailboxActions.reopen({ mailId, readerId: actorId }))}
+          onClick={() => run('reopen', () => mailboxActions.reopen(input))}
         >
           {pending === 'reopen' ? '…' : 'Reopen'}
         </button>
@@ -114,9 +116,7 @@ export function MessageActions({
           type="button"
           className="hq-btn danger"
           disabled={disabled || pending !== null}
-          onClick={() =>
-            run('soft-delete', () => mailboxActions.softDelete({ mailId, readerId: actorId }))
-          }
+          onClick={() => run('soft-delete', () => mailboxActions.softDelete(input))}
         >
           {pending === 'soft-delete' ? '…' : 'Delete'}
         </button>
@@ -126,12 +126,15 @@ export function MessageActions({
           type="button"
           className="hq-btn secondary"
           disabled={disabled || pending !== null}
-          onClick={() =>
-            run('restore', () => mailboxActions.restore({ mailId, readerId: actorId }))
-          }
+          onClick={() => run('restore', () => mailboxActions.restore(input))}
         >
           {pending === 'restore' ? '…' : 'Restore'}
         </button>
+      )}
+      {error !== null && (
+        <span className="hq-msg-action-error" title={error}>
+          {error}
+        </span>
       )}
     </div>
   );

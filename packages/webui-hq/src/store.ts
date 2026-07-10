@@ -6,6 +6,7 @@
 
 import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
 import { useEffect, useSyncExternalStore } from 'react';
+import { authorizedFetch } from './lib/auth.js';
 import { getHqClient } from './lib/hq-ws-client.js';
 
 export type ViewId =
@@ -26,8 +27,14 @@ interface HqState {
   alerts: HqAlertMessage[];
   activeView: ViewId;
   selectedSessionId: string | null;
+  selectedAgentId: string | null;
   selectedClientId: string | null;
   connected: boolean;
+  /**
+   * True once any API call came back 401 — the server runs in browser-token
+   * mode and this tab has no (valid) token. The app swaps to the token gate.
+   */
+  authRequired: boolean;
 }
 
 const MAX_EVENTS = 500;
@@ -39,8 +46,10 @@ let state: HqState = {
   alerts: [],
   activeView: 'cockpit',
   selectedSessionId: null,
+  selectedAgentId: null,
   selectedClientId: null,
   connected: false,
+  authRequired: false,
 };
 
 const listeners = new Set<() => void>();
@@ -107,8 +116,12 @@ export function setActiveView(view: ViewId): void {
   setState({ activeView: view });
 }
 
-export function selectSession(sessionId: string | null): void {
-  setState({ selectedSessionId: sessionId });
+export function selectSession(sessionId: string | null, agentId: string | null = null): void {
+  setState({ selectedSessionId: sessionId, selectedAgentId: agentId });
+}
+
+export function selectAgent(sessionId: string, agentId: string): void {
+  setState({ selectedSessionId: sessionId, selectedAgentId: agentId });
 }
 
 export function selectClient(clientId: string | null): void {
@@ -117,18 +130,81 @@ export function selectClient(clientId: string | null): void {
 
 // ── API helpers ─────────────────────────────────────────────────────────────
 
+/** Flip the token gate on. Idempotent — repeated 401s notify once. */
+export function markAuthRequired(): void {
+  if (!state.authRequired) setState({ authRequired: true });
+}
+
 export async function fetchJson<T>(path: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path);
+    res = await authorizedFetch(path);
   } catch {
     throw new Error(`Network error fetching ${path}`);
+  }
+  if (res.status === 401) {
+    markAuthRequired();
+    throw new Error(`401 Unauthorized fetching ${path} — browser token required`);
   }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   try {
     return (await res.json()) as T;
   } catch {
     throw new Error(`Invalid JSON response from ${path}: ${res.status}`);
+  }
+}
+
+/** Input for POST /api/mailbox-send — HQ's zero-client mailbox delivery. */
+export interface MailboxSendInput {
+  /** Target project (HQ projectId — sha-derived or registry slug). */
+  projectId?: string | undefined;
+  /** Alternative target: resolve the project from a live session. */
+  sessionId?: string | undefined;
+  /** `queue` is delivered as a `note`; `broadcast` goes to all agents. */
+  type: 'steer' | 'btw' | 'queue' | 'broadcast';
+  to?: string | undefined;
+  subject?: string | undefined;
+  body: string;
+  priority?: 'high' | 'normal' | 'low' | undefined;
+}
+
+export interface MailboxSendResult {
+  delivered: boolean;
+  messageId?: string;
+  to: string;
+  type: string;
+}
+
+/**
+ * Write a prompt straight into a project's GlobalMailbox via the HQ server —
+ * works even when no agent is currently connected: the next agent to run
+ * picks the message up from the mailbox file.
+ */
+export async function postMailboxSend(input: MailboxSendInput): Promise<MailboxSendResult> {
+  let res: Response;
+  try {
+    res = await authorizedFetch('/api/mailbox-send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error('Network error sending mailbox message');
+  }
+  if (res.status === 401) {
+    markAuthRequired();
+    throw new Error('401 Unauthorized — browser token required');
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    const msg =
+      typeof body?.error === 'string' ? body.error : res.statusText || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  try {
+    return (await res.json()) as MailboxSendResult;
+  } catch {
+    throw new Error('Invalid JSON response from mailbox-send API');
   }
 }
 
@@ -139,13 +215,17 @@ export async function postCommand(
 ): Promise<{ commandId: string; queued: boolean }> {
   let res: Response;
   try {
-    res = await fetch('/api/command', {
+    res = await authorizedFetch('/api/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId, type, payload }),
     });
   } catch {
     throw new Error('Network error sending command');
+  }
+  if (res.status === 401) {
+    markAuthRequired();
+    throw new Error('401 Unauthorized — browser token required');
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);

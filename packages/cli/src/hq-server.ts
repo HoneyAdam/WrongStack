@@ -339,6 +339,40 @@ function writeHqLanEndpoints(
 // re-export it so existing importers keep working unchanged.
 export { HQ_HTML };
 
+/**
+ * Resolve a projectRoot from a sessionId or an HQ projectId via the
+ * SessionRegistry — authoritative, so a browser can never supply a raw
+ * filesystem path. `projectId` is matched against BOTH id schemes in the
+ * wild: the registry `projectSlug` (used by session telemetry) and the
+ * `sha256(projectRoot)[:12]` hash HQ publishers stamp on event envelopes.
+ */
+async function resolveHqProjectRoot(
+  globalRoot: string,
+  ids: { sessionId?: string | undefined; projectId?: string | undefined },
+): Promise<string | undefined> {
+  const { SessionRegistry } = await import('@wrongstack/core');
+  try {
+    const registry = new SessionRegistry(globalRoot);
+    if (typeof ids.sessionId === 'string') {
+      const entry = await registry.get(ids.sessionId).catch(() => null);
+      if (entry?.projectRoot) return entry.projectRoot;
+    }
+    if (typeof ids.projectId === 'string') {
+      const { createHash } = await import('node:crypto');
+      const all = await registry.list().catch(() => []);
+      const match = all.find(
+        (e) =>
+          e.projectSlug === ids.projectId ||
+          createHash('sha256').update(e.projectRoot).digest('hex').slice(0, 12) === ids.projectId,
+      );
+      if (match) return match.projectRoot;
+    }
+  } catch {
+    /* fall through */
+  }
+  return undefined;
+}
+
 /** GET /api/sessions — list live sessions from the cross-process registry. */
 async function handleApiSessions(res: http.ServerResponse): Promise<void> {
   const { SessionRegistry } = await import('@wrongstack/core');
@@ -609,14 +643,15 @@ function startHqServerWithAuth(
       try {
       const url = new URL(req.url ?? '/', `http://${host}:${port}`);
 
-      // When browser TOKEN MODE is active, all HTTP routes require a valid
-      // browser token EXCEPT static assets (/assets/, /wrongstack.svg) which
-      // are public and don't need authentication. Token is accepted via
-      // ?token= query param (for browser/dashboard use) or Authorization:
-      // Bearer header (for programmatic / curl access).
-      const isStaticAsset =
-        url.pathname.startsWith('/assets/') || url.pathname === '/wrongstack.svg';
-      if (mutableAuth.browserTokens.size > 0 && !isStaticAsset) {
+      // When browser TOKEN MODE is active, DATA routes (/api/*) require a
+      // valid browser token; WS upgrades are gated separately below. The
+      // dashboard shell — index.html, /assets/*, the SPA fallback — is
+      // served publicly so a token-less (or stale-token) browser can render
+      // the token-entry gate instead of a bare JSON 401; the shell carries
+      // no telemetry, every byte of data flows through the gated channels.
+      // Token is accepted via ?token= query param (for browser/dashboard
+      // use) or Authorization: Bearer header (programmatic / curl access).
+      if (mutableAuth.browserTokens.size > 0 && url.pathname.startsWith('/api/')) {
         const supplied = extractBrowserToken(req, url);
         if (!supplied || !mutableAuth.browserTokens.has(supplied)) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -868,28 +903,15 @@ function startHqServerWithAuth(
 
         // Resolve projectRoot from the SessionRegistry — authoritative, so we
         // never trust a browser-supplied path. Prefer sessionId; fall back to
-        // the newest live session in the given projectId.
-        const { SessionRegistry } = await import('@wrongstack/core');
+        // the projectId (slug or sha-derived — see resolveHqProjectRoot).
         // Derive the global root from THIS server's dataDir (honors
         // --data-dir / WRONGSTACK_HQ_DATA_DIR), not the default resolver, so
         // the mailbox and registry line up with the running instance.
         const mbGlobalRoot = path.dirname(dataDir);
-        let projectRoot: string | undefined;
-        try {
-          const registry = new SessionRegistry(mbGlobalRoot);
-          if (typeof mbody.sessionId === 'string') {
-            const entry = await registry.get(mbody.sessionId).catch(() => null);
-            projectRoot = entry?.projectRoot;
-          }
-          if (projectRoot === undefined && typeof mbody.projectId === 'string') {
-            const all = await registry.list().catch(() => []);
-            // HQ `projectId` maps to the registry `projectSlug`.
-            const match = all.find((e) => e.projectSlug === mbody.projectId);
-            projectRoot = match?.projectRoot;
-          }
-        } catch {
-          projectRoot = undefined;
-        }
+        const projectRoot = await resolveHqProjectRoot(mbGlobalRoot, {
+          sessionId: mbody.sessionId,
+          projectId: mbody.projectId,
+        });
         if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'could not resolve target project mailbox' }));
@@ -940,6 +962,105 @@ function startHqServerWithAuth(
         } catch (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'mailbox write failed', detail: String(err) }));
+        }
+        return;
+      }
+
+      // ── Mailbox message actions (mark-read / acknowledge / reopen /
+      // soft-delete / restore) ───────────────────────────────────────────
+      // POST /api/mailbox/messages/:mailId/action — apply one verb to one
+      // message in a project's GlobalMailbox. The target project is resolved
+      // SERVER-SIDE from sessionId/projectId (same trust model as
+      // /api/mailbox-send). Auth mirrors /api/command: browser token +
+      // control.enqueue capability.
+      const mailboxActionMatch = url.pathname.match(/^\/api\/mailbox\/messages\/([^/]+)\/action$/);
+      if (mailboxActionMatch && req.method === 'POST') {
+        const suppliedToken = extractBrowserToken(req, url);
+        const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
+        if (inBrowserTokenMode && (!suppliedToken || !mutableAuth.browserTokens.has(suppliedToken))) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'unauthorized' }));
+          return;
+        }
+        const tokenObj = suppliedToken !== undefined ? mutableAuth.browserTokenObjs.get(suppliedToken) : undefined;
+        const canEnqueue =
+          !inBrowserTokenMode ||
+          tokenObj?.capabilities === undefined ||
+          tokenObj.capabilities.includes('control.enqueue');
+        if (!canEnqueue) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+          return;
+        }
+
+        let abody: {
+          action?: string;
+          readerId?: string;
+          sessionId?: string;
+          projectId?: string;
+        };
+        try {
+          abody = JSON.parse(await readRequestBody(req));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid json body' }));
+          return;
+        }
+        const mailId = decodeURIComponent(mailboxActionMatch[1]!);
+        const MAILBOX_ACTIONS = ['mark-read', 'acknowledge', 'reopen', 'soft-delete', 'restore'] as const;
+        const action = MAILBOX_ACTIONS.find((a) => a === abody.action);
+        if (action === undefined) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'unrecognized action', action: abody.action }));
+          return;
+        }
+        if (typeof abody.readerId !== 'string' || abody.readerId.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'missing readerId' }));
+          return;
+        }
+        if (typeof abody.sessionId !== 'string' && typeof abody.projectId !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
+          return;
+        }
+
+        const actGlobalRoot = path.dirname(dataDir);
+        const projectRoot = await resolveHqProjectRoot(actGlobalRoot, {
+          sessionId: abody.sessionId,
+          projectId: abody.projectId,
+        });
+        if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'could not resolve target project mailbox' }));
+          return;
+        }
+
+        try {
+          const { GlobalMailbox, resolveProjectDir, actionToAckInput } = await import('@wrongstack/core');
+          const projectDir = resolveProjectDir(projectRoot, actGlobalRoot);
+          const mailbox = new GlobalMailbox(projectDir);
+          const readerId = abody.readerId;
+          const message =
+            action === 'soft-delete'
+              ? await mailbox.softDelete(mailId, readerId)
+              : action === 'restore'
+                ? await mailbox.restore(mailId)
+                : await mailbox.ack(actionToAckInput(action, { action, mailId, readerId }));
+          if (message === null) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'message not found', mailId }));
+            return;
+          }
+          // Deliberately echo `message: null`: the full MailboxMessage
+          // carries the raw body, which would bypass the HQ redaction
+          // policy applied to every other browser-bound preview. The UI
+          // reconciles from the mailbox.event the mutation just published.
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ action, mailId, message: null, changed: true }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'mailbox action failed', detail: String(err) }));
         }
         return;
       }

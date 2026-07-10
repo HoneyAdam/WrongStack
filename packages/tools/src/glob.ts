@@ -30,6 +30,10 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
     '- Combine with `path` and `limit`.\n' +
     '- Default ignores common build/dependency directories.\n' +
     'Much more efficient than shell `find` for most use cases inside the agent.',
+  selection: {
+    doNotUseWhen: 'you need to search inside file contents.',
+    useInstead: ['grep'],
+  },
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],

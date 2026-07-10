@@ -12,6 +12,7 @@ export {
   type RecordCompletedWorkInput,
   type RecordToolOutputEvidenceInput,
   recordCompletedWorkEvidence,
+  buildCompletedWorkLedgerBlock,
   recordToolOutputEvidence,
   recordUserIntentEvidence,
   repeatedReadPressure,

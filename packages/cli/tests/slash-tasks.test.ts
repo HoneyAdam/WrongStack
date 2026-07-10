@@ -77,7 +77,7 @@ describe('buildTasksCommand', () => {
       source: 'task',
       summary: 'Wire completed-work ledger',
     });
-    expect(ctx.systemPrompt.some((block) => block.text.includes('[completed_work_ledger]'))).toBe(true);
+    expect(ctx.systemPrompt.some((block) => block.text.includes('[completed_work_ledger]'))).toBe(false);
     const persisted = await loadCompletedWorkCheckpoint(completedWorkPath);
     expect(persisted?.[0]?.summary).toBe('Wire completed-work ledger');
   });

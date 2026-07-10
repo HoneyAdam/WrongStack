@@ -157,6 +157,12 @@ function renderRow(row: AuthPanelRow, focused: boolean, i: number): React.ReactE
   }
 }
 
+const URL_LINE_RE = /^https?:\/\/\S+$/;
+
+export function isAuthFlowUrlLine(line: string): boolean {
+  return URL_LINE_RE.test(line.trim());
+}
+
 function viewTitle(panel: AuthPanelState): string {
   switch (panel.view) {
     case 'list':
@@ -256,22 +262,27 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
       {panel.view === 'flow' ? (
         <Box flexDirection="column" marginTop={1}>
           {logWindow.length === 0 && !panel.flowDone ? <Text dimColor>Starting…</Text> : null}
-          {logWindow.map((line) => (
-            <Text
-              key={line}
-              wrap="truncate-end"
-              color={
-                line.startsWith('✗')
-                  ? UI_COLORS.error
-                  : line.startsWith('✓')
-                    ? UI_COLORS.active
-                    : undefined
-              }
-              dimColor={!line.startsWith('✗') && !line.startsWith('✓')}
-            >
-              {line}
-            </Text>
-          ))}
+          {logWindow.map((line) => {
+            const isUrl = isAuthFlowUrlLine(line);
+            return (
+              <Text
+                key={line}
+                wrap={isUrl ? 'wrap' : 'truncate-end'}
+                color={
+                  isUrl
+                    ? UI_COLORS.hint
+                    : line.startsWith('✗')
+                      ? UI_COLORS.error
+                      : line.startsWith('✓')
+                        ? UI_COLORS.active
+                        : undefined
+                }
+                dimColor={!isUrl && !line.startsWith('✗') && !line.startsWith('✓')}
+              >
+                {line}
+              </Text>
+            );
+          })}
           {panel.flowDone ? (
             <Text color={panel.flowOk ? UI_COLORS.active : UI_COLORS.error}>
               {panel.flowOk ? '✓ Done.' : '✗ Not completed.'}{' '}

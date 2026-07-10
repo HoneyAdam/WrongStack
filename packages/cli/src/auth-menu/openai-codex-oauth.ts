@@ -51,10 +51,10 @@ const AUTH_BASE_URL = 'https://auth.openai.com';
 const AUTHORIZE_URL = `${AUTH_BASE_URL}/oauth/authorize`;
 const TOKEN_URL = `${AUTH_BASE_URL}/oauth/token`;
 const REDIRECT_PORT = 1455;
+const FALLBACK_REDIRECT_PORT = 1457;
 const REDIRECT_HOST = '127.0.0.1';
 const REDIRECT_PATH = '/auth/callback';
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}${REDIRECT_PATH}`;
-const SCOPE = 'openid profile email offline_access';
+const SCOPE = 'openid profile email offline_access api.connectors.read api.connectors.invoke';
 /** JWT claim that carries the ChatGPT account id. */
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 /** Telemetry/branding tag sent to authorize + as a request header. Free-form. */
@@ -82,6 +82,7 @@ export interface CodexTokens {
   refresh: string;
   /** Absolute expiry in epoch milliseconds. */
   expires: number;
+  idToken?: string | undefined;
 }
 
 interface TokenEndpointResponse {
@@ -104,21 +105,25 @@ export interface Pkce {
 
 /** Generate a PKCE verifier + S256 challenge. */
 export function generatePkce(): Pkce {
-  const verifier = base64url(randomBytes(32));
+  const verifier = base64url(randomBytes(64));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
   return { verifier, challenge };
 }
 
 function createState(): string {
-  return randomBytes(16).toString('hex');
+  return base64url(randomBytes(32));
+}
+
+function redirectUri(port: number): string {
+  return `http://localhost:${port}${REDIRECT_PATH}`;
 }
 
 /** Build the full authorize URL with all Codex-required query params. */
-export function buildAuthorizeUrl(challenge: string, state: string): string {
+export function buildAuthorizeUrl(challenge: string, state: string, port = REDIRECT_PORT): string {
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', CLIENT_ID);
-  url.searchParams.set('redirect_uri', REDIRECT_URI);
+  url.searchParams.set('redirect_uri', redirectUri(port));
   url.searchParams.set('scope', SCOPE);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
@@ -317,6 +322,7 @@ async function readTokens(res: Response, op: string, url: string): Promise<Codex
     access: json.access_token,
     refresh: json.refresh_token,
     expires: Date.now() + json.expires_in * 1000,
+    idToken: json.id_token,
   };
 }
 
@@ -325,6 +331,7 @@ export async function exchangeAuthorizationCode(
   code: string,
   verifier: string,
   signal?: AbortSignal,
+  port = REDIRECT_PORT,
 ): Promise<CodexTokens> {
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -334,7 +341,7 @@ export async function exchangeAuthorizationCode(
       client_id: CLIENT_ID,
       code,
       code_verifier: verifier,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirectUri(port),
     }).toString(),
     signal: signal
       ? AbortSignal.any([signal, AbortSignal.timeout(30_000)])
@@ -384,8 +391,10 @@ interface LoopbackServer {
   /** Resolves with the authorization code, or null if cancelled/failed to bind. */
   waitForCode(): Promise<string | null>;
   close(): void;
-  /** True when the server bound to the port; false means the port was busy. */
+  /** True when the server bound to a registered callback port; false means all ports were busy. */
   readonly bound: boolean;
+  /** The actual callback port, matching the authorize URL and token exchange redirect_uri. */
+  readonly port: number;
 }
 
 /**
@@ -468,35 +477,49 @@ export function startLoopbackServer(
   }
 
   return new Promise<LoopbackServer>((resolve) => {
-    server.on('error', () => {
-      // Port busy / cannot bind — signal manual fallback.
+    const ports = [REDIRECT_PORT, FALLBACK_REDIRECT_PORT];
+    let index = 0;
+
+    const close = (): void => {
+      resolveCode(null);
+      try {
+        server.close();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const fail = (): void => {
       resolveCode(null);
       resolve({
         bound: false,
+        port: REDIRECT_PORT,
         waitForCode: () => Promise.resolve(null),
-        close: () => {
-          try {
-            server.close();
-          } catch {
-            /* ignore */
-          }
-        },
+        close,
       });
+    };
+
+    server.on('error', () => {
+      index += 1;
+      const nextPort = ports[index];
+      if (nextPort !== undefined) {
+        server.listen(nextPort, REDIRECT_HOST);
+        return;
+      }
+      // All registered callback ports are busy / unavailable — signal manual fallback.
+      fail();
     });
-    server.listen(REDIRECT_PORT, REDIRECT_HOST, () => {
+    server.on('listening', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : ports[index] ?? REDIRECT_PORT;
       resolve({
         bound: true,
+        port,
         waitForCode: () => codePromise,
-        close: () => {
-          resolveCode(null);
-          try {
-            server.close();
-          } catch {
-            /* ignore */
-          }
-        },
+        close,
       });
     });
+    server.listen(ports[index] ?? REDIRECT_PORT, REDIRECT_HOST);
   });
 }
 
@@ -572,7 +595,6 @@ export async function runCodexOAuthLogin(
   const providerId = opts.providerId ?? CODEX_PROVIDER_ID;
   const pkce = generatePkce();
   const state = createState();
-  const authorizeUrl = buildAuthorizeUrl(pkce.challenge, state);
 
   const ac = new AbortController();
   // First Ctrl+C cancels cleanly (aborts the controller, which unblocks the
@@ -598,6 +620,7 @@ export async function runCodexOAuthLogin(
   }
 
   const server = await startLoopbackServer(state, ac.signal);
+  const authorizeUrl = buildAuthorizeUrl(pkce.challenge, state, server.port);
 
   deps.renderer.write(
     color.bold(`\n  Sign in with ChatGPT — ${color.cyan(providerId)}\n`) +
@@ -617,13 +640,13 @@ export async function runCodexOAuthLogin(
     openBrowser(authorizeUrl);
     deps.renderer.write(
       color.dim('  A browser window should open. Waiting for you to finish signing in...\n') +
-        color.dim('  (Listening on http://localhost:1455 — press Ctrl+C to cancel.)\n'),
+        color.dim(`  (Listening on ${redirectUri(server.port)} — press Ctrl+C to cancel.)\n`),
     );
   } else {
     deps.renderer.write(
-      color.amber('  ⚠ Could not start the local callback listener (port 1455 in use).\n') +
+      color.amber('  ⚠ Could not start the local callback listener (ports 1455 and 1457 in use).\n') +
         color.dim('  After signing in, copy the full redirect URL from your browser\n') +
-        color.dim('  (it starts with http://localhost:1455/auth/callback) and paste it below.\n'),
+        color.dim('  (it starts with http://localhost:1455/auth/callback or :1457) and paste it below.\n'),
     );
   }
 
@@ -665,8 +688,8 @@ export async function runCodexOAuthLogin(
     }
 
     deps.renderer.write(color.dim('\n  Exchanging authorization code for tokens...\n'));
-    const tokens = await exchangeAuthorizationCode(code, pkce.verifier, ac.signal);
-    const accountId = extractAccountId(tokens.access);
+    const tokens = await exchangeAuthorizationCode(code, pkce.verifier, ac.signal, server.port);
+    const accountId = extractAccountId(tokens.access) ?? (tokens.idToken ? extractAccountId(tokens.idToken) : null);
     if (!accountId) {
       deps.renderer.writeError(
         '  Signed in, but the token has no ChatGPT account id.\n' +

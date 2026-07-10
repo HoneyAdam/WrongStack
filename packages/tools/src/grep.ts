@@ -43,6 +43,10 @@ export const grepTool: Tool<GrepInput, GrepOutput> = {
     '- Use `"count"` for quick statistics.\n' +
     '- `glob` and `path` let you narrow the search scope significantly.\n' +
     '- Always prefer this over `bash grep` when searching code.',
+  selection: {
+    doNotUseWhen: 'you only need to locate files by name or path pattern.',
+    useInstead: ['glob'],
+  },
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],

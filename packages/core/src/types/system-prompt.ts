@@ -33,6 +33,25 @@ export interface BuildContext {
   onlineAgents?: MailboxAgentStatus[] | undefined;
 }
 
+/**
+ * Stability regions for the system prompt.
+ *
+ * `core` and `session` form the provider-cache prefix and must remain byte-for-byte
+ * stable after the first request in a session. `volatile` is appended at request
+ * time and may change between turns without rewriting that prefix.
+ */
+export interface SystemPromptRegions {
+  readonly core: readonly TextBlock[];
+  readonly session: readonly TextBlock[];
+  readonly volatile: readonly TextBlock[];
+}
+
+export function flattenSystemPromptRegions(regions: SystemPromptRegions): TextBlock[] {
+  return [...regions.core, ...regions.session, ...regions.volatile];
+}
+
 export interface SystemPromptBuilder {
   build(ctx: BuildContext): Promise<TextBlock[]>;
+  /** Region-aware build used by hosts that enforce prompt-prefix stability. */
+  buildRegions?(ctx: BuildContext): Promise<SystemPromptRegions>;
 }

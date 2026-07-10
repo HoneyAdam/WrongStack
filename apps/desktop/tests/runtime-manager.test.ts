@@ -6,6 +6,7 @@
  * actual child process spawning.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { normalizeProjectManifest } from '../src/main/runtime-manager.js';
 import type {
   DesktopRuntimeRecord,
   DesktopRuntimeKind,
@@ -270,6 +271,46 @@ describe('Runtime ID validation', () => {
     for (const id of invalidIds) {
       expect(isValidRuntimeId(id)).toBe(false);
     }
+  });
+});
+
+// ============================================================================
+// Project Manifest Tests
+// ============================================================================
+
+describe('normalizeProjectManifest', () => {
+  it('should read projects from the projects.json object shape', () => {
+    const projects = normalizeProjectManifest({
+      projects: [
+        { name: 'Beta', root: '/work/beta', lastSeen: '2024-02-01T00:00:00.000Z' },
+        { root: '/work/alpha', createdAt: '2024-01-01T00:00:00.000Z' },
+      ],
+    });
+
+    expect(projects).toHaveLength(2);
+    expect(projects[0].name).toBe('Beta');
+    expect(projects[1].name).toBe('alpha');
+    expect(projects[1].slug).toMatch(/^alpha/);
+  });
+
+  it('should support legacy array and recent-style manifest shapes', () => {
+    expect(normalizeProjectManifest([{ root: '/work/array-project' }])[0].name).toBe('array-project');
+    expect(normalizeProjectManifest({ recentProjects: [{ root: '/work/recent-project' }] })[0].name).toBe('recent-project');
+    expect(normalizeProjectManifest({ recents: [{ root: '/work/recents-project' }] })[0].name).toBe('recents-project');
+  });
+
+  it('should skip invalid entries and dedupe roots', () => {
+    const projects = normalizeProjectManifest({
+      projects: [
+        { root: '/work/app', lastSeen: '2024-02-01T00:00:00.000Z' },
+        { root: '/work/app', lastSeen: '2024-01-01T00:00:00.000Z' },
+        { name: 'missing-root' },
+        null,
+      ],
+    });
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0].name).toBe('app');
   });
 });
 

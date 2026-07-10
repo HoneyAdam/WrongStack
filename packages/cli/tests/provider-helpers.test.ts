@@ -4,6 +4,7 @@ import {
   buildPickableProviders,
   isKeylessLocalProvider,
   resolveProviderAlias,
+  visibleModelIds,
 } from '../src/provider-helpers.js';
 
 let savedEnv: Record<string, string | undefined>;
@@ -129,6 +130,46 @@ describe('resolveProviderAlias', () => {
 
   it('returns the id unchanged when no providers section exists', () => {
     expect(resolveProviderAlias('xyz', {} as never)).toBe('xyz');
+  });
+});
+
+// ── visibleModelIds ──────────────────────────────────────────────────────────
+
+describe('visibleModelIds', () => {
+  it('treats empty ChatGPT/OpenAI/Codex saved model lists as refreshable catalog fallbacks', () => {
+    const catalog = ['gpt-5.6-sol', 'gpt-5.4'];
+    expect(
+      visibleModelIds('openai-codex', { providers: {} } as never, catalog, { models: [] } as never),
+    ).toEqual(catalog);
+    expect(
+      visibleModelIds('chatgpt', { providers: {} } as never, catalog, {
+        type: 'openai-codex',
+        models: [],
+      } as never),
+    ).toEqual(catalog);
+    expect(
+      visibleModelIds('openai', { providers: {} } as never, ['gpt-5.5'], { models: [] } as never),
+    ).toEqual(['gpt-5.5']);
+  });
+
+  it('augments non-empty ChatGPT/OpenAI/Codex saved model lists with refreshed catalog models', () => {
+    expect(
+      visibleModelIds('codex', { providers: {} } as never, ['gpt-5.6-sol', 'gpt-5.4'], {
+        type: 'openai-codex',
+        models: ['legacy-codex'],
+      } as never),
+    ).toEqual(['legacy-codex', 'gpt-5.6-sol', 'gpt-5.4']);
+  });
+
+  it('keeps non-target custom provider model lists as strict allowlists', () => {
+    expect(
+      visibleModelIds('anthropic', { providers: {} } as never, ['opus', 'haiku'], {
+        models: ['opus'],
+      } as never),
+    ).toEqual(['opus']);
+    expect(
+      visibleModelIds('anthropic', { providers: {} } as never, ['opus'], { models: [] } as never),
+    ).toEqual([]);
   });
 });
 

@@ -35,6 +35,10 @@ export const writeTool: Tool<WriteInput, WriteOutput> = {
     '- For any existing file, strongly prefer `edit` (it requires a prior `read` in the same session and is more precise).\n' +
     '- You MUST have called `read` on the file earlier in the conversation before using `write` on an existing path (the system enforces this for safety).\n' +
     '- The path is resolved relative to the project root and protected against escaping the workspace.',
+  selection: {
+    doNotUseWhen: 'making a precise change to part of an existing file.',
+    useInstead: ['edit'],
+  },
   permission: 'confirm',
   mutating: true,
   timeoutMs: 5_000,

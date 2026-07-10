@@ -3,7 +3,9 @@
  * Offline React app, no CDN. Connects to /ws/browser on mount.
  */
 import type React from 'react';
-import { setActiveView, useHqStore, type ViewId } from './store.js';
+import { useEffect } from 'react';
+import { resolveHqToken } from './lib/auth.js';
+import { fetchJson, setActiveView, useHqStore, type ViewId } from './store.js';
 import { AlertsView } from './views/alerts.js';
 import { BrainView } from './views/brain.js';
 import { CockpitView } from './views/cockpit.js';
@@ -12,6 +14,7 @@ import { CostView } from './views/cost.js';
 import { FleetMapView } from './views/fleet-map.js';
 import { LiveConsoleView } from './views/live-console.js';
 import { MailboxView } from './views/mailbox.js';
+import { TokenGate } from './views/token-gate.js';
 import { TrendsView } from './views/trends.js';
 import { WorktreeView } from './views/worktree.js';
 import './app.css';
@@ -35,7 +38,23 @@ export function HqApp(): React.ReactElement {
   // listeners whose key filter intersects the change, so without it tab
   // clicks only "took effect" when the next snapshot broadcast re-rendered
   // the app (i.e. never on an idle server).
-  const state = useHqStore(['snapshot', 'alerts', 'activeView']);
+  const state = useHqStore(['snapshot', 'alerts', 'activeView', 'authRequired']);
+
+  // Boot probe: a WS upgrade rejected with 401 is invisible to the browser
+  // (it looks like an endless "reconnecting…"), so one authorized snapshot
+  // fetch decides deterministically whether the token gate must show.
+  // fetchJson flips `authRequired` on 401; other failures (server briefly
+  // down) stay in the normal reconnect flow.
+  useEffect(() => {
+    fetchJson('/api/snapshot').catch(() => {
+      /* 401 already handled via markAuthRequired; ignore the rest */
+    });
+  }, []);
+
+  if (state.authRequired) {
+    return <TokenGate hadToken={resolveHqToken() !== null} />;
+  }
+
   const snap = state.snapshot;
   const totals = snap?.totals;
   const unread = totals?.unreadMailboxMessages ?? 0;

@@ -31,6 +31,10 @@ export const patchTool: Tool<PatchInput, PatchOutput> = {
     '- Use `dry_run: true` to see what would happen without modifying files.\n' +
     '- On failure it creates .rej and .orig files for manual review.\n' +
     'Often cleaner than many small `edit` operations for larger changes.',
+  selection: {
+    doNotUseWhen: 'you do not already have a unified diff or only need one precise replacement.',
+    useInstead: ['edit'],
+  },
   permission: 'confirm',
   mutating: true,
   capabilities: ['fs.write'],

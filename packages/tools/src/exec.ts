@@ -397,6 +397,10 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
     '- `cwd` is validated to stay inside the project.\n' +
     '- If a command is not allowlisted, the error explains how to add it; for one-off arbitrary commands, fall back to `bash` (with strong justification).\n' +
     'This tool significantly reduces the risk compared to full shell access.',
+  selection: {
+    doNotUseWhen: 'the operation requires pipes, redirection, shell expansion, or a non-allowlisted command.',
+    useInstead: ['bash'],
+  },
   permission: 'confirm',
   mutating: true,
   riskTier: 'standard',

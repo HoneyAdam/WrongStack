@@ -31,7 +31,8 @@
  * @public
  */
 
-import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
+import type { Dirent, Stats } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
@@ -64,6 +65,7 @@ interface SemanticSearchState {
   truncated: boolean;
   queryCount: number;
   reindexCount: number;
+  buildPromise: Promise<void> | null;
   hookUnregister: (() => void) | null;
 }
 
@@ -76,6 +78,7 @@ const state: SemanticSearchState = {
   truncated: false,
   queryCount: 0,
   reindexCount: 0,
+  buildPromise: null,
   hookUnregister: null,
 };
 
@@ -219,29 +222,19 @@ function shouldIndexFile(filePath: string, cfg: SemanticSearchConfig): boolean {
   return false;
 }
 
-function indexFile(absPath: string, relPath: string, cfg: SemanticSearchConfig): void {
-  if (!state.index) return;
-  if (!shouldIndexFile(relPath, cfg)) return;
+const INDEX_BATCH_SIZE = 32;
+const YIELD_EVERY_FILES = 64;
 
-  let stats: ReturnType<typeof statSync>;
-  try {
-    stats = statSync(absPath);
-  } catch {
-    return;
-  }
-  if (!stats.isFile() || stats.size > cfg.maxFileBytes) return;
+function yieldEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
-  let content: string;
-  try {
-    content = readFileSync(absPath, 'utf-8');
-  } catch {
-    return;
-  }
-  if (content.includes('\u0000')) return; // skip binary-looking files
+function addFileToIndex(relPath: string, content: string, size: number, cfg: SemanticSearchConfig): void {
+  if (!state.index || content.includes('\u0000')) return; // skip binary-looking files
 
   state.bytesIndexed += content.length;
   const lines = content.split(/\r?\n/);
-  state.index.files.set(relPath, { lines, size: stats.size });
+  state.index.files.set(relPath, { lines, size });
 
   for (let i = 0; i < lines.length; i += 1) {
     const terms = tokenize(lines[i]!, cfg.minTokenLength);
@@ -261,10 +254,44 @@ function indexFile(absPath: string, relPath: string, cfg: SemanticSearchConfig):
   }
 }
 
-function walkDirectory(absPath: string, cfg: SemanticSearchConfig, excludes: RegExp[]): void {
+async function indexFileFromStats(
+  absPath: string,
+  relPath: string,
+  stats: Stats,
+  cfg: SemanticSearchConfig,
+): Promise<void> {
+  if (!shouldIndexFile(relPath, cfg) || !stats.isFile() || stats.size > cfg.maxFileBytes) return;
+
+  let content: string;
+  try {
+    content = await fs.readFile(absPath, 'utf-8');
+  } catch {
+    return;
+  }
+
+  addFileToIndex(relPath, content, stats.size, cfg);
+}
+
+async function flushFileBatch(
+  batch: Array<{ absPath: string; relPath: string; stats: Stats }>,
+  cfg: SemanticSearchConfig,
+): Promise<void> {
+  if (batch.length === 0) return;
+  const current = batch.splice(0, batch.length);
+  await Promise.allSettled(
+    current.map(({ absPath, relPath, stats }) => indexFileFromStats(absPath, relPath, stats, cfg)),
+  );
+}
+
+async function walkDirectory(
+  absPath: string,
+  cfg: SemanticSearchConfig,
+  excludes: RegExp[],
+  fileBatch: Array<{ absPath: string; relPath: string; stats: Stats }>,
+): Promise<void> {
   let entries: Dirent[];
   try {
-    entries = readdirSync(absPath, { withFileTypes: true });
+    entries = await fs.readdir(absPath, { withFileTypes: true });
   } catch {
     return;
   }
@@ -284,16 +311,29 @@ function walkDirectory(absPath: string, cfg: SemanticSearchConfig, excludes: Reg
     if (excludes.some((re) => re.test(relChild))) continue;
 
     if (ent.isDirectory()) {
-      walkDirectory(absChild, cfg, excludes);
+      await walkDirectory(absChild, cfg, excludes, fileBatch);
       if (state.truncated) return;
     } else if (ent.isFile()) {
-      indexFile(absChild, relChild, cfg);
       state.fileCount += 1;
+      if (!shouldIndexFile(relChild, cfg)) continue;
+      let stats: Stats;
+      try {
+        stats = await fs.stat(absChild);
+      } catch {
+        continue;
+      }
+      fileBatch.push({ absPath: absChild, relPath: relChild, stats });
+      if (fileBatch.length >= INDEX_BATCH_SIZE) {
+        await flushFileBatch(fileBatch, cfg);
+      }
+      if (state.fileCount % YIELD_EVERY_FILES === 0) {
+        await yieldEventLoop();
+      }
     }
   }
 }
 
-function buildIndex(rootPath: string, cfg: SemanticSearchConfig): void {
+async function buildIndex(rootPath: string, cfg: SemanticSearchConfig): Promise<void> {
   state.index = { terms: new Map(), files: new Map() };
   state.cachedPath = rootPath;
   state.fileCount = 0;
@@ -304,9 +344,9 @@ function buildIndex(rootPath: string, cfg: SemanticSearchConfig): void {
 
   const excludes = compileExcludes(cfg.excludePatterns);
 
-  let rootStats: ReturnType<typeof statSync>;
+  let rootStats: Stats;
   try {
-    rootStats = statSync(rootPath);
+    rootStats = await fs.stat(rootPath);
   } catch {
     state.termCount = 0;
     return;
@@ -314,13 +354,29 @@ function buildIndex(rootPath: string, cfg: SemanticSearchConfig): void {
 
   if (rootStats.isFile()) {
     const relPath = normalizeSlashes(relative(normalizeSlashes(process.cwd()), rootPath));
-    indexFile(rootPath, relPath === '' ? '.' : relPath, cfg);
+    await indexFileFromStats(rootPath, relPath === '' ? '.' : relPath, rootStats, cfg);
     state.fileCount = state.index.files.size;
   } else if (rootStats.isDirectory()) {
-    walkDirectory(rootPath, cfg, excludes);
+    const fileBatch: Array<{ absPath: string; relPath: string; stats: Stats }> = [];
+    await walkDirectory(rootPath, cfg, excludes, fileBatch);
+    await flushFileBatch(fileBatch, cfg);
   }
 
   state.termCount = state.index.terms.size;
+}
+
+async function ensureIndex(rootPath: string, cfg: SemanticSearchConfig): Promise<void> {
+  if (state.index && state.cachedPath === rootPath) return;
+  state.buildPromise ??= buildIndex(rootPath, cfg).finally(() => {
+    state.buildPromise = null;
+  });
+  await state.buildPromise;
+  if (!state.index || state.cachedPath !== rootPath) {
+    state.buildPromise = buildIndex(rootPath, cfg).finally(() => {
+      state.buildPromise = null;
+    });
+    await state.buildPromise;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +388,31 @@ interface SearchResult {
   score: number;
   matchedTerms: string[];
   matchedLines: { lineNumber: number; text: string }[];
+}
+
+interface RankedCandidate {
+  path: string;
+  score: number;
+  terms: string[];
+}
+
+function compareRankedCandidates(a: RankedCandidate, b: RankedCandidate): number {
+  return b.score - a.score || a.path.localeCompare(b.path);
+}
+
+function insertTopCandidate(top: RankedCandidate[], candidate: RankedCandidate, limit: number): void {
+  if (limit <= 0) return;
+  if (top.length === 0) {
+    top.push(candidate);
+    return;
+  }
+
+  let insertAt = top.findIndex((existing) => compareRankedCandidates(candidate, existing) < 0);
+  if (insertAt === -1) insertAt = top.length;
+  if (insertAt >= limit) return;
+
+  top.splice(insertAt, 0, candidate);
+  if (top.length > limit) top.pop();
 }
 
 function runQuery(query: string, limit: number, cfg: SemanticSearchConfig): SearchResult[] {
@@ -358,15 +439,18 @@ function runQuery(query: string, limit: number, cfg: SemanticSearchConfig): Sear
     }
   }
 
-  const ranked = Array.from(scores.entries())
-    .map(([path, score]) => ({
-      path,
-      score,
-      terms: Array.from(matchedTerms.get(path) ?? []),
-    }))
-    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-
-  const top = ranked.slice(0, limit);
+  const top: RankedCandidate[] = [];
+  for (const [path, score] of scores) {
+    insertTopCandidate(
+      top,
+      {
+        path,
+        score,
+        terms: Array.from(matchedTerms.get(path) ?? []),
+      },
+      limit,
+    );
+  }
 
   return top.map(({ path, score, terms }) => {
     const entry = state.index!.files.get(path);
@@ -466,6 +550,7 @@ const plugin: Plugin = {
     state.truncated = false;
     state.queryCount = 0;
     state.reindexCount = 0;
+    state.buildPromise = null;
     if (state.hookUnregister) {
       try {
         state.hookUnregister();
@@ -516,9 +601,7 @@ const plugin: Plugin = {
           return { ok: false, error: 'path outside project root' };
         }
 
-        if (!state.index || state.cachedPath !== resolved) {
-          buildIndex(resolved, cfg);
-        }
+        await ensureIndex(resolved, cfg);
 
         const query = String(input.query ?? '');
         const limit =
@@ -600,6 +683,7 @@ const plugin: Plugin = {
     state.truncated = false;
     state.queryCount = 0;
     state.reindexCount = 0;
+    state.buildPromise = null;
     api.log.info('semantic-search-indexer: teardown complete', { final });
   },
 

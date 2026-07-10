@@ -72,6 +72,46 @@ export function resolveActiveApiKey(cfg: ProviderConfig): string | undefined {
   return cfg.apiKey && cfg.apiKey.length > 0 ? cfg.apiKey : undefined;
 }
 
+function isLoopbackBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    let host = new URL(baseUrl).hostname.toLowerCase();
+    host = host.replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || host === '0.0.0.0' || /^127\./.test(host);
+  } catch {
+    return false;
+  }
+}
+
+function providerCanRunWithoutSavedKey(cfg: ProviderConfig): boolean {
+  return isLoopbackBaseUrl(cfg.baseUrl) && (!cfg.envVars || cfg.envVars.length === 0);
+}
+
+function hasUsableSavedProvider(cfg: ProviderConfig): boolean {
+  return resolveActiveApiKey(cfg) !== undefined || providerCanRunWithoutSavedKey(cfg);
+}
+
+/**
+ * Clear top-level provider/model defaults when provider mutations make them
+ * stale. This prevents a removed provider, deleted final key, or edited model
+ * allowlist from being accepted on the next boot and crashing provider setup.
+ */
+export function clearStaleProviderDefaults(config: Record<string, unknown>): void {
+  const providerId = typeof config['provider'] === 'string' ? config['provider'] : undefined;
+  if (!providerId) return;
+  const providers = config['providers'] as Record<string, ProviderConfig> | undefined;
+  const provider = providers?.[providerId];
+  if (!provider || !hasUsableSavedProvider(provider)) {
+    delete config['provider'];
+    delete config['model'];
+    return;
+  }
+  const modelId = typeof config['model'] === 'string' ? config['model'] : undefined;
+  if (modelId && Array.isArray(provider.models) && provider.models.length > 0 && !provider.models.includes(modelId)) {
+    delete config['model'];
+  }
+}
+
 /**
  * Return the label of the active key, or the first key's label if no
  * active is pinned. Returns `undefined` when there are no keys at all.
@@ -178,6 +218,7 @@ export async function mutateConfigProviders(
   const providers = (decrypted.providers as Record<string, ProviderConfig>) ?? {};
   mutator(providers);
   decrypted.providers = providers;
+  clearStaleProviderDefaults(decrypted);
   const encrypted = encryptConfigSecrets(decrypted, vault);
   await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 }

@@ -80,13 +80,20 @@ describe('buildAuthorizeUrl', () => {
     expect(p.get('response_type')).toBe('code');
     expect(p.get('client_id')).toBe('app_EMoamEEZ73f0CkXaXp7hrann');
     expect(p.get('redirect_uri')).toBe('http://localhost:1455/auth/callback');
-    expect(p.get('scope')).toBe('openid profile email offline_access');
+    expect(p.get('scope')).toBe(
+      'openid profile email offline_access api.connectors.read api.connectors.invoke',
+    );
     expect(p.get('code_challenge')).toBe('CHAL');
     expect(p.get('code_challenge_method')).toBe('S256');
     expect(p.get('state')).toBe('STATE');
     expect(p.get('id_token_add_organizations')).toBe('true');
     expect(p.get('codex_cli_simplified_flow')).toBe('true');
     expect(p.get('originator')).toBe('wrongstack');
+  });
+
+  it('uses the selected callback port in the redirect URI', () => {
+    const url = new URL(buildAuthorizeUrl('CHAL', 'STATE', 1457));
+    expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:1457/auth/callback');
   });
 });
 
@@ -127,7 +134,7 @@ describe('exchangeAuthorizationCode', () => {
       vi.fn(async (url: string, init: { body?: string }) => {
         captured = { url, body: init.body };
         return new Response(
-          JSON.stringify({ access_token: 'AT', refresh_token: 'RT', expires_in: 3600 }),
+          JSON.stringify({ access_token: 'AT', refresh_token: 'RT', expires_in: 3600, id_token: 'ID' }),
           { status: 200 },
         );
       }),
@@ -144,7 +151,24 @@ describe('exchangeAuthorizationCode', () => {
     expect(body.get('redirect_uri')).toBe('http://localhost:1455/auth/callback');
     expect(tokens.access).toBe('AT');
     expect(tokens.refresh).toBe('RT');
+    expect(tokens.idToken).toBe('ID');
     expect(tokens.expires).toBeGreaterThanOrEqual(before + 3600 * 1000);
+  });
+
+  it('uses the selected callback port for token exchange', async () => {
+    let body = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body?: string }) => {
+        body = init.body ?? '';
+        return new Response(JSON.stringify({ access_token: 'AT', refresh_token: 'RT', expires_in: 1 }), {
+          status: 200,
+        });
+      }),
+    );
+
+    await exchangeAuthorizationCode('CODE', 'VERIFIER', undefined, 1457);
+    expect(new URLSearchParams(body).get('redirect_uri')).toBe('http://localhost:1457/auth/callback');
   });
 
   it('throws on a non-2xx token response', async () => {

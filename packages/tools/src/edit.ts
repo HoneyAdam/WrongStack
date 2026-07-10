@@ -68,6 +68,10 @@ export const editTool: Tool<EditInput, EditOutput> = {
     'If no prior read is recorded, the tool auto-reads the current file and only applies the edit after the same ambiguity checks pass.\n' +
     'If `old_string` differs from the file only in whitespace (trailing spaces, indentation), a lower-confidence fallback match is applied and reported in `matched_by`/`note` — always verify the diff when this happens.\n' +
     'After the edit, TS/JS/JSON files are syntax-checked; if `syntax_errors` is present in the output, fix those errors immediately with a follow-up edit.',
+  selection: {
+    doNotUseWhen: 'creating a new file, replacing the whole file, or applying an existing unified diff.',
+    useInstead: ['write', 'patch'],
+  },
   permission: 'confirm',
   mutating: true,
   capabilities: ['fs.write'],

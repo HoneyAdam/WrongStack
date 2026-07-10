@@ -4,9 +4,9 @@
  * persistence, text rendering, and autonomous continuation parsing.
  */
 import type { Request, Response } from '../types/provider.js';
-import { isTextBlock } from '../types/blocks.js';
+import { isTextBlock, type TextBlock } from '../types/blocks.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
-import { markAssistantReferencedEvidence } from '../utils/context-evidence.js';
+import { buildCompletedWorkLedgerBlock, markAssistantReferencedEvidence } from '../utils/context-evidence.js';
 import { toErrorMessage } from '../utils/error.js';
 import { parseContinueDirective, type ContinueDirective } from './continue-to-next-iteration.js';
 import type { RunOptions } from './context.js';
@@ -25,6 +25,23 @@ export interface AgentResponseHandler {
 }
 
 export function createAgentResponseHandler(a: AgentInternals): AgentResponseHandler {
+  // Each assigned prompt array is one explicit cache epoch. Freeze it at the
+  // first request boundary so turn-time code cannot silently invalidate the
+  // provider prefix by pushing/replacing blocks in place. Lifecycle actions
+  // such as a mode switch may assign a new array, which becomes a new epoch.
+  const stabilizedPromptEpochs = new WeakSet<TextBlock[]>();
+
+  function stabilizePromptEpoch(): void {
+    const prompt = a.ctx.systemPrompt;
+    if (stabilizedPromptEpochs.has(prompt)) return;
+    for (const block of prompt) {
+      if (block.cache_control) Object.freeze(block.cache_control);
+      Object.freeze(block);
+    }
+    Object.freeze(prompt);
+    stabilizedPromptEpochs.add(prompt);
+  }
+
   async function buildAndRunRequestPipeline(opts: RunOptions): Promise<Request> {
     // Only scan for tool-use adjacency issues when tool content has been
     // added since the last scan. Pure text responses and iterations without
@@ -47,9 +64,14 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
         );
       }
     }
+    stabilizePromptEpoch();
+    const volatileLedger = buildCompletedWorkLedgerBlock(a.ctx);
+    const system = volatileLedger
+      ? [...a.ctx.systemPrompt, volatileLedger]
+      : a.ctx.systemPrompt;
     const baseReq: Request = {
       model: opts.model ?? a.ctx.model,
-      system: a.ctx.systemPrompt,
+      system,
       messages: a.ctx.messages,
       tools: a.tools.list(),
       // Default to the provider's model-native output ceiling so subagents

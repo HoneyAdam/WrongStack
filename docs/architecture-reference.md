@@ -299,9 +299,25 @@ interface RunResult {
 
 ## 4. System Prompt Architecture
 
-### 6-Layer Structure
+### Stability regions and layers
 
-Built by `DefaultSystemPromptBuilder.build()` each turn:
+Built once for the session by `DefaultSystemPromptBuilder.buildRegions()` and
+flattened for legacy callers by `build()`. Per-request state is composed as a
+volatile tail immediately before the request pipeline runs.
+
+The architectural contract is:
+
+- **Core** — identity and tool-selection rules. Stable across sessions for the
+  same runtime/tool registry.
+- **Session** — environment, project instructions, skills, mode, and other
+  boot-time context. Frozen after the first provider request.
+- **Volatile** — plans, current mission/plugin state, completed-work ledger,
+  and recent errors. Always appended after the stable prefix; never update a
+  core/session block to communicate turn-local state.
+
+Changing a core or session block after the first request creates a new prompt
+cache epoch and must be an explicit lifecycle action (for example a mode or
+tool-registry switch), not an in-place mutation.
 
 ```
 Layer 1: IDENTITY (static, cacheable)
@@ -332,21 +348,21 @@ Layer 6: PLAN (ephemeral, suppressed for subagents)
   Active plan items with [x]/[~]/[ ] checkboxes
   Re-read from disk every build()
 
-Plugin Contributors (ephemeral)
+Plugin Contributors (volatile)
   Additional TextBlocks from plugins via registerSystemPromptContributor()
 ```
 
 ### Cache Strategy
 
 ```ts
-// Static layers (no cache_control) → cached by Anthropic
+// Stable prefix (core + session) → provider-cache foundation
 blocks = [
   { type: 'text', text: layer1 },  // identity
   { type: 'text', text: layer2 },  // tool usage
   { type: 'text', text: layer3 },  // environment
 ];
 
-// Ephemeral layers → NOT cached, sent every turn
+// Volatile layers → appended at request time
 blocks.push({
   type: 'text',
   text: layer4,

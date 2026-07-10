@@ -65,6 +65,10 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     '- Use `background: true` only for long-running processes (dev servers, watchers).\n' +
     '- The working directory is the project root.\n' +
     '- Output may be truncated in the middle for very large results.',
+  selection: {
+    doNotUseWhen: 'the command is allowlisted and does not require pipes, redirection, or shell expansion.',
+    useInstead: ['exec'],
+  },
   permission: 'confirm',
   mutating: true,
   riskTier: 'destructive',

@@ -1,9 +1,17 @@
 /** Shared mailbox message row used by grouped and live mailbox views. */
 import type React from 'react';
 import { useState } from 'react';
+import { MessageActions } from './mailbox-actions.js';
 import type { FlatMessage } from './mailbox-grouping.js';
 import { formatMailboxTime, shortMailboxId } from './mailbox-time.js';
 import { MAILBOX_TYPE_LABEL } from './mailbox-types.js';
+
+/**
+ * Identity stamped into `readBy` / `completedBy` for operator actions taken
+ * from the HQ browser. Mirrors the `hq@…` sender convention of
+ * /api/mailbox-send so agents can tell HQ operator activity apart.
+ */
+const HQ_ACTOR_ID = 'hq-operator';
 
 export interface MessageRowProps {
   flat: FlatMessage;
@@ -101,6 +109,9 @@ export function MessageRow({ flat, defaultExpanded }: MessageRowProps): React.Re
               </span>
             )}
           </div>
+          {flat.projectId !== undefined && (
+            <MessageActions mailId={m.mailId} actorId={HQ_ACTOR_ID} projectId={flat.projectId} />
+          )}
         </div>
       )}
     </div>

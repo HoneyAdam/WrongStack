@@ -126,6 +126,34 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(toolBlock).toContain('desc-beta');
   });
 
+  it('keeps core/session stable ahead of volatile blocks', async () => {
+    const b = new DefaultSystemPromptBuilder({
+      contributors: [async () => [{ type: 'text' as const, text: 'volatile-now' }]],
+    });
+    const regions = await b.buildRegions({ cwd: tmp, projectRoot: tmp, tools: [] });
+
+    expect(regions.core.map((block) => block.text).join('\n')).toContain('No tools registered');
+    expect(regions.session.at(-1)?.text).toContain('<nextsteps>');
+    expect(regions.volatile.map((block) => block.text)).toContain('volatile-now');
+    const flat = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });
+    expect(flat.at(-1)?.text).toBe('volatile-now');
+  });
+
+  it('renders structured negative selection guidance without description truncation', async () => {
+    const tool = mkTool('finder', 'Find useful things.');
+    tool.category = 'Search';
+    tool.selection = {
+      doNotUseWhen: 'the caller only needs a filename match.',
+      useInstead: ['glob'],
+    };
+    const b = new DefaultSystemPromptBuilder({ tokenSavingMode: 'minimal' });
+    const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [tool] });
+    const toolBlock = blocks[1]?.text ?? '';
+
+    expect(toolBlock).toContain('Do not use when the caller only needs a filename match.');
+    expect(toolBlock).toContain('Use `glob` instead.');
+  });
+
   it('reports "not a git repo" when no .git directory', async () => {
     const b = new DefaultSystemPromptBuilder({ todayIso: '2026-05-13' });
     const blocks = await b.build({ cwd: tmp, projectRoot: tmp, tools: [] });

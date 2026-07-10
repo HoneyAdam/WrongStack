@@ -34,6 +34,13 @@ export interface FlatMessage {
   source: MessageSource;
   /** Event id for dedupe key — events already carry a unique id. */
   key: string;
+  /**
+   * HQ projectId from the carrying event envelope. Lets per-message actions
+   * resolve the target project mailbox server-side. Optional so test
+   * fixtures and older call sites stay valid; rows without it simply don't
+   * render action buttons.
+   */
+  projectId?: string;
 }
 
 export interface ProjectGroup {
@@ -169,6 +176,7 @@ export function groupMailboxEvents(
         message,
         source: 'snapshot',
         key: `s:${evt.id}:${message.messageId}`,
+        projectId: evt.projectId,
       });
     }
   }
@@ -189,6 +197,7 @@ export function groupMailboxEvents(
         message: p.message,
         source: 'event',
         key: `e:${p.message.mailId}:${evt.seq}`,
+        projectId: evt.projectId,
       });
     }
     if (p.agent?.online) {

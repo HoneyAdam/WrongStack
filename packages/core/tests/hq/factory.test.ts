@@ -73,6 +73,46 @@ describe('HQ publisher factory env config', () => {
     });
   });
 
+  it('does NOT fall back to the local auth.json token for a remote URL', async () => {
+    // A remote HQ has its own auth.json — sending the LOCAL client token
+    // would put the publisher into a silent 401 reconnect loop. Without an
+    // explicit token the config must carry none, so the operator sees an
+    // honest auth failure instead of a wrong-token mystery.
+    await withTempDir(async (dir) => {
+      await writeHqAuthFile(dir, {
+        version: HQ_AUTH_FILE_VERSION,
+        updatedAt: new Date().toISOString(),
+        clientTokens: [{ id: 'ct-1', token: 'local-only-token', createdAt: new Date().toISOString() }],
+      });
+
+      const config = resolveHqConfigFromEnv({
+        WRONGSTACK_HQ_URL: 'http://192.168.1.50:3499',
+        WRONGSTACK_HQ_DATA_DIR: dir,
+      });
+
+      expect(config?.url).toBe('http://192.168.1.50:3499');
+      expect(config?.token).toBeUndefined();
+    });
+  });
+
+  it('uses the explicit WRONGSTACK_HQ_TOKEN for a remote URL', async () => {
+    await withTempDir(async (dir) => {
+      await writeHqAuthFile(dir, {
+        version: HQ_AUTH_FILE_VERSION,
+        updatedAt: new Date().toISOString(),
+        clientTokens: [{ id: 'ct-1', token: 'local-only-token', createdAt: new Date().toISOString() }],
+      });
+
+      const config = resolveHqConfigFromEnv({
+        WRONGSTACK_HQ_URL: 'http://hq.example.com:3499',
+        WRONGSTACK_HQ_TOKEN: 'remote-token',
+        WRONGSTACK_HQ_DATA_DIR: dir,
+      });
+
+      expect(config).toMatchObject({ url: 'http://hq.example.com:3499', token: 'remote-token' });
+    });
+  });
+
   it('auto-enables same-machine HQ when auth.json has a client token', async () => {
     await withTempDir(async (dir) => {
       await writeHqAuthFile(dir, {
