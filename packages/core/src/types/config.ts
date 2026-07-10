@@ -713,7 +713,7 @@ export interface IndexingConfig {
   /**
    * Watchdog timeout (ms) for a full index run. A run exceeding this is
    * aborted (so it can never wedge the indexing mutex or freeze the terminal)
-   * and counts toward the indexing circuit breaker. Default: 120000.
+   * and counts toward the indexing circuit breaker. Default: 240000.
    */
   indexTimeoutMs?: number | undefined;
 }

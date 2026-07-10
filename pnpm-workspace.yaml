@@ -36,14 +36,19 @@ allowBuilds:
   # apps/desktop. Keep this explicit so new installs can run the desktop app.
   electron: true
   esbuild: true
-  # node-pty is a local-dev/optional WebUI terminal dependency. Decline its
-  # build script here so workspace installs stay clean on machines without
-  # native build tools; published wrongstack installs do not require it.
-  node-pty: false
+  # node-pty is an optional WebUI terminal dependency (used by the
+  # integrated shell panel). We allow its prebuild-install script so the
+  # package can fetch a Node-ABI-matching native binary from the
+  # node-pty GitHub releases on install; this avoids forcing every
+  # contributor to install MSVC + Python just to run the WebUI.
+  # The script only downloads binaries published by microsoft/node-pty;
+  # it does not execute arbitrary remote code.
+  node-pty: true
 onlyBuiltDependencies:
   - "@biomejs/biome"
   - better-sqlite3
   - electron
   - esbuild
+  - node-pty
 minimumReleaseAgeExclude:
   - electron@43.0.0

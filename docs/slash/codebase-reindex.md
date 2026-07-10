@@ -41,7 +41,7 @@ updates.
 - Disabling automatic indexing (`WRONGSTACK_INDEX_ON_START=0`, or
   `indexing.onSessionStart: false` in config) does not affect this command — it
   always runs on demand.
-- Every index run is guarded by a watchdog timeout (default 120s full / 30s
+- Every index run is guarded by a watchdog timeout (default 240s full / 60s
   per-file incremental, configurable via `indexing.indexTimeoutMs`) and a
   circuit breaker: after 3 consecutive failures or timeouts, indexing pauses
   for 60s and background reindexes are dropped instead of queuing — so a

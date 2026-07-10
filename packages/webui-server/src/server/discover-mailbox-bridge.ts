@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
 import { readLiveLock, type MailboxBridgeLock } from '@wrongstack/core/coordination';
 
@@ -107,17 +109,18 @@ function spawnMailboxBridge(
   projectRoot: string,
   logger: MailboxBridgeParams['logger'],
 ): number | null {
-  const invocation = mailboxServeInvocation();
+  const invocation = mailboxServeInvocation(projectRoot);
   try {
     const child = spawn(invocation.command, invocation.args, {
       cwd: projectRoot,
-      detached: process.platform !== 'win32',
+      detached: process.platform !== 'win32' && !invocation.useShell,
       env: process.env,
       stdio: 'ignore',
       windowsHide: true,
       ...(invocation.windowsVerbatimArguments
         ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments }
         : {}),
+      ...(invocation.useShell ? { shell: true } : {}),
     });
     child.once('error', (err) => {
       logger.warn('failed to spawn mailbox bridge for webui', {
@@ -136,10 +139,11 @@ function spawnMailboxBridge(
   }
 }
 
-function mailboxServeInvocation(): {
+function mailboxServeInvocation(projectRoot: string): {
   command: string;
   args: string[];
   windowsVerbatimArguments?: boolean | undefined;
+  useShell?: boolean | undefined;
 } {
   const explicitCliEntry = process.env['WRONGSTACK_CLI_ENTRY'];
   if (explicitCliEntry) {
@@ -150,11 +154,53 @@ function mailboxServeInvocation(): {
     const cliEntry = require.resolve('@wrongstack/cli');
     return { command: process.execPath, args: [cliEntry, 'mailbox', 'serve'] };
   } catch {
-    return {
-      command: process.platform === 'win32' ? 'wstack.cmd' : 'wstack',
-      args: ['mailbox', 'serve'],
-    };
+    // @wrongstack/cli is not in webui-server's declared dependencies, so
+    // pnpm does not symlink it into this package's node_modules and
+    // require.resolve() above fails. Walk up from projectRoot looking for
+    // a sibling `packages/cli/dist/index.js` (the workspace layout the
+    // monorepo CLI ships) and run it directly with process.execPath.
+    //
+    // This avoids:
+    //   - `spawn wstack.cmd` failing with EINVAL (Node 20+ refuses to
+    //     spawn `.cmd`/`.bat` without `shell: true` — CVE-2024-27980).
+    //   - relying on a globally-installed `wstack` that may not exist on
+    //     developer machines that only run the monorepo.
+    const workspaceCliEntry = findWorkspaceCliEntry(projectRoot);
+    if (workspaceCliEntry) {
+      return {
+        command: process.execPath,
+        args: [workspaceCliEntry, 'mailbox', 'serve'],
+      };
+    }
+    // Last resort: try the on-PATH shim. On Windows, spawning a `.cmd`
+    // requires `shell: true` since Node 20 (CVE-2024-27980) — without
+    // it, spawn() rejects with EINVAL.
+    if (process.platform === 'win32') {
+      return {
+        command: 'wstack.cmd',
+        args: ['mailbox', 'serve'],
+        useShell: true,
+      };
+    }
+    return { command: 'wstack', args: ['mailbox', 'serve'] };
   }
+}
+
+/**
+ * Walk up from `projectRoot` looking for a sibling `packages/cli/dist/index.js`.
+ * Works for the published monorepo layout (projectRoot = monorepo root) and
+ * for extracted checkouts where the workspace sits a few levels above.
+ */
+function findWorkspaceCliEntry(projectRoot: string): string | null {
+  let dir = projectRoot;
+  for (let i = 0; i < 6; i++) {
+    const candidate = join(dir, 'packages', 'cli', 'dist', 'index.js');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {

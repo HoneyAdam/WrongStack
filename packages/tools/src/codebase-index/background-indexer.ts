@@ -51,10 +51,17 @@ import type {
 
 // ─── Watchdog timeouts ───────────────────────────────────────────────────────
 
-/** Watchdog timeout for a full (startup / manual) index run. */
-const DEFAULT_FULL_INDEX_TIMEOUT_MS = 120_000;
+/**
+ * Watchdog timeout for a full (startup / manual) index run.
+ *
+ * Bumped from 120s → 240s in 0.284.x: large monorepos (WrongStack itself
+ * has ~3k TS files) regularly exceed 120s on the first run on cold SSD +
+ * Windows Defender real-time scanning. The watchdog only fires when the
+ * worker is truly stuck — it does not slow down the happy path.
+ */
+const DEFAULT_FULL_INDEX_TIMEOUT_MS = 240_000;
 /** Watchdog timeout for a single-file incremental reindex. */
-const DEFAULT_INCREMENTAL_TIMEOUT_MS = 30_000;
+const DEFAULT_INCREMENTAL_TIMEOUT_MS = 60_000;
 /** Watchdog timeout for read operations (search / stats). */
 const DEFAULT_QUERY_TIMEOUT_MS = 8_000;
 
