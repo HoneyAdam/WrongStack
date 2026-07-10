@@ -70,9 +70,9 @@ export const SDD_STATUS: Record<SddStatus, SddStatusStyle> = {
     label: 'Running',
     icon: Loader2,
     spin: true,
-    text: 'text-[hsl(var(--warning))]',
-    ring: 'border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.1)]',
-    dot: 'bg-[hsl(var(--warning))]',
+    text: 'text-warning',
+    ring: 'border-warning/45 bg-warning/10',
+    dot: 'bg-warning',
     hex: 'hsl(var(--warning))',
   },
   blocked: {
@@ -102,9 +102,9 @@ export const SDD_STATUS: Record<SddStatus, SddStatusStyle> = {
   completed: {
     label: 'Done',
     icon: Check,
-    text: 'text-[hsl(var(--success))]',
-    ring: 'border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.1)]',
-    dot: 'bg-[hsl(var(--success))]',
+    text: 'text-success',
+    ring: 'border-success/35 bg-success/10',
+    dot: 'bg-success',
     hex: 'hsl(var(--success))',
   },
   cancelled: {
@@ -129,8 +129,8 @@ export const SDD_PRIORITY: Record<SddPriority, { text: string; chip: string }> =
     chip: 'bg-destructive/10 text-destructive',
   },
   high: {
-    text: 'text-[hsl(var(--warning))]',
-    chip: 'bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]',
+    text: 'text-warning',
+    chip: 'bg-warning/12 text-warning',
   },
   medium: {
     text: 'text-primary',
@@ -149,9 +149,9 @@ export function priorityStyle(p: string) {
 /** Run-level status badge styles (board header). */
 export const SDD_RUN_STATUS: Record<string, string> = {
   running: 'border-primary/35 bg-primary/10 text-primary',
-  paused: 'border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]',
+  paused: 'border-warning/35 bg-warning/10 text-warning',
   stopped: 'border-border/70 bg-muted text-muted-foreground',
-  completed: 'border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]',
+  completed: 'border-success/35 bg-success/10 text-success',
   failed: 'border-destructive/35 bg-destructive/10 text-destructive',
   deadlocked: 'border-destructive/35 bg-destructive/10 text-destructive',
   idle: 'border-border bg-muted text-muted-foreground',
@@ -159,9 +159,9 @@ export const SDD_RUN_STATUS: Record<string, string> = {
 
 /** Deterministic palette for agent avatars (indexed by roster position). */
 export const SDD_AGENT_COLORS = [
-  'bg-[hsl(var(--warning))]',
+  'bg-warning',
   'bg-primary',
-  'bg-[hsl(var(--success))]',
+  'bg-success',
   'bg-destructive',
   'bg-secondary',
   'bg-muted-foreground',
@@ -170,14 +170,14 @@ export const SDD_AGENT_COLORS = [
 
 /** Activity-feed entry kinds → icon + colour. */
 export const SDD_FEED_KIND: Record<string, { icon: LucideIcon; color: string }> = {
-  started: { icon: Play, color: 'text-[hsl(var(--warning))]' },
-  completed: { icon: Check, color: 'text-[hsl(var(--success))]' },
+  started: { icon: Play, color: 'text-warning' },
+  completed: { icon: Check, color: 'text-success' },
   failed: { icon: X, color: 'text-destructive' },
-  retrying: { icon: RotateCcw, color: 'text-[hsl(var(--warning))]' },
+  retrying: { icon: RotateCcw, color: 'text-warning' },
   wave: { icon: Layers, color: 'text-primary' },
   deadlock: { icon: AlertTriangle, color: 'text-destructive' },
   verification_failed: { icon: ShieldAlert, color: 'text-destructive' },
-  conflict: { icon: GitMerge, color: 'text-[hsl(var(--warning))]' },
+  conflict: { icon: GitMerge, color: 'text-warning' },
   split: { icon: Split, color: 'text-primary' },
   supervisor: { icon: Brain, color: 'text-primary' },
 };

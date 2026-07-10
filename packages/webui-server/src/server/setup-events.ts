@@ -353,12 +353,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
   events.on('tool.confirm_needed', (e) => {
     const id = e.toolUseId ?? `confirm_${Date.now()}`;
+    const payload = sessionPayload({ sessionId: e.sessionId, id, toolName: e.tool?.name ?? 'unknown', input: e.input, suggestedPattern: e.suggestedPattern, decisionSource: e.decisionSource, riskTier: e.riskTier });
     pendingConfirms.set(id, {
       resolve: e.resolve,
       decisionSource: e.decisionSource,
       riskTier: e.riskTier,
+      payload,
     });
-    broadcast(clients, { type: 'tool.confirm_needed', payload: sessionPayload({ sessionId: e.sessionId, id, toolName: e.tool?.name ?? 'unknown', input: e.input, suggestedPattern: e.suggestedPattern, decisionSource: e.decisionSource, riskTier: e.riskTier }) });
+    broadcast(clients, { type: 'tool.confirm_needed', payload });
   });
 
   events.on('error', (e) => {

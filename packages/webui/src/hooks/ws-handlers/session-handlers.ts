@@ -252,11 +252,27 @@ export function handleSessionStart(msg: WSServerMessage) {
   }
   const replay = (payload as { replayMessages?: ReplayMessage[] }).replayMessages;
   if (replay && replay.length > 0) {
-    useChatStore.getState().setMessages(hydrateReplayMessages(replay));
-    // The transcript we just hydrated belongs to the active session —
-    // bind it so any cross-session bleed check in the verifier view knows
-    // these messages are real, not leftovers from a prior session.
-    useChatStore.getState().setBoundSessionId(payload.sessionId);
+    // The server sends a replay on EVERY connect, including plain reconnects.
+    // On a reconnect the local transcript may hold client-only messages the
+    // server never persisted (/stats output, provider-error bubbles,
+    // compaction notices) — overwriting it would silently drop those. Only
+    // replace when the local copy can't be trusted: after a reset, when it's
+    // empty or bound to another session, or when a run was in flight at
+    // disconnect time (streamed chunks were lost; the replay is the recovery
+    // path and beats keeping a truncated transcript).
+    const chat = useChatStore.getState();
+    const shouldReplace =
+      isReset ||
+      chat.messages.length === 0 ||
+      chat.boundSessionId !== payload.sessionId ||
+      chat.isLoading;
+    if (shouldReplace) {
+      chat.setMessages(hydrateReplayMessages(replay));
+      // The transcript we just hydrated belongs to the active session —
+      // bind it so any cross-session bleed check in the verifier view knows
+      // these messages are real, not leftovers from a prior session.
+      chat.setBoundSessionId(payload.sessionId);
+    }
   }
   if (replay) {
     const usage = (

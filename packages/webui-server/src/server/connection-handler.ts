@@ -69,6 +69,14 @@ export interface ConnectionHandlerOptions {
  */
 const REPLAY_MESSAGE_CAP = 2_000;
 
+/**
+ * How long to wait after the LAST client disconnects before auto-denying
+ * pending permission confirms. A browser refresh drops the client count to
+ * zero for a moment — draining immediately would deny a prompt the user is
+ * about to see again (pending confirms are replayed on connect).
+ */
+const CONFIRM_DRAIN_GRACE_MS = 30_000;
+
 /** Per-connection message budget over the rolling window (0 = disabled). */
 const RATE_LIMIT_MESSAGES = Number.parseInt(process.env['WEBUI_RATE_LIMIT'] ?? '0', 10);
 /** Rolling rate-limit window length. */
@@ -96,6 +104,8 @@ export function createConnectionHandler(
   // Monotonic connection id sequence — distinguishes connections that share
   // a session id (multiple tabs / F5 reloads).
   let connSeq = 0;
+  // Grace timer for draining pending confirms once the last client is gone.
+  let confirmDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
   const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => {
     const provided = payload['sessionId'];
@@ -125,6 +135,16 @@ export function createConnectionHandler(
       connId: `c${++connSeq}`,
     };
     opts.clients.set(ws, client);
+
+    // A client is back — cancel any scheduled auto-deny of pending confirms
+    // and replay the prompts so a refreshed tab can still answer them.
+    if (confirmDrainTimer) {
+      clearTimeout(confirmDrainTimer);
+      confirmDrainTimer = null;
+    }
+    for (const confirm of opts.pendingConfirms.values()) {
+      if (confirm.payload) send(ws, { type: 'tool.confirm_needed', payload: confirm.payload });
+    }
 
     // F5-resilience: on EVERY new connection (including the page-reload
     // case) we send the current session transcript alongside the bare
@@ -234,10 +254,22 @@ export function createConnectionHandler(
       const closing = opts.clients.get(ws);
       opts.clients.delete(ws);
       if (closing) rateLimits.delete(closing.connId);
-      // If the client disconnects while a permission prompt is pending,
-      // resolve all pending confirms with 'no' so the agent loop doesn't
-      // hang forever waiting for a response that will never come.
-      resolveAllPendingConfirms(opts.pendingConfirms, 'no');
+      // If the LAST client disconnects while a permission prompt is pending,
+      // auto-deny after a grace window so the agent loop doesn't hang forever
+      // waiting for a response that will never come. The map is process-wide
+      // (keyed by tool-use id, not connection), so draining while other tabs
+      // are open would deny a prompt they can still answer; and an immediate
+      // drain would race a browser refresh, which reconnects within seconds
+      // and gets the prompt replayed.
+      if (opts.clients.size === 0 && !confirmDrainTimer) {
+        confirmDrainTimer = setTimeout(() => {
+          confirmDrainTimer = null;
+          if (opts.clients.size === 0) {
+            resolveAllPendingConfirms(opts.pendingConfirms, 'no');
+          }
+        }, CONFIRM_DRAIN_GRACE_MS);
+        confirmDrainTimer.unref?.();
+      }
     });
 
     ws.on('error', (err) => {

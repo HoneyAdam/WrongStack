@@ -18,6 +18,8 @@
   "thinking": "Réflexion…",
   "input": {
     "autoFencedAs": "Auto-clôturé en",
+    "notConnectedDraftKept": "Non connecté — votre message n'a pas été envoyé. Il a été restauré dans le champ de saisie.",
+    "refineTimeoutFallback": "L'affinage n'a pas répondu — envoi de votre message d'origine.",
     "charsWord": "caractères",
     "linesWord": "lignes",
     "pastedWord": "Collé",

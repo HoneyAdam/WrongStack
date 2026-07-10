@@ -22,10 +22,10 @@ const STATUS_COLUMNS: Array<{ key: TaskItem['status']; label: string; match: Tas
 
 const PHASE_STATUS_BADGE: Record<PhaseItem['status'], string> = {
   pending: 'bg-muted text-muted-foreground',
-  ready: 'bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]',
+  ready: 'bg-info/15 text-info',
   running: 'bg-primary/15 text-primary',
   paused: 'bg-warning/15 text-warning',
-  completed: 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]',
+  completed: 'bg-success/15 text-success',
   failed: 'bg-destructive/15 text-destructive',
   skipped: 'bg-muted text-muted-foreground',
 };

@@ -3,7 +3,7 @@
  * When a skill is clicked, it opens in the main content area (SkillDetailView).
  */
 
-import { FileText, Plus, Download, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { FileText, Plus, Download, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
@@ -53,10 +53,10 @@ function ScopeBadge({ source }: { source: string }) {
     <span
       className={cn(
         'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
-        scope === 'project' && 'border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.08)] text-[hsl(var(--success))]',
+        scope === 'project' && 'border-success/25 bg-success/8 text-success',
         scope === 'user' && 'border-primary/25 bg-primary/10 text-primary',
         scope === 'bundled' && 'border-border/70 bg-muted/60 text-muted-foreground',
-        scope === 'foreign' && 'border-[hsl(var(--warning)/0.28)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]',
+        scope === 'foreign' && 'border-warning/28 bg-warning/10 text-warning',
       )}
     >
       {scopeLabelFor(t, scope)}
@@ -102,29 +102,87 @@ export function SkillsList({ className }: { className?: string }) {
   // Check for updates state
   const [checkingForUpdates, setCheckingForUpdates] = useState(false);
 
+  // Hand-rolled overlays (not Radix Dialog): close the open one on Escape.
+  useEffect(() => {
+    if (!installModalOpen && !createModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (installModalOpen) setInstallModalOpen(false);
+      if (createModalOpen) setCreateModalOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [installModalOpen, createModalOpen]);
+
+  // One-shot WS listeners (install/create/export). Tracked in a ref so that:
+  //   - a timeout clears the busy state when the server never replies,
+  //   - unmount tears the listener down (no setState-after-unmount),
+  //   - a rapid second click replaces (not stacks) the pending listener.
+  const oneShotOffs = useRef(new Map<string, () => void>());
+  useEffect(() => {
+    const offs = oneShotOffs.current;
+    return () => {
+      for (const off of offs.values()) off();
+      offs.clear();
+    };
+  }, []);
+
+  const listenOnce = useCallback(
+    (
+      type: string,
+      onMsg: (msg: unknown) => void,
+      onTimeout: () => void,
+      timeoutMs = 15_000,
+    ) => {
+      if (!client) return;
+      oneShotOffs.current.get(type)?.();
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const handler = (msg: unknown) => {
+        dispose();
+        onMsg(msg);
+      };
+      const dispose = () => {
+        if (timer) clearTimeout(timer);
+        client.off(type, handler as (msg: unknown) => void);
+        oneShotOffs.current.delete(type);
+      };
+      timer = setTimeout(() => {
+        dispose();
+        onTimeout();
+      }, timeoutMs);
+      client.on(type, handler as (msg: unknown) => void);
+      oneShotOffs.current.set(type, dispose);
+    },
+    [client],
+  );
+
   // Handle install
-  const handleInstallSkill = useCallback(async () => {
+  const handleInstallSkill = useCallback(() => {
     if (!client || !installRef.trim()) return;
     setInstalling(true);
     setInstallError(null);
     setInstallSuccess(null);
 
-    const handler = (msg: unknown) => {
-      const m = msg as { payload: { success: boolean; error: string | null; results?: Array<{ name: string }> } };
-      setInstalling(false);
-      if (m.payload.success) {
-        const names = m.payload.results?.map((r) => r.name).join(', ') ?? installRef;
-        setInstallSuccess(i18n.t('activity:skillsList.installedMsg', { names }));
-        client.send({ type: 'skills.list' });
-      } else {
-        setInstallError(m.payload.error ?? i18n.t('activity:skillsList.installFailed'));
-      }
-      client.off('skills.installed', handler as (msg: unknown) => void);
-    };
-
-    client.on('skills.installed', handler as (msg: unknown) => void);
+    listenOnce(
+      'skills.installed',
+      (msg) => {
+        const m = msg as { payload: { success: boolean; error: string | null; results?: Array<{ name: string }> } };
+        setInstalling(false);
+        if (m.payload.success) {
+          const names = m.payload.results?.map((r) => r.name).join(', ') ?? installRef;
+          setInstallSuccess(i18n.t('activity:skillsList.installedMsg', { names }));
+          client.send({ type: 'skills.list' });
+        } else {
+          setInstallError(m.payload.error ?? i18n.t('activity:skillsList.installFailed'));
+        }
+      },
+      () => {
+        setInstalling(false);
+        setInstallError(i18n.t('activity:skillsList.installFailed'));
+      },
+    );
     client.installSkill(installRef.trim(), installGlobal);
-  }, [client, installRef, installGlobal]);
+  }, [client, installRef, installGlobal, listenOnce]);
 
   // Handle create
   const handleCreateSkill = useCallback(() => {
@@ -133,21 +191,25 @@ export function SkillsList({ className }: { className?: string }) {
     setCreateError(null);
     setCreateSuccess(null);
 
-    const handler = (msg: unknown) => {
-      const m = msg as { payload: { success: boolean; error: string | null; skill?: { name: string; path: string; scope: string } } };
-      setCreating(false);
-      if (m.payload.success) {
-        setCreateSuccess(i18n.t('activity:skillsList.createdMsg', { name: m.payload.skill?.name ?? '' }));
-        client.send({ type: 'skills.list' });
-      } else {
-        setCreateError(m.payload.error ?? i18n.t('activity:skillsList.createFailed'));
-      }
-      client.off('skills.created', handler as (msg: unknown) => void);
-    };
-
-    client.on('skills.created', handler as (msg: unknown) => void);
+    listenOnce(
+      'skills.created',
+      (msg) => {
+        const m = msg as { payload: { success: boolean; error: string | null; skill?: { name: string; path: string; scope: string } } };
+        setCreating(false);
+        if (m.payload.success) {
+          setCreateSuccess(i18n.t('activity:skillsList.createdMsg', { name: m.payload.skill?.name ?? '' }));
+          client.send({ type: 'skills.list' });
+        } else {
+          setCreateError(m.payload.error ?? i18n.t('activity:skillsList.createFailed'));
+        }
+      },
+      () => {
+        setCreating(false);
+        setCreateError(i18n.t('activity:skillsList.createFailed'));
+      },
+    );
     client.createSkill(createName.trim(), createDescription.trim(), createScope);
-  }, [client, createName, createDescription, createScope]);
+  }, [client, createName, createDescription, createScope, listenOnce]);
 
   // Handle refresh all
   const handleRefreshAll = useCallback(() => {
@@ -160,12 +222,15 @@ export function SkillsList({ className }: { className?: string }) {
   const handleExportAll = useCallback(() => {
     if (!client) return;
     setExportingAll(true);
-    const handler = (msg: unknown) => {
-      const m = msg as { payload: { zipBase64: string; skillCount: number; error?: string } };
-      setExportingAll(false);
-      if (m.payload.error) {
-        console.error(m.payload.error);
-      } else {
+    listenOnce(
+      'skills.exported',
+      (msg) => {
+        const m = msg as { payload: { zipBase64: string; skillCount: number; error?: string } };
+        setExportingAll(false);
+        if (m.payload.error) {
+          console.error(m.payload.error);
+          return;
+        }
         const binary = atob(m.payload.zipBase64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
@@ -180,12 +245,13 @@ export function SkillsList({ className }: { className?: string }) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-      }
-      client.off('skills.exported', handler as (msg: unknown) => void);
-    };
-    client.on('skills.exported', handler as (msg: unknown) => void);
+      },
+      () => setExportingAll(false),
+      // Large skill sets can take a while to zip server-side.
+      30_000,
+    );
     client.exportAllSkills();
-  }, [client]);
+  }, [client, listenOnce]);
 
   // Load skills on mount
   useEffect(() => {
@@ -466,7 +532,12 @@ export function SkillsList({ className }: { className?: string }) {
             if (e.target === e.currentTarget) setInstallModalOpen(false);
           }}
         >
-          <div className="flex max-h-[calc(100dvh-2rem)] w-[420px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('activity:skillsList.installHeading')}
+            className="flex max-h-[calc(100dvh-2rem)] w-[420px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl"
+          >
             <div className="flex shrink-0 items-center justify-between border-b border-border/70 p-4">
               <div className="flex items-center gap-2">
                 <Download className="h-4 w-4 text-primary" />
@@ -475,9 +546,10 @@ export function SkillsList({ className }: { className?: string }) {
               <button
                 type="button"
                 onClick={() => setInstallModalOpen(false)}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={t('common:action.close')}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               >
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
 
@@ -532,7 +604,7 @@ export function SkillsList({ className }: { className?: string }) {
                 <p className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">{installError}</p>
               )}
               {installSuccess && (
-                <p className="rounded-md bg-[hsl(var(--success)/0.1)] px-2 py-1 text-xs text-[hsl(var(--success))]">{installSuccess}</p>
+                <p className="rounded-md bg-success/10 px-2 py-1 text-xs text-success">{installSuccess}</p>
               )}
             </div>
 
@@ -568,7 +640,12 @@ export function SkillsList({ className }: { className?: string }) {
             if (e.target === e.currentTarget) setCreateModalOpen(false);
           }}
         >
-          <div className="flex max-h-[calc(100dvh-2rem)] w-[480px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('activity:skillsList.createHeading')}
+            className="flex max-h-[calc(100dvh-2rem)] w-[480px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl"
+          >
             <div className="flex shrink-0 items-center justify-between border-b border-border/70 p-4">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary" />
@@ -577,9 +654,10 @@ export function SkillsList({ className }: { className?: string }) {
               <button
                 type="button"
                 onClick={() => setCreateModalOpen(false)}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={t('common:action.close')}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               >
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
 
@@ -660,7 +738,7 @@ export function SkillsList({ className }: { className?: string }) {
                 <p className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">{createError}</p>
               )}
               {createSuccess && (
-                <p className="rounded-md bg-[hsl(var(--success)/0.1)] px-2 py-1 text-xs text-[hsl(var(--success))]">{createSuccess}</p>
+                <p className="rounded-md bg-success/10 px-2 py-1 text-xs text-success">{createSuccess}</p>
               )}
             </div>
 

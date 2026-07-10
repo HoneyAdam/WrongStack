@@ -18,6 +18,8 @@
   "thinking": "Denke nach…",
   "input": {
     "autoFencedAs": "Auto-umzäunt als",
+    "notConnectedDraftKept": "Keine Verbindung — deine Nachricht wurde nicht gesendet. Sie wurde im Eingabefeld wiederhergestellt.",
+    "refineTimeoutFallback": "Die Verfeinerung hat nicht geantwortet — deine ursprüngliche Nachricht wird gesendet.",
     "charsWord": "Zeichen",
     "linesWord": "Zeilen",
     "pastedWord": "Eingefügt",

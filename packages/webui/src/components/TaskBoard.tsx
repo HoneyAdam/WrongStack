@@ -73,7 +73,7 @@ export function TaskBoard({
               phaseStatus === 'running'
                 ? 'bg-primary/15 text-primary'
                 : phaseStatus === 'completed'
-                  ? 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]'
+                  ? 'bg-success/15 text-success'
                   : phaseStatus === 'failed'
                     ? 'bg-destructive/15 text-destructive'
                     : 'bg-muted text-muted-foreground',

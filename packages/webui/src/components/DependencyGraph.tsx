@@ -19,9 +19,9 @@ const STATUS: Record<
   BoardTaskStatus,
   { icon: React.ReactNode; label: string; text: string; ring: string }
 > = {
-  completed: { icon: <CheckCircle2 className="h-3.5 w-3.5" />, label: 'Completed', text: 'text-[hsl(var(--success))]', ring: 'border-[hsl(var(--success)/0.35)]' },
+  completed: { icon: <CheckCircle2 className="h-3.5 w-3.5" />, label: 'Completed', text: 'text-success', ring: 'border-success/35' },
   in_progress: { icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />, label: 'Running', text: 'text-primary', ring: 'border-primary/45' },
-  queued: { icon: <Clock className="h-3.5 w-3.5" />, label: 'Queued', text: 'text-[hsl(var(--warning))]', ring: 'border-[hsl(var(--warning)/0.35)]' },
+  queued: { icon: <Clock className="h-3.5 w-3.5" />, label: 'Queued', text: 'text-warning', ring: 'border-warning/35' },
   blocked: { icon: <Lock className="h-3.5 w-3.5" />, label: 'Blocked', text: 'text-destructive', ring: 'border-destructive/30' },
   pending: { icon: <Circle className="h-3.5 w-3.5" />, label: 'Pending', text: 'text-muted-foreground', ring: 'border-border/70' },
   review: { icon: <RotateCcw className="h-3.5 w-3.5" />, label: 'Review', text: 'text-primary', ring: 'border-primary/35' },
@@ -34,8 +34,8 @@ const LEGEND: BoardTaskStatus[] = ['completed', 'in_progress', 'queued', 'blocke
 const PRIORITY: Record<BoardTaskItem['priority'], { label: string; cls: string }> = {
   critical: { label: 'Crit', cls: 'bg-destructive/10 text-destructive' },
   high: { label: 'High', cls: 'bg-destructive/10 text-destructive' },
-  medium: { label: 'Med', cls: 'bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]' },
-  low: { label: 'Low', cls: 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]' },
+  medium: { label: 'Med', cls: 'bg-warning/12 text-warning' },
+  low: { label: 'Low', cls: 'bg-success/12 text-success' },
 };
 
 export interface DependencyGraphProps {

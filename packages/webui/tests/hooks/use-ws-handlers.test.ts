@@ -17,7 +17,7 @@ describe('useWsHandlers', () => {
     onSpy.mockImplementation(() => () => {});
   });
 
-  it('registers every handler in the map on mount', () => {
+  it('registers a dispatching wrapper for every key in the map', () => {
     const h1 = vi.fn();
     const h2 = vi.fn();
     renderHook(() =>
@@ -28,8 +28,33 @@ describe('useWsHandlers', () => {
     );
 
     expect(onSpy).toHaveBeenCalledTimes(2);
-    expect(onSpy).toHaveBeenCalledWith('session.start', h1);
-    expect(onSpy).toHaveBeenCalledWith('text_delta', h2);
+    // A stable WRAPPER is registered (not the concrete handler) so the
+    // dispatch always reads the latest map from the ref.
+    expect(onSpy).toHaveBeenCalledWith('session.start', expect.any(Function));
+    expect(onSpy).toHaveBeenCalledWith('text_delta', expect.any(Function));
+
+    const wrapper = onSpy.mock.calls.find((c) => c[0] === 'session.start')?.[1] as (
+      msg: unknown,
+    ) => void;
+    const msg = { type: 'session.start', payload: {} };
+    wrapper(msg);
+    expect(h1).toHaveBeenCalledWith(msg);
+    expect(h2).not.toHaveBeenCalled();
+  });
+
+  it('dispatches the LATEST handler after a re-render (no stale closure)', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    let handler = first;
+    const { rerender } = renderHook(() => useWsHandlers({ 'session.start': handler }));
+
+    handler = second;
+    rerender();
+
+    const wrapper = onSpy.mock.calls[0]?.[1] as (msg: unknown) => void;
+    wrapper({ type: 'session.start', payload: {} });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 
   it('tears down every registration on unmount', () => {
@@ -47,15 +72,24 @@ describe('useWsHandlers', () => {
     expect(off2).toHaveBeenCalledTimes(1);
   });
 
-  it('skips falsy handlers (partial map)', () => {
+  it('registers keys with undefined handlers too (they may fill in later)', () => {
+    const h = vi.fn();
     renderHook(() =>
       useWsHandlers({
-        'session.start': vi.fn(),
+        'session.start': h,
         'text_delta': undefined,
       }),
     );
 
-    expect(onSpy).toHaveBeenCalledTimes(1);
+    // Both keys get wrappers: the map value can flip undefined → fn on a
+    // later render without re-subscribing (the wrapper reads the ref).
+    expect(onSpy).toHaveBeenCalledTimes(2);
+    const wrapper = onSpy.mock.calls.find((c) => c[0] === 'text_delta')?.[1] as (
+      msg: unknown,
+    ) => void;
+    // Dispatching to the undefined slot is a safe no-op.
+    expect(() => wrapper({ type: 'text_delta', payload: {} })).not.toThrow();
+    expect(h).not.toHaveBeenCalled();
   });
 
   it('re-subscribes when deps change', () => {

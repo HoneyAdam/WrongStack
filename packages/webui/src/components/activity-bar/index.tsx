@@ -273,8 +273,8 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
             'inline-block w-1.5 h-1.5 rounded-full',
             desktopShell ? 'mt-1.5' : 'mt-1',
             wsConnected
-              ? 'bg-[hsl(var(--success))] shadow-[0_0_4px_hsl(var(--success)/0.6)]'
-              : 'bg-[hsl(var(--warning))]',
+              ? 'bg-success shadow-[0_0_4px_hsl(var(--success)/0.6)]'
+              : 'bg-warning',
           )}
           title={wsConnected ? t('activity:status.connected') : t('activity:status.disconnected')}
         />

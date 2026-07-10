@@ -6,6 +6,7 @@
 
 import { LayoutGrid } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useConfigStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
 import { SessionList } from './SessionList';
@@ -13,7 +14,10 @@ import { useAppTranslation } from '@/i18n';
 
 export function HistoryPanel() {
   const wsConnected = useConfigStore((s) => s.wsConnected);
-  const { entries, loading, error } = useHistoryStore();
+  // Shallow slice — the bare store would re-render on ANY history mutation.
+  const { entries, loading, error } = useHistoryStore(
+    useShallow((s) => ({ entries: s.entries, loading: s.loading, error: s.error })),
+  );
   const { listSessions, resumeSession, deleteSession, renameSession } = useWebSocket();
   const activeSessionId = useSessionStore((s) => s.session?.id);
   const { t } = useAppTranslation();

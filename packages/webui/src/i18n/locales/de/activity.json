@@ -95,6 +95,7 @@
     "edit": "Bearbeiten",
     "editTitle": "Side-by-side bearbeitbarer Diff",
     "loadingDiff": "Diff wird geladen…",
+    "diffTimeout": "Das Diff ist nicht angekommen. Die Datei wurde evtl. geändert oder die Verbindung getrennt.",
     "binary": "Binärdatei — Diff nicht angezeigt.",
     "tooLarge": "Datei zu groß für Diff."
   },

@@ -55,6 +55,8 @@ const BACKGROUNDS: { value: BackgroundStyle; labelKey: string }[] = [
 
 export function OfficeMapSettingsPanel() {
   const { t } = useAppTranslation();
+  // Shallow slice, not the bare store — a bare useOfficeMapStore() would
+  // re-render this panel on every office-map store mutation.
   const {
     showHud,
     showLegend,
@@ -68,7 +70,22 @@ export function OfficeMapSettingsPanel() {
     setShowControls,
     setAnimateEdges,
     setBackground,
-  } = useOfficeMapStore();
+  } = useOfficeMapStore(
+    useShallow((s) => ({
+      showHud: s.showHud,
+      showLegend: s.showLegend,
+      showMinimap: s.showMinimap,
+      showControls: s.showControls,
+      animateEdges: s.animateEdges,
+      background: s.background,
+      setShowHud: s.setShowHud,
+      setShowLegend: s.setShowLegend,
+      setShowMinimap: s.setShowMinimap,
+      setShowControls: s.setShowControls,
+      setAnimateEdges: s.setAnimateEdges,
+      setBackground: s.setBackground,
+    })),
+  );
 
   const { clientCounts, currentSession, totalAgents, activeAgents } = useMonitorStore(
     useShallow((s) => ({

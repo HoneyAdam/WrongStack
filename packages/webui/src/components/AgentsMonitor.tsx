@@ -52,18 +52,18 @@ function fmtDuration(ms: number): string {
 const STATUS_META: Record<SubagentView['status'], { led: string; pulse: boolean; badge: string }> =
   {
     running: {
-      led: 'bg-[hsl(var(--success))]',
+      led: 'bg-success',
       pulse: true,
-      badge: 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
+      badge: 'bg-success/15 text-success',
     },
     completed: {
-      led: 'bg-[hsl(var(--success))]',
+      led: 'bg-success',
       pulse: false,
       badge: 'bg-muted text-muted-foreground',
     },
     failed: { led: 'bg-destructive', pulse: false, badge: 'bg-destructive/15 text-destructive' },
     timeout: {
-      led: 'bg-[hsl(var(--warning))]',
+      led: 'bg-warning',
       pulse: false,
       badge: 'bg-warning/15 text-warning',
     },
@@ -243,7 +243,7 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
                 <span
                   className={cn(
                     'shrink-0',
-                    tool.ok ? 'text-[hsl(var(--success))]' : 'text-destructive',
+                    tool.ok ? 'text-success' : 'text-destructive',
                   )}
                 >
                   {tool.ok ? '✓' : '✗'}

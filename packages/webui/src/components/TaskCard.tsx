@@ -26,21 +26,21 @@ export const TASK_STATUS_CONFIG: Record<
 > = {
   pending: { icon: <Circle className="w-4 h-4" />, color: 'text-muted-foreground', label: 'Pending' },
   in_progress: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-primary', label: 'In Progress' },
-  blocked: { icon: <Pause className="w-4 h-4" />, color: 'text-[hsl(var(--warning))]', label: 'Blocked' },
+  blocked: { icon: <Pause className="w-4 h-4" />, color: 'text-warning', label: 'Blocked' },
   failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-destructive', label: 'Failed' },
-  review: { icon: <RotateCcw className="w-4 h-4" />, color: 'text-[hsl(var(--info))]', label: 'Review' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-[hsl(var(--success))]', label: 'Done' },
+  review: { icon: <RotateCcw className="w-4 h-4" />, color: 'text-info', label: 'Review' },
+  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-success', label: 'Done' },
 };
 
 export const PRIORITY_BADGE: Record<TaskItem['priority'], string> = {
   critical: 'bg-destructive/15 text-destructive',
   high: 'bg-warning/15 text-warning',
-  medium: 'bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]',
+  medium: 'bg-info/15 text-info',
   low: 'bg-muted text-muted-foreground',
 };
 
 export const TYPE_BADGE: Record<TaskItem['type'], string> = {
-  feature: 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]',
+  feature: 'bg-success/15 text-success',
   bugfix: 'bg-destructive/15 text-destructive',
   refactor: 'bg-primary/15 text-primary',
   docs: 'bg-info/15 text-info',
@@ -98,7 +98,7 @@ export function TaskCard({
         running
           ? 'border-primary/40 bg-primary/5'
           : task.status === 'completed'
-            ? 'border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.06)]'
+            ? 'border-success/35 bg-success/6'
             : task.status === 'failed'
               ? 'border-destructive/40 bg-destructive/5'
               : 'border-border bg-card',
@@ -171,7 +171,7 @@ export function TaskCard({
             <button
               type="button"
               onClick={() => onStatusChange(task.id, 'completed')}
-              className="px-2 py-0.5 text-[10px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
+              className="px-2 py-0.5 text-[10px] rounded bg-success/15 text-success hover:bg-success/25 transition-colors"
             >
               {t('activity:task.complete')}
             </button>

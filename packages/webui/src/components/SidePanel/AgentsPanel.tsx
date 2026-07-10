@@ -15,10 +15,10 @@ import { useAppTranslation } from '@/i18n';
 
 const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean }> =
   {
-    running: { led: 'text-[hsl(var(--success))]', label: 'running', pulse: true },
-    completed: { led: 'text-[hsl(var(--success))]', label: 'done', pulse: false },
+    running: { led: 'text-success', label: 'running', pulse: true },
+    completed: { led: 'text-success', label: 'done', pulse: false },
     failed: { led: 'text-destructive', label: 'failed', pulse: false },
-    timeout: { led: 'text-[hsl(var(--warning))]', label: 'timeout', pulse: false },
+    timeout: { led: 'text-warning', label: 'timeout', pulse: false },
     stopped: { led: 'text-muted-foreground', label: 'stopped', pulse: false },
   };
 

@@ -63,11 +63,11 @@ const STATUS: Record<
 > = {
   pending: { ring: 'border-border/70', chip: 'bg-muted text-muted-foreground', dot: 'bg-muted-foreground' },
   queued: { ring: 'border-primary/35', chip: 'bg-primary/10 text-primary', dot: 'bg-primary' },
-  in_progress: { ring: 'border-[hsl(var(--warning)/0.45)]', chip: 'bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]', dot: 'bg-[hsl(var(--warning))]' },
+  in_progress: { ring: 'border-warning/45', chip: 'bg-warning/12 text-warning', dot: 'bg-warning' },
   blocked: { ring: 'border-destructive/30', chip: 'bg-destructive/10 text-destructive', dot: 'bg-destructive' },
   review: { ring: 'border-primary/35', chip: 'bg-primary/10 text-primary', dot: 'bg-primary' },
   failed: { ring: 'border-destructive/45', chip: 'bg-destructive/10 text-destructive', dot: 'bg-destructive' },
-  completed: { ring: 'border-[hsl(var(--success)/0.35)]', chip: 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]', dot: 'bg-[hsl(var(--success))]' },
+  completed: { ring: 'border-success/35', chip: 'bg-success/12 text-success', dot: 'bg-success' },
   cancelled: { ring: 'border-border/70', chip: 'bg-muted text-muted-foreground', dot: 'bg-muted-foreground' },
 };
 
@@ -103,6 +103,14 @@ function TaskNode({ data }: { data: TaskNodeData }) {
       )}
       style={{ width: NODE_W, animationDelay: `${Math.min(data.index * 45, 600)}ms` }}
       onClick={() => data.onTaskClick?.(t.id)}
+      role={data.onTaskClick ? 'button' : undefined}
+      tabIndex={data.onTaskClick ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (data.onTaskClick && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          data.onTaskClick(t.id);
+        }
+      }}
     >
       {/* Columns flow left→right (a task's deps sit in earlier/left columns),
           so edges enter on the Left and leave on the Right. */}
@@ -132,7 +140,7 @@ function TaskNode({ data }: { data: TaskNodeData }) {
               <span
                 className={cn(
                   'flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white',
-                  running ? 'bg-[hsl(var(--warning))] sdd-agent-live' : 'bg-muted-foreground',
+                  running ? 'bg-warning sdd-agent-live' : 'bg-muted-foreground',
                 )}
               >
                 {agentInitials(t.agentName)}

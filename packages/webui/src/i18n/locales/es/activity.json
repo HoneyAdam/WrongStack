@@ -95,6 +95,7 @@
     "edit": "Editar",
     "editTitle": "Diff lado a lado editable",
     "loadingDiff": "Cargando diff…",
+    "diffTimeout": "El diff no llegó. Puede que el archivo haya cambiado o que se perdiera la conexión.",
     "binary": "Archivo binario — diff no mostrado.",
     "tooLarge": "Archivo demasiado grande para diff."
   },

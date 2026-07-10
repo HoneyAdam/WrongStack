@@ -56,6 +56,13 @@ export function SearchOverlay() {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
+  /** Close and hand focus back to the chat textarea — without this, keyboard
+   *  users are left with no focused element after Escape/✕. */
+  const close = () => {
+    setOpen(false);
+    requestAnimationFrame(() => document.querySelector('textarea')?.focus());
+  };
+
   // Inject ::highlight() CSS rules once on mount. lightningcss warns about
   // ::highlight() being an unrecognized pseudo-element, so we bypass it
   // entirely by injecting via JavaScript. The rules are inert on browsers
@@ -186,7 +193,7 @@ export function SearchOverlay() {
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault();
-              setOpen(false);
+              close();
             } else if (e.key === 'Enter') {
               e.preventDefault();
               step(e.shiftKey ? -1 : 1);
@@ -228,7 +235,7 @@ export function SearchOverlay() {
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={close}
           className="p-1 rounded hover:bg-muted text-muted-foreground"
           title={t('activity:search.close')}
         >

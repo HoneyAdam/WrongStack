@@ -22,6 +22,7 @@
     "refresh": "Actualiser",
     "copy": "Copier",
     "copied": "Copié",
+    "copyFailed": "Échec de la copie — accès au presse-papiers bloqué.",
     "open": "Ouvrir",
     "start": "Démarrer",
     "stop": "Arrêter",
@@ -63,6 +64,7 @@
   "status": {
     "connected": "Connecté",
     "disconnected": "Déconnecté",
+    "notConnectedRetry": "Non connecté au serveur — réessayez après la reconnexion.",
     "connecting": "Connexion…",
     "reconnecting": "Reconnexion…",
     "ready": "Prêt",

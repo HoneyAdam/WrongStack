@@ -22,8 +22,8 @@ const COLUMNS: Array<{ key: BoardTaskStatus; labelKey: string; accent: string; h
   {
     key: 'in_progress',
     labelKey: 'kanbanRunning',
-    accent: 'border-[hsl(var(--warning)/0.45)]',
-    head: 'text-[hsl(var(--warning))]',
+    accent: 'border-warning/45',
+    head: 'text-warning',
   },
   {
     key: 'review',
@@ -40,8 +40,8 @@ const COLUMNS: Array<{ key: BoardTaskStatus; labelKey: string; accent: string; h
   {
     key: 'completed',
     labelKey: 'kanbanDone',
-    accent: 'border-[hsl(var(--success)/0.35)]',
-    head: 'text-[hsl(var(--success))]',
+    accent: 'border-success/35',
+    head: 'text-success',
   },
 ];
 
@@ -136,8 +136,8 @@ function KanbanCard({
       )}
     >
       <div className="flex items-center gap-1.5">
-        {running && <Loader2 className="h-3 w-3 animate-spin text-[hsl(var(--warning))]" />}
-        {task.displayStatus === 'completed' && <Check className="h-3 w-3 text-[hsl(var(--success))]" />}
+        {running && <Loader2 className="h-3 w-3 animate-spin text-warning" />}
+        {task.displayStatus === 'completed' && <Check className="h-3 w-3 text-success" />}
         {task.displayStatus === 'failed' && <X className="h-3 w-3 text-destructive" />}
         <span className="font-mono text-[10px] text-muted-foreground">{task.shortId}</span>
         <span
@@ -157,7 +157,7 @@ function KanbanCard({
               <span
                 className={cn(
                   'flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white',
-                  running ? 'bg-[hsl(var(--warning))] sdd-agent-live' : 'bg-muted-foreground',
+                  running ? 'bg-warning sdd-agent-live' : 'bg-muted-foreground',
                 )}
               >
                 {agentInitials(task.agentName)}

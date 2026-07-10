@@ -42,6 +42,30 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation, i18n } from '@/i18n';
 import { LOCAL_PRESET_FAMILY, LOCAL_SERVER_PRESETS } from './SettingsPanel/local-presets';
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Wait for the next `key.operation_result` ack. Provider/key writes are
+ *  fire-and-forget on the socket but the server always replies with this
+ *  message — success UI must not run before it lands, or a rejected write
+ *  would still show a green "saved" state. Subscribe BEFORE sending so a
+ *  fast ack can't be missed. */
+function waitForKeyOperationResult(
+  ws: ReturnType<typeof getWSClient>,
+  timeoutMs = 8000,
+): Promise<{ success: boolean; message: string }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      off();
+      reject(new Error('timeout'));
+    }, timeoutMs);
+    const off = ws.on('key.operation_result', (msg: WSServerMessage) => {
+      clearTimeout(timer);
+      off();
+      resolve((msg as { payload: { success: boolean; message: string } }).payload);
+    });
+  });
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface CatalogProvider {
@@ -258,6 +282,7 @@ function ProviderKeyCard({
     setIsSaving(true);
     try {
       const ws = getWSClient(useConfigStore.getState().wsUrl);
+      const ack = waitForKeyOperationResult(ws);
       // If the provider doesn't exist yet in the catalog, add it first
       if (!catalogProvider) {
         ws.send({
@@ -267,6 +292,8 @@ function ProviderKeyCard({
       } else {
         ws.addKey(popular.id, 'default', key.trim());
       }
+      const result = await ack;
+      if (!result.success) throw new Error(result.message);
       setSaved(true);
       setKey('');
       toast.success(t('setup:screen.toasts.keySaved', { name: popular.name }));
@@ -287,8 +314,9 @@ function ProviderKeyCard({
       if (popular.referral) {
         trackReferralConversion(popular.id, popular.name);
       }
-    } catch {
-      toast.error(t('setup:screen.toasts.keySaveFailed', { name: popular.name }));
+    } catch (err) {
+      const detail = err instanceof Error && err.message && err.message !== 'timeout' ? err.message : null;
+      toast.error(detail ?? t('setup:screen.toasts.keySaveFailed', { name: popular.name }));
 
       // Track the failed save event
       trackEvent('provider_key_save_failed', 'error', {
@@ -733,6 +761,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
     setIsSaving(true);
     try {
       const ws = getWSClient(useConfigStore.getState().wsUrl);
+      const ack = waitForKeyOperationResult(ws);
       ws.send({
         type: 'provider.add',
         payload: {
@@ -742,14 +771,17 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           apiKey: key.trim() || undefined,
         },
       });
+      const result = await ack;
+      if (!result.success) throw new Error(result.message);
       toast.success(t('setup:screen.toasts.providerAdded', { id: providerId.trim() }));
       onKeySaved(providerId.trim());
       setProviderId('');
       setBaseUrl('');
       setKey('');
       setExpanded(false);
-    } catch {
-      toast.error(t('setup:screen.toasts.providerAddFailed'));
+    } catch (err) {
+      const detail = err instanceof Error && err.message && err.message !== 'timeout' ? err.message : null;
+      toast.error(detail ?? t('setup:screen.toasts.providerAddFailed'));
     } finally {
       setIsSaving(false);
     }

@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useConfigStore } from '@/stores';
 import { Shield, Square, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
@@ -32,12 +33,16 @@ export function ProcessMonitor({
   const { t } = useAppTranslation();
   const [processes, setProcesses] = useState<TrackedProcess[]>([]);
   const ws = useWebSocket();
+  // Reactive connection state: `ws.client` is a stable singleton, so without
+  // this dep the effect would never re-run after a reconnect and a dialog
+  // opened mid-reconnect would stay empty forever.
+  const wsConnected = useConfigStore((s) => s.wsConnected);
   const offRef = useRef<(() => void) | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll the process registry via WS while open
   useEffect(() => {
-    if (!open || !ws.client?.isConnected) return;
+    if (!open || !wsConnected || !ws.client?.isConnected) return;
 
     ws.client.send?.({ type: 'process.list' });
 
@@ -55,7 +60,7 @@ export function ProcessMonitor({
       offRef.current?.();
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [open, ws.client]);
+  }, [open, wsConnected, ws.client]);
 
   const handleKill = useCallback(
     (pid: number) => {
@@ -147,7 +152,7 @@ export function ProcessMonitor({
                           proc.status === 'running'
                             ? isProtected
                               ? 'text-info'
-                              : 'text-[hsl(var(--success))] led-pulse'
+                              : 'text-success led-pulse'
                             : 'text-muted-foreground',
                         )}
                       />

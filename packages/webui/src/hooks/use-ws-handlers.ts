@@ -36,11 +36,16 @@ export function useWsHandlers(
     const client: WrongStackWebSocketClient | null = getWSClient();
     if (!client) return;
     const offs: Array<() => void> = [];
-    const current = handlersRef.current;
-    for (const [type, handler] of Object.entries(current)) {
-      if (handler) {
-        offs.push(client.on(type as WSServerMessage['type'], handler));
-      }
+    // Register stable WRAPPERS that read the ref at dispatch time — never the
+    // concrete handler captured when the effect ran. Registering the captured
+    // fn would freeze whatever props/state it closed over at mount (the ref
+    // would be maintained but never consulted).
+    for (const type of Object.keys(handlersRef.current)) {
+      offs.push(
+        client.on(type as WSServerMessage['type'], (msg: WSServerMessage) => {
+          handlersRef.current[type as WSServerMessage['type']]?.(msg);
+        }),
+      );
     }
     return () => {
       for (const off of offs) {

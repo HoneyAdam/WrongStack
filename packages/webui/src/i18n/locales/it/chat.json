@@ -18,6 +18,8 @@
   "thinking": "Pensiero…",
   "input": {
     "autoFencedAs": "Recintato automaticamente come",
+    "notConnectedDraftKept": "Non connesso — il messaggio non è stato inviato. È stato ripristinato nel campo di input.",
+    "refineTimeoutFallback": "Il perfezionamento non ha risposto — invio del messaggio originale.",
     "charsWord": "caratteri",
     "linesWord": "righe",
     "pastedWord": "Incollato",

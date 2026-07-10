@@ -37,40 +37,55 @@ function shortSessionId(sessionId: string): string {
   return leaf.length > 12 ? `${leaf.slice(0, 12)}…` : leaf;
 }
 
-const STATUS_META: Record<string, { icon: React.ReactNode; color: string; labelKey: string; ns: 'fleet' | 'agents' }> = {
+// `badge` and `led` are explicit per-status classes — deriving them from
+// `color` via string comparison / replace() silently breaks the moment a
+// color value is renamed (it already bit us once during the token sweep).
+const STATUS_META: Record<string, { icon: React.ReactNode; color: string; badge: string; led: string; labelKey: string; ns: 'fleet' | 'agents' }> = {
   running: {
-    icon: <span className="led text-[hsl(var(--success))] led-pulse" />,
-    color: 'text-[hsl(var(--success))]',
+    icon: <span className="led text-success led-pulse" />,
+    color: 'text-success',
+    badge: 'bg-success/12 text-success',
+    led: 'bg-success',
     labelKey: 'statusRunning',
     ns: 'fleet',
   },
   idle: {
     icon: <span className="led text-muted-foreground" />,
     color: 'text-muted-foreground',
+    badge: 'bg-muted text-muted-foreground',
+    led: 'bg-muted-foreground',
     labelKey: 'statusIdle',
     ns: 'agents',
   },
   completed: {
     icon: <CheckCircle2 className="h-3.5 w-3.5" />,
-    color: 'text-[hsl(var(--success))]',
+    color: 'text-success',
+    badge: 'bg-success/12 text-success',
+    led: 'bg-success',
     labelKey: 'statusDone',
     ns: 'fleet',
   },
   failed: {
     icon: <XCircle className="h-3.5 w-3.5" />,
     color: 'text-destructive',
+    badge: 'bg-destructive/15 text-destructive',
+    led: 'bg-destructive',
     labelKey: 'statusFailed',
     ns: 'fleet',
   },
   timeout: {
     icon: <Clock className="h-3.5 w-3.5" />,
-    color: 'text-[hsl(var(--warning))]',
+    color: 'text-warning',
+    badge: 'bg-muted text-muted-foreground',
+    led: 'bg-warning',
     labelKey: 'statusTimeout',
     ns: 'fleet',
   },
   stopped: {
     icon: <span className="led text-muted-foreground" />,
     color: 'text-muted-foreground',
+    badge: 'bg-muted text-muted-foreground',
+    led: 'bg-muted-foreground',
     labelKey: 'statusStopped',
     ns: 'fleet',
   },
@@ -176,11 +191,7 @@ function AgentDetailPanel({
                 <span className="text-base font-semibold">{agent.name}</span>
                 <span className={cn(
                   'px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider',
-                  STATUS_META[agent.status]?.color === 'text-[hsl(var(--success))]'
-                    ? 'bg-success/12 text-success'
-                    : STATUS_META[agent.status]?.color === 'text-destructive'
-                      ? 'bg-destructive/15 text-destructive'
-                      : 'bg-muted text-muted-foreground'
+                  STATUS_META[agent.status]?.badge ?? 'bg-muted text-muted-foreground',
                 )}>
                   {statusLabel(agent.status, t)}
                 </span>
@@ -199,7 +210,7 @@ function AgentDetailPanel({
                 <span className="tabular-nums font-mono">{fmtElapsed(Math.max(0, now - agent.startedAt))}</span>
               </span>
             )}
-            <span className={cn('led', STATUS_META[agent.status]?.color.replace('text-', 'bg-'), active && 'led-pulse')} />
+            <span className={cn('led', STATUS_META[agent.status]?.led, active && 'led-pulse')} />
           </div>
         </div>
 
@@ -207,7 +218,7 @@ function AgentDetailPanel({
         {spark && (
           <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/30">
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('activity:fleet.activity')}</span>
-            <span className="text-sm text-[hsl(var(--success))] font-mono tracking-[-0.1em]">{spark}</span>
+            <span className="text-sm text-success font-mono tracking-[-0.1em]">{spark}</span>
             {lastTool && (
               <span className="text-[10px] text-muted-foreground ml-auto">
                 {t('activity:agents.lastToolLabel')} <span className="font-mono">{lastTool.name}</span>
@@ -262,7 +273,7 @@ function AgentDetailPanel({
             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase tracking-wider mb-2">
               <DollarSign className="h-3 w-3" /> {t('activity:fleet.cost')}
             </div>
-            <div className="text-lg font-mono font-bold text-[hsl(var(--success))]">
+            <div className="text-lg font-mono font-bold text-success">
               {fmtCost(agent.costUsd)}
             </div>
             <div className="text-[10px] text-muted-foreground mt-1">
@@ -290,7 +301,7 @@ function AgentDetailPanel({
               <span className="text-[9px] text-muted-foreground uppercase tracking-wider">{t('activity:agents.contextUsage')}</span>
               <span className={cn(
                 'text-[11px] font-mono font-medium',
-                ctxPct >= 85 ? 'text-destructive' : ctxPct >= 70 ? 'text-warning' : 'text-[hsl(var(--success))]'
+                ctxPct >= 85 ? 'text-destructive' : ctxPct >= 70 ? 'text-warning' : 'text-success'
               )}>
                 {ctxPct}%
               </span>
@@ -379,8 +390,8 @@ function AgentDetailPanel({
 
         {/* Extensions */}
         {agent.extensions > 0 && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-[hsl(var(--warning))]/10 border border-[hsl(var(--warning))]/20">
-            <Zap className="h-5 w-5 text-[hsl(var(--warning))] shrink-0" />
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-warning/10 border border-warning/20">
+            <Zap className="h-5 w-5 text-warning shrink-0" />
             <div>
               <span className="text-sm font-medium">
                 {t('activity:fleet.budgetExt', { count: agent.extensions })}
@@ -427,7 +438,7 @@ function AgentDetailPanel({
                       tl.ok ? 'bg-muted/30 hover:bg-muted/50' : 'bg-destructive/5 border border-destructive/20',
                     )}
                   >
-                    <span className={cn('led shrink-0', tl.ok ? 'text-[hsl(var(--success))]' : 'text-destructive')} />
+                    <span className={cn('led shrink-0', tl.ok ? 'text-success' : 'text-destructive')} />
                     <span className={cn('font-mono font-medium w-20 shrink-0', tl.ok ? 'text-foreground' : 'text-destructive')}>
                       {tl.name}
                     </span>
@@ -543,7 +554,7 @@ function AgentRow({
 
       {/* Extensions */}
       {agent.extensions > 0 && (
-        <span className="text-[10px] text-[hsl(var(--warning))] shrink-0">
+        <span className="text-[10px] text-warning shrink-0">
           ⚡×{agent.extensions}
         </span>
       )}
@@ -555,7 +566,7 @@ function AgentRow({
 
       {/* Cost */}
       {agent.costUsd > 0 && (
-        <span className="text-[10px] text-[hsl(var(--success))] tabular-nums font-medium shrink-0">
+        <span className="text-[10px] text-success tabular-nums font-medium shrink-0">
           {fmtCost(agent.costUsd)}
         </span>
       )}
@@ -596,21 +607,30 @@ export function AgentsPage({
     useShallow((s) => ({ provider: s.provider, model: s.model })),
   );
   const chatIsLoading = useChatStore((s) => s.isLoading);
-  const chatMessages = useChatStore((s) => s.messages);
+  // Narrow selector: only the tool-message COUNT is needed here. Subscribing
+  // to the whole messages array would re-render this page on every streamed
+  // chunk while a run is active.
+  const toolCallCount = useChatStore((s) => {
+    let n = 0;
+    for (const m of s.messages) if (m.role === 'tool') n++;
+    return n;
+  });
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [breakdownOpen, setBreakdownOpen] = useState(false);
 
-  // Live clock
+  // Live clock. Paused while the tab is hidden — the tick only feeds visible
+  // elapsed/sparkline displays, so background re-renders are wasted work.
   useEffect(() => {
-    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    const id = setInterval(() => {
+      if (!document.hidden) setNowTick(Date.now());
+    }, 1000);
     return () => clearInterval(id);
   }, []);
 
   // ── Build leader entry ──
   const leaderEntry: LeaderEntry = useMemo(() => {
-    const toolMsgs = chatMessages.filter((m) => m.role === 'tool');
     const isLoading = chatIsLoading;
 
     return {
@@ -621,7 +641,7 @@ export function AgentsPage({
       model,
       status: isLoading ? ('running' as const) : ('idle' as const),
       iterations: 0,
-      toolCalls: toolMsgs.length,
+      toolCalls: toolCallCount,
       costUsd: sessionStore.cost,
       ctxPct: sessionStore.maxContext > 0
         ? Math.min(100, Math.round((sessionStore.lastInputTokens / sessionStore.maxContext) * 100))
@@ -633,7 +653,7 @@ export function AgentsPage({
       extensions: 0,
       toolLog: [],
     };
-  }, [provider, model, sessionStore.cost, sessionStore.lastInputTokens, sessionStore.maxContext, sessionStore.startTime, sessionStore.sessionId, chatMessages, chatIsLoading]);
+  }, [provider, model, sessionStore.cost, sessionStore.lastInputTokens, sessionStore.maxContext, sessionStore.startTime, sessionStore.sessionId, toolCallCount, chatIsLoading]);
 
   // ── Merge leader + fleet ──
   // The server now emits subagent.event for subagentId 'leader' as well.
@@ -762,8 +782,8 @@ export function AgentsPage({
               </h2>
               <span className="text-muted-foreground/40">│</span>
               {counts.running > 0 && (
-                <span className="flex items-center gap-1 text-[11px] text-[hsl(var(--success))] font-medium">
-                  <span className="led led-pulse text-[hsl(var(--success))]" />
+                <span className="flex items-center gap-1 text-[11px] text-success font-medium">
+                  <span className="led led-pulse text-success" />
                   {t('activity:fleet.runningCount', { count: counts.running })}
                 </span>
               )}
@@ -794,7 +814,7 @@ export function AgentsPage({
               <span className="text-[10px] text-muted-foreground">{t('activity:agents.shownLabel')}</span>
               <span className="text-[10px] font-medium">{sorted.length}</span>
               <span className="text-[10px] text-muted-foreground">{t('activity:agents.totalLabel')}</span>
-              <span className="text-[10px] text-[hsl(var(--success))] font-medium tabular-nums">
+              <span className="text-[10px] text-success font-medium tabular-nums">
                 {fmtCost(totalCost)}
               </span>
               <span className="text-[10px] text-muted-foreground">

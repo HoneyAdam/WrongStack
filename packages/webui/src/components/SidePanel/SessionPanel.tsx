@@ -396,7 +396,7 @@ export function SessionPanel() {
                 <div
                   className={cn(
                     'h-full rounded-full transition-all duration-500',
-                    allDone ? 'bg-[hsl(var(--success))]' : 'bg-primary',
+                    allDone ? 'bg-success' : 'bg-primary',
                   )}
                   style={{ width: `${Math.max(pct, running > 0 ? 4 : 0)}%` }}
                 />
@@ -412,7 +412,7 @@ export function SessionPanel() {
                   const active = t.status === 'in_progress';
                   const tone =
                     t.status === 'completed'
-                      ? 'text-[hsl(var(--success))] line-through opacity-60'
+                      ? 'text-success line-through opacity-60'
                       : active
                         ? 'text-foreground'
                         : 'text-muted-foreground';
@@ -537,7 +537,7 @@ export function SessionPanel() {
         <div
           className={cn(
             'flex items-center gap-2 text-[11px]',
-            wsConnected ? 'text-[hsl(var(--success))]' : 'text-[hsl(var(--warning))]',
+            wsConnected ? 'text-success' : 'text-warning',
           )}
         >
           {wsConnected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}

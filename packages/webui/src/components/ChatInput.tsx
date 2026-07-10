@@ -23,6 +23,7 @@ import { runChatSlashCommand } from './ChatInput/slash-routing.js';
 import { usePasteDrop } from './ChatInput/use-paste-drop.js';
 import { RefinePanel } from './RefinePanel.js';
 import { PromptLibraryModal } from './PromptLibraryModal.js';
+import { toast } from './Toaster';
 import { parseNextSteps } from './NextStepsBar.js';
 import { Button } from './ui/button';
 
@@ -67,6 +68,30 @@ export function ChatInput({
   const setQueuePanelOpen = useUIStore((s) => s.setQueuePanelOpen);
   /** Auto-submit streak reset — called on every manual submit to re-arm the cap. */
   const { reset: resetAutoSubmitStreak } = useAutoSubmitStreak();
+
+  // Refine fallback: while the panel shows its placeholder (refined ===
+  // original, i.e. no model.refined reply yet), the user's message exists
+  // NOWHERE but the panel. If the refine backend never answers, close the
+  // panel and send the original text so the message can't silently vanish.
+  useEffect(() => {
+    if (!refinePanel || refinePanel.refined !== refinePanel.original) return;
+    const timer = setTimeout(() => {
+      const current = useUIStore.getState().refinePanel;
+      // Re-check: a reply may have landed (or the user decided) meanwhile.
+      if (!current || current.refined !== current.original) return;
+      setRefinePanel(null);
+      toast.info(t('chat:input.refineTimeoutFallback'));
+      if (client?.isConnected) {
+        addMessage({ role: 'user', content: current.original });
+        setLoading(true);
+        sendMessage(current.original);
+      } else {
+        setInput(current.original);
+        toast.error(t('chat:input.notConnectedDraftKept'));
+      }
+    }, 12_000);
+    return () => clearTimeout(timer);
+  }, [refinePanel, client, addMessage, setLoading, sendMessage, setRefinePanel, t]);
   /** Live context-budget signals — drive the token-estimate chip beside
    *  the character counter. The estimate uses the universal 4-char-per-token
    *  heuristic which is wrong by ±25% for natural prose but accurate enough
@@ -352,6 +377,10 @@ export function ChatInput({
             sendMessage(combined, pendingImage ?? undefined);
           }
         } else {
+          // Socket is down: the textarea was already cleared above, so
+          // restore the draft instead of silently dropping the message.
+          setInput(combined);
+          toast.error(t('chat:input.notConnectedDraftKept'));
           console.warn(
             JSON.stringify({
               level: 'warn',
@@ -392,6 +421,7 @@ export function ChatInput({
       resetAutoSubmitStreak,
       clearPendingImage,
       pendingImageRef,
+      t,
     ],
   );
 
@@ -673,6 +703,10 @@ export function ChatInput({
               addMessage({ role: 'user', content: text });
               setLoading(true);
               sendMessage(text);
+            } else {
+              // Socket down: keep the text in the input instead of dropping it.
+              setInput(text);
+              toast.error(t('chat:input.notConnectedDraftKept'));
             }
           }}
         />

@@ -6,6 +6,8 @@ import { useFileReferenceStore, useSessionStore } from '@/stores';
 import { getWSClient } from '@/lib/ws-client';
 import { fileIcon, fileIconColor } from '@/lib/file-icons';
 import { showPanel } from '@/lib/view-navigation';
+import { copyToClipboard as copyTextToClipboard } from './MessageBubble/utils.js';
+import { toast } from './Toaster';
 import {
   ChevronRight,
   CornerLeftUp,
@@ -17,103 +19,144 @@ import {
   Loader2,
   Minimize2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { VList, type VListHandle } from 'virtua';
 
-// ── Tree node ──────────────────────────────────────────────────────────
+// ── Flattened tree rows ────────────────────────────────────────────────
+//
+// The tree is virtualized (virtua VList): only on-screen rows are mounted,
+// so a repo with tens of thousands of files stays cheap. That forces two
+// structural rules:
+//   1. Expansion state lives in the PARENT as a Set of expanded dir paths —
+//      per-row useState would be lost the moment a row scrolls out.
+//   2. Rows are memo'd and receive plain props only. The parent owns the
+//      single `activeFilePath` store subscription for the whole tree
+//      (previously every node subscribed individually, so selecting a file
+//      re-rendered every mounted node).
 
-function TreeNodeItem({
+interface FlatRow {
+  node: TreeNode;
+  depth: number;
+  /** Synthetic "(empty)" placeholder under an expanded empty directory. */
+  emptyPlaceholder?: boolean;
+}
+
+/** Flatten the visible portion of the tree (expanded dirs only). */
+function flattenTree(tree: TreeNode[], expandedDirs: ReadonlySet<string>): FlatRow[] {
+  const out: FlatRow[] = [];
+  const walk = (nodes: TreeNode[], depth: number) => {
+    for (const n of nodes) {
+      out.push({ node: n, depth });
+      if (n.type === 'directory' && expandedDirs.has(n.path)) {
+        const kids = n.children ?? [];
+        if (kids.length > 0) walk(kids, depth + 1);
+        else out.push({ node: n, depth: depth + 1, emptyPlaceholder: true });
+      }
+    }
+  };
+  walk(tree, 0);
+  return out;
+}
+
+/** Collect every directory path in the tree (for expand-all). */
+function collectDirPaths(tree: TreeNode[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: TreeNode[]) => {
+    for (const n of nodes) {
+      if (n.type === 'directory') {
+        out.push(n.path);
+        if (n.children) walk(n.children);
+      }
+    }
+  };
+  walk(tree);
+  return out;
+}
+
+const TreeRow = memo(function TreeRow({
   node,
   depth,
-  selectedPath,
-  forceExpand,
+  emptyPlaceholder,
+  expanded,
+  isActive,
+  isSelected,
+  isFocused,
+  onToggle,
   onSelect,
   onOpen,
   onContextMenu,
 }: {
   node: TreeNode;
   depth: number;
-  selectedPath: string | null;
-  /** null = user-controlled (default), true = expand all, false = collapse all */
-  forceExpand: boolean | null;
+  emptyPlaceholder?: boolean | undefined;
+  expanded: boolean;
+  isActive: boolean;
+  isSelected: boolean;
+  isFocused: boolean;
+  onToggle: (path: string) => void;
   onSelect: (filePath: string) => void;
   onOpen: (filePath: string) => void;
   onContextMenu: (e: React.MouseEvent, node: TreeNode) => void;
 }) {
   const { t } = useAppTranslation();
-  const [expanded, setExpanded] = useState(depth < 1); // auto-expand root level
-  const activeFilePath = useFileStore((s) => s.activeFilePath);
-  const isActive = node.type === 'file' && node.path === activeFilePath;
 
-  // Sync local expanded state when forceExpand changes globally
-  useEffect(() => {
-    if (forceExpand !== null) setExpanded(forceExpand);
-  }, [forceExpand]);
+  if (emptyPlaceholder) {
+    return (
+      <div
+        className="text-[10px] text-muted-foreground italic py-0.5"
+        style={{ paddingLeft: `${depth * 14 + 4}px` }}
+      >
+        {t('activity:fileExplorer.emptyDir')}
+      </div>
+    );
+  }
 
   if (node.type === 'directory') {
-    const hasChildren = (node.children?.length ?? 0) > 0;
     const DirIcon = expanded ? FolderOpen : Folder;
     const isGit = node.name === '.git';
     const dirColor = fileIconColor(node.name, true);
     return (
-      <div>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          onContextMenu={(e) => onContextMenu(e, node)}
+      <button
+        type="button"
+        role="treeitem"
+        aria-expanded={expanded}
+        aria-level={depth + 1}
+        tabIndex={-1}
+        onClick={() => onToggle(node.path)}
+        onContextMenu={(e) => onContextMenu(e, node)}
+        className={cn(
+          'flex items-center gap-1 w-full text-left px-1 py-0.5 text-[11px] rounded',
+          'hover:bg-muted/60 transition-colors',
+          isFocused && 'ring-1 ring-inset ring-primary/40 bg-muted/40',
+        )}
+        style={{ paddingLeft: `${depth * 14 + 4}px` }}
+      >
+        <ChevronRight
           className={cn(
-            'flex items-center gap-1 w-full text-left px-1 py-0.5 text-[11px] rounded',
-            'hover:bg-muted/60 transition-colors',
+            'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-90',
           )}
-          style={{ paddingLeft: `${depth * 14 + 4}px` }}
-        >
-          <ChevronRight
-            className={cn(
-              'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
-              expanded && 'rotate-90',
-            )}
-          />
-          {isGit ? (
-            <FolderGit className={cn('h-3.5 w-3.5 shrink-0', dirColor)} />
-          ) : (
-            <DirIcon className={cn('h-3.5 w-3.5 shrink-0', dirColor)} />
-          )}
-          <span className="truncate font-medium flex-1 min-w-0">{node.name}</span>
-        </button>
-        {expanded && hasChildren && (
-          <div>
-            {(node.children ?? []).map((child) => (
-              <TreeNodeItem
-                key={child.path}
-                node={child}
-                depth={depth + 1}
-                selectedPath={selectedPath}
-                forceExpand={forceExpand}
-                onSelect={onSelect}
-                onOpen={onOpen}
-                onContextMenu={onContextMenu}
-              />
-            ))}
-          </div>
+        />
+        {isGit ? (
+          <FolderGit className={cn('h-3.5 w-3.5 shrink-0', dirColor)} />
+        ) : (
+          <DirIcon className={cn('h-3.5 w-3.5 shrink-0', dirColor)} />
         )}
-        {expanded && !hasChildren && (
-          <div
-            className="text-[10px] text-muted-foreground italic py-0.5"
-            style={{ paddingLeft: `${(depth + 1) * 14 + 4}px` }}
-          >
-            {t('activity:fileExplorer.emptyDir')}
-          </div>
-        )}
-      </div>
+        <span className="truncate font-medium flex-1 min-w-0">{node.name}</span>
+      </button>
     );
   }
 
   // Leaf node (file)
   const Icon = fileIcon(node.name);
   const iconColor = fileIconColor(node.name, false);
-  const isSelected = node.path === selectedPath;
   return (
     <button
       type="button"
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-selected={isActive || isSelected}
+      tabIndex={-1}
       onClick={() => onSelect(node.path)}
       onContextMenu={(e) => onContextMenu(e, node)}
       onDoubleClick={(e) => {
@@ -125,6 +168,7 @@ function TreeNodeItem({
         'hover:bg-muted/60 transition-colors',
         isActive && 'bg-primary/10 text-primary',
         isSelected && !isActive && 'bg-muted/70 ring-1 ring-inset ring-border',
+        isFocused && !isActive && !isSelected && 'ring-1 ring-inset ring-primary/40 bg-muted/40',
       )}
       style={{ paddingLeft: `${depth * 14 + 4}px` }}
     >
@@ -133,7 +177,7 @@ function TreeNodeItem({
       <span className="truncate">{node.name}</span>
     </button>
   );
-}
+});
 
 // ── File explorer panel ────────────────────────────────────────────────
 
@@ -275,10 +319,18 @@ export function FileExplorer() {
     [],
   );
 
-  const copyToClipboard = useCallback((text: string) => {
-    void navigator.clipboard.writeText(text);
-    setContextMenu(null);
-  }, []);
+  const copyToClipboard = useCallback(
+    (text: string) => {
+      // Shared helper has an execCommand fallback for blocked clipboard APIs;
+      // either way the user gets explicit feedback instead of silence.
+      void copyTextToClipboard(text).then((ok) => {
+        if (ok) toast.success(t('common:action.copied'));
+        else toast.error(t('common:action.copyFailed'));
+      });
+      setContextMenu(null);
+    },
+    [t],
+  );
 
   // ── Current file → navigate to its parent directory ─────────────────
 
@@ -322,22 +374,36 @@ export function FileExplorer() {
   // Single-click selection highlight (separate from open/sActive state)
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
-  // Global expand/collapse: null = user-managed, true = all open, false = all closed.
-  // Resets to null when the user manually toggles any individual directory.
-  const [globalExpand, setGlobalExpand] = useState<boolean | null>(null);
+  // Expanded directories — the single source of truth for the whole tree
+  // (rows are virtualized, so per-row state is impossible). Seeded once per
+  // cwd with the root-level dirs open; tree REFRESHES for the same cwd (file
+  // watcher) keep the user's expansion untouched.
+  const [expandedDirs, setExpandedDirs] = useState<ReadonlySet<string>>(new Set());
+  const seededForCwd = useRef<string | null>(null);
+  useEffect(() => {
+    if (seededForCwd.current === (cwd ?? '')) return;
+    if (tree.length === 0) return; // wait until the tree for this cwd arrives
+    seededForCwd.current = cwd ?? '';
+    setExpandedDirs(
+      new Set(tree.filter((n) => n.type === 'directory').map((n) => n.path)),
+    );
+  }, [cwd, tree]);
 
-  // Count total directories in tree for the toolbar badge
-  const dirCount = useMemo(() => {
-    let count = 0;
-    const walk = (nodes: TreeNode[]) => {
-      for (const n of nodes) {
-        if (n.type === 'directory') count++;
-        if (n.children) walk(n.children);
-      }
-    };
-    walk(tree);
-    return count;
-  }, [tree]);
+  const toggleDir = useCallback((path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  /** All directory paths, reused by the toolbar badge and expand-all. */
+  const allDirPaths = useMemo(() => collectDirPaths(tree), [tree]);
+  const dirCount = allDirPaths.length;
+
+  // Visible rows of the flattened tree — this is what the VList renders.
+  const rows = useMemo(() => flattenTree(tree, expandedDirs), [tree, expandedDirs]);
 
   // Count files and folders in the current directory (first-level only)
   const cwdStats = useMemo(() => {
@@ -350,20 +416,12 @@ export function FileExplorer() {
     return { files, dirs };
   }, [tree]);
 
-  // Reset globalExpand when user manually toggles — we detect this by
-  // tracking whether the last action was a button click vs a tree click.
-  const userInteractedRef = { value: false };
   const handleGlobalCollapse = useCallback(() => {
-    userInteractedRef.value = true;
-    setGlobalExpand(false);
-    // After a beat, allow user to manually toggle again
-    setTimeout(() => { userInteractedRef.value = false; }, 400);
+    setExpandedDirs(new Set());
   }, []);
   const handleGlobalExpand = useCallback(() => {
-    userInteractedRef.value = true;
-    setGlobalExpand(true);
-    setTimeout(() => { userInteractedRef.value = false; }, 400);
-  }, []);
+    setExpandedDirs(new Set(allDirPaths));
+  }, [allDirPaths]);
 
   // Single-click: if already open → switch to that tab. Otherwise → highlight.
   const handleSelect = useCallback(
@@ -392,6 +450,99 @@ export function FileExplorer() {
   useEffect(() => {
     if (activeFilePath) setSelectedPath(null);
   }, [activeFilePath]);
+
+  // ── Keyboard navigation (roving focus over the flattened rows) ───────
+  //
+  // Rows unmount when virtualized out, so DOM focus can't rove between row
+  // buttons; instead the container (role="tree") holds focus and arrow keys
+  // move a highlighted index, scrolled into view via the VList handle.
+  const listRef = useRef<VListHandle>(null);
+  const [focusedIdx, setFocusedIdx] = useState(-1);
+  const focusedPath =
+    focusedIdx >= 0 && focusedIdx < rows.length && !rows[focusedIdx]?.emptyPlaceholder
+      ? rows[focusedIdx]?.node.path ?? null
+      : null;
+
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (rows.length === 0) return;
+      /** Next navigable index in `dir`, skipping "(empty)" placeholders. */
+      const nextNav = (from: number, dir: 1 | -1): number => {
+        let i = from + dir;
+        while (i >= 0 && i < rows.length && rows[i]?.emptyPlaceholder) i += dir;
+        return i < 0 || i >= rows.length ? from : i;
+      };
+      const setFocus = (i: number) => {
+        setFocusedIdx(i);
+        listRef.current?.scrollToIndex(i, { align: 'nearest' });
+      };
+      const cur = focusedIdx;
+      const row = cur >= 0 && cur < rows.length ? rows[cur] : undefined;
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setFocus(nextNav(cur, 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setFocus(cur === -1 ? nextNav(rows.length, -1) : nextNav(cur, -1));
+          break;
+        case 'ArrowRight':
+          if (!row || row.emptyPlaceholder) break;
+          e.preventDefault();
+          if (row.node.type === 'directory') {
+            if (!expandedDirs.has(row.node.path)) toggleDir(row.node.path);
+            else setFocus(nextNav(cur, 1));
+          }
+          break;
+        case 'ArrowLeft': {
+          if (!row || row.emptyPlaceholder) break;
+          e.preventDefault();
+          if (row.node.type === 'directory' && expandedDirs.has(row.node.path)) {
+            toggleDir(row.node.path);
+            break;
+          }
+          // Jump to the parent: the nearest shallower row above.
+          for (let i = cur - 1; i >= 0; i--) {
+            const cand = rows[i];
+            if (cand && !cand.emptyPlaceholder && cand.depth < row.depth) {
+              setFocus(i);
+              break;
+            }
+          }
+          break;
+        }
+        case 'Enter':
+          if (!row || row.emptyPlaceholder) break;
+          e.preventDefault();
+          if (row.node.type === 'directory') toggleDir(row.node.path);
+          else handleOpen(row.node.path);
+          break;
+        case ' ':
+          if (!row || row.emptyPlaceholder) break;
+          e.preventDefault();
+          if (row.node.type === 'directory') toggleDir(row.node.path);
+          else handleSelect(row.node.path);
+          break;
+        case 'Home':
+          e.preventDefault();
+          setFocus(nextNav(-1, 1));
+          break;
+        case 'End':
+          e.preventDefault();
+          setFocus(nextNav(rows.length, -1));
+          break;
+      }
+    },
+    [rows, focusedIdx, expandedDirs, toggleDir, handleOpen, handleSelect],
+  );
+
+  // Entering the tree with Tab highlights the first row so the roving focus
+  // is visible immediately (the container suppresses its own outline).
+  const handleTreeFocus = useCallback(() => {
+    setFocusedIdx((i) => (i === -1 && rows.length > 0 ? 0 : i));
+  }, [rows.length]);
 
   if (showSpinner) {
     return (
@@ -443,12 +594,15 @@ export function FileExplorer() {
           </span>
         </div>
       )}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto py-1">
+      {/* ── Fixed headers (breadcrumb / current file / parent-dir) — kept
+          outside the virtualized list so they're always visible and the
+          VList owns the scroll area exclusively. ── */}
+      <div className="min-h-0 min-w-0 flex flex-1 flex-col py-1">
         {/* ── Breadcrumb bar — clickable path segments ── */}
         {breadcrumbs.length > 0 && (
           <div
             ref={bcRef}
-            className="relative flex items-center gap-0.5 px-1 pb-1 border-b border-border/30 overflow-x-auto"
+            className="relative flex shrink-0 items-center gap-0.5 px-1 pb-1 border-b border-border/30 overflow-x-auto"
           >
             {/* Left-edge fade mask — visible when content overflows to the left */}
             <span className="sticky left-0 shrink-0 w-3 h-full bg-gradient-to-r from-background to-transparent pointer-events-none" />
@@ -516,7 +670,7 @@ export function FileExplorer() {
           <button
             type="button"
             onClick={handleFileIndicatorClick}
-            className="flex items-center gap-1 w-full text-left px-2 py-0.5 border-b border-border/30 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+            className="flex shrink-0 items-center gap-1 w-full text-left px-2 py-0.5 border-b border-border/30 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             title={t('activity:fileExplorer.navigateParentTitle', { path: activeFilePath.replace(/\//g, pathSep) })}
           >
             <FileCode className="h-3 w-3 shrink-0" />
@@ -537,7 +691,7 @@ export function FileExplorer() {
             type="button"
             onClick={handleGoUp}
             className={cn(
-              'flex items-center gap-1.5 w-full text-left px-1 py-0.5 text-[11px] rounded',
+              'flex shrink-0 items-center gap-1.5 w-full text-left px-1 py-0.5 text-[11px] rounded',
               'hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground',
               'font-medium',
             )}
@@ -549,19 +703,35 @@ export function FileExplorer() {
             </span>
           </button>
         )}
-        {tree.map((node) => (
-          <TreeNodeItem
-            key={node.path}
-            node={node}
-            depth={0}
-            selectedPath={selectedPath}
-            forceExpand={globalExpand}
-            onSelect={handleSelect}
-            onOpen={handleOpen}
-            onContextMenu={handleNodeContextMenu}
-          />
-        ))}
-        {tree.length === 0 && (
+        {tree.length > 0 ? (
+          <div
+            role="tree"
+            aria-label={t('activity:fileExplorer.folders', { count: dirCount })}
+            tabIndex={0}
+            onKeyDown={handleTreeKeyDown}
+            onFocus={handleTreeFocus}
+            className="min-h-0 min-w-0 flex-1 outline-none"
+          >
+            <VList ref={listRef} className="h-full">
+              {rows.map((row) => (
+                <TreeRow
+                  key={row.emptyPlaceholder ? `${row.node.path}#empty` : row.node.path}
+                  node={row.node}
+                  depth={row.depth}
+                  emptyPlaceholder={row.emptyPlaceholder}
+                  expanded={row.node.type === 'directory' && expandedDirs.has(row.node.path)}
+                  isActive={row.node.type === 'file' && row.node.path === activeFilePath}
+                  isSelected={!row.emptyPlaceholder && row.node.path === selectedPath}
+                  isFocused={!row.emptyPlaceholder && row.node.path === focusedPath}
+                  onToggle={toggleDir}
+                  onSelect={handleSelect}
+                  onOpen={handleOpen}
+                  onContextMenu={handleNodeContextMenu}
+                />
+              ))}
+            </VList>
+          </div>
+        ) : (
           <p className="text-[11px] text-muted-foreground italic p-2">
             {t('activity:fileExplorer.noFiles')}
           </p>
@@ -629,7 +799,10 @@ export function FileExplorer() {
           <button
             type="button"
             onClick={() => {
-              void navigator.clipboard.writeText(nodeMenu.node.path);
+              void copyTextToClipboard(nodeMenu.node.path).then((ok) => {
+                if (ok) toast.success(t('common:action.copied'));
+                else toast.error(t('common:action.copyFailed'));
+              });
               setNodeMenu(null);
             }}
             className="flex items-center gap-2 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors"

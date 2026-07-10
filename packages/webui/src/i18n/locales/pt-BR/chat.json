@@ -18,6 +18,8 @@
   "thinking": "Pensando…",
   "input": {
     "autoFencedAs": "Auto-cercado como",
+    "notConnectedDraftKept": "Sem conexão — sua mensagem não foi enviada. Ela foi restaurada no campo de entrada.",
+    "refineTimeoutFallback": "O refinamento não respondeu — enviando sua mensagem original.",
     "charsWord": "caracteres",
     "linesWord": "linhas",
     "pastedWord": "Colado",

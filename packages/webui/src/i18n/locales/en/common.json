@@ -22,6 +22,7 @@
     "refresh": "Refresh",
     "copy": "Copy",
     "copied": "Copied",
+    "copyFailed": "Copy failed — clipboard access was blocked.",
     "open": "Open",
     "start": "Start",
     "stop": "Stop",
@@ -63,6 +64,7 @@
   "status": {
     "connected": "Connected",
     "disconnected": "Disconnected",
+    "notConnectedRetry": "Not connected to the server — try again once reconnected.",
     "connecting": "Connecting…",
     "reconnecting": "Reconnecting…",
     "ready": "Ready",

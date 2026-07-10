@@ -3,7 +3,7 @@ import { AgentTranscript } from '@/components/AgentTranscript';
 import { EMPTY_AGENT_TRANSCRIPT, type SubagentView, useFleetStore } from '@/stores';
 import { compareAgentsByActivity, tallyAgents } from '@/lib/agent-status';
 import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Crown, Wrench, X, Zap } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { SparklineChart } from '@/components/ui/sparkline';
 
@@ -12,10 +12,10 @@ const STATUS_META: Record<
   SubagentView['status'],
   { led: string; pulse: boolean }
 > = {
-  running: { led: 'text-[hsl(var(--success))]', pulse: true },
-  completed: { led: 'text-[hsl(var(--success))]', pulse: false },
+  running: { led: 'text-success', pulse: true },
+  completed: { led: 'text-success', pulse: false },
   failed: { led: 'text-destructive', pulse: false },
-  timeout: { led: 'text-[hsl(var(--warning))]', pulse: false },
+  timeout: { led: 'text-warning', pulse: false },
   stopped: { led: 'text-muted-foreground', pulse: false },
 };
 
@@ -50,6 +50,15 @@ export function AgentDetail({
       // Clipboard unavailable — silently ignore
     }
   }, []);
+
+  // Hand-rolled overlay (not Radix Dialog), so Escape must be wired manually.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   const ctxTone =
     ctxPct >= 85
       ? 'bg-destructive/12 text-destructive'
@@ -59,7 +68,12 @@ export function AgentDetail({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10dvh] bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-xl max-h-[80dvh] overflow-y-auto rounded-xl border bg-card shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={agent.name}
+        className="w-full max-w-xl max-h-[80dvh] overflow-y-auto rounded-xl border bg-card shadow-2xl"
+      >
         {/* Header */}
         <div
           className={cn(
@@ -78,7 +92,8 @@ export function AgentDetail({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-muted transition-colors"
+            aria-label={t('common:action.close')}
+            className="p-1 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -110,7 +125,7 @@ export function AgentDetail({
                 <Clock className="h-3 w-3 text-muted-foreground" />
                 <span className="text-xs font-mono tabular">{fmtDuration(elapsed)}</span>
                 {active && (
-                  <span className="text-[10px] text-[hsl(var(--success))]">· {t('activity:fleet.running')}</span>
+                  <span className="text-[10px] text-success">· {t('activity:fleet.running')}</span>
                 )}
               </div>
             </div>
@@ -176,7 +191,7 @@ export function AgentDetail({
                     ctxPct >= 85
                       ? 'bg-destructive'
                       : ctxPct >= 70
-                        ? 'bg-[hsl(var(--warning))]'
+                        ? 'bg-warning'
                         : 'bg-primary',
                   )}
                   style={{ width: `${Math.max(2, ctxPct)}%` }}
@@ -290,7 +305,7 @@ export function AgentDetail({
                       tl.ok ? 'bg-muted/30' : 'bg-destructive/5 border border-destructive/20',
                     )}
                   >
-                    <span className={cn('led shrink-0', tl.ok ? 'text-[hsl(var(--success))]' : 'text-destructive')} />
+                    <span className={cn('led shrink-0', tl.ok ? 'text-success' : 'text-destructive')} />
                     <span className="font-mono truncate flex-1">{tl.name}</span>
                     <span className="tabular text-muted-foreground">{tl.durationMs}ms</span>
                     {!tl.ok && <span className="text-destructive font-medium">{t('activity:fleet.fail')}</span>}
@@ -385,7 +400,7 @@ function AgentCard({
                 ctxPct >= 85
                   ? 'bg-destructive'
                   : ctxPct >= 70
-                    ? 'bg-[hsl(var(--warning))]'
+                    ? 'bg-warning'
                     : 'bg-primary',
               )}
               style={{ width: `${Math.max(2, ctxPct)}%` }}
@@ -465,8 +480,8 @@ export function FleetPanel({
           {/* Compact summary pills */}
           <span className="flex items-center gap-1.5 ml-auto text-[10px]">
             {tally.running > 0 && (
-              <span className="flex items-center gap-1 text-[hsl(var(--success))]">
-                <span className="led led-pulse text-[hsl(var(--success))]" />
+              <span className="flex items-center gap-1 text-success">
+                <span className="led led-pulse text-success" />
                 {tally.running}
               </span>
             )}

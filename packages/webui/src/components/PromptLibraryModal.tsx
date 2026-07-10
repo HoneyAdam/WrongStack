@@ -377,13 +377,13 @@ export function PromptLibraryModal() {
                   value={draft.title}
                   onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
                   placeholder={t('activity:promptLib.titlePlaceholder')}
-                  className="w-full rounded border border-border bg-background px-2 py-1 outline-none"
+                  className="w-full rounded border border-border bg-background px-2 py-1 outline-none focus:ring-1 focus:ring-primary"
                 />
                 <input
                   value={draft.description}
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                   placeholder={t('activity:promptLib.descPlaceholder')}
-                  className="w-full rounded border border-border bg-background px-2 py-1 outline-none"
+                  className="w-full rounded border border-border bg-background px-2 py-1 outline-none focus:ring-1 focus:ring-primary"
                 />
                 <div className="flex gap-2">
                   <input
@@ -391,7 +391,7 @@ export function PromptLibraryModal() {
                     value={draft.category}
                     onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
                     placeholder={t('activity:promptLib.categoryPlaceholder')}
-                    className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none"
+                    className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none focus:ring-1 focus:ring-primary"
                   />
                   <datalist id="prompt-category-list">
                     {categories.map((c) => (
@@ -402,7 +402,7 @@ export function PromptLibraryModal() {
                     value={draft.tagsCsv}
                     onChange={(e) => setDraft((d) => ({ ...d, tagsCsv: e.target.value }))}
                     placeholder={t('activity:promptLib.tagsPlaceholder')}
-                    className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none"
+                    className="w-1/2 rounded border border-border bg-background px-2 py-1 outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
                 <textarea
@@ -410,7 +410,7 @@ export function PromptLibraryModal() {
                   onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
                   placeholder={t('activity:promptLib.contentPlaceholder')}
                   rows={6}
-                  className="w-full resize-y rounded border border-border bg-background px-2 py-1 font-mono outline-none"
+                  className="w-full resize-y rounded border border-border bg-background px-2 py-1 font-mono outline-none focus:ring-1 focus:ring-primary"
                 />
                 <div className="flex items-center justify-between pt-1">
                   <span className="font-semibold text-muted-foreground">{t('activity:promptLib.variables')}</span>
@@ -449,7 +449,7 @@ export function PromptLibraryModal() {
                           }))
                         }
                         placeholder={t('activity:promptLib.varNamePlaceholder')}
-                        className="w-1/3 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
+                        className="w-1/3 rounded border border-border bg-background px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-primary"
                       />
                       <input
                         value={v.description}
@@ -462,7 +462,7 @@ export function PromptLibraryModal() {
                           }))
                         }
                         placeholder={t('activity:promptLib.varDescPlaceholder')}
-                        className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
+                        className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-primary"
                       />
                       <button
                         onClick={() =>
@@ -516,7 +516,7 @@ export function PromptLibraryModal() {
                           }))
                         }
                         placeholder={t('activity:promptLib.enumPlaceholder')}
-                        className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none"
+                        className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-primary"
                       />
                     </div>
                   </div>
@@ -568,7 +568,7 @@ export function PromptLibraryModal() {
                       const set = (val: string) =>
                         setVarValues((prev) => ({ ...prev, [v.name]: val }));
                       const fieldClass =
-                        'mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-none';
+                        'mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary';
                       if (v.enum && v.enum.length > 0) {
                         return (
                           <div key={v.name}>

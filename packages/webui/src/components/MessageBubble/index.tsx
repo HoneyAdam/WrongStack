@@ -32,7 +32,9 @@ import remarkGfm from 'remark-gfm';
 import { ToolDiffView, diffFromToolInput } from '../DiffView';
 import { ToolResult } from '../ToolResult';
 import { NextStepsBar, fillInput, parseNextSteps } from '../NextStepsBar';
+import { toast } from '../Toaster';
 import { CopyButton } from './CopyButton.js';
+import { StreamingMarkdown } from './StreamingMarkdown.js';
 import { ErrorBodyWithStack } from './ErrorBody.js';
 import { ToolInputView } from './ToolInputView.js';
 import { downloadTextFile, fileExtensionFor, formatToolDuration, markdownComponents, rehypePlugins } from './utils.js';
@@ -93,9 +95,13 @@ export const MessageBubble = memo(function MessageBubble({
       return;
     }
     recordAutoSubmit();
+    const client = getWSClient(wsUrl);
+    if (!client.isConnected) {
+      toast.error(t('common:status.notConnectedRetry'));
+      return;
+    }
     addMessage({ role: 'user', content: text });
     setLoading(true);
-    const client = getWSClient(wsUrl);
     client.sendMessage(text);
     // Clear the input field after auto-submitting, matching the behaviour
     // of the normal form submission path in ChatInput.
@@ -144,11 +150,15 @@ export const MessageBubble = memo(function MessageBubble({
       }
     }
     if (userIdx === -1) return;
+    const client = getWSClient(wsUrl);
+    if (!client.isConnected) {
+      toast.error(t('common:status.notConnectedRetry'));
+      return;
+    }
     const userMsg = expectDefined(all[userIdx]);
     truncateAfter(userMsg.id);
     addMessage({ role: 'user', content: userMsg.content });
     setLoading(true);
-    const client = getWSClient(wsUrl);
     client.sendMessage(userMsg.content);
   };
 
@@ -167,10 +177,14 @@ export const MessageBubble = memo(function MessageBubble({
   const saveEdit = () => {
     const next = editValue.trim();
     if (!next) { cancelEdit(); return; }
+    const client = getWSClient(wsUrl);
+    if (!client.isConnected) {
+      toast.error(t('common:status.notConnectedRetry'));
+      return;
+    }
     truncateAfter(message.id);
     addMessage({ role: 'user', content: next });
     setLoading(true);
-    const client = getWSClient(wsUrl);
     client.sendMessage(next);
     setEditing(false);
     setEditValue('');
@@ -353,6 +367,11 @@ export const MessageBubble = memo(function MessageBubble({
                   <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90 max-h-[40rem] overflow-auto">{message.content}</pre>
                 ) : message.role === 'assistant' && message.isError ? (
                   <ErrorBodyWithStack text={message.content} />
+                ) : message.streaming ? (
+                  // While streaming, avoid re-parsing the whole growing
+                  // message through remark on every frame — see
+                  // StreamingMarkdown for the stable-prefix strategy.
+                  <StreamingMarkdown text={renderedContent} />
                 ) : (
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={markdownComponents}>{renderedContent}</ReactMarkdown>
                 )) : message.streaming ? (

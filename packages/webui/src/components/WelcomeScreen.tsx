@@ -151,6 +151,15 @@ const SLASH_REFS: Array<{ id: string; name: string; hint: string }> = [
   { id: 'new', name: '/new', hint: 'fresh session' },
 ];
 
+/** Compact one-paragraph preview of a stored prompt. Pasted prompts can be
+ *  multi-KB markdown (code fences, `----` rules, long unbroken paths) which
+ *  would blow up the card layout if rendered raw — collapse all whitespace
+ *  and hard-cap the length; the click handler still fills the FULL text. */
+function promptPreview(text: string, max = 220): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
 function fillTextarea(text: string): void {
   const ta = document.querySelector('textarea');
   if (!ta) return;
@@ -197,7 +206,8 @@ export function WelcomeScreen() {
    *  surface, without any backend round-trip. Limited to 6 so it doesn't
    *  dominate the page. */
   const promptHistory = useUIStore((s) => s.promptHistory);
-  const recentPrompts = promptHistory.slice(0, 6);
+  // Filter slash commands BEFORE slicing so they don't eat visible slots.
+  const recentPrompts = promptHistory.filter((p) => !p.trim().startsWith('/')).slice(0, 5);
   /** Recent sessions surfaced as one-click resume buttons. Drives the
    *  "pick back up" workflow without sending the user to the History tab.
    *  We fetch on first paint when connected; the listing is otherwise
@@ -365,7 +375,7 @@ export function WelcomeScreen() {
                 type="button"
                 onClick={() => resumeSession(entry.id)}
               className="text-left rounded-md border border-border/50 bg-background/60 hover:border-primary/40 hover:bg-accent/40 px-3 py-2 transition-colors group/sess"
-                title={entry.title}
+                title={promptPreview(entry.title ?? '', 300)}
               >
                 <div className="text-sm font-medium truncate text-foreground group-hover/sess:text-primary">
                   {sessionNicknames[entry.id] || entry.title || t('setup:welcome.empty')}
@@ -394,20 +404,17 @@ export function WelcomeScreen() {
             </span>
           </div>
           <div className="flex flex-col gap-1.5">
-            {recentPrompts
-              .filter((p) => !p.startsWith('/'))
-              .slice(0, 5)
-              .map((p, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => fillTextarea(p)}
-                  className="text-left text-xs leading-relaxed text-muted-foreground hover:text-foreground border border-transparent hover:border-border/60 rounded-md px-3 py-2 hover:bg-background/60 transition-colors"
-                  title={p}
-                >
-                  {p}
-                </button>
-              ))}
+            {recentPrompts.map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => fillTextarea(p)}
+                className="text-left text-xs leading-relaxed text-muted-foreground hover:text-foreground border border-transparent hover:border-border/60 rounded-md px-3 py-2 hover:bg-background/60 transition-colors min-w-0 overflow-hidden line-clamp-3 break-words [overflow-wrap:anywhere]"
+                title={promptPreview(p, 500)}
+              >
+                {promptPreview(p)}
+              </button>
+            ))}
           </div>
         </div>
       )}

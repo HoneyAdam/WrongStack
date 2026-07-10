@@ -18,6 +18,8 @@
   "thinking": "Thinking…",
   "input": {
     "autoFencedAs": "Auto-fenced as",
+    "notConnectedDraftKept": "Not connected — your message wasn't sent. It has been restored to the input.",
+    "refineTimeoutFallback": "Refinement didn't respond — sending your original message.",
     "charsWord": "chars",
     "linesWord": "lines",
     "pastedWord": "Pasted",

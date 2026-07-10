@@ -65,7 +65,7 @@ function ScopeBadge({ source }: { source: string }) {
     <span
       className={cn(
         'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-        scope === 'project' && 'border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.08)] text-[hsl(var(--success))]',
+        scope === 'project' && 'border-success/25 bg-success/8 text-success',
         scope === 'user' && 'border-primary/25 bg-primary/10 text-primary',
         scope === 'bundled' && 'border-border/70 bg-muted/60 text-muted-foreground',
       )}
@@ -115,6 +115,16 @@ export function SkillDetailView({ className }: { className?: string }) {
   // Uninstall state
   const [uninstallConfirmSkill, setUninstallConfirmSkill] = useState<typeof selectedSkill>(null);
   const [uninstalling, setUninstalling] = useState(false);
+
+  // Hand-rolled confirm overlay: dismiss on Escape like a real dialog.
+  useEffect(() => {
+    if (!uninstallConfirmSkill) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUninstallConfirmSkill(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [uninstallConfirmSkill]);
 
   // Skills list (for finding related skills)
   const [skills, setSkills] = useState<Array<{ name: string; description: string; version: string; source: string; sourceUrl: string; ref: string; path: string; trigger: string; scope: string[] }>>([]);
@@ -509,7 +519,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   className="flex shrink-0 items-center text-muted-foreground transition-colors hover:text-foreground"
                   title={t('activity:skillDetail.copySourceUrl')}
                 >
-                  {copiedSourceUrl ? <Check className="h-3 w-3 text-[hsl(var(--success))]" /> : <Copy className="h-3 w-3" />}
+                  {copiedSourceUrl ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
                 </button>
               </div>
             )}
@@ -529,7 +539,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             {updateResult && (
               <div className="mt-2 text-xs space-y-1">
                 {updateResult.updated.length > 0 && (
-                  <div className="text-[hsl(var(--success))]">
+                  <div className="text-success">
                     {t('activity:skillDetail.updatedLabel', { list: updateResult.updated.map((u) => `${u.name} (${u.oldRef} → ${u.newRef})`).join(', ') })}
                   </div>
                 )}
@@ -755,14 +765,14 @@ export function SkillDetailView({ className }: { className?: string }) {
                 {charsWarning && (
                   <span
                     className={`text-xs tabular-nums ${
-                      charsWarning.level === 'critical' ? 'font-medium text-destructive' : 'text-[hsl(var(--warning))]'
+                      charsWarning.level === 'critical' ? 'font-medium text-destructive' : 'text-warning'
                     }`}
                   >
                     {t('activity:skillDetail.charsWarningFmt', { used: (charsWarning.used / (1024 * 1024)).toFixed(1), limit: (charsWarning.limit / (1024 * 1024)).toFixed(0) })}
                   </span>
                 )}
-                {draftSavedAt && <span className="text-xs text-[hsl(var(--success))] animate-pulse">{t('activity:skillDetail.draftSaved')}</span>}
-                {draftRestored && <span className="animate-pulse text-xs text-[hsl(var(--warning))]">{t('activity:skillDetail.draftRestored')}</span>}
+                {draftSavedAt && <span className="text-xs text-success animate-pulse">{t('activity:skillDetail.draftSaved')}</span>}
+                {draftRestored && <span className="animate-pulse text-xs text-warning">{t('activity:skillDetail.draftRestored')}</span>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {editError && <span className="text-xs text-destructive">{editError}</span>}
@@ -770,7 +780,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   <button
                     type="button"
                     onClick={handleDiscardDraft}
-                    className="rounded-md border border-[hsl(var(--warning)/0.35)] px-2 py-1 text-[10px] text-[hsl(var(--warning))] transition-colors hover:bg-[hsl(var(--warning)/0.1)]"
+                    className="rounded-md border border-warning/35 px-2 py-1 text-[10px] text-warning transition-colors hover:bg-warning/10"
                   >
                     {t('activity:skillDetail.discardDraft')}
                   </button>
@@ -869,13 +879,18 @@ export function SkillDetailView({ className }: { className?: string }) {
             if (e.target === e.currentTarget) setUninstallConfirmSkill(null);
           }}
         >
-          <div className="flex max-h-[calc(100dvh-2rem)] w-[380px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('activity:skillDetail.uninstallSkillHeading')}
+            className="flex max-h-[calc(100dvh-2rem)] w-[380px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl"
+          >
             <div className="flex shrink-0 items-center justify-between border-b border-border/70 p-4">
               <div className="flex items-center gap-2">
                 <Trash2 className="h-4 w-4 text-destructive" />
                 <span className="font-semibold text-sm">{t('activity:skillDetail.uninstallSkillHeading')}</span>
               </div>
-              <button type="button" onClick={() => setUninstallConfirmSkill(null)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+              <button type="button" onClick={() => setUninstallConfirmSkill(null)} aria-label={t('common:action.close')} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
                 <X className="h-4 w-4" />
               </button>
             </div>

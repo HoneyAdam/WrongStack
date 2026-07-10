@@ -57,7 +57,7 @@ function MetricCard({
       </div>
       {trend && (
         <div className="mt-2 flex items-center gap-1">
-          {trend === 'up' && <TrendingUp className="w-3 h-3 text-[hsl(var(--success))]" />}
+          {trend === 'up' && <TrendingUp className="w-3 h-3 text-success" />}
           {trend === 'down' && <TrendingUp className="w-3 h-3 rotate-180 text-destructive" />}
           <span className="text-xs text-muted-foreground">
             {trend === 'up' ? t('activity:debug.trendUp') : trend === 'down' ? t('activity:debug.trendDown') : t('activity:debug.trendStable')}
@@ -72,10 +72,10 @@ function _StatusBadge({ active }: { active: boolean }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${
-        active ? 'bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]' : 'bg-destructive/10 text-destructive'
+        active ? 'bg-success/12 text-success' : 'bg-destructive/10 text-destructive'
       }`}
     >
-      <span className={`w-2 h-2 rounded-full ${active ? 'bg-[hsl(var(--success))]' : 'bg-destructive'}`} />
+      <span className={`w-2 h-2 rounded-full ${active ? 'bg-success' : 'bg-destructive'}`} />
       {active ? 'Active' : 'Inactive'}
     </span>
   );
@@ -215,7 +215,7 @@ export function DebugDashboard() {
               title={t('activity:debug.watcherStatus')}
               value={data.fileWatcher?.watcherActive ? t('activity:debug.running') : t('activity:debug.stopped')}
               icon={Server}
-              color={data.fileWatcher?.watcherActive ? 'text-[hsl(var(--success))]' : 'text-destructive'}
+              color={data.fileWatcher?.watcherActive ? 'text-success' : 'text-destructive'}
             />
             <MetricCard
               title={t('activity:debug.activeProjects')}
@@ -237,7 +237,7 @@ export function DebugDashboard() {
               value={data.fileWatcher?.filesProcessed ?? 0}
               subtitle={t('activity:debug.afterHash')}
               icon={Gauge}
-              color="text-[hsl(var(--success))]"
+              color="text-success"
             />
           </div>
 
@@ -247,21 +247,21 @@ export function DebugDashboard() {
               value={data.fileWatcher?.broadcastsSent ?? 0}
               subtitle={t('activity:debug.toClients')}
               icon={TrendingUp}
-              color="text-[hsl(var(--success))]"
+              color="text-success"
             />
             <MetricCard
               title={t('activity:debug.debounceResets')}
               value={data.fileWatcher?.debounceResets ?? 0}
               subtitle={t('activity:debug.rapidWrites')}
               icon={RefreshCw}
-              color="text-[hsl(var(--warning))]"
+              color="text-warning"
             />
             <MetricCard
               title={t('activity:debug.avgDebounce')}
               value={`${(data.fileWatcher?.averageDebounceDelayMs ?? 0).toFixed(1)}ms`}
               subtitle={t('activity:debug.actualDelay')}
               icon={Clock}
-              color="text-[hsl(var(--warning))]"
+              color="text-warning"
             />
             <MetricCard
               title={t('activity:debug.totalDelay')}
@@ -292,7 +292,7 @@ export function DebugDashboard() {
               value={formatBytes(data.system?.memoryUsage?.heapTotal ?? 0)}
               subtitle={t('activity:debug.totalHeap')}
               icon={BarChart3}
-              color="text-[hsl(var(--success))]"
+              color="text-success"
             />
             <MetricCard
               title={t('activity:debug.pageUptime')}

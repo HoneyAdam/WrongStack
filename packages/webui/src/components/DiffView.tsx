@@ -79,8 +79,8 @@ const DiffRows = memo(function DiffRows({
         <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/40 font-mono text-[11px]">
           {caption && <span className="text-muted-foreground truncate">{caption}</span>}
           <span className="ml-auto flex items-center gap-2">
-            {adds > 0 && <span className="text-emerald-500">+{adds}</span>}
-            {dels > 0 && <span className="text-red-500">-{dels}</span>}
+            {adds > 0 && <span className="text-success">+{adds}</span>}
+            {dels > 0 && <span className="text-destructive">-{dels}</span>}
           </span>
         </div>
       )}
@@ -90,8 +90,8 @@ const DiffRows = memo(function DiffRows({
             key={idx}
             className={cn(
               'flex items-start',
-              r.kind === 'add' && 'bg-emerald-500/10',
-              r.kind === 'del' && 'bg-red-500/10',
+              r.kind === 'add' && 'bg-success/10',
+              r.kind === 'del' && 'bg-destructive/10',
               r.kind === 'meta' && 'bg-muted/60',
             )}
           >
@@ -99,8 +99,8 @@ const DiffRows = memo(function DiffRows({
               aria-hidden
               className={cn(
                 'select-none w-4 shrink-0 text-center',
-                r.kind === 'add' && 'text-emerald-500',
-                r.kind === 'del' && 'text-red-500',
+                r.kind === 'add' && 'text-success',
+                r.kind === 'del' && 'text-destructive',
                 (r.kind === 'ctx' || r.kind === 'meta') && 'text-muted-foreground/50',
               )}
             >

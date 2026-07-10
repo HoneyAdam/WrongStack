@@ -113,7 +113,7 @@ function StatusLED({ status, small, activity = 0 }: { status: ClientStatus; smal
 
   const baseColor: Record<ClientStatus, string> = {
     idle: 'bg-muted-foreground',
-    active: 'bg-[hsl(var(--success))]',
+    active: 'bg-success',
     streaming: 'bg-primary',
     completed: 'bg-primary',
     error: 'bg-destructive',
@@ -168,7 +168,7 @@ function StatsHUD() {
   return (
     <div className="absolute left-4 top-20 z-10 rounded-xl border border-border/70 bg-card/90 p-3 text-foreground shadow-xl backdrop-blur">
       <div className="flex items-center gap-2 mb-2">
-        <Activity className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
+        <Activity className="h-3.5 w-3.5 text-success" />
         <span className="text-[10px] font-bold uppercase text-muted-foreground">{t('activity:office.sessionStats')}</span>
       </div>
 
@@ -181,7 +181,7 @@ function StatsHUD() {
           </div>
           <span className="font-mono text-foreground">
             {activeAgents} <span className="text-muted-foreground">/</span>{' '}
-            <span className="text-[hsl(var(--success))]">{totalClients}</span>
+            <span className="text-success">{totalClients}</span>
           </span>
         </div>
 
@@ -189,9 +189,9 @@ function StatsHUD() {
         <div className="flex items-center gap-3 pl-4 text-[9px]">
           {clientCounts.tui > 0 && (
             <span className="flex items-center gap-1">
-              <Terminal className="h-2.5 w-2.5 text-[hsl(var(--success))]" />
+              <Terminal className="h-2.5 w-2.5 text-success" />
               <span className="text-muted-foreground">TUI</span>
-              <span className="font-mono text-[hsl(var(--success))]">{clientCounts.tui}</span>
+              <span className="font-mono text-success">{clientCounts.tui}</span>
             </span>
           )}
           {clientCounts.webui > 0 && (
@@ -203,9 +203,9 @@ function StatsHUD() {
           )}
           {clientCounts.repl > 0 && (
             <span className="flex items-center gap-1">
-              <Terminal className="h-2.5 w-2.5 text-[hsl(var(--warning))]" />
+              <Terminal className="h-2.5 w-2.5 text-warning" />
               <span className="text-muted-foreground">REPL</span>
-              <span className="font-mono text-[hsl(var(--warning))]">{clientCounts.repl}</span>
+              <span className="font-mono text-warning">{clientCounts.repl}</span>
             </span>
           )}
         </div>
@@ -245,7 +245,7 @@ function StatsHUD() {
             <span className={cn(
               'font-mono uppercase text-[9px] px-1.5 py-0.5 rounded',
               currentSession.mode === 'auto' && 'bg-primary/10 text-primary',
-              currentSession.mode === 'suggest' && 'bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]',
+              currentSession.mode === 'suggest' && 'bg-success/10 text-success',
               currentSession.mode === 'off' && 'bg-muted text-muted-foreground',
               !['auto', 'suggest', 'off'].includes(currentSession.mode || '') && 'bg-muted text-muted-foreground',
             )}>
@@ -260,7 +260,7 @@ function StatsHUD() {
             <Hash className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">{t('activity:office.toolCallsLabel')}</span>
           </div>
-          <span className="font-mono text-[hsl(var(--warning))]">{fmtNum(aggregate.toolCalls)}</span>
+          <span className="font-mono text-warning">{fmtNum(aggregate.toolCalls)}</span>
         </div>
 
         {/* Token breakdown — project-wide */}
@@ -287,7 +287,7 @@ function StatsHUD() {
             <DollarSign className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">{t('activity:office.cost')}</span>
           </div>
-          <span className="font-mono font-medium text-[hsl(var(--success))]">{fmtCost(aggregate.costUsd)}</span>
+          <span className="font-mono font-medium text-success">{fmtCost(aggregate.costUsd)}</span>
         </div>
       </div>
     </div>
@@ -370,7 +370,7 @@ function WebUINode({ data }: { data: OfficeNodeData }) {
           </>
         ) : (
           <>
-            <Wifi className="h-3 w-3 text-[hsl(var(--success))]" />
+            <Wifi className="h-3 w-3 text-success" />
             <span>{t('activity:office.connected')}</span>
           </>
         )}
@@ -396,15 +396,15 @@ function TUINode({ data }: { data: OfficeNodeData }) {
   return (
     <div className={cn(
       'rounded-xl border-2 p-4 min-w-[180px] transition-all backdrop-blur-sm',
-      isActive && 'shadow-lg shadow-[hsl(var(--success)/0.15)]',
+      isActive && 'shadow-lg shadow-success/15',
       isError && 'border-destructive/50 bg-destructive/10',
-      !isActive && !isError && 'border-[hsl(var(--success)/0.3)] bg-[hsl(var(--success)/0.1)]',
+      !isActive && !isError && 'border-success/30 bg-success/10',
     )}>
       <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
-          isActive ? 'bg-[hsl(var(--success)/0.15)]' : 'bg-[hsl(var(--success)/0.1)]',
+          isActive ? 'bg-success/15' : 'bg-success/10',
         )}>
           <Terminal className="h-5 w-5" style={{ color }} />
         </div>
@@ -422,7 +422,7 @@ function TUINode({ data }: { data: OfficeNodeData }) {
       )}
 
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        <Terminal className="h-3 w-3 text-[hsl(var(--success))]" />
+        <Terminal className="h-3 w-3 text-success" />
         <span>{t('activity:office.terminal')}</span>
       </div>
 
@@ -439,14 +439,14 @@ function REPLNode({ data }: { data: OfficeNodeData }) {
   return (
     <div className={cn(
       'rounded-xl border-2 p-4 min-w-[160px] transition-all backdrop-blur-sm',
-      isActive && 'shadow-lg shadow-[hsl(var(--warning)/0.15)]',
-      !isActive && 'border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)]',
+      isActive && 'shadow-lg shadow-warning/15',
+      !isActive && 'border-warning/30 bg-warning/10',
     )}>
       <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
-          isActive ? 'bg-[hsl(var(--warning)/0.15)]' : 'bg-[hsl(var(--warning)/0.1)]',
+          isActive ? 'bg-warning/15' : 'bg-warning/10',
         )}>
           <Terminal className="h-5 w-5" style={{ color }} />
         </div>
@@ -495,14 +495,14 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
       <div className="grid grid-cols-2 gap-2 text-[10px] mb-2">
         <div className="rounded bg-muted/40 p-1.5 text-center">
           <div className="font-mono">
-            <span className="text-[hsl(var(--success))]">{data.agentsActive || 0}</span>
+            <span className="text-success">{data.agentsActive || 0}</span>
             <span className="text-muted-foreground"> / </span>
             <span className="text-primary">{data.agentsTotal || 0}</span>
           </div>
           <div className="text-muted-foreground">{t('activity:officeMap.agents')}</div>
         </div>
         <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="font-mono text-[hsl(var(--warning))]">{(data.toolCalls || 0).toLocaleString()}</div>
+          <div className="font-mono text-warning">{(data.toolCalls || 0).toLocaleString()}</div>
           <div className="text-muted-foreground">{t('activity:office.toolCallsLabel')}</div>
         </div>
         <div className="rounded bg-muted/40 p-1.5 text-center">
@@ -510,7 +510,7 @@ function CoordinatorNode({ data }: { data: OfficeNodeData }) {
           <div className="text-muted-foreground">{t('activity:office.tokensLabel')}</div>
         </div>
         <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="font-mono text-[hsl(var(--success))]">${(data.costUsd || 0).toFixed(3)}</div>
+          <div className="font-mono text-success">${(data.costUsd || 0).toFixed(3)}</div>
           <div className="text-muted-foreground">{t('activity:office.cost')}</div>
         </div>
       </div>
@@ -564,19 +564,19 @@ function AgentNode({ data }: { data: OfficeNodeData }) {
       {/* Metric grid: iterations, tools, cost, tokens */}
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] mb-1.5">
         <div className="flex justify-between"><span className="text-muted-foreground">iter</span><span className="font-mono text-foreground">{data.iteration || 0}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">tools</span><span className="font-mono text-[hsl(var(--warning))]">{data.toolCalls || 0}</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">tools</span><span className="font-mono text-warning">{data.toolCalls || 0}</span></div>
         <div className="flex justify-between"><span className="text-muted-foreground">tok</span><span className="font-mono text-foreground">{fmtCompact((data.tokensIn || 0) + (data.tokensOut || 0))}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">cost</span><span className="font-mono text-[hsl(var(--success))]">${(data.costUsd || 0).toFixed(3)}</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">cost</span><span className="font-mono text-success">${(data.costUsd || 0).toFixed(3)}</span></div>
       </div>
 
       {/* Context-fill bar */}
       {ctxPct > 0 && (
         <div className="mb-1">
           <div className="mb-0.5 flex justify-between text-[8px] text-muted-foreground">
-            <span>ctx</span><span className={cn('font-mono', ctxPct >= 90 ? 'text-destructive' : ctxPct >= 70 ? 'text-[hsl(var(--warning))]' : 'text-muted-foreground')}>{ctxPct}%</span>
+            <span>ctx</span><span className={cn('font-mono', ctxPct >= 90 ? 'text-destructive' : ctxPct >= 70 ? 'text-warning' : 'text-muted-foreground')}>{ctxPct}%</span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-muted">
-            <div className={cn('h-full', ctxPct >= 90 ? 'bg-destructive' : ctxPct >= 70 ? 'bg-[hsl(var(--warning))]' : 'bg-primary')} style={{ width: `${ctxPct}%` }} />
+            <div className={cn('h-full', ctxPct >= 90 ? 'bg-destructive' : ctxPct >= 70 ? 'bg-warning' : 'bg-primary')} style={{ width: `${ctxPct}%` }} />
           </div>
         </div>
       )}
@@ -584,7 +584,7 @@ function AgentNode({ data }: { data: OfficeNodeData }) {
       {/* Last seen — prominent for finished agents (they reap ~30s after). */}
       {data.lastActivityAt && (
         <div className={cn('flex items-center gap-1 text-[8px]', isActive ? 'text-muted-foreground/70' : 'text-muted-foreground')}>
-          {isCompleted && <span className="text-[hsl(var(--success))]">{t('activity:office.donePrefix')}</span>}
+          {isCompleted && <span className="text-success">{t('activity:office.donePrefix')}</span>}
           {isError && <span className="text-destructive">{t('activity:office.failedPrefix')}</span>}
           <span>{t('activity:office.seenPrefix', { time: fmtAgo(data.lastActivityAt, Date.now()) })}</span>
         </div>
@@ -621,14 +621,14 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
   return (
     <div className={cn(
       'rounded-xl border-2 p-4 min-w-[160px] transition-all backdrop-blur-sm',
-      hasUnread && 'border-[hsl(var(--warning)/0.5)] bg-[hsl(var(--warning)/0.1)] shadow-lg shadow-[hsl(var(--warning)/0.1)]',
-      !hasUnread && 'border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.06)]',
+      hasUnread && 'border-warning/50 bg-warning/10 shadow-lg shadow-warning/10',
+      !hasUnread && 'border-warning/30 bg-warning/6',
     )}>
       <NodeHandles />
       <div className="flex items-center gap-3 mb-3">
         <div className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg',
-          hasUnread ? 'bg-[hsl(var(--warning)/0.18)]' : 'bg-[hsl(var(--warning)/0.1)]',
+          hasUnread ? 'bg-warning/18' : 'bg-warning/10',
         )}>
           <Mail className="h-5 w-5" style={{ color }} />
         </div>
@@ -639,7 +639,7 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
           </div>
         </div>
         {hasUnread && (
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(var(--warning))] text-[10px] font-bold text-background">
+          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-warning text-[10px] font-bold text-background">
             {data.unreadCount}
           </div>
         )}
@@ -647,14 +647,14 @@ function MailboxNode({ data }: { data: OfficeNodeData }) {
 
       <div className="grid grid-cols-2 gap-2 text-[10px]">
         <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="flex items-center justify-center gap-1 text-[hsl(var(--warning))]">
+          <div className="flex items-center justify-center gap-1 text-warning">
             <Send className="h-3 w-3" />
             <span>{data.messageCount || 0}</span>
           </div>
           <div className="text-muted-foreground">{t('activity:office.total')}</div>
         </div>
         <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="flex items-center justify-center gap-1 text-[hsl(var(--success))]">
+          <div className="flex items-center justify-center gap-1 text-success">
             <Inbox className="h-3 w-3" />
             <span>{data.unreadCount || 0}</span>
           </div>
@@ -1519,10 +1519,14 @@ export function OfficeMapCanvas() {
     setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
   }, [setNodes, fitView]);
 
-  // Live indicator pulse
+  // Live indicator pulse. Skipped while the tab is hidden — the tick's only
+  // job is refreshing visible relative-time/LED state, and re-rendering the
+  // whole canvas every 2s in a background tab is wasted work.
   const [, setTick] = useState(0);
   useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 2000);
+    const interval = setInterval(() => {
+      if (!document.hidden) setTick((t) => t + 1);
+    }, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1549,7 +1553,7 @@ export function OfficeMapCanvas() {
           <div className="flex items-center gap-2 text-xs font-bold text-foreground">
             <Building2 className="h-4 w-4 text-primary" />
             {t('activity:office.fleetHq')}
-            <span className="ml-2 h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--success))]" />
+            <span className="ml-2 h-2 w-2 animate-pulse rounded-full bg-success" />
             <span className="text-[10px] font-normal text-muted-foreground">{t('activity:office.live')}</span>
           </div>
         </div>
@@ -1561,7 +1565,7 @@ export function OfficeMapCanvas() {
         <div className="mb-2 font-bold text-foreground">{t('activity:office.legendStatus')}</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--success))]" />
+            <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
             <span className="text-muted-foreground">{t('activity:office.legendActive')}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -1582,7 +1586,7 @@ export function OfficeMapCanvas() {
         <div className="mb-2 font-bold text-foreground">{t('activity:office.legendConnections')}</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-[hsl(var(--warning))]">✉</span>
+            <span className="text-warning">✉</span>
             <span className="text-muted-foreground">{t('activity:office.legendMail')}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -1590,7 +1594,7 @@ export function OfficeMapCanvas() {
             <span className="text-muted-foreground">{t('activity:office.legendTask')}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[hsl(var(--success))]">●</span>
+            <span className="text-success">●</span>
             <span className="text-muted-foreground">{t('activity:office.legendStatusConn')}</span>
           </div>
         </div>
@@ -1647,7 +1651,7 @@ export function OfficeMapCanvas() {
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs transition-colors',
               broadcastOpen
-                ? 'border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]'
+                ? 'border-warning/35 bg-warning/10 text-warning'
                 : 'border-border/70 bg-card/90 text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
@@ -1705,9 +1709,9 @@ export function OfficeMapCanvas() {
 
       {/* Broadcast composer — fan one message out to every live session's leader. */}
       {broadcastOpen && (
-        <div className="absolute right-4 top-16 z-30 w-80 rounded-xl border border-[hsl(var(--warning)/0.35)] bg-card/95 p-3 shadow-2xl backdrop-blur">
+        <div className="absolute right-4 top-16 z-30 w-80 rounded-xl border border-warning/35 bg-card/95 p-3 shadow-2xl backdrop-blur">
           <div className="mb-1.5 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[hsl(var(--warning))]">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-warning">
               <Send className="h-3.5 w-3.5" /> {t('activity:office.broadcastToAll')}
             </div>
             <button
@@ -1729,7 +1733,7 @@ export function OfficeMapCanvas() {
             }}
             rows={3}
             placeholder={t('activity:office.broadcastPlaceholder')}
-            className="w-full resize-none rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground focus:border-[hsl(var(--warning)/0.45)] focus:outline-none"
+            className="w-full resize-none rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground focus:border-warning/45 focus:outline-none"
           />
           <div className="mt-1.5 flex items-center justify-between">
             <span className="text-[9px] text-muted-foreground">{t('activity:office.broadcastSendHint')}</span>
@@ -1737,7 +1741,7 @@ export function OfficeMapCanvas() {
               type="button"
               onClick={() => void sendBroadcast()}
               disabled={broadcasting || !broadcastDraft.trim()}
-              className="rounded-md border border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.12)] px-2.5 py-1 text-[11px] text-[hsl(var(--warning))] transition-colors hover:bg-[hsl(var(--warning)/0.18)] disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md border border-warning/35 bg-warning/12 px-2.5 py-1 text-[11px] text-warning transition-colors hover:bg-warning/18 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {broadcasting ? '…' : t('activity:office.broadcast')}
             </button>
@@ -1762,7 +1766,7 @@ export function OfficeMapCanvas() {
               {selectedNode.data.kind === 'tui' && <Terminal className="h-4 w-4 text-success" />}
               {selectedNode.data.kind === 'coordinator' && <Cpu className="h-4 w-4 text-primary" />}
               {selectedNode.data.kind === 'agent' && <Bot className="h-4 w-4 text-primary" />}
-              {selectedNode.data.kind === 'mailbox' && <Mail className="h-4 w-4 text-[hsl(var(--warning))]" />}
+              {selectedNode.data.kind === 'mailbox' && <Mail className="h-4 w-4 text-warning" />}
               <span className="text-sm font-bold text-foreground">{selectedNode.data.label}</span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1809,7 +1813,7 @@ export function OfficeMapCanvas() {
                   k="Status"
                   v={String(d.status).toUpperCase()}
                   accent={cn(
-                    d.status === 'active' && 'text-[hsl(var(--success))]',
+                    d.status === 'active' && 'text-success',
                     d.status === 'streaming' && 'text-primary',
                     d.status === 'error' && 'text-destructive',
                     d.status === 'idle' && 'text-muted-foreground',
@@ -1822,14 +1826,14 @@ export function OfficeMapCanvas() {
                     {d.model && <Row k="Model" v={shortModel(d.model)} accent="text-primary" />}
                     {d.currentTask && <Row k="Tool" v={d.currentTask} accent="text-primary" />}
                     <Row k="Iterations" v={d.iteration || 0} accent="text-primary" />
-                    <Row k="Tool calls" v={d.toolCalls || 0} accent="text-[hsl(var(--warning))]" />
+                    <Row k="Tool calls" v={d.toolCalls || 0} accent="text-warning" />
                     <Row k="Tokens in" v={fmtCompact(d.tokensIn)} />
                     <Row k="Tokens out" v={fmtCompact(d.tokensOut)} />
                     <Row k="Tokens total" v={fmtCompact(tokTotal)} />
                     {ctxPct > 0 && (
-                      <Row k="Context" v={`${ctxPct}%`} accent={ctxPct >= 90 ? 'text-destructive' : ctxPct >= 70 ? 'text-[hsl(var(--warning))]' : 'text-foreground/70'} />
+                      <Row k="Context" v={`${ctxPct}%`} accent={ctxPct >= 90 ? 'text-destructive' : ctxPct >= 70 ? 'text-warning' : 'text-foreground/70'} />
                     )}
-                    <Row k="Cost" v={`$${(d.costUsd || 0).toFixed(4)}`} accent="text-[hsl(var(--success))]" />
+                    <Row k="Cost" v={`$${(d.costUsd || 0).toFixed(4)}`} accent="text-success" />
                     {d.lastActivityAt && <Row k="Last seen" v={fmtAgo(d.lastActivityAt, now)} accent="text-muted-foreground" />}
                     <div className="pt-2">
                       <AgentTranscript
@@ -1855,8 +1859,8 @@ export function OfficeMapCanvas() {
 
                 {d.kind === 'mailbox' && (
                   <>
-                    <Row k="Total messages" v={d.messageCount || 0} accent="text-[hsl(var(--warning))]" />
-                    <Row k="Unread" v={d.unreadCount || 0} accent="text-[hsl(var(--warning))]" />
+                    <Row k="Total messages" v={d.messageCount || 0} accent="text-warning" />
+                    <Row k="Unread" v={d.unreadCount || 0} accent="text-warning" />
                     {mailboxMessages.length > 0 && (
                       <div className="mt-1 space-y-1 border-t border-border pt-2">
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('activity:office.recent')}</div>
@@ -1870,7 +1874,7 @@ export function OfficeMapCanvas() {
                                 <span
                                   className={cn(
                                     'mt-1 h-1.5 w-1.5 shrink-0 rounded-full',
-                                    unread ? 'bg-[hsl(var(--warning))]' : m.completed ? 'bg-[hsl(var(--success))]' : 'bg-muted',
+                                    unread ? 'bg-warning' : m.completed ? 'bg-success' : 'bg-muted',
                                   )}
                                 />
                                 <div className="min-w-0 flex-1">

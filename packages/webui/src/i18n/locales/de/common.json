@@ -22,6 +22,7 @@
     "refresh": "Aktualisieren",
     "copy": "Kopieren",
     "copied": "Kopiert",
+    "copyFailed": "Kopieren fehlgeschlagen — Zugriff auf die Zwischenablage blockiert.",
     "open": "Öffnen",
     "start": "Starten",
     "stop": "Stopp",
@@ -63,6 +64,7 @@
   "status": {
     "connected": "Verbunden",
     "disconnected": "Getrennt",
+    "notConnectedRetry": "Keine Verbindung zum Server — nach dem Wiederverbinden erneut versuchen.",
     "connecting": "Verbindung wird hergestellt…",
     "reconnecting": "Verbindung wird wiederhergestellt…",
     "ready": "Bereit",

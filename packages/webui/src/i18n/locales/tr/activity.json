@@ -95,6 +95,7 @@
     "edit": "Düzenle",
     "editTitle": "Yan yana düzenlenebilir diff",
     "loadingDiff": "Diff yükleniyor…",
+    "diffTimeout": "Diff gelmedi. Dosya değişmiş veya bağlantı kopmuş olabilir.",
     "binary": "İkili dosya — diff gösterilmiyor.",
     "tooLarge": "Dosya diff için çok büyük."
   },

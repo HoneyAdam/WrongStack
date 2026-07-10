@@ -22,6 +22,7 @@
     "refresh": "Yenile",
     "copy": "Kopyala",
     "copied": "Kopyalandı",
+    "copyFailed": "Kopyalanamadı — pano erişimi engellendi.",
     "open": "Aç",
     "start": "Başlat",
     "stop": "Durdur",
@@ -63,6 +64,7 @@
   "status": {
     "connected": "Bağlı",
     "disconnected": "Bağlı değil",
+    "notConnectedRetry": "Sunucuya bağlı değil — bağlantı kurulunca tekrar deneyin.",
     "connecting": "Bağlanıyor…",
     "reconnecting": "Yeniden bağlanıyor…",
     "ready": "Hazır",

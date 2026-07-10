@@ -1580,6 +1580,22 @@ export type WSServerMessage =
   | { type: 'mailbox.event'; payload: Record<string, unknown> & { event: string } }
   | { type: 'mailbox.received'; payload: Record<string, unknown> }
   | { type: 'mailbox.agent_registered'; payload: Record<string, unknown> }
+  // Server replies to the client's mailbox.messages / mailbox.agents
+  // requests. Handled via the string-keyed dispatch map today, but they must
+  // be in this union so typed `.on()` / useWsHandlers narrowing can express
+  // them (a typed migration would otherwise silently drop mailbox data).
+  | {
+      type: 'mailbox.messages';
+      payload: { messages: Array<Record<string, unknown>>; error?: string | undefined };
+    }
+  | {
+      type: 'mailbox.agents';
+      payload: { agents: Array<Record<string, unknown>>; error?: string | undefined };
+    }
+  // Reply to a client `ping` (liveness probe). The payload is absent on the
+  // wire; typed as optional so union-wide `msg.payload` access keeps
+  // compiling.
+  | { type: 'pong'; payload?: Record<string, unknown> | undefined }
   | {
       type: 'process.list';
       payload: {

@@ -73,7 +73,7 @@ function agentMeta(status: string): { icon: React.ReactNode; cls: string } {
     case 'running':
       return {
         icon: <Activity className="h-3.5 w-3.5" />,
-        cls: 'text-[hsl(var(--success))]',
+        cls: 'text-success',
       };
     case 'streaming':
       return {
@@ -83,7 +83,7 @@ function agentMeta(status: string): { icon: React.ReactNode; cls: string } {
     case 'waiting_user':
       return {
         icon: <Clock className="h-3.5 w-3.5" />,
-        cls: 'text-[hsl(var(--warning))]',
+        cls: 'text-warning',
       };
     case 'error':
       return {
@@ -108,8 +108,8 @@ function sessionMeta(status: string): { icon: React.ReactNode; cls: string; badg
     case 'active':
       return {
         icon: <Wifi className="h-3.5 w-3.5" />,
-        cls: 'text-[hsl(var(--success))]',
-        badge: 'border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.08)] text-[hsl(var(--success))]',
+        cls: 'text-success',
+        badge: 'border-success/25 bg-success/8 text-success',
       };
     case 'idle':
       return {
@@ -120,8 +120,8 @@ function sessionMeta(status: string): { icon: React.ReactNode; cls: string; badg
     case 'closing':
       return {
         icon: <Clock className="h-3.5 w-3.5" />,
-        cls: 'text-[hsl(var(--warning))]',
-        badge: 'border-[hsl(var(--warning)/0.25)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]',
+        cls: 'text-warning',
+        badge: 'border-warning/25 bg-warning/10 text-warning',
       };
     default:
       return {
@@ -225,7 +225,7 @@ export function SessionsDashboard() {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4">
         <div className="ws-surface max-w-lg rounded-xl p-5 text-center">
-          <AlertCircle className="mx-auto h-8 w-8 text-[hsl(var(--warning))]" />
+          <AlertCircle className="mx-auto h-8 w-8 text-warning" />
           <p className="mt-3 text-sm font-medium">{t('activity:liveSessions.apiUnavailable')}</p>
           <p className="mt-1 break-words text-xs text-muted-foreground">{error}</p>
         </div>
@@ -267,7 +267,7 @@ export function SessionsDashboard() {
                 <div className="text-[10px] uppercase text-muted-foreground">Sessions</div>
               </div>
               <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
-                <div className="text-lg font-semibold tabular-nums text-[hsl(var(--success))]">
+                <div className="text-lg font-semibold tabular-nums text-success">
                   {activeSessions}
                 </div>
                 <div className="text-[10px] uppercase text-muted-foreground">Active</div>

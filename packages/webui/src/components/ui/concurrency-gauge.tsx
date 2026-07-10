@@ -30,8 +30,8 @@ export function ConcurrencyGauge({
     pct >= 90
       ? 'text-destructive'
       : pct >= 70
-        ? 'text-[hsl(var(--warning))]'
-        : 'text-[hsl(var(--success))]';
+        ? 'text-warning'
+        : 'text-success';
 
   return (
     <span className={className} title={`Fleet concurrency: ${current}/${max}`}>

@@ -330,7 +330,7 @@ export function TerminalPanel({
               <span
                 className={cn(
                   'h-1.5 w-1.5 shrink-0 rounded-full',
-                  tab.status === 'running' && 'bg-[hsl(var(--success))]',
+                  tab.status === 'running' && 'bg-success',
                   tab.status === 'starting' && 'bg-primary',
                   tab.status === 'exited' && 'bg-destructive',
                 )}
@@ -426,10 +426,17 @@ function TerminalSession({
     const ws = getWSClient(useConfigStore.getState().wsUrl);
 
     ws.send({ type: 'terminal.create', payload: { id, cols: term.cols, rows: term.rows } });
-    onRunningRef.current();
 
+    // Only flip the tab to "running" once the PTY proves it's alive (first
+    // output frame). Marking it on create would show a green tab forever
+    // when the server-side spawn fails.
+    let sawOutput = false;
     const offOut = ws.on('terminal.output', (msg: WSServerMessage) => {
       if (msg.type === 'terminal.output' && msg.payload.id === id) {
+        if (!sawOutput) {
+          sawOutput = true;
+          onRunningRef.current();
+        }
         term.write(msg.payload.data);
       }
     });

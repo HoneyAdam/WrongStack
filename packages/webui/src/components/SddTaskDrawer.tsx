@@ -154,7 +154,7 @@ export function SddTaskDrawer({
             <span
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white',
-                running ? 'bg-[hsl(var(--warning))] sdd-agent-live' : 'bg-muted-foreground',
+                running ? 'bg-warning sdd-agent-live' : 'bg-muted-foreground',
               )}
             >
               {agentInitials(task.agentName)}
@@ -345,11 +345,11 @@ export function SddTaskDrawer({
                     className={cn(
                       'absolute -left-[14px] top-1 h-1.5 w-1.5 rounded-full',
                       e.kind === 'completed'
-                        ? 'bg-[hsl(var(--success))]'
+                        ? 'bg-success'
                         : e.kind === 'failed'
                           ? 'bg-destructive'
                           : e.kind === 'retrying'
-                            ? 'bg-[hsl(var(--warning))]'
+                            ? 'bg-warning'
                             : 'bg-primary',
                     )}
                   />
@@ -440,7 +440,7 @@ export function SddTaskDrawer({
               type="button"
               onClick={() => onRetry(task.id)}
               title={t('activity:sddTask.retryTitle')}
-              className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-[hsl(var(--warning)/0.12)] py-1.5 text-xs font-medium text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.18)]"
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-warning/12 py-1.5 text-xs font-medium text-warning hover:bg-warning/18"
             >
               <RotateCcw className="h-3.5 w-3.5" /> {t('common:action.retry')}
             </button>

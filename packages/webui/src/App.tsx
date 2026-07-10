@@ -1,6 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
 import { Bot, Command, Cpu, Search, Settings, Sparkles, Zap } from 'lucide-react';
 import { lazy, Suspense, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import {
   DESKTOP_COMMAND_DOCKS,
@@ -34,7 +35,6 @@ import {
   pairedViewForActivity,
   showPanel,
 } from './components/activity-bar/nav';
-import { ChangesView } from './components/ChangesView';
 import { ChatView } from './components/ChatView';
 import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -61,6 +61,9 @@ const AnalyticsDashboard = lazy(() =>
 );
 const AutoPhaseView = lazy(() =>
   import('./components/AutoPhaseView').then((m) => ({ default: m.AutoPhaseView })),
+);
+const ChangesView = lazy(() =>
+  import('./components/ChangesView').then((m) => ({ default: m.ChangesView })),
 );
 const CodeEditor = lazy(() =>
   import('./components/CodeEditor').then((m) => ({ default: m.CodeEditor })),
@@ -232,6 +235,9 @@ function PanelSuspense({ label }: { label?: string }) {
 function AppInner() {
   const { theme } = useTheme();
   const desktopShell = isDesktopShell();
+  // Subscribe with a shallow selector, NOT the bare store: AppInner is the
+  // root of the whole tree, and a bare useUIStore() re-renders it on EVERY
+  // ui-store mutation (scroll nonces, nickname edits, inspector tabs, …).
   const {
     currentView,
     sidebarOpen,
@@ -254,7 +260,31 @@ function AppInner() {
     setQueuePanelOpen,
     terminalOpen,
     setTerminalOpen,
-  } = useUIStore();
+  } = useUIStore(
+    useShallow((s) => ({
+      currentView: s.currentView,
+      sidebarOpen: s.sidebarOpen,
+      toggleSidebar: s.toggleSidebar,
+      setSearchOpen: s.setSearchOpen,
+      setSidebarOpen: s.setSidebarOpen,
+      setInspectorTab: s.setInspectorTab,
+      setPaletteOpen: s.setPaletteOpen,
+      setShortcutsOpen: s.setShortcutsOpen,
+      setModelSwitcherOpen: s.setModelSwitcherOpen,
+      setPromptLibraryOpen: s.setPromptLibraryOpen,
+      toggleInspector: s.toggleInspector,
+      fleetMonitorOpen: s.fleetMonitorOpen,
+      agentsMonitorOpen: s.agentsMonitorOpen,
+      setFleetMonitorOpen: s.setFleetMonitorOpen,
+      setAgentsMonitorOpen: s.setAgentsMonitorOpen,
+      processMonitorOpen: s.processMonitorOpen,
+      setProcessMonitorOpen: s.setProcessMonitorOpen,
+      queuePanelOpen: s.queuePanelOpen,
+      setQueuePanelOpen: s.setQueuePanelOpen,
+      terminalOpen: s.terminalOpen,
+      setTerminalOpen: s.setTerminalOpen,
+    })),
+  );
   const isLoading = useChatStore((s) => s.isLoading);
   const iteration = useSessionStore((s) => s.iteration);
   const projectName = useSessionStore((s) => s.projectName);
@@ -836,6 +866,25 @@ function AppInner() {
       if (e.key === 'Escape' && !mod && useUIStore.getState().inspectorOpen) {
         useUIStore.getState().setInspectorOpen(false);
       }
+      // Escape — abort the in-flight run (advertised in ShortcutsOverlay;
+      // TUI parity). Deliberately lowest priority: overlays consume Esc in
+      // their own handlers, the inspector collapse above wins, a focused
+      // bubble is dismissed by the vim-nav block below, and while typing in
+      // a field Esc keeps its local meaning (e.g. closing slash suggestions).
+      if (e.key === 'Escape' && !mod && !inField) {
+        const ui = useUIStore.getState();
+        const overlayOpen =
+          ui.inspectorOpen ||
+          ui.searchOpen ||
+          ui.paletteOpen ||
+          ui.shortcutsOpen ||
+          ui.modelSwitcherOpen ||
+          ui.promptLibraryOpen;
+        const focusedBubble = document.querySelector('[data-message-id][data-focused="true"]');
+        if (!overlayOpen && !focusedBubble && useChatStore.getState().isLoading) {
+          getWSClient(useConfigStore.getState().wsUrl).sendAbort();
+        }
+      }
       // Vim-style chat navigation: j/k step between bubbles, g goes to the
       // first message and G to the last. Skipped while typing so j/k inside
       // the textarea still inserts those letters. No modifier required —
@@ -1076,9 +1125,11 @@ function AppInner() {
         {/* ── Source-control diff — file list lives in the SidePanel ── */}
         {currentView === 'changes' && (
           <ErrorBoundary level="panel" name="Changes">
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <ChangesView className="h-full min-h-0" />
-            </div>
+            <Suspense fallback={<PanelSuspense label="Loading diff…" />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <ChangesView className="h-full min-h-0" />
+              </div>
+            </Suspense>
           </ErrorBoundary>
         )}
 

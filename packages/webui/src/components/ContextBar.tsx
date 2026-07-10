@@ -45,14 +45,14 @@ const SEGMENT_FILL: Record<number, string> = {
 
 function getColor(pct: number): string {
   if (pct >= 75) return 'bg-destructive';
-  if (pct >= 60) return 'bg-[hsl(var(--warning))]';
-  return 'bg-[hsl(var(--success))]';
+  if (pct >= 60) return 'bg-warning';
+  return 'bg-success';
 }
 
 function getTextColor(pct: number): string {
   if (pct >= 75) return 'text-destructive';
-  if (pct >= 60) return 'text-[hsl(var(--warning))]';
-  return 'text-[hsl(var(--success))]';
+  if (pct >= 60) return 'text-warning';
+  return 'text-success';
 }
 
 function clampPct(pct: number): number {

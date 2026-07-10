@@ -111,8 +111,8 @@ function fmtTime(iso: string): string {
 
 function eventColor(event: string): string {
   if (event.includes('error') || event.includes('fail')) return 'text-destructive';
-  if (event.includes('warn')) return 'text-[hsl(var(--warning))]';
-  if (event.includes('success') || event.includes('complete')) return 'text-[hsl(var(--success))]';
+  if (event.includes('warn')) return 'text-warning';
+  if (event.includes('success') || event.includes('complete')) return 'text-success';
   return 'text-muted-foreground';
 }
 
@@ -333,21 +333,21 @@ export function AnalyticsDashboard() {
             label={t('activity:analytics.agents')}
             value={`${activeAgents}/${totalAgents}`}
             sub={activeAgents > 0 ? t('activity:analytics.agentsActive', { count: activeAgents }) : undefined}
-            color="text-[hsl(var(--success))]"
+            color="text-success"
           />
           <StatCard
             icon={<MessageSquare className="h-4 w-4" />}
             label={t('activity:analytics.totalEvents')}
             value={summary?.totalEvents ?? 0}
             sub={t('activity:analytics.categoriesSub', { count: summary?.uniqueCategories ?? 0 })}
-            color="text-[hsl(var(--warning))]"
+            color="text-warning"
           />
           <StatCard
             icon={<Terminal className="h-4 w-4" />}
             label={t('activity:analytics.toolCalls')}
             value={totalToolCalls}
             sub={t('activity:analytics.iterationsSub', { count: totalIterations })}
-            color="text-[hsl(var(--success))]"
+            color="text-success"
           />
           <StatCard
             icon={<DollarSign className="h-4 w-4" />}
@@ -400,7 +400,7 @@ export function AnalyticsDashboard() {
           {/* Tool usage / Event breakdown */}
           <div className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-sm">
             <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-              <BarChart3 className="h-3.5 w-3.5 text-[hsl(var(--warning))]" />
+              <BarChart3 className="h-3.5 w-3.5 text-warning" />
               {t('activity:analytics.topEvents')}
             </h3>
             {eventEntries.length === 0 ? (
@@ -415,7 +415,7 @@ export function AnalyticsDashboard() {
                       <span className={`min-w-0 truncate ${eventColor(evt)}`}>{evt}</span>
                       <div className="h-4 overflow-hidden rounded-full bg-muted">
                         <div
-                          className="h-full rounded-full bg-[hsl(var(--warning)/0.7)] transition-all"
+                          className="h-full rounded-full bg-warning/70 transition-all"
                           style={{ width: `${Math.max(pct, 4)}%` }}
                         />
                       </div>
@@ -471,7 +471,7 @@ export function AnalyticsDashboard() {
           {/* Error/warning indicator */}
           <div className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-sm">
             <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-              <AlertTriangle className="h-3.5 w-3.5 text-[hsl(var(--warning))]" />
+              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
               {t('activity:analytics.healthErrors')}
             </h3>
             <div className="space-y-2 text-xs">
@@ -483,11 +483,11 @@ export function AnalyticsDashboard() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('activity:analytics.warningEvents')}</span>
-                    <span className="tabular-nums text-[hsl(var(--warning))]">{warningCount}</span>
+                    <span className="tabular-nums text-warning">{warningCount}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('activity:analytics.cacheHitRate')}</span>
-                    <span className="tabular-nums text-[hsl(var(--success))]">
+                    <span className="tabular-nums text-success">
                       {stats ? `${(stats.cache.ratio * 100).toFixed(1)}%` : '—'}
                     </span>
                   </div>

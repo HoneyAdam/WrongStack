@@ -130,7 +130,7 @@ export function PlanPanel(): React.ReactElement | null {
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleStatusChange(it, 'done'); }}
-                      className="px-1.5 py-0.5 text-[9px] rounded bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.25)] transition-colors"
+                      className="px-1.5 py-0.5 text-[9px] rounded bg-success/15 text-success hover:bg-success/25 transition-colors"
                       title={t('activity:plan.doneTitle')}
                     >
                       {t('activity:plan.statusDone')}

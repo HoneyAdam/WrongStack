@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useConfigStore } from '@/stores';
 import { Clock, History, Rewind } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
@@ -36,11 +37,14 @@ export function CheckpointTimeline({
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
   const [rewinding, setRewinding] = useState(false);
   const ws = useWebSocket();
+  // Reactive connection state — `ws.client` is a stable singleton, so the
+  // effect needs this dep to re-run once a reconnect completes.
+  const wsConnected = useConfigStore((s) => s.wsConnected);
   const offRef = useRef<(() => void) | null>(null);
 
   // Fetch checkpoints when opened
   useEffect(() => {
-    if (!open || !ws.client?.isConnected) return;
+    if (!open || !wsConnected || !ws.client?.isConnected) return;
 
     ws.client.send?.({ type: 'session.checkpoints' });
 
@@ -53,7 +57,7 @@ export function CheckpointTimeline({
     return () => {
       offRef.current?.();
     };
-  }, [open, ws.client]);
+  }, [open, wsConnected, ws.client]);
 
   const handleRewind = useCallback(
     async (index: number) => {

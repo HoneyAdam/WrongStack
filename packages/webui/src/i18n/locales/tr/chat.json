@@ -18,6 +18,8 @@
   "thinking": "Düşünüyor…",
   "input": {
     "autoFencedAs": "Otomatik çitlendi:",
+    "notConnectedDraftKept": "Bağlantı yok — mesajınız gönderilmedi. Girdi alanına geri yüklendi.",
+    "refineTimeoutFallback": "İyileştirme yanıt vermedi — orijinal mesajınız gönderiliyor.",
     "charsWord": "karakter",
     "linesWord": "satır",
     "pastedWord": "Yapıştırıldı",

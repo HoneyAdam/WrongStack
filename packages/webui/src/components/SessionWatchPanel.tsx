@@ -174,12 +174,16 @@ export function SessionWatchPanel({
     setThread([]);
     void load();
     void loadThread();
-    const iv = setInterval(() => void load(), POLL_MS);
-    const tv = setInterval(() => void loadThread(), POLL_MS);
+    // One shared interval (not two) and no polling while the tab is hidden —
+    // a watch panel per watched session adds up fast in the office map.
+    const iv = setInterval(() => {
+      if (document.hidden) return;
+      void load();
+      void loadThread();
+    }, POLL_MS);
     return () => {
       aliveRef.current = false;
       clearInterval(iv);
-      clearInterval(tv);
     };
   }, [load, loadThread]);
 

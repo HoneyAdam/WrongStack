@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils';
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { useAppTranslation } from '@/i18n';
+import { toast } from '../Toaster';
 import { copyToClipboard } from './utils.js';
 
 export function CopyButton({
@@ -25,6 +26,10 @@ export function CopyButton({
         if (ok) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1400);
+        } else {
+          // A clipboard-permission failure must not look identical to a
+          // working button that did nothing.
+          toast.error(t('common:action.copyFailed'));
         }
       }}
       className={cn(

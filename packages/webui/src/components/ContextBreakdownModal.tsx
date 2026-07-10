@@ -100,17 +100,23 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10dvh] bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-2xl max-h-[80dvh] overflow-y-auto rounded-xl border bg-card shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('activity:context.title')}
+        className="w-full max-w-2xl max-h-[80dvh] overflow-y-auto rounded-xl border bg-card shadow-2xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-card z-10">
           <h3 className="text-sm font-semibold flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-[hsl(var(--warning))]" />
+            <AlertTriangle className="h-4 w-4 text-warning" />
             {t('activity:context.title')}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-muted transition-colors"
+            aria-label={t('common:action.close')}
+            className="p-1 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
           >
             <X className="h-4 w-4" />
           </button>

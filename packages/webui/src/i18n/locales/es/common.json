@@ -22,6 +22,7 @@
     "refresh": "Actualizar",
     "copy": "Copiar",
     "copied": "Copiado",
+    "copyFailed": "Error al copiar: acceso al portapapeles bloqueado.",
     "open": "Abrir",
     "start": "Iniciar",
     "stop": "Detener",
@@ -63,6 +64,7 @@
   "status": {
     "connected": "Conectado",
     "disconnected": "Desconectado",
+    "notConnectedRetry": "Sin conexión con el servidor: inténtalo de nuevo al reconectar.",
     "connecting": "Conectando…",
     "reconnecting": "Reconectando…",
     "ready": "Listo",

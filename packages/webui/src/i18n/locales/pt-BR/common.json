@@ -22,6 +22,7 @@
     "refresh": "Atualizar",
     "copy": "Copiar",
     "copied": "Copiado",
+    "copyFailed": "Falha ao copiar — acesso à área de transferência bloqueado.",
     "open": "Abrir",
     "start": "Iniciar",
     "stop": "Parar",
@@ -63,6 +64,7 @@
   "status": {
     "connected": "Conectado",
     "disconnected": "Desconectado",
+    "notConnectedRetry": "Sem conexão com o servidor — tente novamente após reconectar.",
     "connecting": "Conectando…",
     "reconnecting": "Reconectando…",
     "ready": "Pronto",

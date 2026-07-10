@@ -161,15 +161,15 @@ export function MailboxDetailView({ className }: { className?: string }) {
           <ArrowLeft className="h-4 w-4" />
         </button>
 
-        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', msg.completed ? 'bg-[hsl(var(--success)/0.1)]' : 'bg-primary/10')}>
-          <Icon className={cn('h-4 w-4', msg.completed ? 'text-[hsl(var(--success))]' : 'text-primary')} />
+        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', msg.completed ? 'bg-success/10' : 'bg-primary/10')}>
+          <Icon className={cn('h-4 w-4', msg.completed ? 'text-success' : 'text-primary')} />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-foreground truncate">{msg.subject}</h2>
             {msg.completed && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.08)] px-1.5 py-0.5 text-[10px] font-semibold text-[hsl(var(--success))]">
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-success/25 bg-success/8 px-1.5 py-0.5 text-[10px] font-semibold text-success">
                 <CheckCircle2 className="h-3 w-3" />
                 {t('activity:mailbox.completed')}
               </span>

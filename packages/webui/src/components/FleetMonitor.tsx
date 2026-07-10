@@ -61,12 +61,17 @@ const STATUS_META: Record<SubagentView['status'], { led: string; labelKey: strin
 
 function FleetAgentDetailPanel({
   agent,
-  now,
 }: {
   agent: SubagentView;
-  now: number;
 }): React.ReactElement {
   const { t } = useAppTranslation();
+  // Self-ticking clock: keeping the 1s interval inside this leaf means only
+  // the detail panel re-renders each second, not the whole fleet list.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
   const [copied, setCopied] = useState(false);
   const [showFullToolLog, setShowFullToolLog] = useState(false);
   const transcript = useFleetStore((s) => s.agentTranscripts.get(agent.id) ?? EMPTY_AGENT_TRANSCRIPT);
@@ -504,13 +509,6 @@ export function FleetMonitor({
   const fleetAgentTimeline = useFleetStore((s) => s.agentTimeline);
 
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [nowTick, setNowTick] = useState(Date.now());
-
-  // Live clock
-  useEffect(() => {
-    const id = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   const fleetList = useMemo(() => {
     const arr = Array.from(fleetAgents.values());
@@ -731,7 +729,7 @@ export function FleetMonitor({
               </div>
               {/* Detail content */}
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                <FleetAgentDetailPanel agent={selectedAgent} now={nowTick} />
+                <FleetAgentDetailPanel agent={selectedAgent} />
               </div>
             </div>
           </div>

@@ -253,15 +253,32 @@ export function SettingsPanel() {
     [catalogModels, setProvider, ws],
   );
 
-  // Model selection
+  // Model selection. The switch is fire-and-forget on the socket but the
+  // server always acks with `key.operation_result` — only toast success once
+  // it lands, so a rejected switch doesn't read as succeeded.
   const handleModelSelect = useCallback(
     (modelId: string) => {
       setModel(modelId);
       const currentProvider = useConfigStore.getState().provider;
+      if (wsClient) {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const off = wsClient.on('key.operation_result', (msg: WSServerMessage) => {
+          if (timer) clearTimeout(timer);
+          off();
+          const p = (msg as { payload: { success: boolean; message: string } }).payload;
+          if (p.success) {
+            toast.success(
+              i18n.t('settings:toast.switchingTo', { provider: currentProvider, model: modelId }),
+            );
+          } else {
+            toast.error(p.message);
+          }
+        });
+        timer = setTimeout(off, 8000);
+      }
       ws.switchModel?.(currentProvider, modelId);
-      toast.success(i18n.t('settings:toast.switchingTo', { provider: currentProvider, model: modelId }));
     },
-    [setModel, ws],
+    [setModel, ws, wsClient],
   );
 
   // Key management callbacks

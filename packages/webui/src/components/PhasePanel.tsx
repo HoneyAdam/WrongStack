@@ -44,9 +44,9 @@ const STATUS_CONFIG: Record<
 > = {
   pending: { icon: <Circle className="w-4 h-4" />, color: 'text-muted-foreground', bg: 'bg-muted', label: 'Pending' },
   ready: { icon: <Play className="w-4 h-4" />, color: 'text-primary', bg: 'bg-primary/10', label: 'Ready' },
-  running: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-[hsl(var(--warning))]', bg: 'bg-[hsl(var(--warning)/0.1)]', label: 'Running' },
-  paused: { icon: <Pause className="w-4 h-4" />, color: 'text-[hsl(var(--warning))]', bg: 'bg-[hsl(var(--warning)/0.1)]', label: 'Paused' },
-  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-[hsl(var(--success))]', bg: 'bg-[hsl(var(--success)/0.1)]', label: 'Completed' },
+  running: { icon: <Clock className="w-4 h-4 animate-spin" />, color: 'text-warning', bg: 'bg-warning/10', label: 'Running' },
+  paused: { icon: <Pause className="w-4 h-4" />, color: 'text-warning', bg: 'bg-warning/10', label: 'Paused' },
+  completed: { icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-success', bg: 'bg-success/10', label: 'Completed' },
   failed: { icon: <XCircle className="w-4 h-4" />, color: 'text-destructive', bg: 'bg-destructive/10', label: 'Failed' },
   skipped: { icon: <SkipForward className="w-4 h-4" />, color: 'text-muted-foreground', bg: 'bg-muted', label: 'Skipped' },
 };
@@ -54,8 +54,8 @@ const STATUS_CONFIG: Record<
 const PRIORITY_DOT: Record<PhaseItem['priority'], string> = {
   critical: 'bg-destructive',
   high: 'bg-destructive',
-  medium: 'bg-[hsl(var(--warning))]',
-  low: 'bg-[hsl(var(--success))]',
+  medium: 'bg-warning',
+  low: 'bg-success',
 };
 
 function formatDuration(ms?: number): string {
@@ -95,7 +95,7 @@ export function PhasePanel({
             className={cn(
               'rounded-md border px-2 py-1 text-xs transition-colors',
               autonomous
-                ? 'border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
+                ? 'border-success/25 bg-success/10 text-success'
                 : 'border-border/70 bg-muted/60 text-muted-foreground',
             )}
             title={autonomous ? t('activity:phase.autonomousOnTitle') : t('activity:phase.autonomousOffTitle')}
@@ -112,7 +112,7 @@ export function PhasePanel({
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full bg-[hsl(var(--success))] transition-all duration-500"
+              className="h-full rounded-full bg-success transition-all duration-500"
               style={{ width: `${overallPercent}%` }}
             />
           </div>
@@ -133,7 +133,7 @@ export function PhasePanel({
               className={cn(
                 'w-full rounded-lg border p-3 text-left shadow-sm transition-all hover:shadow-md',
                 isActive
-                  ? 'border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.08)] ring-1 ring-[hsl(var(--warning)/0.2)]'
+                  ? 'border-warning/35 bg-warning/8 ring-1 ring-warning/20'
                   : 'border-border/70 bg-card/75 hover:bg-accent/50',
               )}
             >
@@ -164,10 +164,10 @@ export function PhasePanel({
                     className={cn(
                       'h-full transition-all duration-500 rounded-full',
                       phase.status === 'completed'
-                        ? 'bg-[hsl(var(--success))]'
+                        ? 'bg-success'
                         : phase.status === 'failed'
                           ? 'bg-destructive'
-                          : 'bg-[hsl(var(--warning))]',
+                          : 'bg-warning',
                     )}
                     style={{ width: `${phase.progressPercent}%` }}
                   />
