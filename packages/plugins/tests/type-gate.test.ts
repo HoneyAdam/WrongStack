@@ -155,4 +155,74 @@ describe('type-gate plugin', () => {
     expect(health.counters['runs']).toBe(0);
     expect(api.log.info).toHaveBeenCalledWith('type-gate: teardown complete', expect.any(Object));
   });
+
+  it.each([
+    { command: 'node -e "require(\'child_process\').exec(\'calc.exe\')"' },
+    { command: 'tsx ./attacker.ts' },
+    { command: 'npx vitest run' },
+    { command: 'npx tsc --config=../../evil.tsconfig.json' },
+    { command: 'pnpm tsc --project=evil.json' },
+    { command: 'yarn tsc --isolatedModules' },
+    { command: 'pnpm --filter evil tsc' },
+    { command: 'pnpm exec tsc --eval "evil"' },
+    { command: 'npx' },
+    { command: 'pnpm' },
+    { command: 'npm malicious-package' },
+    { command: 'yarn' },
+    { command: 'bun run tsc' },
+    { command: 'pnpm exec tsc --eval "evil"' },
+    { command: 'npx exec tsc --print "evil"' },
+    { command: 'pnpm tsc --project=../../evil.json' },
+  ])('rejects unsafe custom command %#', async ({ command }) => {
+    vi.mocked(execFileSync).mockReturnValue('');
+    const api = makeApi({
+      extensions: { 'type-gate': { enabled: true, command } },
+    });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('passes argv with shell:false for an allowlisted npx tsc command', async () => {
+    vi.mocked(execFileSync).mockReturnValue('');
+    const api = makeApi({
+      extensions: { 'type-gate': { enabled: true, command: 'npx tsc --noEmit --pretty' } },
+    });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(execFileSync).toHaveBeenCalledWith(
+      'npx',
+      ['tsc', '--noEmit', '--pretty'],
+      expect.objectContaining({ shell: false }),
+    );
+  });
+
+  it.each([
+    '../evil/tsconfig.json',
+    '--config=evil.json',
+    '/etc/passwd',
+  ])('rejects unsafe tsConfigPath %#', async (tsConfigPath) => {
+    vi.mocked(execFileSync).mockReturnValue('');
+    const api = makeApi({
+      extensions: { 'type-gate': { enabled: true, tsConfigPath } },
+    });
+    typeGatePlugin.setup(api as never);
+    const hook = getHook(api);
+    await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/foo.ts' },
+      toolResult: { content: '', isError: false },
+    });
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
 });

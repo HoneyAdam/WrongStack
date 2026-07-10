@@ -134,27 +134,101 @@ const ALLOWED_COMMAND_TOKENS = new Set<string>([
   'pnpm',
   'npm',
   'yarn',
-  'bun',
   'tsc',
-  'node',
-  'tsx',
+]);
+const ALLOWED_TSC_FLAGS = new Set<string>([
+  '--noEmit',
+  '--pretty',
+  '--pretty=false',
+  '--incremental',
+  '--watch',
+  '--build',
+]);
+const ALLOWED_PNPM_TSC_FLAGS = new Set<string>([
+  '--noEmit',
+  '--pretty',
+  '--pretty=false',
+  '--incremental',
+  '--filter',
 ]);
 
+function hasLeadingDash(arg: string): boolean {
+  return arg.length > 0 && arg.startsWith('-');
+}
+
+function tokenizeCommand(command: string): string[] | null {
+  const trimmed = command.trim();
+  if (!trimmed || /["'`;&|<>\r\n]/.test(trimmed)) return null;
+  return trimmed.split(/\s+/).filter(Boolean);
+}
+
 function resolveAllowedCommand(customCommand: string): { cmd: string; args: string[] } | null {
-  const tokens = customCommand.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return null;
-  const head = tokens[0]!;
-  if (ALLOWED_COMMAND_TOKENS.has(head)) {
-    return { cmd: head, args: tokens.slice(1) };
+  const tokens = tokenizeCommand(customCommand);
+  if (!tokens) return null;
+  const [head, second, ...rest] = tokens;
+  if (!head) return null;
+
+  // The first argv element passed to the launcher must be a recognized
+  // runner argument — never the launcher's own "run" / subcommand. This
+  // kills `npx run`, `pnpm exec`, etc. being used as argv smuggling.
+  // Each supported spelling must spell the runner (tsc) explicitly.
+
+  // npx tsc [--allowed-tsc-flag ...]
+  if (head === 'npx' && second === 'tsc') {
+    if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
+    return { cmd: head, args: [second, ...rest] };
   }
+  // pnpm exec tsc [--allowed-tsc-flag ...]
+  if (head === 'pnpm' && second === 'exec' && rest[0] === 'tsc') {
+    const tail = rest.slice(1);
+    if (tail.some((arg) => !ALLOWED_PNPM_TSC_FLAGS.has(arg))) return null;
+    return { cmd: head, args: [second, 'tsc', ...tail] };
+  }
+  // pnpm tsc [--allowed-tsc-flag ...]
+  if (head === 'pnpm' && second === 'tsc') {
+    if (rest.some((arg) => !ALLOWED_PNPM_TSC_FLAGS.has(arg))) return null;
+    return { cmd: head, args: [second, ...rest] };
+  }
+  // npm exec tsc [--allowed-tsc-flag ...]
+  if (head === 'npm' && second === 'exec' && rest[0] === 'tsc') {
+    const tail = rest.slice(1);
+    if (tail.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
+    return { cmd: head, args: [second, 'tsc', ...tail] };
+  }
+  // yarn tsc [--allowed-tsc-flag ...]
+  if (head === 'yarn' && second === 'tsc') {
+    if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
+    return { cmd: head, args: [second, ...rest] };
+  }
+
+  // Absolute path under the project, basename matches a known launcher,
+  // and the second token must again spell the runner.
   if (isAbsolute(head)) {
     if (!withinProject(head)) return null;
     const base = head.split(/[/\\]/).pop() ?? '';
     if (ALLOWED_COMMAND_TOKENS.has(base)) {
-      return { cmd: head, args: tokens.slice(1) };
+      // The launcher must invoke the runner as its second token.
+      if (second !== 'tsc') return null;
+      if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
+      return { cmd: head, args: [second, ...rest] };
     }
   }
+  // Allow the bare `tsc` binary if installed directly on PATH — its flags
+  // are restricted to ALLOWED_TSC_FLAGS, and an attacker-configured `tsc`
+  // alone cannot escape argv form.
+  if (head === 'tsc') {
+    if (rest.some((arg) => !ALLOWED_TSC_FLAGS.has(arg))) return null;
+    return { cmd: head, args: rest };
+  }
   return null;
+}
+
+function validateTsConfigPath(p: string): string | null {
+  if (!withinProject(p)) return null;
+  // hasLeadingDash guard shared with command argv — tsConfigPath is
+  // appended as `-p <value>` and could otherwise smuggle a flag.
+  if (hasLeadingDash(p)) return null;
+  return p;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +244,14 @@ interface TypeCheckResult {
 
 function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
   const start = Date.now();
-  const tsConfig = cfg.tsConfigPath;
+  const rawTsConfig = cfg.tsConfigPath;
+  const validTsConfig = rawTsConfig && rawTsConfig !== 'tsconfig.json'
+    ? validateTsConfigPath(rawTsConfig)
+    : null;
+  if (rawTsConfig && rawTsConfig !== 'tsconfig.json' && !validTsConfig) {
+    return null;
+  }
+  const tsConfig = validTsConfig ?? (rawTsConfig || 'tsconfig.json');
 
   let cmd: string;
   let args: string[];
