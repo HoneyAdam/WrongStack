@@ -494,6 +494,11 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
       // Returns file watcher metrics as JSON. Protected by the same HTTP access
       // token when the server is bound beyond loopback.
       if (url.pathname === '/debug/watcher-metrics' && req.method === 'GET') {
+        if (requireAccessToken && !accessTokenOk) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
         if (opts.watcherMetrics) {
           // Update computed fields before returning
           const avgDelay = opts.watcherMetrics.broadcastsSent > 0
