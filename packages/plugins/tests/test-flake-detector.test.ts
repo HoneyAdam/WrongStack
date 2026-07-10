@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockExecSync = vi.fn((_cmd: string): string => {
+const mockExecFileSync = vi.fn((_cmd: string, _args: string[]): string => {
   // Default behavior: alternating flaky result across runs is driven per-test.
   return '';
 });
 
 vi.mock('node:child_process', () => ({
-  execSync: mockExecSync,
+  execFileSync: mockExecFileSync,
 }));
 
 const flakePlugin = (await import('../src/test-flake-detector')).default;
@@ -48,7 +48,7 @@ function getTools(api: MockApi): Array<{ name: string; permission: string; categ
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockExecSync.mockReset();
+  mockExecFileSync.mockReset();
 });
 
 afterEach(async () => {
@@ -78,7 +78,7 @@ describe('test-flake-detector plugin', () => {
 
   it('detects a flaky test across runs', async () => {
     let run = 0;
-    mockExecSync.mockImplementation(() => {
+    mockExecFileSync.mockImplementation(() => {
       run += 1;
       // Even runs pass the flaky test, odd runs fail it.
       return run % 2 === 0 ? '  ✓ flaky test\n' : '  ✕ flaky test\n';
@@ -108,7 +108,7 @@ describe('test-flake-detector plugin', () => {
   });
 
   it('classifies always-passing and always-failing tests', async () => {
-    mockExecSync.mockReturnValue(
+    mockExecFileSync.mockReturnValue(
       '  ✓ always passes\n  ✕ always fails\n  ✓ always passes too\n',
     );
 
@@ -129,7 +129,7 @@ describe('test-flake-detector plugin', () => {
   });
 
   it('uses custom command when provided', async () => {
-    mockExecSync.mockReturnValue('  ✓ custom cmd test\n');
+    mockExecFileSync.mockReturnValue('  ✓ custom cmd test\n');
 
     const api = makeApi();
     flakePlugin.setup(api as never);
@@ -142,26 +142,27 @@ describe('test-flake-detector plugin', () => {
 
     expect(result.ok).toBe(true);
     expect(result.command).toBe('pnpm vitest run --reporter=verbose pattern');
-    expect(mockExecSync).toHaveBeenCalledWith(
-      'pnpm vitest run --reporter=verbose pattern',
-      expect.any(Object),
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      process.execPath,
+      [expect.stringMatching(/[\\/]vitest[\\/]vitest\.mjs$/), 'run', '--reporter=verbose', 'pattern'],
+      expect.objectContaining({ shell: false }),
     );
   });
 
   it('falls back to configured default command', async () => {
-    mockExecSync.mockReturnValue('  ✓ default test\n');
+    mockExecFileSync.mockReturnValue('  ✓ default test\n');
 
-    const api = makeApi({ extensions: { 'test-flake-detector': { defaultCommand: 'npx jest' } } });
+    const api = makeApi({ extensions: { 'test-flake-detector': { defaultCommand: 'npx vitest run' } } });
     flakePlugin.setup(api as never);
     const detect = getTool(api, 'flake_detect');
     const result = (await detect.execute({ testPattern: 'src/baz.test.ts' })) as { ok: boolean; command: string };
 
     expect(result.ok).toBe(true);
-    expect(result.command).toBe('npx jest src/baz.test.ts');
+    expect(result.command).toBe('npx vitest run src/baz.test.ts');
   });
 
   it('clamps runs to configured maxRuns', async () => {
-    mockExecSync.mockReturnValue('  ✓ clamped\n');
+    mockExecFileSync.mockReturnValue('  ✓ clamped\n');
 
     const api = makeApi({ extensions: { 'test-flake-detector': { maxRuns: 3 } } });
     flakePlugin.setup(api as never);
@@ -173,11 +174,11 @@ describe('test-flake-detector plugin', () => {
 
     expect(result.ok).toBe(true);
     expect(result.runsRequested).toBe(3);
-    expect(mockExecSync).toHaveBeenCalledTimes(3);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(3);
   });
 
   it('treats non-zero exits as failed runs and still parses stdout', async () => {
-    mockExecSync.mockImplementation(() => {
+    mockExecFileSync.mockImplementation(() => {
       const err = Object.assign(new Error('exit 1'), {
         stdout: '  ✕ error run test\n',
         stderr: '',
@@ -200,19 +201,39 @@ describe('test-flake-detector plugin', () => {
     expect(result.runErrors!.length).toBe(2);
   });
 
-  it('does not duplicate pattern when already present in custom command', async () => {
-    mockExecSync.mockReturnValue('  ✓ dup check\n');
-
+  it('rejects test paths embedded in the command string', async () => {
     const api = makeApi();
     flakePlugin.setup(api as never);
     const detect = getTool(api, 'flake_detect');
     const result = (await detect.execute({
-      testPattern: 'src/foo.test.ts',
       command: 'npx vitest run src/foo.test.ts',
-    })) as { ok: boolean; command: string };
+    })) as { ok: boolean; error: string };
 
-    expect(result.ok).toBe(true);
-    expect(result.command).toBe('npx vitest run src/foo.test.ts');
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Unsupported test command');
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { command: 'node -e process.exit()', testPattern: 'src/foo.test.ts' },
+    { command: 'npx vitest run; calc.exe', testPattern: 'src/foo.test.ts' },
+    { command: 'npx malicious-package', testPattern: 'src/foo.test.ts' },
+    { command: 'npx jest', testPattern: 'src/foo.test.ts' },
+    { command: 'npx vitest --config=../../evil.ts', testPattern: 'src/foo.test.ts' },
+    { command: 'npx vitest run', testPattern: '--config=evil.ts' },
+    { command: 'npx vitest run', testPattern: '../outside.test.ts' },
+  ])('rejects unsafe command boundary %#', async ({ command, testPattern }) => {
+    const api = makeApi();
+    flakePlugin.setup(api as never);
+    const detect = getTool(api, 'flake_detect');
+    const result = (await detect.execute({ command, testPattern })) as {
+      ok: boolean;
+      error: string;
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Unsupported test command|unsafe testPattern/);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
   it('enabled:false disables flake_detect', async () => {
@@ -222,11 +243,11 @@ describe('test-flake-detector plugin', () => {
     const result = (await detect.execute({})) as { ok: boolean; error: string };
     expect(result.ok).toBe(false);
     expect(result.error).toContain('disabled');
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
   it('flake_status reports config and counters', async () => {
-    mockExecSync.mockReturnValue('  ✓ status test\n');
+    mockExecFileSync.mockReturnValue('  ✓ status test\n');
 
     const api = makeApi({ extensions: { 'test-flake-detector': { maxRuns: 7 } } });
     flakePlugin.setup(api as never);
@@ -267,7 +288,7 @@ describe('test-flake-detector plugin', () => {
 
   it('health reports last result summary', async () => {
     let run = 0;
-    mockExecSync.mockImplementation(() => {
+    mockExecFileSync.mockImplementation(() => {
       run += 1;
       return run % 2 === 0 ? '  ✓ health test\n' : '  ✕ health test\n';
     });

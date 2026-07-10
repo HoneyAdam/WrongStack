@@ -20,7 +20,10 @@
  * @public
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
 const API_VERSION = '^0.1.10';
@@ -146,21 +149,116 @@ function parseTestOutput(output: string): ParsedRun {
   return { passed, failed };
 }
 
-function buildCommand(baseCommand: string, testPattern: string | undefined): string {
-  const trimmedBase = baseCommand.trim();
-  if (!testPattern) return trimmedBase;
-  // Avoid duplicating the pattern if the caller already baked it into the command.
-  if (trimmedBase.includes(testPattern)) return trimmedBase;
-  return `${trimmedBase} ${testPattern}`;
+interface ResolvedTestCommand {
+  cmd: string;
+  args: string[];
+  display: string;
 }
 
-function runOnce(command: string, timeoutMs: number): { output: string; error?: string } {
+const TEST_RUNNERS = new Set(['vitest', 'jest', 'mocha']);
+const ALLOWED_RUNNER_FLAGS = new Set([
+  'run',
+  '--run',
+  '--runInBand',
+  '--passWithNoTests',
+  '--reporter=verbose',
+  '--reporter=default',
+]);
+
+function withinProject(p: string): boolean {
+  if (p.length === 0 || p.length > 4096 || p.startsWith('-')) return false;
+  const root = resolve(process.cwd());
+  const resolved = isAbsolute(p) ? resolve(p) : resolve(root, p);
+  const rel = relative(root, resolved);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function isInside(parent: string, child: string): boolean {
+  if (parent === child) return true;
+  const rel = relative(parent, child);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+function tokenizeCommand(command: string): string[] | null {
+  const trimmed = command.trim();
+  if (!trimmed || /["'`;&|<>\r\n]/.test(trimmed)) return null;
+  return trimmed.split(/\s+/).filter(Boolean);
+}
+
+function resolveTestCommand(
+  baseCommand: string,
+  testPattern: string | undefined,
+): ResolvedTestCommand | null {
+  const tokens = tokenizeCommand(baseCommand);
+  if (!tokens) return null;
+
+  let runner: string;
+  let runnerArgs: string[];
+  const [head, second, third, ...rest] = tokens;
+  if (TEST_RUNNERS.has(head ?? '')) {
+    runner = head!;
+    runnerArgs = tokens.slice(1);
+  } else if (head === 'npx' && TEST_RUNNERS.has(second ?? '')) {
+    runner = second!;
+    runnerArgs = tokens.slice(2);
+  } else if (head === 'pnpm' && (second === 'exec' || second === 'dlx') && TEST_RUNNERS.has(third ?? '')) {
+    runner = third!;
+    runnerArgs = rest;
+  } else if (head === 'pnpm' && TEST_RUNNERS.has(second ?? '')) {
+    runner = second!;
+    runnerArgs = tokens.slice(2);
+  } else if (head === 'npm' && second === 'exec' && TEST_RUNNERS.has(third ?? '')) {
+    runner = third!;
+    runnerArgs = rest;
+  } else if (head === 'yarn' && TEST_RUNNERS.has(second ?? '')) {
+    runner = second!;
+    runnerArgs = tokens.slice(2);
+  } else {
+    return null;
+  }
+
+  if (runnerArgs.some((arg) => !ALLOWED_RUNNER_FLAGS.has(arg))) return null;
+  let resolvedEntry: string;
   try {
-    const output = execSync(command, {
+    const requireFromProject = createRequire(resolve(process.cwd(), 'package.json'));
+    const packagePath = requireFromProject.resolve(`${runner}/package.json`);
+    const packageJson = JSON.parse(readFileSync(packagePath, 'utf8')) as {
+      bin?: string | Record<string, string>;
+    };
+    const relativeBin =
+      typeof packageJson.bin === 'string'
+        ? packageJson.bin
+        : packageJson.bin?.[runner] ?? Object.values(packageJson.bin ?? {})[0];
+    if (!relativeBin) return null;
+    const packageDir = dirname(packagePath);
+    const candidate = resolve(packageDir, relativeBin);
+    if (isAbsolute(relativeBin) || !isInside(packageDir, candidate)) {
+      return null;
+    }
+    resolvedEntry = candidate;
+  } catch {
+    return null;
+  }
+  const args = [resolvedEntry, ...runnerArgs];
+  if (testPattern) {
+    if (!withinProject(testPattern)) return null;
+    args.push(testPattern);
+  }
+  return {
+    cmd: process.execPath,
+    args,
+    display: [...tokens, ...(testPattern ? [testPattern] : [])].join(' '),
+  };
+}
+
+function runOnce(command: ResolvedTestCommand, timeoutMs: number): { output: string; error?: string } {
+  try {
+    const output = execFileSync(command.cmd, command.args, {
       encoding: 'utf-8',
       timeout: timeoutMs,
       cwd: process.cwd(),
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: false,
     });
     return { output };
   } catch (err: unknown) {
@@ -264,12 +362,19 @@ const plugin: Plugin = {
           typeof input.runs === 'number' && input.runs >= 1
             ? Math.min(Math.floor(input.runs), cfg.maxRuns)
             : 5;
-        const command = buildCommand(
+        const command = resolveTestCommand(
           typeof input.command === 'string' && input.command.trim().length > 0
             ? input.command
             : cfg.defaultCommand,
           input.testPattern,
         );
+        if (!command) {
+          return {
+            ok: false,
+            error:
+              'Unsupported test command or unsafe testPattern. Use vitest, jest, or mocha through a supported package runner, and keep patterns inside the project.',
+          };
+        }
 
         state.invocationCount += 1;
         const start = Date.now();
@@ -318,7 +423,7 @@ const plugin: Plugin = {
 
         return {
           ok: true,
-          command,
+          command: command.display,
           runsRequested: requestedRuns,
           runsCompleted,
           durationMs,
