@@ -7,12 +7,15 @@ import {
   createBoardObject,
   deleteBoard,
   getKanbanPath,
+  getKanbanEventsPath,
+  isValidBoardId,
   listBoardIds,
   listBoardSummaries,
   mutateBoard,
   readBoard,
   readKanbanEvents,
   resolveBoardRef,
+  writeBoard,
 } from '../src/storage.js';
 import { createBoard } from '../src/manager.js';
 
@@ -111,6 +114,40 @@ describe('readKanbanEvents', () => {
     const events = await readKanbanEvents(tmpDir, board.id);
     expect(events).toEqual([]);
   });
+
+  it('reads and parses events', async () => {
+    const board = await makeBoard();
+    const eventsPath = path.join(
+      path.dirname(getKanbanPath(tmpDir, board.id)),
+      `${board.id}.events.jsonl`,
+    );
+    const events = [
+      { type: 'task.created', taskId: 't1', timestamp: new Date().toISOString() },
+      { type: 'task.completed', taskId: 't1', timestamp: new Date().toISOString() },
+    ];
+    await fs.writeFile(
+      eventsPath,
+      events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+      'utf8',
+    );
+    const parsed = await readKanbanEvents(tmpDir, board.id);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].type).toBe('task.created');
+    expect(parsed[1].type).toBe('task.completed');
+  });
+
+  it('re-throws non-ENOENT errors during readKanbanEvents', async () => {
+    const board = await makeBoard();
+    // Replace events file with a directory so readFile throws EISDIR
+    const eventsPath = path.join(
+      path.dirname(getKanbanPath(tmpDir, board.id)),
+      `${board.id}.events.jsonl`,
+    );
+    await fs.writeFile(eventsPath, '', 'utf8');
+    await fs.unlink(eventsPath);
+    await fs.mkdir(eventsPath, { recursive: true });
+    await expect(readKanbanEvents(tmpDir, board.id)).rejects.toThrow();
+  });
 });
 
 // ── deleteBoard — error paths ─────────────────────────────────────
@@ -126,6 +163,35 @@ describe('deleteBoard', () => {
     expect(result).toBe(true);
     // Verify board file is gone
     expect(await readBoard(tmpDir, board.id)).toBeNull();
+  });
+
+  it('re-throws non-ENOENT errors during delete', async () => {
+    const board = await makeBoard();
+    // Replace the board file with a directory so unlink throws EISDIR
+    const boardPath = getKanbanPath(tmpDir, board.id);
+    await fs.unlink(boardPath);
+    await fs.mkdir(boardPath, { recursive: true });
+    await expect(deleteBoard(tmpDir, board.id)).rejects.toThrow();
+  });
+
+  it('re-throws non-ENOENT errors from events unlink during delete', async () => {
+    const board = await makeBoard();
+    // Replace events file with a directory so unlink throws EISDIR
+    const eventsDir = path.dirname(getKanbanPath(tmpDir, board.id));
+    const eventsPath = path.join(eventsDir, `${board.id}.events.jsonl`);
+    await fs.writeFile(eventsPath, '', 'utf8');
+    await fs.unlink(eventsPath);
+    await fs.mkdir(eventsPath, { recursive: true });
+    await expect(deleteBoard(tmpDir, board.id)).rejects.toThrow();
+  });
+
+  it('returns false when board file vanishes between resolve and lock', async () => {
+    const board = await makeBoard();
+    const boardPath = getKanbanPath(tmpDir, board.id);
+    // Delete the file after resolveBoardRef but before the locked unlink
+    await fs.unlink(boardPath);
+    const result = await deleteBoard(tmpDir, board.id);
+    expect(result).toBe(false);
   });
 });
 
@@ -148,6 +214,15 @@ describe('mutateBoard', () => {
     const result = await mutateBoard(tmpDir, board.id, () => 'ok');
     expect(result).toBeNull();
   });
+
+  it('re-throws non-ENOENT errors during mutateBoard', async () => {
+    const board = await makeBoard();
+    // Replace board file with a directory so readFile throws EISDIR
+    const boardPath = getKanbanPath(tmpDir, board.id);
+    await fs.unlink(boardPath);
+    await fs.mkdir(boardPath, { recursive: true });
+    await expect(mutateBoard(tmpDir, board.id, () => 'ok')).rejects.toThrow();
+  });
 });
 
 // ── readBoard — null returns ───────────────────────────────────────
@@ -155,6 +230,15 @@ describe('mutateBoard', () => {
 describe('readBoard', () => {
   it('returns null for unknown board', async () => {
     expect(await readBoard(tmpDir, 'nonexistent')).toBeNull();
+  });
+
+  it('re-throws non-ENOENT errors during readBoard', async () => {
+    const board = await makeBoard();
+    // Replace board file with a directory so readFile throws EISDIR
+    const boardPath = getKanbanPath(tmpDir, board.id);
+    await fs.unlink(boardPath);
+    await fs.mkdir(boardPath, { recursive: true });
+    await expect(readBoard(tmpDir, board.id)).rejects.toThrow();
   });
 });
 
@@ -219,5 +303,113 @@ describe('listBoardSummaries', () => {
     for (let i = 1; i < summaries.length; i++) {
       expect(summaries[i - 1]!.updatedAt >= summaries[i]!.updatedAt).toBe(true);
     }
+  });
+});
+
+// ── isValidBoardId ──────────────────────────────────────────────────
+
+describe('isValidBoardId', () => {
+  it('accepts valid board IDs', () => {
+    expect(isValidBoardId('abc123')).toBe(true);
+    expect(isValidBoardId('my-board_123')).toBe(true);
+    expect(isValidBoardId('A')).toBe(true);
+  });
+
+  it('rejects invalid board IDs', () => {
+    expect(isValidBoardId('')).toBe(false);
+    expect(isValidBoardId('-start')).toBe(false);
+    expect(isValidBoardId('has..dots')).toBe(false);
+    expect(isValidBoardId('has spaces')).toBe(false);
+  });
+});
+
+// ── writeBoard ──────────────────────────────────────────────────────
+
+describe('writeBoard', () => {
+  it('writes a board and can be read back', async () => {
+    const board = createBoardObject({ title: 'Write Test' });
+    await writeBoard(tmpDir, board);
+    const read = await readBoard(tmpDir, board.id);
+    expect(read).not.toBeNull();
+    expect(read!.title).toBe('Write Test');
+  });
+});
+
+// ── appendKanbanEvent ───────────────────────────────────────────────
+
+describe('appendKanbanEvent', () => {
+  it('appends an event and reads it back', async () => {
+    const { appendKanbanEvent } = await import('../src/storage.js');
+    const board = await makeBoard();
+    const event = { type: 'task.moved' as const, taskId: 't1', fromColumn: 'c1', toColumn: 'c2', timestamp: new Date().toISOString() };
+    await appendKanbanEvent(tmpDir, board.id, event);
+    const events = await readKanbanEvents(tmpDir, board.id);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('task.moved');
+  });
+});
+
+// ── assertValidBoardId (invalid path) ───────────────────────────────
+
+describe('getKanbanPath with invalid board ID', () => {
+  it('throws for invalid board id with dots', () => {
+    expect(() => getKanbanPath(tmpDir, '..%2Fevil')).toThrow('Invalid kanban board id');
+  });
+
+  it('throws for invalid board id with slashes', () => {
+    expect(() => getKanbanPath(tmpDir, '../../../etc/passwd')).toThrow('Invalid kanban board id');
+  });
+});
+
+// ── boolean conditional branches ────────────────────────────────────
+
+describe('createBoardObject conditional branches', () => {
+  it('creates board without description, tags, or generatedBy', () => {
+    const board = createBoardObject({ title: 'Minimal' });
+    expect(board.title).toBe('Minimal');
+    expect(board.description).toBeUndefined();
+    expect(board.tags).toBeUndefined();
+    expect(board.generatedBy).toBeUndefined();
+  });
+
+  it('creates board with all optional fields', async () => {
+    const board = createBoardObject({
+      title: 'Full',
+      description: 'desc',
+      tags: ['tag1'],
+      generatedBy: 'test',
+    });
+    expect(board.description).toBe('desc');
+    expect(board.tags).toEqual(['tag1']);
+    expect(board.generatedBy).toBe('test');
+  });
+});
+
+// ── boardMeta with undefined optionals ──────────────────────────────
+
+describe('boardMeta with undefined fields', () => {
+  it('handles board without description, tags, or tasks', () => {
+    const board = createBoardObject({ title: 'Bare' });
+    // Remove optional fields to hit the undefined branches
+    delete (board as any).description;
+    delete (board as any).tags;
+    const meta = boardMeta(board);
+    expect(meta.title).toBe('Bare');
+    expect((meta as any).description).toBeUndefined();
+    expect((meta as any).tags).toBeUndefined();
+    expect(meta.taskCount).toBe(0);
+    expect(meta.completedTaskCount).toBe(0);
+  });
+
+  it('boardMeta with tasks including completed', () => {
+    const now = new Date().toISOString();
+    const board = createBoardObject({ title: 'Stats' });
+    board.tasks = [
+      { id: 't1', title: 'Done', columnId: 'backlog', order: 0, priority: 'high', status: 'completed', createdAt: now, updatedAt: now, completedAt: now },
+      { id: 't2', title: 'Pending', columnId: 'backlog', order: 1, priority: 'low', status: 'pending', createdAt: now, updatedAt: now },
+    ];
+    const meta = boardMeta(board);
+    expect(meta.taskCount).toBe(2);
+    expect(meta.completedTaskCount).toBe(1);
   });
 });
