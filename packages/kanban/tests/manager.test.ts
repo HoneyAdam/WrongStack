@@ -10,7 +10,9 @@ import {
   addNoteToTask,
   addTask,
   areDependenciesMet,
+  assignTask,
   buildTaskGraphFromKanbanBoard,
+  claimReadyTask,
   createBoard,
   createBoardFromTaskGraph,
   duplicateBoard,
@@ -21,11 +23,14 @@ import {
   getBoard,
   getKanbanQueueHealth,
   getTask,
+  heartbeatTaskAssignment,
   listBoards,
   listReadyTasks,
   mergeTasks,
   moveTask,
   parseLinesIntoTasks,
+  recoverStaleTaskAssignments,
+  releaseTaskClaim,
   removeBoard,
   removeColumn,
   removeTask,
@@ -36,6 +41,7 @@ import {
   updateCheckOnTask,
   updateColumn,
   updateTask,
+  updateTaskAssignment,
 } from '../src/manager.js';
 import type { KanbanBoard, KanbanTask } from '../src/types.js';
 
@@ -983,5 +989,242 @@ describe('createBoardFromTaskGraph', () => {
     });
     expect(result.board.tasks).toHaveLength(1);
     expect(result.board.tasks[0]!.title).toBe('Active task');
+  });
+});
+
+// ── assignTask ─────────────────────────────────────────────────────
+
+describe('assignTask', () => {
+  it('assigns a task with agent metadata', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'To assign' });
+    const updated = await assignTask(tmpDir, board.id, task!.task.id, {
+      agentId: 'agent-01',
+      name: 'Worker One',
+      role: 'executor',
+      provider: 'anthropic',
+      model: 'opus',
+      maxAttempts: 3,
+    });
+    expect(updated).not.toBeNull();
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.assignedAgent).toBe('agent-01');
+    expect(found?.assignment?.provider).toBe('anthropic');
+    expect(found?.assignment?.model).toBe('opus');
+    expect(found?.assignment?.maxAttempts).toBe(3);
+  });
+
+  it('returns null for unknown task', async () => {
+    const board = await makeBoard();
+    expect(await assignTask(tmpDir, board.id, 'no-such-task', { agentId: 'x' })).toBeNull();
+  });
+});
+
+// ── updateTaskAssignment ───────────────────────────────────────────
+
+describe('updateTaskAssignment', () => {
+  it('marks a running task as completed', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Run and done' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const updated = await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'completed',
+    });
+    expect(updated).not.toBeNull();
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.status).toBe('completed');
+    expect(found?.assignment?.status).toBe('completed');
+    expect(found?.completedAt).toBeDefined();
+  });
+
+  it('marks a task as failed', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Will fail' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const updated = await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'failed',
+      error: 'Tool call limit exceeded',
+    });
+    expect(updated).not.toBeNull();
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.status).toBe('failed');
+    expect(found?.assignment?.error).toBe('Tool call limit exceeded');
+  });
+
+  it('queues an assigned task back to ready', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Re-queue me' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    await updateTaskAssignment(tmpDir, board.id, task!.task.id, { status: 'completed' });
+    const updated = await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'queued',
+    });
+    expect(updated).not.toBeNull();
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.status).toBe('ready');
+    expect(found?.assignment?.status).toBe('queued');
+  });
+});
+
+// ── heartbeatTaskAssignment ────────────────────────────────────────
+
+describe('heartbeatTaskAssignment', () => {
+  it('updates heartbeat timestamp', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Heartbeat' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const hb = '2026-07-11T12:00:00.000Z';
+    const updated = await heartbeatTaskAssignment(tmpDir, board.id, task!.task.id, {
+      heartbeatAt: hb,
+      leaseExpiresAt: '2026-07-11T12:05:00.000Z',
+    });
+    expect(updated).not.toBeNull();
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.assignment?.heartbeatAt).toBe(hb);
+    expect(found?.assignment?.leaseExpiresAt).toBe('2026-07-11T12:05:00.000Z');
+  });
+
+  it('returns null when task has no assignment', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Not assigned' });
+    expect(await heartbeatTaskAssignment(tmpDir, board.id, task!.task.id, {})).toBeNull();
+  });
+});
+
+// ── claimReadyTask ─────────────────────────────────────────────────
+
+describe('claimReadyTask', () => {
+  it('claims a ready task on a specific board', async () => {
+    const board = await createBoard(tmpDir, {
+      title: 'Claim test',
+      tasks: [{ title: 'Claimable' }],
+    });
+    const result = await claimReadyTask(tmpDir, { boardId: board.id, agentId: 'worker-1' });
+    expect(result).not.toBeNull();
+    expect(result!.task.assignment?.agentId).toBe('worker-1');
+    expect(result!.task.status).toBe('ready');
+  });
+
+  it('returns null when no ready tasks', async () => {
+    const board = await createBoard(tmpDir, {
+      title: 'Empty board',
+    });
+    expect(await claimReadyTask(tmpDir, { boardId: board.id, agentId: 'x' })).toBeNull();
+  });
+
+  it('claims across all boards when no boardId specified', async () => {
+    await createBoard(tmpDir, { title: 'B1', tasks: [{ title: 'Pick me' }] });
+    const result = await claimReadyTask(tmpDir, { agentId: 'finder' });
+    expect(result).not.toBeNull();
+    expect(result!.task.assignment?.agentId).toBe('finder');
+  });
+});
+
+// ── releaseTaskClaim ──────────────────────────────────────────────
+
+describe('releaseTaskClaim', () => {
+  it('releases a claimed task', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Release me' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const released = await releaseTaskClaim(tmpDir, board.id, task!.task.id);
+    expect(released).not.toBeNull();
+    const found = released!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.assignment).toBeUndefined();
+    expect(found?.status).toBe('ready');
+  });
+
+  it('releases with reason note', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Release with note' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    await releaseTaskClaim(tmpDir, board.id, task!.task.id, {
+      reason: 'Worker timed out',
+      status: 'pending',
+    });
+    // Verify note was added (re-read to be safe)
+    const updated = await getBoard(tmpDir, board.id);
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.assignment).toBeUndefined();
+    expect(found?.status).toBe('pending');
+    expect(found?.notes?.some((n) => n.content.includes('Worker timed out'))).toBe(true);
+  });
+});
+
+// ── recoverStaleTaskAssignments ────────────────────────────────────
+
+describe('recoverStaleTaskAssignments', () => {
+  it('recovers expired assignments in retry mode', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Stale task' });
+    await assignTask(tmpDir, board.id, task!.task.id, {
+      agentId: 'bot',
+      maxAttempts: 3,
+    });
+    // Set a past lease so it appears stale
+    const past = '2020-01-01T00:00:00.000Z';
+    await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'queued',
+      leaseExpiresAt: past,
+      attempt: 0,
+    });
+    const result = await recoverStaleTaskAssignments(tmpDir, board.id, {
+      mode: 'retry',
+    });
+    expect(result).not.toBeNull();
+    expect(result!.tasks).toHaveLength(1);
+    expect(result!.tasks[0]!.assignment?.status).toBe('assigned');
+    expect(result!.tasks[0]!.assignment?.attempt).toBe(1);
+  });
+
+  it('recovers expired assignments in release mode', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Release stale' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const past = '2020-01-01T00:00:00.000Z';
+    await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'queued',
+      leaseExpiresAt: past,
+    });
+    const result = await recoverStaleTaskAssignments(tmpDir, board.id, {
+      mode: 'release',
+    });
+    expect(result).not.toBeNull();
+    expect(result!.tasks).toHaveLength(1);
+    expect(result!.tasks[0]!.assignment).toBeUndefined();
+  });
+
+  it('recovers expired assignments in fail mode', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Fail stale' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const past = '2020-01-01T00:00:00.000Z';
+    await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'queued',
+      leaseExpiresAt: past,
+    });
+    const result = await recoverStaleTaskAssignments(tmpDir, board.id, {
+      mode: 'fail',
+    });
+    expect(result).not.toBeNull();
+    expect(result!.tasks).toHaveLength(1);
+    expect(result!.tasks[0]!.assignment?.status).toBe('failed');
+    expect(result!.tasks[0]!.status).toBe('failed');
+  });
+
+  it('skips tasks with non-expired leases', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Fresh task' });
+    await assignTask(tmpDir, board.id, task!.task.id, { agentId: 'bot' });
+    const future = '2099-01-01T00:00:00.000Z';
+    await updateTaskAssignment(tmpDir, board.id, task!.task.id, {
+      status: 'queued',
+      leaseExpiresAt: future,
+    });
+    const result = await recoverStaleTaskAssignments(tmpDir, board.id, {
+      mode: 'retry',
+    });
+    // No tasks recovered — lease still valid
+    expect(result).toBeNull();
   });
 });
