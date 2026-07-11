@@ -861,6 +861,7 @@ export async function main(argv: string[]): Promise<number> {
     projectRoot,
     metricsSink,
     healthRegistry,
+    metricsStatus,
     planPath,
     modeStore,
     fleetStreamController,

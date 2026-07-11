@@ -1,53 +1,12 @@
 import { spawn } from 'node:child_process';
-import { assessCommitSafety } from '../coordination/commit-safety.js';
-import type { Context, SlashCommand } from '../index.js';
-import { ERROR_CODES, WrongStackError } from '../types/errors.js';
-import type { Plugin } from '../types/plugin.js';
-import { color } from '../utils/color.js';
-import { toErrorMessage } from '../utils/error.js';
-
-/**
- * GitPlugin — built-in git helpers.
- *
- * Registers `/git`, `/commit`, `/gitcheck` and `/push`. First-party ("official")
- * plugin, so the commands keep their bare names and `gc` / `gcstatus` aliases.
- * `/commit` generates an LLM commit message from the session provider when one
- * is available, falling back to diff heuristics. No configuration required.
- */
-export function createGitPlugin(): Plugin {
-  return {
-    name: 'wstack-git',
-    version: '1.0.0',
-    description: 'Git helpers: /git overview, /commit (LLM message), /gitcheck, /push',
-    apiVersion: '^0.1',
-    capabilities: { slashCommands: true },
-    defaultConfig: {},
-
-    setup(api) {
-      api.slashCommands.register(buildGitCommand());
-      api.slashCommands.register(buildCommitCommand());
-      api.slashCommands.register(buildGitcheckCommand());
-      api.slashCommands.register(buildPushCommand());
-      api.log.info('[git] loaded — /git, /commit, /gitcheck, /push available');
-    },
-
-    teardown(api) {
-      api.slashCommands.unregister('git');
-      api.slashCommands.unregister('commit');
-      api.slashCommands.unregister('gitcheck');
-      api.slashCommands.unregister('push');
-      api.log.info('[git] unloaded');
-    },
-
-    async health() {
-      return { ok: true, message: 'git helpers ready' };
-    },
-  };
-}
+import { assessCommitSafety } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core';
+import { color, toErrorMessage } from '@wrongstack/core';
+import type { SlashCommandContext } from './index.js';
 
 // ── git child process ───────────────────────────────────────────────
 
-async function runGit(
+export async function runGit(
   args: string[],
   cwd: string,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
@@ -68,27 +27,12 @@ async function runGit(
         stderr += d;
       });
       child.on('error', (err) => {
-        reject(
-          new WrongStackError({
-            message: `Failed to run git: ${err.message}`,
-            code: ERROR_CODES.TOOL_EXECUTION_FAILED,
-            subsystem: 'tool',
-            context: { command: 'git', args, cwd },
-            cause: err,
-          }),
-        );
+        reject(new Error(`Failed to run git: ${err.message}`));
       });
       child.on('close', (code) => resolve({ stdout, stderr, code: code ?? 0 }));
     });
   } catch (err) {
-    if (err instanceof WrongStackError) throw err;
-    throw new WrongStackError({
-      message: toErrorMessage(err),
-      code: ERROR_CODES.TOOL_EXECUTION_FAILED,
-      subsystem: 'tool',
-      context: { command: 'git', args, cwd },
-      cause: err,
-    });
+    throw new Error(toErrorMessage(err));
   }
 }
 
@@ -173,7 +117,7 @@ function renderGitOverview(overview: GitOverview): string {
  * Read-only operational Git command. Mutating workflows remain on `/commit`,
  * `/push`, and the permission-gated `git` tool.
  */
-export function buildGitCommand(): SlashCommand {
+export function buildGitCommand(opts: SlashCommandContext): SlashCommand {
   const help = [
     'Usage: /git [status|branch|diff] [--staged] [--json]',
     '',
@@ -190,7 +134,7 @@ export function buildGitCommand(): SlashCommand {
     argsHint: '[status|branch|diff] [--staged] [--json]',
     description: 'Show a concise, read-only repository overview.',
     help,
-    async run(args: string, ctx: Context) {
+    async run(args: string) {
       const tokens = args.trim().split(/\s+/).filter(Boolean);
       const verb = tokens.find((token) => !token.startsWith('-'))?.toLowerCase() ?? 'status';
       const json = tokens.includes('--json');
@@ -199,7 +143,7 @@ export function buildGitCommand(): SlashCommand {
         return { message: `Unknown subcommand "${verb}". Try: status | branch | diff.` };
       }
 
-      const cwd = ctx?.cwd ?? process.cwd();
+      const cwd = opts.cwd;
       if (!(await isGitRepo(cwd))) return { message: 'Not a git repository.' };
 
       const overview = await readGitOverview(cwd);
@@ -237,7 +181,7 @@ export function buildGitCommand(): SlashCommand {
 
 /**
  * Provider shape needed to draft a commit message. Mirrors the session
- * provider's `complete()` — we access it structurally so the plugin doesn't
+ * provider's `complete()` — we access it structurally so the command doesn't
  * depend on the concrete Provider type.
  */
 interface CommitLLMProvider {
@@ -355,13 +299,13 @@ async function generateCommitMessageHeuristics(cwd: string): Promise<string> {
 
 // ── commands ────────────────────────────────────────────────────────
 
-export function buildCommitCommand(): SlashCommand {
+export function buildCommitCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'commit',
     description: 'Stage all changes and commit with auto-generated message.',
     aliases: ['gc'],
-    async run(args: string, ctx: Context) {
-      const cwd = ctx?.cwd ?? process.cwd();
+    async run(args: string) {
+      const cwd = opts.cwd;
 
       if (!(await isGitRepo(cwd))) return { message: 'Not a git repository.' };
       if (!(await hasUncommittedChanges(cwd))) {
@@ -380,8 +324,8 @@ export function buildCommitCommand(): SlashCommand {
       try {
         const report = await assessCommitSafety({
           cwd,
-          projectRoot: ctx?.projectRoot ?? cwd,
-          sessionId: ctx?.session?.id,
+          projectRoot: opts.projectRoot,
+          sessionId: opts.context?.session?.id,
         });
         if (report.warning) {
           worktreeWarning = `\n${color.yellow(report.warning)}\n`;
@@ -393,10 +337,10 @@ export function buildCommitCommand(): SlashCommand {
       // Draft message — LLM from the session provider first, heuristics on any
       // failure (no provider, timeout, empty result).
       let message: string | null = null;
-      const provider = noLlm ? null : asLLMProvider(ctx?.provider);
-      if (provider && ctx?.model) {
+      const provider = noLlm ? null : asLLMProvider(opts.llmProvider);
+      if (provider && opts.llmModel) {
         const diff = (await runGit(['diff'], cwd)).stdout;
-        message = await generateCommitMessageWithLLM(diff, provider, ctx.model);
+        message = await generateCommitMessageWithLLM(diff, provider, opts.llmModel);
       }
       if (!message) message = await generateCommitMessageHeuristics(cwd);
 
@@ -452,13 +396,13 @@ export function buildCommitCommand(): SlashCommand {
   };
 }
 
-export function buildGitcheckCommand(): SlashCommand {
+export function buildGitcheckCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'gitcheck',
     description: 'Check for uncommitted changes (for system prompt integration).',
     aliases: ['gcstatus'],
-    async run(_args: string, ctx: Context) {
-      const cwd = ctx?.cwd ?? process.cwd();
+    async run(_args: string) {
+      const cwd = opts.cwd;
       if (!(await isGitRepo(cwd))) return { message: '' };
       if (!(await hasUncommittedChanges(cwd))) return { message: '' };
 
@@ -473,12 +417,12 @@ export function buildGitcheckCommand(): SlashCommand {
   };
 }
 
-export function buildPushCommand(): SlashCommand {
+export function buildPushCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'push',
     description: 'Push to remote after commit.',
-    async run(args: string, ctx: Context) {
-      const cwd = ctx?.cwd ?? process.cwd();
+    async run(args: string) {
+      const cwd = opts.cwd;
       if (!(await isGitRepo(cwd))) return { message: 'Not a git repository.' };
 
       const dryRun = args.includes('--dry-run') || args.includes('-n');

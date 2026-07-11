@@ -1,0 +1,106 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  copilotBaseUrlFromToken,
+  refreshCopilotToken,
+} from '../src/github-copilot-token.js';
+
+describe('copilotBaseUrlFromToken', () => {
+  it('returns default base URL for undefined token', () => {
+    expect(copilotBaseUrlFromToken(undefined)).toBe(
+      'https://api.individual.githubcopilot.com',
+    );
+  });
+
+  it('returns default base URL for token without proxy-ep', () => {
+    expect(copilotBaseUrlFromToken('just_a_token')).toBe(
+      'https://api.individual.githubcopilot.com',
+    );
+  });
+
+  it('derives API base from proxy-ep in token', () => {
+    const token = 'foo;proxy-ep=proxy.individual.githubcopilot.com;bar';
+    expect(copilotBaseUrlFromToken(token)).toBe(
+      'https://api.individual.githubcopilot.com',
+    );
+  });
+
+  it('rejects private hostnames (SSRF guard) and falls back to default', () => {
+    const token = 'proxy-ep=proxy.internal.corp';
+    expect(copilotBaseUrlFromToken(token)).toBe(
+      'https://api.individual.githubcopilot.com',
+    );
+  });
+
+  it('rejects proxy-ep with port number and falls back to default', () => {
+    const token = 'proxy-ep=proxy.individual.githubcopilot.com:9999';
+    expect(copilotBaseUrlFromToken(token)).toBe(
+      'https://api.individual.githubcopilot.com',
+    );
+  });
+});
+
+describe('refreshCopilotToken', () => {
+  it('throws FetchError on non-ok response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'unauthorized',
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      await expect(refreshCopilotToken('gh_token')).rejects.toThrow(
+        /Copilot token request failed/,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('throws ParseError when response is missing fields', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'abc' }), // missing expires_at
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      await expect(refreshCopilotToken('gh_token')).rejects.toThrow(
+        /Copilot token response missing fields/,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('returns token and expiry on success', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: 'copilot-token-abc', expires_at: 2000000000 }),
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const result = await refreshCopilotToken('gh_token');
+      expect(result.token).toBe('copilot-token-abc');
+      expect(result.expires).toBe(2000000000 * 1000);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('handles text() rejection gracefully for non-ok response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => { throw new Error('text failed'); },
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      await expect(refreshCopilotToken('gh_token')).rejects.toThrow(
+        /Copilot token request failed/,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

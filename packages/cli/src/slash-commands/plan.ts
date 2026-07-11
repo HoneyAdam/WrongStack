@@ -1,64 +1,27 @@
-import type { Context, SlashCommand } from '../index.js';
+import type { SlashCommand } from '@wrongstack/core';
 import {
   addPlanItem,
   clearPlan,
   deriveTodosFromPlanItem,
   emptyPlan,
   formatPlan,
-  loadPlan,
-  mutatePlan,
-  type PlanFile,
-  removePlanItem,
-  setPlanItemStatus,
-} from '../storage/plan-store.js';
-import {
   formatPlanTemplates,
   getPlanTemplate,
   listPlanTemplates,
-} from '../storage/plan-templates.js';
-import { emptyTaskFile, loadTasks, saveTasks, type TaskFile } from '../storage/task-store.js';
-import type { Plugin } from '../types/plugin.js';
-import { formatTaskList } from '../utils/task-format.js';
-import { formatTodosList } from '../utils/todos-format.js';
-import type { WstackPaths } from '../utils/wstack-paths.js';
-
-interface PlanPluginOptions {
-  paths?: WstackPaths | undefined;
-}
-
-/**
- * PlanPlugin — strategic plan board (`/plan`), the higher-level counterpart to
- * `/todos`. First-party ("official") plugin, so the command keeps its bare
- * name. Plans persist to `<projectDir>/plan.json` (from the injected
- * `WstackPaths`); the live context is read off `ctx` at dispatch.
- */
-export function createPlanPlugin(opts?: PlanPluginOptions): Plugin {
-  return {
-    name: 'wstack-plan',
-    version: '1.0.0',
-    description:
-      'Strategic plan board: /plan show | add | start | done | promote | taskify | template | clear',
-    apiVersion: '^0.1',
-    capabilities: { slashCommands: true },
-    defaultConfig: {},
-
-    setup(api) {
-      const rawConfig = api.config as never as Record<string, unknown>;
-      const paths = opts?.paths ?? (rawConfig.paths as WstackPaths | undefined);
-      api.slashCommands.register(buildPlanCommand(paths?.projectPlan));
-      api.log.info('[plan] loaded — /plan available');
-    },
-
-    teardown(api) {
-      api.slashCommands.unregister('plan');
-      api.log.info('[plan] unloaded');
-    },
-
-    async health() {
-      return { ok: true, message: 'plan board ready' };
-    },
-  };
-}
+  loadPlan,
+  mutatePlan,
+  removePlanItem,
+  setPlanItemStatus,
+  type PlanFile,
+} from '@wrongstack/core/storage';
+import {
+  emptyTaskFile,
+  loadTasks,
+  saveTasks,
+  type TaskFile,
+} from '@wrongstack/core/storage';
+import { formatTaskList, formatTodosList } from '@wrongstack/core/utils';
+import type { SlashCommandContext } from './index.js';
 
 /** Find a plan item by 1-based index, exact id, or case-insensitive title substring. */
 function findPlanItemIndex(plan: PlanFile, query: string): number {
@@ -70,7 +33,7 @@ function findPlanItemIndex(plan: PlanFile, query: string): number {
   return plan.items.findIndex((it) => it.title.toLowerCase().includes(lower));
 }
 
-export function buildPlanCommand(planPath?: string): SlashCommand {
+export function buildPlanCommand(opts: SlashCommandContext): SlashCommand {
   const help = [
     'Usage: /plan [show|add <title>|start <id|#>|done <id|#>|remove <id|#>|promote <id|#> [subtask ...]|derive <id|#> [subtask ...]|taskify <id|#>|template [list|use <name>]|clear] [--json]',
     '',
@@ -109,7 +72,7 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
     description:
       'Strategic plan board: /plan [show|add <title>|start <id|#>|done <id|#>|remove <id|#>|promote <id|#> [subtask ...]|derive <id|#> [subtask ...]|taskify <id|#>|template [list|use <name>]|clear]',
     help,
-    async run(args: string, ctx: Context) {
+    async run(args: string) {
       const tokens = args
         .trim()
         .split(/\s+/)
@@ -117,7 +80,7 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
       const json = args.trim().split(/\s+/).includes('--json');
       const [verb = '', ...rest] = tokens;
       if (verb === 'help') return { message: help };
-      if (!planPath) {
+      if (!opts.planPath) {
         return errorResult(
           'storage_not_configured',
           'Plan storage is not configured for this session.',
@@ -125,7 +88,8 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
         );
       }
 
-      const sessionId = ctx?.session?.id ?? 'unknown';
+      const planPath = opts.planPath;
+      const sessionId = opts.context?.session?.id ?? 'unknown';
       const restJoined = rest.join(' ').trim();
 
       // Read-only — no lock
@@ -151,7 +115,7 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
         }
         const item = plan.items[itemIdx]!;
 
-        const taskPath = (ctx?.meta as Record<string, unknown>)?.['task.path'];
+        const taskPath = opts.context?.meta?.['task.path'];
         if (typeof taskPath !== 'string' || !taskPath) {
           return errorResult(
             'task_storage_not_configured',
@@ -255,7 +219,7 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
               outputError = { code: 'item_not_found', message: outputMessage };
               return plan;
             }
-            ctx?.state?.replaceTodos(derived.todos);
+            opts.context?.state?.replaceTodos(derived.todos);
             const label = verb === 'derive' ? 'Derived' : 'Promoted to';
             outputMessage = `${label} ${derived.todos.length} todo(s):\n${formatTodosList(derived.todos)}\n\n${formatPlan(derived.plan)}`;
             outputExtra = { todos: derived.todos };

@@ -4,6 +4,7 @@ import type {
   EventBus,
   HealthRegistry,
   MemoryStore,
+  MetricsRuntimeStatus,
   MetricsSink,
   ModeStore,
   Renderer,
@@ -39,6 +40,7 @@ export interface SlashCommandContext {
   projectRoot: string;
   metricsSink?: MetricsSink | undefined;
   healthRegistry?: HealthRegistry | undefined;
+  metricsStatus?: MetricsRuntimeStatus | undefined;
   modeStore?: ModeStore | undefined;
   /** Input reader for interactive pickers (arrow key navigation etc.). */
   inputReader?: import('@wrongstack/core').InputReader | undefined;
@@ -473,9 +475,18 @@ export interface SlashCommandContext {
   brain?: import('@wrongstack/core').BrainArbiter | undefined;
   /**
    * Live Brain autonomy settings — `/brain risk <level>` mutates
-   * `maxAutoRisk` in place and the tiered arbiter reads it on every decision.
+   * `maxAutoRisk` and `/brain mode <m>` mutates `mode` in place; the brain
+   * chain reads both on every decision. `poolLabels`/`councilLabels` are
+   * static wiring facts surfaced by `/brain status`.
    */
-  brainSettings?: { maxAutoRisk: import('@wrongstack/core').BrainAutoRisk } | undefined;
+  brainSettings?:
+    | {
+        maxAutoRisk: import('@wrongstack/core').BrainAutoRisk;
+        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        poolLabels?: string[] | undefined;
+        councilLabels?: string[] | undefined;
+      }
+    | undefined;
   /** Recent Brain decisions (newest last) for `/brain status`. */
   getBrainLog?:
     | (() => ReadonlyArray<{ at: number; kind: string; question: string; outcome: string }>)
@@ -544,9 +555,16 @@ import { buildEnsembleCommand } from './ensemble.js';
 import { buildFKeyAliasCommands, buildFKeysCommand } from './f-keys.js';
 import { buildFallbackCommand } from './fallback.js';
 import { buildFixCommand } from './fix.js';
+import {
+  buildCommitCommand,
+  buildGitCommand,
+  buildGitcheckCommand,
+  buildPushCommand,
+} from './git.js';
 import { buildFleetCommand } from './fleet.js';
 import { buildGitIdCommand } from './gitid.js';
 import { buildGoalCommand } from './goal.js';
+import { buildHealthCommand } from './health.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
 import { buildInterruptCommand } from './interrupt.js';
@@ -556,10 +574,12 @@ import { buildMailboxDemoCommand } from './mailbox-demo.js';
 import { buildMailboxServeCommand } from './mailbox-serve.js';
 import { buildMcpSlashCommand } from './mcp.js';
 import { buildMemoryCommand } from './memory.js';
+import { buildMetricsCommand } from './metrics.js';
 import { buildModeCommand } from './mode.js';
 import { buildModelCapsCommand } from './modelcaps.js';
 import { buildModelsCommand } from './models.js';
 import { buildNextCommand } from './next.js';
+import { buildPlanCommand } from './plan.js';
 import { buildPluginCommand } from './plugin.js';
 import { buildPruneCommand } from './prune.js';
 import { buildSddCommand } from './sdd.js';
@@ -608,6 +628,8 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildDelegateCommand(opts),
     buildDevCommand(opts),
     buildDoctorCommand(opts),
+    buildHealthCommand(opts),
+    buildMetricsCommand(opts),
     buildTuneupCommand(opts),
     buildCodebaseReindexCommand(opts),
     buildTechStackCommand(opts),
@@ -631,6 +653,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildAcpCommand(opts),
     buildMemoryCommand(opts),
     buildTodosCommand(opts),
+    buildPlanCommand(opts),
     buildTasksCommand(opts),
     buildSddCommand(opts),
     buildSaveCommand(opts),
@@ -658,6 +681,10 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildTelegramSettingsCommand(opts),
     buildSetModelCommand(opts),
     buildFallbackCommand(opts),
+    buildGitCommand(opts),
+    buildCommitCommand(opts),
+    buildGitcheckCommand(opts),
+    buildPushCommand(opts),
     buildGitIdCommand(opts),
     buildModelCapsCommand(opts),
     buildModelsCommand(opts),

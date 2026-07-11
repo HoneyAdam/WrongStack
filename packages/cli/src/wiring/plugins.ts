@@ -202,14 +202,6 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
     return createSyncPlugin();
   },
   async () => {
-    const { createGitPlugin } = await import('@wrongstack/core');
-    return createGitPlugin();
-  },
-  async () => {
-    const { createObservabilityPlugin } = await import('@wrongstack/core');
-    return createObservabilityPlugin();
-  },
-  async () => {
     const { createSecurityPlugin } = await import('@wrongstack/core');
     return createSecurityPlugin();
   },
@@ -220,10 +212,6 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
   async () => {
     const { createSkillsPlugin } = await import('@wrongstack/core');
     return createSkillsPlugin();
-  },
-  async () => {
-    const { createPlanPlugin } = await import('@wrongstack/core');
-    return createPlanPlugin();
   },
   // ── Workspace plugins (@wrongstack/plugins subpath exports) ──────────
   async () => (await import('@wrongstack/plugins/agent-handoff')).default,
