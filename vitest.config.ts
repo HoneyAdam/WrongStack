@@ -167,7 +167,7 @@ export default defineConfig({
         // MCP health check error path, SpecDrivenDev tests).
         // Raise by 1% as each new test file lands.
         lines: 72,
-        functions: 71,
+        functions: 72,
         branches: 61,
         statements: 70,
       },
