@@ -27,7 +27,7 @@ import type {
   Agent,
   AgentPipelines,
   Context,
-  DefaultMemoryStore,
+  MemoryStore,
   DefaultModeStore,
   EventBus,
   ModelsRegistry,
@@ -122,7 +122,7 @@ import { patchConfig } from './boot.js';
 import type { ConnectedClient } from './types.js';
 import type { CustomModeStore } from './custom-context-modes.js';
 import { resolveYoloEligiblePendingConfirms, type PendingConfirm } from './pending-confirms.js';
-import { resolveProviderCatalogForModels, resolveProviderModelMetadata } from './model-catalog.js';
+import { resolveProviderCatalogForModels, resolveProviderModelMetadata, SIBLING_CATALOG } from './model-catalog.js';
 
 type ProviderModelDescriptor = ReturnType<typeof resolveProviderModelList>[number];
 
@@ -214,7 +214,7 @@ export interface WebuiDeps {
   pendingConfirms: Map<string, PendingConfirm>;
   pipelines: AgentPipelines;
   logger: Logger;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
   modeStore: DefaultModeStore;
   skillLoader: SkillLoader | undefined;
   skillInstaller: SkillInstaller | undefined;
@@ -368,11 +368,19 @@ export function buildRoutes(
       const saved = await providerHandlers.loadConfigProviders();
       const cfg = saved[providerId];
       const provider = await resolveProviderCatalogForModels(deps.modelsRegistry, providerId, cfg);
+      // Also resolve the sibling catalog (e.g. `openai` for `openai-codex`)
+      // so subscription users see both the curated overlay models AND the
+      // wire-family models from models.dev they may have access to.
+      const siblingId = SIBLING_CATALOG[providerId];
+      const siblingCatalog =
+        siblingId && siblingId !== providerId
+          ? await deps.modelsRegistry.getProvider(siblingId).catch(() => undefined)
+          : undefined;
       const models = await enrichProviderModelDescriptors(
         deps.modelsRegistry,
         providerId,
         cfg,
-        resolveProviderModelList(cfg?.models, provider, cfg?.type ?? providerId),
+        resolveProviderModelList(cfg?.models, provider, cfg?.type ?? providerId, siblingCatalog),
       );
       send(ws, {
         type: 'provider.models',

@@ -7,7 +7,7 @@ import type {
 } from '@wrongstack/core';
 import { capabilitiesFor } from '@wrongstack/providers';
 
-const SIBLING_CATALOG: Record<string, string> = {
+export const SIBLING_CATALOG: Record<string, string> = {
   'anthropic-oauth': 'anthropic',
   'openai-codex': 'openai',
   'github-copilot': 'openai',

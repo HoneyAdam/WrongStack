@@ -42,8 +42,9 @@ export function describeCatalogModel(m: ModelsDevModel): ProviderModelDescriptor
  * allowlist with optional models.dev catalog metadata.
  *
  * The result is a **union** of all available sources — the saved allowlist
- * (if any), the catalog models (base + curated overlay), and the offline
- * Codex catalog (when `providerHint === 'openai-codex'`). Each source is
+ * (if any), the catalog models (base + curated overlay), the sibling
+ * catalog models (e.g. `openai` for `openai-codex`), and the offline Codex
+ * catalog (when `providerHint === 'openai-codex'`). Each source is
  * deduplicated by model id; the saved allowlist ids appear first so the
  * user's explicit preferences float to the top.
  *
@@ -55,11 +56,14 @@ export function describeCatalogModel(m: ModelsDevModel): ProviderModelDescriptor
  *     in the saved list — this ensures the curated overlay is *never* hidden
  *     by a stale saved model list. An empty `[]` saved list (not `undefined`)
  *     still shows the full catalog.
- *  3. Offline Codex catalog (`CODEX_MODELS`) for `openai-codex` — fallback
+ *  3. Sibling catalog models (when `siblingCatalog` is provided) — e.g. the
+ *     `openai` models from models.dev for `openai-codex` subscribers. Merged
+ *     only when the sibling is a different provider from the primary catalog.
+ *  4. Offline Codex catalog (`CODEX_MODELS`) for `openai-codex` — fallback
  *     when both saved list and catalog are empty/unavailable. This guarantees
  *     ChatGPT sign-in users always see the canonical model list even fully
  *     offline.
- *  4. Otherwise an empty list — *never* an error. A provider the user saved
+ *  5. Otherwise an empty list — *never* an error. A provider the user saved
  *     that is neither in the catalog, the curated overlay, nor the offline
  *     Codex catalog simply has no suggestions yet; callers must not raise a
  *     toast for that case (doing so produced the "not found in catalog"
@@ -77,6 +81,13 @@ export function resolveProviderModelList(
    * never leaves the provider showing zero models.
    */
   providerHint?: string | undefined,
+  /**
+   * Optional sibling catalog — e.g. the `openai` catalog when resolving
+   * `openai-codex` models. Merged alongside the primary `catalog` so users
+   * of subscription/OAuth providers also see the wire-family models they
+   * may have access to (OpenAI models for ChatGPT Codex subscribers).
+   */
+  siblingCatalog?: ResolvedProvider | undefined,
 ): ProviderModelDescriptor[] {
   const byId = new Map((catalog?.models ?? []).map((m) => [m.id, m]));
   const seen = new Set<string>();
@@ -110,6 +121,18 @@ export function resolveProviderModelList(
     if (!seen.has(id)) {
       out.push(describeCatalogModel(m));
       seen.add(id);
+    }
+  }
+
+  // 2b. Sibling catalog models — e.g. OpenAI models for openai-codex users
+  //     who may have access through their subscription. Merged only when
+  //     the sibling provider is different from the primary catalog.
+  if (siblingCatalog && siblingCatalog !== catalog) {
+    for (const m of siblingCatalog.models) {
+      if (!seen.has(m.id)) {
+        out.push(describeCatalogModel(m));
+        seen.add(m.id);
+      }
     }
   }
 

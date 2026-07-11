@@ -121,11 +121,24 @@ export async function handleProviderModels(
     const cfg = saved[providerId];
     const catalogId = cfg?.type && cfg.type !== providerId ? cfg.type : providerId;
     const provider = await ctx.modelsRegistry.getProvider(catalogId);
+    // Also resolve the sibling catalog (e.g. `openai` for `openai-codex`)
+    // so subscription users see both the curated overlay models AND the
+    // wire-family models from models.dev they may have access to.
+    const SIBLING_CATALOG: Record<string, string> = {
+      'anthropic-oauth': 'anthropic',
+      'openai-codex': 'openai',
+      'github-copilot': 'openai',
+    };
+    const siblingId = SIBLING_CATALOG[providerId];
+    const siblingCatalog =
+      siblingId && siblingId !== providerId
+        ? await ctx.modelsRegistry.getProvider(siblingId).catch(() => undefined)
+        : undefined;
     ctx.send(ws, {
       type: 'provider.models',
       payload: {
         provider: providerId,
-        models: resolveProviderModelList(cfg?.models, provider, cfg?.type ?? providerId),
+        models: resolveProviderModelList(cfg?.models, provider, cfg?.type ?? providerId, siblingCatalog),
       },
     });
   } catch (err) {
