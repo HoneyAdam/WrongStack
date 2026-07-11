@@ -63,7 +63,7 @@ export function Architecture() {
           eyebrow="Under the hood"
           title="A kernel you can"
           highlight="read in an afternoon"
-          description="Four primitives in ~600 lines hold the whole runtime together. Layers only depend downward — and that direction is never reversed."
+          description="Four primitives in ~1670 lines, including the full event catalog, hold the runtime together. Layers only depend downward — and that direction is never reversed."
         />
 
         <div className="mt-14 grid gap-6 lg:grid-cols-2">
@@ -72,7 +72,7 @@ export function Architecture() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-8">
               <div className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Kernel primitives</h3>
-                <span className="font-mono text-xs text-faint">≤600 LOC</span>
+                <span className="font-mono text-xs text-faint">~1670 LOC</span>
               </div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {primitives.map((p) => (

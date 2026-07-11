@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.285.0] — 2026-07-11
+
+> The **TypeScript 7 build-system and release-docs alignment** release. The
+> workspace build moved off 19 individual `tsup` configurations and onto one
+> topologically ordered esbuild + TypeScript 7 package driver, while compiler
+> API consumers use the supported TypeScript 6 compatibility package. README
+> and the website now describe the current 18-package + 2-app workspace shape
+> and the release copy is aligned to `0.285.0`.
+
 ### Changed — build system
 - **TypeScript 7 + esbuild packaging** — replaced all 19 `tsup` configurations
   with one topologically orchestrated package driver: esbuild produces ESM/CJS

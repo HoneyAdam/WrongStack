@@ -489,14 +489,11 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current package line: 0.284.0.** Highlights include the HQ browser token
-gate with a single sessionStorage-backed token source, the rebuilt
-machine→project→terminal→agent fleet topology map, a mailbox composer with
-server-routed message actions, system-prompt core/session/volatile regions
-with frozen prompt epochs for byte-stable provider cache prefixes, structured
-tool selection boundaries on eight built-ins, ChatGPT/Codex OAuth loopback
-fallback + `id_token` account recovery, and saved provider/model validation at
-boot.
+**Current package line: 0.285.0.** Highlights include the TypeScript 7 build
+pipeline, one topologically ordered esbuild package driver replacing the old
+per-package `tsup` configs, isolated compiler-API compatibility through
+Microsoft's `@typescript/typescript6` package, and refreshed README/website
+release copy for the current 18-package + 2-app workspace shape.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 

@@ -300,9 +300,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.285.0',
+    date: '2026-07-11',
+    latest: true,
+    tagline: 'TypeScript 7 build-system and release-docs alignment',
+    highlights: [
+      'Workspace builds now run through one topologically ordered esbuild package driver instead of 19 per-package tsup configs',
+      'Native TypeScript 7 declaration emit is used for package output while dependencies stay external and entry-point shims remain safe',
+      'Compiler API consumers are isolated on Microsoft\'s @typescript/typescript6 compatibility package while build/typecheck run on TypeScript 7.0.2',
+      'README and website release copy now describe the current 18-package + 2-app workspace shape',
+      'Package tables include kanban, SDD, security scanner, WebUI server, HQ, desktop, and the published wrongstack app entry',
+    ],
+  },
+  {
     version: '0.284.0',
     date: '2026-07-10',
-    latest: true,
     tagline: 'HQ dashboard hardening and prompt-cache stability',
     highlights: [
       'HQ browser token gate: the dashboard shell stays public while /api/* and WS channels are token-gated, with a full-screen token-entry screen instead of a bare 401',
