@@ -241,6 +241,14 @@ export class AgentMonitorService {
     });
   }
 
+  /** Drop a retired subagent from every live in-memory monitor surface. */
+  removeSubagent(subagentId: string): void {
+    this._sessions.delete(subagentId);
+    const dispose = this._subscriptions.get(subagentId);
+    if (dispose) dispose();
+    this._subscriptions.delete(subagentId);
+  }
+
   // ── Internal ───────────────────────────────────────────────────────
 
   private _routeEvent(subagentId: string, type: string, payload: Record<string, unknown>): void {

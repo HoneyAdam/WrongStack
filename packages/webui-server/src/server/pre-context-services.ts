@@ -22,13 +22,12 @@
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { WebSocket } from 'ws';
-import type { Config, Logger } from '@wrongstack/core';
+import type { Config, Logger, MemoryStore } from '@wrongstack/core';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import {
   AgentStatusTracker,
   AnnotationsStore,
   DEFAULT_SESSION_PRUNE_DAYS,
-  DefaultMemoryStore,
   DefaultModelsRegistry,
   DefaultModeStore,
   DefaultPromptLoader,
@@ -61,6 +60,10 @@ import {
   type SecretVault,
   type SessionStore,
 } from '@wrongstack/core';
+import {
+  createSuperMemoryTools,
+  type SuperMemoryServiceLike,
+} from '@wrongstack/super-memory';
 import { MCPRegistry } from '@wrongstack/mcp';
 import { buildProviderFactoriesFromRegistry } from '@wrongstack/providers';
 import { createDefaultContainer } from '@wrongstack/runtime';
@@ -106,7 +109,7 @@ export interface PreContextServices {
   configStore: ConfigStore;
   providerRegistry: ProviderRegistry;
   toolRegistry: ToolRegistry;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
   events: EventBus;
   mcpRegistry: import('@wrongstack/mcp').MCPRegistry;
   sessionStore: SessionStore;
@@ -168,8 +171,11 @@ export async function createPreContextServices(
     logger.debug(`provider auto-discovery skipped: ${toErrorMessage(err)}`);
   }
 
+  const events = opts.services?.events ?? new EventBus();
+  events.setLogger(logger);
+
   // ── Container ──
-  const container = createDefaultContainer({ config, wpaths, logger, modelsRegistry });
+  const container = createDefaultContainer({ config, wpaths, logger, modelsRegistry, events });
   const configStore = opts.services?.configStore ?? container.resolve(TOKENS.ConfigStore);
 
   // ── Provider registry ──
@@ -190,15 +196,16 @@ export async function createPreContextServices(
       r.registerAllOrThrow([...(builtinToolsPack.tools ?? [])], builtinToolsPack.name);
       return r;
     })();
-  const memoryStore = new DefaultMemoryStore({ paths: wpaths });
+  const memoryStore = container.resolve<MemoryStore>(TOKENS.MemoryStore);
   if (config.features.memory) {
     toolRegistry.register(rememberTool(memoryStore));
     toolRegistry.register(forgetTool(memoryStore));
     toolRegistry.register(searchMemoryTool(memoryStore));
     toolRegistry.register(relatedMemoryTool(memoryStore));
+    if (isSuperMemoryService(memoryStore)) {
+      for (const tool of createSuperMemoryTools(memoryStore)) toolRegistry.register(tool);
+    }
   }
-  const events = opts.services?.events ?? new EventBus();
-  events.setLogger(logger);
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
   toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir, events }));
   toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir, events }));
@@ -475,4 +482,14 @@ export async function createPreContextServices(
     customModeStore, skillLoader, skillInstaller, promptsCtx, modelCapabilitiesRef,
     provider, context, needsSetup,
   };
+}
+
+function isSuperMemoryService(memoryStore: MemoryStore): memoryStore is SuperMemoryServiceLike {
+  const value = memoryStore as unknown as Record<string, unknown>;
+  return typeof value['retrieveForPath'] === 'function'
+    && typeof value['searchSuper'] === 'function'
+    && typeof value['graphFor'] === 'function'
+    && typeof value['verify'] === 'function'
+    && typeof value['hygiene'] === 'function'
+    && typeof value['listCandidates'] === 'function';
 }

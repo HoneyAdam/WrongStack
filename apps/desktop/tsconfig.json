@@ -10,6 +10,6 @@
     "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tsup.config.ts", "vite.config.ts"],
+  "include": ["src/**/*.ts", "vite.config.ts"],
   "exclude": ["src/**/*.example.ts"]
 }

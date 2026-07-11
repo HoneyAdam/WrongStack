@@ -1203,6 +1203,7 @@ export type Action =
       /** Human-readable failure reason, e.g. "provider_auth", "rate_limit", "timeout". */
       failureReason?: string | undefined;
     }
+  | { type: 'fleetRemove'; id: string }
   | {
       type: 'fleetBudgetWarning';
       id: string;

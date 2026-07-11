@@ -72,6 +72,12 @@ export function useSubagentEvents(
       dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon, text: `${e.status} (${e.iterations} iter · ${e.toolCalls} tools · ${secs}s)${errChip}${errMsgTail}` } });
     });
 
+    const offRemoved = events.on('subagent.removed', (e) => {
+      if (!isCurrentSession(e.sessionId)) return;
+      labelsRef.current.delete(e.subagentId);
+      dispatch({ type: 'fleetRemove', id: e.subagentId });
+    });
+
     const offBudgetWarning = events.on('subagent.budget_warning', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
       const l = lbl(e.subagentId);
@@ -151,7 +157,7 @@ export function useSubagentEvents(
     });
 
     return () => {
-      offSpawned(); offStarted(); offCompleted();
+      offSpawned(); offStarted(); offCompleted(); offRemoved();
       offBudgetWarning(); offBudgetExtended();
       offIterationSummary(); offCtxPct(); offConcurrencyChanged();
       offLeaderCtxPct(); offLeaderMaxContext(); offCompactionFired();

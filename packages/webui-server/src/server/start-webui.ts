@@ -586,14 +586,21 @@ export async function startWebUI(
     },
     clients: () => clients.keys(),
     servers: [httpServer, wssPrimary, ...(wssSecondary ? [wssSecondary] : [])],
-    onShutdown: () => {
+    onShutdown: async () => {
       credentialWatcherClose?.();
       brainMonitor.stop();
-      void mcpRegistry.stopAll().catch(() => undefined);
+      await mcpRegistry.stopAll().catch(() => undefined);
       eventArming.getDispose()?.();
       if (eternalSubscription) { eternalSubscription.dispose(); eternalSubscription = null; }
       codebaseIndexing.dispose();
-      return unregisterInstance(process.pid, path.dirname(globalConfigPath));
+      if (config.superMemory?.enabled !== false && config.superMemory?.hygiene?.autoAfterSession !== false) {
+        const candidate = memoryStore as unknown as { hygiene?: (options?: object) => Promise<unknown> };
+        await candidate.hygiene?.({
+          retentionDays: config.superMemory?.hygiene?.retentionDays,
+          archiveLowConfidenceAfterDays: config.superMemory?.hygiene?.archiveLowConfidenceAfterDays,
+        }).catch((err: unknown) => logger.warn(`super-memory session hygiene failed: ${toErrorMessage(err)}`));
+      }
+      await unregisterInstance(process.pid, path.dirname(globalConfigPath));
     },
   });
 }

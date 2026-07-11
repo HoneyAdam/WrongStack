@@ -163,7 +163,7 @@ while (true) {
 {
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup",
+    "build": "node ../../scripts/build-package.mjs",
     "test": "vitest run"
   }
 }

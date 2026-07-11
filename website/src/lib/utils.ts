@@ -420,7 +420,7 @@ export const changelog: ChangelogEntry[] = [
     date: '2026-06-16',
     tagline: 'Biome 2.5 lint gate and missing subpath exports',
     highlights: [
-      'Missing @wrongstack/core/tools and @wrongstack/webui/types subpath exports — dist files now emitted by tsup entry lists',
+      'Missing @wrongstack/core/tools and @wrongstack/webui/types subpath exports — dist files added to the package entry lists',
       'Biome 2.5 migration — $schema bumped to 2.5.0, recommended:true removed, trailing comma fixed, 8 lint errors corrected',
       'css.parser.tailwindDirectives: true added for @theme inline (Tailwind v4) in website/src/index.css',
     ],

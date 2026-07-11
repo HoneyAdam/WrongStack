@@ -196,6 +196,7 @@ export interface SubagentEvent {
     | 'budget_extended'
     | 'ctx_pct'
     | 'task_completed'
+    | 'removed'
     | 'session_stopped'
     | 'leader_updated';
   subagentId?: string | undefined;
@@ -233,6 +234,8 @@ export interface SubagentEvent {
   finalText?: string | undefined;
   /** Failure reason for task_completed with failed/timeout status. */
   failureReason?: string | undefined;
+  /** Lifecycle removal reason, when kind is removed. */
+  reason?: string | undefined;
   /** True when this event marks the agent as the leader. */
   isLeader?: boolean | undefined;
   /** Tokens in/out for fleet-wide aggregation (from ctx_pct event). */

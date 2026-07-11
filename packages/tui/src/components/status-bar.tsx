@@ -615,6 +615,7 @@ export function StatusBar({
 
   const isCompact = termWidth < COMPACT_THRESHOLD;
   const isComfortable = termWidth >= COMFORTABLE_THRESHOLD;
+  const isNoColor = mode === 'no-color';
   const hiddenSet = useMemo(() => new Set(hiddenItems), [hiddenItems]);
   const showChip = (item: StatuslineItem): boolean => !hiddenSet.has(item);
   // Use the refresh hook so token/cost updates appear immediately when
@@ -912,8 +913,8 @@ export function StatusBar({
                 {stateLabel}
               </Text>
             ) : null}
-            {showChip('state') && showChip('model') ? <Text dimColor>·</Text> : null}
-            {showChip('model') ? <Text color="magenta">{model}</Text> : null}
+            {showChip('state') && showChip('model') ? <Text dimColor={!isNoColor}>·</Text> : null}
+            {showChip('model') ? <Text color={isNoColor ? undefined : 'magenta'}>{model}</Text> : null}
           </>
         ) : (
           // Full mode: version · state · model · context · tokens · cost · queue · processes · hint
@@ -921,12 +922,12 @@ export function StatusBar({
             {version && showChip('version') ? (
               <>
                 <Text>
-                  <Text color="blue" bold>
+                  <Text color={isNoColor ? undefined : 'blue'} bold>
                     WS
                   </Text>
-                  <Text dimColor> v{version}</Text>
+                  <Text dimColor={!isNoColor}> v{version}</Text>
                 </Text>
-                <Text dimColor>│</Text>
+                <Text dimColor={!isNoColor}>│</Text>
               </>
             ) : null}
             {showChip('state') && thinking ? (
@@ -937,29 +938,29 @@ export function StatusBar({
                 cycleTick={cycleTick}
               />
             ) : showChip('state') ? (
-              <Text color={stateColor}>
+              <Text color={isNoColor ? undefined : stateColor}>
                 {statePrefix} {stateLabel}
               </Text>
             ) : null}
             {showChip('model') ? (
               <>
-                <Text dimColor>│</Text>
-                <Text color="magenta">{model}</Text>
+                <Text dimColor={!isNoColor}>│</Text>
+                <Text color={isNoColor ? undefined : 'magenta'}>{model}</Text>
               </>
             ) : null}
             {context && showChip('context') ? (
               <>
-                <Text dimColor>│</Text>
+                <Text dimColor={!isNoColor}>│</Text>
                 {(() => {
                   const ratio = context.used / context.max;
                   const clampedRatio = Math.min(ratio, 1);
                   const pctText = `${Math.min(Math.round(ratio * 100), 100)}%`;
                   return (
                     <Text
-                      color={clampedRatio < 0.6 ? 'green' : clampedRatio < 0.75 ? 'yellow' : 'red'}
+                      color={isNoColor ? undefined : clampedRatio < 0.6 ? 'green' : clampedRatio < 0.75 ? 'yellow' : 'red'}
                     >
                       ctx {renderMeter(clampedRatio, 8)} {pctText}/{fmtTok(context.max)}
-                      {contextStrategy ? <Text dimColor> [{contextStrategy}]</Text> : null}
+                      {contextStrategy ? <Text dimColor={!isNoColor}> [{contextStrategy}]</Text> : null}
                     </Text>
                   );
                 })()}
@@ -967,23 +968,23 @@ export function StatusBar({
             ) : null}
             {showTokenDisplay && showChip('tokens') ? (
               <>
-                <Text dimColor>│</Text>
+                <Text dimColor={!isNoColor}>│</Text>
                 <Text>
-                  ↑ <Text color="cyan">{fmtTok(displayTokens.input)}</Text> ↓{' '}
-                  <Text color="cyan">{fmtTok(displayTokens.output)}</Text>
+                  ↑ <Text color={isNoColor ? undefined : 'cyan'}>{fmtTok(displayTokens.input)}</Text> ↓{' '}
+                  <Text color={isNoColor ? undefined : 'cyan'}>{fmtTok(displayTokens.output)}</Text>
                 </Text>
               </>
             ) : null}
             {cache && cache.hitRatio > 0 && isComfortable && showChip('cache') ? (
               <>
-                <Text dimColor>│</Text>
-                <Text dimColor>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
+                <Text dimColor={!isNoColor}>│</Text>
+                <Text dimColor={!isNoColor}>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
               </>
             ) : null}
             {cost && cost.total > 0 && showChip('cost') ? (
               <>
-                <Text dimColor>│</Text>
-                <Text color="yellow">${cost.total.toFixed(4)}</Text>
+                <Text dimColor={!isNoColor}>│</Text>
+                <Text color={isNoColor ? undefined : 'yellow'}>${cost.total.toFixed(4)}</Text>
               </>
             ) : null}
             {queueCount > 0 && showChip('queue') ? (
@@ -1050,34 +1051,34 @@ export function StatusBar({
           {renderChipLine(
             [
               yolo && showChip('yolo') ? (
-                <Text color="red" bold>
-                  ⚠ YOLO
+                <Text color={isNoColor ? undefined : 'red'} bold>
+                  {isNoColor ? 'YOLO' : '⚠ YOLO'}
                 </Text>
               ) : null,
               autonomy && autonomy !== 'off' && showChip('autonomy') ? (
                 <Text
-                  color={autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'}
+                  color={isNoColor ? undefined : autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'}
                   bold
                 >
-                  ∞ {autonomy.toUpperCase()}
+                  {isNoColor ? autonomy.toUpperCase() : `∞ ${autonomy.toUpperCase()}`}
                 </Text>
               ) : null,
               eternalStage && showChip('eternal_stage') ? (
-                <EternalStageChip stage={eternalStage} />
+                <EternalStageChip stage={eternalStage} monochrome={isNoColor} />
               ) : null,
               elapsedMs !== undefined && showChip('elapsed') ? (
-                <Text dimColor>⏱ {fmtElapsed(elapsedMs)}</Text>
+                <Text dimColor={!isNoColor}>{isNoColor ? fmtElapsed(elapsedMs) : `⏱ ${fmtElapsed(elapsedMs)}`}</Text>
               ) : null,
               projectName && showChip('project') ? (
-                <Text color="blue">📁 {truncateChip(projectName, 24)}</Text>
+                <Text color={isNoColor ? undefined : 'blue'}>{isNoColor ? truncateChip(projectName, 24) : `📁 ${truncateChip(projectName, 24)}`}</Text>
               ) : null,
               workingDir && showChip('working_dir') ? (
-                <Text color="blue">📂 {truncateChip(workingDir, 28)}</Text>
+                <Text color={isNoColor ? undefined : 'blue'}>{isNoColor ? truncateChip(workingDir, 28) : `📂 ${truncateChip(workingDir, 28)}`}</Text>
               ) : null,
               goalSummary && showChip('goal') ? (
                 <Text
                   color={
-                    goalSummary.goalState === 'active'
+                    isNoColor ? undefined : goalSummary.goalState === 'active'
                       ? 'green'
                       : goalSummary.goalState === 'paused'
                         ? 'yellow'
@@ -1086,7 +1087,7 @@ export function StatusBar({
                           : 'dim'
                   }
                 >
-                  🎯{' '}
+                  {isNoColor ? '' : '🎯 '}
                   {goalSummary.goal.length > 40
                     ? `${goalSummary.goal.slice(0, 37)}…`
                     : goalSummary.goal}{' '}
@@ -1094,44 +1095,44 @@ export function StatusBar({
                 </Text>
               ) : null,
               modeLabel && showChip('mode') ? (
-                <Text color="cyan">{modeIcon(modeLabel)}</Text>
+                <Text color={isNoColor ? undefined : 'cyan'}>{isNoColor ? modeLabel : modeIcon(modeLabel)}</Text>
               ) : null,
               hasAutoProceed && showChip('auto_proceed') ? (
                 <Text
                   color={
-                    autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'
+                    isNoColor ? undefined : autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'
                   }
                 >
-                  ⏳ auto in {autoProceedCountdown}s
+                  {isNoColor ? `auto in ${autoProceedCountdown}s` : `⏳ auto in ${autoProceedCountdown}s`}
                 </Text>
               ) : null,
               git && showChip('git') ? (
                 <Text>
                   <Text color="magenta">⎇ {truncateChip(git.branch, 24)}</Text>
                   {git.deleted > 0 ? <Text color="red"> -{git.deleted}</Text> : null}
-                  {git.untracked > 0 ? <Text dimColor> ?{git.untracked}</Text> : null}
+                  {git.untracked > 0 ? <Text dimColor={!isNoColor}> ?{git.untracked}</Text> : null}
                 </Text>
               ) : null,
               sessionCount != null && sessionCount > 0 && showChip('sessions') ? (
-                <Text color="cyan">
-                  ⧉ {sessionCount} session{sessionCount === 1 ? '' : 's'}
+                <Text color={isNoColor ? undefined : 'cyan'}>
+                  {isNoColor ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : `⧉ ${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
                 </Text>
               ) : null,
               toolCount != null && showChip('tools') ? (
-                <Text color="cyan">
-                  🔧 {toolCount} tool{toolCount === 1 ? '' : 's'}
+                <Text color={isNoColor ? undefined : 'cyan'}>
+                  {isNoColor ? `${toolCount} tool${toolCount === 1 ? '' : 's'}` : `🔧 ${toolCount} tool${toolCount === 1 ? '' : 's'}`}
                 </Text>
               ) : null,
               tokenSavingMode !== undefined &&
               tokenSavingMode !== 'off' &&
               showChip('token_saving') ? (
-                <Text color="yellow" bold>
-                  💾 {tokenSavingMode}
+                <Text color={isNoColor ? undefined : 'yellow'} bold>
+                  {isNoColor ? tokenSavingMode : `💾 ${tokenSavingMode}`}
                 </Text>
               ) : null,
               sideEffectCount > 0 ? (
-                <Text color="yellow">
-                  ⚠ {sideEffectCount} audit{sideEffectCount === 1 ? '' : 's'}
+                <Text color={isNoColor ? undefined : 'yellow'}>
+                  {isNoColor ? `${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}` : `⚠ ${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}`}
                 </Text>
               ) : null,
             ].filter((c): c is React.ReactElement => c !== null),
@@ -1153,89 +1154,89 @@ export function StatusBar({
               (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared)) &&
               showChip('todos') ? (
                 <Text>
-                  <Text dimColor>todos </Text>
-                  {todos.inProgress > 0 ? <Text color="yellow">⌛{todos.inProgress}</Text> : null}
+                  <Text dimColor={!isNoColor}>todos </Text>
+                  {todos.inProgress > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `⌛${todos.inProgress}` : `⌛${todos.inProgress}`}</Text> : null}
                   {todos.inProgress > 0 && (todos.pending > 0 || todos.completed > 0) ? ' ' : ''}
-                  {todos.pending > 0 ? <Text dimColor>☐{todos.pending}</Text> : null}
+                  {todos.pending > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${todos.pending}` : `☐${todos.pending}`}</Text> : null}
                   {todos.pending > 0 && todos.completed > 0 ? ' ' : ''}
-                  {todos.completed > 0 ? <Text color="green">✓{todos.completed}</Text> : null}
+                  {todos.completed > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${todos.completed}` : `✓${todos.completed}`}</Text> : null}
                 </Text>
               ) : null,
               plan &&
               (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) &&
               showChip('plan') ? (
                 <Text>
-                  <Text color="cyan">📋 </Text>
-                  {plan.inProgress > 0 ? <Text color="yellow">⌛{plan.inProgress}</Text> : null}
+                  <Text color={isNoColor ? undefined : 'cyan'}>{isNoColor ? '' : '📋 '}</Text>
+                  {plan.inProgress > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `⌛${plan.inProgress}` : `⌛${plan.inProgress}`}</Text> : null}
                   {plan.inProgress > 0 && (plan.open > 0 || plan.done > 0) ? ' ' : ''}
-                  {plan.open > 0 ? <Text dimColor>☐{plan.open}</Text> : null}
+                  {plan.open > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${plan.open}` : `☐${plan.open}`}</Text> : null}
                   {plan.open > 0 && plan.done > 0 ? ' ' : ''}
-                  {plan.done > 0 ? <Text color="green">✓{plan.done}</Text> : null}
-                  {plan.scope ? <Text dimColor> [{plan.scope}]</Text> : null}
+                  {plan.done > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${plan.done}` : `✓${plan.done}`}</Text> : null}
+                  {plan.scope ? <Text dimColor={!isNoColor}> [{plan.scope}]</Text> : null}
                 </Text>
               ) : null,
               hasTaskActivity && showChip('tasks') ? (
                 <Text>
-                  <Text color="magenta">⚡ </Text>
-                  {tasks!.inProgress > 0 ? <Text color="yellow">⌛{tasks!.inProgress}</Text> : null}
+                  <Text color={isNoColor ? undefined : 'magenta'}>{isNoColor ? '' : '⚡ '}</Text>
+                  {tasks!.inProgress > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `⌛${tasks!.inProgress}` : `⌛${tasks!.inProgress}`}</Text> : null}
                   {tasks!.inProgress > 0 && (tasks!.pending > 0 || tasks!.blocked > 0) ? ' ' : ''}
-                  {tasks!.pending > 0 ? <Text dimColor>☐{tasks!.pending}</Text> : null}
+                  {tasks!.pending > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${tasks!.pending}` : `☐${tasks!.pending}`}</Text> : null}
                   {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
-                  {tasks!.blocked > 0 ? <Text color="red">⊘{tasks!.blocked}</Text> : null}
+                  {tasks!.blocked > 0 ? <Text color={isNoColor ? undefined : 'red'}>{isNoColor ? `⊘${tasks!.blocked}` : `⊘${tasks!.blocked}`}</Text> : null}
                   {(tasks!.pending > 0 || tasks!.blocked > 0) &&
                   (tasks!.completed > 0 || tasks!.failed > 0)
                     ? ' '
                     : ''}
-                  {tasks!.completed > 0 ? <Text color="green">✓{tasks!.completed}</Text> : null}
+                  {tasks!.completed > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${tasks!.completed}` : `✓${tasks!.completed}`}</Text> : null}
                   {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
-                  {tasks!.failed > 0 ? <Text color="red">✗{tasks!.failed}</Text> : null}
-                  {tasks!.scope ? <Text dimColor> [{tasks!.scope}]</Text> : null}
+                  {tasks!.failed > 0 ? <Text color={isNoColor ? undefined : 'red'}>{isNoColor ? `✗${tasks!.failed}` : `✗${tasks!.failed}`}</Text> : null}
+                  {tasks!.scope ? <Text dimColor={!isNoColor}> [{tasks!.scope}]</Text> : null}
                 </Text>
               ) : null,
               fleetHasActivity && showChip('fleet') ? (
                 fleet ? (
                   <Text>
-                    <Text color="blue">🌐 </Text>
-                    {fleet.running > 0 ? <Text color="yellow">▶{fleet.running}</Text> : null}
+                    <Text color={isNoColor ? undefined : 'blue'}>{isNoColor ? '' : '🌐 '}</Text>
+                    {fleet.running > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `▶${fleet.running}` : `▶${fleet.running}`}</Text> : null}
                     {fleet.running > 0 &&
                     (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
                       ? ' '
                       : ''}
-                    {fleet.pending > 0 ? <Text dimColor>☐{fleet.pending}</Text> : null}
+                    {fleet.pending > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${fleet.pending}` : `☐${fleet.pending}`}</Text> : null}
                     {fleet.pending > 0 && (fleet.idle > 0 || fleet.completed > 0) ? ' ' : ''}
-                    {fleet.idle > 0 ? <Text dimColor>·{fleet.idle}idle</Text> : null}
+                    {fleet.idle > 0 ? <Text dimColor={!isNoColor}>·{fleet.idle}idle</Text> : null}
                     {fleet.idle > 0 && fleet.completed > 0 ? ' ' : ''}
-                    {fleet.completed > 0 ? <Text color="green">✓{fleet.completed}</Text> : null}
+                    {fleet.completed > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${fleet.completed}` : `✓${fleet.completed}`}</Text> : null}
                   </Text>
                 ) : (
-                  <Text color="blue">
-                    🌐 {subagentCount} agent{subagentCount === 1 ? '' : 's'}
+                  <Text color={isNoColor ? undefined : 'blue'}>
+                    {isNoColor ? `${subagentCount} agent${subagentCount === 1 ? '' : 's'}` : `🌐 ${subagentCount} agent${subagentCount === 1 ? '' : 's'}`}
                   </Text>
                 )
               ) : null,
-              showBrain ? <BrainChip brain={brain!} /> : null,
+              showBrain ? <BrainChip brain={brain!} monochrome={isNoColor} /> : null,
               showDebugStream ? (
-                <Text color="cyan">
-                  <Text bold>🐛 stream</Text>
-                  <Text dimColor> #{debugStreamStats!.chunkCount}</Text>
-                  <Text dimColor> · {debugStreamStats!.lastChunkSize}B</Text>
-                  <Text dimColor> · +{debugStreamStats!.lastDeltaMs}ms</Text>
-                  <Text dimColor> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
+                <Text color={isNoColor ? undefined : 'cyan'}>
+                  <Text bold>{isNoColor ? 'stream' : '🐛 stream'}</Text>
+                  <Text dimColor={!isNoColor}> #{debugStreamStats!.chunkCount}</Text>
+                  <Text dimColor={!isNoColor}> · {debugStreamStats!.lastChunkSize}B</Text>
+                  <Text dimColor={!isNoColor}> · +{debugStreamStats!.lastDeltaMs}ms</Text>
+                  <Text dimColor={!isNoColor}> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
                 </Text>
               ) : null,
               showEnhance ? (
-                <Text color={countdownColor(enhanceCountdown!, 15, 5)}>
-                  ⏳ auto-send in {enhanceCountdown}s
+                <Text color={isNoColor ? undefined : countdownColor(enhanceCountdown!, 15, 5)}>
+                  {isNoColor ? `auto-send in ${enhanceCountdown}s` : `⏳ auto-send in ${enhanceCountdown}s`}
                 </Text>
               ) : null,
               hasNextStepsAutoSubmit &&
               nextStepsAutoSubmitCountdown != null &&
               showChip('next_steps') ? (
                 <>
-                  <Text color={nextStepsColor} bold>
-                    ⏳ {nextStepsAutoSubmitCountdown}s
+                  <Text color={isNoColor ? undefined : nextStepsColor} bold>
+                    {isNoColor ? `${nextStepsAutoSubmitCountdown}s` : `⏳ ${nextStepsAutoSubmitCountdown}s`}
                   </Text>
-                  <Text dimColor>
+                  <Text dimColor={!isNoColor}>
                     {' '}
                     {nextStepsAutoSubmitLabel
                       ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
@@ -1258,38 +1259,33 @@ export function StatusBar({
       {mailbox && showMailbox ? (
         <Box flexDirection="row" gap={2}>
           {mailbox!.unread > 0 ? (
-            <Text color="yellow" bold>
-              ✉ {mailbox!.unread} new
+            <Text color={isNoColor ? undefined : 'yellow'} bold>
+              {isNoColor ? `${mailbox!.unread} new` : `✉ ${mailbox!.unread} new`}
             </Text>
           ) : (
-            <Text dimColor>✉ 0</Text>
+            <Text dimColor={!isNoColor}>{isNoColor ? '0' : '✉ 0'}</Text>
           )}
-          <Text dimColor>│</Text>
-          <Text color="cyan">
-            👥 {mailbox!.onlineAgents} agent{mailbox!.onlineAgents === 1 ? '' : 's'}
+          <Text dimColor={!isNoColor}>│</Text>
+          <Text color={isNoColor ? undefined : 'cyan'}>
+            {isNoColor ? `${mailbox!.onlineAgents} agent${mailbox!.onlineAgents === 1 ? '' : 's'}` : `👥 ${mailbox!.onlineAgents} agent${mailbox!.onlineAgents === 1 ? '' : 's'}`}
             {mailbox!.onlineClients.tui +
               mailbox!.onlineClients.webui +
               mailbox!.onlineClients.repl >
             0 ? (
-              <Text color="green">
+              <Text color={isNoColor ? undefined : 'green'}>
                 {mailbox!.onlineClients.tui > 0 ? (
-                  <Text color="green">
-                    {' '}
-                    · 🖥 TUI{mailbox!.onlineClients.tui > 1 ? `×${mailbox!.onlineClients.tui}` : ''}
+                  <Text color={isNoColor ? undefined : 'green'}>
+                    {isNoColor ? ` · TUI${mailbox!.onlineClients.tui > 1 ? `×${mailbox!.onlineClients.tui}` : ''}` : ` · 🖥 TUI${mailbox!.onlineClients.tui > 1 ? `×${mailbox!.onlineClients.tui}` : ''}`}
                   </Text>
                 ) : null}
                 {mailbox!.onlineClients.webui > 0 ? (
-                  <Text color="green">
-                    {' '}
-                    · 🌐 WebUI
-                    {mailbox!.onlineClients.webui > 1 ? `×${mailbox!.onlineClients.webui}` : ''}
+                  <Text color={isNoColor ? undefined : 'green'}>
+                    {isNoColor ? ` · WebUI${mailbox!.onlineClients.webui > 1 ? `×${mailbox!.onlineClients.webui}` : ''}` : ` · 🌐 WebUI${mailbox!.onlineClients.webui > 1 ? `×${mailbox!.onlineClients.webui}` : ''}`}
                   </Text>
                 ) : null}
                 {mailbox!.onlineClients.repl > 0 ? (
-                  <Text color="green">
-                    {' '}
-                    · ⌨ REPL
-                    {mailbox!.onlineClients.repl > 1 ? `×${mailbox!.onlineClients.repl}` : ''}
+                  <Text color={isNoColor ? undefined : 'green'}>
+                    {isNoColor ? ` · REPL${mailbox!.onlineClients.repl > 1 ? `×${mailbox!.onlineClients.repl}` : ''}` : ` · ⌨ REPL${mailbox!.onlineClients.repl > 1 ? `×${mailbox!.onlineClients.repl}` : ''}`}
                   </Text>
                 ) : null}
               </Text>
@@ -1297,8 +1293,8 @@ export function StatusBar({
           </Text>
           {mailbox!.lastSubject ? (
             <>
-              <Text dimColor>│</Text>
-              <Text dimColor>
+              <Text dimColor={!isNoColor}>│</Text>
+              <Text dimColor={!isNoColor}>
                 {mailbox!.lastFrom ? `${mailbox!.lastFrom}: ` : ''}
                 {mailbox!.lastSubject.length > 40
                   ? `${mailbox!.lastSubject.slice(0, 37)}…`
@@ -1309,28 +1305,28 @@ export function StatusBar({
           {fleetAgents && fleetAgents.length > 0 && showChip('fleet_agents')
             ? fleetAgents.map((a, i) => (
                 <Text key={i}>
-                  <Text dimColor>│</Text>{' '}
-                  <Text color={a.color} bold>
+                  <Text dimColor={!isNoColor}>│</Text>{' '}
+                  <Text color={isNoColor ? undefined : a.color} bold>
                     {a.label}
                   </Text>
-                  <Text dimColor> </Text>
-                  <Text dimColor={!a.running} {...(a.running ? { color: 'yellow' } : {})}>
+                  <Text dimColor={!isNoColor}> </Text>
+                  <Text dimColor={!isNoColor && !a.running} {...(a.running && !isNoColor ? { color: 'yellow' } : {})}>
                     {a.running ? '▶' : '·'}
                   </Text>
-                  <Text dimColor> </Text>
-                  <Text dimColor>{fmtElapsed(a.elapsedMs)}</Text>
-                  <Text dimColor>{' · '}</Text>
-                  <Text dimColor>{a.toolCalls}t</Text>
+                  <Text dimColor={!isNoColor}> </Text>
+                  <Text dimColor={!isNoColor}>{fmtElapsed(a.elapsedMs)}</Text>
+                  <Text dimColor={!isNoColor}>{' · '}</Text>
+                  <Text dimColor={!isNoColor}>{a.toolCalls}t</Text>
                   {a.tool ? (
                     <>
-                      <Text dimColor>{' · '}</Text>
-                      <Text color="cyan">{a.tool}</Text>
+                      <Text dimColor={!isNoColor}>{' · '}</Text>
+                      <Text color={isNoColor ? undefined : 'cyan'}>{a.tool}</Text>
                     </>
                   ) : null}
                   {a.extensions && a.extensions > 0 ? (
                     <>
-                      <Text dimColor>{' · '}</Text>
-                      <Text color="yellow">⚡×{a.extensions}</Text>
+                      <Text dimColor={!isNoColor}>{' · '}</Text>
+                      <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `×${a.extensions}` : `⚡×${a.extensions}`}</Text>
                     </>
                   ) : null}
                 </Text>
@@ -1341,27 +1337,27 @@ export function StatusBar({
         <Box flexDirection="row" gap={2}>
           {fleetAgents.map((a, i) => (
             <Text key={i}>
-              <Text color={a.color} bold>
+              <Text color={isNoColor ? undefined : a.color} bold>
                 {a.label}
               </Text>
-              <Text dimColor> </Text>
-              <Text dimColor={!a.running} {...(a.running ? { color: 'yellow' } : {})}>
+              <Text dimColor={!isNoColor}> </Text>
+              <Text dimColor={!isNoColor && !a.running} {...(a.running && !isNoColor ? { color: 'yellow' } : {})}>
                 {a.running ? '▶' : '·'}
               </Text>
-              <Text dimColor> </Text>
-              <Text dimColor>{fmtElapsed(a.elapsedMs)}</Text>
-              <Text dimColor>{' · '}</Text>
-              <Text dimColor>{a.toolCalls}t</Text>
+              <Text dimColor={!isNoColor}> </Text>
+              <Text dimColor={!isNoColor}>{fmtElapsed(a.elapsedMs)}</Text>
+              <Text dimColor={!isNoColor}>{' · '}</Text>
+              <Text dimColor={!isNoColor}>{a.toolCalls}t</Text>
               {a.tool ? (
                 <>
-                  <Text dimColor>{' · '}</Text>
-                  <Text color="cyan">{a.tool}</Text>
+                  <Text dimColor={!isNoColor}>{' · '}</Text>
+                  <Text color={isNoColor ? undefined : 'cyan'}>{a.tool}</Text>
                 </>
               ) : null}
               {a.extensions && a.extensions > 0 ? (
                 <>
-                  <Text dimColor>{' · '}</Text>
-                  <Text color="yellow">⚡×{a.extensions}</Text>
+                  <Text dimColor={!isNoColor}>{' · '}</Text>
+                  <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `×${a.extensions}` : `⚡×${a.extensions}`}</Text>
                 </>
               ) : null}
             </Text>
@@ -1376,7 +1372,7 @@ export function StatusBar({
   );
 }
 
-function BrainChip({ brain }: { brain: BrainStatusChip }): React.ReactElement {
+function BrainChip({ brain, monochrome }: { brain: BrainStatusChip; monochrome?: boolean }): React.ReactElement {
   const color =
     brain.state === 'denied'
       ? 'red'
@@ -1390,61 +1386,63 @@ function BrainChip({ brain }: { brain: BrainStatusChip }): React.ReactElement {
   const scope = brain.source ? ` ${brain.source}` : '';
   const summary = brain.summary ? ` · ${brain.summary.slice(0, 40)}` : '';
   return (
-    <Text color={color}>
-      🧠 {label}
-      <Text dimColor>{scope}</Text>
-      <Text dimColor>{summary}</Text>
+    <Text color={monochrome ? undefined : color}>
+      {monochrome ? label : `🧠 ${label}`}
+      <Text dimColor={!monochrome}>{scope}</Text>
+      <Text dimColor={!monochrome}>{summary}</Text>
     </Text>
   );
 }
 
 function EternalStageChip({
   stage,
+  monochrome,
 }: {
   stage: NonNullable<StatusBarProps['eternalStage']>;
+  monochrome?: boolean;
 }): React.ReactElement {
+  const color = (c: string) => (monochrome ? undefined : c);
+  const icon = (emoji: string) => (monochrome ? '' : emoji);
   switch (stage.phase) {
     case 'idle':
-      return <Text dimColor>⬜ idle</Text>;
+      return <Text dimColor={!monochrome}>{monochrome ? 'idle' : '⬜ idle'}</Text>;
     case 'decide':
-      return <Text color="cyan">⬇ decide: {stage.reason}</Text>;
+      return <Text color={color('cyan')}>{monochrome ? `decide: ${stage.reason}` : `⬇ decide: ${stage.reason}`}</Text>;
     case 'execute':
       return (
-        <Text color="green">
-          ▶ <Text bold>execute</Text>
+        <Text color={color('green')}>
+          {monochrome ? null : <>{icon('▶')} </>}<Text bold>execute</Text>
           {stage.task ? `(${stage.task})` : ''}
         </Text>
       );
     case 'reflect':
       return (
         <Text
-          color={
-            stage.status === 'success' ? 'green' : stage.status === 'failure' ? 'red' : 'yellow'
-          }
+          color={color(stage.status === 'success' ? 'green' : stage.status === 'failure' ? 'red' : 'yellow')}
         >
-          ↩ reflect: {stage.status}
+          {monochrome ? `reflect: ${stage.status}` : `↩ reflect: ${stage.status}`}
         </Text>
       );
     case 'decompose':
-      return <Text color="cyan">⬇ decompose</Text>;
+      return <Text color={color('cyan')}>{monochrome ? 'decompose' : '⬇ decompose'}</Text>;
     case 'fanout':
-      return <Text color="magenta">⇄ fanout: {stage.slots}</Text>;
+      return <Text color={color('magenta')}>{monochrome ? `fanout: ${stage.slots}` : `⇄ fanout: ${stage.slots}`}</Text>;
     case 'await':
-      return <Text color="magenta">⏳ await: {stage.taskIds.length}</Text>;
+      return <Text color={color('magenta')}>{monochrome ? `await: ${stage.taskIds.length}` : `⏳ await: ${stage.taskIds.length}`}</Text>;
     case 'aggregate':
       return (
-        <Text color={stage.goalComplete ? 'green' : 'magenta'}>
-          ↩ aggregate: {stage.successCount}/{stage.total}
+        <Text color={color(stage.goalComplete ? 'green' : 'magenta')}>
+          {monochrome ? `aggregate: ${stage.successCount}/${stage.total}` : `↩ aggregate: ${stage.successCount}/${stage.total}`}
         </Text>
       );
     case 'sleep':
-      return <Text dimColor>💤 sleep {Math.round(stage.ms / 1000)}s</Text>;
+      return <Text dimColor={!monochrome}>{monochrome ? `sleep ${Math.round(stage.ms / 1000)}s` : `💤 sleep ${Math.round(stage.ms / 1000)}s`}</Text>;
     case 'paused':
-      return <Text color="yellow">⏸ paused</Text>;
+      return <Text color={color('yellow')}>{monochrome ? 'paused' : '⏸ paused'}</Text>;
     case 'stopped':
-      return <Text dimColor>■ stopped</Text>;
+      return <Text dimColor={!monochrome}>{monochrome ? 'stopped' : '■ stopped'}</Text>;
     case 'error':
-      return <Text color="red">⚠ error: {stage.message}</Text>;
+      return <Text color={color('red')}>{monochrome ? `error: ${stage.message}` : `⚠ error: ${stage.message}`}</Text>;
   }
 }
 

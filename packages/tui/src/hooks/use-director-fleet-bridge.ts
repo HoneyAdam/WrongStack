@@ -175,6 +175,11 @@ export function useDirectorFleetBridge({
       }
 
       switch (event.type) {
+        case 'subagent.removed':
+          seen.delete(event.subagentId);
+          labelsRef.current.delete(event.subagentId);
+          enqueue({ type: 'fleetRemove', id: event.subagentId });
+          break;
         case 'iteration.started':
         case 'session.started':
           enqueue({ type: 'fleetStart', id: event.subagentId });

@@ -74,9 +74,8 @@ function expectSameNames(surface: string, expected: string[], actual: Iterable<s
 describe('@wrongstack/plugins registration parity', () => {
   it('keeps source, package, build, export, catalog, and CLI factory surfaces in sync', async () => {
     const expected = await bundledPluginNames();
-    const [packageText, tsupSource, indexSource, wiringSource] = await Promise.all([
+    const [packageText, indexSource, wiringSource] = await Promise.all([
       fs.readFile(path.join(pluginsRoot, 'package.json'), 'utf8'),
-      fs.readFile(path.join(pluginsRoot, 'tsup.config.ts'), 'utf8'),
       fs.readFile(path.join(pluginsRoot, 'src', 'index.ts'), 'utf8'),
       fs.readFile(path.join(cliRoot, 'src', 'wiring', 'plugins.ts'), 'utf8'),
     ]);
@@ -89,8 +88,6 @@ describe('@wrongstack/plugins registration parity', () => {
       .filter((specifier) => specifier.startsWith('./'))
       .map((specifier) => specifier.slice(2))
       .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name));
-    const tsupEntries = matches(tsupSource, /['"]([^'"]+)['"]\s*:\s*['"]src\/\1\/index\.ts['"]/g)
-      .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name));
     const indexExports = matches(indexSource, /from ['"]\.\/([^/'"]+)\/index\.js['"]/g)
       .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name));
     const factoryImports = matches(
@@ -102,7 +99,6 @@ describe('@wrongstack/plugins registration parity', () => {
     );
 
     expectSameNames('package.json exports', expected, packageExports);
-    expectSameNames('tsup entries', expected, tsupEntries);
     expectSameNames('src/index.ts exports', expected, indexExports);
     expectSameNames('PLUGIN_AUDIT_ENTRIES', expected, auditNames);
     expectSameNames('BUILTIN_PLUGIN_FACTORIES imports', expected, factoryImports);

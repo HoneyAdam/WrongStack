@@ -41,6 +41,21 @@ describe('Super Memory graph and verification', () => {
     ]));
   });
 
+  it('maps memories through shared file nodes for related-memory retrieval', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({
+      text: 'Session writes use a FIFO queue.',
+      anchors: [{ type: 'file', path: 'src/session.ts' }],
+    });
+    await store.rememberSuper({
+      text: 'Session close waits for pending writes.',
+      anchors: [{ type: 'file', path: 'src/session.ts' }],
+    });
+
+    const related = await store.findRelated('FIFO queue', 'project-memory', 5);
+    expect(related.map((entry) => entry.text)).toContain('Session close waits for pending writes.');
+  });
+
   it('verifies symbols and marks memory stale when an anchored file disappears', async () => {
     const file = path.join(tempDir, 'source.ts');
     await fs.writeFile(file, 'export function usefulSymbol() {}\n');
@@ -55,20 +70,80 @@ describe('Super Memory graph and verification', () => {
     expect((await store.verify(memory.id))[0]?.status).toBe('stale');
     expect((await store.listSuper(['stale']))[0]?.id).toBe(memory.id);
   });
+
+  it('keeps direct-file retrieval distinct from ancestor-directory retrieval', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({
+      text: 'Storage changes require lifecycle tests.',
+      anchors: [{ type: 'directory', path: 'src/storage' }],
+    });
+
+    expect(await store.retrieveForPath({
+      path: 'src/storage/session.ts',
+      includeAncestors: false,
+    })).toEqual([]);
+    expect(await store.retrieveForPath({
+      path: 'src/storage/session.ts',
+      includeAncestors: true,
+    })).toHaveLength(1);
+  });
+
+  it('verifies package directories and rejects anchors outside the project', async () => {
+    await fs.mkdir(path.join(tempDir, 'packages', 'demo'), { recursive: true });
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const memory = await store.rememberSuper({
+      text: 'The demo package owns this behavior.',
+      anchors: [{ type: 'package', path: 'packages/demo' }],
+    });
+
+    expect((await store.verify(memory.id))[0]?.status).toBe('verified');
+    await expect(store.rememberSuper({
+      text: 'Invalid external anchor.',
+      anchors: [{ type: 'file', path: '../outside.ts' }],
+    })).rejects.toThrow(/inside the project root/i);
+  });
 });
 
 describe('Super Memory hygiene and consolidation', () => {
-  it('deduplicates exact memories and preserves merged metadata', async () => {
+  it('deduplicates at write time and preserves merged metadata', async () => {
     const store = new SuperMemoryStore({ projectRoot: tempDir });
-    await store.rememberSuper({ text: 'Use pnpm build.', tags: ['pnpm'], importance: 0.7 });
-    await store.rememberSuper({ text: 'Use  pnpm   build.', tags: ['build'], importance: 0.9 });
+    const first = await store.rememberSuper({ text: 'Use pnpm build.', tags: ['pnpm'], importance: 0.7 });
+    const second = await store.rememberSuper({ text: 'Use  pnpm   build.', tags: ['build'], importance: 0.9 });
 
     const report = await store.hygiene({ verify: false });
-    expect(report.deduplicated).toBe(1);
+    expect(second.id).toBe(first.id);
+    expect(report.deduplicated).toBe(0);
     const active = await store.listSuper(['active']);
     expect(active).toHaveLength(1);
     expect(active[0]?.tags).toEqual(expect.arrayContaining(['pnpm', 'build']));
-    expect(await store.listSuper(['superseded'])).toHaveLength(1);
+    expect(await store.listSuper(['superseded'])).toHaveLength(0);
+  });
+
+  it('coordinates concurrent stores and refreshes cross-process-style caches', async () => {
+    const firstStore = new SuperMemoryStore({ projectRoot: tempDir });
+    const secondStore = new SuperMemoryStore({ projectRoot: tempDir });
+    await firstStore.listSuper(); // warm the first instance cache
+
+    const [first, second] = await Promise.all([
+      firstStore.rememberSuper({ text: 'One canonical invariant.', tags: ['first'] }),
+      secondStore.rememberSuper({ text: 'One canonical invariant!', tags: ['second'] }),
+    ]);
+
+    expect(first.id).toBe(second.id);
+    const visible = await firstStore.listSuper(['active']);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.tags).toEqual(expect.arrayContaining(['first', 'second']));
+  });
+
+  it('does not manufacture relevance for unrelated high-quality memories', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({
+      text: 'Always use pnpm for workspace builds.',
+      importance: 1,
+      confidence: 1,
+    });
+
+    expect(await store.searchSuper('unrelated database migration')).toEqual([]);
   });
 
   it('creates session candidates and auto-accepts only high-quality facts', async () => {
@@ -84,6 +159,25 @@ describe('Super Memory hygiene and consolidation', () => {
     expect(result).toMatchObject({ candidates: 2, accepted: 1 });
     expect(await store.listCandidates()).toHaveLength(1);
     expect((await store.searchSuper('High value invariant'))[0]?.text).toBe('High value invariant.');
+  });
+
+  it('does not create duplicate pending candidates in one or later consolidations', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const first = await store.consolidateSession({
+      sessionId: 'session-1',
+      facts: [
+        { text: 'Tentative observation.', confidence: 0.4, importance: 0.4 },
+        { text: 'Tentative observation!', confidence: 0.4, importance: 0.4 },
+      ],
+    });
+    const second = await store.consolidateSession({
+      sessionId: 'session-2',
+      facts: [{ text: 'Tentative observation', confidence: 0.4, importance: 0.4 }],
+    });
+
+    expect(first).toMatchObject({ candidates: 1, duplicate: 1 });
+    expect(second).toMatchObject({ candidates: 0, duplicate: 1 });
+    expect(await store.listCandidates()).toHaveLength(1);
   });
 
   it('imports legacy markdown without importing duplicates twice', async () => {
@@ -114,6 +208,25 @@ describe('Super Memory integration surfaces', () => {
     expect(result.system).toHaveLength(2);
     expect(result.system?.[1]?.text).toContain('Always run session lifecycle tests');
     expect(request.system).toHaveLength(1);
+    expect((await store.listSuper(['active']))[0]?.lastAccessedAt).toBeDefined();
+  });
+
+  it('does not duplicate memory already present in the base system prompt', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({
+      text: 'Always run session lifecycle tests.',
+      importance: 0.95,
+      tags: ['session'],
+    });
+    const middleware = createSuperMemoryTurnMiddleware({ memory: store });
+    const request = {
+      model: 'test',
+      messages: [{ role: 'user' as const, content: 'Change the session lifecycle.' }],
+      system: [{ type: 'text' as const, text: '# Relevant Memory\n- Always run session lifecycle tests.' }],
+    };
+
+    const result = await middleware.handler(request, async (next) => next);
+    expect(result.system).toHaveLength(1);
   });
 
   it('publishes the complete rich memory tool set', () => {

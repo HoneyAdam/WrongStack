@@ -10,7 +10,7 @@ import {
   type Context,
   DefaultSystemPromptBuilder,
   resolveWstackPaths,
-  type DefaultMemoryStore,
+  type MemoryStore,
   type DefaultModeStore,
   type SkillLoader,
   type ToolRegistry,
@@ -43,7 +43,7 @@ type ModelCapabilities = NonNullable<
 
 export interface ModeHandlersContext {
   modeStore: DefaultModeStore;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
   skillLoader: SkillLoader | undefined;
   modelCapabilities: ModelCapabilities;
   context: Context;

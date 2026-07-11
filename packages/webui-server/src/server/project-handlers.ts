@@ -10,7 +10,7 @@ import type { WebSocket } from 'ws';
 import type {
   Context,
   DefaultSessionStore,
-  DefaultMemoryStore,
+  MemoryStore,
   DefaultModeStore,
   SkillLoader,
   ToolRegistry,
@@ -46,7 +46,7 @@ export interface ProjectHandlersContext {
   clients: Map<WebSocket, ConnectedClient>;
   context: Context;
   modeStore: DefaultModeStore;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
   skillLoader: SkillLoader | undefined;
   modelCapabilities: ModelCapabilities;
   toolRegistry: ToolRegistry;

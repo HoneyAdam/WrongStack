@@ -9,7 +9,7 @@
  *
  * Storage: `~/.wrongstack/projects/<hash>/codebase-index/index.db`
  *          (outside the repo — no gitignore needed)
- * Parser:  TypeScript Compiler API (ts-morph-free, uses `typescript` directly)
+ * Parser:  TypeScript Compiler API (ts-morph-free, via `@typescript/typescript6`)
  * Ranking: Okapi BM25 with k1=1.5, b=0.75
  */
 

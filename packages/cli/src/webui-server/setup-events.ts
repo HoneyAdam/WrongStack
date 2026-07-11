@@ -647,6 +647,13 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined,
           });
         }),
+        deps.events.on('subagent.removed', (e) =>
+          forwardSubagent('removed', {
+            sessionId: e.sessionId,
+            subagentId: e.subagentId,
+            reason: e.reason,
+          }),
+        ),
       );
 
       // ── Agent timeline events — WebUI conversation stream ─────────────

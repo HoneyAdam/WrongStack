@@ -23,9 +23,15 @@ overrides:
   # advisory-patched 7.28.0 — clears the undici GHSAs AND keeps jsdom working.
   # Scoped so non-jsdom undici consumers still float to the patched 8.x line.
   "jsdom>undici": "7.28.0"
+peerDependencyRules:
+  # TypeScript 7 was released before i18next/react-i18next widened their peer
+  # ranges. WrongStack's WebUI passes its TS7 typecheck; allow this known lag.
+  allowedVersions:
+    "i18next>typescript": "7"
+    "react-i18next>typescript": "7"
 # GHSA-gv7w-rqvm-qjhr: esbuild "missing binary integrity verification" applies
-# only to esbuild's DENO installer path; we consume esbuild via tsup/vite/vitest
-# (Node, devDependencies only). Remove once tsup/vite ship esbuild >= 0.28.1.
+# only to esbuild's DENO installer path; we consume esbuild directly and via
+# Vite/Vitest on Node. Remove once the advisory no longer applies to our range.
 auditConfig:
   ignoreGhsas:
     - GHSA-gv7w-rqvm-qjhr

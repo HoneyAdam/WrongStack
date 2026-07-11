@@ -27,7 +27,7 @@ import type {
   CollaborationBus,
   Compactor,
   Context,
-  DefaultMemoryStore,
+  MemoryStore,
   DefaultModeStore,
   EventBus,
   Logger,
@@ -65,6 +65,7 @@ import {
   DefaultBrainArbiter,
   GlobalMailbox,
   mailboxSessionTag,
+  SessionMemoryConsolidator,
   TOKENS,
   ToolExecutor,
   type AnnotationsStore,
@@ -82,6 +83,11 @@ import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
 import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
 import { resolveProviderModelMetadata } from './model-catalog.js';
 import { makeLightSubagentFactory } from '@wrongstack/runtime';
+import {
+  createSuperMemoryToolCallMiddleware,
+  createSuperMemoryTurnMiddleware,
+  type SuperMemoryRetrieverLike,
+} from '@wrongstack/super-memory';
 import type { Config, ProviderConfig } from '@wrongstack/core/types';
 import type { WstackPaths } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
@@ -101,7 +107,7 @@ export interface AgentServicesInput {
   modelsRegistry: ModelsRegistry;
   events: EventBus;
   mcpRegistry: MCPRegistry;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
   modeStore: DefaultModeStore;
   customModeStore: import('./custom-context-modes.js').CustomModeStore;
   skillLoader: SkillLoader | undefined;
@@ -168,6 +174,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     providerRegistry,
     modelsRegistry,
     events,
+    memoryStore,
     modelCapabilitiesRef,
   } = input;
 
@@ -188,6 +195,31 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   pipelines.toolCall.prepend(collabPause);
   // Design Studio — per-turn UI-intent detection + kit-menu injection.
   installDesignStudioMiddleware({ pipelines, ctx: context });
+  if (
+    config.features.memory !== false
+    && config.superMemory?.enabled !== false
+    && isSuperMemoryRetriever(memoryStore)
+  ) {
+    if (config.superMemory?.inject?.toolResults !== false) {
+      pipelines.toolCall.use(createSuperMemoryToolCallMiddleware({
+        memory: memoryStore,
+        maxHintsPerTool: config.superMemory?.inject?.maxHintsPerTool,
+        maxCharsPerTool: config.superMemory?.inject?.maxCharsPerTool,
+        minScore: config.superMemory?.inject?.minScore,
+        repeatCooldownMs: config.superMemory?.inject?.repeatCooldownMs,
+        verifyOnMutation: config.superMemory?.hygiene?.autoOnFileChange,
+        triggers: config.superMemory?.inject?.triggers,
+      }));
+    }
+    if (config.superMemory?.inject?.turnContext !== false) {
+      pipelines.request.use(createSuperMemoryTurnMiddleware({
+        memory: memoryStore,
+        maxMemories: config.superMemory?.inject?.maxTurnMemories,
+        maxChars: config.superMemory?.inject?.maxCharsPerTurn,
+        minScore: config.superMemory?.inject?.minScore,
+      }));
+    }
+  }
   const codebaseIndexing = setupWebUICodebaseIndexing({
     config,
     context,
@@ -350,6 +382,9 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     confirmAwaiter: undefined,
     toolExecutor,
   });
+  if (config.features.memory && config.features.memoryConsolidation !== false) {
+    agent.extensions.register(new SessionMemoryConsolidator({ memoryStore }));
+  }
   console.log('[WebUI] Agent initialized');
 
   // ── Brain — policy → LLM tiered decision layer ─────────────────────────
@@ -501,4 +536,10 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     collabHandler,
     updateAutoCompactionMaxContext,
   };
+}
+
+function isSuperMemoryRetriever(memoryStore: MemoryStore): memoryStore is MemoryStore & SuperMemoryRetrieverLike {
+  const value = memoryStore as unknown as Record<string, unknown>;
+  return typeof value['retrieveForPath'] === 'function'
+    && typeof value['searchSuper'] === 'function';
 }

@@ -11,7 +11,7 @@
  * assigning unique ids during insertion.
  */
 
-import * as ts from 'typescript';
+import * as ts from '@typescript/typescript6';
 import type { FileSymbols, Ref, Symbol as IndexSymbol, SymbolKind, SymbolLang } from './schema.js';
 
 // Map TypeScript SyntaxKind → our SymbolKind taxonomy

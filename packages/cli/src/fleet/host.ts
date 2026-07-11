@@ -252,6 +252,13 @@ export interface MultiAgentHostOptions {
    */
   maxConcurrent?: number | undefined;
   /**
+   * Maximum time a spawned/between-task subagent may remain idle before it is
+   * removed from the Director and every live registry surface. Default: 30s.
+   */
+  subagentIdleTimeoutMs?: number | undefined;
+  /** Retire a completed one-shot subagent immediately when it stays idle. */
+  retireSubagentOnTaskComplete?: boolean | undefined;
+  /**
    * Live max context window for the leader model. Director spawn guards read
    * this lazily so runtime provider/model switches do not leave the fleet
    * using the launch-time family default.
@@ -453,6 +460,15 @@ export class MultiAgentHost {
       doneCondition: { type: 'all_tasks_done' as const },
       maxConcurrent: this.opts.maxConcurrent ?? 4,
     };
+    const fleetLifecycle = config.fleet?.lifecycle;
+    const configuredIdleTimeoutMs =
+      this.opts.subagentIdleTimeoutMs ?? fleetLifecycle?.idleTimeoutMs;
+    const subagentIdleTimeoutMs =
+      typeof configuredIdleTimeoutMs === 'number' &&
+      Number.isFinite(configuredIdleTimeoutMs) &&
+      configuredIdleTimeoutMs >= 0
+        ? configuredIdleTimeoutMs
+        : 30_000;
 
     const defaultScratchpad: string | undefined =
       this.opts.sharedScratchpadPath ||
@@ -496,6 +512,11 @@ export class MultiAgentHost {
       // pending await, post the result to this session's leader via the
       // project mailbox (injected inline before the leader's next step).
       taskResultNotifier: (n) => this.reportTaskResultToLeader(n),
+      subagentIdleTimeoutMs,
+      retireSubagentOnTaskComplete:
+        this.opts.retireSubagentOnTaskComplete ??
+        fleetLifecycle?.retireOnTaskComplete ??
+        true,
     });
     this.director.on('task.completed', ({ task, result }) => {
       this.fleetManager?.removePendingTask(task.id);
@@ -671,8 +692,18 @@ export class MultiAgentHost {
     };
     this.directorOffHandles.push(
       this.director.fleet.filter('subagent.removed', (e) => {
-        const payload = e.payload as { subagentId?: string | undefined };
-        this.clearShadowAgent(payload.subagentId ?? e.subagentId);
+        const payload = e.payload as {
+          subagentId?: string | undefined;
+          reason?: string | undefined;
+        };
+        const subagentId = payload.subagentId ?? e.subagentId;
+        this.clearShadowAgent(subagentId);
+        this.opts.agentMonitor?.removeSubagent(subagentId);
+        this.deps.events.emit('subagent.removed', {
+          sessionId: this.deps.session.id,
+          subagentId,
+          reason: payload.reason ?? 'subagent lifecycle completed',
+        });
       }),
     );
     const coordinator = this.getCoordinator();

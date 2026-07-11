@@ -28,6 +28,8 @@
 
 Relevant memory is injected into ordinary turn context and into read/tree/search/command/edit tool results. Cooldowns, score thresholds, and output caps prevent repeated hints. Write/edit/patch calls re-verify affected anchors; session shutdown runs hygiene unless disabled.
 
+CLI, TUI, Desktop, and standalone WebUI use the same Super Memory backend and injection rules. Relative tool paths are resolved from the active working directory before file/directory anchors are matched.
+
 Rich read-only and maintenance tools are also registered: `memory_for_file`, `memory_for_path`, `memory_search`, `memory_graph`, `memory_verify`, `memory_hygiene`, and `memory_candidates`.
 
 Configuration lives under `superMemory.storage`, `superMemory.inject`, and `superMemory.hygiene`; these are benign project-config fields. Providers, endpoints, and executable verification commands cannot be configured from in-project config.
@@ -40,5 +42,7 @@ Configuration lives under `superMemory.storage`, `superMemory.inject`, and `supe
 - Rebuildable indexes: `indexes/*.json`
 - Recovery snapshot: `snapshots/latest.json`
 - Hygiene history: `hygiene/runs.jsonl`
+
+Writes are deduplicated and metadata-merged before append. A project-wide mutation lock keeps concurrent surfaces from creating competing revisions, while readers refresh their cache when another process appends to the canonical log. Graph nodes connect memories to symbols, files, parent directories, sessions, tools, and source records.
 
 Code: `packages/super-memory/`, `packages/cli/src/slash-commands/memory.ts`.

@@ -17,9 +17,11 @@ export async function verifyMemoryAnchors(
   projectRoot: string,
   memory: SuperMemory,
   checkedAt = new Date().toISOString(),
+  signal?: AbortSignal,
 ): Promise<MemoryVerificationResult> {
+  signal?.throwIfAborted();
   const anchors = await Promise.all(
-    memory.anchors.map((anchor) => verifyAnchor(projectRoot, anchor)),
+    memory.anchors.map((anchor) => verifyAnchor(projectRoot, anchor, signal)),
   );
   return {
     memoryId: memory.id,
@@ -32,7 +34,9 @@ export async function verifyMemoryAnchors(
 async function verifyAnchor(
   projectRoot: string,
   anchor: MemoryAnchor,
+  signal?: AbortSignal,
 ): Promise<AnchorVerificationResult> {
+  signal?.throwIfAborted();
   if (anchor.type === 'command') {
     return { anchor, status: 'unknown', reason: 'Command anchors require execution evidence.' };
   }
@@ -46,22 +50,29 @@ async function verifyAnchor(
   }
 
   let stat;
+  let realPath: string;
   try {
     stat = await fs.stat(absolutePath);
+    realPath = await fs.realpath(absolutePath);
   } catch {
     return { anchor, status: 'stale', reason: 'Anchored path no longer exists.' };
   }
 
-  if (anchor.type === 'directory') {
+  const realRoot = await fs.realpath(projectRoot).catch(() => path.resolve(projectRoot));
+  if (!isInside(realRoot, realPath)) {
+    return { anchor, status: 'stale', reason: 'Anchor resolves through a symlink outside the project root.' };
+  }
+
+  if (anchor.type === 'directory' || anchor.type === 'package') {
     return stat.isDirectory()
-      ? { anchor, status: 'verified', reason: 'Directory exists.' }
-      : { anchor, status: 'stale', reason: 'Directory anchor points to a non-directory.' };
+      ? { anchor, status: 'verified', reason: anchor.type === 'package' ? 'Package directory exists.' : 'Directory exists.' }
+      : { anchor, status: 'stale', reason: `${anchor.type === 'package' ? 'Package' : 'Directory'} anchor points to a non-directory.` };
   }
   if (!stat.isFile()) {
     return { anchor, status: 'stale', reason: 'File anchor points to a non-file.' };
   }
 
-  const body = await fs.readFile(absolutePath);
+  const body = await fs.readFile(realPath, signal ? { signal } : undefined);
   const contentHash = `sha256:${createHash('sha256').update(body).digest('hex')}`;
   if (anchor.contentHash && anchor.contentHash !== contentHash) {
     return { anchor, status: 'stale', reason: 'File content hash changed.', contentHash };
@@ -77,10 +88,11 @@ async function verifyAnchor(
   let gitBlobHash: string | undefined;
   if (anchor.gitBlobHash || anchor.type === 'git') {
     try {
-      const result = await execFileAsync('git', ['hash-object', absolutePath], {
+      const result = await execFileAsync('git', ['hash-object', realPath], {
         cwd: projectRoot,
         windowsHide: true,
         timeout: 5_000,
+        signal,
       });
       gitBlobHash = result.stdout.trim();
       if (anchor.gitBlobHash && anchor.gitBlobHash !== gitBlobHash) {

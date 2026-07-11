@@ -30,7 +30,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "node ../../scripts/build.mjs --target @wrongstack/webui --skip-if-workspace-build && tsup && vite build",
+    "build": "node ../../scripts/build.mjs --target @wrongstack/webui --skip-if-workspace-build && node ../../scripts/build-package.mjs && vite build",
     "dev": "pnpm run build && electron .",
     "start": "electron .",
     "test": "vitest run --config vitest.config.ts",
@@ -48,8 +48,7 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "@types/ws": "^8.18.1",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vite": "^8.1.0"
   },
   "publishConfig": {

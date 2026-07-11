@@ -42,7 +42,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "node ../../scripts/build-package.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "test": "vitest run",
@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   },
   "publishConfig": {

@@ -87,7 +87,7 @@
   ],
   "wrongstackApiVersion": "0.1.10",
   "scripts": {
-    "build": "pnpm clean && tsup",
+    "build": "node ../../scripts/build-package.mjs",
     "build:prompts": "node scripts/build-prompts.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
@@ -97,8 +97,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "access": "public"

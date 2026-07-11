@@ -6,7 +6,7 @@ param([switch]$Background)
 
 $ErrorActionPreference = "Continue"
 # PS 7.3+: don't let native-command stderr lines escalate into terminating errors.
-# pnpm prints the script body (e.g. "$ vite build && tsup") to stderr, which would
+# pnpm prints the script body (e.g. "$ vite build && node build-package.mjs") to stderr, which would
 # otherwise throw under ErrorActionPreference = "Stop".
 $PSNativeCommandUseErrorActionPreference = $false
 

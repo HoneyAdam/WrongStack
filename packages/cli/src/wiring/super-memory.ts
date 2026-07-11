@@ -31,6 +31,7 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
         maxCharsPerTool: cfg?.inject?.maxCharsPerTool,
         minScore: cfg?.inject?.minScore,
         repeatCooldownMs: cfg?.inject?.repeatCooldownMs,
+        verifyOnMutation: cfg?.hygiene?.autoOnFileChange,
         triggers: cfg?.inject?.triggers,
       }),
     );

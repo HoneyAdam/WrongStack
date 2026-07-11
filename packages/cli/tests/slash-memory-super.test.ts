@@ -35,7 +35,8 @@ describe('/memory Super Memory commands', () => {
     expect((await cmd.run('graph source.ts'))?.message).toContain('about_symbol');
     expect((await cmd.run(`verify ${memory.id}`))?.message).toContain('verified: 1');
     expect((await cmd.run('hygiene'))?.message).toContain('Super Memory Hygiene');
-    expect((await cmd.run('stats'))?.message).toContain('Graph edges: 1');
+    // Memory→symbol, symbol→file, and file→project-root directory.
+    expect((await cmd.run('stats'))?.message).toContain('Graph edges: 3');
   });
 
   it('lists and resolves candidates', async () => {

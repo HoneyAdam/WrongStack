@@ -33,8 +33,12 @@ export function resolveSuperMemoryPaths(
 }
 
 export function normalizeProjectPath(projectRoot: string, inputPath: string): string {
-  const abs = path.isAbsolute(inputPath) ? inputPath : path.join(projectRoot, inputPath);
-  const rel = path.relative(projectRoot, abs);
+  const root = path.resolve(projectRoot);
+  const abs = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(root, inputPath);
+  const rel = path.relative(root, abs);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`Memory path must stay inside the project root: ${inputPath}`);
+  }
   return normalizeSlashes(rel || '.');
 }
 
@@ -44,6 +48,7 @@ export function normalizeSlashes(value: string): string {
 
 export function ancestorPaths(projectPath: string): string[] {
   const normalized = normalizeSlashes(projectPath);
+  if (normalized === '.') return ['.'];
   const parts = normalized.split('/').filter(Boolean);
   const result: string[] = [];
   for (let i = parts.length; i >= 1; i--) {

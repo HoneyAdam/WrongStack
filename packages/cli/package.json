@@ -40,7 +40,7 @@
     "data"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "node ../../scripts/build-package.mjs",
     "typecheck": "pnpm --filter @wrongstack/tools run build && pnpm --filter @wrongstack/tui run build && tsc --noEmit",
     "test:hqdash": "vitest run --config vitest.hqdash.config.ts",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
@@ -71,8 +71,7 @@
     "@types/node": "^26.0.1",
     "@types/ws": "^8.18.1",
     "jsdom": "^29.1.1",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "access": "public"

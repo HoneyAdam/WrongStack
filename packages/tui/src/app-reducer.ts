@@ -1755,6 +1755,7 @@ export function reducer(state: State, action: Action): State {
     case 'fleetTool':
     case 'fleetUsage':
     case 'fleetDone':
+    case 'fleetRemove':
     case 'fleetBudgetWarning':
     case 'fleetBudgetExtended':
     case 'fleetCtxPct':

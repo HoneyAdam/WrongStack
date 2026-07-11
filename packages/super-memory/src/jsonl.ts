@@ -21,11 +21,27 @@ export async function readJsonl<T>(
   filePath: string,
   onCorrupt?: (line: JsonlCorruptLine) => void | Promise<void>,
 ): Promise<T[]> {
+  return (await readJsonlSnapshot<T>(filePath, onCorrupt)).values;
+}
+
+export async function readJsonlSnapshot<T>(
+  filePath: string,
+  onCorrupt?: (line: JsonlCorruptLine) => void | Promise<void>,
+): Promise<{ values: T[]; signature: string }> {
   let raw = '';
+  let signature = 'missing';
   try {
-    raw = await fs.readFile(filePath, 'utf8');
-  } catch {
-    return [];
+    // Readers share the append lock. Without this, a concurrent process can
+    // expose a partially appended (but otherwise valid) JSON line and cause a
+    // false corruption quarantine.
+    ({ raw, signature } = await withFileLock(filePath, async () => {
+      const body = await fs.readFile(filePath, 'utf8');
+      const stat = await fs.stat(filePath);
+      return { raw: body, signature: `${stat.size}:${stat.mtimeMs}` };
+    }));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { values: [], signature };
+    throw err;
   }
 
   const values: T[] = [];
@@ -44,7 +60,7 @@ export async function readJsonl<T>(
       });
     }
   }
-  return values;
+  return { values, signature };
 }
 
 export async function writeJson(filePath: string, value: unknown): Promise<void> {

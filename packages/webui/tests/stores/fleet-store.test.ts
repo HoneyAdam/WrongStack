@@ -53,6 +53,26 @@ describe('spawned', () => {
   });
 });
 
+describe('removed', () => {
+  it('deletes the agent and its live timeline data', () => {
+    fleet().applyEvent({ kind: 'spawned', subagentId: 'a1', name: 'Grace' });
+    fleet().pushAgentTimelineEntry({
+      subagentId: 'a1',
+      agentName: 'Grace',
+      content: 'working',
+      kind: 'text',
+      iteration: 1,
+      ts: new Date().toISOString(),
+    });
+
+    fleet().applyEvent({ kind: 'removed', subagentId: 'a1', reason: 'completed' });
+
+    expect(get('a1')).toBeUndefined();
+    expect(fleet().getAgentTranscript('a1')).toEqual([]);
+    expect(fleet().agentTimeline.some((entry) => entry.subagentId === 'a1')).toBe(false);
+  });
+});
+
 // ── tool_executed ────────────────────────────────────────────────
 
 describe('tool_executed', () => {

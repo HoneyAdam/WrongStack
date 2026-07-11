@@ -221,20 +221,20 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "node ../../scripts/build-package.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
+    "@typescript/typescript6": "^6.0.2",
     "@wrongstack/core": "workspace:*",
     "@wrongstack/kanban": "workspace:*",
     "turndown": "^7.2.4",
-    "typescript": "^6.0.3",
     "undici": "^8.5.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "tsup": "^8.5.1"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "access": "public"

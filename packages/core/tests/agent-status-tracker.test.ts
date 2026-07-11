@@ -425,6 +425,15 @@ describe('AgentStatusTracker', () => {
     expect(sub).toBeUndefined();
   });
 
+  it('removes subagent immediately on subagent.removed', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-removed', name: 'temp' });
+    events.emit('subagent.removed', { subagentId: 'sa-removed', reason: 'idle timeout' });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    expect(call?.find((a: AgentEntry) => a.id === 'sa-removed')).toBeUndefined();
+  });
+
   // ── Fleet: multiple agents ─────────────────────────────────────────
 
   it('tracks leader + multiple subagents simultaneously', () => {

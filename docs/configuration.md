@@ -36,6 +36,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
   "yolo": false,
   "modelRuntime": { /* ... */ },
   "modelMatrix": { /* ... */ },
+  "fleet": { /* ... */ },
   "fallbackModels": [],
   "fallbackProfiles": { /* ... */ },
   "cwd": ".",
@@ -62,6 +63,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | `favoriteModelsOnly` | `boolean` | `false` | Restrict auto-derived fallback chains to `favoriteModels`. Explicit chains/profiles are still honored. |
 | `modelRuntime` | `object` | — | Runtime request controls for the leader/default request path: reasoning, prompt-cache TTL, and gated generation parameters. |
 | `modelMatrix` | `Record<string, ModelMatrixEntry>` | — | Per-role/phase/`*` subagent routing matrix. Entries can override provider/model/fallback profile and role-specific runtime controls. |
+| `fleet` | `FleetConfig` | — | Fleet budgets, supervision, worktrees, peer awareness, and subagent lifecycle. User config only; stripped from in-project config. |
 | `hooks` | `object` | — | Lifecycle shell hooks keyed by event. See [`hooks`](#hooks--lifecycle-hooks) below and [hooks.md](./hooks.md). |
 | `cwd` | `string` | `process.cwd()` | Working directory. Overridden by `--cwd` CLI flag. |
 
@@ -618,6 +620,37 @@ You can increase verbosity for debugging:
   }
 }
 ```
+
+---
+
+## `fleet.lifecycle` — Subagent cleanup
+
+```jsonc
+{
+  "fleet": {
+    "lifecycle": {
+      "idleTimeoutMs": 30000,
+      "retireOnTaskComplete": true
+    }
+  }
+}
+```
+
+`retireOnTaskComplete` removes a subagent as soon as its final task result has
+been delivered, unless queued work reused that worker in the same dispatch
+cycle. `idleTimeoutMs` is the fallback for a spawned or between-task worker
+that remains idle; it defaults to 30 seconds. This lifecycle timeout is
+separate from the in-task activity watchdog (`SubagentConfig.idleTimeoutMs`),
+which resets on iterations, tool calls, and streamed progress.
+
+Removal releases the Director bridge/coordinator entry and is broadcast to the
+session registry, TUI, WebUI, and agent monitor so a retired worker is not kept
+as an idle/completed live agent. Set `retireOnTaskComplete` to `false` to keep a
+worker reusable until `idleTimeoutMs` expires. A value of `0` retires idle
+workers on the next event-loop turn.
+
+**Security:** `fleet` is stripped from in-project config. Configure this under
+`~/.wrongstack/config.json` or the project-private `config.local.json`.
 
 ---
 

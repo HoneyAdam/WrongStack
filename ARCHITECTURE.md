@@ -78,7 +78,7 @@ docs/
   tool-author-guide.md      Tool authoring guide.
 ```
 
-The workspace is managed by `pnpm`, uses TypeScript 6.0, builds packages with `tsup`, tests with `vitest`, and formats/lints with Biome.
+The workspace is managed by `pnpm`, uses TypeScript 7, bundles packages with esbuild, emits declarations with native `tsc`, tests with `vitest`, and formats/lints with Biome.
 
 ### Package Inventory
 

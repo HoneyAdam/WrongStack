@@ -16,7 +16,12 @@ export {
   createSuperMemoryTurnMiddleware,
   type SuperMemoryTurnMiddlewareOptions,
 } from './middleware/turn-memory.js';
-export { formatMemoryHints, type FormatMemoryHintsOptions } from './retrieval/format.js';
+export {
+  formatMemoryHints,
+  formatMemoryHintsDetailed,
+  type FormattedMemoryHints,
+  type FormatMemoryHintsOptions,
+} from './retrieval/format.js';
 export { SuperMemoryGraph } from './graph/graph.js';
 export { verifyMemoryAnchors } from './anchors/verify.js';
 export {

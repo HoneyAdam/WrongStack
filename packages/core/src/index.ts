@@ -541,7 +541,7 @@ export {
 export { DEFAULT_SESSION_PRUNE_DAYS } from './types/default-config.js';
 export * from './types/index.js';
 export type { Logger, LogLevel } from './types/logger.js';
-// Explicit type re-exports needed because tsup DTS deduplication drops types
+// Explicit type re-exports keep the top-level public surface stable for types
 // that are reachable through both types/ and defaults/ export chains.
 // Consumers (e.g. @wrongstack/providers) import these directly from '@wrongstack/core'.
 export type {
@@ -571,10 +571,8 @@ export {
 // Re-export safeParse explicitly at the top-level export for consumers
 // who import from '@wrongstack/core' directly (e.g. providers package).
 export { safeParse, safeStringify, sanitizeJsonString, stripCodeFences } from './utils/safe-json.js';
-// Likewise pin the terminal helpers: tsup's DTS deduplication can drop the
-// whole term.js module from the bundled declarations (it's only reachable via
-// the `export *` util chain), which breaks `import { onResize } from
-// '@wrongstack/core'` in the CLI. An explicit re-export forces them in.
+// Likewise pin the terminal helpers at the top-level public surface; consumers
+// import them directly from '@wrongstack/core' rather than the util subpath.
 export {
   getTermSize,
   isInteractive,

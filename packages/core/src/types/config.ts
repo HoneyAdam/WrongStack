@@ -720,7 +720,7 @@ export interface AutonomyConfig {
   /** Prompt-refinement language mode. Default: "original". */
   enhanceLanguage?: 'original' | 'english' | undefined;
   /** TUI statusline density. Default: "detailed". */
-  statuslineMode?: 'minimum' | 'detailed' | undefined;
+  statuslineMode?: 'minimum' | 'detailed' | 'no-color' | undefined;
   /** Single short word shown in the TUI rainbow working-state chip. Default: "thinking". */
   thinkingWord?: string | undefined;
   /**
@@ -907,6 +907,21 @@ export interface SkillsConfig {
  * supervisor semantics.
  */
 export interface FleetConfig {
+  /** Subagent process/registry lifecycle after it is no longer doing work. */
+  lifecycle?:
+    | {
+        /**
+         * Remove a spawned or between-task subagent after this much idle time.
+         * This is separate from the in-task activity watchdog. Default 30000.
+         */
+        idleTimeoutMs?: number | undefined;
+        /**
+         * Retire a subagent as soon as its final task result is delivered and
+         * no queued task reused it in the same dispatch cycle. Default true.
+         */
+        retireOnTaskComplete?: boolean | undefined;
+      }
+    | undefined;
   /** Fleet-wide hard ceilings. In-flight work may finish; new spawns are refused at the cap. */
   budget?:
     | {

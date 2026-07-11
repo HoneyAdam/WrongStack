@@ -7,8 +7,8 @@ import type {
   MemoryStore,
   ScoredEntry,
 } from '@wrongstack/core';
-import { ensureDir, ulid } from '@wrongstack/core/utils';
-import { appendJsonl, readJson, readJsonl, writeJson } from './jsonl.js';
+import { ensureDir, ulid, withFileLock } from '@wrongstack/core/utils';
+import { appendJsonl, readJson, readJsonl, readJsonlSnapshot, writeJson } from './jsonl.js';
 import { verifyMemoryAnchors } from './anchors/verify.js';
 import { SuperMemoryGraph } from './graph/graph.js';
 import {
@@ -48,7 +48,25 @@ import {
 } from './types.js';
 
 const DEFAULT_LIMIT = 20;
+const MAX_MEMORY_TEXT_CHARS = 20_000;
+const MAX_MEMORY_METADATA_ITEMS = 128;
 const ACTIVE_STATUSES: SuperMemoryStatus[] = ['active'];
+const VALID_STATUSES = new Set<SuperMemoryStatus>(['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted']);
+const VALID_SCOPES = new Set<SuperMemory['scope']>(['project', 'user', 'session', 'file', 'symbol']);
+const VALID_KINDS = new Set<SuperMemory['kind']>([
+  'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
+  'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
+]);
+const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
+  'file', 'directory', 'symbol', 'package', 'command', 'test', 'git',
+]);
+const VALID_CANDIDATE_STATUSES = new Set<MemoryCandidate['status']>([
+  'pending', 'accepted', 'rejected', 'merged',
+]);
+const VALID_SOURCE_TYPES = new Set<SuperMemory['sources'][number]['type']>([
+  'user', 'session', 'tool_result', 'project_instruction', 'file', 'test',
+  'command', 'legacy_memory',
+]);
 
 export class SuperMemoryStore implements MemoryStore {
   readonly paths;
@@ -57,8 +75,11 @@ export class SuperMemoryStore implements MemoryStore {
   private readonly events;
   private traceId?: string | undefined;
   private loaded: SuperMemory[] | undefined;
+  private loadedLogSignature: string | undefined;
+  private readonly invalidRecordsAudited = new Set<string>();
   private readonly graph: SuperMemoryGraph;
   private initialized = false;
+  private initializing: Promise<void> | undefined;
   private mutationChain: Promise<unknown> = Promise.resolve();
 
   constructor(opts: SuperMemoryStoreOptions) {
@@ -72,6 +93,16 @@ export class SuperMemoryStore implements MemoryStore {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    if (this.initializing) return this.initializing;
+    this.initializing = this.initializeOnce();
+    try {
+      await this.initializing;
+    } finally {
+      this.initializing = undefined;
+    }
+  }
+
+  private async initializeOnce(): Promise<void> {
     await Promise.all([
       ensureDir(this.paths.rootDir),
       ensureDir(this.paths.graphDir),
@@ -81,62 +112,112 @@ export class SuperMemoryStore implements MemoryStore {
       ensureDir(this.paths.tmpDir),
       ensureDir(this.paths.locksDir),
     ]);
-    const existing = await readJson<SuperMemoryManifest>(this.paths.manifest);
-    if (!existing) {
-      const now = this.nowIso();
-      const manifest: SuperMemoryManifest = {
-        schemaVersion: SUPER_MEMORY_SCHEMA_VERSION,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await writeJson(this.paths.manifest, manifest);
-    }
+    await withFileLock(this.paths.manifest, async () => {
+      const existing = await readJson<SuperMemoryManifest>(this.paths.manifest);
+      if (!existing) {
+        const now = this.nowIso();
+        const manifest: SuperMemoryManifest = {
+          schemaVersion: SUPER_MEMORY_SCHEMA_VERSION,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await writeJson(this.paths.manifest, manifest);
+      }
+    });
     this.initialized = true;
   }
 
   async rememberSuper(input: RememberSuperMemoryInput): Promise<SuperMemory> {
-    this.rejectIfUnsafe(input.text);
+    validateRememberInput(input);
+    const normalizedText = normalizeText(input.text);
+    if (!normalizedText) throw new Error('Super Memory text must not be empty.');
+    this.rejectIfUnsafeInput(input);
     await this.initialize();
-    const now = this.nowIso();
-    const memory: SuperMemory = {
-      id: `mem_${ulid()}`,
-      revision: 1,
-      scope: input.scope ?? legacyToSuperScope(input.legacyScope ?? 'project-memory'),
-      legacyScope: input.legacyScope,
-      kind: input.kind ?? legacyTypeToKind(input.type),
-      status: 'active',
-      text: normalizeText(input.text),
-      importance: clamp01(input.importance ?? importanceFromPriority(input.priority)),
-      confidence: clamp01(input.confidence ?? 0.8),
-      freshness: clamp01(input.freshness ?? 1),
-      tags: normalizeTags(input.tags),
-      anchors: normalizeAnchors(this.projectRoot, input.anchors ?? []),
-      sources: input.sources ?? [{ type: 'user' }],
-      supersedes: uniqueIds(input.supersedes),
-      contradicts: uniqueIds(input.contradicts),
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.runMutation(async () => {
-      await this.appendRecord('create', memory);
-      await this.addAutomaticEdges(memory);
-      await this.applyDeclaredRelationships(memory);
+    const scope = input.scope ?? legacyToSuperScope(input.legacyScope ?? 'project-memory');
+    const legacyScope = input.legacyScope;
+    const kind = input.kind ?? legacyTypeToKind(input.type);
+    const tags = normalizeTags(input.tags);
+    const anchors = normalizeAnchors(this.projectRoot, input.anchors ?? []);
+    const sources = normalizeSources(input.sources ?? [{ type: 'user' }]);
+    let created = false;
+    const memory = await this.runMutation(async () => {
+      const duplicate = (await this.loadMemories()).find((candidate) =>
+        (candidate.status === 'active' || candidate.status === 'stale')
+        && memoryIdentity(candidate) === memoryIdentity({
+          text: normalizedText,
+          scope,
+          legacyScope,
+        }));
+      if (duplicate) {
+        const mergedPatch = {
+          kind: duplicate.kind === 'fact' && kind !== 'fact' ? kind : duplicate.kind,
+          tags: [...new Set([...duplicate.tags, ...tags])],
+          anchors: dedupeAnchors([...duplicate.anchors, ...anchors]),
+          sources: dedupeSources([...duplicate.sources, ...sources]),
+          importance: Math.max(duplicate.importance, clamp01(input.importance ?? importanceFromPriority(input.priority))),
+          confidence: Math.max(duplicate.confidence, clamp01(input.confidence ?? 0.8)),
+          freshness: Math.max(duplicate.freshness, clamp01(input.freshness ?? 1)),
+          supersedes: uniqueIds([...(duplicate.supersedes ?? []), ...(input.supersedes ?? [])]),
+          contradicts: uniqueIds([...(duplicate.contradicts ?? []), ...(input.contradicts ?? [])]),
+        } satisfies Partial<SuperMemory>;
+        const merged = memoryPatchChanges(duplicate, mergedPatch)
+          ? await this.updateMemory(duplicate, mergedPatch)
+          : duplicate;
+        await this.addAutomaticEdges(merged);
+        await this.applyDeclaredRelationships(merged);
+        await this.afterMutation();
+        await this.audit('memory.duplicate_merged', {
+          memoryId: merged.id,
+          source: sources[0]?.type,
+          reason: 'rememberSuper',
+        });
+        this.events?.emit('memory.merged', this.eventPayload({ memoryId: merged.id, mergedIds: [] }));
+        return merged;
+      }
+
+      const now = this.nowIso();
+      const freshMemory: SuperMemory = {
+        id: `mem_${ulid()}`,
+        revision: 1,
+        scope,
+        legacyScope,
+        kind,
+        status: 'active',
+        text: normalizedText,
+        importance: clamp01(input.importance ?? importanceFromPriority(input.priority)),
+        confidence: clamp01(input.confidence ?? 0.8),
+        freshness: clamp01(input.freshness ?? 1),
+        tags,
+        anchors,
+        sources,
+        supersedes: uniqueIds(input.supersedes),
+        contradicts: uniqueIds(input.contradicts),
+        createdAt: now,
+        updatedAt: now,
+      };
+      created = true;
+      await this.appendRecord('create', freshMemory);
+      await this.addAutomaticEdges(freshMemory);
+      await this.applyDeclaredRelationships(freshMemory);
       await this.afterMutation();
+      return freshMemory;
     });
-    await this.audit('memory.accepted', {
-      memoryId: memory.id,
-      source: memory.sources[0]?.type,
-      reason: 'rememberSuper',
-    });
-    this.events?.emit('memory.remembered', {
-      scope: memory.legacyScope ?? superToLegacyScope(memory.scope),
-      text: memory.text,
-      ts: memory.createdAt,
-      type: toLegacyEntry(memory).type,
-      tags: memory.tags,
-      priority: toLegacyEntry(memory).priority,
-    });
-    this.events?.emit('memory.accepted', this.eventPayload({ memoryId: memory.id }));
+    if (created) {
+      await this.audit('memory.accepted', {
+        memoryId: memory.id,
+        source: memory.sources[0]?.type,
+        reason: 'rememberSuper',
+      });
+      this.events?.emit('memory.remembered', {
+        scope: memory.legacyScope ?? superToLegacyScope(memory.scope),
+        text: memory.text,
+        ts: memory.createdAt,
+        type: toLegacyEntry(memory).type,
+        tags: memory.tags,
+        priority: toLegacyEntry(memory).priority,
+      });
+      this.events?.emit('memory.accepted', this.eventPayload({ memoryId: memory.id }));
+    }
     return memory;
   }
 
@@ -171,6 +252,7 @@ export class SuperMemoryStore implements MemoryStore {
   async graphFor(query: string, maxDepth = 2, limit = 100): Promise<MemoryGraphEdge[]> {
     const starts = new Set<string>();
     if (/^(mem|file|dir|symbol|command|session|tool):/.test(query)) starts.add(normalizeNode(query));
+    else if (/^mem_[A-Za-z0-9]+$/.test(query.trim())) starts.add(`mem:${query.trim()}`);
     const normalizedPath = normalizeProjectPath(this.projectRoot, query);
     starts.add(`file:${normalizedPath}`);
     starts.add(`dir:${normalizedPath}`);
@@ -178,57 +260,63 @@ export class SuperMemoryStore implements MemoryStore {
     return this.graph.traverse([...starts], { maxDepth, limit });
   }
 
-  async verify(memoryId?: string): Promise<MemoryVerificationResult[]> {
-    const memories = (await this.loadMemories()).filter(
-      (memory) => memory.status !== 'deleted' && (!memoryId || memory.id === memoryId),
-    );
-    const results: MemoryVerificationResult[] = [];
-    for (const memory of memories) {
-      const result = await verifyMemoryAnchors(this.projectRoot, memory, this.nowIso());
-      results.push(result);
-      if (result.status === 'stale' && memory.status === 'active') {
-        const reason = result.anchors.find((anchor) => anchor.status === 'stale')?.reason ?? 'Anchor is stale.';
-        await this.updateMemory(memory, { status: 'stale', lastVerifiedAt: result.checkedAt });
-        this.events?.emit('memory.staled', this.eventPayload({ memoryId: memory.id, reason }));
-      } else if (result.status === 'verified') {
-        await this.updateMemory(memory, {
-          status: memory.status === 'stale' ? 'active' : memory.status,
-          lastVerifiedAt: result.checkedAt,
-          freshness: 1,
-        });
-      } else if (memory.lastVerifiedAt !== result.checkedAt) {
-        await this.updateMemory(memory, { lastVerifiedAt: result.checkedAt });
-      }
-      this.events?.emit('memory.verified', this.eventPayload({ memoryId: memory.id, status: result.status }));
-      await this.audit('memory.verified', {
-        memoryId: memory.id,
-        details: { status: result.status, anchors: result.anchors },
-      });
-    }
-    if (results.length > 0) await this.afterMutation();
-    return results;
+  async verify(memoryId?: string, signal?: AbortSignal): Promise<MemoryVerificationResult[]> {
+    signal?.throwIfAborted();
+    await this.initialize();
+    return this.runMutation(async () => {
+      const memories = (await this.loadMemories()).filter(
+        (memory) => memory.status !== 'deleted' && (!memoryId || memory.id === memoryId),
+      );
+      return this.verifyMemoriesUnlocked(memories, signal);
+    });
   }
 
-  async verifyForPaths(paths: string[]): Promise<MemoryVerificationResult[]> {
+  async verifyForPaths(paths: string[], signal?: AbortSignal): Promise<MemoryVerificationResult[]> {
+    signal?.throwIfAborted();
+    await this.initialize();
     const normalized = paths.map((value) => normalizeProjectPath(this.projectRoot, value));
-    const matching = (await this.loadMemories()).filter(
-      (memory) => memory.status !== 'deleted' && memory.anchors.some((anchor) => {
-        if (!anchor.path) return false;
-        const anchorPath = normalizeSlashes(anchor.path);
-        return normalized.some((target) => target === anchorPath || target.startsWith(`${anchorPath}/`) || anchorPath.startsWith(`${target}/`));
-      }),
-    );
-    const results: MemoryVerificationResult[] = [];
-    for (const memory of matching) results.push(...await this.verify(memory.id));
-    return results;
+    return this.runMutation(async () => {
+      const matching = (await this.loadMemories()).filter(
+        (memory) => memory.status !== 'deleted' && memory.anchors.some((anchor) => {
+          if (!anchor.path) return false;
+          const anchorPath = normalizeSlashes(anchor.path);
+          return normalized.some((target) => target === anchorPath || target.startsWith(`${anchorPath}/`) || anchorPath.startsWith(`${target}/`));
+        }),
+      );
+      return this.verifyMemoriesUnlocked(matching, signal);
+    });
   }
 
-  recordInjection(memoryIds: string[], trigger: string, sessionId?: string): void {
+  async recordInjection(memoryIds: string[], trigger: string, sessionId?: string): Promise<void> {
+    if (memoryIds.length === 0) return;
+    await this.initialize();
+    await this.runMutation(async () => {
+      const now = this.nowIso();
+      const cutoff = this.now().getTime() - 60 * 60_000;
+      const wanted = new Set(memoryIds);
+      let changed = false;
+      for (const memory of await this.loadMemories()) {
+        if (!wanted.has(memory.id)) continue;
+        if (memory.lastAccessedAt && Date.parse(memory.lastAccessedAt) >= cutoff) continue;
+        await this.updateMemory(memory, { lastAccessedAt: now }, { preserveUpdatedAt: true });
+        changed = true;
+      }
+      if (changed) await this.afterMutation();
+      await this.audit('memory.injected', { details: { memoryIds, trigger, sessionId } });
+    });
     this.events?.emit('memory.injected', this.eventPayload({ memoryIds, trigger, sessionId }));
-    void this.audit('memory.injected', { details: { memoryIds, trigger, sessionId } });
   }
 
-  async hygiene(options: SuperMemoryHygieneOptions = {}): Promise<SuperMemoryHygieneReport> {
+  async hygiene(options: SuperMemoryHygieneOptions = {}, signal?: AbortSignal): Promise<SuperMemoryHygieneReport> {
+    signal?.throwIfAborted();
+    await this.initialize();
+    return this.runMutation(() => this.hygieneUnlocked(options, signal));
+  }
+
+  private async hygieneUnlocked(
+    options: SuperMemoryHygieneOptions,
+    signal?: AbortSignal,
+  ): Promise<SuperMemoryHygieneReport> {
     await this.initialize();
     const startedAt = this.nowIso();
     const initial = await this.loadMemories();
@@ -248,7 +336,7 @@ export class SuperMemoryStore implements MemoryStore {
     await this.audit('memory.hygiene_started', { details: { examined: report.examined } });
 
     const active = initial.filter((memory) => memory.status === 'active');
-    const duplicateGroups = groupBy(active, (memory) => normalizeText(memory.text).toLowerCase());
+    const duplicateGroups = groupBy(active, memoryIdentity);
     for (const group of duplicateGroups.values()) {
       if (group.length < 2) continue;
       const sorted = [...group].sort(compareMemoryQuality);
@@ -272,7 +360,10 @@ export class SuperMemoryStore implements MemoryStore {
     }
 
     if (options.verify !== false) {
-      const verified = await this.verify();
+      const verified = await this.verifyMemoriesUnlocked(
+        (await this.loadMemories()).filter((memory) => memory.status !== 'deleted'),
+        signal,
+      );
       report.verified = verified.filter((item) => item.status === 'verified').length;
       report.staled = verified.filter((item) => item.status === 'stale').length;
     }
@@ -282,7 +373,7 @@ export class SuperMemoryStore implements MemoryStore {
     const lowConfidenceMs = daysToMs(options.archiveLowConfidenceAfterDays ?? 30);
     for (const memory of await this.loadMemories()) {
       if (memory.status === 'deleted' || memory.status === 'superseded' || memory.status === 'contradicted') continue;
-      const age = nowMs - Date.parse(memory.updatedAt);
+      const age = nowMs - Date.parse(memory.lastAccessedAt ?? memory.updatedAt);
       if (memory.scope === 'session' && memory.expiresAt && Date.parse(memory.expiresAt) <= nowMs) {
         await this.updateMemory(memory, { status: 'deleted' });
         report.deleted++;
@@ -327,7 +418,11 @@ export class SuperMemoryStore implements MemoryStore {
   async importLegacy(files: string | string[]): Promise<LegacyImportResult> {
     const paths = Array.isArray(files) ? files : [files];
     const result: LegacyImportResult = { imported: 0, skipped: 0, files: 0 };
-    const existing = new Set((await this.loadMemories()).map((memory) => normalizeText(memory.text).toLowerCase()));
+    const existing = new Set(
+      (await this.loadMemories())
+        .filter((memory) => memory.status === 'active' || memory.status === 'stale')
+        .map((memory) => memoryIdentity(memory)),
+    );
     for (const filePath of paths) {
       let raw: string;
       try {
@@ -337,7 +432,11 @@ export class SuperMemoryStore implements MemoryStore {
       }
       result.files++;
       for (const entry of parseLegacyMemory(raw)) {
-        const key = normalizeText(entry.text).toLowerCase();
+        const key = memoryIdentity({
+          text: entry.text,
+          scope: legacyToSuperScope(entry.scope),
+          legacyScope: entry.scope,
+        });
         if (!key || existing.has(key)) {
           result.skipped++;
           continue;
@@ -360,21 +459,34 @@ export class SuperMemoryStore implements MemoryStore {
   async createCandidate(
     input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>,
   ): Promise<MemoryCandidate> {
-    this.rejectIfUnsafe(input.text);
+    validateRememberInput(input);
+    this.rejectIfUnsafeInput(input);
     await this.initialize();
+    return this.runMutation(() => this.createCandidateUnlocked(input));
+  }
+
+  private async createCandidateUnlocked(
+    input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>,
+  ): Promise<MemoryCandidate> {
+    const text = normalizeText(input.text);
+    if (!text) throw new Error('Super Memory candidate text must not be empty.');
+    const scope = input.scope ?? 'project';
+    const duplicate = (await this.listCandidates()).find((candidate) =>
+      candidate.scope === scope && canonicalMemoryText(candidate.text) === canonicalMemoryText(text));
+    if (duplicate) return duplicate;
     const now = this.nowIso();
     const candidate: MemoryCandidate = {
       schemaVersion: SUPER_MEMORY_SCHEMA_VERSION,
       id: `candidate_${ulid()}`,
       status: 'pending',
-      text: normalizeText(input.text),
+      text,
       kind: input.kind ?? 'fact',
-      scope: input.scope ?? 'project',
+      scope,
       confidence: clamp01(input.confidence ?? 0.6),
       importance: clamp01(input.importance ?? 0.6),
       tags: normalizeTags(input.tags),
       anchors: normalizeAnchors(this.projectRoot, input.anchors ?? []),
-      sources: input.sources ?? [{ type: 'session' }],
+      sources: normalizeSources(input.sources ?? [{ type: 'session' }]),
       createdAt: now,
       updatedAt: now,
     };
@@ -388,7 +500,7 @@ export class SuperMemoryStore implements MemoryStore {
     const rows = await readJsonl<MemoryCandidate>(this.paths.candidatesLog);
     const latest = new Map<string, MemoryCandidate>();
     for (const row of rows) {
-      if (row?.schemaVersion === 1 && row.id && row.text) latest.set(row.id, row);
+      if (isMemoryCandidate(row)) latest.set(row.id, row);
     }
     return [...latest.values()]
       .filter((candidate) => includeResolved || candidate.status === 'pending')
@@ -401,48 +513,60 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   async acceptCandidate(candidateId: string): Promise<SuperMemory | undefined> {
-    const candidate = (await this.listCandidates()).find((item) => item.id === candidateId);
-    if (!candidate) return undefined;
-    const memory = await this.rememberSuper({
-      text: candidate.text,
-      kind: candidate.kind,
-      scope: candidate.scope,
-      confidence: candidate.confidence,
-      importance: candidate.importance,
-      tags: candidate.tags,
-      anchors: candidate.anchors,
-      sources: candidate.sources,
-    });
-    await appendJsonl(this.paths.candidatesLog, {
-      ...candidate,
-      status: 'accepted',
-      memoryId: memory.id,
-      updatedAt: this.nowIso(),
-    } satisfies MemoryCandidate);
-    return memory;
+    return withFileLock(`${this.paths.candidatesLog}.mutation`, async () => {
+      const candidate = (await this.listCandidates()).find((item) => item.id === candidateId);
+      if (!candidate) return undefined;
+      const memory = await this.rememberSuper({
+        text: candidate.text,
+        kind: candidate.kind,
+        scope: candidate.scope,
+        confidence: candidate.confidence,
+        importance: candidate.importance,
+        tags: candidate.tags,
+        anchors: candidate.anchors,
+        sources: candidate.sources,
+      });
+      await appendJsonl(this.paths.candidatesLog, {
+        ...candidate,
+        status: 'accepted',
+        memoryId: memory.id,
+        updatedAt: this.nowIso(),
+      } satisfies MemoryCandidate);
+      return memory;
+    }, { timeoutMs: 60_000, staleMs: 30 * 60_000 });
   }
 
   async rejectCandidate(candidateId: string, reason: string): Promise<boolean> {
-    const candidate = (await this.listCandidates()).find((item) => item.id === candidateId);
-    if (!candidate) return false;
-    await appendJsonl(this.paths.candidatesLog, {
-      ...candidate,
-      status: 'rejected',
-      reason: normalizeText(reason),
-      updatedAt: this.nowIso(),
-    } satisfies MemoryCandidate);
-    await this.audit('memory.candidate_rejected', { reason, details: { candidateId } });
-    this.events?.emit('memory.candidate_rejected', this.eventPayload({ candidateId, reason }));
-    return true;
+    return withFileLock(`${this.paths.candidatesLog}.mutation`, async () => {
+      const candidate = (await this.listCandidates()).find((item) => item.id === candidateId);
+      if (!candidate) return false;
+      await appendJsonl(this.paths.candidatesLog, {
+        ...candidate,
+        status: 'rejected',
+        reason: normalizeText(reason),
+        updatedAt: this.nowIso(),
+      } satisfies MemoryCandidate);
+      await this.audit('memory.candidate_rejected', { reason, details: { candidateId } });
+      this.events?.emit('memory.candidate_rejected', this.eventPayload({ candidateId, reason }));
+      return true;
+    }, { timeoutMs: 60_000, staleMs: 30 * 60_000 });
   }
 
   async consolidateSession(input: SessionConsolidationInput): Promise<SessionConsolidationResult> {
     const result: SessionConsolidationResult = { candidates: 0, accepted: 0, rejected: 0, duplicate: 0 };
-    const existing = new Set((await this.loadMemories()).map((memory) => normalizeText(memory.text).toLowerCase()));
+    const existing = new Set(
+      (await this.loadMemories())
+        .filter((memory) => (memory.status === 'active' || memory.status === 'stale') && memory.scope === 'project')
+        .map((memory) => canonicalMemoryText(memory.text)),
+    );
+    for (const candidate of await this.listCandidates()) {
+      if (candidate.scope === 'project') existing.add(canonicalMemoryText(candidate.text));
+    }
     const threshold = clamp01(input.autoAcceptThreshold ?? 0.85);
     for (const fact of input.facts) {
       const text = normalizeText(fact.text);
-      if (!text || existing.has(text.toLowerCase())) {
+      const key = canonicalMemoryText(text);
+      if (!text || existing.has(key)) {
         result.duplicate++;
         continue;
       }
@@ -462,10 +586,10 @@ export class SuperMemoryStore implements MemoryStore {
         continue;
       }
       result.candidates++;
+      existing.add(key);
       const policyScore = candidate.confidence * 0.55 + candidate.importance * 0.45;
       if (policyScore >= threshold) {
         await this.acceptCandidate(candidate.id);
-        existing.add(text.toLowerCase());
         result.accepted++;
       }
     }
@@ -473,19 +597,21 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   async retrieveForPath(opts: SuperMemoryForPathOptions): Promise<SuperMemory[]> {
-    const all = await this.loadActive();
+    const statuses = new Set(opts.includeStatuses ?? ACTIVE_STATUSES);
+    const all = (await this.loadMemories()).filter((memory) => statuses.has(memory.status));
     const target = normalizeProjectPath(this.projectRoot, opts.path);
-    const candidates = opts.includeAncestors === false
+    const includeAncestors = opts.includeAncestors !== false;
+    const candidates = !includeAncestors
       ? [target]
       : ancestorPaths(target);
     const scored = all
       .map((memory) => ({
         memory,
-        score: scorePathMemory(memory, target, candidates),
+        score: scorePathMemory(memory, target, candidates, includeAncestors),
       }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || b.memory.updatedAt.localeCompare(a.memory.updatedAt));
-    return scored.slice(0, opts.limit ?? DEFAULT_LIMIT).map((item) => item.memory);
+    return scored.slice(0, boundedLimit(opts.limit, DEFAULT_LIMIT, 100)).map((item) => item.memory);
   }
 
   async searchSuper(query: string, opts: SuperMemorySearchOptions = {}): Promise<SuperMemory[]> {
@@ -498,7 +624,7 @@ export class SuperMemoryStore implements MemoryStore {
       .map((memory) => ({ memory, score: scoreQueryMemory(memory, query) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || b.memory.updatedAt.localeCompare(a.memory.updatedAt));
-    return scored.slice(0, opts.limit ?? DEFAULT_LIMIT).map((item) => item.memory);
+    return scored.slice(0, boundedLimit(opts.limit, DEFAULT_LIMIT, 500)).map((item) => item.memory);
   }
 
   async readAll(): Promise<string> {
@@ -542,6 +668,12 @@ export class SuperMemoryStore implements MemoryStore {
 
   async forget(query: string, scope: MemoryScope = 'project-memory'): Promise<number> {
     await this.initialize();
+    const normalizedQuery = normalizeText(query);
+    if (!normalizedQuery) return 0;
+    return this.runMutation(() => this.forgetUnlocked(normalizedQuery, scope));
+  }
+
+  private async forgetUnlocked(query: string, scope: MemoryScope): Promise<number> {
     const all = await this.loadMemories();
     const now = this.nowIso();
     let removed = 0;
@@ -568,32 +700,52 @@ export class SuperMemoryStore implements MemoryStore {
 
   async consolidate(scope: MemoryScope): Promise<void> {
     await this.initialize();
-    const entries = await this.list(scope);
-    const seen = new Set<string>();
-    let removed = 0;
-    for (const entry of entries) {
-      const key = normalizeText(entry.text).toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        continue;
+    await this.runMutation(async () => {
+      const matching = (await this.loadMemories()).filter((memory) =>
+        memory.status === 'active'
+        && (memory.legacyScope ?? superToLegacyScope(memory.scope)) === scope);
+      const groups = groupBy(matching, (memory) => canonicalMemoryText(memory.text));
+      let removed = 0;
+      for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        const [keeper, ...duplicates] = [...group].sort(compareMemoryQuality);
+        if (!keeper) continue;
+        await this.updateMemory(keeper, {
+          tags: [...new Set(group.flatMap((memory) => memory.tags))],
+          anchors: dedupeAnchors(group.flatMap((memory) => memory.anchors)),
+          sources: dedupeSources(group.flatMap((memory) => memory.sources)),
+          supersedes: uniqueIds([...(keeper.supersedes ?? []), ...duplicates.map((memory) => memory.id)]),
+        });
+        for (const duplicate of duplicates) {
+          await this.updateMemory(duplicate, { status: 'superseded', supersededBy: keeper.id });
+          await this.addGraphEdge(`mem:${keeper.id}`, `mem:${duplicate.id}`, 'supersedes', 1);
+          removed++;
+        }
       }
-      removed += await this.forget(entry.text, scope);
-    }
-    if (removed > 0) {
-      this.events?.emit('memory.consolidated', { scope, removed });
-    }
+      if (removed > 0) {
+        await this.afterMutation();
+        this.events?.emit('memory.consolidated', { scope, removed });
+      }
+    });
   }
 
   async clear(scope?: MemoryScope): Promise<void> {
     await this.initialize();
-    const scopes: MemoryScope[] = scope ? [scope] : ['project-agents', 'project-memory', 'user-memory'];
-    for (const s of scopes) {
-      const entries = await this.list(s);
-      for (const entry of entries) {
-        await this.forget(entry.text, s);
+    await this.runMutation(async () => {
+      const scopes: MemoryScope[] = scope ? [scope] : ['project-agents', 'project-memory', 'user-memory'];
+      const all = await this.loadMemories();
+      let changed = false;
+      for (const s of scopes) {
+        for (const memory of all) {
+          if (memory.status === 'deleted') continue;
+          if ((memory.legacyScope ?? superToLegacyScope(memory.scope)) !== s) continue;
+          await this.updateMemory(memory, { status: 'deleted' });
+          changed = true;
+        }
+        this.events?.emit('memory.cleared', { scope: s });
       }
-      this.events?.emit('memory.cleared', { scope: s });
-    }
+      if (changed) await this.afterMutation();
+    });
   }
 
   async list(scope: MemoryScope = 'project-memory', limit?: number): Promise<MemoryEntry[]> {
@@ -602,7 +754,7 @@ export class SuperMemoryStore implements MemoryStore {
       .filter((memory) => (memory.legacyScope ?? superToLegacyScope(memory.scope)) === scope)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map(toLegacyEntry);
-    return limit ? entries.slice(0, limit) : entries;
+    return limit === undefined ? entries : entries.slice(0, boundedLimit(limit, DEFAULT_LIMIT, 500));
   }
 
   async search(query: string, scope: MemoryScope = 'project-memory', limit?: number): Promise<MemoryEntry[]> {
@@ -611,7 +763,28 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   async findRelated(text: string, scope: MemoryScope = 'project-memory', limit = 5): Promise<MemoryEntry[]> {
-    return this.search(text, scope, limit);
+    const bounded = boundedLimit(limit, 5, 100);
+    const seeds = await this.searchSuper(text, { legacyScope: scope, limit: Math.max(bounded, 5) });
+    if (seeds.length === 0) return [];
+    const edges = await this.graph.traverse(
+      seeds.map((memory) => `mem:${memory.id}`),
+      { maxDepth: 3, limit: Math.max(100, bounded * 20) },
+    );
+    const relatedIds = new Set<string>();
+    for (const edge of edges) {
+      for (const node of [edge.from, edge.to]) {
+        if (node.startsWith('mem:')) relatedIds.add(node.slice(4));
+      }
+    }
+    const seedIds = new Set(seeds.map((memory) => memory.id));
+    const related = (await this.loadActive())
+      .filter((memory) => relatedIds.has(memory.id) && !seedIds.has(memory.id))
+      .filter((memory) => (memory.legacyScope ?? superToLegacyScope(memory.scope)) === scope)
+      .sort(compareMemoryQuality);
+    return [...related, ...seeds]
+      .filter((memory, index, all) => all.findIndex((candidate) => candidate.id === memory.id) === index)
+      .slice(0, bounded)
+      .map(toLegacyEntry);
   }
 
   async scoreRelevant(
@@ -641,14 +814,58 @@ export class SuperMemoryStore implements MemoryStore {
     return this;
   }
 
+  private async verifyMemoriesUnlocked(
+    memories: SuperMemory[],
+    signal?: AbortSignal,
+  ): Promise<MemoryVerificationResult[]> {
+    const results: MemoryVerificationResult[] = [];
+    let changed = false;
+    try {
+      for (const memory of memories) {
+        signal?.throwIfAborted();
+        const result = await verifyMemoryAnchors(this.projectRoot, memory, this.nowIso(), signal);
+        results.push(result);
+        if (result.status === 'stale' && memory.status === 'active') {
+          const reason = result.anchors.find((anchor) => anchor.status === 'stale')?.reason ?? 'Anchor is stale.';
+          await this.updateMemory(memory, { status: 'stale', lastVerifiedAt: result.checkedAt });
+          changed = true;
+          this.events?.emit('memory.staled', this.eventPayload({ memoryId: memory.id, reason }));
+        } else if (result.status === 'verified') {
+          await this.updateMemory(memory, {
+            status: memory.status === 'stale' ? 'active' : memory.status,
+            lastVerifiedAt: result.checkedAt,
+            freshness: 1,
+          });
+          changed = true;
+        } else if (memory.anchors.length > 0 && memory.lastVerifiedAt !== result.checkedAt) {
+          // Anchorless memories are not verifiable. Avoid appending a no-value
+          // revision on every session hygiene pass.
+          await this.updateMemory(memory, { lastVerifiedAt: result.checkedAt });
+          changed = true;
+        }
+        this.events?.emit('memory.verified', this.eventPayload({ memoryId: memory.id, status: result.status }));
+        await this.audit('memory.verified', {
+          memoryId: memory.id,
+          details: { status: result.status, anchors: result.anchors },
+        });
+      }
+    } finally {
+      if (changed) await this.afterMutation();
+    }
+    return results;
+  }
+
   private async loadActive(): Promise<SuperMemory[]> {
     const all = await this.loadMemories();
     return all.filter((memory) => memory.status === 'active');
   }
 
   private async loadMemories(): Promise<SuperMemory[]> {
-    if (this.loaded) return this.loaded;
-    const records = await readJsonl<SuperMemoryRecord>(this.paths.memoriesLog, async (line) => {
+    if (!this.initialized) await this.initialize();
+    if (this.loaded && this.loadedLogSignature === await fileSignature(this.paths.memoriesLog)) {
+      return this.loaded;
+    }
+    const snapshot = await readJsonlSnapshot<SuperMemoryRecord>(this.paths.memoriesLog, async (line) => {
       await this.audit('memory.corrupt_line', {
         reason: line.error,
         details: {
@@ -657,9 +874,21 @@ export class SuperMemoryStore implements MemoryStore {
         },
       });
     });
+    const records = snapshot.values;
     const latest = new Map<string, SuperMemory>();
-    for (const record of records) {
-      if (!isMemoryRecord(record)) continue;
+    for (let index = 0; index < records.length; index++) {
+      const record = records[index];
+      if (!isMemoryRecord(record)) {
+        const key = `${index}:${String(JSON.stringify(record)).slice(0, 256)}`;
+        if (!this.invalidRecordsAudited.has(key)) {
+          this.invalidRecordsAudited.add(key);
+          await this.audit('memory.invalid_record', {
+            reason: 'Record failed Super Memory schema validation.',
+            details: { recordIndex: index + 1 },
+          });
+        }
+        continue;
+      }
       const current = latest.get(record.memory.id);
       if (!current || record.memory.revision >= current.revision) {
         latest.set(record.memory.id, record.memory);
@@ -668,11 +897,14 @@ export class SuperMemoryStore implements MemoryStore {
     if (latest.size === 0) {
       const snapshot = await readJson<SuperMemorySnapshot>(path.join(this.paths.snapshotsDir, 'latest.json'));
       if (snapshot?.schemaVersion === SUPER_MEMORY_SCHEMA_VERSION && Array.isArray(snapshot.memories)) {
-        for (const memory of snapshot.memories) latest.set(memory.id, memory);
-        await this.audit('memory.snapshot_recovered', { details: { snapshotId: snapshot.id, memories: snapshot.memories.length } });
+        for (const memory of snapshot.memories) {
+          if (isSuperMemory(memory)) latest.set(memory.id, memory);
+        }
+        await this.audit('memory.snapshot_recovered', { details: { snapshotId: snapshot.id, memories: latest.size } });
       }
     }
     this.loaded = [...latest.values()];
+    this.loadedLogSignature = snapshot.signature;
     return this.loaded;
   }
 
@@ -685,6 +917,7 @@ export class SuperMemoryStore implements MemoryStore {
     };
     await appendJsonl(this.paths.memoriesLog, record);
     this.loaded = undefined;
+    this.loadedLogSignature = undefined;
   }
 
   private async afterMutation(): Promise<void> {
@@ -752,6 +985,7 @@ export class SuperMemoryStore implements MemoryStore {
   private async updateMemory(
     memory: SuperMemory,
     patch: Partial<Omit<SuperMemory, 'id' | 'revision' | 'createdAt'>>,
+    opts: { preserveUpdatedAt?: boolean } = {},
   ): Promise<SuperMemory> {
     const updated: SuperMemory = {
       ...memory,
@@ -759,7 +993,7 @@ export class SuperMemoryStore implements MemoryStore {
       id: memory.id,
       revision: memory.revision + 1,
       createdAt: memory.createdAt,
-      updatedAt: this.nowIso(),
+      updatedAt: opts.preserveUpdatedAt ? memory.updatedAt : this.nowIso(),
     };
     await this.appendRecord(updated.status === 'deleted' ? 'delete' : 'update', updated);
     this.events?.emit('memory.updated', this.eventPayload({ memoryId: updated.id, status: updated.status }));
@@ -771,20 +1005,45 @@ export class SuperMemoryStore implements MemoryStore {
       const target = anchorNode(anchor);
       const relation = anchorRelation(anchor);
       if (target && relation) await this.addGraphEdge(`mem:${memory.id}`, target, relation, memory.confidence);
+      if (!anchor.path) continue;
+      const anchoredPath = normalizeSlashes(anchor.path);
+      const isDirectory = anchor.type === 'directory' || anchor.type === 'package';
+      const fileNode = `file:${anchoredPath}`;
+      const directoryPath = isDirectory ? anchoredPath : normalizeSlashes(path.posix.dirname(anchoredPath));
+
+      if (anchor.type === 'symbol' && anchor.symbol) {
+        await this.addGraphEdge(
+          `symbol:${anchoredPath}#${anchor.symbol}`,
+          fileNode,
+          'related_to',
+          memory.confidence,
+        );
+      }
+      if (!isDirectory) {
+        await this.addGraphEdge(fileNode, `dir:${directoryPath}`, 'related_to', 1);
+      }
+      const directories = ancestorPaths(directoryPath);
+      for (let i = 0; i < directories.length - 1; i++) {
+        await this.addGraphEdge(`dir:${directories[i]}`, `dir:${directories[i + 1]}`, 'related_to', 1);
+      }
+    }
+    for (const source of memory.sources) {
+      const target = sourceNode(this.projectRoot, source);
+      if (target) await this.addGraphEdge(`mem:${memory.id}`, target, 'derived_from', memory.confidence);
     }
   }
 
   private async applyDeclaredRelationships(memory: SuperMemory): Promise<void> {
     const all = await this.loadMemories();
     for (const id of memory.supersedes ?? []) {
-      const target = all.find((candidate) => candidate.id === id && candidate.status !== 'deleted');
+      const target = all.find((candidate) => candidate.id !== memory.id && candidate.id === id && candidate.status !== 'deleted');
       if (!target) continue;
       await this.updateMemory(target, { status: 'superseded', supersededBy: memory.id });
       await this.addGraphEdge(`mem:${memory.id}`, `mem:${id}`, 'supersedes', 1);
       this.events?.emit('memory.superseded', this.eventPayload({ memoryId: id, supersededBy: memory.id }));
     }
     for (const id of memory.contradicts ?? []) {
-      const target = all.find((candidate) => candidate.id === id && candidate.status !== 'deleted');
+      const target = all.find((candidate) => candidate.id !== memory.id && candidate.id === id && candidate.status !== 'deleted');
       if (!target) continue;
       await this.updateMemory(target, {
         status: 'contradicted',
@@ -800,7 +1059,14 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   private async runMutation<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.mutationChain.catch(() => undefined).then(work);
+    const next = this.mutationChain.catch(() => undefined).then(() =>
+      withFileLock(path.join(this.paths.locksDir, 'store-mutation'), async () => {
+        // Another process may have appended records since this instance last
+        // read the log. Every mutation starts from the canonical on-disk view.
+        this.loaded = undefined;
+        this.loadedLogSignature = undefined;
+        return work();
+      }, { timeoutMs: 60_000, staleMs: 30 * 60_000 }));
     this.mutationChain = next;
     try {
       return await next;
@@ -832,18 +1098,138 @@ export class SuperMemoryStore implements MemoryStore {
       throw new Error('Super Memory refused to store text that looks like a secret or credential.');
     }
   }
+
+  private rejectIfUnsafeInput(input: RememberSuperMemoryInput): void {
+    for (const value of collectStringValues(input)) this.rejectIfUnsafe(value);
+  }
 }
 
 function isMemoryRecord(value: unknown): value is SuperMemoryRecord {
   const record = value as Partial<SuperMemoryRecord>;
   return record?.recordType === 'memory'
     && record.schemaVersion === SUPER_MEMORY_SCHEMA_VERSION
-    && !!record.memory?.id
-    && typeof record.memory.text === 'string';
+    && isSuperMemory(record.memory);
+}
+
+function isSuperMemory(value: unknown): value is SuperMemory {
+  const memory = value as Partial<SuperMemory> | undefined;
+  return !!memory
+    && typeof memory.id === 'string'
+    && memory.id.length > 0
+    && Number.isInteger(memory.revision)
+    && (memory.revision ?? 0) >= 1
+    && typeof memory.text === 'string'
+    && memory.text.trim().length > 0
+    && VALID_SCOPES.has(memory.scope as SuperMemory['scope'])
+    && VALID_KINDS.has(memory.kind as SuperMemory['kind'])
+    && VALID_STATUSES.has(memory.status as SuperMemoryStatus)
+    && isUnitNumber(memory.importance)
+    && isUnitNumber(memory.confidence)
+    && isUnitNumber(memory.freshness)
+    && Array.isArray(memory.tags)
+    && memory.tags.every((tag) => typeof tag === 'string')
+    && Array.isArray(memory.anchors)
+    && Array.isArray(memory.sources)
+    && typeof memory.createdAt === 'string'
+    && Number.isFinite(Date.parse(memory.createdAt))
+    && typeof memory.updatedAt === 'string'
+    && Number.isFinite(Date.parse(memory.updatedAt));
+}
+
+function isUnitNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function isMemoryCandidate(value: unknown): value is MemoryCandidate {
+  const candidate = value as Partial<MemoryCandidate>;
+  return candidate?.schemaVersion === SUPER_MEMORY_SCHEMA_VERSION
+    && typeof candidate.id === 'string'
+    && candidate.id.length > 0
+    && VALID_CANDIDATE_STATUSES.has(candidate.status as MemoryCandidate['status'])
+    && typeof candidate.text === 'string'
+    && candidate.text.trim().length > 0
+    && VALID_SCOPES.has(candidate.scope as SuperMemory['scope'])
+    && VALID_KINDS.has(candidate.kind as SuperMemory['kind'])
+    && isUnitNumber(candidate.importance)
+    && isUnitNumber(candidate.confidence)
+    && Array.isArray(candidate.tags)
+    && Array.isArray(candidate.anchors)
+    && Array.isArray(candidate.sources)
+    && typeof candidate.createdAt === 'string'
+    && Number.isFinite(Date.parse(candidate.createdAt))
+    && typeof candidate.updatedAt === 'string'
+    && Number.isFinite(Date.parse(candidate.updatedAt));
 }
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+function validateRememberInput(input: RememberSuperMemoryInput): void {
+  if (typeof input.text !== 'string') throw new Error('Super Memory text must be a string.');
+  if (input.text.length > MAX_MEMORY_TEXT_CHARS) {
+    throw new Error(`Super Memory text exceeds ${MAX_MEMORY_TEXT_CHARS} characters.`);
+  }
+  for (const [name, values] of [
+    ['tags', input.tags],
+    ['anchors', input.anchors],
+    ['sources', input.sources],
+    ['supersedes', input.supersedes],
+    ['contradicts', input.contradicts],
+  ] as const) {
+    if (values && values.length > MAX_MEMORY_METADATA_ITEMS) {
+      throw new Error(`Super Memory ${name} exceeds ${MAX_MEMORY_METADATA_ITEMS} items.`);
+    }
+  }
+  if (input.tags?.some((tag) => typeof tag !== 'string' || tag.length > 256)) {
+    throw new Error('Super Memory tags must be strings no longer than 256 characters.');
+  }
+  if (input.scope && !VALID_SCOPES.has(input.scope)) throw new Error('Invalid Super Memory scope.');
+  if (input.kind && !VALID_KINDS.has(input.kind)) throw new Error('Invalid Super Memory kind.');
+  for (const anchor of input.anchors ?? []) {
+    if (!anchor || !VALID_ANCHOR_TYPES.has(anchor.type)) throw new Error('Invalid Super Memory anchor type.');
+    if (anchor.type === 'command') {
+      if (!anchor.command?.trim()) throw new Error('Command memory anchors require a command.');
+    } else if (!anchor.path?.trim()) {
+      throw new Error(`${anchor.type} memory anchors require a path.`);
+    }
+    if (anchor.type === 'symbol' && !anchor.symbol?.trim()) {
+      throw new Error('Symbol memory anchors require a symbol.');
+    }
+    if ((anchor.path?.length ?? 0) > 4_096 || (anchor.symbol?.length ?? 0) > 1_024 || (anchor.command?.length ?? 0) > 8_192) {
+      throw new Error('Super Memory anchor metadata is too long.');
+    }
+    if (anchor.lineStart !== undefined && (!Number.isInteger(anchor.lineStart) || anchor.lineStart < 1)) {
+      throw new Error('Super Memory anchor lineStart must be a positive integer.');
+    }
+    if (anchor.lineEnd !== undefined && (!Number.isInteger(anchor.lineEnd) || anchor.lineEnd < (anchor.lineStart ?? 1))) {
+      throw new Error('Super Memory anchor lineEnd must be at or after lineStart.');
+    }
+  }
+  for (const source of input.sources ?? []) {
+    if (!source || !VALID_SOURCE_TYPES.has(source.type)) throw new Error('Invalid Super Memory source type.');
+    if ((source.path?.length ?? 0) > 4_096 || (source.command?.length ?? 0) > 8_192) {
+      throw new Error('Super Memory source metadata is too long.');
+    }
+  }
+}
+
+function canonicalMemoryText(text: string): string {
+  return normalizeText(text)
+    .normalize('NFKC')
+    .toLowerCase()
+    // Ignore cosmetic sentence-ending punctuation while retaining semantic
+    // punctuation inside identifiers/languages (`C++`, `C#`, `foo.bar`).
+    .replace(/[.!?,;:]+$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function memoryIdentity(
+  memory: Pick<SuperMemory, 'text' | 'scope'> & { legacyScope?: MemoryScope | undefined },
+): string {
+  const legacyScope = memory.legacyScope ?? superToLegacyScope(memory.scope);
+  return `${memory.scope}\0${legacyScope}\0${canonicalMemoryText(memory.text)}`;
 }
 
 function normalizeTags(tags: string[] | undefined): string[] {
@@ -851,10 +1237,20 @@ function normalizeTags(tags: string[] | undefined): string[] {
 }
 
 function normalizeAnchors(projectRoot: string, anchors: MemoryAnchor[]): MemoryAnchor[] {
-  return anchors.map((anchor) => ({
+  return dedupeAnchors(anchors.map((anchor) => ({
     ...anchor,
     path: anchor.path ? normalizeProjectPath(projectRoot, anchor.path) : undefined,
-  }));
+    symbol: anchor.symbol?.trim() || undefined,
+    command: anchor.command?.trim().replace(/\s+/g, ' ') || undefined,
+  })));
+}
+
+function normalizeSources(sources: SuperMemory['sources']): SuperMemory['sources'] {
+  return dedupeSources(sources.map((source) => ({
+    ...source,
+    path: source.path ? normalizeSlashes(source.path.trim()) : undefined,
+    command: source.command?.trim().replace(/\s+/g, ' ') || undefined,
+  })));
 }
 
 function importanceFromPriority(priority: MemoryEntry['priority']): number {
@@ -878,33 +1274,47 @@ function clamp01(value: number): number {
 }
 
 function tokenize(text: string): string[] {
-  return [...new Set(text.toLowerCase().split(/[^a-z0-9_.-]+/).filter((term) => term.length >= 3))];
+  return [...new Set(
+    text.normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}_.-]+/u).filter((term) => term.length >= 3),
+  )];
 }
 
 function scoreQueryMemory(memory: SuperMemory, query: string): number {
   const terms = tokenize(query);
   if (terms.length === 0) return 0;
-  const haystack = `${memory.text} ${memory.tags.join(' ')} ${memory.anchors.map((a) => `${a.path ?? ''} ${a.symbol ?? ''}`).join(' ')}`.toLowerCase();
+  const normalizedQuery = normalizeText(query).toLowerCase();
+  const haystack = `${memory.text} ${memory.tags.join(' ')} ${memory.anchors.map((a) => `${a.path ?? ''} ${a.symbol ?? ''} ${a.command ?? ''}`).join(' ')}`.normalize('NFKC').toLowerCase();
   let score = 0;
+  if (normalizedQuery.length >= 3 && haystack.includes(normalizedQuery)) score += 4;
   for (const term of terms) {
     if (haystack.includes(term)) score += 1;
     if (memory.tags.some((tag) => tag.includes(term))) score += 2;
     if (memory.anchors.some((anchor) => anchor.path?.toLowerCase().includes(term))) score += 2;
+    if (memory.anchors.some((anchor) => anchor.symbol?.toLowerCase().includes(term))) score += 3;
+    if (memory.anchors.some((anchor) => anchor.command?.toLowerCase().includes(term))) score += 3;
   }
+  // Quality ranks relevant matches; it must never manufacture relevance for
+  // an unrelated high-importance memory.
+  if (score === 0) return 0;
   score += memory.importance * 2;
   score += memory.confidence;
   score += memory.freshness;
   return score;
 }
 
-function scorePathMemory(memory: SuperMemory, target: string, ancestors: string[]): number {
+function scorePathMemory(
+  memory: SuperMemory,
+  target: string,
+  ancestors: string[],
+  includeAncestors: boolean,
+): number {
   let score = 0;
   for (const anchor of memory.anchors) {
     if (!anchor.path) continue;
     const anchorPath = normalizeSlashes(anchor.path);
     if (anchorPath === target) score += 10;
-    else if (ancestors.includes(anchorPath)) score += 5;
-    else if (target.startsWith(`${anchorPath}/`) || anchorPath.startsWith(`${target}/`)) score += 3;
+    else if (includeAncestors && ancestors.includes(anchorPath)) score += 5;
+    else if (includeAncestors && (target.startsWith(`${anchorPath}/`) || anchorPath.startsWith(`${target}/`))) score += 3;
   }
   if (score === 0) return 0;
   return score + memory.importance * 2 + memory.confidence + memory.freshness;
@@ -930,7 +1340,18 @@ function looksLikeSecret(text: string): boolean {
     /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
     /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"]?[A-Za-z0-9_\-./+=]{16,}/i,
     /\b[A-Za-z0-9_]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/,
+    /\b(?:sk-(?:proj-|svcacct-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i,
+    /\bAKIA[0-9A-Z]{16}\b/,
   ].some((pattern) => pattern.test(text));
+}
+
+function collectStringValues(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStringValues(item, out);
+  else if (value && typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>)) collectStringValues(item, out);
+  }
+  return out;
 }
 
 function labelOf(scope: MemoryScope): string {
@@ -990,6 +1411,25 @@ function anchorRelation(anchor: MemoryAnchor): MemoryGraphRelation | undefined {
   }
 }
 
+function sourceNode(
+  projectRoot: string,
+  source: SuperMemory['sources'][number],
+): string | undefined {
+  if (source.type === 'session' && source.sessionId) return `session:${source.sessionId}`;
+  if (source.type === 'tool_result' && source.toolUseId) {
+    return `tool:${source.sessionId ?? 'unknown'}/${source.toolUseId}`;
+  }
+  if (source.command) return `command:${source.command.trim().replace(/\s+/g, ' ')}`;
+  if (source.path) {
+    try {
+      return `file:${normalizeProjectPath(projectRoot, source.path)}`;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function groupBy<T>(values: T[], keyOf: (value: T) => string): Map<string, T[]> {
   const groups = new Map<string, T[]>();
   for (const value of values) {
@@ -1008,21 +1448,58 @@ function compareMemoryQuality(a: SuperMemory, b: SuperMemory): number {
 }
 
 function dedupeAnchors(anchors: MemoryAnchor[]): MemoryAnchor[] {
-  return dedupeObjects(anchors);
+  return dedupeByKey(anchors, (anchor) => JSON.stringify([
+    anchor.type,
+    anchor.path ?? null,
+    anchor.symbol ?? null,
+    anchor.command ?? null,
+    anchor.contentHash ?? null,
+    anchor.gitBlobHash ?? null,
+    anchor.lineStart ?? null,
+    anchor.lineEnd ?? null,
+  ]));
 }
 
 function dedupeSources(sources: SuperMemory['sources']): SuperMemory['sources'] {
-  return dedupeObjects(sources);
+  return dedupeByKey(sources, (source) => JSON.stringify([
+    source.type,
+    source.sessionId ?? null,
+    source.toolUseId ?? null,
+    source.path ?? null,
+    source.command ?? null,
+    source.excerptHash ?? null,
+  ]));
 }
 
-function dedupeObjects<T>(values: T[]): T[] {
+function dedupeByKey<T>(values: T[], keyOf: (value: T) => string): T[] {
   const seen = new Set<string>();
   return values.filter((value) => {
-    const key = JSON.stringify(value);
+    const key = keyOf(value);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function memoryPatchChanges(memory: SuperMemory, patch: Partial<SuperMemory>): boolean {
+  return Object.entries(patch).some(([key, value]) =>
+    JSON.stringify(memory[key as keyof SuperMemory]) !== JSON.stringify(value));
+}
+
+async function fileSignature(filePath: string): Promise<string> {
+  try {
+    const stat = await fs.stat(filePath);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
+    throw err;
+  }
+}
+
+function boundedLimit(value: number | undefined, fallback: number, maximum: number): number {
+  const resolved = value ?? fallback;
+  if (!Number.isFinite(resolved)) return fallback;
+  return Math.max(0, Math.min(maximum, Math.floor(resolved)));
 }
 
 function daysToMs(days: number): number {

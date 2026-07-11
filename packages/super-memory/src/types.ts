@@ -296,6 +296,7 @@ export interface SuperMemoryForPathOptions {
   path: string;
   limit?: number | undefined;
   includeAncestors?: boolean | undefined;
+  includeStatuses?: SuperMemoryStatus[] | undefined;
 }
 
 export function superToLegacyScope(scope: SuperMemoryScope): MemoryScope {

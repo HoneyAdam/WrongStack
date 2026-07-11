@@ -68,7 +68,7 @@ export function diagnosticsForInternalSyntax(
   if (language !== 'typescript' && language !== 'javascript') {
     return Promise.resolve({ diagnostics: [], omitted: 0, summary: emptySummary() });
   }
-  return import('typescript').then((tsModule) => {
+  return import('@typescript/typescript6').then((tsModule) => {
     const ts = ((tsModule as unknown as { default?: typeof tsModule }).default ??
       tsModule) as typeof tsModule;
     const extension = path.extname(target).toLowerCase();
@@ -86,7 +86,9 @@ export function diagnosticsForInternalSyntax(
       scriptKind,
     );
     const native =
-      (sourceFile as unknown as { parseDiagnostics?: import('typescript').Diagnostic[] })
+      (sourceFile as unknown as {
+        parseDiagnostics?: import('@typescript/typescript6').Diagnostic[];
+      })
         .parseDiagnostics ?? [];
     const diagnostics = native.map<LanguageDiagnostic>((diagnostic) => {
       const start = diagnostic.start ?? 0;

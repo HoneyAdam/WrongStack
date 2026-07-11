@@ -32,7 +32,7 @@ export const CONTEXT_MODE_DESCS: Record<ContextMode, string> = {
   archival: 'Maximize context retention',
 };
 
-export const STATUSLINE_MODES = ['minimum', 'detailed'] as const;
+export const STATUSLINE_MODES = ['minimum', 'detailed', 'no-color'] as const;
 export type StatuslineMode = (typeof STATUSLINE_MODES)[number];
 
 export const REASONING_MODES = ['auto', 'on', 'off'] as const;
@@ -47,6 +47,7 @@ export type CacheTtl = (typeof CACHE_TTLS)[number];
 export const STATUSLINE_MODE_DESCS: Record<StatuslineMode, string> = {
   minimum: 'Single line with essential chips only',
   detailed: 'Full multi-line statusline (default)',
+  'no-color': 'Multiline statusline without colors or icons',
 };
 
 /** Presets for max iterations — cyclable via ←/→. 0 = unlimited. */

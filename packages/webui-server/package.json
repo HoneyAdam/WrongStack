@@ -37,7 +37,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "node ../../scripts/build-package.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
@@ -48,14 +48,14 @@
     "@wrongstack/providers": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
+    "@wrongstack/super-memory": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
     "@types/ws": "^8.18.1",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "access": "public"

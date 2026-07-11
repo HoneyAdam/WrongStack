@@ -132,7 +132,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           ?.autoProceedMaxIterations as number) ?? 50,
       debugStream: cfg.debugStream ?? false,
       shellBangWarningDontShowAgain: autonomy?.shellBangWarningDontShowAgain === true,
-      statuslineMode: autonomy?.statuslineMode === 'minimum' ? 'minimum' : 'detailed',
+      statuslineMode: autonomy?.statuslineMode === 'no-color' ? 'no-color' : autonomy?.statuslineMode === 'minimum' ? 'minimum' : 'detailed',
       thinkingWord: normalizeTuiThinkingWord(autonomy?.thinkingWord),
       animationStyle: normalizeAnimationStyle(autonomy?.animationStyle),
       configScope: cfg.configScope ?? 'global',

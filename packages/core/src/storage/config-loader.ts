@@ -696,7 +696,7 @@ function samePath(a: string, b: string): boolean {
  * `arrayMode: 'concat-primitives'` and optional debug logging for
  * non-primitive array replacements.
  */
-function deepMerge<T>(base: T, patch: Partial<T>): T {
+function deepMerge<T, TPatch extends object>(base: T, patch: TPatch): T {
   const opts: DeepMergeOptions = { arrayMode: 'concat-primitives' };
   if (envBoolOptional(process.env.WRONGSTACK_DEBUG_CONFIG)) {
     opts.onNonPrimitiveArrayReplace = (key, existingLen, patchLen) => {

@@ -1,6 +1,12 @@
-import { ulid } from '@wrongstack/core/utils';
+import { ulid, withFileLock } from '@wrongstack/core/utils';
 import { appendJsonl, readJsonl } from '../jsonl.js';
 import type { MemoryGraphEdge, MemoryGraphRelation } from '../types.js';
+
+const VALID_RELATIONS = new Set<MemoryGraphRelation>([
+  'about_file', 'about_directory', 'about_symbol', 'about_package', 'about_command',
+  'derived_from', 'validated_by', 'invalidated_by', 'supersedes', 'contradicts',
+  'related_to', 'same_topic',
+]);
 
 export class SuperMemoryGraph {
   constructor(
@@ -14,28 +20,41 @@ export class SuperMemoryGraph {
     relation: MemoryGraphRelation,
     weight = 1,
   ): Promise<MemoryGraphEdge> {
-    const existing = (await this.list()).find(
-      (edge) => !edge.deletedAt && edge.from === from && edge.to === to && edge.relation === relation,
-    );
-    if (existing) return existing;
-    const edge: MemoryGraphEdge = {
-      schemaVersion: 1,
-      id: `edge_${ulid()}`,
-      from,
-      to,
-      relation,
-      weight: clamp01(weight),
-      createdAt: this.now().toISOString(),
-    };
-    await appendJsonl(this.edgesLog, edge);
-    return edge;
+    // The append helper protects a single write, but duplicate prevention is
+    // a read-then-write transaction. Coordinate that whole transaction across
+    // every WrongStack surface using the same project memory.
+    return withFileLock(`${this.edgesLog}.mutation`, async () => {
+      const existing = (await this.list()).find(
+        (edge) => !edge.deletedAt && edge.from === from && edge.to === to && edge.relation === relation,
+      );
+      if (existing) return existing;
+      const edge: MemoryGraphEdge = {
+        schemaVersion: 1,
+        id: `edge_${ulid()}`,
+        from,
+        to,
+        relation,
+        weight: clamp01(weight),
+        createdAt: this.now().toISOString(),
+      };
+      await appendJsonl(this.edgesLog, edge);
+      return edge;
+    }, { timeoutMs: 30_000, staleMs: 120_000 });
   }
 
   async list(): Promise<MemoryGraphEdge[]> {
     const records = await readJsonl<MemoryGraphEdge>(this.edgesLog);
     const latest = new Map<string, MemoryGraphEdge>();
     for (const edge of records) {
-      if (edge?.schemaVersion === 1 && edge.id && edge.from && edge.to) latest.set(edge.id, edge);
+      if (
+        edge?.schemaVersion === 1
+        && typeof edge.id === 'string'
+        && typeof edge.from === 'string'
+        && typeof edge.to === 'string'
+        && VALID_RELATIONS.has(edge.relation)
+        && typeof edge.weight === 'number'
+        && Number.isFinite(edge.weight)
+      ) latest.set(edge.id, edge);
     }
     return [...latest.values()].filter((edge) => !edge.deletedAt);
   }

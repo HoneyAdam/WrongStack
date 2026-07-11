@@ -5,14 +5,29 @@ export interface FormatMemoryHintsOptions {
   maxChars?: number | undefined;
 }
 
+export interface FormattedMemoryHints {
+  text: string;
+  memoryIds: string[];
+}
+
 export function formatMemoryHints(
   memories: SuperMemory[],
   opts: FormatMemoryHintsOptions = {},
 ): string {
-  if (memories.length === 0) return '';
+  return formatMemoryHintsDetailed(memories, opts).text;
+}
+
+/** Render whole memory lines and report exactly which records made the cut. */
+export function formatMemoryHintsDetailed(
+  memories: SuperMemory[],
+  opts: FormatMemoryHintsOptions = {},
+): FormattedMemoryHints {
+  if (memories.length === 0) return { text: '', memoryIds: [] };
   const heading = opts.heading ?? 'Super Memory: related project knowledge';
-  const maxChars = opts.maxChars ?? 1200;
+  const maxChars = Math.max(0, Math.floor(opts.maxChars ?? 1200));
+  if (maxChars === 0) return { text: '', memoryIds: [] };
   const lines = [`--- ${heading} ---`];
+  const memoryIds: string[] = [];
 
   for (const memory of memories) {
     const labels = [
@@ -22,13 +37,24 @@ export function formatMemoryHints(
     ].filter(Boolean);
     const anchor = formatPrimaryAnchor(memory);
     const suffix = anchor ? ` (${anchor})` : '';
-    lines.push(`- [${labels.join('][')}] ${memory.text}${suffix}`);
-    if (lines.join('\n').length >= maxChars) break;
+    const prefix = `- [${labels.join('][')}] `;
+    let line = `${prefix}${memory.text}${suffix}`;
+    const currentLength = lines.join('\n').length;
+    if (currentLength + 1 + line.length > maxChars) {
+      // If no item fits, keep one safely truncated item instead of slicing the
+      // entire rendered block mid-label or mid-anchor. Otherwise stop at the
+      // previous complete memory line.
+      if (memoryIds.length > 0) break;
+      const available = maxChars - currentLength - 1 - prefix.length - 1;
+      if (available <= 0) break;
+      line = `${prefix}${memory.text.slice(0, available).trimEnd()}…`;
+    }
+    lines.push(line);
+    memoryIds.push(memory.id);
   }
 
-  const rendered = lines.join('\n');
-  if (rendered.length <= maxChars) return rendered;
-  return `${rendered.slice(0, Math.max(0, maxChars - 16)).trimEnd()}\n- ...`;
+  if (memoryIds.length === 0) return { text: '', memoryIds: [] };
+  return { text: lines.join('\n'), memoryIds };
 }
 
 function formatPrimaryAnchor(memory: SuperMemory): string {

@@ -7,6 +7,12 @@
 **Sonuç:** 19 varsayılan açık, 54 varsayılan kapalı; 7 plugin opt-in yapıldı,
 bir yükleme boşluğu ve bir komut enjeksiyonu açığı giderildi
 
+> **2026-07-11 build güncellemesi:** `tsup` kaldırıldı. Plugin build girişleri
+> artık `package.json#exports` haritasından merkezi `scripts/build-package.mjs`
+> tarafından keşfediliyor; registration parity testi ayrı bir build-config
+> yüzeyi yerine export haritasını doğruluyor. Aşağıdaki maddeler denetim anının
+> tarihsel kaydıdır.
+
 ---
 
 ## Özet
@@ -221,7 +227,7 @@ Plugin;
 
 - kaynak dizininde,
 - package export map’inde,
-- tsup build girişinde,
+- o tarihteki tsup build girişinde,
 - root index export’unda,
 - audit kataloğunda
 
@@ -234,14 +240,13 @@ explicit-enable testi yazıldı.
 **Commit:** `a0423fd7` — `test(plugins): enforce registration parity`
 
 Yeni regresyon testi, `@wrongstack/plugins` paketindeki 63 kaynak dizinini
-aşağıdaki altı yüzeyle iki yönlü karşılaştırır:
+güncel olarak aşağıdaki beş yüzeyle iki yönlü karşılaştırır:
 
 1. `packages/plugins/src/<name>/index.ts`
 2. `packages/plugins/package.json#exports`
-3. `packages/plugins/tsup.config.ts#entry`
-4. `packages/plugins/src/index.ts` re-export’ları
-5. `PLUGIN_AUDIT_ENTRIES`
-6. `BUILTIN_PLUGIN_FACTORIES` import’ları
+3. `packages/plugins/src/index.ts` re-export’ları
+4. `PLUGIN_AUDIT_ENTRIES`
+5. `BUILTIN_PLUGIN_FACTORIES` import’ları
 
 Test; eksik, fazla ve yinelenen kayıtları ayrı ayrı raporlar. Ayrıca paket
 açıklamasındaki plugin sayısının gerçek kaynak sayısıyla eşleşmesini doğrular.

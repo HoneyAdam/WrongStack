@@ -12,8 +12,8 @@ A broad correctness sweep run before anything goes to npm:
 ```bash
 pnpm release:check
 # ↪ pnpm audit --audit-level=moderate
+#   pnpm build           # esbuild bundles + TypeScript declarations
 #   pnpm typecheck       # tsc --noEmit across all packages
-#   pnpm build           # tsup builds
 #   pnpm test            # full vitest run
 ```
 

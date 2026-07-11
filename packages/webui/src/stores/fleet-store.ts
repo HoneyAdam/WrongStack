@@ -192,6 +192,22 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
         };
       }
 
+      if (e.kind === 'removed' && e.subagentId) {
+        agents.delete(e.subagentId);
+        agentTranscripts.delete(e.subagentId);
+        return {
+          agents,
+          agentTranscripts,
+          agentTimeline: state.agentTimeline.filter(
+            (entry) => entry.subagentId !== e.subagentId,
+          ),
+          eventTimeline: state.eventTimeline.filter(
+            (entry) => entry.agentId !== e.subagentId,
+          ),
+          leaderId: state.leaderId === e.subagentId ? undefined : state.leaderId,
+        };
+      }
+
       // leader_updated: mark the new leader and demote the old one.
       if (e.kind === 'leader_updated' && e.subagentId) {
         const prevLeaderId = state.leaderId;

@@ -575,6 +575,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   events.on('subagent.budget_extended', (e) => forwardSubagent('budget_extended', { sessionId: e.sessionId, subagentId: e.subagentId, budgetKind: e.kind, newLimit: e.newLimit, totalExtensions: e.totalExtensions }));
   events.on('subagent.ctx_pct', (e) => forwardSubagent('ctx_pct', { sessionId: e.sessionId, subagentId: e.subagentId, load: e.load, tokens: e.tokens, maxContext: e.maxContext }));
   events.on('subagent.task_completed', (e) => forwardSubagent('task_completed', { sessionId: e.sessionId, subagentId: e.subagentId, status: e.status, iterations: e.iterations, toolCalls: e.toolCalls, finalText: (e as Record<string, unknown>).finalText as string | undefined, failureReason: e.error?.kind, error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined }));
+  events.on('subagent.removed', (e) => forwardSubagent('removed', { sessionId: e.sessionId, subagentId: e.subagentId, reason: e.reason }));
 
   events.on('agent.timeline.message', (e) => {
     broadcast(clients, {

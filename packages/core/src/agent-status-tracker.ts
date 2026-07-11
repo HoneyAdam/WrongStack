@@ -384,6 +384,13 @@ export class AgentStatusTracker {
         if (this.agents.delete(p.subagentId)) this.flush();
       }),
     );
+    this.unsubscribers.push(
+      on('subagent.removed', (_e, payload) => {
+        const p = payload as { subagentId?: string } | undefined;
+        if (!p?.subagentId) return;
+        if (this.agents.delete(p.subagentId)) this.flush();
+      }),
+    );
 
     // Reap finished subagents so the fleet view doesn't fill with dead/idle
     // desks. The leader is synthesised in flush() (never in `this.agents`), so

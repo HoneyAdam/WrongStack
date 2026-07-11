@@ -9,11 +9,16 @@ import type {
 } from '../types.js';
 
 export interface SuperMemoryServiceLike extends MemoryStore {
-  retrieveForPath(opts: { path: string; limit?: number; includeAncestors?: boolean }): Promise<SuperMemory[]>;
+  retrieveForPath(opts: {
+    path: string;
+    limit?: number;
+    includeAncestors?: boolean;
+    includeStatuses?: SuperMemory['status'][];
+  }): Promise<SuperMemory[]>;
   searchSuper(query: string, opts?: { limit?: number; includeStatuses?: SuperMemory['status'][] }): Promise<SuperMemory[]>;
   graphFor(query: string, maxDepth?: number, limit?: number): Promise<MemoryGraphEdge[]>;
-  verify(memoryId?: string): Promise<MemoryVerificationResult[]>;
-  hygiene(options?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport>;
+  verify(memoryId?: string, signal?: AbortSignal): Promise<MemoryVerificationResult[]>;
+  hygiene(options?: SuperMemoryHygieneOptions, signal?: AbortSignal): Promise<SuperMemoryHygieneReport>;
   listCandidates(includeResolved?: boolean): Promise<MemoryCandidate[]>;
   acceptCandidate(candidateId: string): Promise<SuperMemory | undefined>;
   rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
@@ -127,7 +132,7 @@ function memoryVerifyTool(memory: SuperMemoryServiceLike): Tool<{ memory_id?: st
     icon: 'settings',
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      return memory.verify(input.memory_id);
+      return memory.verify(input.memory_id, opts.signal);
     },
   };
 }
@@ -149,7 +154,7 @@ function memoryHygieneTool(memory: SuperMemoryServiceLike): Tool<SuperMemoryHygi
     icon: 'settings',
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      return memory.hygiene(input);
+      return memory.hygiene(input, opts.signal);
     },
   };
 }

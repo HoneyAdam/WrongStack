@@ -112,5 +112,85 @@ describe('Super Memory tool-call middleware', () => {
     };
     await mw.handler(second as never, async (value) => value);
     expect(second.result.content).not.toContain('Super Memory: related project knowledge');
+
+    const otherSession = {
+      ...payload,
+      result: { ...payload.result, content: '1| export class SessionStore {}' },
+      ctx: { projectRoot: tempDir, cwd: tempDir, session: { id: 'sess-2' } },
+    };
+    await mw.handler(otherSession as never, async (value) => value);
+    expect(otherSession.result.content).toContain('Do not emit session_end');
+  });
+
+  it('resolves relative tool paths from the active working directory and extracts patch targets', async () => {
+    await fs.mkdir(path.join(tempDir, 'packages', 'demo'), { recursive: true });
+    await fs.writeFile(path.join(tempDir, 'packages', 'demo', 'source.ts'), 'export const value = 1;\n');
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({
+      text: 'Keep the demo source API stable.',
+      kind: 'warning',
+      importance: 0.95,
+      anchors: [{ type: 'file', path: 'packages/demo/source.ts' }],
+    });
+    const middleware = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
+
+    const readPayload = {
+      toolUse: { type: 'tool_use' as const, id: 'read-1', name: 'read', input: { path: 'source.ts' } },
+      result: { type: 'tool_result' as const, tool_use_id: 'read-1', name: 'read', content: 'file body' },
+      ctx: { projectRoot: tempDir, cwd: path.join(tempDir, 'packages', 'demo'), session: { id: 'cwd-session' } },
+    };
+    await middleware.handler(readPayload as never, async (value) => value);
+    expect(readPayload.result.content).toContain('Keep the demo source API stable');
+
+    const patchPayload = {
+      toolUse: {
+        type: 'tool_use' as const,
+        id: 'patch-1',
+        name: 'patch',
+        input: { patch: '--- a/source.ts\n+++ b/source.ts\n@@ -1 +1 @@\n-old\n+new\n' },
+      },
+      result: { type: 'tool_result' as const, tool_use_id: 'patch-1', name: 'patch', content: 'patch applied' },
+      ctx: { projectRoot: tempDir, cwd: path.join(tempDir, 'packages', 'demo'), session: { id: 'patch-session' } },
+    };
+    await middleware.handler(patchPayload as never, async (value) => value);
+    expect(patchPayload.result.content).toContain('Keep the demo source API stable');
+  });
+
+  it('fails open when advisory memory retrieval is unavailable', async () => {
+    const middleware = createSuperMemoryToolCallMiddleware({
+      memory: {
+        retrieveForPath: async () => { throw new Error('storage unavailable'); },
+        searchSuper: async () => { throw new Error('storage unavailable'); },
+      },
+    });
+    const payload = {
+      toolUse: { type: 'tool_use' as const, id: 'read-fail-open', name: 'read', input: { path: 'source.ts' } },
+      result: { type: 'tool_result' as const, tool_use_id: 'read-fail-open', name: 'read', content: 'original tool result' },
+      ctx: { projectRoot: tempDir, cwd: tempDir, session: { id: 'fail-open' } },
+    };
+
+    await expect(middleware.handler(payload as never, async (value) => value)).resolves.toBe(payload);
+    expect(payload.result.content).toBe('original tool result');
+  });
+
+  it('mutates the original tool result even when downstream middleware clones the payload', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({
+      text: 'Cloned pipeline payloads still receive memory.',
+      importance: 0.95,
+      anchors: [{ type: 'file', path: 'source.ts' }],
+    });
+    const middleware = createSuperMemoryToolCallMiddleware({ memory: store });
+    const payload = {
+      toolUse: { type: 'tool_use' as const, id: 'clone-1', name: 'read', input: { path: 'source.ts' } },
+      result: { type: 'tool_result' as const, tool_use_id: 'clone-1', name: 'read', content: 'original' },
+      ctx: { projectRoot: tempDir, cwd: tempDir, session: { id: 'clone-session' } },
+    };
+
+    await middleware.handler(payload as never, async (value) => {
+      const cloned = value as unknown as typeof payload;
+      return { ...cloned, result: { ...cloned.result } } as never;
+    });
+    expect(payload.result.content).toContain('Cloned pipeline payloads still receive memory');
   });
 });

@@ -1141,8 +1141,9 @@ const plugin: Plugin = {
 export default plugin;
 ```
 
-Register the entry in `tsup.config.ts`, the subpath export in
-`package.json#exports`, and the named re-export in `src/index.ts`.
+Register the subpath export in `package.json#exports` and the named re-export
+in `src/index.ts`. The centralized package builder discovers plugin entry
+points from the exports map, so no per-plugin build configuration is needed.
 Wire it into the CLI's `BUILTIN_PLUGIN_FACTORIES` if it should
 auto-load.
 

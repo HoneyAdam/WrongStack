@@ -124,6 +124,18 @@ export interface DirectorOptions {
    * Internal tasks (shadow passes) are excluded. Errors are swallowed.
    */
   taskResultNotifier?: ((n: TaskResultNotification) => void | Promise<void>) | undefined;
+  /**
+   * Remove a spawned or between-task subagent after this much idle time.
+   * Undefined disables idle retirement. This is separate from the in-task
+   * activity watchdog enforced by SubagentBudget.
+   */
+  subagentIdleTimeoutMs?: number | undefined;
+  /**
+   * Retire a subagent immediately after its final task result when the
+   * coordinator did not reuse it for queued work in the same dispatch cycle.
+   * Default false for embedders; runtime hosts opt in.
+   */
+  retireSubagentOnTaskComplete?: boolean | undefined;
   /** Optional logger for structured debug/error logging. Falls back to console if omitted. */
   logger?: Logger | undefined;
   /**
@@ -499,6 +511,9 @@ export class Director implements ICoordinator {
   private readonly subagentBaseline: string;
   /** See {@link DirectorOptions.taskResultNotifier}. */
   private readonly taskResultNotifier?: DirectorOptions['taskResultNotifier'];
+  private readonly subagentIdleTimeoutMs: number | undefined;
+  private readonly retireSubagentOnTaskComplete: boolean;
+  private readonly subagentIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Absolute path to the fleet's shared scratchpad directory, or null
    *  when none was configured. Exposed as a readonly getter for callers
    *  that need to surface the path to the user (e.g. the CLI logging
@@ -609,6 +624,13 @@ export class Director implements ICoordinator {
     this.directorPreamble = opts.directorPreamble ?? DEFAULT_DIRECTOR_PREAMBLE;
     this.subagentBaseline = opts.subagentBaseline ?? DEFAULT_SUBAGENT_BASELINE;
     this.taskResultNotifier = opts.taskResultNotifier;
+    this.subagentIdleTimeoutMs =
+      typeof opts.subagentIdleTimeoutMs === 'number' &&
+      Number.isFinite(opts.subagentIdleTimeoutMs) &&
+      opts.subagentIdleTimeoutMs >= 0
+        ? opts.subagentIdleTimeoutMs
+        : undefined;
+    this.retireSubagentOnTaskComplete = opts.retireSubagentOnTaskComplete ?? false;
     this.sharedScratchpadPath = opts.sharedScratchpadPath ?? null;
     this.maxSpawns = opts.maxSpawns ?? Number.POSITIVE_INFINITY;
     this.maxSpawnDepth = opts.fleetManager?.maxSpawnDepth ?? resolveMaxSpawnDepth(opts.maxSpawnDepth);
@@ -810,6 +832,10 @@ export class Director implements ICoordinator {
       } else {
         this.scheduleManifest();
       }
+      this.armSubagentIdleRetirement(
+        r.subagentId,
+        this.retireSubagentOnTaskComplete ? 0 : this.subagentIdleTimeoutMs,
+      );
     };
     this.coordinator.on('task.completed', this.taskCompletedListener);
 
@@ -1434,6 +1460,7 @@ export class Director implements ICoordinator {
       });
       this.scheduleManifest();
     }
+    this.armSubagentIdleRetirement(result.subagentId, this.subagentIdleTimeoutMs);
     return result.subagentId;
   }
 
@@ -1604,6 +1631,8 @@ export class Director implements ICoordinator {
       this.budgetFilter();
       this.budgetFilter = null;
     }
+    for (const timer of this.subagentIdleTimers.values()) clearTimeout(timer);
+    this.subagentIdleTimers.clear();
     await this.coordinator.stopAll();
     for (const b of this.subagentBridges.values()) {
       await b.stop().catch((err) => this.logShutdownError('subagent_bridge_stop', err));
@@ -1862,6 +1891,7 @@ export class Director implements ICoordinator {
   }
 
   async remove(subagentId: string): Promise<void> {
+    this.clearSubagentIdleRetirement(subagentId);
     await this.coordinator.remove(subagentId);
 
     // Clean up the bridge so it stops consuming resources.
@@ -1890,6 +1920,39 @@ export class Director implements ICoordinator {
     this.manifestEntries.delete(subagentId);
     this.taskOwners.delete(subagentId);
     this.taskDescriptions.delete(subagentId);
+  }
+
+  private clearSubagentIdleRetirement(subagentId: string): void {
+    const timer = this.subagentIdleTimers.get(subagentId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.subagentIdleTimers.delete(subagentId);
+  }
+
+  /**
+   * Arm one lifecycle timer per worker. The callback re-checks coordinator
+   * state so a task assigned in the same turn always wins over retirement.
+   */
+  private armSubagentIdleRetirement(
+    subagentId: string,
+    delayMs: number | undefined,
+  ): void {
+    this.clearSubagentIdleRetirement(subagentId);
+    if (delayMs === undefined) return;
+    const timer = setTimeout(() => {
+      this.subagentIdleTimers.delete(subagentId);
+      const entry = this.coordinator.getStatus().subagents.find((a) => a.id === subagentId);
+      if (!entry || entry.status !== 'idle') return;
+      if (this.coordinator.listPendingTasks().some((task) => task.subagentId === subagentId)) {
+        this.armSubagentIdleRetirement(subagentId, this.subagentIdleTimeoutMs);
+        return;
+      }
+      void this.remove(subagentId).catch((err) =>
+        this.logShutdownError('subagent_idle_retirement', err),
+      );
+    }, delayMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    this.subagentIdleTimers.set(subagentId, timer);
   }
 
   status(): CoordinatorStatus {

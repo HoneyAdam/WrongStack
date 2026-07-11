@@ -19,7 +19,7 @@ const distDir = fileURLToPath(new URL('../dist', import.meta.url));
 const distEntry = path.join(distDir, 'codebase-index', 'index.js');
 const distWorker = path.join(distDir, 'codebase-index', 'worker.js');
 // The worker resolves @wrongstack/core from ITS dist at runtime, so a missing
-// core build (fresh checkout, or a concurrent `tsup --clean` wiping dist
+// core build (fresh checkout, or a concurrent package build wiping dist
 // mid-suite) must skip rather than fail.
 const coreDist = fileURLToPath(new URL('../../core/dist/index.js', import.meta.url));
 const distReady =

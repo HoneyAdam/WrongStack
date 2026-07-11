@@ -215,6 +215,13 @@ export function reduceFleetState(state: State, action: Action): State | null {
       };
     }
 
+    case 'fleetRemove': {
+      if (!state.fleet[action.id]) return state;
+      const fleet = { ...state.fleet };
+      delete fleet[action.id];
+      return { ...state, fleet };
+    }
+
     case 'fleetBudgetWarning': {
       const cur = state.fleet[action.id];
       if (!cur) return state;

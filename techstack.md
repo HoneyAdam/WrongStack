@@ -9,7 +9,7 @@
 - `@wrongstack/webui-hq` now uses Vite `^8.1.0` and `@vitejs/plugin-react ^6.0.0`; its object-form `manualChunks` config was migrated to the Vite 8/Rolldown function contract and the production build passes.
 - The WebUI server no longer has a runtime `jszip` dependency. Skill exports use the built-in Node `zlib` implementation in `packages/webui-server/src/server/zip.ts`, including CRC validation and zip-slip rejection; round-trip tests cover Unicode, compression, empty archives, and unreadable skills.
 - Root Node types, Vitest, and coverage packages were patched to current versions; WebUI test/build ranges were aligned. Biome remains exactly pinned to 2.5.2 because 2.5.3 promotes a new optional-chaining rule across historical tests and is not a no-risk patch.
-- TypeScript 7.0.2 was tested but cannot be adopted while the latest `tsup@8.5.1` bundles a DTS plugin that reads compiler internals removed in TypeScript 7. The first package DTS build fails before application code is checked. TypeScript remains intentionally pinned to 6.0.x until tsup gains support or the monorepo migrates build tools.
+- The monorepo now uses TypeScript 7.0.2. All `tsup` builds were replaced by a centralized esbuild + native `tsc --emitDeclarationOnly` driver. WrongStack tools that need the legacy compiler API use Microsoft's official `@typescript/typescript6` compatibility package side-by-side with the TS7 CLI.
 
 The remainder of this document is the original scan snapshot.
 

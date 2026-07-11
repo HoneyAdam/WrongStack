@@ -648,6 +648,14 @@ describe('TUI reducer', () => {
     expect(s.fleet['agent-1']?.recentTools[1]?.ok).toBe(false);
   });
 
+  it('fleetRemove deletes a retired subagent from live TUI state', () => {
+    let s = reducer(initial(), { type: 'fleetSpawn', id: 'agent-1', name: 'worker' });
+    expect(s.fleet['agent-1']).toBeDefined();
+
+    s = reducer(s, { type: 'fleetRemove', id: 'agent-1' });
+    expect(s.fleet['agent-1']).toBeUndefined();
+  });
+
   it('enhanceOpen sets the panel state and enhanceClose clears it', () => {
     let s = initial();
     const resolve = () => {};
@@ -1238,12 +1246,12 @@ describe('settings picker reducer', () => {
     });
     expect(s.settingsPicker.debugStream).toBe(true);
 
-    // Field 34: statuslineMode cycles detailed → minimum
+    // Field 34: statuslineMode cycles detailed → no-color
     s = reducer(base({ open: true, field: 34, statuslineMode: 'detailed' }), {
       type: 'settingsValueChange',
       delta: 1,
     });
-    expect(s.settingsPicker.statuslineMode).toBe('minimum');
+    expect(s.settingsPicker.statuslineMode).toBe('no-color');
 
     // Field 35: configScope cycles global → project
     s = reducer(base({ open: true, field: 35, configScope: 'global', cacheTtl: 'default' }), {

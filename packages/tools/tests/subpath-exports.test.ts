@@ -37,7 +37,7 @@ describe('per-tool subpath exports (L3-A)', () => {
     // Internal helper chunks (anything with a hash suffix) and the index/builtin
     // bundles are allowed to be present without an export entry.
     const orphan = distFiles.filter(
-      (f) => !expectedSubpathFiles.has(f) && !/-[A-Za-z0-9_-]{6,}\.js$/.test(f), // tsup chunk file
+      (f) => !expectedSubpathFiles.has(f) && !/-[A-Za-z0-9_-]{6,}\.js$/.test(f), // bundler chunk
     );
     expect(orphan).toEqual([]);
   });

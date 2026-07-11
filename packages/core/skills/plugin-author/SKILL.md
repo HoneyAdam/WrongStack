@@ -4,7 +4,7 @@ description: |
   Use this skill when creating, reviewing, or refactoring a WrongStack plugin
   in `packages/plugins/`. Covers the Plugin interface, tool registration, config
   schema, the H1 audit pattern (teardown + health), PluginAPI extension for host
-  data, and the entry-point registration steps (tsup, package.json, index.ts).
+  data, and the entry-point registration steps (package.json and index.ts).
   Triggers: user says "new plugin", "add a plugin", "plugin teardown", "plugin
   health", "register a tool", "PluginAPI extension".
 version: 1.0.0
@@ -266,9 +266,11 @@ When a plugin needs host data not yet on `PluginAPI` (e.g.
 Precedent: commit `9bed619f` added `modelsRegistry?: ModelsRegistry` for
 cost-tracker's pricing hydration.
 
-## Entry-point registration (3 files)
+## Entry-point registration
 
-After writing `src/<name>/index.ts`, wire it into three files:
+After writing `src/<name>/index.ts`, wire it into two package files. The
+central `scripts/build-package.mjs` driver discovers plugin entry points from
+the exports map automatically.
 
 ### 1. `src/index.ts` — named re-export
 
@@ -276,16 +278,7 @@ After writing `src/<name>/index.ts`, wire it into three files:
 export { default as myPluginPlugin } from './my-plugin/index.js';
 ```
 
-### 2. `tsup.config.ts` — build entry
-
-```typescript
-entry: {
-  // ...
-  'my-plugin': 'src/my-plugin/index.ts',
-},
-```
-
-### 3. `package.json` — subpath export
+### 2. `package.json` — subpath export
 
 ```json
 "./my-plugin": {
@@ -294,7 +287,7 @@ entry: {
 }
 ```
 
-### 4. `packages/cli/src/wiring/plugins.ts` — built-in factory
+### 3. `packages/cli/src/wiring/plugins.ts` — built-in factory
 
 ```typescript
 async () => (await import('@wrongstack/plugins/my-plugin')).default,
@@ -334,10 +327,10 @@ For the H1 pattern, extend `tests/plugin-teardown.test.ts` with a
 2. **Write the Plugin object**: name, version, apiVersion, setup, teardown, health
 3. **Register tools/hooks** in `setup()`
 4. **Add state + teardown + health** following the H1 pattern
-5. **Wire into 3 files**: `index.ts`, `tsup.config.ts`, `package.json`
+5. **Wire the package entry**: `index.ts` and `package.json`
 6. **Add to `BUILTIN_PLUGIN_FACTORIES`** in CLI wiring
 7. **Write tests**: `<name>.test.ts` (unit) + extend `plugin-teardown.test.ts`
-8. **Run verification**: `npx vitest run packages/plugins` + `npx tsc --noEmit` + `npx tsup`
+8. **Run verification**: `pnpm --filter @wrongstack/plugins test` + `pnpm --filter @wrongstack/plugins typecheck` + `pnpm --filter @wrongstack/plugins build`
 9. **Update `src/index.ts` doc comment** — bump the plugin count
 
 ## Skills in scope

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — build system
+- **TypeScript 7 + esbuild packaging** — replaced all 19 `tsup` configurations
+  with one topologically orchestrated package driver: esbuild produces ESM/CJS
+  bundles and native TypeScript 7 emits declaration trees. Package dependencies
+  remain external, flattened declaration entry points use safe re-export shims,
+  and the WebUI/Vite, CLI shebang, WebUI Server bin, and Electron preload/main
+  contracts are preserved.
+- **Compiler API compatibility isolated** — syntax diagnostics and codebase
+  indexing use Microsoft's `@typescript/typescript6` compatibility package,
+  while workspace builds and typechecks run on TypeScript 7.0.2. This follows
+  TypeScript 7's supported side-by-side path until its new API stabilizes.
+
 ### Changed — docs & website
 - **Workspace package count refreshed** — README and the website now describe the
   current workspace shape as 18 packages + 2 apps, update the package table with

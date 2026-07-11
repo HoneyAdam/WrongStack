@@ -20,13 +20,13 @@ const MAX_CHECK_CHARS = 1_500_000;
 /** Cap reported errors so a mangled file doesn't flood the context. */
 const MAX_ERRORS = 5;
 
-type Ts = typeof import('typescript');
+type Ts = typeof import('@typescript/typescript6');
 
 let tsLoad: Promise<Ts | null> | null = null;
 /** Lazy-load the TypeScript compiler (already a dependency via the codebase
  *  indexer) so tools that never touch TS files don't pay its import cost. */
 function loadTypescript(): Promise<Ts | null> {
-  tsLoad ??= import('typescript').then(
+  tsLoad ??= import('@typescript/typescript6').then(
     (m) => ((m as unknown as { default?: Ts }).default ?? m) as Ts,
     () => null,
   );
@@ -123,16 +123,18 @@ async function parseErrors(filePath: string, content: string): Promise<string[] 
   // home of the parser's syntactic diagnostics for a decade (the public
   // alternative, program.getSyntacticDiagnostics, needs a full Program).
   const diags =
-    (sourceFile as unknown as { parseDiagnostics?: import('typescript').Diagnostic[] })
+    (sourceFile as unknown as {
+      parseDiagnostics?: import('@typescript/typescript6').Diagnostic[];
+    })
       .parseDiagnostics ?? [];
   return diags.slice(0, MAX_ERRORS).map((d) => formatDiag(ts, d, content, sourceFile));
 }
 
 function formatDiag(
   ts: Ts,
-  diag: import('typescript').Diagnostic,
+  diag: import('@typescript/typescript6').Diagnostic,
   content: string,
-  sourceFile?: import('typescript').SourceFile,
+  sourceFile?: import('@typescript/typescript6').SourceFile,
 ): string {
   const message = ts.flattenDiagnosticMessageText(diag.messageText, ' ');
   if (diag.start === undefined) return message;

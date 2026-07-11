@@ -763,6 +763,16 @@ export interface EventMap {
     finalText?: string | undefined;
   };
   /**
+   * Fired after a subagent has been removed from the live coordinator and its
+   * resources released. Surfaces must delete the agent instead of retaining a
+   * terminal/idle card indefinitely.
+   */
+  'subagent.removed': {
+    sessionId?: string | undefined;
+    subagentId: string;
+    reason?: string | undefined;
+  };
+  /**
    * Fired by the delegate tool when a subagent finishes. The agent's run
    * loop listens for this to collect `delegateSummaries` for the RunResult,
    * so the CLI/TUI can render flashy completion banners.
