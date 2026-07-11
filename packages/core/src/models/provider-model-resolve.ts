@@ -41,19 +41,30 @@ export function describeCatalogModel(m: ModelsDevModel): ProviderModelDescriptor
  * Resolve the model list to offer for a provider, merging a saved-config
  * allowlist with optional models.dev catalog metadata.
  *
+ * The result is a **union** of all available sources — the saved allowlist
+ * (if any), the catalog models (base + curated overlay), and the offline
+ * Codex catalog (when `providerHint === 'openai-codex'`). Each source is
+ * deduplicated by model id; the saved allowlist ids appear first so the
+ * user's explicit preferences float to the top.
+ *
  * Priority:
- *  1. The saved `models` allowlist is authoritative. This is the only source
- *     for OAuth / subscription / custom providers that models.dev does not
- *     list — `github-copilot`, `anthropic-oauth`, `openai-codex`,
- *     `zai-coding-plan`, etc. Each id is enriched with catalog metadata when a
- *     same-id catalog model exists, otherwise returned as a bare `{id, name}`.
- *  2. Otherwise the full catalog model list (standard API-key providers with no
- *     saved allowlist).
- *  3. Otherwise an empty list — *never* an error. A provider the user saved
- *     that is neither in the catalog nor carries an allowlist simply has no
- *     suggestions yet; callers must not raise a toast for that case (doing so
- *     produced the "not found in catalog" notification flood when the WebUI
- *     model switcher lazy-loaded every saved provider).
+ *  1. The saved `models` allowlist (if non-empty) — enriched with catalog
+ *     metadata or the offline Codex catalog name+description when a same-id
+ *     entry exists. These ids always come first in the result.
+ *  2. Catalog models (base + layered `providers.json` overlay) not already
+ *     in the saved list — this ensures the curated overlay is *never* hidden
+ *     by a stale saved model list. An empty `[]` saved list (not `undefined`)
+ *     still shows the full catalog.
+ *  3. Offline Codex catalog (`CODEX_MODELS`) for `openai-codex` — fallback
+ *     when both saved list and catalog are empty/unavailable. This guarantees
+ *     ChatGPT sign-in users always see the canonical model list even fully
+ *     offline.
+ *  4. Otherwise an empty list — *never* an error. A provider the user saved
+ *     that is neither in the catalog, the curated overlay, nor the offline
+ *     Codex catalog simply has no suggestions yet; callers must not raise a
+ *     toast for that case (doing so produced the "not found in catalog"
+ *     notification flood when the WebUI model switcher lazy-loaded every
+ *     saved provider).
  */
 export function resolveProviderModelList(
   savedModels: string[] | undefined,
@@ -67,9 +78,14 @@ export function resolveProviderModelList(
    */
   providerHint?: string | undefined,
 ): ProviderModelDescriptor[] {
+  const byId = new Map((catalog?.models ?? []).map((m) => [m.id, m]));
+  const seen = new Set<string>();
+  const out: ProviderModelDescriptor[] = [];
+
+  // 1. Saved model allowlist — user's explicit preferences come first.
   if (savedModels && savedModels.length > 0) {
-    const byId = new Map((catalog?.models ?? []).map((m) => [m.id, m]));
-    return savedModels.map((id) => {
+    for (const id of savedModels) {
+      seen.add(id);
       // OAuth / subscription ids (openai-codex) are absent from the models.dev
       // catalog, so layer their canonical name + description on top: enrich a
       // catalog hit with the blurb, or synthesize a full descriptor from it.
@@ -77,26 +93,36 @@ export function resolveProviderModelList(
       const hit = byId.get(id);
       if (hit) {
         const described = describeCatalogModel(hit);
-        return codex ? { ...described, description: codex.description } : described;
+        out.push(codex ? { ...described, description: codex.description } : described);
+      } else if (codex) {
+        out.push({ id, name: codex.name, description: codex.description, capabilities: [] });
+      } else {
+        out.push({ id, name: id, capabilities: [] });
       }
-      if (codex) {
-        return { id, name: codex.name, description: codex.description, capabilities: [] };
-      }
-      return { id, name: id, capabilities: [] };
-    });
+    }
   }
-  if (catalog && catalog.models.length > 0) return catalog.models.map(describeCatalogModel);
-  // No allowlist and no catalog models. For the ChatGPT sign-in provider the
-  // canonical model list is known offline, so surface it rather than an empty
-  // picker (the models.dev catalog omits `openai-codex`; its models live only
-  // in the curated overlay, which may be missing offline).
+
+  // 2. Catalog models (base + overlay) — merge in models not already listed,
+  //    so the curated overlay (e.g. openai-codex from providers.json) is
+  //    never hidden by a stale saved model list. This also ensures the
+  //    "fetch models from server" action in the WebUI never loses models.
+  for (const [id, m] of byId) {
+    if (!seen.has(id)) {
+      out.push(describeCatalogModel(m));
+      seen.add(id);
+    }
+  }
+
+  // 3. Offline fallback — when both saved list and catalog are empty, surface
+  //    the known Codex catalog so ChatGPT sign-in users always see models.
   if (providerHint === 'openai-codex') {
-    return CODEX_MODELS.map((m) => ({
-      id: m.id,
-      name: m.name,
-      description: m.description,
-      capabilities: [],
-    }));
+    for (const m of CODEX_MODELS) {
+      if (!seen.has(m.id)) {
+        out.push({ id: m.id, name: m.name, description: m.description, capabilities: [] });
+        seen.add(m.id);
+      }
+    }
   }
-  return [];
+
+  return out;
 }
