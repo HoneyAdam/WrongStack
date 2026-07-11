@@ -273,6 +273,29 @@
   background-color: hsl(var(--primary) / 0.6);
 }
 
+/* Kanban board — always show horizontal scrollbar so columns past the fold are reachable. */
+.kanban-scroll-area {
+  overflow-x: auto !important;
+  scrollbar-width: auto; /* Firefox: force visible track */
+}
+.kanban-scroll-area::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.kanban-scroll-area::-webkit-scrollbar-track {
+  background: hsl(var(--muted-foreground) / 0.08);
+  border-radius: 4px;
+}
+.kanban-scroll-area::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.35);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.kanban-scroll-area::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--primary) / 0.6);
+}
+
 /* Hide the scrollbar entirely (used by the narrow ActivityBar, which scrolls
    on short viewports but is too thin to show a 9px track). */
 .no-scrollbar {

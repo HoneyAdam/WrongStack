@@ -77,6 +77,15 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     if (activeBoardId) sendKanban('kanban.health', { boardId: activeBoardId });
   }, [activeBoardId]);
 
+  // ── Live polling — refresh board every 5s while a board is active ──
+  useEffect(() => {
+    if (!activeBoardId) return;
+    const interval = setInterval(() => {
+      sendKanban('kanban.get', { boardId: activeBoardId });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [activeBoardId]);
+
   const createBoard = () => {
     const title = newBoardTitle.trim();
     if (!title) return;
@@ -281,7 +290,7 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="kanban-scroll-area min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
           {activeBoard ? (
             <>
               {queueHealth && (
@@ -394,6 +403,7 @@ function KanbanColumnView({
   const tasks = board.tasks
     .filter((task) => task.columnId === column.id)
     .sort((a, b) => a.order - b.order);
+  const empty = tasks.length === 0;
   return (
     <section
       onDragOver={(event) => event.preventDefault()}
@@ -402,7 +412,10 @@ function KanbanColumnView({
         if (dragTaskId) onMoveTask(dragTaskId, column.id);
         setDragTaskId(null);
       }}
-      className="flex h-full w-[310px] shrink-0 flex-col rounded-md border bg-muted/25"
+      className={cn(
+        'flex h-full shrink-0 flex-col rounded-md border bg-muted/25 transition-[width] duration-200',
+        empty ? 'w-[180px]' : 'w-[310px]',
+      )}
     >
       <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
         <span
@@ -471,6 +484,45 @@ function KanbanColumnView({
   );
 }
 
+// ── Constants for select fields ──
+const KNOWN_PROVIDERS = [
+  'openai',
+  'anthropic',
+  'google',
+  'groq',
+  'together',
+  'fireworks',
+  'deepseek',
+  'mistral',
+  'cohere',
+  'perplexity',
+  'xai',
+  'custom',
+] as const;
+
+const MODELS_BY_PROVIDER: Record<string, string[]> = {
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1', 'o1-mini', 'o3-mini'],
+  anthropic: ['claude-sonnet-4-20250514', 'claude-sonnet-4', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-opus-4-20250514', 'claude-opus-4'],
+  google: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+  together: ['mixtral-8x22b', 'llama-3.3-70b', 'deepseek-coder', 'deepseek-r1'],
+  fireworks: ['llama-3.1-405b', 'deepseek-r1', 'mixtral-8x22b'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-r1'],
+  mistral: ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest'],
+  cohere: ['command-r-plus', 'command-r'],
+  perplexity: ['sonar-pro', 'sonar'],
+  xai: ['grok-2', 'grok-2-mini'],
+};
+
+const KNOWN_ROLES = [
+  'architect', 'developer', 'reviewer', 'tester', 'verifier',
+  'security', 'documenter', 'external', 'leader', 'shadow', 'subagent',
+] as const;
+
+const KNOWN_FALLBACK_PROFILES = [
+  'default', 'fast', 'cheap', 'quality', 'balanced', 'experimental',
+] as const;
+
 function TaskInspector({
   boards,
   board,
@@ -492,9 +544,9 @@ function TaskInspector({
   const [provider, setProvider] = useState('');
   const [model, setModel] = useState('');
   const [fallbackProfile, setFallbackProfile] = useState('');
-  const [fallbackModels, setFallbackModels] = useState('');
-  const [tools, setTools] = useState('');
-  const [allowedCapabilities, setAllowedCapabilities] = useState('');
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
+  const [tools, setTools] = useState<string[]>([]);
+  const [allowedCapabilities, setAllowedCapabilities] = useState<string[]>([]);
   const [targetBoardId, setTargetBoardId] = useState('');
 
   useEffect(() => {
@@ -504,9 +556,9 @@ function TaskInspector({
     setProvider(task?.assignment?.provider ?? '');
     setModel(task?.assignment?.model ?? '');
     setFallbackProfile(task?.assignment?.fallbackProfile ?? '');
-    setFallbackModels(task?.assignment?.fallbackModels?.join(', ') ?? '');
-    setTools(task?.assignment?.tools?.join(', ') ?? '');
-    setAllowedCapabilities(task?.assignment?.allowedCapabilities?.join(', ') ?? '');
+    setFallbackModels(task?.assignment?.fallbackModels ?? []);
+    setTools(task?.assignment?.tools ?? []);
+    setAllowedCapabilities(task?.assignment?.allowedCapabilities ?? []);
     setTargetBoardId(boards.find((candidate) => candidate.id !== board?.id)?.id ?? '');
   }, [board?.id, boards, task]);
 
@@ -519,9 +571,9 @@ function TaskInspector({
     ...(provider.trim() ? { provider: provider.trim() } : {}),
     ...(model.trim() ? { model: model.trim() } : {}),
     ...(fallbackProfile.trim() ? { fallbackProfile: fallbackProfile.trim() } : {}),
-    ...(fallbackModels.trim() ? { fallbackModels: splitCsv(fallbackModels) } : {}),
-    ...(tools.trim() ? { tools: splitCsv(tools) } : {}),
-    ...(allowedCapabilities.trim() ? { allowedCapabilities: splitCsv(allowedCapabilities) } : {}),
+    ...(fallbackModels.length > 0 ? { fallbackModels } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
+    ...(allowedCapabilities.length > 0 ? { allowedCapabilities } : {}),
   });
 
   const assign = () => {
@@ -582,20 +634,51 @@ function TaskInspector({
             <Metric label="Column" value={task.columnId} />
           </div>
 
-          <div className="mt-4 space-y-2">
-            <Field label="Agent" value={agentId} onChange={setAgentId} />
+          <div className="mt-4 space-y-3">
+            <Field label="Agent ID" value={agentId} onChange={setAgentId} />
             <Field label="Name" value={name} onChange={setName} />
-            <Field label="Role" value={role} onChange={setRole} />
-            <Field label="Provider" value={provider} onChange={setProvider} />
-            <Field label="Model" value={model} onChange={setModel} />
-            <Field label="Fallback profile" value={fallbackProfile} onChange={setFallbackProfile} />
-            <Field label="Fallback models" value={fallbackModels} onChange={setFallbackModels} />
-            <Field label="Tools" value={tools} onChange={setTools} />
-            <Field
-              label="Capabilities"
-              value={allowedCapabilities}
-              onChange={setAllowedCapabilities}
+            <SelectField
+              label="Role"
+              value={role}
+              options={KNOWN_ROLES}
+              placeholder="Select a role…"
+              onChange={setRole}
             />
+            <SelectField
+              label="Provider"
+              value={provider}
+              options={KNOWN_PROVIDERS}
+              placeholder="Select provider…"
+              onChange={(v) => {
+                setProvider(v);
+                setModel(''); // Reset model when provider changes
+              }}
+            />
+            <SelectField
+              label="Model"
+              value={model}
+              options={
+                provider && MODELS_BY_PROVIDER[provider]
+                  ? MODELS_BY_PROVIDER[provider]
+                  : allModels()
+              }
+              placeholder={
+                provider
+                  ? `Select ${provider} model…`
+                  : 'Select a provider first…'
+              }
+              onChange={setModel}
+            />
+            <SelectField
+              label="Fallback profile"
+              value={fallbackProfile}
+              options={KNOWN_FALLBACK_PROFILES}
+              placeholder="None"
+              onChange={setFallbackProfile}
+            />
+            <TagField label="Fallback models" tags={fallbackModels} onChange={setFallbackModels} />
+            <TagField label="Tools" tags={tools} onChange={setTools} />
+            <TagField label="Capabilities" tags={allowedCapabilities} onChange={setAllowedCapabilities} />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
@@ -724,11 +807,108 @@ function Field({
   );
 }
 
-function splitCsv(value: string): string[] {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+function allModels(): string[] {
+  return [...new Set(Object.values(MODELS_BY_PROVIDER).flat())];
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: readonly string[];
+  placeholder?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full rounded-md border bg-background px-2 text-sm outline-none focus:border-primary"
+      >
+        {placeholder && (
+          <option value="">{placeholder}</option>
+        )}
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function TagField({
+  label,
+  tags,
+  onChange,
+}: {
+  label: string;
+  tags: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const [input, setInput] = useState('');
+
+  const addTag = () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    if (!tags.includes(trimmed)) {
+      onChange([...tags, trimmed]);
+    }
+    setInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    onChange(tags.filter((t) => t !== tag));
+  };
+
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">{label}</span>
+      <div className="rounded-md border bg-background px-2 py-1.5 focus-within:border-primary">
+        <div className="flex flex-wrap gap-1">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]"
+            >
+              <span className="max-w-[120px] truncate">{tag}</span>
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addTag();
+              }
+              if (e.key === 'Backspace' && !input && tags.length > 0) {
+                removeTag(tags[tags.length - 1]);
+              }
+            }}
+            onBlur={addTag}
+            placeholder={tags.length === 0 ? 'Type and press Enter to add…' : 'Add…'}
+            className="min-w-[60px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+      </div>
+    </label>
+  );
 }
 
 function priorityClass(priority: KanbanTask['priority']): string {
