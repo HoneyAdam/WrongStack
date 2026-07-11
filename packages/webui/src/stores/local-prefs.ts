@@ -81,6 +81,12 @@ export interface LocalPrefs {
   enhanceDelayMs: number;
   enhanceLanguage: 'original' | 'english';
 
+  // --- Display toggles ---
+  /** Show completed thinking/logic blocks in chat history */
+  showThinkingLogs: boolean;
+  /** Group consecutive tool calls into collapsible chips */
+  groupToolCalls: boolean;
+
   // --- Reasoning / cache runtime ---
   reasoningMode: 'auto' | 'on' | 'off';
   reasoningEffort: string;
@@ -150,6 +156,8 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   enhanceEnabled: true,
   enhanceDelayMs: 60_000,
   enhanceLanguage: 'original',
+  showThinkingLogs: true,
+  groupToolCalls: true,
   reasoningMode: 'auto',
   reasoningEffort: 'high',
   reasoningPreserve: false,
@@ -174,7 +182,7 @@ export const useLocalPrefs = create<LocalPrefs>()(
     }),
     {
       name: 'wrongstack-local-prefs',
-      version: 5,
+      version: 6,
       // v1 stored option values that don't exist in core's config schema —
       // contextStrategy frugal/balanced/deep/archival (context-window modes,
       // a different setting) and auditLevel 'verbose'. Map them onto the
@@ -189,6 +197,9 @@ export const useLocalPrefs = create<LocalPrefs>()(
       // v4 added fallbackProfiles/favoriteModels/favoriteModelsOnly/modelMatrix.
       //
       // v5 added uiLocale (display-only UI language).
+      //
+      // v6 added showThinkingLogs / groupToolCalls (display toggles). Older
+      // stores get the defaults via DEFAULTS spread; no remap needed.
       migrate: (persisted) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const validStrategies = ['hybrid', 'intelligent', 'selective'];

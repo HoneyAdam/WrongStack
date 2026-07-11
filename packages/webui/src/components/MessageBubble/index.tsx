@@ -75,7 +75,7 @@ export const MessageBubble = memo(function MessageBubble({
   const outputCost = useSessionStore((s) => s.outputCost);
   const cacheReadCost = useSessionStore((s) => s.cacheReadCost);
   const localPrefs = useLocalPrefs();
-  const { autonomy, yolo } = localPrefs;
+  const { autonomy, yolo, showThinkingLogs } = localPrefs;
 
   const { canAutoSubmit, recordAutoSubmit, capWarned } = useAutoSubmitStreak();
   const autoProceedMaxIterations = localPrefs.autoProceedMaxIterations;
@@ -313,7 +313,7 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               </div>
             </div>
-          ) : message.thinkingLog ? (() => {
+          ) : message.thinkingLog && showThinkingLogs ? (() => {
             const log = message.thinkingLog;
             const lineCount = log.text.split('\n').length;
             const seconds = Math.max(0.1, log.durationMs / 1000);

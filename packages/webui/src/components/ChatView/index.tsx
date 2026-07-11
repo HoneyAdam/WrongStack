@@ -36,6 +36,46 @@ import { Button } from '../ui/button';
 import { type ChatRow, buildChatRows, fmtTok } from './utils.js';
 import { ThinkingBubble } from './ThinkingBubble.js';
 
+/**
+ * Compact inline toggle switch used in the display-toggles bar. Renders a
+ * small label + a minimal switch knob — no row layout, just a single line
+ * that fits in the shortcut area.
+ */
+function ToggleSwitch({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={value}
+      onClick={onChange}
+      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-foreground/80 transition-colors select-none"
+    >
+      <span
+        className={cn(
+          'relative inline-block h-3.5 w-6 rounded-full border transition-colors shrink-0',
+          value ? 'bg-primary border-primary/60' : 'bg-muted/70 border-border/60',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-[1px] left-[1px] h-2.5 w-2.5 rounded-full bg-background shadow transition-transform',
+            value && 'translate-x-2.5',
+          )}
+        />
+      </span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 // Lazy: ProcessMonitor pulls xterm + node-pty types and is only opened via the
 // header "processes" button. Keeping it out of the eager chat bundle.
 const ProcessMonitor = lazy(() =>
@@ -53,11 +93,13 @@ const ChatRowView = memo(function ChatRowView({
   isLoading,
   compactMode,
   isFirstRow,
+  groupToolCalls,
 }: {
   row: ChatRow;
   isLoading: boolean;
   compactMode: boolean;
   isFirstRow: boolean;
+  groupToolCalls: boolean;
 }) {
   const wrap = cn(
     'mx-auto max-w-6xl w-full px-3 sm:px-5 lg:px-6',
@@ -85,26 +127,37 @@ const ChatRowView = memo(function ChatRowView({
   return (
     <div className={wrap}>
       <div className={cn('chat-turn', compactMode ? 'space-y-1' : 'space-y-1.5')}>
-        {row.items.map((it) => {
+        {row.items.flatMap((it) => {
           if (it.kind === 'msg') {
-            return (
+            return [(
               <MessageBubble
                 key={it.key}
                 message={it.message}
                 isFirst={it.isFirst}
                 isContinuation={it.isContinuation}
               />
-            );
+            )];
           }
-          const defaultOpen = row.isLastTurn && it.isLastGroup && isLoading && it.hasRunningTool;
-          return (
-            <ToolGroup
-              key={it.key}
-              tools={it.tools}
-              defaultOpen={defaultOpen}
+          if (groupToolCalls) {
+            const defaultOpen = row.isLastTurn && it.isLastGroup && isLoading && it.hasRunningTool;
+            return [(
+              <ToolGroup
+                key={it.key}
+                tools={it.tools}
+                defaultOpen={defaultOpen}
+                isContinuation={it.isContinuation}
+              />
+            )];
+          }
+          // Grouping off — render each tool as its own message bubble
+          return it.tools.map((tool) => (
+            <MessageBubble
+              key={tool.id}
+              message={tool}
+              isFirst={false}
               isContinuation={it.isContinuation}
             />
-          );
+          ));
         })}
       </div>
     </div>
@@ -190,6 +243,8 @@ export function ChatView() {
   // server's config-backed snapshot on connect), NOT component-local state.
   // A local useState here always rendered "off" regardless of the real mode.
   const autonomy = useLocalPrefs((s) => s.autonomy);
+  const showThinkingLogs = useLocalPrefs((s) => s.showThinkingLogs);
+  const groupToolCallsPref = useLocalPrefs((s) => s.groupToolCalls);
 
   const handleAutonomyChange = useCallback((mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {
     useLocalPrefs.getState().set({ autonomy: mode });
@@ -655,6 +710,7 @@ export function ChatView() {
                 isLoading={isLoading}
                 compactMode={compactMode}
                 isFirstRow={i === 0}
+                groupToolCalls={groupToolCallsPref}
               />
             ))}
 
@@ -708,43 +764,28 @@ export function ChatView() {
 
       {/* Input */}
       <div className="shrink-0 bg-[hsl(var(--surface-2)/0.45)] px-2 pb-2 pt-2 sm:px-3 lg:px-4 lg:pb-3">
-        {/* Keyboard shortcut hints — subtle, always visible */}
-        <div className="ws-shortcut-hints hidden max-w-6xl mx-auto px-2 pb-1 sm:flex items-center gap-3 text-[10px] text-muted-foreground/50 select-none overflow-x-auto">
-          <span title="Enter" className="inline-flex items-center gap-1">
-            <kbd>Enter</kbd> send
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Shift+Enter" className="inline-flex items-center gap-1">
-            <kbd>Shift</kbd>+<kbd>↵</kbd> newline
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Ctrl+\\" className="inline-flex items-center gap-1">
-            <kbd>Ctrl+\</kbd> sidebar
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Ctrl+F" className="inline-flex items-center gap-1">
-            <kbd>Ctrl+F</kbd> search
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Ctrl+K" className="inline-flex items-center gap-1">
-            <kbd>Ctrl+K</kbd> palette
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Ctrl+L / Ctrl+N" className="inline-flex items-center gap-1">
-            <kbd>Ctrl+L</kbd> clear
-          </span>
-          <span className="opacity-50">·</span>
-          <span title={t('chat:header.jkNavigateTitle')} className="inline-flex items-center gap-1">
-            <kbd>j</kbd><kbd>k</kbd> navigate
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Ctrl+M" className="inline-flex items-center gap-1">
-            <kbd>Ctrl+M</kbd> model
-          </span>
-          <span className="opacity-50">·</span>
-          <span title="Ctrl+Shift+D" className="inline-flex items-center gap-1">
-            <kbd>Ctrl+⇧D</kbd> density
-          </span>
+        {/* Display toggles — replaces the old keyboard-shortcut hints row,
+            giving the user quick control over thinking-log visibility and
+            tool-call grouping without diving into Settings. */}
+        <div className="ws-display-toggles hidden max-w-6xl mx-auto px-2 pb-1.5 sm:flex items-center gap-4 text-[11px] text-muted-foreground/60 select-none overflow-x-auto">
+          {/* Show Thinking toggle */}
+          <ToggleSwitch
+            label="🧠 Thinking"
+            value={showThinkingLogs}
+            onChange={() => {
+              useLocalPrefs.getState().set({ showThinkingLogs: !useLocalPrefs.getState().showThinkingLogs });
+            }}
+          />
+          <span className="opacity-40">|</span>
+          {/* Group Tools toggle */}
+          <ToggleSwitch
+            label="🔧 Group Tools"
+            value={groupToolCallsPref}
+            onChange={() => {
+              useLocalPrefs.getState().set({ groupToolCalls: !useLocalPrefs.getState().groupToolCalls });
+            }}
+          />
+          <span className="opacity-30 ml-auto text-[10px]">press <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-muted/40">?</kbd> for shortcuts</span>
         </div>
         <div className="ws-chat-input-wrap p-0">
           <div className="max-w-6xl mx-auto">
