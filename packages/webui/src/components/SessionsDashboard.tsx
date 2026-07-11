@@ -123,6 +123,12 @@ function sessionMeta(status: string): { icon: React.ReactNode; cls: string; badg
         cls: 'text-warning',
         badge: 'border-warning/25 bg-warning/10 text-warning',
       };
+    case 'lost':
+      return {
+        icon: <WifiOff className="h-3.5 w-3.5" />,
+        cls: 'text-destructive/60',
+        badge: 'border-destructive/15 bg-destructive/5 text-destructive/70',
+      };
     default:
       return {
         icon: <WifiOff className="h-3.5 w-3.5" />,
@@ -187,7 +193,29 @@ export function SessionsDashboard() {
         setSessions([]);
         return;
       }
-      setSessions(data as LiveSession[]);
+      // Diff check: skip state update if nothing semantically changed to
+      // prevent unnecessary React re-renders on every 5s poll tick.
+      setSessions((prev) => {
+        const next = data as LiveSession[];
+        if (prev.length === next.length) {
+          let same = true;
+          for (let i = 0; i < next.length; i++) {
+            const a = next[i];
+            const b = prev[i];
+            if (
+              a.sessionId !== b.sessionId ||
+              a.status !== b.status ||
+              a.agentCount !== b.agentCount ||
+              a.startedAt !== b.startedAt
+            ) {
+              same = false;
+              break;
+            }
+          }
+          if (same) return prev; // nothing changed — keep reference stable
+        }
+        return next;
+      });
       setError(null);
     } catch (err) {
       if (err instanceof SyntaxError) {

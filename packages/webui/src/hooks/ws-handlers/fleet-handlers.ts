@@ -85,12 +85,24 @@ export function handleSessionsStatusUpdate(msg: WSServerMessage) {
   const payload = msg.payload as { sessions?: LiveSession[] } | undefined;
   useMonitorStore.getState().setLiveSessions(payload?.sessions ?? []);
 
+  // Throttle viz-store updates to at most once per second. The fleet snapshot
+  // event triggers a full node/edge rebuild in the AgentFlow visualization,
+  // which is expensive. Without throttling, the ~5s session-registry poll +
+  // fs.watch (150ms debounce) + push-on-write cascade causes the viz graph to
+  // churn constantly, making it impossible to read.
+  const now = Date.now();
+  if (now - lastVizSnapshot < 1000) return;
+  lastVizSnapshot = now;
+
   const vizEv = wsToVizEvent('sessions.status_update', msg.payload as Record<string, unknown>);
   if (vizEv) {
     useVizStore.getState().pushEvent(vizEv);
     useVizStore.getState().setActive(true);
   }
 }
+
+/** Throttle gate for viz-store fleet snapshot updates. */
+let lastVizSnapshot = 0;
 
 export const fleetHandlerMap: Partial<Record<string, (msg: WSServerMessage) => void>> = {
   'worktree.state': handleWorktreeState,

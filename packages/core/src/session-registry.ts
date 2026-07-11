@@ -64,7 +64,8 @@ export type SessionLiveStatus =
   | 'active'   // process running, agents may be idle or busy
   | 'idle'     // process running, no agent activity
   | 'closing'  // session_end written, process shutting down
-  | 'stale';   // process no longer alive (pruned on next read)
+  | 'stale'    // process no longer alive (pruned on next read)
+  | 'lost';    // heartbeat timeout — process may still be alive but unreachable
 
 export interface SessionRegistryEntry {
   sessionId: string;
@@ -99,6 +100,10 @@ const STALE_TIMEOUT_MS = 30_000; // entry considered stale after 30s without hea
 // A session that announced `closing` (heartbeat stopped) is dropped this long
 // after its last heartbeat, so the fleet view doesn't keep a dead client around.
 const CLOSING_GRACE_MS = 15_000;
+// A session marked 'lost' (heartbeat timeout but process still alive or
+// recently dead) stays visible in the fleet view for this long so the user
+// can see "what went down" instead of a silent disappearance.
+const LOST_GRACE_MS = 300_000; // 5 minutes
 // A held lock is released within milliseconds; anything older is a crashed
 // owner's leftover and is safe to break so writes never wedge permanently.
 const STALE_LOCK_MS = 10_000;
@@ -114,6 +119,26 @@ function pidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Parse registry file contents, tolerating corruption. A system crash can
+ * leave the file zero-filled (NTFS journals the rename metadata but the data
+ * blocks were never flushed — the file is its full size of NUL bytes), or a
+ * torn write can leave invalid JSON. Treat anything unparsable — or parsable
+ * but not a plain object — as an empty registry so the next write heals the
+ * file instead of wedging every future write forever.
+ */
+function parseRegistry(raw: string): Record<string, SessionRegistryEntry> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, SessionRegistryEntry>;
+    }
+  } catch {
+    /* corrupt file — fall through to empty */
+  }
+  return {};
 }
 
 // ── Registry class ────────────────────────────────────────────────────────
@@ -330,7 +355,7 @@ export class SessionRegistry {
   private async readAndPrune(): Promise<Record<string, SessionRegistryEntry>> {
     try {
       const raw = await fs.readFile(this.filePath, 'utf8');
-      const registry = JSON.parse(raw) as Record<string, SessionRegistryEntry>;
+      const registry = parseRegistry(raw);
       const now = Date.now();
       let pruned = false;
 
@@ -343,13 +368,31 @@ export class SessionRegistry {
           pruned = true;
           continue;
         }
-        if (heartbeatAge > STALE_TIMEOUT_MS && !pidAlive(entry.pid)) {
-          entry.status = 'stale';
-          // Keep stale entries for 5 minutes so UIs can show "recently closed"
-          const startedAge = now - new Date(entry.startedAt).getTime();
-          if (startedAge > 5 * 60_000) {
-            delete registry[id];
-            pruned = true;
+        // Lost session: heartbeat timed out but process may still be alive.
+        // Instead of disappearing instantly (which makes fleet views flicker),
+        // mark as 'lost' and keep visible for LOST_GRACE_MS so the user can
+        // see what went down.
+        if (heartbeatAge > STALE_TIMEOUT_MS) {
+          const alive = pidAlive(entry.pid);
+          if (alive) {
+            // Process alive but not heartbeating → mark lost (stays visible)
+            if (entry.status !== 'lost' && entry.status !== 'closing' && entry.status !== 'stale') {
+              entry.status = 'lost';
+              pruned = true;
+            }
+            // Keep lost entries around for the grace period
+            if (entry.status === 'lost' && heartbeatAge > STALE_TIMEOUT_MS + LOST_GRACE_MS) {
+              delete registry[id];
+              pruned = true;
+            }
+          } else {
+            // Process dead → stale, then prune after 5 min (existing behavior)
+            entry.status = 'stale';
+            const startedAge = now - new Date(entry.startedAt).getTime();
+            if (startedAge > 5 * 60_000) {
+              delete registry[id];
+              pruned = true;
+            }
           }
         }
       }
@@ -403,7 +446,9 @@ export class SessionRegistry {
           await lockHandle.writeFile(String(process.pid)).catch(() => undefined);
           /* v8 ignore stop */
           const raw = await fs.readFile(this.filePath, 'utf8').catch(() => '{}');
-          const registry = JSON.parse(raw) as Record<string, SessionRegistryEntry>;
+          // Corruption-tolerant: a crash-zeroed or torn file must not abort
+          // the write — starting from {} rewrites a healthy registry.
+          const registry = parseRegistry(raw);
           fn(registry);
           await this.writeAtomicLocked(registry);
           return; // success
@@ -472,7 +517,16 @@ export class SessionRegistry {
       `.${path.basename(this.filePath)}.${randomUUID().slice(0, 8)}.tmp`,
     );
     try {
-      await fs.writeFile(tmp, JSON.stringify(registry, null, 2), 'utf8');
+      // Write + fsync BEFORE the rename: without the fsync, a system crash
+      // can journal the rename metadata while the data blocks were never
+      // flushed, leaving a zero-filled (all-NUL) registry file on reboot.
+      const handle = await fs.open(tmp, 'w');
+      try {
+        await handle.writeFile(JSON.stringify(registry, null, 2), 'utf8');
+        await handle.sync().catch(() => undefined);
+      } finally {
+        await handle.close();
+      }
       await fs.rename(tmp, this.filePath);
     } catch (err) {
       /* v8 ignore start -- rename-failure cleanup: best-effort tmp unlink + rethrow (atomicUpdate swallows it) */

@@ -196,6 +196,47 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
 
   setLiveSessions: (sessions) => {
     const normalized = normalizeLiveSessions(sessions);
+    // Diff check: skip update when nothing semantically changed to prevent
+    // unnecessary React re-renders on ~5s fleet-status broadcasts. Without
+    // this, every heartbeat tick from every running agent causes all fleet
+    // surfaces (office map, HQ client list, session watcher) to re-render
+    // even when no agent actually changed state.
+    const prev = useMonitorStore.getState().liveSessions;
+    if (prev.length === normalized.length) {
+      let same = true;
+      for (let i = 0; i < normalized.length; i++) {
+        const a = normalized[i];
+        const b = prev[i];
+        if (
+          a.sessionId !== b.sessionId ||
+          a.status !== b.status ||
+          a.agentCount !== b.agentCount ||
+          a.startedAt !== b.startedAt
+        ) {
+          same = false;
+          break;
+        }
+        // Deep-check agents (only the fields the UI renders)
+        const aa = a.agents ?? [];
+        const ba = b.agents ?? [];
+        if (aa.length !== ba.length) { same = false; break; }
+        for (let j = 0; j < aa.length; j++) {
+          if (
+            aa[j]!.id !== ba[j]!.id ||
+            aa[j]!.name !== ba[j]!.name ||
+            aa[j]!.status !== ba[j]!.status ||
+            aa[j]!.currentTool !== ba[j]!.currentTool ||
+            aa[j]!.iterations !== ba[j]!.iterations ||
+            aa[j]!.toolCalls !== ba[j]!.toolCalls ||
+            aa[j]!.ctxPct !== ba[j]!.ctxPct
+          ) {
+            same = false; break;
+          }
+        }
+        if (!same) break;
+      }
+      if (same) return; // nothing changed — skip
+    }
     set({
       liveSessions: normalized,
       ...deriveMonitorStats(normalized),

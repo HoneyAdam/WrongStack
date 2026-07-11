@@ -84,7 +84,7 @@ export function resolveClients(
     }
 
     const status: ClientStatus =
-      s.status === 'closing' || s.status === 'stale'
+      s.status === 'closing' || s.status === 'stale' || s.status === 'lost'
         ? 'offline'
         : anyRunning
           ? 'active'

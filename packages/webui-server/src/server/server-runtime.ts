@@ -215,10 +215,23 @@ export function createWsServers(
   const WS_MAX_PAYLOAD = 8 * 1024 * 1024;
   const wssPrimary = new WebSocketServer({
     port: ports.wsPort, host: ports.wsHost, verifyClient, maxPayload: WS_MAX_PAYLOAD,
+    // Send a ping every 15s to keep idle connections alive. Without this,
+    // network equipment (routers, proxies, NAT gateways) may drop idle TCP
+    // connections, causing the browser to see a close event and show the
+    // "reconnecting" banner. The browser responds with a pong automatically
+    // (the WebSocket API handles this at the transport level).
+    pingInterval: 15_000,
+    // Wait 5s for a pong before considering the connection dead. A client
+    // that hasn't responded to 3 consecutive pings in a row (45s total
+    // quiet) is almost certainly unreachable — close the socket so the
+    // client can reconnect cleanly rather than hanging indefinitely.
+    pingTimeout: 5_000,
   } as ConstructorParameters<typeof WebSocketServer>[0]);
   const wssSecondary = ports.wsHost === '127.0.0.1'
     ? new WebSocketServer({
         port: ports.wsPort, host: '::1', verifyClient, maxPayload: WS_MAX_PAYLOAD,
+        pingInterval: 15_000,
+        pingTimeout: 5_000,
       } as ConstructorParameters<typeof WebSocketServer>[0])
     : null;
   const clients = new Map<WebSocket, ConnectedClient>();

@@ -216,7 +216,7 @@ export class WrongStackWebSocketClient {
             if (this.ws === ws) this.ws = null;
           }
           reject(new Error('Connection timeout'));
-        }, 10000);
+        }, 30_000);
 
         // Track whether the connection was ever established so onerror and
         // onclose know whether to reject the promise or just attempt a
