@@ -99,6 +99,14 @@ export interface MailboxMessage {
   taskContext?: MailboxTaskContext | undefined;
   /** Session id of the sender. Enables cross-session communication. */
   senderSessionId?: string | undefined;
+  /**
+   * ISO8601 — when the message expires. Set at send time from `ttlMs`
+   * (default: 24h via AUTO_COMPACT_DEFAULT_TTL_MS). The auto-compaction
+   * sweep removes messages whose `expiresAt` is in the past. When
+   * undefined, the compaction sweep uses the default TTL from the
+   * caller's options.
+   */
+  expiresAt?: string | undefined;
 }
 
 // ── Task context for agent discovery ─────────────────────────────────────
@@ -236,6 +244,12 @@ export interface MailboxSendInput {
   replyTo?: string | undefined;
   /** Task context for assign-type messages. */
   taskContext?: MailboxTaskContext | undefined;
+  /**
+   * Time-to-live in milliseconds. When set, the message's `expiresAt` is
+   * computed as `now + ttlMs` at send time. The auto-compaction sweep
+   * removes expired messages. Default: none (use compaction sweep default).
+   */
+  ttlMs?: number | undefined;
 }
 
 export interface MailboxAckInput {
@@ -364,6 +378,56 @@ export interface PurgeResult {
   remaining: number;
 }
 
+// ── Auto-compact options & result ─────────────────────────────────────────
+
+export interface AutoCompactOptions {
+  /**
+   * Remove messages read by ALL currently-online agents that are older
+   * than this many milliseconds since the last read receipt was stamped.
+   * Default: 10 minutes (AUTO_COMPACT_READ_MAX_AGE_MS).
+   */
+  readMaxAgeMs?: number | undefined;
+  /**
+   * Default TTL for messages without an explicit `expiresAt`. Messages
+   * whose `timestamp` is older than `now - defaultTtlMs` are removed.
+   * Default: 24 hours (AUTO_COMPACT_DEFAULT_TTL_MS).
+   */
+  defaultTtlMs?: number | undefined;
+  /**
+   * Also run `purgeStale` logic in the same pass — purge completed
+   * messages older than this many ms. Default: 1 day.
+   */
+  completedMaxAgeMs?: number | undefined;
+  /**
+   * Also run `purgeStale` logic in the same pass — purge incomplete
+   * messages older than this many ms. Default: 7 days.
+   */
+  incompleteMaxAgeMs?: number | undefined;
+  /**
+   * Interval for the background auto-compact timer.
+   * Default: 5 minutes (AUTO_COMPACT_INTERVAL_MS).
+   */
+  intervalMs?: number | undefined;
+  /**
+   * Also run `purgeStale` logic in the same pass (completed > 1 day,
+   * incomplete > 7 days). Default: true.
+   */
+  includePurgeStale?: boolean | undefined;
+}
+
+export interface AutoCompactResult {
+  /** Messages removed because they were read by all online agents. */
+  readByAllRemoved: number;
+  /** Messages removed because their TTL expired (explicit or default). */
+  expiredRemoved: number;
+  /** Messages removed by the purgeStale pass (if enabled). */
+  stalePurged: number;
+  /** Total messages removed. */
+  totalRemoved: number;
+  /** Messages remaining in the mailbox after compaction. */
+  remaining: number;
+}
+
 // ── Mailbox interface ────────────────────────────────────────────────────
 
 export interface Mailbox {
@@ -394,10 +458,6 @@ export interface Mailbox {
    * {@link restore}. The default `query()` filter hides the message
    * once `deletedAt` is set; pass `includeDeleted: true` to see the
    * trash.
-   *
-   * Phase 2 skeleton — the method signature is declared here so the
-   * WebUI client and the server route handler can compile against
-   * it; the implementation lands in the same PR.
    */
   softDelete(mailId: string, by: string): Promise<MailboxMessage | null>;
 
@@ -456,6 +516,28 @@ export interface Mailbox {
    * This does NOT touch agent registrations or client registry.
    */
   purgeStale(opts?: PurgeOptions): Promise<PurgeResult>;
+
+  /**
+   * Auto-compact: remove messages that are no longer needed.
+   *
+   * Two cleanup passes run in a single file rewrite:
+   *  1. **Read-by-all**: Messages read by every currently-online agent,
+   *     older than `readMaxAgeMs` (default 10 min).
+   *  2. **Expired**: Messages whose `expiresAt` is in the past, or whose
+   *     `timestamp` is older than `defaultTtlMs` (default 24h) when no
+   *     explicit `expiresAt` is set.
+   *
+   * Also runs `purgeStale` logic (completed > 1 day, incomplete > 7 days)
+   * in the same pass to avoid a second rewrite.
+   */
+  autoCompact(opts?: AutoCompactOptions): Promise<AutoCompactResult>;
+
+  /**
+   * Start a background timer that periodically calls `autoCompact`.
+   * Returns a dispose function that stops the timer. Idempotent —
+   * calling start twice replaces the prior timer.
+   */
+  startAutoCompactTimer(opts?: AutoCompactOptions): () => void;
 
   // ── Client (REPL/TUI/WebUI) registry ──────────────────────────────────
 

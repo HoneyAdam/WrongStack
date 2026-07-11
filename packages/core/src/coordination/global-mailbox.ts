@@ -35,39 +35,31 @@ import type {
   MailboxMessage,
   MailboxQuery,
   MailboxSendInput,
+  AutoCompactOptions,
+  AutoCompactResult,
   PurgeOptions,
   PurgeResult,
   RegisteredAgent,
   RegisteredClient,
 } from './mailbox-types.js';
 import { normalizeRecipient } from './mailbox-types.js';
+import {
+  AGENT_PURGE_MS,
+  AGENT_STALE_MS,
+  AUTO_COMPACT_DEFAULT_TTL_MS,
+  AUTO_COMPACT_INTERVAL_MS,
+  AUTO_COMPACT_READ_MAX_AGE_MS,
+  CLIENT_STALE_MS,
+  HEARTBEAT_THROTTLE_MS,
+  LINE_SEPARATOR,
+  MESSAGE_CACHE_MAX_ENTRIES,
+  REGISTRY_CACHE_TTL_MS,
+} from './mailbox-constants.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
 const MAILBOX_FILE = '_mailbox.jsonl';
 const CLIENT_REGISTRY_FILE = '_mailbox.clients.json';
-/** Agents without a heartbeat for this long are considered offline. */
-const AGENT_STALE_MS = 60_000;
-/** Agents without a heartbeat for this long are removed from the registry entirely. */
-const AGENT_PURGE_MS = 86_400_000; // 24 hours
-/** Clients without a heartbeat for this long are considered offline. */
-const CLIENT_STALE_MS = 60_000;
-/** Heartbeat updates are throttled to at most this interval. */
-const HEARTBEAT_THROTTLE_MS = 5_000;
-/**
- * How long a read may be served from the in-process registry cache before
- * re-reading the shared file. Kept well below HEARTBEAT_THROTTLE_MS so
- * cross-process registrations become visible promptly.
- */
-const REGISTRY_CACHE_TTL_MS = 2_000;
-const LINE_SEPARATOR = '\n';
-/**
- * Soft cap on the in-memory message cache. The cache mirrors the JSONL
- * message file; under normal load it stays well under this. If a pathological
- * mailbox exceeds the cap we fall back to reading from disk rather than
- * holding an unbounded buffer in memory.
- */
-const MESSAGE_CACHE_MAX_ENTRIES = 10_000;
 
 type HqPublisherRef = HqPublisher | (() => HqPublisher | undefined);
 
@@ -85,6 +77,46 @@ type HqPublisherRef = HqPublisher | (() => HqPublisher | undefined);
  */
 export function resolveProjectDir(projectRoot: string, globalRoot: string): string {
   return path.join(globalRoot, 'projects', projectSlug(projectRoot));
+}
+
+// ── Singleton factory ────────────────────────────────────────────────────
+
+/**
+ * Process-wide registry of GlobalMailbox instances, keyed by projectDir.
+ *
+ * Without this, `attachMailboxChecker` and `attachFleetPulse` each created
+ * a SEPARATE GlobalMailbox for the same project directory — two independent
+ * mtime caches, two read chains, two sets of heartbeat timers. The factory
+ * ensures that within a single process there is at most one instance per
+ * project directory, so cache hit ratio is maximized and I/O is minimized.
+ *
+ * Cross-process sharing still works as before (the JSONL file + file lock
+ * is the source of truth); this is purely an in-process optimization.
+ *
+ * Pass `forceNew: true` to bypass the cache (used by tests that need an
+ * isolated tmpdir instance without polluting the singleton).
+ */
+const _mailboxInstances = new Map<string, GlobalMailbox>();
+
+export function getSharedMailbox(
+  projectDir: string,
+  events?: EventBus,
+  hqPublisher?: HqPublisherRef,
+  opts?: { forceNew?: boolean },
+): GlobalMailbox {
+  if (opts?.forceNew) {
+    return new GlobalMailbox(projectDir, events, hqPublisher);
+  }
+  const existing = _mailboxInstances.get(projectDir);
+  if (existing !== undefined) return existing;
+  const mb = new GlobalMailbox(projectDir, events, hqPublisher);
+  _mailboxInstances.set(projectDir, mb);
+  return mb;
+}
+
+/** Clear the singleton registry — used by tests to avoid cross-test leakage. */
+export function _clearMailboxSingletons(): void {
+  _mailboxInstances.clear();
 }
 
 // ── GlobalMailbox ────────────────────────────────────────────────────────
@@ -202,6 +234,9 @@ export class GlobalMailbox implements Mailbox {
       timestamp: now,
       replyTo: input.replyTo,
       taskContext: input.taskContext,
+      expiresAt: input.ttlMs !== undefined
+        ? new Date(Date.now() + input.ttlMs).toISOString()
+        : undefined,
     };
 
     const line = JSON.stringify(msg) + LINE_SEPARATOR;
@@ -228,6 +263,18 @@ export class GlobalMailbox implements Mailbox {
       message: msg,
     });
     this.publishHqMailboxSnapshot();
+
+    // In-process push notification: same-process mailbox consumers (the
+    // awareness poller, fleet pulse, TUI/WebUI) can listen on this event
+    // to get real-time updates instead of polling on every iteration.
+    this._events?.emitCustom('mailbox.message_sent', {
+      messageId: msg.id,
+      from: msg.from,
+      to: msg.to,
+      type: msg.type,
+      subject: msg.subject,
+    });
+
     return msg;
   }
 
@@ -362,6 +409,7 @@ export class GlobalMailbox implements Mailbox {
     await withFileLock(this.messagePath, async () => {
       const all = await this._readMessagesFresh();
       const now = new Date().toISOString();
+      let changed = false;
       for (const m of all) {
         if (m.id !== mailId) continue;
         if (m.deletedAt !== undefined) {
@@ -373,9 +421,14 @@ export class GlobalMailbox implements Mailbox {
         m.deletedAt = now;
         m.deletedBy = by;
         updated = m;
+        changed = true;
       }
-      const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
-      await fsp.writeFile(this.messagePath, serialized, 'utf8');
+      // Only rewrite the file if the soft-delete actually mutated state —
+      // a re-delete of an already-deleted message is a no-op on disk.
+      if (changed) {
+        const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
+        await fsp.writeFile(this.messagePath, serialized, 'utf8');
+      }
       // Promote the cache inside the lock with the post-write stat so the
       // mtime/size trackers are set synchronously with the content.
       const { mtimeMs, size } = await this._statMessageFile();
@@ -402,14 +455,23 @@ export class GlobalMailbox implements Mailbox {
     let updated: MailboxMessage | null = null;
     await withFileLock(this.messagePath, async () => {
       const all = await this._readMessagesFresh();
+      let changed = false;
       for (const m of all) {
         if (m.id !== mailId) continue;
+        if (m.deletedAt === undefined && m.deletedBy === undefined) {
+          // Not soft-deleted — no-op, return the message as-is.
+          updated = m;
+          continue;
+        }
         delete m.deletedAt;
         delete m.deletedBy;
         updated = m;
+        changed = true;
       }
-      const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
-      await fsp.writeFile(this.messagePath, serialized, 'utf8');
+      if (changed) {
+        const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
+        await fsp.writeFile(this.messagePath, serialized, 'utf8');
+      }
       // Promote the cache inside the lock with the post-write stat so the
       // mtime/size trackers are set synchronously with the content.
       const { mtimeMs, size } = await this._statMessageFile();
@@ -774,6 +836,128 @@ export class GlobalMailbox implements Mailbox {
     };
   }
 
+  // ── Auto-compaction ─────────────────────────────────────────────────────
+
+  private _autoCompactTimer: NodeJS.Timeout | null = null;
+
+  async autoCompact(opts?: AutoCompactOptions): Promise<AutoCompactResult> {
+    const readMaxAgeMs = opts?.readMaxAgeMs ?? AUTO_COMPACT_READ_MAX_AGE_MS;
+    const defaultTtlMs = opts?.defaultTtlMs ?? AUTO_COMPACT_DEFAULT_TTL_MS;
+    const completedMaxAgeMs = opts?.completedMaxAgeMs ?? 86_400_000; // 1 day
+    const incompleteMaxAgeMs = opts?.incompleteMaxAgeMs ?? 604_800_000; // 7 days
+
+    let expiredPurged = 0;
+    let readByAllPurged = 0;
+    let completedPurged = 0;
+    let incompletePurged = 0;
+    let remaining = 0;
+
+    // Resolve the set of currently-online agent ids so we can check
+    // "has every online agent read this?" without a second file read.
+    // Online set is advisory — if the registry is temporarily empty we
+    // skip the read-by-all pass rather than purging everything.
+    let onlineAgentIds: Set<string> | null = null;
+    try {
+      const statuses = await this.getAgentStatuses();
+      const online = statuses.filter((s) => s.online);
+      onlineAgentIds = online.length > 0 ? new Set(online.map((s) => s.agentId)) : null;
+    } catch {
+      onlineAgentIds = null;
+    }
+
+    await withFileLock(this.messagePath, async () => {
+      const all = await this._readMessagesFresh();
+      const now = Date.now();
+      const cutoffReadAge = now - readMaxAgeMs;
+      const cutoffCompleted = now - completedMaxAgeMs;
+      const cutoffIncomplete = now - incompleteMaxAgeMs;
+      const cutoffDefaultTtl = now - defaultTtlMs;
+
+      const kept: MailboxMessage[] = [];
+
+      for (const msg of all) {
+        const msgTime = new Date(msg.timestamp).getTime();
+
+        // Pass 1: Explicit expiry.
+        if (msg.expiresAt !== undefined) {
+          if (new Date(msg.expiresAt).getTime() < now) {
+            expiredPurged++;
+            continue;
+          }
+        } else if (msgTime < cutoffDefaultTtl) {
+          // No explicit expiry; use default TTL from send time.
+          expiredPurged++;
+          continue;
+        }
+
+        // Pass 2: Read by ALL currently-online agents.
+        if (onlineAgentIds !== null && !msg.completed) {
+          const readByAll =
+            onlineAgentIds.size > 0 &&
+            [...onlineAgentIds].every((id) => id in msg.readBy);
+          if (readByAll) {
+            // Check age of the most recent read receipt.
+            const readTimes = Object.values(msg.readBy).map((t) => new Date(t).getTime());
+            const latestRead = Math.max(...readTimes);
+            if (latestRead < cutoffReadAge) {
+              readByAllPurged++;
+              continue;
+            }
+          }
+        }
+
+        // Pass 3: Standard purge-stale logic.
+        const completedTime = msg.completedAt ? new Date(msg.completedAt).getTime() : 0;
+        if (msg.completed && completedTime < cutoffCompleted) {
+          completedPurged++;
+          continue;
+        }
+        if (!msg.completed && msgTime < cutoffIncomplete) {
+          incompletePurged++;
+          continue;
+        }
+
+        kept.push(msg);
+      }
+      remaining = kept.length;
+
+      if (kept.length < all.length) {
+        const content = kept.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
+        await fsp.writeFile(this.messagePath, content, 'utf8');
+      }
+      const { mtimeMs, size } = await this._statMessageFile();
+      this._setMessageCache(kept, mtimeMs, size);
+    });
+
+    const totalRemoved = expiredPurged + readByAllPurged + completedPurged + incompletePurged;
+    return {
+      expiredRemoved: expiredPurged,
+      readByAllRemoved: readByAllPurged,
+      stalePurged: completedPurged + incompletePurged,
+      totalRemoved,
+      remaining,
+    };
+  }
+
+  startAutoCompactTimer(opts?: AutoCompactOptions): () => void {
+    // Replace any prior timer.
+    if (this._autoCompactTimer !== null) {
+      clearInterval(this._autoCompactTimer);
+    }
+    const intervalMs = opts?.intervalMs ?? AUTO_COMPACT_INTERVAL_MS;
+    const timer = setInterval(() => {
+      this.autoCompact(opts).catch(() => {
+        // Best-effort — background compaction must never crash the process.
+      });
+    }, intervalMs);
+    timer.unref?.();
+    this._autoCompactTimer = timer;
+    return () => {
+      clearInterval(timer);
+      this._autoCompactTimer = null;
+    };
+  }
+
   // ── Internal ────────────────────────────────────────────────────────────
 
   /**
@@ -812,7 +996,50 @@ export class GlobalMailbox implements Mailbox {
     const buf = Buffer.alloc(tailLen);
     await fd.read(buf, 0, tailLen, oldSize);
     const tail = buf.toString('utf8');
-    // Parse and append each new line to the cache.
+
+    // Guard against a half-written tail: if another process is mid-append,
+    // the tail may not end with the LINE_SEPARATOR. Parsing a partial JSON
+    // line would throw (caught below), but worse: the NEXT incremental read
+    // would skip that same line because the size tracker already advanced.
+    // If the tail doesn't end with LINE_SEPARATOR, the last segment is a
+    // partial write — return the cache as-is WITHOUT advancing trackers so
+    // the next read retries from the same offset.
+    if (!tail.endsWith(LINE_SEPARATOR)) {
+      // Check if there are complete lines before the partial one.
+      // We can safely parse complete lines and leave the partial for next read.
+      const lastSeparatorIdx = tail.lastIndexOf(LINE_SEPARATOR);
+      if (lastSeparatorIdx === -1) {
+        // Entire tail is a partial line — don't advance, let caller fall
+        // through to a full re-read on the next call.
+        return this._messageCache!;
+      }
+      // Parse only the complete portion; leave trackers un-advanced so the
+      // partial tail is re-read next time.
+      const completeTail = tail.slice(0, lastSeparatorIdx + 1);
+      for (const line of completeTail.split(LINE_SEPARATOR)) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          if (!parsed['readBy']) {
+            const readBy: Record<string, string> = {};
+            if (parsed['read'] && parsed['readAt']) {
+              readBy[parsed['to'] as string] = parsed['readAt'] as string;
+            }
+            parsed['readBy'] = readBy;
+            delete parsed['read'];
+            delete parsed['readAt'];
+          }
+          this._messageCache!.push(parsed as never as MailboxMessage);
+        } catch {
+          // Skip malformed lines
+        }
+      }
+      // Signal to the caller that trackers should NOT advance past newSize
+      // by returning early. The caller checks the return value.
+      return this._messageCache!;
+    }
+
+    // Normal path: tail ends with LINE_SEPARATOR, all lines are complete.
     for (const line of tail.split(LINE_SEPARATOR)) {
       if (!line.trim()) continue;
       try {
@@ -1164,12 +1391,20 @@ export class GlobalMailbox implements Mailbox {
   }
 
   private _pruneStaleClientsInPlace(registry: Map<string, RegisteredClient>): void {
+    // Remove clients whose heartbeat expired past the stale threshold.
+    // This mirrors the agent registry's prune logic (delete past stale
+    // threshold). The previous implementation OVERWROTE lastSeenAt with
+    // the cutoff timestamp — destroying the real last-seen data and
+    // causing clients to appear fresher than they were.
     const cutoff = Date.now() - CLIENT_STALE_MS;
-    for (const client of registry.values()) {
+    const toDelete: string[] = [];
+    for (const [id, client] of registry) {
       if (new Date(client.lastSeenAt).getTime() < cutoff) {
-        // Mark as offline but preserve entry
-        client.lastSeenAt = new Date(cutoff).toISOString();
+        toDelete.push(id);
       }
+    }
+    for (const id of toDelete) {
+      registry.delete(id);
     }
   }
 

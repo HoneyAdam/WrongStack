@@ -17,6 +17,8 @@ import { withFileLock } from '../utils/atomic-write.js';
 import type {
   AgentHeartbeatInput,
   AgentRegistrationInput,
+  AutoCompactOptions,
+  AutoCompactResult,
   ClientHeartbeatInput,
   ClientRegistrationInput,
   ClientStatus,
@@ -381,6 +383,26 @@ export class DefaultMailbox implements Mailbox {
   }
 
   // ── Client registry stubs (not applicable per-session) ─────────────────
+
+  async autoCompact(_opts?: AutoCompactOptions): Promise<AutoCompactResult> {
+    // Delegate to purgeStale for the single-session DefaultMailbox — the
+    // full auto-compact logic (read-by-all, TTL expiry) lives on
+    // GlobalMailbox where cross-process agent tracking is available.
+    const purged = await this.purgeStale(_opts);
+    return {
+      readByAllRemoved: 0,
+      expiredRemoved: 0,
+      stalePurged: purged.totalPurged,
+      totalRemoved: purged.totalPurged,
+      remaining: purged.remaining,
+    };
+  }
+
+  startAutoCompactTimer(_opts?: AutoCompactOptions): () => void {
+    // No-op for single-session mailbox — auto-compaction is only
+    // meaningful for the cross-process GlobalMailbox.
+    return () => {};
+  }
 
   async registerClient(_input: ClientRegistrationInput): Promise<void> {
     // no-op: per-session mailbox doesn't track clients globally

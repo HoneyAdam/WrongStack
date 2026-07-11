@@ -364,7 +364,10 @@ function isProcessAlive(pid: number): boolean {
       });
       // tasklist prints the header even with /NH; if the pid exists,
       // it includes a row with the pid somewhere.
-      return /\b"?,?\d+,?"?/.test(out) || out.includes(String(pid));
+      // Match the PID as the first quoted field in a CSV row:
+      // "name","PID","session","mem"
+      const match = /(?:^|\n)"[^"]*","(\d+)"/.exec(out);
+      return match !== null && match[1] === String(pid);
     } catch {
       return false;
     }

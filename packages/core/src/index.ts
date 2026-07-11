@@ -59,12 +59,23 @@ export {
   type BrainDecisionSource,
   type BrainFallback,
   type BrainRisk,
+  type BrainEscalationMode,
   DefaultBrainArbiter,
   type DefaultBrainArbiterOptions,
+  EscalationRoutingBrainArbiter,
   formatHumanPrompt,
   HumanEscalatingBrainArbiter,
   ObservableBrainArbiter,
+  terminalPolicyDecision,
 } from './coordination/brain.js';
+export {
+  brainDecisionKey,
+  BrainDecisionLedger,
+  type BrainDecisionLedgerOptions,
+  type BrainLedgerEntry,
+  createLedgerGuardBrainArbiter,
+  type LedgerGuardBrainArbiterOptions,
+} from './coordination/brain-ledger.js';
 export {
   type BrainInterventionInput,
   BrainMonitor,
@@ -189,7 +200,8 @@ export {
   type SupervisedSubagent,
   type SupervisorLogEntry,
 } from './coordination/fleet-supervisor.js';
-export { GlobalMailbox, resolveProjectDir } from './coordination/global-mailbox.js';
+export { GlobalMailbox, resolveProjectDir, getSharedMailbox, _clearMailboxSingletons } from './coordination/global-mailbox.js';
+export type { AutoCompactOptions, AutoCompactResult } from './coordination/mailbox-types.js';
 export {
   SessionRegistry,
   getSessionRegistry,
@@ -380,11 +392,26 @@ export {
 export {
   type AutonomyBrainOptions,
   type BrainAutoRisk,
+  type BrainLlmTarget,
+  buildBrainUserMessage,
+  completeBrainLlm,
   createAutonomyBrain,
   createTieredBrainArbiter,
   formatDecisionSummary,
+  parseOptionDecision,
   type TieredBrainArbiterOptions,
 } from './execution/autonomy-brain.js';
+export {
+  assembleBrainTiers,
+  type BrainTierAssembly,
+  type BrainTierAssemblyOptions,
+} from './execution/brain-chain.js';
+export {
+  COUNCIL_REFUSE_OPTION_ID,
+  type CouncilBrainOptions,
+  type CouncilVoter,
+  createCouncilBrainArbiter,
+} from './execution/council-brain.js';
 export {
   buildLosslessDigest,
   buildSmartDigest,
@@ -468,9 +495,7 @@ export {
   createChimeraPlugin,
   resolveChimeraConfig,
 } from './plugins/chimera-plugin.js';
-export { createGitPlugin } from './plugins/git-plugin.js';
-export { createObservabilityPlugin } from './plugins/observability-plugin.js';
-export { createPlanPlugin } from './plugins/plan-plugin.js';
+
 // Built-in plugins
 export { createPromptsPlugin } from './plugins/prompts-plugin.js';
 export { createSecurityPlugin } from './plugins/security-plugin.js';

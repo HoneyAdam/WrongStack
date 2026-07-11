@@ -10,10 +10,15 @@
  * @module mailbox-attach
  */
 
-import { GlobalMailbox, resolveProjectDir } from './coordination/global-mailbox.js';
+import { GlobalMailbox, getSharedMailbox, resolveProjectDir } from './coordination/global-mailbox.js';
 import { createHqPublisherFromEnv } from './hq/factory.js';
 import { wstackGlobalRoot } from './utils/wstack-paths.js';
 import { toErrorMessage } from './utils/error.js';
+import {
+  MAILBOX_AWARENESS_INTERVAL_MS,
+  MAILBOX_HEARTBEAT_INTERVAL_MS,
+  PULSE_MIN_READ_INTERVAL_MS,
+} from './coordination/mailbox-constants.js';
 import { mailboxSessionTag, resolveMailboxIdentity } from './coordination/mailbox-tool.js';
 import type { Mailbox, MailboxMessage } from './coordination/mailbox-types.js';
 import type { FleetConfig } from './types/config.js';
@@ -51,7 +56,7 @@ function attachMailboxCheckerInner(
   if (hqPublisher) {
     a.ctx.registerAbortHook(() => hqPublisher.close());
   }
-  const mailbox: Mailbox = new GlobalMailbox(projectDir, a.events, hqPublisher);
+  const mailbox: Mailbox = getSharedMailbox(projectDir, a.events, hqPublisher);
   const surface = source ?? ((a.ctx.meta['source'] as 'cli' | 'webui' | undefined) ?? 'cli');
   if (!a.ctx.meta['source']) a.ctx.meta['source'] = surface;
 
@@ -99,7 +104,7 @@ function attachMailboxCheckerInner(
   // Heartbeat keeps the registration alive (every 30 seconds) and follows
   // identity changes — after a session swap the new identity registers and
   // the old one simply goes stale (60s timeout).
-  const HEARTBEAT_INTERVAL_MS = 30_000;
+  const HEARTBEAT_INTERVAL_MS = MAILBOX_HEARTBEAT_INTERVAL_MS;
   const heartbeatTimer = setInterval(() => {
     const id = ensureRegistered();
     mailbox.heartbeat({ agentId: id }).catch(() => {
@@ -133,7 +138,6 @@ function attachMailboxCheckerInner(
   // in flight, but queue the result as a BTW note so the agent only consumes it
   // at the next safe loop boundary. This is the important separation: polling
   // is continuous, conversation mutation remains serialized by the agent loop.
-  const MAILBOX_AWARENESS_INTERVAL_MS = 5_000;
   let pollInFlight = false;
   let awarenessDisposed = false;
   const pollMailboxAwareness = async () => {
@@ -159,12 +163,17 @@ function attachMailboxCheckerInner(
     clearInterval(awarenessTimer);
   });
 
+  // Start background auto-compaction: periodically removes messages that
+  // have been read by all online agents, messages whose TTL expired, and
+  // stale completed/incomplete messages. Best-effort — failures are
+  // swallowed inside autoCompact().
+  if (mailbox instanceof GlobalMailbox) {
+    const stopAutoCompact = mailbox.startAutoCompactTimer();
+    a.ctx.registerAbortHook(() => stopAutoCompact());
+  }
+
   return checkMailbox;
 }
-
-/** Min interval between registry reads for the pulse — keeps the digest
- *  from adding a file read to every iteration of a fast agent. */
-const PULSE_MIN_READ_INTERVAL_MS = 30_000;
 
 /**
  * Fleet-pulse provider: returns a fresh "[FLEET PULSE]" digest block when
@@ -184,7 +193,7 @@ export function attachFleetPulse(
     const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
     // No EventBus/HQ publisher here — the pulse is a read-only registry
     // consumer; the checker's mailbox instance already owns event emission.
-    const mailbox: Mailbox = new GlobalMailbox(projectDir);
+    const mailbox: Mailbox = getSharedMailbox(projectDir);
     let lastReadAt = 0;
     let lastSignature = '';
     return async () => {

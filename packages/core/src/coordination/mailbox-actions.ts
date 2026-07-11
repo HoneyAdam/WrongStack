@@ -1,19 +1,18 @@
 /**
- * Mailbox message action helpers (skeleton).
+ * Mailbox message action helpers.
  *
- * Phase 1 skeleton: declares the {@link MailboxMessageAction} union
- * (the verb that a user or agent issues against a single message) and
- * the per-action input shapes. The actual implementations
- * ({@link GlobalMailbox.markRead}, {@link GlobalMailbox.acknowledge},
- * {@link GlobalMailbox.softDelete}, {@link GlobalMailbox.restore}) are
- * added in Phase 2 alongside the corresponding `GlobalMailbox`
- * methods.
+ * Declares the {@link MailboxMessageAction} union (the verb that a user
+ * or agent issues against a single message) and the per-action input
+ * shapes. The implementations live on `GlobalMailbox`:
+ *   - `mark-read` / `acknowledge` / `reopen` → {@link GlobalMailbox.ack}
+ *     / {@link GlobalMailbox.ackMany}
+ *   - `soft-delete` → {@link GlobalMailbox.softDelete}
+ *   - `restore`     → {@link GlobalMailbox.restore}
  *
- * Keeping the verb+input types in their own file means the WebUI
- * client (Phase 3) and the server route handlers (Phase 4) can
- * import them independently of the `GlobalMailbox` implementation,
- * and a future "message actions" CLI subcommand only has to add
- * one verb to a single place.
+ * Keeping the verb+input types in their own file means the WebUI client
+ * and the server route handlers can import them independently of the
+ * `GlobalMailbox` implementation, and a future "message actions" CLI
+ * subcommand only has to add one verb to a single place.
  */
 import type { MailboxAckInput, MailboxMessage } from './mailbox-types.js';
 

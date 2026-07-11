@@ -93,6 +93,48 @@ import {
 const MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 7788;
+const RATE_LIMIT_PER_MINUTE = 120;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+// ── Rate limiter ──────────────────────────────────────────────────────────
+
+/**
+ * Simple sliding-window rate limiter keyed by bearer token.
+ * Tracks request timestamps per token and rejects with 429 when
+ * `RATE_LIMIT_PER_MINUTE` is exceeded within `RATE_LIMIT_WINDOW_MS`.
+ */
+class RateLimiter {
+  private hits = new Map<string, number[]>();
+
+  /** Returns true if the request is allowed, false if rate-limited. */
+  allow(key: string): boolean {
+    const now = Date.now();
+    const cutoff = now - RATE_LIMIT_WINDOW_MS;
+    const arr = this.hits.get(key) ?? [];
+    // Drop entries outside the window.
+    const fresh = arr.filter((t) => t > cutoff);
+    if (fresh.length >= RATE_LIMIT_PER_MINUTE) {
+      this.hits.set(key, fresh);
+      return false;
+    }
+    fresh.push(now);
+    this.hits.set(key, fresh);
+    return true;
+  }
+
+  /** Periodic cleanup of stale entries to prevent unbounded growth. */
+  cleanup(): void {
+    const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS;
+    for (const [key, arr] of this.hits) {
+      const fresh = arr.filter((t) => t > cutoff);
+      if (fresh.length === 0) {
+        this.hits.delete(key);
+      } else {
+        this.hits.set(key, fresh);
+      }
+    }
+  }
+}
 
 export const mailboxServeCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
@@ -178,8 +220,15 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const tentative = acquireResult.lock;
   const mailbox = new GlobalMailbox(projectDir);
 
+  // Rate limiter — one instance for all connections, keyed by bearer token.
+  const rateLimiter = new RateLimiter();
+  // Periodic cleanup every 2 minutes to prevent the hits Map from growing
+  // unbounded with stale token entries.
+  const rateLimitCleanup = setInterval(() => rateLimiter.cleanup(), 120_000);
+  rateLimitCleanup.unref?.();
+
   const server = createServer((req, res) => {
-    void handle(mailbox, tentative.token, req, res);
+    void handle(mailbox, tentative.token, rateLimiter, req, res);
   });
 
   // Listen semantics:
@@ -264,6 +313,7 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
 async function handle(
   mailbox: GlobalMailbox,
   expectedToken: string,
+  rateLimiter: RateLimiter,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -281,6 +331,12 @@ async function handle(
 
     if (!authorize(req, expectedToken)) {
       return writeJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'invalid or missing bearer token' } });
+    }
+
+    // Rate limit check — keyed by bearer token so one rogue external
+    // agent can't flood the mailbox file with writes.
+    if (!rateLimiter.allow(expectedToken)) {
+      return writeJson(res, 429, { error: { code: 'RATE_LIMITED', message: `rate limit exceeded: max ${RATE_LIMIT_PER_MINUTE} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s` } });
     }
 
     // Routing — POST routes carry JSON bodies; GET routes take nothing.
@@ -479,6 +535,14 @@ function optionalBoolean(obj: unknown, key: string): boolean | undefined {
 const VALID_TYPES = new Set(['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control']);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high']);
 
+/** Reserved agent ids that external (HTTP-bridge) agents must NOT
+ *  impersonate. These belong to internal WrongStack processes; an
+ *  external agent using them could inject fake steer/control messages
+ *  into the leader's conversation. */
+const RESERVED_FROM_IDS = new Set([
+  'leader', 'fleet', 'mailbox-bridge-watchdog', 'tech-stack-consumer',
+]);
+
 function validateSend(body: unknown): MailboxSendInput {
   if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
   const o = body as Record<string, unknown>;
@@ -488,8 +552,13 @@ function validateSend(body: unknown): MailboxSendInput {
   if (priority !== undefined && !VALID_PRIORITIES.has(priority)) {
     throw validationError(`field "priority" must be one of ${[...VALID_PRIORITIES].join(', ')}`);
   }
+  const from = requireString(o, 'from');
+  const fromBase = from.split('@')[0]!.toLowerCase();
+  if (RESERVED_FROM_IDS.has(fromBase)) {
+    throw validationError(`field "from" must not use reserved internal agent id "${fromBase}" — external agents must use their own identity`);
+  }
   const result: MailboxSendInput = {
-    from: requireString(o, 'from'),
+    from,
     to: requireString(o, 'to'),
     type: type as MailboxSendInput['type'],
     subject: requireString(o, 'subject'),
@@ -498,6 +567,8 @@ function validateSend(body: unknown): MailboxSendInput {
   };
   const replyTo = optionalString(o, 'replyTo');
   if (replyTo !== undefined) result.replyTo = replyTo;
+  const ttlMs = optionalNumber(o, 'ttlMs');
+  if (ttlMs !== undefined) result.ttlMs = ttlMs;
   return result;
 }
 
