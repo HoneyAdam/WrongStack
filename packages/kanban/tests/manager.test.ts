@@ -3,12 +3,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  addCheckToTask,
   addColumn,
   addDependency,
+  addLinkToTask,
+  addNoteToTask,
   addTask,
   areDependenciesMet,
   buildTaskGraphFromKanbanBoard,
   createBoard,
+  createBoardFromTaskGraph,
+  duplicateBoard,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
   findBlockedTasks,
@@ -18,6 +23,8 @@ import {
   getTask,
   listBoards,
   listReadyTasks,
+  mergeTasks,
+  moveTask,
   parseLinesIntoTasks,
   removeBoard,
   removeColumn,
@@ -26,9 +33,9 @@ import {
   setTaskChain,
   splitTask,
   updateBoard,
+  updateCheckOnTask,
   updateColumn,
   updateTask,
-  // Column operations
 } from '../src/manager.js';
 import type { KanbanBoard, KanbanTask } from '../src/types.js';
 
@@ -719,7 +726,6 @@ describe('exportBoardToTaskGraph', () => {
 
 describe('getKanbanQueueHealth', () => {
   it('returns health data for a project', async () => {
-    // Create a board with a task so health has data
     await makeBoard();
     const health = await getKanbanQueueHealth(tmpDir, { maxStaleMinutes: 30 });
     expect(health).toBeDefined();
@@ -729,5 +735,253 @@ describe('getKanbanQueueHealth', () => {
     expect(typeof health.counts.pending).toBe('number');
     expect(typeof health.dependencyBlocked.count).toBe('number');
     expect(typeof health.staleAssignments.count).toBe('number');
+  });
+});
+
+// ── duplicateBoard ─────────────────────────────────────────────────
+
+describe('duplicateBoard', () => {
+  it('returns null for unknown board', async () => {
+    expect(await duplicateBoard(tmpDir, 'nonexistent')).toBeNull();
+  });
+
+  it('duplicates a board with all tasks', async () => {
+    const board = await createBoard(tmpDir, {
+      title: 'Original',
+      description: 'Original description',
+      tags: ['alpha'],
+      tasks: [{ title: 'Task A' }, { title: 'Task B' }],
+    });
+    const dup = await duplicateBoard(tmpDir, board.id);
+    expect(dup).not.toBeNull();
+    expect(dup!.title).toBe('Original Copy');
+    expect(dup!.description).toBe('Original description');
+    expect(dup!.tags).toEqual(['alpha']);
+    expect(dup!.tasks).toHaveLength(2);
+    expect(dup!.id).not.toBe(board.id);
+  });
+
+  it('duplicates with custom title', async () => {
+    const board = await makeBoard();
+    const dup = await duplicateBoard(tmpDir, board.id, { title: 'Custom Copy' });
+    expect(dup!.title).toBe('Custom Copy');
+  });
+
+  it('excludes tasks when includeTasks is false', async () => {
+    const board = await createBoard(tmpDir, {
+      title: 'Src',
+      tasks: [{ title: 'Lone task' }],
+    });
+    const dup = await duplicateBoard(tmpDir, board.id, { includeTasks: false });
+    expect(dup!.tasks).toHaveLength(0);
+  });
+});
+
+// ── moveTask ───────────────────────────────────────────────────────
+
+describe('moveTask', () => {
+  it('moves a task to a different column', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Movable', columnId: 'backlog' });
+    const movedBoard = await moveTask(tmpDir, board.id, task!.task.id, 'in-progress');
+    expect(movedBoard).not.toBeNull();
+    const moved = movedBoard!.tasks.find((t) => t.id === task!.task.id);
+    expect(moved?.columnId).toBe('in-progress');
+  });
+});
+
+// ── mergeTasks ─────────────────────────────────────────────────────
+
+describe('mergeTasks', () => {
+  it('merges two tasks into one', async () => {
+    const board = await createBoard(tmpDir, {
+      title: 'Merge test',
+      tasks: [{ title: 'First' }, { title: 'Second' }],
+    });
+    const ids = board.tasks.map((t) => t.id);
+    const result = await mergeTasks(tmpDir, board.id, {
+      taskIds: ids,
+      title: 'Merged result',
+    });
+    expect(result).not.toBeNull();
+    expect(result!.task.title).toBe('Merged result');
+    expect(result!.sourceTasks).toHaveLength(2);
+    // Source tasks should be archived
+    const updated = await getBoard(tmpDir, board.id);
+    for (const src of result!.sourceTasks) {
+      const found = updated!.tasks.find((t) => t.id === src.id);
+      expect(found?.status).toBe('archived');
+    }
+    // Merged task should exist
+    expect(updated!.tasks.find((t) => t.id === result!.task.id)).toBeDefined();
+  });
+});
+
+// ── addCheckToTask / updateCheckOnTask ─────────────────────────────
+
+describe('addCheckToTask', () => {
+  it('adds a check to a task', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Checkable' });
+    const updatedBoard = await addCheckToTask(tmpDir, board.id, task!.task.id, {
+      description: 'Must pass lint',
+      type: 'auto',
+    });
+    expect(updatedBoard).not.toBeNull();
+    const found = updatedBoard!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.successCriteria).toHaveLength(1);
+    expect(found!.successCriteria![0]!.description).toBe('Must pass lint');
+  });
+
+  it('returns null for unknown task', async () => {
+    const board = await makeBoard();
+    const result = await addCheckToTask(tmpDir, board.id, 'no-such-task', {
+      description: 'x',
+      type: 'manual',
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe('updateCheckOnTask', () => {
+  it('updates a check status and sets checkedAt', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Check me' });
+    const withCheck = await addCheckToTask(tmpDir, board.id, task!.task.id, {
+      description: 'Must pass',
+      type: 'test',
+    });
+    const checkId = withCheck!.tasks.find((t) => t.id === task!.task.id)!.successCriteria![0]!.id;
+    const updated = await updateCheckOnTask(tmpDir, board.id, task!.task.id, checkId, {
+      status: 'passed',
+    });
+    expect(updated).not.toBeNull();
+    const found = updated!.tasks.find((t) => t.id === task!.task.id);
+    expect(found!.successCriteria![0]!.status).toBe('passed');
+    expect(found!.successCriteria![0]!.checkedAt).toBeDefined();
+  });
+});
+
+// ── addNoteToTask ──────────────────────────────────────────────────
+
+describe('addNoteToTask', () => {
+  it('adds a note to a task', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Notable' });
+    const updatedBoard = await addNoteToTask(tmpDir, board.id, task!.task.id, {
+      author: 'tester',
+      content: 'This is a note',
+    });
+    expect(updatedBoard).not.toBeNull();
+    const found = updatedBoard!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.notes).toHaveLength(1);
+    expect(found!.notes![0]!.content).toBe('This is a note');
+    expect(found!.notes![0]!.author).toBe('tester');
+  });
+});
+
+// ── addLinkToTask ──────────────────────────────────────────────────
+
+describe('addLinkToTask', () => {
+  it('adds a link to a task', async () => {
+    const board = await makeBoard();
+    const task = await addTask(tmpDir, board.id, { title: 'Linkable' });
+    const updatedBoard = await addLinkToTask(tmpDir, board.id, task!.task.id, {
+      url: 'https://example.com',
+      title: 'Example',
+      type: 'url',
+    });
+    expect(updatedBoard).not.toBeNull();
+    const found = updatedBoard!.tasks.find((t) => t.id === task!.task.id);
+    expect(found?.links).toHaveLength(1);
+    expect(found!.links![0]!.url).toBe('https://example.com');
+  });
+});
+
+// ── createBoardFromTaskGraph ───────────────────────────────────────
+
+describe('createBoardFromTaskGraph', () => {
+  it('creates a board from a task graph', async () => {
+    const graph = {
+      id: 'graph-1',
+      specId: 'spec-1',
+      title: 'Test Graph',
+      nodes: new Map([
+        ['node-1', {
+          id: 'node-1',
+          title: 'Task from graph',
+          description: 'Created from task graph',
+          type: 'feature' as const,
+          priority: 'high' as const,
+          status: 'pending' as const,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }],
+        ['node-2', {
+          id: 'node-2',
+          title: 'Second task',
+          description: 'Dependent task',
+          type: 'feature' as const,
+          priority: 'medium' as const,
+          status: 'completed' as const,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          completedAt: Date.now(),
+        }],
+      ]),
+      edges: [{
+        id: 'edge-1',
+        from: 'node-1',
+        to: 'node-2',
+        type: 'depends_on' as const,
+      }],
+      rootNodes: ['node-1'],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const result = await createBoardFromTaskGraph(tmpDir, graph);
+    expect(result.board.title).toBe('Test Graph');
+    expect(result.board.tasks.length).toBeGreaterThanOrEqual(1);
+    expect(result.taskIdMap.size).toBeGreaterThanOrEqual(1);
+  });
+
+  it('excludes completed tasks when option is set', async () => {
+    const graph = {
+      id: 'graph-2',
+      specId: 'spec-2',
+      title: 'Filtered Graph',
+      nodes: new Map([
+        ['node-a', {
+          id: 'node-a',
+          title: 'Active task',
+          description: '',
+          type: 'feature' as const,
+          priority: 'high' as const,
+          status: 'pending' as const,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }],
+        ['node-b', {
+          id: 'node-b',
+          title: 'Done task',
+          description: '',
+          type: 'bugfix' as const,
+          priority: 'medium' as const,
+          status: 'completed' as const,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          completedAt: Date.now(),
+        }],
+      ]),
+      edges: [],
+      rootNodes: ['node-a'],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const result = await createBoardFromTaskGraph(tmpDir, graph, {
+      includeCompletedTasks: false,
+    });
+    expect(result.board.tasks).toHaveLength(1);
+    expect(result.board.tasks[0]!.title).toBe('Active task');
   });
 });
