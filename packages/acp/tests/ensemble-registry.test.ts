@@ -131,6 +131,64 @@ describe('AGENTS_CATALOG', () => {
   });
 });
 
+describe('defaultProbe timeout', () => {
+  it('reports timeout when the probe command takes too long', async () => {
+    // Use a command that blocks (ping on Windows, sleep on POSIX) with a
+    // very short timeout so the probe always fails.
+    const isWin = process.platform === 'win32';
+    const timeoutEntry: ACPAgentDescriptor = {
+      id: 'timeout-test',
+      displayName: 'Timeout Test',
+      vendor: 'community',
+      probe: { command: isWin ? 'ping' : 'sleep', args: isWin ? ['-n', '60', '127.0.0.1'] : ['60'] },
+      acp: { command: 'node', args: [] },
+      supports: { loadSession: true, promptImages: false, terminal: false, fs: false },
+      integration: 'experimental',
+      docs: '',
+    };
+    // Use a very short timeout so the probe fails
+    const reg = new EnsembleRegistry({ catalog: [timeoutEntry], probeTimeoutMs: 100 });
+    const result = await reg.detect(timeoutEntry);
+    expect(result.installed).toBe(false);
+    expect(result.reason).toBe('probe timed out');
+  });
+
+  it('reports spawn failure when the binary cannot be spawned', async () => {
+    // Use an empty command string to trigger a synchronous spawn error
+    const badEntry: ACPAgentDescriptor = {
+      id: 'bad-spawn',
+      displayName: 'Bad Spawn',
+      vendor: 'community',
+      probe: { command: '', args: [] },
+      acp: { command: '', args: [] },
+      supports: { loadSession: true, promptImages: false, terminal: false, fs: false },
+      integration: 'experimental',
+      docs: '',
+    };
+    const reg = new EnsembleRegistry({ catalog: [badEntry], probeTimeoutMs: 500 });
+    const result = await reg.detect(badEntry);
+    expect(result.installed).toBe(false);
+    expect(result.reason).toBeTruthy();
+  });
+
+  it('reports not-installed when the binary produces no output', async () => {
+    const noOutputEntry: ACPAgentDescriptor = {
+      id: 'no-output',
+      displayName: 'No Output',
+      vendor: 'community',
+      probe: { command: 'node', args: ['-e', ''] }, // runs but produces no output
+      acp: { command: 'node', args: [] },
+      supports: { loadSession: true, promptImages: false, terminal: false, fs: false },
+      integration: 'experimental',
+      docs: '',
+    };
+    const reg = new EnsembleRegistry({ catalog: [noOutputEntry], probeTimeoutMs: 5_000 });
+    const result = await reg.detect(noOutputEntry);
+    expect(result.installed).toBe(false);
+    expect(result.reason).toMatch(/exit code/);
+  });
+});
+
 describe('defaultProbe integration (real subprocess)', () => {
   // The `defaultProbe` function is called internally when no probeFn is
   // injected. We exercise it with an agent whose probe command is `node`

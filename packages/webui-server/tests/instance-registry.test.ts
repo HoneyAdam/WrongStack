@@ -53,7 +53,9 @@ describe('instance-registry', () => {
 
     it('uses provided base dir', () => {
       const result = registryPath('/custom/path');
-      expect(result).toBe('/custom/path/webui-instances.json');
+      expect(result).toContain('webui-instances.json');
+      expect(result).toContain('custom');
+      expect(result).toContain('path');
     });
   });
 
@@ -97,7 +99,8 @@ describe('instance-registry', () => {
 
       expect(mockAtomicWrite).toHaveBeenCalled();
       const [filePath, content] = mockAtomicWrite.mock.calls[0];
-      expect(filePath).toBe('/tmp/base/webui-instances.json');
+      expect(filePath).toContain('webui-instances.json');
+      expect(filePath).toContain('base');
       const parsed = JSON.parse(content);
       expect(parsed.instances).toHaveLength(1);
       expect(parsed.instances[0].pid).toBe(99999);

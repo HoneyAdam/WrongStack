@@ -152,6 +152,32 @@ describe('authorizedFetch', () => {
   });
 });
 
+describe('storage() null-fallback and SSR guard', () => {
+  it('storage() returns null via ?? fallback when sessionStorage is null', () => {
+    // Make window.sessionStorage null so that `null ?? null` in storage()
+    // returns null, causing resolveHqToken to skip stored-token lookup.
+    const orig = Object.getOwnPropertyDescriptor(window, 'sessionStorage')!;
+    Object.defineProperty(window, 'sessionStorage', { configurable: true, value: null });
+    try {
+      expect(resolveHqToken()).toBeNull();
+    } finally {
+      Object.defineProperty(window, 'sessionStorage', orig);
+    }
+  });
+
+  it('scrubTokenFromUrl SSR guard: no-op when window is undefined', () => {
+    // Make window undefined → scrubTokenFromUrl returns early.
+    const origWindow = (globalThis as { window?: unknown }).window;
+    // @ts-expect-error: temporarily deleting window
+    delete (globalThis as { window?: unknown }).window;
+    try {
+      expect(() => scrubTokenFromUrl()).not.toThrow();
+    } finally {
+      (globalThis as { window?: unknown }).window = origWindow;
+    }
+  });
+});
+
 describe('error-path catch blocks', () => {
   it('readUrlToken catch: returns null when URLSearchParams throws', async () => {
     // URLSearchParams can throw when the query string is extreme; the catch

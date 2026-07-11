@@ -79,6 +79,18 @@ describe('mailboxActions', () => {
     // isServerError is not exported, but its branches are exercised through
     // postAction's error-path logic. These tests verify specific input
     // shapes that exercise the uncovered branches.
+    it('falls back to status line when response body is null (typeof null !== object → return false)', async () => {
+      // A null JSON body → isServerError(null): typeof null !== 'object' is
+      // false, null === null is true, so the function returns false early.
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response('null', { status: 500, statusText: 'Server Error' }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      await expect(mailboxActions.markRead(BASE_INPUT)).rejects.toThrow(
+        'mailbox action failed — 500 Server Error',
+      );
+    });
+
     it('falls back to status line when body.error is an object without code+message', async () => {
       // body = { error: {} } — isServerError returns false because the
       // nested object lacks string code+message. The detail falls back

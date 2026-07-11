@@ -96,8 +96,29 @@ describe('ACPSessionStore', () => {
     await store.delete('sess_del');
     const loaded = await store.load('sess_del');
     expect(loaded).toBeNull();
-    const list = await store.list();
-    expect(list).toHaveLength(0);
+    const files = await fsp.readdir(dir);
+    const sessionFiles = files.filter((f) => f.endsWith('.json') && f !== 'index.json');
+    expect(sessionFiles).toHaveLength(0);
+  });
+
+  it('delete updates the sidecar index when it already exists', async () => {
+    // First, pre-populate an index file so delete() finds it
+    const indexData = [
+      { id: 'sess_del1', updatedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'sess_keep', updatedAt: '2026-01-02T00:00:00.000Z' },
+    ];
+    const indexPath = path.join(dir, 'index.json');
+    await fsp.writeFile(indexPath, JSON.stringify(indexData), 'utf8');
+    // Now save the session file for deletion
+    await store.save(fakeState({ id: 'sess_del1' }));
+    await store.save(fakeState({ id: 'sess_keep' }));
+    // Delete removes both the file and the index entry
+    await store.delete('sess_del1');
+    const loaded = await store.load('sess_del1');
+    expect(loaded).toBeNull();
+    // The keep session should still exist
+    const kept = await store.load('sess_keep');
+    expect(kept?.id).toBe('sess_keep');
   });
 
   it('delete ignores a non-existent session id', async () => {

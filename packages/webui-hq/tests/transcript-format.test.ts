@@ -33,6 +33,13 @@ describe('classifyTool', () => {
   it('strips the mcp__server__ prefix before classifying', () => {
     expect(classifyTool('mcp__fs__read')).toBe('read');
   });
+
+  it('handles undefined (toolName ?? "" branch) and empty string', () => {
+    // undefined → `n = ''` → falls through to 'generic'
+    expect(classifyTool(undefined)).toBe('generic');
+    // Empty string also falls through to 'generic'
+    expect(classifyTool('')).toBe('generic');
+  });
 });
 
 describe('tryParseJson', () => {
