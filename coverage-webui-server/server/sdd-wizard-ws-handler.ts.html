@@ -1,0 +1,739 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for server/sdd-wizard-ws-handler.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../index.html">All files</a> / <a href="index.html">server</a> sdd-wizard-ws-handler.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>0/82</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>0/55</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>0/15</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>0/71</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line low'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a>
+<a name='L207'></a><a href='#L207'>207</a>
+<a name='L208'></a><a href='#L208'>208</a>
+<a name='L209'></a><a href='#L209'>209</a>
+<a name='L210'></a><a href='#L210'>210</a>
+<a name='L211'></a><a href='#L211'>211</a>
+<a name='L212'></a><a href='#L212'>212</a>
+<a name='L213'></a><a href='#L213'>213</a>
+<a name='L214'></a><a href='#L214'>214</a>
+<a name='L215'></a><a href='#L215'>215</a>
+<a name='L216'></a><a href='#L216'>216</a>
+<a name='L217'></a><a href='#L217'>217</a>
+<a name='L218'></a><a href='#L218'>218</a>
+<a name='L219'></a><a href='#L219'>219</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import type { WebSocket } from 'ws';
+import type { SddInterviewDriver, SddInterviewSnapshot } from '@wrongstack/sdd';
+&nbsp;
+interface WSClient {
+  ws: WebSocket;
+  id: string;
+}
+&nbsp;
+interface WizardMessage {
+  type: string;
+  payload?: Record&lt;string, unknown&gt;;
+}
+&nbsp;
+/** Short, single-line heading derived from a (possibly long) goal prompt. */
+function <span class="fstat-no" title="function not covered" >deriveTitle(g</span>oal: string): string {
+  const firstLine = <span class="cstat-no" title="statement not covered" >goal</span>
+    .split('\n')
+    .<span class="fstat-no" title="function not covered" >map((l</span>) =&gt; <span class="cstat-no" title="statement not covered" >l.trim())</span>
+    .find(Boolean);
+<span class="cstat-no" title="statement not covered" >  if (!firstLine) <span class="cstat-no" title="statement not covered" >return 'New SDD Project';</span></span>
+  const sentence = <span class="cstat-no" title="statement not covered" >firstLine.split(/(?&lt;=[.!?])\s/)[0] ?? firstLine;</span>
+<span class="cstat-no" title="statement not covered" >  return sentence.length &lt;= 64 ? sentence : `${sentence.slice(0, 63).trimEnd()}…`;</span>
+}
+&nbsp;
+/**
+ * Dependencies each webui server supplies. The handler is deliberately
+ * agent-agnostic: every surface decides how to build a driver, how to run an
+ * interview turn (on an isolated agent, off the main chat bus), and how to
+ * start the real multi-agent run (CLI's director-backed factory vs the runtime
+ * light factory). This keeps the wizard protocol identical across both servers.
+ */
+export interface SddWizardDeps {
+  /** Build a fresh interview driver (disk spec/graph stores + session path). */
+  makeDriver: () =&gt; SddInterviewDriver;
+  /**
+   * Run one interview turn: feed the AI prompt to an isolated agent and return
+   * its final text. MUST NOT run on the main chat agent's bus — the wizard owns
+   * this conversation, separate from the user's chat.
+   */
+  runInterviewTurn: (prompt: string) =&gt; Promise&lt;string&gt;;
+  /**
+   * Start the real multi-agent SDD run for the driver's task graph. Returns the
+   * runId; the live board flows through the existing board handler.
+   */
+  startRun: (
+    driver: SddInterviewDriver,
+    opts: {
+      parallelSlots?: number | undefined;
+      defaultModel?: string | undefined;
+      defaultProvider?: string | undefined;
+      fallbackModels?: string[] | undefined;
+      /** Per-run worktree-isolation override; undefined → env default. */
+      worktrees?: boolean | undefined;
+    },
+  ) =&gt; Promise&lt;{ runId: string }&gt;;
+}
+&nbsp;
+/**
+ * SddWizardWebSocketHandler — drives the interactive "New SDD Project" wizard
+ * (goal → Q&amp;A → spec → task graph → start run) over WebSocket. Shared by both
+ * webui servers; server-specific construction (agent, factory) is injected via
+ * {@link SddWizardDeps}.
+ */
+export class SddWizardWebSocketHandler {
+  private readonly clients = <span class="cstat-no" title="statement not covered" >new Set&lt;WSClient&gt;();</span>
+  private driver: SddInterviewDriver | null = <span class="cstat-no" title="statement not covered" >null;</span>
+  /** The agent's most recent question — paired with the next user answer. */
+  private lastAgentText = <span class="cstat-no" title="statement not covered" >'';</span>
+  /** Guards against overlapping interview turns (one in flight at a time). */
+  private busy = <span class="cstat-no" title="statement not covered" >false;</span>
+&nbsp;
+<span class="fstat-no" title="function not covered" >  constructor(p</span>rivate readonly <span class="cstat-no" title="statement not covered" >deps: SddWizardDeps) {</span>}
+&nbsp;
+<span class="fstat-no" title="function not covered" >  addClient(w</span>s: WebSocket): void {
+    const client: WSClient = <span class="cstat-no" title="statement not covered" >{ ws, id: crypto.randomUUID() };</span>
+<span class="cstat-no" title="statement not covered" >    this.clients.add(client);</span>
+<span class="cstat-no" title="statement not covered" >    ws.on(<span class="fstat-no" title="function not covered" >'close', () =&gt; <span class="cstat-no" title="statement not covered" >t</span>his.clients.delete(client))</span>;</span>
+<span class="cstat-no" title="statement not covered" >    ws.on(<span class="fstat-no" title="function not covered" >'error', () =&gt; <span class="cstat-no" title="statement not covered" >t</span>his.clients.delete(client))</span>;</span>
+    // Send the current interview state (if any) so a reconnecting client catches up.
+<span class="cstat-no" title="statement not covered" >    if (this.driver) <span class="cstat-no" title="statement not covered" >this.send(client, this.snapshotMsg());</span></span>
+  }
+&nbsp;
+  async <span class="fstat-no" title="function not covered" >handleMessage(m</span>sg: WizardMessage): Promise&lt;void&gt; {
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      switch (msg.type) {</span>
+        case 'sdd.spec.start':
+<span class="cstat-no" title="statement not covered" >          await this.onStart(String(msg.payload?.goal ?? '').trim());</span>
+<span class="cstat-no" title="statement not covered" >          break;</span>
+        case 'sdd.spec.message':
+<span class="cstat-no" title="statement not covered" >          await this.onMessage(String(msg.payload?.text ?? ''));</span>
+<span class="cstat-no" title="statement not covered" >          break;</span>
+        case 'sdd.spec.approve':
+<span class="cstat-no" title="statement not covered" >          await this.onApprove();</span>
+<span class="cstat-no" title="statement not covered" >          break;</span>
+        case 'sdd.spec.get':
+<span class="cstat-no" title="statement not covered" >          if (this.driver) <span class="cstat-no" title="statement not covered" >this.broadcast(this.snapshotMsg());</span></span>
+<span class="cstat-no" title="statement not covered" >          break;</span>
+        case 'sdd.run.start':
+<span class="cstat-no" title="statement not covered" >          await this.onRunStart({</span>
+            parallelSlots: msg.payload?.parallelSlots as number | undefined,
+            defaultModel: msg.payload?.model as string | undefined,
+            defaultProvider: msg.payload?.provider as string | undefined,
+            fallbackModels: Array.isArray(msg.payload?.fallbackModels)
+              ? (msg.payload?.fallbackModels as string[])
+              : undefined,
+            worktrees: typeof msg.payload?.worktrees === 'boolean' ? msg.payload.worktrees : undefined,
+          });
+<span class="cstat-no" title="statement not covered" >          break;</span>
+      }
+    } catch (err) {
+<span class="cstat-no" title="statement not covered" >      this.busy = false;</span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast({</span>
+        type: 'sdd.spec.error',
+        payload: { message: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+&nbsp;
+  // ── message handlers ──────────────────────────────────────────────────────
+&nbsp;
+  private async <span class="fstat-no" title="function not covered" >onStart(g</span>oal: string): Promise&lt;void&gt; {
+<span class="cstat-no" title="statement not covered" >    if (!goal) {</span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast({ type: 'sdd.spec.error', payload: { message: 'A goal is required.' } });</span>
+<span class="cstat-no" title="statement not covered" >      return;</span>
+    }
+<span class="cstat-no" title="statement not covered" >    if (this.busy) <span class="cstat-no" title="statement not covered" >return;</span></span>
+<span class="cstat-no" title="statement not covered" >    this.driver = this.deps.makeDriver();</span>
+    // Keep the operator's full prompt as the interview's intent/goal, but give
+    // the session a short readable title — pasting the whole prompt as the title
+    // made the wizard header unreadable.
+    const prompt = <span class="cstat-no" title="statement not covered" >this.driver.start(deriveTitle(goal), goal);</span>
+<span class="cstat-no" title="statement not covered" >    await this.runTurn(prompt);</span>
+  }
+&nbsp;
+  private async <span class="fstat-no" title="function not covered" >onMessage(t</span>ext: string): Promise&lt;void&gt; {
+<span class="cstat-no" title="statement not covered" >    if (!this.driver || this.busy) <span class="cstat-no" title="statement not covered" >return;</span></span>
+    // In the questioning phase, the user's message answers the agent's last
+    // question. In review phases a free-form message is fed back as context.
+<span class="cstat-no" title="statement not covered" >    if (this.driver.phase() === 'questioning' &amp;&amp; this.lastAgentText) {</span>
+<span class="cstat-no" title="statement not covered" >      this.driver.submitAnswer(this.lastAgentText, text);</span>
+    } else {
+<span class="cstat-no" title="statement not covered" >      this.driver.submitAnswer(this.lastAgentText || '(feedback)', text);</span>
+    }
+<span class="cstat-no" title="statement not covered" >    await this.runTurn(this.driver.currentPrompt());</span>
+  }
+&nbsp;
+  private async <span class="fstat-no" title="function not covered" >onApprove(): Promise&lt;void&gt; {</span>
+<span class="cstat-no" title="statement not covered" >    if (!this.driver || this.busy) <span class="cstat-no" title="statement not covered" >return;</span></span>
+    const { phase, prompt } = <span class="cstat-no" title="statement not covered" >await this.driver.approve();</span>
+    // Executing phase needs no further AI turn — the graph is ready to run.
+<span class="cstat-no" title="statement not covered" >    if (phase === 'executing') {</span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast(this.snapshotMsg());</span>
+<span class="cstat-no" title="statement not covered" >      return;</span>
+    }
+<span class="cstat-no" title="statement not covered" >    await this.runTurn(prompt);</span>
+  }
+&nbsp;
+  private async <span class="fstat-no" title="function not covered" >onRunStart(o</span>pts: {
+    parallelSlots?: number | undefined;
+    defaultModel?: string | undefined;
+    defaultProvider?: string | undefined;
+    fallbackModels?: string[] | undefined;
+    worktrees?: boolean | undefined;
+  }): Promise&lt;void&gt; {
+<span class="cstat-no" title="statement not covered" >    if (!this.driver) {</span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast({ type: 'sdd.spec.error', payload: { message: 'No active spec session.' } });</span>
+<span class="cstat-no" title="statement not covered" >      return;</span>
+    }
+    // Guarantee a graph exists (deterministic fallback if the agent never
+    // emitted a task array).
+    const graph = <span class="cstat-no" title="statement not covered" >await this.driver.ensureTaskGraph();</span>
+<span class="cstat-no" title="statement not covered" >    if (!graph) {</span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast({</span>
+        type: 'sdd.spec.error',
+        payload: { message: 'No spec yet — finish the interview before starting a run.' },
+      });
+<span class="cstat-no" title="statement not covered" >      return;</span>
+    }
+    const { runId } = <span class="cstat-no" title="statement not covered" >await this.deps.startRun(this.driver, opts);</span>
+<span class="cstat-no" title="statement not covered" >    this.broadcast({ type: 'sdd.run.started', payload: { runId } });</span>
+  }
+&nbsp;
+  // ── internals ───────────────────────────────────────────────────────────
+&nbsp;
+  /** Run one interview turn against the isolated agent, then ingest + broadcast. */
+  private async <span class="fstat-no" title="function not covered" >runTurn(p</span>rompt: string): Promise&lt;void&gt; {
+<span class="cstat-no" title="statement not covered" >    this.busy = true;</span>
+<span class="cstat-no" title="statement not covered" >    this.broadcast(this.snapshotMsg());</span>
+<span class="cstat-no" title="statement not covered" >    try {</span>
+      const text = <span class="cstat-no" title="statement not covered" >await this.deps.runInterviewTurn(prompt);</span>
+<span class="cstat-no" title="statement not covered" >      this.lastAgentText = text;</span>
+<span class="cstat-no" title="statement not covered" >      if (this.driver) <span class="cstat-no" title="statement not covered" >await this.driver.ingestAgentOutput(text);</span></span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast({ type: 'sdd.spec.agent_text', payload: { text } });</span>
+    } finally {
+<span class="cstat-no" title="statement not covered" >      this.busy = false;</span>
+<span class="cstat-no" title="statement not covered" >      this.broadcast(this.snapshotMsg());</span>
+    }
+  }
+&nbsp;
+<span class="fstat-no" title="function not covered" >  private s</span>napshotMsg(): { type: string; payload: SddInterviewSnapshot &amp; { busy: boolean } } {
+    const snap = <span class="cstat-no" title="statement not covered" >this.driver?.snapshot();</span>
+<span class="cstat-no" title="statement not covered" >    return {</span>
+      type: 'sdd.spec.snapshot',
+      payload: { ...(snap as SddInterviewSnapshot), busy: this.busy },
+    };
+  }
+&nbsp;
+<span class="fstat-no" title="function not covered" >  private b</span>roadcast(msg: { type: string; payload: unknown }): void {
+    const data = <span class="cstat-no" title="statement not covered" >JSON.stringify(msg);</span>
+<span class="cstat-no" title="statement not covered" >    for (const client of this.clients) {</span>
+<span class="cstat-no" title="statement not covered" >      if (client.ws.readyState === 1) <span class="cstat-no" title="statement not covered" >client.ws.send(data);</span></span>
+    }
+  }
+&nbsp;
+<span class="fstat-no" title="function not covered" >  private s</span>end(client: WSClient, msg: { type: string; payload: unknown }): void {
+<span class="cstat-no" title="statement not covered" >    if (client.ws.readyState === 1) <span class="cstat-no" title="statement not covered" >client.ws.send(JSON.stringify(msg));</span></span>
+  }
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-07-11T22:19:41.558Z
+            </div>
+        <script src="../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../sorter.js"></script>
+        <script src="../block-navigation.js"></script>
+    </body>
+</html>
+    

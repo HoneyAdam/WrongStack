@@ -143,6 +143,7 @@ describe('MCP HTTP fault-injection soak', () => {
 
       const op = reg.operationalHealth()[0];
       expect(op).toBeDefined();
+      if (!op) throw new Error('operationalHealth missing');
       // After recovery the server should be healthy again (no consecutive failures).
       expect(op.healthState).toBeOneOf(['healthy', 'degraded']);
       expect(op.failures.transport).toBeGreaterThanOrEqual(0);
@@ -171,6 +172,7 @@ describe('MCP HTTP fault-injection soak', () => {
 
       const op = reg.operationalHealth()[0];
       expect(op).toBeDefined();
+      if (!op) throw new Error('operationalHealth missing');
       expect(op.healthState).toBe('failed');
       expect(op.consecutiveFailures).toBeGreaterThan(0);
       expect(op.failures.transport).toBeGreaterThan(0);
@@ -243,6 +245,7 @@ describe('MCP HTTP fault-injection soak', () => {
 
       const op = reg.operationalHealth()[0];
       expect(op).toBeDefined();
+      if (!op) throw new Error('operationalHealth missing');
       // The alternating pattern means the server may be healthy or degraded,
       // but it should not be stuck in failed while the endpoint is responsive.
       expect(op.healthState).not.toBe('failed');

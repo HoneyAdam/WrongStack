@@ -131,10 +131,12 @@ describe('MCP stdio fault-injection soak', () => {
 
       // The server keeps crashing but always reconnects successfully, so it
       // should stay out of the permanent `failed` state while still logging
-      // transport failures and reconnects.
+      // transport failures and reconnects. It may be mid-reconnect when the
+      // test window closes.
       const op = reg.operationalHealth()[0];
       expect(op).toBeDefined();
-      expect(op.healthState).toBeOneOf(['healthy', 'degraded']);
+      if (!op) throw new Error('operationalHealth missing');
+      expect(op.healthState).not.toBe('failed');
       expect(op.restartCount + op.reconnectCount).toBeGreaterThanOrEqual(2);
       expect(op.failures.transport).toBeGreaterThan(0);
 
@@ -221,8 +223,10 @@ rl.createInterface({ input: process.stdin, terminal: false }).on('line', (line) 
       // Should see a healthy state and multiple consecutive successes after recovery.
       expect(successes).toBeGreaterThanOrEqual(3);
       const op = reg.operationalHealth()[0];
-      expect(op?.healthState).toBeOneOf(['healthy', 'degraded']);
-      expect(op?.consecutiveFailures).toBe(0);
+      expect(op).toBeDefined();
+      if (!op) throw new Error('operationalHealth missing');
+      expect(op.healthState).toBeOneOf(['healthy', 'degraded']);
+      expect(op.consecutiveFailures).toBe(0);
 
       await reg.stopAll();
     },

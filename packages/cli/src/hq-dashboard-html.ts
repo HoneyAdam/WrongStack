@@ -393,7 +393,28 @@ const HQ_HTML_TEMPLATE = `<!DOCTYPE html>
   td { padding: 8px; border-bottom: 1px solid #1b2330; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; background: var(--inset); border: 1px solid var(--border); color: var(--muted); }
+  .pill.healthy { background: rgba(63,185,80,0.12); border-color: rgba(63,185,80,0.35); color: var(--green); }
+  .pill.degraded { background: rgba(227,168,58,0.12); border-color: rgba(227,168,58,0.35); color: var(--amber); }
+  .pill.failed { background: rgba(248,81,73,0.12); border-color: rgba(248,81,73,0.35); color: var(--red); }
+  .pill.connecting { background: rgba(88,166,255,0.12); border-color: rgba(88,166,255,0.35); color: var(--accent); }
   .empty { color: var(--dim); font-style: italic; }
+  .mcpwrap { flex: 1; overflow-y: auto; padding: 18px 22px; }
+  .mcp-summary { display: flex; gap: 16px; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+  .mcp-summary .ok { color: var(--green); }
+  .mcp-summary .warn { color: var(--amber); }
+  .mcp-summary .bad { color: var(--red); }
+  .mcp-search { margin-bottom: 12px; }
+  .mcp-table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .mcptable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mcptable th { text-align: left; padding: 10px 12px; background: var(--bg2); color: var(--dim); font-weight: 700; border-bottom: 1px solid var(--border); }
+  .mcptable td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .mcptable tr:last-child td { border-bottom: none; }
+  .mcptable tr.mcp-failed td { background: rgba(248,81,73,0.06); }
+  .mcptable tr.mcp-degraded td { background: rgba(227,168,58,0.06); }
+  .mcptable td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mcptable .check { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 5px; border-radius: 999px; font-size: 10px; background: var(--inset); border: 1px solid var(--border); color: var(--muted); cursor: default; }
+  .mcptable .check.pass { background: rgba(63,185,80,0.10); border-color: rgba(63,185,80,0.30); color: var(--green); }
+  .mcptable .check.fail { background: rgba(248,81,73,0.10); border-color: rgba(248,81,73,0.30); color: var(--red); }
   /* pointer-events:none is critical — if React mount is ever delayed (CDN
      hang / blocked esm.sh), this full-viewport overlay must NEVER intercept
      clicks meant for the dashboard rendered behind it. */
@@ -2060,6 +2081,60 @@ async function boot(){
     );
   }
 
+  function McpView(p){
+    var servers = (p.snap && p.snap.mcpServers) || [];
+    var qBox = React.useState(''); var q = qBox[0], setQ = qBox[1];
+    var ql = q.trim().toLowerCase();
+    var filtered = servers.filter(function(sv){
+      if(!ql) return true;
+      return (sv.name||'').toLowerCase().indexOf(ql)>=0 || (sv.projectId||'').toLowerCase().indexOf(ql)>=0;
+    });
+    filtered.sort(function(a,b){ var ha = healthRank(a.healthState), hb = healthRank(b.healthState); if(ha!==hb) return ha-hb; return (a.name||'').localeCompare(b.name||''); });
+    var counts = { total: servers.length, healthy: 0, degraded: 0, failed: 0, other: 0 };
+    servers.forEach(function(sv){ if(sv.healthState==='healthy') counts.healthy++; else if(sv.healthState==='degraded') counts.degraded++; else if(sv.healthState==='failed') counts.failed++; else counts.other++; });
+    return h('div', { className: 'mcpwrap' },
+      h('div', { className: 'mcp-summary' },
+        h('span', null, 'Servers: '+counts.total),
+        h('span', { className: 'ok' }, 'Healthy: '+counts.healthy),
+        h('span', { className: 'warn' }, 'Degraded: '+counts.degraded),
+        h('span', { className: 'bad' }, 'Failed: '+counts.failed)
+      ),
+      h('div', { className: 'mcp-search' },
+        h('input', { className: 'rsearch', placeholder: 'Filter by project or server name...', value: q, onChange: function(e){ setQ(e.target.value); } })
+      ),
+      h('div', { className: 'mcp-table-wrap' },
+        h('table', { className: 'mcptable' },
+          h('thead', null, h('tr', null,
+            h('th', null, 'Project'), h('th', null, 'Server'), h('th', null, 'Health'),
+            h('th', { className:'num' }, 'Conn'), h('th', { className:'num' }, 'Disc'),
+            h('th', { className:'num' }, 'Call'), h('th', { className:'num' }, 'In-flight'),
+            h('th', null, 'Failures'), h('th', null, 'Lifecycle'), h('th', null, 'Checks')
+          )),
+          h('tbody', null, filtered.length ? filtered.map(function(sv, i){
+            return h('tr', { key: i, className: 'mcp-'+sv.healthState },
+              h('td', null, shortId(sv.projectId)),
+              h('td', null, h('code', null, sv.name)),
+              h('td', null, h('span', { className: 'pill '+sv.healthState }, sv.healthState)),
+              h('td', { className:'num' }, fmtLatency(sv.connectionLatency)),
+              h('td', { className:'num' }, fmtLatency(sv.discoveryLatency)),
+              h('td', { className:'num' }, fmtLatency(sv.callLatency)),
+              h('td', { className:'num' }, sv.inFlightCalls + (sv.peakInFlightCalls > sv.inFlightCalls ? ' / '+sv.peakInFlightCalls : '')),
+              h('td', null, fmtFailures(sv.failures)),
+              h('td', null, 'R'+sv.reconnectCount+' W'+sv.wakeCount+' S'+sv.sleepCount+' X'+sv.restartCount),
+              h('td', null, sv.healthChecks && sv.healthChecks.length ? sv.healthChecks.map(function(c, ci){ return h('span', { key: ci, className: 'check '+(c.passed?'pass':'fail'), title: c.name+' '+(c.value===undefined?'':Math.round(c.value))+' / '+(c.threshold===undefined?'':c.threshold) }, c.name); }) : '-')
+            );
+          }) : h('tr', null, h('td', { colSpan: 10, className: 'empty' }, 'No MCP servers reported yet. Connect a WrongStack surface with MCP servers configured and HQ will aggregate their health here.')))
+        )
+      )
+    );
+  }
+
+  function healthRank(st){ return st==='failed'?0 : st==='degraded'?1 : st==='healthy'?3 : 2; }
+
+  function fmtLatency(lat){ return lat && lat.count ? (lat.p95Ms!==undefined ? Math.round(lat.p95Ms)+' ms' : lat.count+' samples') : '-'; }
+
+  function fmtFailures(f){ return 'T'+(f.transport||0)+' P'+(f.protocol||0)+' X'+(f.tool||0); }
+
   function ConsoleView(p){
     var wBox = React.useState(parseInt(lsGet('hq.railw','320'),10)||320); var railW = wBox[0], setRailW = wBox[1];
     var railWRef = React.useRef(railW); railWRef.current = railW;
@@ -2084,20 +2159,23 @@ async function boot(){
     var s = useStore();
     var snap = s.snapshot;
     var unread = (snap && snap.totals && snap.totals.unreadMailboxMessages) || 0;
+    var mcpAlerts = snap && snap.mcpServers ? snap.mcpServers.filter(function(sv){ return sv.healthState === 'degraded' || sv.healthState === 'failed'; }).length : 0;
     var tab = s.tab || 'console';
-    function tabBtn(id, label){ return h('div', { className: 'hq-tab' + (tab===id?' active':''), onClick: function(){ Store.set({ tab: id }); } }, label); }
+    function tabBtn(id, label, badge){ return h('div', { className: 'hq-tab' + (tab===id?' active':''), onClick: function(){ Store.set({ tab: id }); } }, label, badge ? h('span', { className:'badge' }, badge) : null); }
     return h('div', { style: { height:'100%', display:'flex', flexDirection:'column' } },
       h(TopBar, { snap: snap, connected: s.connected }),
       h('div', { className: 'hq-tabs' },
         tabBtn('console', '🛰️ Console'),
         tabBtn('timeline', '🧾 Timeline'),
         tabBtn('map', '🧭 Map'),
+        tabBtn('mcp', '🔌 MCP', mcpAlerts || undefined),
         h('div', { className: 'hq-tab' + (tab==='mailbox'?' active':''), onClick: function(){ Store.set({ tab:'mailbox' }); } }, '📬 Mailbox', unread? h('span', { className:'badge' }, unread):null)
       ),
       h('div', { className: 'hq-body' },
         tab==='map' ? h(FleetView, { snap: snap }) :
         tab==='timeline' ? h(GlobalTimelineView, { snap: snap }) :
         tab==='mailbox' ? h(MailboxView, { snap: snap }) :
+        tab==='mcp' ? h(McpView, { snap: snap }) :
         h(ConsoleView, { snap: snap })
       )
     );

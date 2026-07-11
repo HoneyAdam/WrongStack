@@ -111,7 +111,9 @@ export type HqEventType =
   | 'session.transcript'
   | 'session.ended'
   | 'brain.event'
-  | 'worktree.event';
+  | 'worktree.event'
+  | 'mcp.health.snapshot'
+  | 'mcp.operation';
 
 export interface HqClientHeartbeatPayload {
   uptimeMs: number;
@@ -573,6 +575,77 @@ export interface HqMailboxSummary {
   lastActivityAt: string;
 }
 
+export interface HqMcpLatencySummary {
+  count: number;
+  lastMs?: number | undefined;
+  minMs?: number | undefined;
+  maxMs?: number | undefined;
+  p50Ms?: number | undefined;
+  p95Ms?: number | undefined;
+}
+
+export interface HqMcpFailureCounts {
+  transport: number;
+  protocol: number;
+  tool: number;
+}
+
+export interface HqMcpHealthCheck {
+  name: string;
+  passed: boolean;
+  value?: number | undefined;
+  threshold?: number | undefined;
+}
+
+export type HqMcpHealthState =
+  | 'disabled'
+  | 'dormant'
+  | 'connecting'
+  | 'healthy'
+  | 'degraded'
+  | 'failed';
+
+export type HqMcpConnectionState =
+  | 'idle'
+  | 'dormant'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'failed';
+
+export interface HqMcpServerHealth {
+  name: string;
+  projectId: string;
+  clientId: string;
+  connectionState: HqMcpConnectionState;
+  healthState: HqMcpHealthState;
+  lastSuccessAt?: string | undefined;
+  lastFailureAt?: string | undefined;
+  lastFailureKind?: 'transport' | 'protocol' | 'tool' | undefined;
+  consecutiveFailures: number;
+  failures: HqMcpFailureCounts;
+  reconnectCount: number;
+  wakeCount: number;
+  sleepCount: number;
+  restartCount: number;
+  connectionLatency: HqMcpLatencySummary;
+  discoveryLatency: HqMcpLatencySummary;
+  callLatency: HqMcpLatencySummary;
+  inFlightCalls: number;
+  peakInFlightCalls: number;
+  healthChecks: HqMcpHealthCheck[];
+}
+
+export interface HqMcpHealthSnapshotPayload {
+  servers: HqMcpServerHealth[];
+}
+
+export interface HqMcpOperationPayload {
+  operation: Record<string, unknown>;
+  servers: HqMcpServerHealth[];
+}
+
 export interface HqSnapshot {
   generatedAt: string;
   clients: readonly HqClientRecord[];
@@ -584,6 +657,8 @@ export interface HqSnapshot {
   machines?: readonly HqMachineRecord[];
   /** Live terminal sessions with their agents — the spine of the fleet tree. */
   liveSessions?: readonly HqSessionSnapshotPayload[];
+  /** Latest operational health for each MCP server reported by any connected client. */
+  mcpServers?: readonly HqMcpServerHealth[];
   totals: {
     activeProjects: number;
     activeClients: number;
@@ -907,7 +982,112 @@ const KNOWN_HQ_EVENT_PAYLOAD_TYPES = new Set<string>([
   'tool.completed',
   'session.usage',
   'client.heartbeat',
+  'mcp.health.snapshot',
+  'mcp.operation',
 ]);
+
+function isHqMcpLatencySummary(x: unknown): x is HqMcpLatencySummary {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.count === 'number' &&
+    (v.lastMs === undefined || typeof v.lastMs === 'number') &&
+    (v.minMs === undefined || typeof v.minMs === 'number') &&
+    (v.maxMs === undefined || typeof v.maxMs === 'number') &&
+    (v.p50Ms === undefined || typeof v.p50Ms === 'number') &&
+    (v.p95Ms === undefined || typeof v.p95Ms === 'number')
+  );
+}
+
+function isHqMcpFailureCounts(x: unknown): x is HqMcpFailureCounts {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.transport === 'number' &&
+    typeof v.protocol === 'number' &&
+    typeof v.tool === 'number'
+  );
+}
+
+function isHqMcpHealthCheck(x: unknown): x is HqMcpHealthCheck {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.name === 'string' &&
+    typeof v.passed === 'boolean' &&
+    (v.value === undefined || typeof v.value === 'number') &&
+    (v.threshold === undefined || typeof v.threshold === 'number')
+  );
+}
+
+const HQ_MCP_HEALTH_STATES = new Set<string>([
+  'disabled',
+  'dormant',
+  'connecting',
+  'healthy',
+  'degraded',
+  'failed',
+]);
+
+const HQ_MCP_CONNECTION_STATES = new Set<string>([
+  'idle',
+  'dormant',
+  'connecting',
+  'connected',
+  'reconnecting',
+  'disconnected',
+  'failed',
+]);
+
+function isHqMcpServerHealth(x: unknown): x is HqMcpServerHealth {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.name === 'string' &&
+    typeof v.projectId === 'string' &&
+    typeof v.clientId === 'string' &&
+    typeof v.connectionState === 'string' &&
+    HQ_MCP_CONNECTION_STATES.has(v.connectionState) &&
+    typeof v.healthState === 'string' &&
+    HQ_MCP_HEALTH_STATES.has(v.healthState) &&
+    (v.lastSuccessAt === undefined || typeof v.lastSuccessAt === 'string') &&
+    (v.lastFailureAt === undefined || typeof v.lastFailureAt === 'string') &&
+    (v.lastFailureKind === undefined ||
+      v.lastFailureKind === 'transport' ||
+      v.lastFailureKind === 'protocol' ||
+      v.lastFailureKind === 'tool') &&
+    typeof v.consecutiveFailures === 'number' &&
+    isHqMcpFailureCounts(v.failures) &&
+    typeof v.reconnectCount === 'number' &&
+    typeof v.wakeCount === 'number' &&
+    typeof v.sleepCount === 'number' &&
+    typeof v.restartCount === 'number' &&
+    isHqMcpLatencySummary(v.connectionLatency) &&
+    isHqMcpLatencySummary(v.discoveryLatency) &&
+    isHqMcpLatencySummary(v.callLatency) &&
+    typeof v.inFlightCalls === 'number' &&
+    typeof v.peakInFlightCalls === 'number' &&
+    Array.isArray(v.healthChecks) &&
+    v.healthChecks.every(isHqMcpHealthCheck)
+  );
+}
+
+function isHqMcpHealthSnapshotPayload(x: unknown): x is HqMcpHealthSnapshotPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return Array.isArray(v.servers) && v.servers.every(isHqMcpServerHealth);
+}
+
+function isHqMcpOperationPayload(x: unknown): x is HqMcpOperationPayload {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.operation === 'object' &&
+    v.operation !== null &&
+    Array.isArray(v.servers) &&
+    v.servers.every(isHqMcpServerHealth)
+  );
+}
 
 function isHqMailboxMessageSummary(x: unknown): x is HqMailboxMessageSummary {
   if (typeof x !== 'object' || x === null) return false;
@@ -1283,6 +1463,14 @@ export function parseHqEventPayload(
         : { ok: false, reason: 'malformed-payload' };
     case 'client.heartbeat':
       return isHqClientHeartbeatPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'mcp.health.snapshot':
+      return isHqMcpHealthSnapshotPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'mcp.operation':
+      return isHqMcpOperationPayload(payload)
         ? { ok: true, payload }
         : { ok: false, reason: 'malformed-payload' };
     default: {

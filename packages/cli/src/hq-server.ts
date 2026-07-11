@@ -36,6 +36,8 @@ import {
   type HqMailboxEventPayload,
   type HqMailboxSnapshotPayload,
   type HqMailboxSummary,
+  type HqMcpHealthSnapshotPayload,
+  type HqMcpServerHealth,
   type HqProjectIdentity,
   type HqProjectRecord,
   type HqRedactionPolicy,
@@ -163,6 +165,12 @@ interface ConnectedClient {
    * `fleets[]` rollup in {@link buildSnapshot}.
    */
   fleets: Map<string, HqFleetSnapshotPayload>;
+  /**
+   * Latest MCP operational-health snapshot keyed by sessionId — replaced on
+   * each `mcp.health.snapshot` envelope from this client. Feeds the
+   * `mcpServers[]` rollup in {@link buildSnapshot}.
+   */
+  mcpSnapshots: Map<string, HqMcpServerHealth[]>;
   /**
    * Per-client command queue (Phase 3 control plane). Commands enqueued by
    * a browser via `POST /api/command` land here and are drained when the
@@ -1701,6 +1709,7 @@ function handleClient(
         machineId: payload.client.machineId || payload.project.machineId,
         sessions: new Map(),
         fleets: new Map(),
+        mcpSnapshots: new Map(),
         commandQueue: [],
       };
       clients.set(ws, client);
@@ -1917,6 +1926,24 @@ function handleClient(
         if (result.ok) {
           const payload = result.payload as HqFleetSnapshotPayload;
           client.fleets.set(payload.runId, payload);
+          snapshotBroadcaster.broadcast();
+        }
+        return;
+      }
+
+      // MCP health snapshots — authoritative per-session rollups. Store per
+      // (client, sessionId) so buildSnapshot can populate mcpServers[].
+      if (event.type === 'mcp.health.snapshot' && client !== undefined) {
+        const result = parseHqEventPayload(event.type, event.payload);
+        if (result.ok) {
+          const payload = result.payload as HqMcpHealthSnapshotPayload;
+          const sessionId = event.sessionId || 'unknown';
+          const stamped = payload.servers.map((s) => ({
+            ...s,
+            projectId: client.projectId,
+            clientId: client.clientId,
+          }));
+          client.mcpSnapshots.set(sessionId, stamped);
           snapshotBroadcaster.broadcast();
         }
         return;
@@ -2240,6 +2267,20 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
     lastActivityAt: f.lastActivityAt,
   }));
 
+  // Collect MCP server health — latest per (client, sessionId, serverName).
+  const mcpServers: HqMcpServerHealth[] = [];
+  const seenMcp = new Set<string>();
+  for (const client of clients.values()) {
+    for (const [sessionId, servers] of client.mcpSnapshots.entries()) {
+      for (const server of servers) {
+        const key = `${client.clientId}:${sessionId}:${server.name}`;
+        if (seenMcp.has(key)) continue;
+        seenMcp.add(key);
+        mcpServers.push(server);
+      }
+    }
+  }
+
   return {
     generatedAt: now,
     clients: clientRecords,
@@ -2249,6 +2290,7 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
     mailboxes: mailboxSummaries,
     machines,
     liveSessions,
+    mcpServers,
     totals: {
       activeProjects: projects.length,
       activeClients: clientRecords.length,

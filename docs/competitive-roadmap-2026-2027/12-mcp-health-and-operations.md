@@ -52,11 +52,14 @@ Completed:
   server into `degraded`. Thresholds are optional and disabled by default so existing behaviour is
   preserved; each configured threshold is exposed as a `healthChecks` entry in the operational
   snapshot so operators can see exactly why a server is degraded.
+- Added a dedicated HQ MCP Operations tab: aggregates `mcp.health.snapshot` envelopes from every
+  connected surface into `HqSnapshot.mcpServers`, renders a sortable/filterable table with health,
+  latency, saturation, failure, lifecycle counters, and threshold-check badges, and highlights
+  degraded/failed servers with a tab badge.
 - Added regression coverage for state derivation, bounded latency/event buffers, redacted reason
   codes, tool-call outcomes/saturation, disabled configurations, health aggregation, metric
-  cardinality, and threshold evaluation.
+  cardinality, threshold evaluation, and HQ MCP snapshot aggregation.
 
 Remaining:
 
 - Add long-running stdio and HTTP fault-injection soak tests.
-- Add a dedicated HQ MCP operations dashboard (the safe events/snapshots are already published).
