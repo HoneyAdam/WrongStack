@@ -191,20 +191,18 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             opts.renderer.write(msg);
             return { message: msg };
           }
-          const abandoned: GoalFile = { ...current, goalState: 'abandoned' };
-          await saveGoal(goalPath, abandoned, opts.events);
           const { unlink } = await import('node:fs/promises');
           try {
             await unlink(goalPath);
           } catch {
-            // best-effort
+            // best-effort — file may already be gone
           }
+          // Cant: the goal file is gone. The autonomy engine and the `autonomous`
+          // mode loop both check for the file's existence before running; without
+          // it they will not spin up again until `/goal set` is called.
           if (opts.onEternalStop) opts.onEternalStop();
-          // Flip autonomy back to 'off' so the REPL exits eternal mode.
-          // Without this, the REPL keeps spinning in the eternal loop
-          // even though the goal file is gone.
           if (opts.onAutonomy) opts.onAutonomy('off');
-          const msg = `${color.amber('Goal cleared.')} Previous goal marked abandoned; eternal mode will stop.`;
+          const msg = `${color.amber('Goal cleared.')} Goal file removed; eternal mode will stop.`;
           opts.renderer.write(msg);
           return { message: msg };
         }

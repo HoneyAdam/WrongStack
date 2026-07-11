@@ -473,7 +473,8 @@ describe('EternalAutonomyEngine', () => {
 
     expect(brainstormCount).toBe(1);
     const after = await loadGoal(goalPath);
-    expect(after?.goalState).toBe('completed');
+    // Goal file is deleted on completion — loadGoal returns null
+    expect(after).toBeNull();
   });
 
   it('rotates past a stuck todo after todoMaxAttempts failures', async () => {

@@ -900,6 +900,15 @@ export class EternalAutonomyEngine {
       note: note.slice(0, 240),
     });
     await saveGoal(this.goalPath, withEntry, this.opts.events);
+    // Remove the goal file so it doesn't persist as stale state.
+    // A completed goal should be gone — the user creates a new one
+    // with `/goal set` when they want to work on something else.
+    try {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(this.goalPath);
+    } catch {
+      // best-effort — file may already be gone
+    }
     // Fire stop callbacks so the REPL knows to exit eternal mode
     // and show a goal-completion banner. Without this the engine
     // stops internally but the REPL keeps spinning in the eternal loop.
