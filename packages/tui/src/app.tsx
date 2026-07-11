@@ -6111,6 +6111,18 @@ export function App({
       }
     } finally {
       eternalLoopRunningRef.current = false;
+      // Refresh goal summary — the engine may have cleared or completed
+      // the goal autonomously (via [GOAL_COMPLETE] or [goal clear] marker
+      // in the LLM output). Without this the status bar goal chip stays
+      // visible with stale data.
+      refreshGoalSummary();
+      // If the engine stopped because the goal was cleared or completed
+      // (not because the user typed /autonomy stop), the autonomy mode
+      // stays at 'eternal' — switch to a sensible resting state so the
+      // status bar doesn't show "ETERNAL" with no goal running.
+      if (engine.currentState === 'stopped') {
+        switchAutonomy?.('off');
+      }
       // Sync the displayed autonomy state with reality. The loop only exits
       // when getAutonomy() !== 'eternal' or engine.currentState === 'stopped',
       // both of which mean the mode is effectively off/idle. Refreshing here
@@ -6154,6 +6166,10 @@ export function App({
       }
     } finally {
       parallelLoopRunningRef.current = false;
+      refreshGoalSummary();
+      if (engine.currentState === 'stopped') {
+        switchAutonomy?.('off');
+      }
       if (getAutonomy) {
         const finalMode = getAutonomy();
         if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
@@ -6305,6 +6321,10 @@ export function App({
       clearDraft();
       try {
         const res = await slashRegistry.dispatch(resolvedForDispatch, agent.ctx);
+        // Refresh goal summary after any slash command — `/goal clear` or
+        // `/goal set` changed the goal file on disk; the status bar chip
+        // must reflect the new state (or disappear).
+        refreshGoalSummary();
         if (res?.message) {
           dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
         }
