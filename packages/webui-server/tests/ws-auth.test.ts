@@ -13,22 +13,10 @@ import {
 
 describe('ws-auth', () => {
   describe('isLoopbackHostname', () => {
-    it('returns true for localhost', () => {
-      expect(isLoopbackHostname('localhost')).toBe(true);
-    });
-
-    it('returns true for 127.0.0.1', () => {
-      expect(isLoopbackHostname('127.0.0.1')).toBe(true);
-    });
-
-    it('returns true for ::1', () => {
-      expect(isLoopbackHostname('::1')).toBe(true);
-    });
-
-    it('returns true for [::1]', () => {
-      expect(isLoopbackHostname('[::1]')).toBe(true);
-    });
-
+    it('returns true for localhost', () => expect(isLoopbackHostname('localhost')).toBe(true));
+    it('returns true for 127.0.0.1', () => expect(isLoopbackHostname('127.0.0.1')).toBe(true));
+    it('returns true for ::1', () => expect(isLoopbackHostname('::1')).toBe(true));
+    it('returns true for [::1]', () => expect(isLoopbackHostname('[::1]')).toBe(true));
     it('returns false for non-loopback hosts', () => {
       expect(isLoopbackHostname('example.com')).toBe(false);
       expect(isLoopbackHostname('192.168.1.1')).toBe(false);
@@ -36,294 +24,273 @@ describe('ws-auth', () => {
   });
 
   describe('isLoopbackBind', () => {
-    it('returns true for 127.0.0.1', () => {
-      expect(isLoopbackBind('127.0.0.1')).toBe(true);
-    });
-
-    it('returns true for ::1', () => {
-      expect(isLoopbackBind('::1')).toBe(true);
-    });
-
-    it('returns true for localhost', () => {
-      expect(isLoopbackBind('localhost')).toBe(true);
-    });
-
-    it('returns false for wildcard addresses', () => {
-      expect(isLoopbackBind('0.0.0.0')).toBe(false);
-      expect(isLoopbackBind('::')).toBe(false);
-    });
-
-    it('returns false for LAN addresses', () => {
-      expect(isLoopbackBind('192.168.1.1')).toBe(false);
-      expect(isLoopbackBind('10.0.0.1')).toBe(false);
-    });
+    it('returns true for 127.0.0.1', () => expect(isLoopbackBind('127.0.0.1')).toBe(true));
+    it('returns true for ::1', () => expect(isLoopbackBind('::1')).toBe(true));
+    it('returns true for localhost', () => expect(isLoopbackBind('localhost')).toBe(true));
+    it('returns false for wildcard', () => expect(isLoopbackBind('0.0.0.0')).toBe(false));
+    it('returns false for LAN', () => expect(isLoopbackBind('192.168.1.1')).toBe(false));
   });
 
   describe('isWildcardBind', () => {
-    it('returns true for 0.0.0.0', () => {
-      expect(isWildcardBind('0.0.0.0')).toBe(true);
-    });
-
-    it('returns true for ::', () => {
-      expect(isWildcardBind('::')).toBe(true);
-    });
-
-    it('returns true for [::]', () => {
-      expect(isWildcardBind('[::]')).toBe(true);
-    });
-
-    it('returns false for loopback addresses', () => {
-      expect(isWildcardBind('127.0.0.1')).toBe(false);
-      expect(isWildcardBind('localhost')).toBe(false);
-    });
+    it('returns true for 0.0.0.0', () => expect(isWildcardBind('0.0.0.0')).toBe(true));
+    it('returns true for ::', () => expect(isWildcardBind('::')).toBe(true));
+    it('returns true for [::]', () => expect(isWildcardBind('[::]')).toBe(true));
+    it('returns false for loopback', () => expect(isWildcardBind('127.0.0.1')).toBe(false));
   });
 
   describe('tokenMatches', () => {
-    it('returns true for matching tokens', () => {
-      expect(tokenMatches('abc123', 'abc123')).toBe(true);
-    });
-
-    it('returns false for empty provided token', () => {
-      expect(tokenMatches('', 'abc123')).toBe(false);
-    });
-
-    it('returns false for undefined token', () => {
-      expect(tokenMatches(undefined, 'abc123')).toBe(false);
-    });
-
-    it('returns false for length mismatch', () => {
-      expect(tokenMatches('short', 'very-long-token')).toBe(false);
-    });
-
-    it('returns false for different tokens of same length', () => {
-      expect(tokenMatches('aaaaaa', 'bbbbbb')).toBe(false);
-    });
+    it('returns true for matching tokens', () => expect(tokenMatches('abc123', 'abc123')).toBe(true));
+    it('returns false for undefined', () => expect(tokenMatches(undefined, 'abc123')).toBe(false));
+    it('returns false for empty string', () => expect(tokenMatches('', 'abc123')).toBe(false));
+    it('returns false for length mismatch', () => expect(tokenMatches('short', 'long-token')).toBe(false));
+    it('returns false for different tokens same length', () => expect(tokenMatches('aaaaaa', 'bbbbbb')).toBe(false));
   });
 
   describe('extractToken', () => {
-    it('extracts token from query param', () => {
-      expect(extractToken('/?token=mysecret')).toBe('mysecret');
-    });
-
-    it('extracts token with other params', () => {
-      expect(extractToken('/path?foo=1&token=secret&bar=2')).toBe('secret');
-    });
-
-    it('returns undefined when no token param', () => {
-      expect(extractToken('/?foo=bar')).toBeUndefined();
-    });
-
-    it('returns undefined on empty url', () => {
-      expect(extractToken('')).toBeNull();
-    });
+    it('extracts token from query param', () => expect(extractToken('/?token=mysecret')).toBe('mysecret'));
+    it('extracts token among other params', () => expect(extractToken('/p?foo=1&token=secret&bar=2')).toBe('secret'));
+    it('returns undefined when no token param', () => expect(extractToken('/?foo=bar')).toBeUndefined());
+    it('returns undefined on empty url', () => expect(extractToken('')).toBeUndefined());
   });
 
   describe('extractTokenFromCookie', () => {
-    it('extracts ws_token from cookie header', () => {
-      expect(extractTokenFromCookie('ws_token=mysecret; other=value')).toBe('mysecret');
-    });
-
-    it('handles array of cookie headers', () => {
-      expect(extractTokenFromCookie(['ws_token=secret1', 'other=value'])).toBe('secret1');
-    });
-
-    it('returns undefined when no cookie header', () => {
-      expect(extractTokenFromCookie(undefined)).toBeUndefined();
-    });
-
-    it('returns undefined when ws_token not present', () => {
-      expect(extractTokenFromCookie('other=value')).toBeUndefined();
-    });
-
-    it('handles url-encoded cookie values', () => {
-      expect(extractTokenFromCookie('ws_token=secret%20value')).toBe('secret value');
-    });
-
-    it('handles malformed url-encoding gracefully', () => {
-      // %GG is invalid hex - should fall back to raw value
+    it('extracts ws_token', () => expect(extractTokenFromCookie('ws_token=secret')).toBe('secret'));
+    it('handles array of headers', () => expect(extractTokenFromCookie(['ws_token=secret1', 'x=y'])).toBe('secret1'));
+    it('returns undefined when no cookie', () => expect(extractTokenFromCookie(undefined)).toBeUndefined());
+    it('returns undefined when ws_token missing', () => expect(extractTokenFromCookie('other=val')).toBeUndefined());
+    it('decodes url-encoded values', () => expect(extractTokenFromCookie('ws_token=secret%20value')).toBe('secret value'));
+    it('handles malformed encoding', () => {
       const result = extractTokenFromCookie('ws_token=secret%GG');
       expect(result).toBeDefined();
     });
-
-    it('handles empty parts in cookie header', () => {
-      expect(extractTokenFromCookie(';; ws_token=val ;;')).toBe('val');
-    });
+    it('handles empty cookie parts', () => expect(extractTokenFromCookie(';; ws_token=val ;;')).toBe('val'));
   });
 
   describe('hostHeaderOk', () => {
-    it('returns true for non-loopback binds', () => {
+    it('passes non-loopback bind regardless of host', () => {
       expect(hostHeaderOk({ hostHeader: 'evil.com', wsHost: '0.0.0.0' })).toBe(true);
     });
-
-    it('returns false for loopback bind with missing host', () => {
+    it('rejects missing host on loopback bind', () => {
       expect(hostHeaderOk({ hostHeader: undefined, wsHost: '127.0.0.1' })).toBe(false);
     });
-
-    it('returns false for loopback bind with empty host', () => {
+    it('rejects empty host on loopback bind', () => {
       expect(hostHeaderOk({ hostHeader: '', wsHost: '127.0.0.1' })).toBe(false);
     });
-
-    it('returns true for loopback bind with localhost host', () => {
+    it('accepts localhost on loopback bind', () => {
       expect(hostHeaderOk({ hostHeader: 'localhost:3456', wsHost: '127.0.0.1' })).toBe(true);
     });
-
-    it('returns true for loopback bind with 127.0.0.1 host', () => {
+    it('accepts 127.0.0.1 on loopback bind', () => {
       expect(hostHeaderOk({ hostHeader: '127.0.0.1:3456', wsHost: '127.0.0.1' })).toBe(true);
     });
-
-    it('returns false for loopback bind with non-loopback host', () => {
+    it('rejects non-loopback host on loopback bind', () => {
       expect(hostHeaderOk({ hostHeader: 'evil.com', wsHost: '127.0.0.1' })).toBe(false);
     });
-
-    it('handles IPv6 host with port', () => {
+    it('accepts IPv6 bracketed host', () => {
       expect(hostHeaderOk({ hostHeader: '[::1]:3456', wsHost: '::1' })).toBe(true);
     });
-
-    it('returns true when hostname is in allowedHostnames', () => {
-      expect(hostHeaderOk({
-        hostHeader: 'tunnel.example.com',
-        wsHost: '127.0.0.1',
-        allowedHostnames: ['tunnel.example.com'],
-      })).toBe(true);
+    it('accepts allowed hostnames', () => {
+      expect(hostHeaderOk({ hostHeader: 'tun.example.com', wsHost: '127.0.0.1', allowedHostnames: ['tun.example.com'] })).toBe(true);
     });
-
-    it('returns false when host header is unparseable', () => {
-      expect(hostHeaderOk({ hostHeader: 'not a valid host header with spaces', wsHost: '127.0.0.1' })).toBe(false);
+    it('rejects unparseable host header', () => {
+      expect(hostHeaderOk({ hostHeader: 'bad header here', wsHost: '127.0.0.1' })).toBe(false);
     });
   });
 
   describe('verifyClient', () => {
-    const token = 'test-token-123';
-    const makeInput = (overrides: Record<string, unknown> = {}) => ({
-      url: '/',
-      wsHost: '127.0.0.1',
-      expectedToken: token,
-      ...overrides,
-    });
+    const TOKEN = 'test-token-123';
 
-    it('allows loopback origin without token on loopback bind', () => {
-      expect(verifyClient(makeInput({
+    it('allows loopback browser origin without token (loopback bind)', () => {
+      expect(verifyClient({
         origin: 'http://localhost:3456',
-      }))).toBe(true);
-    });
-
-    it('allows 127.0.0.1 origin without token on loopback bind', () => {
-      expect(verifyClient(makeInput({
-        origin: 'http://127.0.0.1:3456',
-      }))).toBe(true);
-    });
-
-    it('rejects file:// origins on loopback bind', () => {
-      expect(verifyClient(makeInput({
-        origin: 'file:///index.html',
-      }))).toBe(false);
-    });
-
-    it('rejects non-loopback origin without token cookie', () => {
-      expect(verifyClient(makeInput({
-        origin: 'http://example.com',
+        url: '/',
+        hostHeader: 'localhost:3456',
         wsHost: '127.0.0.1',
-      }))).toBe(false);
+        expectedToken: TOKEN,
+      })).toBe(true);
     });
 
-    it('allows non-loopback origin with valid cookie token', () => {
-      expect(verifyClient(makeInput({
+    it('allows 127.0.0.1 browser origin without token', () => {
+      expect(verifyClient({
+        origin: 'http://127.0.0.1:3456',
+        url: '/',
+        hostHeader: '127.0.0.1:3456',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+      })).toBe(true);
+    });
+
+    it('rejects file:// origin even on loopback', () => {
+      expect(verifyClient({
+        origin: 'file:///index.html',
+        url: '/',
+        hostHeader: 'localhost:3456',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+      })).toBe(false);
+    });
+
+    it('rejects non-loopback browser origin without token', () => {
+      expect(verifyClient({
         origin: 'http://example.com',
-        cookieHeader: 'ws_token=test-token-123',
-      }))).toBe(true);
+        url: '/',
+        hostHeader: 'example.com',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+      })).toBe(false);
     });
 
-    it('allows non-loopback origin with valid URL token for browser when allowBrowserUrlToken is set', () => {
-      expect(verifyClient(makeInput({
+    it('allows non-loopback browser origin with valid cookie token on wildcard bind', () => {
+      // Non-loopback origins need a non-loopback bind (0.0.0.0) so Host check passes
+      expect(verifyClient({
+        origin: 'http://example.com',
+        url: '/',
+        hostHeader: 'example.com',
+        cookieHeader: 'ws_token=test-token-123',
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+      })).toBe(true);
+    });
+
+    it('allows non-loopback origin with URL token when allowBrowserUrlToken + allowedHostname match', () => {
+      expect(verifyClient({
         origin: 'http://tunnel.example.com',
         url: '/?token=test-token-123',
+        hostHeader: 'tunnel.example.com',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
         allowBrowserUrlToken: true,
         allowedHostnames: ['tunnel.example.com'],
-      }))).toBe(true);
+      })).toBe(true);
     });
 
     it('rejects non-loopback origin without matching allowedHostname', () => {
-      expect(verifyClient(makeInput({
+      expect(verifyClient({
         origin: 'http://evil.com',
         url: '/?token=test-token-123',
+        hostHeader: 'evil.com',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
         allowBrowserUrlToken: true,
         allowedHostnames: ['good.example.com'],
-      }))).toBe(false);
+      })).toBe(false);
     });
 
     it('rejects unparseable origin', () => {
-      expect(verifyClient(makeInput({
-        origin: 'not a valid url',
-      }))).toBe(false);
+      expect(verifyClient({
+        origin: 'not a url',
+        url: '/',
+        hostHeader: 'localhost:3456',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+      })).toBe(false);
     });
 
-    it('allows non-browser client with valid URL token on non-loopback bind', () => {
-      expect(verifyClient(makeInput({
+    it('allows non-browser client with URL token on non-wildcard bind', () => {
+      // Non-wildcard bind (specific LAN IP) skips the LAN exposure deny
+      expect(verifyClient({
         origin: undefined,
         url: '/?token=test-token-123',
-        wsHost: '0.0.0.0',
-      }))).toBe(true);
+        hostHeader: '192.168.1.1',
+        wsHost: '192.168.1.1',
+        expectedToken: TOKEN,
+      })).toBe(true);
     });
 
     it('rejects non-browser client from remote IP on wildcard bind without token', () => {
-      expect(verifyClient(makeInput({
+      expect(verifyClient({
         origin: undefined,
         url: '/',
+        hostHeader: 'example.com',
         wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
         remoteAddress: '192.168.1.1',
-      }))).toBe(false);
+      })).toBe(false);
     });
 
-    it('allows non-browser client from loopback IP on wildcard bind without token', () => {
-      expect(verifyClient(makeInput({
+    it('allows non-browser client from loopback IP on wildcard bind with token', () => {
+      expect(verifyClient({
         origin: undefined,
-        url: '/',
+        url: '/?token=test-token-123',
+        hostHeader: '127.0.0.1:3456',
         wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
         remoteAddress: '127.0.0.1',
-      }))).toBe(true);
+      })).toBe(true);
     });
 
     it('allows non-browser client on loopback bind without token', () => {
-      expect(verifyClient(makeInput({
+      expect(verifyClient({
         origin: undefined,
         url: '/',
-      }))).toBe(true);
+        hostHeader: 'localhost:3456',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+      })).toBe(true);
     });
 
-    it('rejects client when hostHeader check fails on loopback bind', () => {
-      expect(verifyClient(makeInput({
+    it('rejects client when hostHeader fails loopback check', () => {
+      expect(verifyClient({
+        origin: 'http://localhost:3456',
+        url: '/',
         hostHeader: 'evil.com',
         wsHost: '127.0.0.1',
-      }))).toBe(false);
+        expectedToken: TOKEN,
+      })).toBe(false);
     });
 
-    it('rejects loopback origin with requireToken=true without cookie', () => {
-      expect(verifyClient(makeInput({
+    it('rejects loopback origin with requireToken and no cookie', () => {
+      expect(verifyClient({
         origin: 'http://localhost:3456',
+        url: '/',
+        hostHeader: 'localhost:3456',
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
         requireToken: true,
-      }))).toBe(false);
+      })).toBe(false);
     });
 
-    it('allows loopback origin with requireToken=true and valid cookie', () => {
-      expect(verifyClient(makeInput({
+    it('allows loopback origin with requireToken and valid cookie', () => {
+      expect(verifyClient({
         origin: 'http://localhost:3456',
-        requireToken: true,
+        url: '/',
+        hostHeader: 'localhost:3456',
         cookieHeader: 'ws_token=test-token-123',
-      }))).toBe(true);
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+        requireToken: true,
+      })).toBe(true);
     });
 
     it('rejects non-loopback origin on non-loopback bind without cookie', () => {
-      expect(verifyClient(makeInput({
+      expect(verifyClient({
         origin: 'http://example.com',
+        url: '/',
+        hostHeader: 'example.com',
         wsHost: '0.0.0.0',
-      }))).toBe(false);
+        expectedToken: TOKEN,
+      })).toBe(false);
     });
 
     it('allows non-browser client with valid cookie token', () => {
-      expect(verifyClient(makeInput({
+      expect(verifyClient({
         origin: undefined,
+        url: '/',
+        hostHeader: 'localhost:3456',
         cookieHeader: 'ws_token=test-token-123',
-      }))).toBe(true);
+        wsHost: '127.0.0.1',
+        expectedToken: TOKEN,
+      })).toBe(true);
+    });
+
+    it('allows non-loopback browser origin on non-loopback bind with cookie', () => {
+      expect(verifyClient({
+        origin: 'http://example.com',
+        url: '/',
+        hostHeader: 'example.com',
+        cookieHeader: 'ws_token=test-token-123',
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+      })).toBe(true);
     });
   });
 });

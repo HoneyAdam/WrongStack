@@ -28,6 +28,18 @@ describe('WsBridgeTransport', () => {
     expect(seen).toHaveLength(1); // no dispatch after close
   });
 
+  it('read() always resolves to null (no read-loop model for WS transport)', async () => {
+    const t = new WsBridgeTransport(() => {});
+    expect(await t.read()).toBeNull();
+  });
+
+  it('sendRaw() does nothing for WS transport', () => {
+    const sink: ACPMessage[] = [];
+    const t = new WsBridgeTransport((m) => sink.push(m));
+    t.sendRaw('some bytes');
+    expect(sink).toHaveLength(0);
+  });
+
   it('drives a full prompt turn with a live permission round-trip over the bridge', async () => {
     const sink: ACPMessage[] = [];
     const t = new WsBridgeTransport((m) => sink.push(m));

@@ -100,6 +100,21 @@ describe('readOnlyPermissionPolicy', () => {
     expect(outcome).toEqual({ outcome: 'cancelled' });
   });
 
+  it('returns cancelled from pickReject when no reject options exist', async () => {
+    // readOnlyPermissionPolicy calls pickReject for non-read-only tools.
+    // If there are no reject options, pickReject returns cancelled.
+    const outcome = await readOnlyPermissionPolicy(
+      makeReq({
+        toolCall: { toolCallId: 'tc', title: 'edit', kind: 'edit', status: 'pending' },
+        options: [
+          { optionId: 'allow_once', name: 'Allow Once', kind: 'allow_once' },
+        ],
+      }),
+    );
+    // pickReject finds no reject options → returns cancelled
+    expect(outcome).toEqual({ outcome: 'cancelled' });
+  });
+
   it('uses pickReject when only reject options are available for non-read-only tools', async () => {
     const outcome = await readOnlyPermissionPolicy(
       makeReq({
