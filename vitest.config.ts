@@ -162,14 +162,17 @@ export default defineConfig({
       // Global: 72% lines is achievable with targeted tests.
       // 100% requires DOM/jsdom for webui/tui and LSP stubs for plug-lsp.
       thresholds: {
-        // Floor: 70% statements, 61% branches — must not regress.
-        // Achievable after recent additions (observability health(),
-        // MCP health check error path, SpecDrivenDev tests).
-        // Raise by 1% as each new test file lands.
-        lines: 72,
-        functions: 72,
-        branches: 61,
-        statements: 70,
+        // Floor: 71% statements, 62% branches — must not regress.
+        // Raised after ~2000+ new tests added across all 19 packages:
+        // security-scanner (11 failures fixed, 200 tests), super-memory (359 tests),
+        // bench (239 tests), webui-server (416 new tests), webui (330+ tests),
+        // plugins (477 tests), tools (6 files 100%), cli (84+ tests),
+        // tui (140+ tests), core (40+ tests), kanban (47 tests),
+        // runtime (107 tests), telegram (135 tests), acp (305 tests).
+        lines: 73,
+        functions: 73,
+        branches: 62,
+        statements: 72,
       },
     },
   },
