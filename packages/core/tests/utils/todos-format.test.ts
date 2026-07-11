@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TodoItem } from '../../src/core/context.js';
-import { formatTodosList } from '../../src/utils/todos-format.js';
+import { formatTodosList, hasOpenTodos } from '../../src/utils/todos-format.js';
 
 // Strip ANSI escapes so assertions match regardless of color codes.
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
@@ -114,5 +114,55 @@ describe('todos-format / formatTodosList', () => {
     const out = formatTodosList(todos);
     expect(typeof out).toBe('string');
     expect(out.includes('\n')).toBe(true);
+  });
+});
+
+// ── hasOpenTodos ───────────────────────────────────────────────────
+
+describe('hasOpenTodos', () => {
+  it('returns false for null / undefined / non-array', () => {
+    expect(hasOpenTodos(null)).toBe(false);
+    expect(hasOpenTodos(undefined)).toBe(false);
+    expect(hasOpenTodos('not array' as never)).toBe(false);
+  });
+
+  it('returns false for empty array', () => {
+    expect(hasOpenTodos([])).toBe(false);
+  });
+
+  it('returns false when all todos are completed', () => {
+    const todos: TodoItem[] = [
+      { id: '1', content: 'done', status: 'completed' },
+    ];
+    expect(hasOpenTodos(todos)).toBe(false);
+  });
+
+  it('returns true when there is a pending todo', () => {
+    const todos: TodoItem[] = [
+      { id: '1', content: 'do it', status: 'pending' },
+    ];
+    expect(hasOpenTodos(todos)).toBe(true);
+  });
+
+  it('returns true when there is an in-progress todo', () => {
+    const todos: TodoItem[] = [
+      { id: '1', content: 'doing it', status: 'in_progress' },
+    ];
+    expect(hasOpenTodos(todos)).toBe(true);
+  });
+
+  it('returns true when mixed with completed items', () => {
+    const todos: TodoItem[] = [
+      { id: '1', content: 'done', status: 'completed' },
+      { id: '2', content: 'pending', status: 'pending' },
+    ];
+    expect(hasOpenTodos(todos)).toBe(true);
+  });
+
+  it('accepts readonly arrays', () => {
+    const todos: readonly TodoItem[] = [
+      { id: '1', content: 'task', status: 'pending' },
+    ];
+    expect(hasOpenTodos(todos)).toBe(true);
   });
 });
