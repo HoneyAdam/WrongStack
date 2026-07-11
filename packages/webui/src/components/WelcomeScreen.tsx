@@ -11,8 +11,8 @@ import {
   ArrowRight,
   Clock,
   Crosshair,
-  KeyRound,
   Keyboard,
+  KeyRound,
   Lightbulb,
   RefreshCw,
   Search,
@@ -28,6 +28,8 @@ interface PromptCard {
   title: string;
   hint: string;
   tone: string;
+  /** Gradient strip color at the top of the card */
+  gradient: string;
   /** Full pool of project-agnostic prompts. Only a random subset (PROMPTS_PER_CARD)
    *  is shown at a time; the Shuffle control re-samples from this pool. */
   pool: string[];
@@ -43,6 +45,7 @@ const CARDS: PromptCard[] = [
     title: 'Understand',
     hint: 'Explore and analyze the codebase',
     tone: 'text-info bg-info/10 border-info/20',
+    gradient: 'from-info/25 via-info/10 to-transparent',
     pool: [
       'Map out the structure of this codebase: what are the main modules or components, how do they depend on each other, and what are the key patterns used throughout?',
       'Find and document the public API surface — all exported interfaces, functions, and types that other parts of the system depend on.',
@@ -64,6 +67,7 @@ const CARDS: PromptCard[] = [
     title: 'Create',
     hint: 'Build new features and functionality',
     tone: 'text-success bg-success/10 border-success/20',
+    gradient: 'from-success/25 via-success/10 to-transparent',
     pool: [
       'Add a new feature that covers the full stack: data model, business logic, and any UI or API layers. Follow existing patterns in this codebase.',
       'Write comprehensive tests for a module with low coverage. Include happy paths, edge cases, and error scenarios.',
@@ -74,7 +78,7 @@ const CARDS: PromptCard[] = [
       'Take a value that is currently hardcoded and turn it into a proper configuration option, wired through cleanly with a sensible default.',
       'Build a small CLI or script that automates a repetitive task in this project.',
       'Create an integration test that exercises a real end-to-end path instead of mocking everything away.',
-      'Add a health check or self-diagnostic that reports whether the system’s dependencies are reachable and configured correctly.',
+      "Add a health check or self-diagnostic that reports whether the system's dependencies are reachable and configured correctly.",
       'Introduce a feature-flag mechanism so new behavior can be rolled out gradually and switched off without a redeploy.',
       'Add pagination, filtering, or sorting to a data-listing path that currently returns everything at once.',
     ],
@@ -85,6 +89,7 @@ const CARDS: PromptCard[] = [
     title: 'Investigate',
     hint: 'Debug issues and find root causes',
     tone: 'text-warning bg-warning/10 border-warning/20',
+    gradient: 'from-warning/25 via-warning/10 to-transparent',
     pool: [
       "Something isn't working as expected — help me trace from the symptom to the root cause. Follow the code path and identify where behavior diverges from intent.",
       "There's a difference between how this works locally versus in production or CI. Check for environment differences, configuration issues, or hidden assumptions.",
@@ -97,7 +102,7 @@ const CARDS: PromptCard[] = [
       'Add targeted logging or assertions to narrow down where this bug really happens, then help me interpret the output.',
       "This test is failing or flaky. Figure out whether it's the test that's wrong or the code it's checking.",
       'Walk a confusing edge case through the code and tell me whether the resulting behavior is a genuine bug or intended.',
-      'I suspect a race condition or ordering issue. Look for shared state that’s read or written without proper coordination.',
+      'I suspect a race condition or ordering issue. Look for shared state that\'s read or written without proper coordination.',
     ],
   },
   {
@@ -106,6 +111,7 @@ const CARDS: PromptCard[] = [
     title: 'Improve',
     hint: 'Refactor and optimize existing code',
     tone: 'text-primary bg-primary/10 border-primary/20',
+    gradient: 'from-primary/20 via-primary/8 to-transparent',
     pool: [
       'Find duplicated or similar logic that could be consolidated into shared utilities. Extract the common parts and update the call sites.',
       'Identify modules that have grown too large or handle too many responsibilities. Propose a cleaner separation that can be done incrementally.',
@@ -234,53 +240,55 @@ export function WelcomeScreen() {
 
   return (
     <div className="flex flex-col gap-5 py-5 sm:py-7 max-w-6xl mx-auto w-full">
-      {/* Session start panel */}
-      <div className="ws-surface flex flex-col gap-4 rounded-lg p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="w-12 h-12 rounded-lg bg-primary flex shrink-0 items-center justify-center shadow-sm shadow-primary/20">
-            <Zap className="h-7 w-7 text-primary-foreground" />
+      {/* ── Session start panel ── */}
+      <div className="ws-surface relative overflow-hidden rounded-xl p-5 sm:p-6">
+        {/* Decorative gradient blob — subtle visual depth */}
+        <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-gradient-to-br from-primary/8 via-primary/5 to-transparent blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-gradient-to-tr from-accent/8 to-transparent blur-3xl pointer-events-none" />
+
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex shrink-0 items-center justify-center shadow-sm shadow-primary/30">
+              <Zap className="h-7 w-7 text-primary-foreground" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold tracking-tight">
+                {projectName
+                  ? t('setup:welcome.heroTitleInProject', { name: projectName })
+                  : t('setup:welcome.heroTitle')}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                {t('setup:welcome.heroSubtitle')}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-semibold">
-              {projectName
-                ? t('setup:welcome.heroTitleInProject', { name: projectName })
-                : t('setup:welcome.heroTitle')}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
-              {t('setup:welcome.heroSubtitle')}
-            </p>
+          <div className="grid min-w-0 gap-1 text-left sm:text-right">
+            {provider && model && (
+              <p className="truncate text-xs text-muted-foreground/80 font-mono">
+                {provider} / {model}
+              </p>
+            )}
+            {cwd && (
+              <p className="truncate text-[11px] text-muted-foreground/60 font-mono" title={cwd}>
+                {t('setup:welcome.workingDirectory', { cwd })}
+              </p>
+            )}
           </div>
-        </div>
-        <div className="grid min-w-0 gap-1 text-left sm:text-right">
-          {provider && model && (
-            <p className="truncate text-xs text-muted-foreground/80 font-mono">
-              {provider} / {model}
-            </p>
-          )}
-          {cwd && (
-            <p className="truncate text-[11px] text-muted-foreground/60 font-mono" title={cwd}>
-              {t('setup:welcome.workingDirectory', { cwd })}
-            </p>
-          )}
         </div>
       </div>
 
-      {/* No-keys CTA — shown only when the backend is connected and the
-          providers.saved response confirmed zero registered keys. Lands
-          above the prompt cards because clicking those won't work until
-          the user adds a key. Quietly disappears once at least one
-          provider is registered. */}
+      {/* ── No-keys CTA ── */}
       {wsConnected && savedCount === 0 && (
         <button
           type="button"
           onClick={() => openMainView('settings')}
           className={cn(
-            'group rounded-lg border bg-warning/5',
-            'border-warning/30 hover:border-warning/50 transition-colors shadow-sm',
-            'p-4 flex items-center gap-4 text-left',
+            'group rounded-xl border bg-gradient-to-r from-warning/5 to-warning/[0.02]',
+            'border-warning/30 hover:border-warning/50 transition-all duration-200 shadow-sm',
+            'p-5 flex items-center gap-4 text-left animate-message',
           )}
         >
-          <span className="flex items-center justify-center w-11 h-11 rounded-lg bg-warning/15 text-warning shrink-0">
+          <span className="flex items-center justify-center w-11 h-11 rounded-lg bg-gradient-to-br from-warning/20 to-warning/10 text-warning shrink-0 shadow-sm shadow-warning/10">
             <KeyRound className="h-6 w-6" />
           </span>
           <div className="flex-1 min-w-0">
@@ -295,153 +303,244 @@ export function WelcomeScreen() {
         </button>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      {/* Prompt cards */}
-      <section className="min-w-0 flex flex-col gap-3">
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs uppercase text-muted-foreground font-medium">
-            {t('setup:welcome.startingPrompts')}
-          </span>
-          <button
-            type="button"
-            onClick={shufflePrompts}
-            className="group/shuffle flex items-center gap-1.5 rounded-md border border-border/60 bg-card/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-accent/50 transition-colors"
-            title={t('setup:welcome.shufflePromptsHint')}
-          >
-            <RefreshCw className="h-3.5 w-3.5 transition-transform group-hover/shuffle:rotate-180 duration-300" />
-            {t('setup:welcome.shufflePrompts')}
-          </button>
-        </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 max-h-[calc(100dvh-17rem)] lg:max-h-none overflow-y-auto">
-          {CARDS.map((card, ci) => {
-          const Icon = card.icon;
-          return (
-            <div
-              key={card.id}
-              className="rounded-lg border border-border/70 bg-card/75 p-4 flex flex-col gap-3 animate-message hover:border-primary/30 hover:shadow-sm transition-all"
-              style={{ animationDelay: `${ci * 80}ms` }}
+      {/* ── Main grid: prompts (left) | sidebar (right) ── */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        {/* ========== LEFT: Starting Prompts ========== */}
+        <section className="min-w-0 flex flex-col gap-3">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+              {t('setup:welcome.startingPrompts')}
+            </span>
+            <button
+              type="button"
+              onClick={shufflePrompts}
+              className="group/shuffle flex items-center gap-1.5 rounded-lg border border-border/60 bg-card/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-accent/50 transition-all duration-200"
+              title={t('setup:welcome.shufflePromptsHint')}
             >
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    'flex items-center justify-center w-8 h-8 rounded-md border',
-                    card.tone,
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                </span>
-                <div>
-                  <h3 className="text-sm font-semibold">{t(`setup:welcome.card.${card.id}.title`)}</h3>
-                  <p className="text-xs text-muted-foreground">{t(`setup:welcome.card.${card.id}.hint`)}</p>
+              <RefreshCw className="h-3.5 w-3.5 transition-transform duration-500 group-hover/shuffle:rotate-180" />
+              {t('setup:welcome.shufflePrompts')}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 max-h-[calc(100dvh-17rem)] lg:max-h-none overflow-y-auto">
+            {CARDS.map((card, ci) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.id}
+                className={cn(
+                  'group/card rounded-xl border border-border/70 bg-card/80 flex flex-col overflow-hidden',
+                  'hover:border-primary/30 hover:shadow-md hover:shadow-primary/5',
+                  'transition-all duration-300 animate-message',
+                )}
+                style={{ animationDelay: `${ci * 100}ms` }}
+              >
+                {/* Colored gradient accent strip */}
+                <div className={cn('h-1.5 bg-gradient-to-r shrink-0', card.gradient)} />
+
+                <div className="p-4 pb-2 flex flex-col gap-3">
+                  {/* Card header */}
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={cn(
+                        'flex items-center justify-center w-9 h-9 rounded-lg border shadow-sm',
+                        'bg-background/60 transition-shadow duration-300',
+                        'group-hover/card:shadow-md',
+                        card.tone,
+                      )}
+                    >
+                      <Icon className="h-4.5 w-4.5" />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-semibold">
+                        {t(`setup:welcome.card.${card.id}.title`)}
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t(`setup:welcome.card.${card.id}.hint`)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Prompt items */}
+                  <div className="flex flex-col gap-1">
+                    {(visiblePrompts[card.id] ?? []).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => fillTextarea(p)}
+                        className={cn(
+                          'group/prompt text-left text-xs leading-relaxed',
+                          'text-muted-foreground/90 hover:text-foreground',
+                          'border border-transparent hover:border-border/60',
+                          'rounded-lg px-3 py-2.5 hover:bg-muted/45',
+                          'transition-all duration-200 flex items-start gap-2',
+                        )}
+                        title={p}
+                      >
+                        <span className="flex-1 min-w-0 line-clamp-2">
+                          {promptPreview(p, 180)}
+                        </span>
+                        <ArrowRight
+                          className={cn(
+                            'h-3 w-3 mt-0.5 shrink-0',
+                            'opacity-0 -translate-x-1',
+                            'group-hover/prompt:opacity-100 group-hover/prompt:translate-x-0',
+                            'transition-all duration-200 text-muted-foreground',
+                          )}
+                        />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
+            );
+            })}
+          </div>
+        </section>
+
+        {/* ========== RIGHT: Sidebar ========== */}
+        <aside className="min-w-0 flex flex-col gap-3">
+
+          {/* ─── Pick Back Up (recent sessions) ─── */}
+          {recentSessions.length > 0 && (
+            <div
+              className="rounded-xl border border-border/70 bg-card/70 p-4 animate-message"
+              style={{ animationDelay: '200ms' }}
+            >
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-7 h-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                </div>
+                <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  {t('setup:welcome.pickBackUp')}
+                </span>
+              </div>
               <div className="flex flex-col gap-1.5">
-                {(visiblePrompts[card.id] ?? []).map((p) => (
+                {recentSessions.map((entry, i) => (
                   <button
-                    key={p}
+                    key={entry.id}
                     type="button"
-                    onClick={() => fillTextarea(p)}
-                    className="text-left text-xs leading-relaxed text-foreground/80 hover:text-foreground border border-transparent hover:border-border/60 rounded-md px-3 py-2 hover:bg-muted/45 transition-colors"
-                    title={p}
+                    onClick={() => resumeSession(entry.id)}
+                    className={cn(
+                      'group/sess flex items-center gap-3',
+                      'rounded-lg border border-border/50 bg-background/50',
+                      'hover:border-primary/30 hover:bg-accent/30',
+                      'px-3 py-2.5 transition-all duration-200 text-left animate-message',
+                    )}
+                    style={{ animationDelay: `${250 + i * 80}ms` }}
+                    title={promptPreview(entry.title ?? '', 300)}
                   >
-                    {p}
+                    {/* Timeline indicator dot */}
+                    <span
+                      className={cn(
+                        'w-2 h-2 rounded-full shrink-0',
+                        'bg-primary/40 group-hover/sess:bg-primary transition-colors duration-200',
+                      )}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate text-foreground/90 group-hover/sess:text-primary transition-colors">
+                        {sessionNicknames[entry.id] || entry.title || t('setup:welcome.empty')}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-mono text-muted-foreground/70 bg-muted/50 px-1.5 py-0.5 rounded">
+                          {entry.provider}/{entry.model}
+                        </span>
+                        {entry.tokenTotal > 0 && (
+                          <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">
+                            {entry.tokenTotal.toLocaleString()} tok
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <ArrowRight
+                      className={cn(
+                        'h-3 w-3 shrink-0 text-muted-foreground/30',
+                        'group-hover/sess:text-primary/50 group-hover/sess:translate-x-0.5',
+                        'transition-all duration-200',
+                      )}
+                    />
                   </button>
                 ))}
               </div>
             </div>
-          );
-          })}
-        </div>
-      </section>
+          )}
 
-      <aside className="min-w-0 space-y-3">
-
-      {/* Recent sessions — one-click resume. We pull the most recent
-          non-current sessions so the user can pick back up without leaving
-          the welcome screen. Hidden when there's nothing to show (fresh
-          install / first run). */}
-      {recentSessions.length > 0 && (
-        <div className="rounded-lg border border-border/70 bg-card/65 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <ArchiveRestore className="h-4 w-4 text-muted-foreground" />
-            <span className="text-xs uppercase text-muted-foreground font-medium">
-              {t('setup:welcome.pickBackUp')}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            {recentSessions.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => resumeSession(entry.id)}
-              className="text-left rounded-md border border-border/50 bg-background/60 hover:border-primary/40 hover:bg-accent/40 px-3 py-2 transition-colors group/sess"
-                title={promptPreview(entry.title ?? '', 300)}
-              >
-                <div className="text-sm font-medium truncate text-foreground group-hover/sess:text-primary">
-                  {sessionNicknames[entry.id] || entry.title || t('setup:welcome.empty')}
-                </div>
-                <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
-                  {entry.provider}/{entry.model}
-                  {entry.tokenTotal > 0 && (
-                    <span className="ml-2">· {entry.tokenTotal.toLocaleString()} tok</span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Recent prompts — your own past prompts as one-click refills. Slash
-          commands aren't included (the quick-commands block below handles
-          those). Shows nothing until you've actually typed something. */}
-      {recentPrompts.length > 0 && (
-        <div className="rounded-lg border border-border/70 bg-card/65 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <span className="text-xs uppercase text-muted-foreground font-medium">
-              {t('setup:welcome.recentPrompts')}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {recentPrompts.map((p, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => fillTextarea(p)}
-                className="text-left text-xs leading-relaxed text-muted-foreground hover:text-foreground border border-transparent hover:border-border/60 rounded-md px-3 py-2 hover:bg-background/60 transition-colors min-w-0 overflow-hidden line-clamp-3 break-words [overflow-wrap:anywhere]"
-                title={promptPreview(p, 500)}
-              >
-                {promptPreview(p)}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Slash command quick-ref */}
-      <div className="rounded-lg border border-border/70 bg-card/65 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Keyboard className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs uppercase text-muted-foreground font-medium">
-            {t('setup:welcome.quickCommands')}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {SLASH_REFS.map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              onClick={() => fillTextarea(c.name)}
-              className="text-left flex flex-col gap-0.5 rounded-md border border-border/50 bg-background/60 px-3 py-2 hover:border-primary/40 hover:bg-accent/45 transition-colors"
+          {/* ─── Recent Prompts ─── */}
+          {recentPrompts.length > 0 && (
+            <div
+              className="rounded-xl border border-border/70 bg-card/70 p-4 animate-message"
+              style={{ animationDelay: '300ms' }}
             >
-              <span className="font-mono text-xs text-foreground">{c.name}</span>
-              <span className="text-[11px] text-muted-foreground truncate">{t(`setup:welcome.slashRef.${c.id}`)}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      </aside>
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-7 h-7 rounded-md bg-warning/10 text-warning flex items-center justify-center shrink-0">
+                  <Clock className="h-3.5 w-3.5" />
+                </div>
+                <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  {t('setup:welcome.recentPrompts')}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {recentPrompts.map((p, i) => (
+                  <button
+                    key={`${p}-${i}`}
+                    type="button"
+                    onClick={() => fillTextarea(p)}
+                    className={cn(
+                      'group/chip text-left',
+                      'rounded-lg border border-border/40 bg-background/40',
+                      'hover:bg-accent/25 hover:border-accent/50',
+                      'px-2.5 py-1.5 transition-all duration-200 max-w-full animate-message',
+                    )}
+                    style={{ animationDelay: `${350 + i * 60}ms` }}
+                    title={promptPreview(p, 500)}
+                  >
+                    <span className="text-xs text-muted-foreground/90 group-hover/chip:text-foreground line-clamp-1 break-all">
+                      {promptPreview(p, 60)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ─── Quick Commands (slash references) ─── */}
+          <div
+            className="rounded-xl border border-border/70 bg-card/70 p-4 animate-message"
+            style={{ animationDelay: '400ms' }}
+          >
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-7 h-7 rounded-md bg-success/10 text-success flex items-center justify-center shrink-0">
+                <Keyboard className="h-3.5 w-3.5" />
+              </div>
+              <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                {t('setup:welcome.quickCommands')}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {SLASH_REFS.map((c) => (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() => fillTextarea(c.name)}
+                  className={cn(
+                    'group/cmd flex items-center gap-2',
+                    'rounded-lg border border-border/40 bg-background/40',
+                    'hover:bg-accent/20 hover:border-accent/40',
+                    'px-2.5 py-2 transition-all duration-200 min-w-0',
+                  )}
+                >
+                  <kbd className="text-[11px] font-mono font-semibold text-foreground/80 group-hover/cmd:text-primary transition-colors bg-muted/50 px-1.5 py-0.5 rounded shrink-0 leading-none">
+                    {c.name}
+                  </kbd>
+                  <span className="text-[11px] text-muted-foreground truncate">
+                    {t(`setup:welcome.slashRef.${c.id}`)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+        </aside>
       </div>
     </div>
   );
