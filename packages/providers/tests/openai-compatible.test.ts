@@ -1,5 +1,82 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OpenAICompatibleProvider } from '../src/openai-compatible.js';
+import {
+  isCompatibilityQuirks,
+  OpenAICompatibleProvider,
+} from '../src/openai-compatible.js';
+
+// ── isCompatibilityQuirks (type guard) ────────────────────────────
+
+describe('isCompatibilityQuirks', () => {
+  it('returns true for undefined (no quirks)', () => {
+    expect(isCompatibilityQuirks(undefined)).toBe(true);
+  });
+
+  it('returns false for null', () => {
+    expect(isCompatibilityQuirks(null)).toBe(false);
+  });
+
+  it('returns false for non-object types', () => {
+    expect(isCompatibilityQuirks('string')).toBe(false);
+    expect(isCompatibilityQuirks(42)).toBe(false);
+    expect(isCompatibilityQuirks(true)).toBe(false);
+  });
+
+  it('returns false for arrays', () => {
+    expect(isCompatibilityQuirks([])).toBe(false);
+  });
+
+  it('returns true for empty object', () => {
+    expect(isCompatibilityQuirks({})).toBe(true);
+  });
+
+  it('accepts valid boolean quirk keys', () => {
+    expect(isCompatibilityQuirks({ stripCacheControl: true })).toBe(true);
+    expect(isCompatibilityQuirks({ systemAsMessage: false })).toBe(true);
+    expect(isCompatibilityQuirks({ flattenContentToString: true })).toBe(true);
+    expect(isCompatibilityQuirks({ preserveToolCallIds: false })).toBe(true);
+    expect(isCompatibilityQuirks({ parallelToolsDisabled: true })).toBe(true);
+    expect(isCompatibilityQuirks({ jsonArgumentsBuggy: true })).toBe(true);
+    expect(isCompatibilityQuirks({ stripThinkTags: false })).toBe(true);
+  });
+
+  it('rejects unknown keys', () => {
+    expect(isCompatibilityQuirks({ unknownKey: true })).toBe(false);
+  });
+
+  it('rejects non-boolean values for boolean keys', () => {
+    expect(isCompatibilityQuirks({ stripCacheControl: 'yes' })).toBe(false);
+    expect(isCompatibilityQuirks({ parallelToolsDisabled: 1 })).toBe(false);
+  });
+
+  it('accepts valid emptyToolCallContent values', () => {
+    expect(isCompatibilityQuirks({ emptyToolCallContent: 'null' })).toBe(true);
+    expect(isCompatibilityQuirks({ emptyToolCallContent: 'empty_string' })).toBe(true);
+  });
+
+  it('rejects invalid emptyToolCallContent values', () => {
+    expect(isCompatibilityQuirks({ emptyToolCallContent: 'invalid' })).toBe(false);
+    expect(isCompatibilityQuirks({ emptyToolCallContent: true })).toBe(false);
+  });
+
+  it('accepts valid thinkingParam values', () => {
+    expect(isCompatibilityQuirks({ thinkingParam: 'zai-glm' })).toBe(true);
+    expect(isCompatibilityQuirks({ thinkingParam: 'kimi-toggle' })).toBe(true);
+    expect(isCompatibilityQuirks({ thinkingParam: 'always-on' })).toBe(true);
+  });
+
+  it('rejects invalid thinkingParam values', () => {
+    expect(isCompatibilityQuirks({ thinkingParam: 'invalid' })).toBe(false);
+    expect(isCompatibilityQuirks({ thinkingParam: true })).toBe(false);
+  });
+
+  it('accepts multiple valid keys at once', () => {
+    expect(isCompatibilityQuirks({
+      stripCacheControl: true,
+      emptyToolCallContent: 'null',
+      thinkingParam: 'always-on',
+    })).toBe(true);
+  });
+});
 
 function mockFetchSpy() {
   return vi.fn(async (_url: unknown, init?: { headers?: Record<string, string> }) => {

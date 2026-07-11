@@ -182,6 +182,31 @@ describe('parseNextSteps (raw mode — /suggest subagent output)', () => {
     const { texts } = parseNextSteps(text, false, false);
     expect(texts).toEqual(['Run the typecheck', 'Add a test', 'Commit']);
   });
+
+  it('parses bullet items in raw mode', () => {
+    const text = '- First bullet\n- Second bullet';
+    const { texts } = parseNextSteps(text, false, false);
+    expect(texts).toEqual(['First bullet', 'Second bullet']);
+  });
+
+  it('parses auto="true" items in raw mode', () => {
+    const text = '1. Plain\n2. Auto item auto="true"\n3. Also plain';
+    const { autoTexts } = parseNextSteps(text, false, false);
+    expect(autoTexts).toEqual(['Auto item']);
+  });
+
+  it('skips duplicate numbers in raw mode', () => {
+    const text = '1. First\n1. Duplicate\n2. Second';
+    const { texts } = parseNextSteps(text, false, false);
+    expect(texts).toEqual(['First', 'Second']);
+  });
+
+  it('caps at MAX_STEPS in raw mode', () => {
+    const lines: string[] = [];
+    for (let i = 1; i <= 10; i++) lines.push(`${i}. Step ${i}`);
+    const { steps } = parseNextSteps(lines.join('\n'), false, false);
+    expect(steps).toHaveLength(6);
+  });
 });
 
 describe('parseNextSteps (WebUI parity — previously NextStepsBar.tsx)', () => {
@@ -264,6 +289,63 @@ After.`;
 
     const { stripped } = parseNextSteps(content);
     expect(stripped).not.toMatch(/\n{3,}/);
+  });
+
+  it('accepts bullet items (-) in heading mode', () => {
+    const content = `<nextsteps>
+- First bullet item
+- Second bullet item
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps.map((s) => s.text)).toEqual(['First bullet item', 'Second bullet item']);
+    expect(steps[0]!.index).toBe(1); // bullet gets sequential index
+    expect(steps[1]!.index).toBe(2);
+  });
+
+  it('accepts asterisk bullet items in heading mode', () => {
+    const content = `<nextsteps>
+* Setup
+* Test
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps.map((s) => s.text)).toEqual(['Setup', 'Test']);
+  });
+
+  it('returns empty when heading is followed by non-item text', () => {
+    const content = `<nextsteps>
+This is not a numbered step.
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps).toEqual([]);
+  });
+
+  it('uses alt numbering formats 1) and 1)', () => {
+    const content = `<nextsteps>
+1) First
+2) Second
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps.map((s) => s.text)).toEqual(['First', 'Second']);
+  });
+
+  it('skips blank lines inside the block instead of stopping', () => {
+    const content = `<nextsteps>
+1. First
+
+2. Second
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps.map((s) => s.text)).toEqual(['First', 'Second']);
+  });
+
+  it('stops at a non-item line inside the block', () => {
+    const content = `<nextsteps>
+1. First
+Some commentary
+2. Second
+</nextsteps>`;
+    const { steps } = parseNextSteps(content);
+    expect(steps.map((s) => s.text)).toEqual(['First']);
   });
 });
 
