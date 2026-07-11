@@ -1638,12 +1638,12 @@ export function App({
     });
   }, [agent.ctx]);
 
-  // Keep the F9 goal panel live: refresh the moment it opens and on every tick
-  // while it stays open, so a goal set mid-session via `/goal` — or progress
-  // updated by the autonomy engine — appears without restarting the TUI.
+  // Refresh goal summary on every tick so the statusline and F9 panel
+  // update promptly after /goal clear, /goal set, or goal completion —
+  // without requiring the panel to be open or the TUI to restart.
   useEffect(() => {
-    if (state.goalPanelOpen) refreshGoalSummary();
-  }, [state.goalPanelOpen, nowTick, refreshGoalSummary]);
+    refreshGoalSummary();
+  }, [nowTick, refreshGoalSummary]);
 
   // Animated dot indicator for the refine-in-progress bar. Cycles 0..3
   // while `enhanceBusy` is true so the user sees a live "still working" cue.
