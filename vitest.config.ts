@@ -162,12 +162,14 @@ export default defineConfig({
       // Global: 72% lines is achievable with targeted tests.
       // 100% requires DOM/jsdom for webui/tui and LSP stubs for plug-lsp.
       thresholds: {
-        // Floor: 68% statements, 58% branches — must not regress.
+        // Floor: 70% statements, 61% branches — must not regress.
+        // Achievable after recent additions (observability health(),
+        // MCP health check error path, SpecDrivenDev tests).
         // Raise by 1% as each new test file lands.
-        lines: 70,
-        functions: 70,
-        branches: 58,
-        statements: 68,
+        lines: 71,
+        functions: 71,
+        branches: 61,
+        statements: 70,
       },
     },
   },

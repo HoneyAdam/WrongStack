@@ -363,7 +363,7 @@ describe.skip('TaskFlow', () => {
   });
 });
 
-describe.skip('SpecDrivenDev', () => {
+describe('SpecDrivenDev', () => {
   let _store: DefaultTaskStore;
   let events: EventBus;
 

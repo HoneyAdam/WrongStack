@@ -1,7 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { setupMetrics } from '../src/wiring/metrics.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerMcpHealthCheck, setupMetrics } from '../src/wiring/metrics.js';
 
 // We control startMetricsServer to assert wiring without binding a real socket.
 const startMetricsServerMock = vi.fn();
@@ -48,6 +48,7 @@ describe('setupMetrics', () => {
       metricsSink: undefined,
       healthRegistry: undefined,
       metricsServerHandle: undefined,
+      metricsStatus: { collectionEnabled: false, httpExporter: 'disabled' },
     });
     expect(startMetricsServerMock).not.toHaveBeenCalled();
   });
@@ -68,6 +69,10 @@ describe('setupMetrics', () => {
         expect.objectContaining({ port: 9876, host: '127.0.0.1' }),
       );
       expect(out.metricsServerHandle).toBeDefined();
+      expect(out.metricsStatus).toEqual({
+        collectionEnabled: true,
+        httpExporter: 'listening',
+      });
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -87,6 +92,10 @@ describe('setupMetrics', () => {
       expect(out.healthRegistry).toBeDefined();
       expect(out.metricsServerHandle).toBeUndefined();
       expect(startMetricsServerMock).not.toHaveBeenCalled();
+      expect(out.metricsStatus).toEqual({
+        collectionEnabled: true,
+        httpExporter: 'disabled',
+      });
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -111,6 +120,7 @@ describe('setupMetrics', () => {
       );
       expect(out.metricsSink).toBeDefined();
       expect(out.metricsServerHandle).toBeUndefined();
+      expect(out.metricsStatus.httpExporter).toBe('failed');
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -128,12 +138,14 @@ describe('setupMetrics', () => {
     const checks = (await out.healthRegistry!.run()).checks;
     const session = checks.find((c: { name: string }) => c.name === 'session-store');
     expect(session?.status).toBe('unhealthy');
+    expect(session?.detail).not.toContain(missing);
+    const projectStorage = checks.find((c: { name: string }) => c.name === 'project-storage');
+    expect(projectStorage?.status).toBe('unhealthy');
+    expect(projectStorage?.detail).not.toContain(missing);
     const provider = checks.find((c: { name: string }) => c.name === 'provider');
     expect(provider?.status).toBe('healthy');
-    expect((provider as { data: { id: string; model: string } }).data).toEqual({
-      id: 'a',
-      model: 'm',
-    });
+    expect(provider?.detail).toBe('configured');
+    expect(provider).not.toHaveProperty('data');
   });
 
   it('registers session-store health check that reports healthy when dir exists', async () => {
@@ -149,6 +161,8 @@ describe('setupMetrics', () => {
       const checks = (await out.healthRegistry!.run()).checks;
       const session = checks.find((c: { name: string }) => c.name === 'session-store');
       expect(session?.status).toBe('healthy');
+      const projectStorage = checks.find((c: { name: string }) => c.name === 'project-storage');
+      expect(projectStorage?.status).toBe('healthy');
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -157,7 +171,7 @@ describe('setupMetrics', () => {
   it('ignores non-finite metrics-port without starting server', async () => {
     const tmp = await fs.mkdtemp(path.join(require('node:os').tmpdir(), 'wmtest-'));
     try {
-      setupMetrics({
+      const out = setupMetrics({
         flags: { 'metrics-port': 'not-a-number' },
         wpaths: makeWpaths(tmp),
         events: { on: vi.fn() } as never,
@@ -165,8 +179,67 @@ describe('setupMetrics', () => {
         config: { provider: 'a', model: 'm' },
       });
       expect(startMetricsServerMock).not.toHaveBeenCalled();
+      expect(out.metricsStatus.httpExporter).toBe('failed');
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe('registerMcpHealthCheck', () => {
+  function captureCheck(servers: Array<{ name: string; state: string; enabled: boolean }>) {
+    const register = vi.fn();
+    registerMcpHealthCheck(
+      { register } as never,
+      {
+        describe: () => servers.map((server) => ({ ...server, toolCount: 0, tools: [] })),
+      } as never,
+    );
+    return register.mock.calls[0]![0] as { check(): Promise<{ status: string; detail: string }> };
+  }
+
+  it('does not register when health collection is disabled', () => {
+    expect(() => registerMcpHealthCheck(undefined, { describe: vi.fn() } as never)).not.toThrow();
+  });
+
+  it('treats no configured servers and lazy dormant servers as healthy', async () => {
+    expect(await captureCheck([]).check()).toMatchObject({
+      status: 'healthy',
+      detail: 'no servers configured',
+    });
+    expect(
+      await captureCheck([
+        { name: 'private-server-name', state: 'connected', enabled: true },
+        { name: 'lazy-secret-server', state: 'dormant', enabled: true },
+      ]).check(),
+    ).toMatchObject({ status: 'healthy', detail: '1 connected, 1 dormant' });
+  });
+
+  it('reports transitional states as degraded without exposing server names', async () => {
+    const result = await captureCheck([
+      { name: 'sensitive-server-name', state: 'reconnecting', enabled: true },
+      { name: 'ready', state: 'connected', enabled: true },
+    ]).check();
+    expect(result).toMatchObject({ status: 'degraded', detail: '1 connected, 1 reconnecting' });
+    expect(result.detail).not.toContain('sensitive-server-name');
+  });
+
+  it('reports a failed enabled server as unhealthy and ignores disabled servers', async () => {
+    const result = await captureCheck([
+      { name: 'failed-private-server', state: 'failed', enabled: true },
+      { name: 'disabled-private-server', state: 'failed', enabled: false },
+    ]).check();
+    expect(result).toMatchObject({ status: 'unhealthy', detail: '1 failed' });
+    expect(result.detail).not.toContain('private-server');
+  });
+
+  it('reports unhealthy when registry describe throws', async () => {
+    const register = vi.fn();
+    registerMcpHealthCheck(
+      { register } as never,
+      { describe: () => { throw new Error('boom'); } } as never,
+    );
+    const result = await (register.mock.calls[0]![0] as { check(): Promise<unknown> }).check();
+    expect(result).toMatchObject({ status: 'unhealthy', detail: 'registry status unavailable' });
   });
 });
