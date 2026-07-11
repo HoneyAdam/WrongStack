@@ -24,6 +24,10 @@
     "soundOnCompleteHint": "Play a soft chime when a run finishes.",
     "titleAnimation": "Title animation",
     "titleAnimationHint": "Show animated terminal title in the CLI.",
+    "showThinkingLabel": "Show thinking logs",
+    "showThinkingHint": "Display completed reasoning blocks in the chat history.",
+    "groupToolCallsLabel": "Group tool calls",
+    "groupToolCallsHint": "Collapse consecutive tool calls into a single chip.",
     "languageHeading": "Language",
     "languageLabel": "Interface language",
     "languageHint": "Changes only the interface text. Prompts, skills, and model output are not affected."

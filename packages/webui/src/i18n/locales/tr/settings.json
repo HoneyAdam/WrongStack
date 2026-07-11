@@ -21,6 +21,10 @@
     "soundOnCompleteHint": "Bir çalışma bitince hafif bir çan sesi çal.",
     "titleAnimation": "Başlık animasyonu",
     "titleAnimationHint": "CLI'da animasyonlu terminal başlığını göster.",
+    "showThinkingLabel": "Düşünme kayıtlarını göster",
+    "showThinkingHint": "Tamamlanan akıl yürütme bloklarını sohbet geçmişinde görüntüle.",
+    "groupToolCallsLabel": "Araç çağrılarını grupla",
+    "groupToolCallsHint": "Ardışık araç çağrılarını tek bir çipte topla.",
     "languageHeading": "Dil",
     "languageLabel": "Arayüz dili",
     "languageHint": "Yalnızca arayüz metnini değiştirir. Promptlar, beceriler ve model çıktısı etkilenmez."

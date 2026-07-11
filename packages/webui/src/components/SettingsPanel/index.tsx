@@ -708,6 +708,18 @@ export function SettingsPanel() {
                   value={localPrefs.titleAnimation}
                   onChange={() => syncPref('titleAnimation', !localPrefs.titleAnimation)}
                 />
+                <PreferenceToggle
+                  label={t('settings:appearance.showThinkingLabel')}
+                  hint={t('settings:appearance.showThinkingHint')}
+                  value={localPrefs.showThinkingLogs}
+                  onChange={() => syncPref('showThinkingLogs', !localPrefs.showThinkingLogs)}
+                />
+                <PreferenceToggle
+                  label={t('settings:appearance.groupToolCallsLabel')}
+                  hint={t('settings:appearance.groupToolCallsHint')}
+                  value={localPrefs.groupToolCalls}
+                  onChange={() => syncPref('groupToolCalls', !localPrefs.groupToolCalls)}
+                />
               </div>
             </TabsContent>
 
