@@ -20,6 +20,16 @@ const NON_PACKAGE_AUDIT_NAMES = new Set([
   'telegram',
 ]);
 
+/**
+ * Subpath exports that are *not* plugins — they are shared helpers
+ * (like the language-agnostic runtime). They are intentionally part of
+ * the package's surface area but are excluded from plugin-level
+ * parity checks.
+ */
+const NON_PLUGIN_EXPORT_NAMES = new Set([
+  'runtime',
+]);
+
 async function bundledPluginNames(): Promise<string[]> {
   const entries = await fs.readdir(path.join(pluginsRoot, 'src'), { withFileTypes: true });
   const names = await Promise.all(
@@ -34,7 +44,10 @@ async function bundledPluginNames(): Promise<string[]> {
         }
       }),
   );
-  return names.filter((name): name is string => name !== null).sort();
+  return names
+    .filter((name): name is string => name !== null)
+    .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name))
+    .sort();
 }
 
 function matches(source: string, pattern: RegExp): string[] {
@@ -74,9 +87,12 @@ describe('@wrongstack/plugins registration parity', () => {
     };
     const packageExports = Object.keys(packageJson.exports ?? {})
       .filter((specifier) => specifier.startsWith('./'))
-      .map((specifier) => specifier.slice(2));
-    const tsupEntries = matches(tsupSource, /['"]([^'"]+)['"]\s*:\s*['"]src\/\1\/index\.ts['"]/g);
-    const indexExports = matches(indexSource, /from ['"]\.\/([^/'"]+)\/index\.js['"]/g);
+      .map((specifier) => specifier.slice(2))
+      .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name));
+    const tsupEntries = matches(tsupSource, /['"]([^'"]+)['"]\s*:\s*['"]src\/\1\/index\.ts['"]/g)
+      .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name));
+    const indexExports = matches(indexSource, /from ['"]\.\/([^/'"]+)\/index\.js['"]/g)
+      .filter((name) => !NON_PLUGIN_EXPORT_NAMES.has(name));
     const factoryImports = matches(
       wiringSource,
       /import\(['"]@wrongstack\/plugins\/([^'"]+)['"]\)/g,

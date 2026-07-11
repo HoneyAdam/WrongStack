@@ -160,5 +160,24 @@ describe('runtime helper', () => {
         resolveRunnerCommand(TYPESCRIPT_RUNTIME, '/usr/bin/tsc --noEmit', { projectRoot: process.cwd() }),
       ).toBeNull();
     });
+    it('rejects runtimes where allowedFlags is null with leading-dash tokens', () => {
+      // Defense in depth: if a runtime declares null allowedFlags, every
+      // leading-dash token must be rejected, not silently forwarded. This
+      // is the same defensive check everyFlagAllowed enforces.
+      const open = { ...TYPESCRIPT_RUNTIME, allowedFlags: null };
+      expect(resolveRunnerCommand(open, 'tsc --noEmit')).toBeNull();
+    });
+  });
+});
+
+describe('runtime descriptor on plugin manifests', () => {
+  it('type-gate declares its runtime so /diag plugins can list it', async () => {
+    const { default: typeGate } = await import('../src/type-gate/index.js');
+    const runtime = typeGate.runtime;
+    expect(runtime).toBeDefined();
+    expect(runtime?.language).toBe('typescript');
+    expect(runtime?.executable).toBe('tsc');
+    expect(runtime?.packageManager).toBe('pnpm');
+    expect(runtime?.defaultCommand).toMatch(/^pnpm exec tsc/);
   });
 });

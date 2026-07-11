@@ -346,4 +346,39 @@ export interface Plugin {
    * `{ ok: false, message: '...' }` when the plugin is degraded.
    */
   health?(): Promise<{ ok: boolean; message?: string | undefined }>;
+  /**
+   * Optional runtime descriptor. Plugins that spawn a language tool
+   * (`tsc`, `vitest`, `pytest`, `cargo test`, `go test`, …) should
+   * declare the target language, package manager, runner executable,
+   * and default command. The shared runtime helper
+   * (`@wrongstack/plugins/runtime`) consumes this declaration so the
+   * argv-sandboxing and flag-allowlist logic live in one place.
+   *
+   * Declaring a runtime is a UX hint today — the loader surfaces it in
+   * `/diag plugins` and the audit report. It will become a requirement
+   * for plugins that spawn language tools in a future release.
+   */
+  runtime?: PluginRuntime | undefined;
+}
+
+/**
+ * Plugin runtime declaration. The shared runtime helper
+ * (`@wrongstack/plugins/runtime`) is the source of truth for the
+ * shape and validation; this type lives in core so plugin manifests
+ * can depend on it without crossing the plugin boundary.
+ */
+export interface PluginRuntime {
+  /** Stable identifier for diagnostics and listing (e.g. "typescript"). */
+  language: string;
+  /** Default package manager launcher (e.g. "pnpm"). "none" for bare-binary use. */
+  packageManager: 'none' | 'npm' | 'pnpm' | 'yarn' | 'bun' | 'pip' | 'poetry' | 'go' | 'cargo' | 'gem' | 'maven' | 'gradle' | 'dotnet';
+  /** Runner executable token, e.g. "tsc", "vitest", "pytest", "test" (cargo), "test" (go). */
+  executable: string;
+  /**
+   * Default command spelling used when the plugin has no user-supplied
+   * command. Must be parseable by the shared runtime helper — typically
+   * the launcher followed by `subcommand executable …flags`, or the
+   * bare executable.
+   */
+  defaultCommand: string;
 }

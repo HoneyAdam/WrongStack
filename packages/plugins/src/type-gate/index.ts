@@ -241,6 +241,12 @@ function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
 const plugin: Plugin = {
   name: 'type-gate',
   version: '0.1.0',
+  runtime: {
+    language: 'typescript',
+    packageManager: 'pnpm',
+    executable: 'tsc',
+    defaultCommand: 'pnpm exec tsc --noEmit',
+  },
   description:
     'PostToolUse hook that runs TypeScript type-checking after every write or edit to a source file',
   apiVersion: API_VERSION,
