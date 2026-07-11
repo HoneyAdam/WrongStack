@@ -111,6 +111,40 @@ describe('applyLiveBatch', () => {
     expect(s1.entries).toHaveLength(1);
     expect(s1.rev).toBeGreaterThan(s0.rev);
   });
+
+  it('returns the same state when entries array is empty (line 111 guard)', () => {
+    const s = applyFetch(createTranscriptState(), [e({ role: 'user', text: 'hello' })]);
+    const result = applyLiveBatch(s, 0, []);
+    expect(result).toBe(s); // same reference — no re-render
+    expect(result.entries).toHaveLength(1);
+  });
+
+  it('derives batch key from first entry when fromSeq is undefined (line 112–113)', () => {
+    // When fromSeq is undefined, the batch key is derived from entryKey of
+    // the first entry + the batch length. This path is exercised by callers
+    // that cannot supply a sequence number.
+    const s = applyFetch(createTranscriptState(), []);
+    const batch = [e({ role: 'assistant', text: 'step 1' })];
+    const s1 = applyLiveBatch(s, undefined, batch);
+    expect(s1.entries).toHaveLength(1);
+    // Calling again with the same entries (and no fromSeq) should be a no-op.
+    const s2 = applyLiveBatch(s1, undefined, batch);
+    expect(s2).toBe(s1);
+  });
+
+  it('uses empty-string fallback when live result has no text (line 64 || fallback)', () => {
+    let s = applyFetch(createTranscriptState(), []);
+    s = applyLiveBatch(s, 0, [
+      e({ role: 'tool', tool: 'bash', toolInput: '{"cmd":"ls"}', text: '', toolUseId: 'tu1' }),
+    ]);
+    // Merged result entry has empty text → tgt.text should be ''.
+    s = applyLiveBatch(s, 1, [
+      e({ role: 'tool', text: '', toolUseId: 'tu1', durationMs: 10 }),
+    ]);
+    expect(s.entries).toHaveLength(1);
+    expect(s.entries[0]!.text).toBe('');
+    expect(s.entries[0]!.durationMs).toBe(10);
+  });
 });
 
 describe('entryKey', () => {

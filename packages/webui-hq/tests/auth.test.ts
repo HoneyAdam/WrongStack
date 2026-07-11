@@ -151,3 +151,52 @@ describe('authorizedFetch', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/snapshot', { headers: {} });
   });
 });
+
+describe('error-path catch blocks', () => {
+  it('readUrlToken catch: returns null when URLSearchParams throws', async () => {
+    // URLSearchParams can throw when the query string is extreme; the catch
+    // safety-net must return null so the caller falls through to stored token.
+    setUrl('/?token=boom');
+    // @ts-expect-error: deliberately injecting a throwing constructor
+    const OrigURLSearchParams = globalThis.URLSearchParams;
+    // @ts-expect-error: assigning a throwing stub
+    globalThis.URLSearchParams = class {
+      constructor() { throw new Error('parse fail'); }
+      get() { return null; }
+    };
+    try {
+      // Re-import fresh to exercise the catch inside readUrlToken
+      const { resolveHqToken: resolveAgain } = (await import('../src/lib/auth.js'));
+      expect(resolveAgain()).toBeNull();
+    } finally {
+      globalThis.URLSearchParams = OrigURLSearchParams;
+    }
+  });
+
+  it('readStoredToken catch: returns null when getItem throws', () => {
+    setHqToken('stored-tok');
+    // Replace sessionStorage with a mock where getItem throws, so the
+    // try-catch in readStoredToken fires and returns null.
+    const origDescriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage')!;
+    const mockStorage = {
+      getItem: () => { throw new Error('quota exceeded'); },
+      setItem: () => { throw new Error('readonly'); },
+      removeItem: () => { throw new Error('readonly'); },
+      get length() { return 0; },
+      key: () => null,
+      clear: () => {},
+    };
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: mockStorage,
+    });
+    try {
+      // Without URL token and with a throwing storage, resolveHqToken
+      // should fall through readStoredToken's catch and return null.
+      setUrl('/');
+      expect(resolveHqToken()).toBeNull();
+    } finally {
+      Object.defineProperty(window, 'sessionStorage', origDescriptor);
+    }
+  });
+});

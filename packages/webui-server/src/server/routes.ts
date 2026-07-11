@@ -75,7 +75,11 @@ import {
   handleMcpDiscover,
   handleMcpEnable,
   handleMcpList,
+  handleMcpPromptGet,
+  handleMcpPrompts,
   handleMcpRemove,
+  handleMcpResourceRead,
+  handleMcpResources,
   handleMcpRestart,
   handleMcpSleep,
   handleMcpUpdate,
@@ -161,7 +165,6 @@ export interface WebuiMutableState {
   /** Read-only reference to the live WS clients map. */
   getClients(): Map<WebSocket, ConnectedClient>;
 }
-
 async function enrichProviderModelDescriptors(
   modelsRegistry: ModelsRegistry,
   providerId: string,
@@ -769,6 +772,11 @@ export function buildRoutes(
     wake: (ws, msg) => handleMcpWake(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
     restart: (ws, msg) => handleMcpRestart(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
     discover: (ws, msg) => handleMcpDiscover(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
+    resources: (ws, msg) => handleMcpResources(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
+    prompts: (ws, msg) => handleMcpPrompts(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
+    resourceRead: (ws, msg) =>
+      handleMcpResourceRead(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
+    promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
   };
 
   const brainRoutes: BrainRouteHandlers = {

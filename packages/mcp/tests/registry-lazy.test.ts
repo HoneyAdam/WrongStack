@@ -9,9 +9,20 @@ const h = vi.hoisted(() => ({
   connectCalls: 0,
   callToolCalls: 0,
   closes: 0,
+  listResourcesCalls: 0,
+  listPromptsCalls: 0,
+  resourcesChanged: undefined as ((name: string) => void) | undefined,
+  promptsChanged: undefined as ((name: string) => void) | undefined,
   tools: [
     { name: 'echo', description: 'echo', inputSchema: { type: 'object', properties: {} } },
   ] as { name: string; description?: string; inputSchema: Record<string, unknown> }[],
+  resourcePages: [
+    {
+      resources: [{ uri: 'mem://guide', name: 'guide' }],
+      nextCursor: 'page-2',
+    },
+    { resources: [{ uri: 'mem://reference', name: 'reference' }] },
+  ],
 }));
 
 vi.mock('../src/client.js', async (orig) => {
@@ -27,6 +38,36 @@ vi.mock('../src/client.js', async (orig) => {
     listTools() {
       return h.tools;
     }
+    getServerMetadata() {
+      return {
+        protocolVersion: '2025-06-18',
+        capabilities: {
+          tools: {},
+          resources: { listChanged: true },
+          prompts: { listChanged: true },
+        },
+        serverInfo: { name: 'fake', version: '1.0.0' },
+      };
+    }
+    async listResources(opts: { cursor?: string } = {}) {
+      h.listResourcesCalls++;
+      return opts.cursor ? h.resourcePages[1] : h.resourcePages[0];
+    }
+    async listResourceTemplates() {
+      return { resourceTemplates: [{ uriTemplate: 'mem://{id}', name: 'memory' }] };
+    }
+    async readResource(uri: string) {
+      return { contents: [{ uri, text: 'resource text' }] };
+    }
+    async subscribeResource() {}
+    async unsubscribeResource() {}
+    async listPrompts() {
+      h.listPromptsCalls++;
+      return { prompts: [{ name: 'review' }] };
+    }
+    async getPrompt(name: string) {
+      return { messages: [{ role: 'user', content: { type: 'text', text: name } }] };
+    }
     async callTool() {
       h.callToolCalls++;
       return { content: 'ok', isError: false };
@@ -40,6 +81,18 @@ vi.mock('../src/client.js', async (orig) => {
     removeDisconnectListener() {}
     addToolsChangedListener() {}
     removeToolsChangedListener() {}
+    addResourcesChangedListener(listener: (name: string) => void) {
+      h.resourcesChanged = listener;
+    }
+    removeResourcesChangedListener(listener: (name: string) => void) {
+      if (h.resourcesChanged === listener) h.resourcesChanged = undefined;
+    }
+    addPromptsChangedListener(listener: (name: string) => void) {
+      h.promptsChanged = listener;
+    }
+    removePromptsChangedListener(listener: (name: string) => void) {
+      if (h.promptsChanged === listener) h.promptsChanged = undefined;
+    }
   }
   return { ...actual, MCPClient: FakeClient };
 });
@@ -76,6 +129,17 @@ beforeEach(async () => {
   h.connectCalls = 0;
   h.callToolCalls = 0;
   h.closes = 0;
+  h.listResourcesCalls = 0;
+  h.listPromptsCalls = 0;
+  h.resourcesChanged = undefined;
+  h.promptsChanged = undefined;
+  h.resourcePages = [
+    {
+      resources: [{ uri: 'mem://guide', name: 'guide' }],
+      nextCursor: 'page-2',
+    },
+    { resources: [{ uri: 'mem://reference', name: 'reference' }] },
+  ];
 });
 
 afterEach(async () => {
@@ -96,6 +160,39 @@ describe('MCPRegistry lazy-connect', () => {
     // Manifest persisted for next boot.
     const manifest = await fs.readFile(path.join(tmp, 'mcp-tools', 'svc.json'), 'utf8');
     expect(manifest).toContain('echo');
+    expect(manifest).toContain('mem://guide');
+    expect(manifest).toContain('review');
+    await reg.stopAll();
+  });
+
+  it('publishes bounded operational health and call telemetry', async () => {
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog, cacheDir: tmp });
+    const operations: unknown[] = [];
+    const unsubscribe = reg.onOperation((event) => operations.push(event));
+    await reg.start(lazyCfg('private-server'));
+
+    const tool = toolReg.list().find((item) => item.name === 'mcp__private-server__echo');
+    expect(tool).toBeDefined();
+    if (!tool) throw new Error('expected wrapped MCP tool');
+    await tool.execute({ token: 'not-in-telemetry' }, {} as Parameters<typeof tool.execute>[1], {
+      signal: new AbortController().signal,
+    });
+
+    const health = reg.operationalHealth()[0]!;
+    expect(health).toMatchObject({
+      name: 'private-server',
+      healthState: 'healthy',
+      failures: { transport: 0, protocol: 0, tool: 0 },
+      inFlightCalls: 0,
+      peakInFlightCalls: 1,
+    });
+    expect(health.connectionLatency.count).toBe(1);
+    expect(health.discoveryLatency.count).toBe(1);
+    expect(health.callLatency.count).toBe(1);
+    expect(JSON.stringify({ operations, health })).not.toContain('not-in-telemetry');
+    expect(JSON.stringify({ operations, health })).not.toContain('echo');
+
+    unsubscribe();
     await reg.stopAll();
   });
 
@@ -119,7 +216,77 @@ describe('MCPRegistry lazy-connect', () => {
     expect(reg2.list().find((s) => s.name === 'svc')?.state).toBe('dormant');
     // Tools are still visible to the model.
     expect(toolReg2.list().some((t) => t.name === 'mcp__svc__echo')).toBe(true);
+    expect(reg2.getCatalog('svc')).toMatchObject({
+      resources: [{ name: 'guide' }, { name: 'reference' }],
+      resourceTemplates: [{ name: 'memory' }],
+      prompts: [{ name: 'review' }],
+    });
+    await expect(reg2.listResources('svc')).resolves.toHaveLength(2);
+    expect(h.connectCalls).toBe(0);
+    const mutable = reg2.getCatalog('svc');
+    if (mutable?.resources?.[0]) mutable.resources[0].name = 'changed-by-caller';
+    expect(reg2.getCatalog('svc')?.resources?.[0]?.name).toBe('guide');
     await reg2.stopAll();
+  });
+
+  it('invalidates list-change caches and refreshes them on the next read', async () => {
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog, cacheDir: tmp });
+    await reg.start(lazyCfg('svc'));
+    expect(h.listResourcesCalls).toBe(2);
+    expect(h.listPromptsCalls).toBe(1);
+
+    h.resourcesChanged?.('svc');
+    h.promptsChanged?.('svc');
+    expect(reg.getCatalog('svc')?.resources).toBeUndefined();
+    expect(reg.getCatalog('svc')?.resourceTemplates).toBeUndefined();
+    expect(reg.getCatalog('svc')?.prompts).toBeUndefined();
+
+    await expect(reg.listResources('svc')).resolves.toHaveLength(2);
+    await expect(reg.listPrompts('svc')).resolves.toEqual([
+      {
+        name: 'review',
+      },
+    ]);
+    expect(h.listResourcesCalls).toBe(4);
+    expect(h.listPromptsCalls).toBe(2);
+    await reg.stopAll();
+  });
+
+  it('delegates resource reads and prompt gets through the live client', async () => {
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog, cacheDir: tmp });
+    await reg.start(lazyCfg('svc'));
+
+    await expect(reg.readResource('svc', 'mem://guide')).resolves.toEqual({
+      contents: [{ uri: 'mem://guide', text: 'resource text' }],
+    });
+    await expect(reg.getPrompt('svc', 'review')).resolves.toMatchObject({
+      messages: [{ content: { text: 'review' } }],
+    });
+    await expect(reg.subscribeResource('svc', 'mem://guide')).resolves.toBeUndefined();
+    await expect(reg.unsubscribeResource('svc', 'mem://guide')).resolves.toBeUndefined();
+    await expect(reg.selectResourceForInsertion('svc', 'mem://guide')).resolves.toMatchObject({
+      untrusted: true,
+      provenance: { serverName: 'svc', resourceUri: 'mem://guide' },
+    });
+    await expect(reg.selectPromptForInsertion('svc', 'review')).resolves.toMatchObject({
+      untrusted: true,
+      provenance: { serverName: 'svc', promptName: 'review' },
+    });
+    await reg.stopAll();
+  });
+
+  it('rejects repeated pagination cursors instead of looping forever', async () => {
+    h.resourcePages = [
+      { resources: [{ uri: 'mem://one', name: 'one' }], nextCursor: 'same' },
+      { resources: [{ uri: 'mem://two', name: 'two' }], nextCursor: 'same' },
+    ];
+    const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog, cacheDir: tmp });
+    await reg.start(lazyCfg('svc'));
+
+    await expect(reg.listResources('svc', { refresh: true })).rejects.toThrow(
+      /repeated cursor "same"/,
+    );
+    await reg.stopAll();
   });
 
   it('spawns on first tool call (single-flight under concurrency)', async () => {

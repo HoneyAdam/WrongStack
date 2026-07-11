@@ -33,6 +33,12 @@ export interface MetricsSnapshot {
   series: MetricSeries[];
 }
 
+/** Safe host-level status surfaced by `/metrics`; contains no endpoint or credentials. */
+export interface MetricsRuntimeStatus {
+  collectionEnabled: boolean;
+  httpExporter: 'disabled' | 'listening' | 'failed' | 'unknown';
+}
+
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 
 export interface HealthCheckResult {

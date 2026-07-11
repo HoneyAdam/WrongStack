@@ -37,7 +37,6 @@ function wsUrlCanUseAuthCookie(wsUrl: string): boolean {
     return true;
   }
 }
-
 export class WrongStackWebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -706,6 +705,25 @@ export class WrongStackWebSocketClient {
 
   discoverMcpServer(name: string) {
     this.send({ type: 'mcp.discover', payload: { name } });
+  }
+
+  listMcpResources(name: string, refresh = false) {
+    this.send({ type: 'mcp.resources', payload: { name, refresh } });
+  }
+
+  listMcpPrompts(name: string, refresh = false) {
+    this.send({ type: 'mcp.prompts', payload: { name, refresh } });
+  }
+
+  readMcpResource(name: string, uri: string) {
+    this.send({ type: 'mcp.resource.read', payload: { name, uri } });
+  }
+
+  getMcpPrompt(name: string, prompt: string, args?: Record<string, string>) {
+    this.send({
+      type: 'mcp.prompt.get',
+      payload: { name, prompt, ...(args === undefined ? {} : { arguments: args }) },
+    });
   }
 
   enableMcpServer(name: string) {

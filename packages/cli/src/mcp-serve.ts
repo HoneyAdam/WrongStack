@@ -7,6 +7,9 @@
  * tools are exposed, while shell/write/edit and dangerous-capability tools are
  * withheld. `--yolo` exposes everything; `--tools a,b,c` restricts the set.
  */
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   AutoApprovePermissionPolicy,
   Context,
@@ -19,7 +22,15 @@ import {
   ToolRegistry,
 } from '@wrongstack/core';
 import { ToolExecutor } from '@wrongstack/core/execution';
-import { MCPServer, type MCPServerToolHost, serveHttp, serveStdio } from '@wrongstack/mcp';
+import {
+  DEFAULT_MCP_INSERTION_MAX_BYTES,
+  MCPServer,
+  type MCPServerPrompt,
+  type MCPServerResource,
+  type MCPServerToolHost,
+  serveHttp,
+  serveStdio,
+} from '@wrongstack/mcp';
 import { builtinToolsPack } from '@wrongstack/tools';
 import type { SubcommandDeps } from './subcommands/index.js';
 
@@ -40,6 +51,135 @@ function parseToolsFlag(flags: Record<string, string | boolean>): Set<string> | 
       .filter(Boolean),
   );
   return set.size > 0 ? set : null;
+}
+
+export interface SelectedMcpServeContent {
+  resources: MCPServerResource[];
+  prompts: MCPServerPrompt[];
+}
+
+/** Load only files explicitly named by trusted CLI flags; nothing is auto-discovered. */
+export async function loadSelectedMcpServeContent(
+  flags: Record<string, string | boolean>,
+  cwd: string,
+): Promise<SelectedMcpServeContent> {
+  const resources: MCPServerResource[] = [];
+  const prompts: MCPServerPrompt[] = [];
+  const resourceUris = new Set<string>();
+  const promptNames = new Set<string>();
+  for (const selected of commaSeparatedFlag(flags, 'resources')) {
+    const file = path.resolve(cwd, selected);
+    const data = await readSelectedFile(file);
+    const uri = pathToFileURL(file).toString();
+    if (resourceUris.has(uri)) throw new Error(`Duplicate MCP resource selection: ${selected}`);
+    resourceUris.add(uri);
+    const mimeType = mimeTypeFor(file);
+    resources.push({
+      uri,
+      name: path.basename(file),
+      mimeType,
+      size: data.byteLength,
+      contents: [
+        isTextMime(mimeType)
+          ? { uri, mimeType, text: data.toString('utf8') }
+          : { uri, mimeType, blob: data.toString('base64') },
+      ],
+    });
+  }
+  for (const selected of commaSeparatedFlag(flags, 'prompts')) {
+    const file = path.resolve(cwd, selected);
+    const data = await readSelectedFile(file);
+    const name = path
+      .basename(file, path.extname(file))
+      .replace(/[^A-Za-z0-9_.-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (!name) throw new Error(`Cannot derive an MCP prompt name from: ${selected}`);
+    if (promptNames.has(name)) throw new Error(`Duplicate MCP prompt name: ${name}`);
+    promptNames.add(name);
+    const template = data.toString('utf8');
+    const argumentNames = Array.from(
+      template.matchAll(/\{\{([A-Za-z_][A-Za-z0-9_.-]*)\}\}/g),
+      (match) => match[1],
+    ).filter((value, index, all): value is string => !!value && all.indexOf(value) === index);
+    prompts.push({
+      name,
+      description: `Explicitly selected local prompt: ${path.basename(file)}`,
+      arguments: argumentNames.map((argument) => ({ name: argument, required: true })),
+      template,
+    });
+  }
+  return { resources, prompts };
+}
+
+function commaSeparatedFlag(
+  flags: Record<string, string | boolean>,
+  name: 'resources' | 'prompts',
+): string[] {
+  const value = flags[name];
+  if (value === undefined) return [];
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`--${name} requires a comma-separated file list`);
+  }
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function readSelectedFile(file: string): Promise<Buffer> {
+  const stat = await fs.stat(file);
+  if (!stat.isFile()) throw new Error(`Selected MCP content is not a regular file: ${file}`);
+  if (stat.size > DEFAULT_MCP_INSERTION_MAX_BYTES) {
+    throw new Error(
+      `Selected MCP content exceeds ${DEFAULT_MCP_INSERTION_MAX_BYTES} bytes: ${file}`,
+    );
+  }
+  return fs.readFile(file);
+}
+
+function mimeTypeFor(file: string): string {
+  switch (path.extname(file).toLowerCase()) {
+    case '.md':
+    case '.mdx':
+      return 'text/markdown';
+    case '.json':
+      return 'application/json';
+    case '.yaml':
+    case '.yml':
+      return 'application/yaml';
+    case '.html':
+      return 'text/html';
+    case '.css':
+      return 'text/css';
+    case '.js':
+    case '.mjs':
+      return 'text/javascript';
+    case '.ts':
+    case '.tsx':
+      return 'text/typescript';
+    case '.txt':
+    case '.log':
+      return 'text/plain';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.webp':
+      return 'image/webp';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function isTextMime(mimeType: string): boolean {
+  return (
+    mimeType.startsWith('text/') ||
+    mimeType === 'application/json' ||
+    mimeType === 'application/yaml'
+  );
 }
 
 /** Minimal run context — tools read cwd/projectRoot/signal; provider/session are stubs. */
@@ -106,6 +246,13 @@ export async function serveMcpStdio(deps: SubcommandDeps): Promise<number> {
   const yolo = flags['yolo'] === true || flags['allow-all'] === true;
   const whitelist = parseToolsFlag(flags);
   const log = (m: string) => process.stderr.write(`${m}\n`);
+  let selectedContent: SelectedMcpServeContent;
+  try {
+    selectedContent = await loadSelectedMcpServeContent(flags, deps.cwd);
+  } catch (err) {
+    log(`wrongstack MCP server: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 
   // Reuse the subcommand's pre-populated registry; fall back to a fresh one.
   let registry = deps.toolRegistry as ToolRegistry | undefined;
@@ -175,6 +322,8 @@ export async function serveMcpStdio(deps: SubcommandDeps): Promise<number> {
 
   const server = new MCPServer({
     host,
+    resources: selectedContent.resources,
+    prompts: selectedContent.prompts,
     logger: { warn: (m) => log(`[mcp-serve] ${m}`) },
   });
 
@@ -204,7 +353,8 @@ export async function serveMcpStdio(deps: SubcommandDeps): Promise<number> {
       return 1;
     }
     log(
-      `wrongstack MCP server ready at ${handle.url} — exposing ${allowed.length} tool(s) (${mode})` +
+      `wrongstack MCP server ready at ${handle.url} — exposing ${allowed.length} tool(s), ` +
+        `${selectedContent.resources.length} resource(s), ${selectedContent.prompts.length} prompt(s) (${mode})` +
         `${token ? ' [token auth]' : ''}.`,
     );
     await new Promise<void>((resolve) => {
@@ -217,7 +367,10 @@ export async function serveMcpStdio(deps: SubcommandDeps): Promise<number> {
     return 0;
   }
 
-  log(`wrongstack MCP server ready on stdio — exposing ${allowed.length} tool(s) (${mode}).`);
+  log(
+    `wrongstack MCP server ready on stdio — exposing ${allowed.length} tool(s), ` +
+      `${selectedContent.resources.length} resource(s), ${selectedContent.prompts.length} prompt(s) (${mode}).`,
+  );
 
   const handle = serveStdio(server);
   await handle.done;

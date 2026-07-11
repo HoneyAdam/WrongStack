@@ -1,14 +1,15 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { projectSlug } from '../../src/index.js';
 import {
   buildCommitCommand,
+  buildGitCommand,
   buildGitcheckCommand,
   buildPushCommand,
 } from '../../src/plugins/git-plugin.js';
-import { projectSlug } from '../../src/index.js';
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -51,6 +52,79 @@ function initGitRepo(): void {
 function ctxFor(dir: string, provider?: unknown) {
   return { session: { id: 's1' }, cwd: dir, model: 'test-model', provider } as never;
 }
+
+// ── /git ────────────────────────────────────────────────────────────────────
+
+describe('buildGitCommand', () => {
+  it('reports when run outside a repository', async () => {
+    const res = await buildGitCommand().run('', ctxFor(tmp));
+    expect(res?.message).toContain('Not a git repository');
+  });
+
+  it('shows help without requiring a repository', async () => {
+    const res = await buildGitCommand().run('help', ctxFor(tmp));
+    expect(res?.message).toContain('Usage: /git');
+    expect(res?.message).toContain('permission-gated git tool');
+  });
+
+  it('renders branch, HEAD, and a clean working tree', async () => {
+    initGitRepo();
+    await fs.writeFile(path.join(tmp, 'a.txt'), 'first');
+    execFileSync('git', ['add', '.'], { cwd: tmp });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: tmp });
+
+    const res = await buildGitCommand().run('status', ctxFor(tmp));
+    const clean = stripAnsi(res!.message!);
+    expect(clean).toContain('Git overview');
+    expect(clean).toContain('Branch:');
+    expect(clean).toContain('Working tree: clean');
+    expect(res?.metadata?.['git']).toMatchObject({ clean: true });
+  }, 30_000);
+
+  it('returns stable JSON for dirty staged and unstaged state', async () => {
+    initGitRepo();
+    await fs.writeFile(path.join(tmp, 'tracked.txt'), 'one');
+    execFileSync('git', ['add', '.'], { cwd: tmp });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: tmp });
+    await fs.writeFile(path.join(tmp, 'tracked.txt'), 'two');
+    await fs.writeFile(path.join(tmp, 'staged.txt'), 'staged');
+    execFileSync('git', ['add', 'staged.txt'], { cwd: tmp });
+
+    const res = await buildGitCommand().run('status --json', ctxFor(tmp));
+    const payload = JSON.parse(res!.message!);
+    expect(payload).toMatchObject({ clean: false, changesTruncated: false });
+    expect(payload.changes).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('tracked.txt'),
+        expect.stringContaining('staged.txt'),
+      ]),
+    );
+    expect(payload.unstagedSummary).toContain('tracked.txt');
+    expect(payload.stagedSummary).toContain('staged.txt');
+  }, 30_000);
+
+  it('supports branch and staged diff views', async () => {
+    initGitRepo();
+    await fs.writeFile(path.join(tmp, 'a.txt'), 'first');
+    execFileSync('git', ['add', 'a.txt'], { cwd: tmp });
+
+    const branch = JSON.parse(
+      (await buildGitCommand().run('branch --json', ctxFor(tmp)))!.message!,
+    );
+    expect(branch.branch).toBeTruthy();
+    expect(branch.head).toBeNull();
+
+    const diff = await buildGitCommand().run('diff --staged', ctxFor(tmp));
+    expect(diff?.message).toContain('a.txt');
+  });
+
+  it('returns actionable help for unknown subcommands', async () => {
+    initGitRepo();
+    const res = await buildGitCommand().run('commit', ctxFor(tmp));
+    expect(res?.message).toContain('Unknown subcommand');
+    expect(res?.message).toContain('status | branch | diff');
+  });
+});
 
 // ── /commit ─────────────────────────────────────────────────────────────────
 
@@ -212,7 +286,11 @@ describe('buildCommitCommand — shared-worktree safety', () => {
 
     const cmd = buildCommitCommand();
     // ctxFor sets session.id 's1' — different from 'other-session' → foreign.
-    const res = await cmd.run('--dry-run', { session: { id: 's1' }, cwd: tmp, projectRoot: tmp } as never);
+    const res = await cmd.run('--dry-run', {
+      session: { id: 's1' },
+      cwd: tmp,
+      projectRoot: tmp,
+    } as never);
     const clean = stripAnsi(res!.message!);
     expect(clean).toContain('Shared-worktree warning');
     expect(clean).toContain('foreign.ts');
@@ -233,7 +311,11 @@ describe('buildCommitCommand — shared-worktree safety', () => {
     ]);
 
     const cmd = buildCommitCommand();
-    const res = await cmd.run('--dry-run', { session: { id: 's1' }, cwd: tmp, projectRoot: tmp } as never);
+    const res = await cmd.run('--dry-run', {
+      session: { id: 's1' },
+      cwd: tmp,
+      projectRoot: tmp,
+    } as never);
     const clean = stripAnsi(res!.message!);
     expect(clean).not.toContain('Shared-worktree warning');
   }, 30_000);

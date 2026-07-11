@@ -8,6 +8,7 @@ import type {
   HealthRegistry,
   Logger,
   MetricsSinkView,
+  MetricsRuntimeStatus,
   ModelsRegistry,
   Plugin,
   PromptLoader,
@@ -125,6 +126,7 @@ export interface PluginsWiringDeps {
   hookRegistry?: import('@wrongstack/core').HookRegistry | undefined;
   sessionWriter: SessionWriter;
   metricsSink?: MetricsSinkView | undefined;
+  metricsStatus?: MetricsRuntimeStatus | undefined;
   /**
    * Models registry (models.dev-backed catalog of providers, models, and
    * per-token pricing). Forwarded to plugins that need model metadata
@@ -306,6 +308,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
     agent,
     sessionWriter,
     metricsSink,
+    metricsStatus,
     modelsRegistry,
     mailbox,
     healthRegistry,
@@ -436,6 +439,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
     paths,
     configStore,
     metricsSink,
+    metricsStatus,
     healthRegistry,
     skillLoader,
     promptLoader,

@@ -1,15 +1,15 @@
 import { spawn } from 'node:child_process';
-import { color } from '../utils/color.js';
-import { toErrorMessage } from '../utils/error.js';
+import { assessCommitSafety } from '../coordination/commit-safety.js';
+import type { Context, SlashCommand } from '../index.js';
 import { ERROR_CODES, WrongStackError } from '../types/errors.js';
 import type { Plugin } from '../types/plugin.js';
-import { assessCommitSafety } from '../coordination/commit-safety.js';
-import type { SlashCommand, Context } from '../index.js';
+import { color } from '../utils/color.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * GitPlugin — built-in git helpers.
  *
- * Registers `/commit`, `/gitcheck` and `/push`. First-party ("official")
+ * Registers `/git`, `/commit`, `/gitcheck` and `/push`. First-party ("official")
  * plugin, so the commands keep their bare names and `gc` / `gcstatus` aliases.
  * `/commit` generates an LLM commit message from the session provider when one
  * is available, falling back to diff heuristics. No configuration required.
@@ -18,19 +18,21 @@ export function createGitPlugin(): Plugin {
   return {
     name: 'wstack-git',
     version: '1.0.0',
-    description: 'Git helpers: /commit (LLM message), /gitcheck, /push',
+    description: 'Git helpers: /git overview, /commit (LLM message), /gitcheck, /push',
     apiVersion: '^0.1',
     capabilities: { slashCommands: true },
     defaultConfig: {},
 
     setup(api) {
+      api.slashCommands.register(buildGitCommand());
       api.slashCommands.register(buildCommitCommand());
       api.slashCommands.register(buildGitcheckCommand());
       api.slashCommands.register(buildPushCommand());
-      api.log.info('[git] loaded — /commit, /gitcheck, /push available');
+      api.log.info('[git] loaded — /git, /commit, /gitcheck, /push available');
     },
 
     teardown(api) {
+      api.slashCommands.unregister('git');
       api.slashCommands.unregister('commit');
       api.slashCommands.unregister('gitcheck');
       api.slashCommands.unregister('push');
@@ -51,7 +53,12 @@ async function runGit(
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   try {
     return await new Promise((resolve, reject) => {
-      const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.timeout(30_000), windowsHide: true });
+      const child = spawn('git', args, {
+        cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        signal: AbortSignal.timeout(30_000),
+        windowsHide: true,
+      });
       let stdout = '';
       let stderr = '';
       child.stdout?.on('data', (d) => {
@@ -93,6 +100,137 @@ async function isGitRepo(cwd: string): Promise<boolean> {
 async function hasUncommittedChanges(cwd: string): Promise<boolean> {
   const result = await runGit(['status', '--porcelain'], cwd);
   return result.stdout.trim().length > 0;
+}
+
+// ── read-only repository overview ──────────────────────────────────
+
+const GIT_STATUS_LINE_LIMIT = 100;
+const GIT_SUMMARY_CHAR_LIMIT = 8_000;
+
+interface GitOverview {
+  branch: string | null;
+  head: string | null;
+  clean: boolean;
+  changes: string[];
+  changesTruncated: boolean;
+  unstagedSummary: string;
+  stagedSummary: string;
+}
+
+function truncateGitSummary(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= GIT_SUMMARY_CHAR_LIMIT) return trimmed;
+  return `${trimmed.slice(0, GIT_SUMMARY_CHAR_LIMIT)}\n… (summary truncated)`;
+}
+
+async function readGitOverview(cwd: string): Promise<GitOverview> {
+  const [branchResult, headResult, statusResult, unstagedResult, stagedResult] = await Promise.all([
+    runGit(['branch', '--show-current'], cwd),
+    runGit(['rev-parse', '--short', 'HEAD'], cwd),
+    runGit(['status', '--short'], cwd),
+    runGit(['diff', '--stat', '--no-color'], cwd),
+    runGit(['diff', '--cached', '--stat', '--no-color'], cwd),
+  ]);
+
+  const allChanges = statusResult.stdout.split(/\r?\n/).filter(Boolean);
+  return {
+    branch: branchResult.stdout.trim() || null,
+    head: headResult.code === 0 ? headResult.stdout.trim() || null : null,
+    clean: allChanges.length === 0,
+    changes: allChanges.slice(0, GIT_STATUS_LINE_LIMIT),
+    changesTruncated: allChanges.length > GIT_STATUS_LINE_LIMIT,
+    unstagedSummary: truncateGitSummary(unstagedResult.stdout),
+    stagedSummary: truncateGitSummary(stagedResult.stdout),
+  };
+}
+
+function renderGitOverview(overview: GitOverview): string {
+  const identity = overview.head
+    ? `${overview.branch ?? '(detached)'} @ ${overview.head}`
+    : (overview.branch ?? '(unborn branch)');
+  const lines = [
+    color.bold('Git overview'),
+    `  Branch: ${identity}`,
+    overview.clean
+      ? `  Working tree: ${color.green('clean')}`
+      : `  Working tree: ${color.yellow(`${overview.changes.length}${overview.changesTruncated ? '+' : ''} changed path(s)`)}`,
+  ];
+
+  if (!overview.clean) {
+    lines.push('', color.dim('Status'), ...overview.changes.map((line) => `  ${line}`));
+    if (overview.changesTruncated) lines.push(color.dim('  … additional paths omitted'));
+  }
+  if (overview.unstagedSummary) {
+    lines.push('', color.dim('Unstaged diff'), overview.unstagedSummary);
+  }
+  if (overview.stagedSummary) {
+    lines.push('', color.dim('Staged diff'), overview.stagedSummary);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Read-only operational Git command. Mutating workflows remain on `/commit`,
+ * `/push`, and the permission-gated `git` tool.
+ */
+export function buildGitCommand(): SlashCommand {
+  const help = [
+    'Usage: /git [status|branch|diff] [--staged] [--json]',
+    '',
+    '  status   Branch, HEAD, changed paths, and staged/unstaged diff summaries.',
+    '  branch   Current branch and short HEAD.',
+    '  diff     Diff summary; add --staged for the index.',
+    '  --json   Emit stable machine-readable output.',
+    '',
+    'Mutations are intentionally handled by /commit, /push, or the permission-gated git tool.',
+  ].join('\n');
+  return {
+    name: 'git',
+    category: 'Inspect',
+    argsHint: '[status|branch|diff] [--staged] [--json]',
+    description: 'Show a concise, read-only repository overview.',
+    help,
+    async run(args: string, ctx: Context) {
+      const tokens = args.trim().split(/\s+/).filter(Boolean);
+      const verb = tokens.find((token) => !token.startsWith('-'))?.toLowerCase() ?? 'status';
+      const json = tokens.includes('--json');
+      if (verb === 'help') return { message: help };
+      if (!['status', 'branch', 'diff'].includes(verb)) {
+        return { message: `Unknown subcommand "${verb}". Try: status | branch | diff.` };
+      }
+
+      const cwd = ctx?.cwd ?? process.cwd();
+      if (!(await isGitRepo(cwd))) return { message: 'Not a git repository.' };
+
+      const overview = await readGitOverview(cwd);
+      if (json) {
+        const payload =
+          verb === 'branch'
+            ? { branch: overview.branch, head: overview.head }
+            : verb === 'diff'
+              ? {
+                  staged: tokens.includes('--staged'),
+                  summary: tokens.includes('--staged')
+                    ? overview.stagedSummary
+                    : overview.unstagedSummary,
+                }
+              : overview;
+        return { message: JSON.stringify(payload, null, 2), metadata: { git: payload } };
+      }
+
+      if (verb === 'branch') {
+        return {
+          message: `${overview.branch ?? '(detached)'}${overview.head ? ` @ ${overview.head}` : ''}`,
+        };
+      }
+      if (verb === 'diff') {
+        const staged = tokens.includes('--staged');
+        const summary = staged ? overview.stagedSummary : overview.unstagedSummary;
+        return { message: summary || `No ${staged ? 'staged' : 'unstaged'} changes.` };
+      }
+      return { message: renderGitOverview(overview), metadata: { git: overview } };
+    },
+  };
 }
 
 // ── commit message generation ───────────────────────────────────────
@@ -357,7 +495,8 @@ export function buildPushCommand(): SlashCommand {
         };
       }
 
-      const branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).stdout.trim() || 'main';
+      const branch =
+        (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).stdout.trim() || 'main';
       const pushArgs = ['push'];
       if (force) pushArgs.push('--force');
       pushArgs.push(...remotes, branch);

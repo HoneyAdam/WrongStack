@@ -9,6 +9,8 @@ or another agent — over the standard stdio JSON-RPC transport.
 wstack mcp serve            # stdio, safe: read-only tools only
 wstack mcp serve --yolo     # exposes every tool, including bash/write/edit
 wstack mcp serve --tools read,grep,glob   # expose only a whitelist
+wstack mcp serve --resources README.md,docs/api.md
+wstack mcp serve --prompts prompts/review.md,prompts/summary.md
 
 # network-reachable (HTTP/JSON-RPC):
 wstack mcp serve --http --port 7777                 # loopback only (127.0.0.1)
@@ -44,6 +46,13 @@ tools to an external client.
 | _(none)_ | Read-only tools only (safe default). |
 | `--yolo` / `--allow-all` | Expose every built-in tool, including `bash`, `write`, `edit`, `exec`, `install`. |
 | `--tools a,b,c` | Restrict to a comma-separated whitelist (intersected with the policy above). |
+| `--resources path,...` | Expose only these explicitly selected local files via MCP resources. |
+| `--prompts path,...` | Expose only these explicitly selected UTF-8 prompt templates. |
+
+No project files or prompt-library entries are exposed automatically. Resource and prompt flags
+are explicit allowlists, each selected file is capped at 256 KiB, directories are rejected, and
+unlisted neighboring files remain invisible. Prompt files may contain `{{argument}}` placeholders;
+each placeholder becomes a required MCP prompt argument.
 
 A withheld tool is invisible in `tools/list` **and** rejected on `tools/call`,
 so a client cannot invoke it by guessing the name.
@@ -76,10 +85,12 @@ over its stdio.
 
 Standard MCP over stdio (protocol `2024-11-05`), newline-delimited JSON-RPC 2.0:
 
-- `initialize` → `{ protocolVersion, capabilities: { tools: {} }, serverInfo }`
+- `initialize` → advertised capabilities for tools and any explicitly selected resources/prompts
 - `notifications/initialized` → (no response)
 - `tools/list` → `{ tools: [{ name, description, inputSchema }] }`
 - `tools/call` `{ name, arguments }` → `{ content: [{ type: "text", text }], isError }`
+- `resources/list`, `resources/templates/list`, `resources/read` when `--resources` is present
+- `prompts/list`, `prompts/get` when `--prompts` is present
 - `ping` → `{}`
 
 Tool errors are returned as `isError: true` content (the connection stays up);

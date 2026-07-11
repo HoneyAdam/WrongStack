@@ -129,6 +129,209 @@ describe('makeACPServerAgentTurn', () => {
     expect(blocks[2]?.text).toBe('and tell me');
   });
 
+  it('handles audio and resource content blocks in prompts', async () => {
+    let captured: unknown;
+    const { handler, transport } = makeHandlerWithFactory(() => ({
+      run: vi.fn(async (userMessage: unknown) => {
+        captured = userMessage;
+        return { text: 'ok', stopReason: 'end_turn' };
+      }),
+      teardown: vi.fn(async () => {}),
+    }));
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+    const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+    transport.sent.length = 0;
+
+    // Mixed content with audio, resource, resource_link, and text blocks
+    await handler.handleMessage({
+      id: 3,
+      method: 'session/prompt',
+      params: {
+        sessionId,
+        prompt: [
+          { type: 'text', text: 'describe this:' },
+          { type: 'audio', mimeType: 'audio/wav', data: 'AAAA' },
+          { type: 'resource', resource: { uri: 'file:///doc.md', text: '## Doc' } },
+          { type: 'resource_link', uri: 'https://example.com' },
+        ],
+      },
+    });
+    // Without images, promptToAgentInput should return a plain string
+    expect(typeof captured).toBe('string');
+    const text = captured as string;
+    expect(text).toContain('describe this:');
+    expect(text).toContain('[audio: audio/wav]');
+    expect(text).toContain('[embedded resource: file:///doc.md]');
+    expect(text).toContain('[resource link: https://example.com]');
+  });
+
+  it('routes audio content in multimodal prompts as text placeholders', async () => {
+    let captured: unknown;
+    const { handler, transport } = makeHandlerWithFactory(() => ({
+      run: vi.fn(async (userMessage: unknown) => {
+        captured = userMessage;
+        return { text: 'ok', stopReason: 'end_turn' };
+      }),
+      teardown: vi.fn(async () => {}),
+    }));
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+    const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+    transport.sent.length = 0;
+
+    // Image triggers multimodal path; audio+resource blocks become text placeholders
+    await handler.handleMessage({
+      id: 3,
+      method: 'session/prompt',
+      params: {
+        sessionId,
+        prompt: [
+          { type: 'text', text: 'look:' },
+          { type: 'image', mimeType: 'image/png', data: 'AAAA' },
+          { type: 'audio', mimeType: 'audio/wav', data: 'BBBB' },
+          { type: 'resource', resource: { uri: 'file:///doc.md', text: '## Doc text' } },
+          { type: 'resource_link', uri: 'https://example.com' },
+        ],
+      },
+    });
+    // With an image present, the adapter builds a ContentBlock[] array
+    expect(Array.isArray(captured)).toBe(true);
+    const blocks = captured as Array<{ type: string; text?: string; source?: { media_type?: string } }>;
+    expect(blocks[0]?.text).toBe('look:');
+    expect(blocks[1]?.source?.media_type).toBe('image/png');
+    // Audio block becomes a text placeholder
+    const audioBlock = blocks.find((b) => b.type === 'text' && b.text?.includes('[audio'));
+    expect(audioBlock).toBeDefined();
+    // Resource block with text content
+    const resourceBlock = blocks.find((b) => b.type === 'text' && b.text?.includes('## Doc text'));
+    expect(resourceBlock).toBeDefined();
+  });
+
+  it('emits plan and usage updates from the agent result', async () => {
+    const planEntries = [{ content: 'Step 1', priority: 'high' as const, status: 'in_progress' as const }];
+    const usage = { used: 100, size: 1000, cost: { amount: 0.05, currency: 'USD' } };
+    let emitted: unknown[] = [];
+    const { handler, transport } = makeHandlerWithFactory(() => ({
+      run: vi.fn(async () => ({ text: 'planned', stopReason: 'end_turn', plan: planEntries, usage })),
+      teardown: vi.fn(async () => {}),
+    }));
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+    const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+    transport.sent.length = 0;
+
+    await handler.handleMessage({
+      id: 3, method: 'session/prompt',
+      params: { sessionId, prompt: [{ type: 'text', text: 'plan it' }] },
+    });
+
+    // Extract emitted updates from transport sends
+    const updates = transport.sent
+      .map((m) => (m as { params?: { update?: { sessionUpdate?: string } } }).params?.update)
+      .filter((u): u is { sessionUpdate: string } => !!u);
+    const planUpdate = updates.find((u) => u.sessionUpdate === 'plan');
+    expect(planUpdate).toBeDefined();
+    const usageUpdate = updates.find((u) => u.sessionUpdate === 'usage_update');
+    expect(usageUpdate).toBeDefined();
+    // The result text from the agent
+    const result = transport.sent.find((m) => (m as { result?: unknown }).result) as { result?: { stopReason?: string } };
+    expect(result?.result?.stopReason).toBe('end_turn');
+  });
+
+  it('handles agent results that have plan and usage in run result', async () => {
+    let emitted: unknown[] = [];
+    const fakeAgent = {
+      run: vi.fn(async () => ({
+        text: 'with details',
+        stopReason: 'end_turn' as const,
+        plan: [{ content: 'step A', priority: 'high' as const, status: 'in_progress' as const }],
+        usage: { used: 50, size: 500, cost: { amount: 0.01, currency: 'USD' as const } },
+      })),
+      teardown: vi.fn(async () => {}),
+    };
+    const transport = fakeTransport();
+    const turn = makeACPServerAgentTurn({ agentFor: async () => fakeAgent as never as Agent });
+    const handler = new ACPProtocolHandler({
+      transport: transport as never as AgentServerTransport,
+      defaultCwd: '/test',
+      runTurn: turn,
+    });
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+    const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+    transport.sent.length = 0;
+
+    await handler.handleMessage({
+      id: 3, method: 'session/prompt',
+      params: { sessionId, prompt: [{ type: 'text', text: 'go' }] },
+    });
+
+    const updates = transport.sent
+      .map((m) => (m as { params?: { update?: { sessionUpdate?: string; entries?: unknown[]; used?: number } } }).params?.update)
+      .filter(Boolean);
+    const planUpd = updates.find((u) => (u as { sessionUpdate?: string }).sessionUpdate === 'plan');
+    expect(planUpd).toBeDefined();
+    const usageUpd = updates.find((u) => (u as { sessionUpdate?: string }).sessionUpdate === 'usage_update');
+    expect(usageUpd).toBeDefined();
+    const u = usageUpd as { used?: number; size?: number };
+    expect(u.used).toBe(50);
+    expect(u.size).toBe(500);
+  });
+
+  it('extractPlan returns empty array for non-array plan field', async () => {
+    let emitted: unknown[] = [];
+    const fakeAgent = {
+      run: vi.fn(async () => ({ text: 'done', stopReason: 'end_turn' as const, plan: 'not-an-array' })),
+      teardown: vi.fn(async () => {}),
+    };
+    const transport = fakeTransport();
+    const turn = makeACPServerAgentTurn({ agentFor: async () => fakeAgent as never as Agent });
+    const handler = new ACPProtocolHandler({
+      transport: transport as never as AgentServerTransport,
+      defaultCwd: '/test',
+      runTurn: turn,
+    });
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+    const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+    transport.sent.length = 0;
+
+    // Should not throw despite plan being non-array
+    await expect(handler.handleMessage({
+      id: 3, method: 'session/prompt',
+      params: { sessionId, prompt: [{ type: 'text', text: 'go' }] },
+    })).resolves.toBeDefined();
+  });
+
+  it('handles agent result with usage but no cost', async () => {
+    let emitted: unknown[] = [];
+    const fakeAgent = {
+      run: vi.fn(async () => ({
+        text: 'usage without cost',
+        stopReason: 'end_turn' as const,
+        usage: { used: 10, size: 100 },
+      })),
+      teardown: vi.fn(async () => {}),
+    };
+    const transport = fakeTransport();
+    const turn = makeACPServerAgentTurn({ agentFor: async () => fakeAgent as never as Agent });
+    const handler = new ACPProtocolHandler({
+      transport: transport as never as AgentServerTransport,
+      defaultCwd: '/test',
+      runTurn: turn,
+    });
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+    const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+    transport.sent.length = 0;
+
+    await expect(handler.handleMessage({
+      id: 3, method: 'session/prompt',
+      params: { sessionId, prompt: [{ type: 'text', text: 'go' }] },
+    })).resolves.toBeDefined();
+  });
+
   it('keeps an all-text prompt as a plain string input', async () => {
     let captured: unknown;
     const { handler, transport } = makeHandlerWithFactory(() => ({

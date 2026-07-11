@@ -53,6 +53,14 @@ The first-ever connection of a brand-new lazy server does one cold discovery
 connect to learn + cache its tools; every later boot is fully cold until first
 use. Non-lazy servers are unchanged (eager connect at boot).
 
+## Health and operations
+
+The list output includes operational health, transport/protocol/tool failure counts, and call p95
+latency. The registry keeps bounded connection/discovery/call latency summaries, lifecycle
+counters, call saturation, and recent safe lifecycle events. WebUI, HealthRegistry, MetricsSink,
+and HQ consume the same snapshot. Metric labels never include server/tool names, arguments, URLs,
+or tokens.
+
 ## Examples
 
 ```text

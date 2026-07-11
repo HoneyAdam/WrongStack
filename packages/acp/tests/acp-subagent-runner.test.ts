@@ -66,8 +66,10 @@ vi.mock('../src/client/acp-session.js', () => {
 
 import {
   ACP_AGENT_COMMANDS,
+  describeAgent,
   makeACPSubagentRunner,
   makeACPSubagentRunnerWithStop,
+  runOneAcpTask,
 } from '../src/integration/acp-subagent-runner.js';
 import { ACPSessionError } from '../src/client/acp-session.js';
 
@@ -101,6 +103,19 @@ beforeEach(() => {
   hoisted.errorMessage = undefined;
   hoisted.promptError = undefined;
   hoisted.promptResult = { text: 'ok', stopReason: 'end_turn', hasText: true, toolCalls: [], diffs: [], thoughts: '' };
+});
+
+describe('describeAgent', () => {
+  it('returns the command for a known agent', () => {
+    const cmd = describeAgent('cline');
+    expect(cmd).not.toBeNull();
+    expect(cmd?.command).toBe('npx');
+    expect(cmd?.role).toBe('cline');
+  });
+
+  it('returns null for an unknown agent', () => {
+    expect(describeAgent('not-a-real-agent')).toBeNull();
+  });
 });
 
 describe('ACP_AGENT_COMMANDS', () => {
@@ -241,5 +256,31 @@ describe('makeACPSubagentRunnerWithStop', () => {
     const { runner } = await makeACPSubagentRunnerWithStop({ command: 'gemini', timeoutMs: 12_345 });
     await runner(TASK, makeCtx(5000).ctx);
     expect(hoisted.startCalls[0]?.timeoutMs).toBe(12_345);
+  });
+});
+
+describe('runOneAcpTask', () => {
+  it('runs a single task and returns the result', async () => {
+    hoisted.promptResult = {
+      text: 'task done',
+      stopReason: 'end_turn',
+      hasText: true,
+      toolCalls: [{ toolCallId: 'a', title: 'read', status: 'completed' }],
+      diffs: [],
+      thoughts: '',
+    };
+    hoisted.errorKind = undefined;
+    const result = await runOneAcpTask({ command: 'gemini', task: 'do something' });
+    expect(result.result).toBe('task done');
+    expect(result.iterations).toBe(1);
+    expect(result.toolCalls).toBe(1);
+  });
+
+  it('throws SubagentError when the session fails to start', async () => {
+    hoisted.errorKind = 'spawn_failed';
+    hoisted.errorMessage = 'ENOENT';
+    await expect(
+      runOneAcpTask({ command: 'missing', task: 'x' }),
+    ).rejects.toThrow();
   });
 });

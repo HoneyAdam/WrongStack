@@ -2,8 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildPlanCommand, createPlanPlugin } from '../../src/plugins/plan-plugin.js';
 import type { SlashCommand } from '../../src/index.js';
+import { buildPlanCommand, createPlanPlugin } from '../../src/plugins/plan-plugin.js';
 
 let tmp: string;
 let planPath: string;
@@ -26,7 +26,11 @@ describe('createPlanPlugin lifecycle', () => {
   function makeApi(config: Record<string, unknown> = {}) {
     const registered: SlashCommand[] = [];
     const unregister = vi.fn();
-    const api = { config, slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister }, log: { info: vi.fn() } } as never;
+    const api = {
+      config,
+      slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister },
+      log: { info: vi.fn() },
+    } as never;
     return { api, registered, unregister };
   }
 
@@ -56,14 +60,28 @@ describe('/plan taskify (findPlanItemIndex paths)', () => {
     expect((await cmd.run!('taskify', ctx())).message).toContain('Usage');
     expect((await cmd.run!('taskify zzz-nope', ctx())).message).toContain('No plan item matched');
     // taskify against a brand-new (never-saved) plan → loadPlan() is null → emptyPlan()
-    expect((await buildPlanCommand(path.join(tmp, 'fresh.json')).run!('taskify 1', ctx())).message).toContain('No plan item matched');
+    expect(
+      (await buildPlanCommand(path.join(tmp, 'fresh.json')).run!('taskify 1', ctx())).message,
+    ).toContain('No plan item matched');
     // no task.path in meta
-    expect((await cmd.run!('taskify 1', ctx({ meta: {} }))).message).toContain('Task storage is not configured');
+    expect((await cmd.run!('taskify 1', ctx({ meta: {} }))).message).toContain(
+      'Task storage is not configured',
+    );
 
     // success by 1-based index
     const byIndex = await cmd.run!('taskify 1', ctx({ meta: { 'task.path': taskPath } }));
     expect(byIndex.message).toContain('Taskified "First strategic item"');
     expect(JSON.parse(await fs.readFile(taskPath, 'utf8')).tasks).toHaveLength(1);
+
+    const structured = await cmd.run!('taskify 1 --json', ctx({ meta: { 'task.path': taskPath } }));
+    const payload = JSON.parse(structured.message);
+    expect(payload).toMatchObject({
+      ok: true,
+      task: { title: 'First strategic item', status: 'pending' },
+    });
+    expect(payload.plan.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'First strategic item' })]),
+    );
 
     // success by title substring
     const byTitle = await cmd.run!('taskify second', ctx({ meta: { 'task.path': taskPath } }));
@@ -84,7 +102,9 @@ describe('/plan promote, derive, done, template use', () => {
     const c = ctx();
     const res = await cmd.run!('promote 1 design implement test', c);
     expect(res.message).toContain('Promoted to');
-    expect((c as { state: { replaceTodos: ReturnType<typeof vi.fn> } }).state.replaceTodos).toHaveBeenCalled();
+    expect(
+      (c as { state: { replaceTodos: ReturnType<typeof vi.fn> } }).state.replaceTodos,
+    ).toHaveBeenCalled();
   });
 
   it('derive without subtasks, and a non-matching target', async () => {
@@ -111,13 +131,21 @@ describe('/plan promote, derive, done, template use', () => {
 
   it('template use applies a known template and rejects unknown / missing names', async () => {
     const cmd = buildPlanCommand(planPath);
-    expect((await cmd.run!('template use new-feature', ctx())).message).toContain('Applied template');
+    expect((await cmd.run!('template use new-feature', ctx())).message).toContain(
+      'Applied template',
+    );
     expect((await cmd.run!('template use', ctx())).message).toContain('Usage');
-    expect((await cmd.run!('template use bogus-name', ctx())).message).toContain('Unknown template');
-    expect((await cmd.run!('template frobnicate', ctx())).message).toContain('Unknown template subcommand');
+    expect((await cmd.run!('template use bogus-name', ctx())).message).toContain(
+      'Unknown template',
+    );
+    expect((await cmd.run!('template frobnicate', ctx())).message).toContain(
+      'Unknown template subcommand',
+    );
   });
 
   it('unknown verb reports the available subcommands', async () => {
-    expect((await buildPlanCommand(planPath).run!('xyzzy', ctx())).message).toContain('Unknown subcommand');
+    expect((await buildPlanCommand(planPath).run!('xyzzy', ctx())).message).toContain(
+      'Unknown subcommand',
+    );
   });
 });

@@ -18,7 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import type { MCPServerConfig, Permission } from '@wrongstack/core';
+import type { MCPHealthConfig, MCPServerConfig, Permission } from '@wrongstack/core';
 import type { MCPRegistry } from './registry.js';
 
 /** Transport values accepted from UI surfaces (UI also offers a bare "http"). */
@@ -41,6 +41,8 @@ export interface McpServerInput {
   lazy?: boolean | undefined;
   /** Env var names to forward from parent process at spawn time. */
   passthroughEnv?: string[] | undefined;
+  /** Operational-health thresholds (optional; omitted means no threshold checks). */
+  health?: MCPHealthConfig | undefined;
 }
 
 /** Projected view of one server, merging disk config with live registry state. */
@@ -171,6 +173,8 @@ function buildConfig(input: McpServerInput, base?: MCPServerConfig | undefined):
   if (lazy !== undefined) cfg.lazy = lazy;
   const passthroughEnv = input.passthroughEnv ?? base?.passthroughEnv;
   if (passthroughEnv !== undefined) cfg.passthroughEnv = passthroughEnv;
+  const health = input.health ?? base?.health;
+  if (health !== undefined) cfg.health = health;
   return cfg;
 }
 
@@ -250,6 +254,7 @@ export async function addMcp(input: McpServerInput, deps: McpManageDeps): Promis
   if (cfg.enabled) {
     return startServer(input.name, cfg, deps, `Server "${input.name}" added`);
   }
+  trackDisabled(deps.registry, cfg);
   return {
     ok: true,
     message: `Server "${input.name}" added (disabled)`,
@@ -274,6 +279,7 @@ export async function updateMcp(input: McpServerInput, deps: McpManageDeps): Pro
     return startServer(input.name, cfg, deps, `Server "${input.name}" updated`, { restart: true });
   }
   await safeStop(input.name, deps);
+  trackDisabled(deps.registry, cfg);
   return {
     ok: true,
     message: `Server "${input.name}" updated`,
@@ -288,6 +294,7 @@ export async function removeMcp(name: string, deps: McpManageDeps): Promise<McpO
   if (!servers[name]) return { ok: false, message: `Server "${name}" not found` };
 
   await safeStop(name, deps);
+  forgetRegistryState(deps.registry, name);
   delete servers[name];
   await persist(deps.configPath, full, servers);
   return { ok: true, message: `Server "${name}" removed` };
@@ -316,6 +323,7 @@ export async function disableMcp(name: string, deps: McpManageDeps): Promise<Mcp
 
   await safeStop(name, deps);
   cfg.enabled = false;
+  trackDisabled(deps.registry, { ...cfg, name });
   servers[name] = cfg;
   await persist(deps.configPath, full, servers);
   return {
@@ -411,4 +419,12 @@ async function safeStop(name: string, deps: McpManageDeps): Promise<void> {
   } catch {
     // Server may not be running — ignore.
   }
+}
+
+function trackDisabled(registry: MCPRegistry, cfg: MCPServerConfig): void {
+  if (typeof registry.markDisabled === 'function') registry.markDisabled(cfg);
+}
+
+function forgetRegistryState(registry: MCPRegistry, name: string): void {
+  if (typeof registry.forget === 'function') registry.forget(name);
 }

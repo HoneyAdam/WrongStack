@@ -1,18 +1,22 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   handleMcpAdd,
   handleMcpDisable,
   handleMcpDiscover,
   handleMcpEnable,
   handleMcpList,
+  handleMcpPromptGet,
+  handleMcpPrompts,
   handleMcpRemove,
+  handleMcpResourceRead,
+  handleMcpResources,
   handleMcpSleep,
   handleMcpUpdate,
   handleMcpWake,
 } from '@wrongstack/webui-server';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tmp: string;
 let configPath: string;
@@ -126,7 +130,13 @@ describe('mcp.add (WebUI "Add Custom" / "Add" official)', () => {
     const ws = fakeWs();
     await handleMcpAdd(
       ws as never,
-      msg('mcp.add', { name: 'fs', transport: 'stdio', command: 'npx', enabled: false, lazy: true }),
+      msg('mcp.add', {
+        name: 'fs',
+        transport: 'stdio',
+        command: 'npx',
+        enabled: false,
+        lazy: true,
+      }),
       configPath,
       makeRegistry(),
     );
@@ -148,7 +158,12 @@ describe('mcp.add (WebUI "Add Custom" / "Add" official)', () => {
 
   it('rejects a missing name', async () => {
     const ws = fakeWs();
-    await handleMcpAdd(ws as never, msg('mcp.add', { transport: 'stdio' }), configPath, makeRegistry());
+    await handleMcpAdd(
+      ws as never,
+      msg('mcp.add', { transport: 'stdio' }),
+      configPath,
+      makeRegistry(),
+    );
     expect(result(ws).success).toBe(false);
   });
 });
@@ -170,17 +185,23 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
       ws as never,
       msg('mcp.list'),
       configPath,
-      makeRegistry({ list: () => [{ name: 'github', state: 'connected', toolCount: 2, tools: ['a', 'b'] }] }),
+      makeRegistry({
+        list: () => [{ name: 'github', state: 'connected', toolCount: 2, tools: ['a', 'b'] }],
+      }),
     );
-    const servers = (ws.sent.find((m) => m.type === 'mcp.list')?.payload as {
-      servers: Array<{ status: string; tools: string[] }>;
-    }).servers;
+    const servers = (
+      ws.sent.find((m) => m.type === 'mcp.list')?.payload as {
+        servers: Array<{ status: string; tools: string[] }>;
+      }
+    ).servers;
     expect(servers[0]?.status).toBe('connected');
     expect(servers[0]?.tools).toEqual(['a', 'b']);
   });
 
   it('maps a dormant lazy server to "sleeping" with cached tools', async () => {
-    await seed({ ctx: { name: 'ctx', transport: 'stdio', command: 'npx', enabled: true, lazy: true } });
+    await seed({
+      ctx: { name: 'ctx', transport: 'stdio', command: 'npx', enabled: true, lazy: true },
+    });
     const ws = fakeWs();
     await handleMcpList(
       ws as never,
@@ -188,12 +209,48 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
       configPath,
       makeRegistry({ list: () => [{ name: 'ctx', state: 'dormant', toolCount: 1, tools: ['t'] }] }),
     );
-    const s = (ws.sent.find((m) => m.type === 'mcp.list')?.payload as {
-      servers: Array<{ status: string; lazy?: boolean; tools: string[] }>;
-    }).servers[0];
+    const s = (
+      ws.sent.find((m) => m.type === 'mcp.list')?.payload as {
+        servers: Array<{ status: string; lazy?: boolean; tools: string[] }>;
+      }
+    ).servers[0];
     expect(s?.status).toBe('sleeping');
     expect(s?.lazy).toBe(true);
     expect(s?.tools).toEqual(['t']);
+  });
+
+  it('includes the payload-free operational health snapshot', async () => {
+    await seed({ github: { name: 'github', transport: 'stdio', command: 'npx', enabled: true } });
+    const ws = fakeWs();
+    await handleMcpList(
+      ws as never,
+      msg('mcp.list'),
+      configPath,
+      makeRegistry({
+        list: () => [{ name: 'github', state: 'connected', toolCount: 0, tools: [] }],
+        operationalHealth: () => [
+          {
+            name: 'github',
+            healthState: 'degraded',
+            failures: { transport: 1, protocol: 0, tool: 2 },
+            callLatency: { count: 3, p50Ms: 10, p95Ms: 20 },
+            reconnectCount: 1,
+            wakeCount: 0,
+            sleepCount: 0,
+            restartCount: 0,
+            inFlightCalls: 0,
+            peakInFlightCalls: 1,
+          },
+        ],
+      }),
+    );
+    const server = (
+      ws.sent.find((item) => item.type === 'mcp.list')?.payload as {
+        servers: Array<{ health?: { healthState: string; failures: { tool: number } } }>;
+      }
+    ).servers[0];
+    expect(server?.health).toMatchObject({ healthState: 'degraded', failures: { tool: 2 } });
+    expect(JSON.stringify(server?.health)).not.toContain('command');
   });
 });
 
@@ -259,7 +316,12 @@ describe('mcp.update (WebUI Edit dialog)', () => {
 
   it('errors on a server that is not in config', async () => {
     const ws = fakeWs();
-    await handleMcpUpdate(ws as never, msg('mcp.update', { name: 'ghost' }), configPath, makeRegistry());
+    await handleMcpUpdate(
+      ws as never,
+      msg('mcp.update', { name: 'ghost' }),
+      configPath,
+      makeRegistry(),
+    );
     expect(result(ws).success).toBe(false);
     expect(result(ws).message).toContain('not found');
   });
@@ -274,10 +336,16 @@ describe('mcp.wake / mcp.sleep / mcp.discover (server card buttons)', () => {
 
   it('wake restarts a registered server → waking + connected + ok', async () => {
     const ws = fakeWs();
-    const registry = makeRegistry({ list: () => [{ name: 'github', state: 'connected', toolCount: 0, tools: [] }] });
+    const registry = makeRegistry({
+      list: () => [{ name: 'github', state: 'connected', toolCount: 0, tools: [] }],
+    });
     await handleMcpWake(ws as never, msg('mcp.wake', { name: 'github' }), configPath, registry);
-    expect((registry as { restart: ReturnType<typeof vi.fn> }).restart).toHaveBeenCalledWith('github');
-    expect(types(ws)).toEqual(expect.arrayContaining(['mcp.server.waking', 'mcp.server.connected']));
+    expect((registry as { restart: ReturnType<typeof vi.fn> }).restart).toHaveBeenCalledWith(
+      'github',
+    );
+    expect(types(ws)).toEqual(
+      expect.arrayContaining(['mcp.server.waking', 'mcp.server.connected']),
+    );
     expect(result(ws).success).toBe(true);
   });
 
@@ -294,9 +362,18 @@ describe('mcp.wake / mcp.sleep / mcp.discover (server card buttons)', () => {
 
   it('discover reports live tools from the server', async () => {
     const ws = fakeWs();
-    const registry = makeRegistry({ list: () => [{ name: 'github', state: 'connected', toolCount: 3, tools: ['x', 'y', 'z'] }] });
-    await handleMcpDiscover(ws as never, msg('mcp.discover', { name: 'github' }), configPath, registry);
-    const d = ws.sent.find((m) => m.type === 'mcp.server.discovered')?.payload as { tools: string[] };
+    const registry = makeRegistry({
+      list: () => [{ name: 'github', state: 'connected', toolCount: 3, tools: ['x', 'y', 'z'] }],
+    });
+    await handleMcpDiscover(
+      ws as never,
+      msg('mcp.discover', { name: 'github' }),
+      configPath,
+      registry,
+    );
+    const d = ws.sent.find((m) => m.type === 'mcp.server.discovered')?.payload as {
+      tools: string[];
+    };
     expect(d.tools).toEqual(['x', 'y', 'z']);
     expect(result(ws).success).toBe(true);
   });
@@ -310,6 +387,116 @@ describe('mcp.wake / mcp.sleep / mcp.discover (server card buttons)', () => {
     await handleMcpWake(ws as never, msg('mcp.wake', { name: 'github' }), configPath, registry);
     expect(result(ws).success).toBe(false);
     expect(result(ws).message).toContain('boom');
+  });
+});
+
+describe('MCP resource/prompt discovery and explicit selection', () => {
+  it('lists resources and templates without returning their contents', async () => {
+    const ws = fakeWs();
+    const registry = makeRegistry({
+      listResources: vi.fn().mockResolvedValue([{ uri: 'repo://guide', name: 'guide' }]),
+      listResourceTemplates: vi
+        .fn()
+        .mockResolvedValue([{ uriTemplate: 'repo://{path}', name: 'file' }]),
+    });
+
+    await handleMcpResources(
+      ws as never,
+      msg('mcp.resources', { name: 'docs', refresh: true }),
+      configPath,
+      registry,
+    );
+
+    expect(ws.sent.find((item) => item.type === 'mcp.resources')?.payload).toMatchObject({
+      name: 'docs',
+      resources: [{ name: 'guide' }],
+      resourceTemplates: [{ name: 'file' }],
+    });
+  });
+
+  it('lists prompts with structured arguments', async () => {
+    const ws = fakeWs();
+    const registry = makeRegistry({
+      listPrompts: vi
+        .fn()
+        .mockResolvedValue([{ name: 'review', arguments: [{ name: 'target', required: true }] }]),
+    });
+
+    await handleMcpPrompts(ws as never, msg('mcp.prompts', { name: 'docs' }), configPath, registry);
+
+    expect(ws.sent.find((item) => item.type === 'mcp.prompts')?.payload).toMatchObject({
+      prompts: [{ name: 'review' }],
+    });
+  });
+
+  it('returns selected resource content only in an untrusted provenance envelope', async () => {
+    const ws = fakeWs();
+    const insertion = {
+      kind: 'resource',
+      untrusted: true,
+      byteSize: 5,
+      provenance: { origin: 'mcp', serverName: 'docs', capability: 'resource' },
+      contents: [{ uri: 'repo://guide', text: 'hello' }],
+    };
+    const registry = makeRegistry({
+      selectResourceForInsertion: vi.fn().mockResolvedValue(insertion),
+    });
+
+    await handleMcpResourceRead(
+      ws as never,
+      msg('mcp.resource.read', { name: 'docs', uri: 'repo://guide' }),
+      configPath,
+      registry,
+    );
+
+    expect(ws.sent).toContainEqual({ type: 'mcp.content.selected', payload: insertion });
+  });
+
+  it('validates prompt arguments and does not echo secret values in provenance', async () => {
+    const ws = fakeWs();
+    const insertion = {
+      kind: 'prompt',
+      untrusted: true,
+      byteSize: 10,
+      provenance: {
+        origin: 'mcp',
+        serverName: 'docs',
+        capability: 'prompt',
+        promptName: 'review',
+        promptArgumentNames: ['token'],
+      },
+      messages: [],
+    };
+    const select = vi.fn().mockResolvedValue(insertion);
+    const registry = makeRegistry({ selectPromptForInsertion: select });
+
+    await handleMcpPromptGet(
+      ws as never,
+      msg('mcp.prompt.get', {
+        name: 'docs',
+        prompt: 'review',
+        arguments: { token: 'secret-value' },
+      }),
+      configPath,
+      registry,
+    );
+
+    expect(select).toHaveBeenCalledWith('docs', 'review', { token: 'secret-value' });
+    const selected = ws.sent.find((item) => item.type === 'mcp.content.selected');
+    expect(JSON.stringify(selected?.payload)).not.toContain('secret-value');
+  });
+
+  it('returns structured errors for invalid selection payloads', async () => {
+    const ws = fakeWs();
+    await handleMcpResourceRead(
+      ws as never,
+      msg('mcp.resource.read', { name: 'docs' }),
+      configPath,
+      makeRegistry(),
+    );
+    expect(ws.sent.find((item) => item.type === 'mcp.content.error')?.payload).toMatchObject({
+      action: 'resource.read',
+    });
   });
 });
 
@@ -332,7 +519,12 @@ describe('mcp.enable / mcp.disable / mcp.remove', () => {
     await seed({ github: { name: 'github', transport: 'stdio', command: 'npx', enabled: true } });
     const ws = fakeWs();
     const registry = makeRegistry();
-    await handleMcpDisable(ws as never, msg('mcp.disable', { name: 'github' }), configPath, registry);
+    await handleMcpDisable(
+      ws as never,
+      msg('mcp.disable', { name: 'github' }),
+      configPath,
+      registry,
+    );
     expect((registry as { stop: ReturnType<typeof vi.fn> }).stop).toHaveBeenCalledWith('github');
     expect((await readServers()).github?.enabled).toBe(false);
     expect(types(ws)).toContain('mcp.server.sleeping');
@@ -340,14 +532,24 @@ describe('mcp.enable / mcp.disable / mcp.remove', () => {
 
   it('remove deletes from config + emits removed', async () => {
     const ws = fakeWs();
-    await handleMcpRemove(ws as never, msg('mcp.remove', { name: 'github' }), configPath, makeRegistry());
+    await handleMcpRemove(
+      ws as never,
+      msg('mcp.remove', { name: 'github' }),
+      configPath,
+      makeRegistry(),
+    );
     expect(await readServers()).toEqual({});
     expect(types(ws)).toContain('mcp.server.removed');
   });
 
   it('remove errors when the server is not present', async () => {
     const ws = fakeWs();
-    await handleMcpRemove(ws as never, msg('mcp.remove', { name: 'ghost' }), configPath, makeRegistry());
+    await handleMcpRemove(
+      ws as never,
+      msg('mcp.remove', { name: 'ghost' }),
+      configPath,
+      makeRegistry(),
+    );
     expect(result(ws).success).toBe(false);
   });
 });

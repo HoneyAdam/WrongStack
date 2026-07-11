@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { expectDefined } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { MCP_CONSTANTS } from './constants.js';
+import type { MCPPromptArgument, MCPPromptMessage, MCPResourceContents } from './protocol.js';
 /**
  * Server-side MCP. The mirror image of `MCPClient`: instead of consuming a
  * remote MCP server, this lets WrongStack *be* an MCP server — exposing its
@@ -37,6 +38,26 @@ export interface MCPServerToolHost {
   callTool(name: string, args: Record<string, unknown>): Promise<MCPServerCallResult>;
 }
 
+export interface MCPServerResource {
+  uri: string;
+  name: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  mimeType?: string | undefined;
+  size?: number | undefined;
+  contents: MCPResourceContents[];
+}
+
+export interface MCPServerPrompt {
+  name: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  arguments?: MCPPromptArgument[] | undefined;
+  /** Static rich messages, or a text template using {{argument}} placeholders. */
+  messages?: MCPPromptMessage[] | undefined;
+  template?: string | undefined;
+}
+
 export interface MCPServerLogger {
   warn?(msg: string): void;
   info?(msg: string): void;
@@ -47,6 +68,10 @@ export interface MCPServerOptions {
   /** Advertised in the `initialize` handshake. Defaults to the wrongstack identity. */
   serverInfo?: { name: string; version: string };
   logger?: MCPServerLogger | undefined;
+  /** Explicit allowlist only; omitted means this server exposes no resources. */
+  resources?: MCPServerResource[] | undefined;
+  /** Explicit allowlist only; omitted means this server exposes no prompts. */
+  prompts?: MCPServerPrompt[] | undefined;
 }
 
 interface JsonRpcRequest {
@@ -66,6 +91,8 @@ export class MCPServer {
   private readonly host: MCPServerToolHost;
   private readonly serverInfo: { name: string; version: string };
   private readonly logger?: MCPServerLogger | undefined;
+  private readonly resources: MCPServerResource[];
+  private readonly prompts: MCPServerPrompt[];
 
   constructor(opts: MCPServerOptions) {
     this.host = opts.host;
@@ -74,6 +101,8 @@ export class MCPServer {
       version: MCP_CONSTANTS.CLIENT_INFO.version,
     };
     this.logger = opts.logger;
+    this.resources = structuredClone(opts.resources ?? []);
+    this.prompts = structuredClone(opts.prompts ?? []);
   }
 
   /**
@@ -127,7 +156,13 @@ export class MCPServer {
       case 'initialize':
         return {
           protocolVersion: MCP_CONSTANTS.PROTOCOL_VERSION,
-          capabilities: { tools: { listChanged: false } },
+          capabilities: {
+            tools: { listChanged: false },
+            ...(this.resources.length > 0
+              ? { resources: { subscribe: false, listChanged: false } }
+              : {}),
+            ...(this.prompts.length > 0 ? { prompts: { listChanged: false } } : {}),
+          },
           serverInfo: this.serverInfo,
         };
       case 'ping':
@@ -148,6 +183,56 @@ export class MCPServer {
         const res = await this.host.callTool(p.name, args);
         return { content: toContentBlocks(res.content), isError: res.isError };
       }
+      case 'resources/list': {
+        if (this.resources.length === 0) return METHOD_NOT_FOUND_SENTINEL;
+        const page = paginate(this.resources, params);
+        return {
+          resources: page.items.map(({ contents: _contents, ...resource }) => resource),
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        };
+      }
+      case 'resources/templates/list':
+        if (this.resources.length === 0) return METHOD_NOT_FOUND_SENTINEL;
+        return { resourceTemplates: [] };
+      case 'resources/read': {
+        if (this.resources.length === 0) return METHOD_NOT_FOUND_SENTINEL;
+        const uri = requiredParamString(params, 'uri', 'resources/read');
+        const resource = this.resources.find((candidate) => candidate.uri === uri);
+        if (!resource) throw new Error(`Resource not found: ${uri}`);
+        return { contents: structuredClone(resource.contents) };
+      }
+      case 'prompts/list': {
+        if (this.prompts.length === 0) return METHOD_NOT_FOUND_SENTINEL;
+        const page = paginate(this.prompts, params);
+        return {
+          prompts: page.items.map(
+            ({ messages: _messages, template: _template, ...prompt }) => prompt,
+          ),
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        };
+      }
+      case 'prompts/get': {
+        if (this.prompts.length === 0) return METHOD_NOT_FOUND_SENTINEL;
+        const name = requiredParamString(params, 'name', 'prompts/get');
+        const prompt = this.prompts.find((candidate) => candidate.name === name);
+        if (!prompt) throw new Error(`Prompt not found: ${name}`);
+        const input = paramsRecord(params);
+        const args = stringRecord(input['arguments'], 'prompts/get arguments');
+        for (const argument of prompt.arguments ?? []) {
+          if (argument.required && args[argument.name] === undefined) {
+            throw new Error(`Prompt "${name}" requires argument "${argument.name}"`);
+          }
+        }
+        const messages = prompt.template
+          ? [
+              {
+                role: 'user' as const,
+                content: { type: 'text', text: renderPromptTemplate(prompt.template, args) },
+              },
+            ]
+          : structuredClone(prompt.messages ?? []);
+        return { description: prompt.description, messages };
+      }
       default:
         return METHOD_NOT_FOUND_SENTINEL;
     }
@@ -156,6 +241,61 @@ export class MCPServer {
   private encodeError(id: number | string | null, code: number, message: string): string {
     return JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } });
   }
+}
+
+const SERVER_PAGE_SIZE = 100;
+
+function paginate<T>(items: T[], params: unknown): { items: T[]; nextCursor?: string | undefined } {
+  const cursor = paramsRecord(params)['cursor'];
+  let offset = 0;
+  if (cursor !== undefined) {
+    if (typeof cursor !== 'string' || !/^\d+$/.test(cursor)) {
+      throw new Error('MCP pagination cursor must be a non-negative integer string');
+    }
+    offset = Number(cursor);
+    if (!Number.isSafeInteger(offset)) throw new Error('MCP pagination cursor is too large');
+  }
+  const page = items.slice(offset, offset + SERVER_PAGE_SIZE);
+  const next = offset + page.length;
+  return {
+    items: page,
+    ...(next < items.length ? { nextCursor: String(next) } : {}),
+  };
+}
+
+function paramsRecord(params: unknown): Record<string, unknown> {
+  return params && typeof params === 'object' && !Array.isArray(params)
+    ? (params as Record<string, unknown>)
+    : {};
+}
+
+function requiredParamString(params: unknown, field: string, method: string): string {
+  const value = paramsRecord(params)[field];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${method} requires a non-empty string "${field}"`);
+  }
+  return value;
+}
+
+function stringRecord(value: unknown, label: string): Record<string, string> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof item !== 'string') throw new Error(`${label}.${key} must be a string`);
+    result[key] = item;
+  }
+  return result;
+}
+
+function renderPromptTemplate(template: string, args: Record<string, string>): string {
+  return template.replace(/\{\{([A-Za-z_][A-Za-z0-9_.-]*)\}\}/g, (_match, name: string) => {
+    const value = args[name];
+    if (value === undefined) throw new Error(`Missing prompt template argument "${name}"`);
+    return value;
+  });
 }
 
 const METHOD_NOT_FOUND_SENTINEL = Symbol('method-not-found');

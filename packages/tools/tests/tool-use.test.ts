@@ -99,4 +99,24 @@ describe('toolUseTool', () => {
     const result = await toolUseTool.execute({ tool: 'works' }, ctx, makeOpts());
     expect(result.executionMs).toBeGreaterThanOrEqual(0);
   });
+
+  it('handles non-Error thrown values in catch', async () => {
+    const ctx = makeCtx([
+      {
+        name: 'throws-string',
+        execute: vi.fn().mockRejectedValue('string error'),
+        permission: 'auto',
+        mutating: false,
+      },
+    ]);
+    const result = await toolUseTool.execute({ tool: 'throws-string' }, ctx, makeOpts());
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('string error');
+  });
+
+  it('reports zero execution time when no tool given', async () => {
+    const ctx = makeCtx([]);
+    const result = await toolUseTool.execute({ tool: '' } as any, ctx, makeOpts());
+    expect(result.executionMs).toBe(0);
+  });
 });

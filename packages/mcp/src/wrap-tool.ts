@@ -1,4 +1,4 @@
-import { ToolCapabilities, type Permission, type Tool } from '@wrongstack/core';
+import { type Permission, type Tool, ToolCapabilities } from '@wrongstack/core';
 import type { MCPClient, MCPTool } from './client.js';
 
 /**
@@ -30,11 +30,17 @@ function isMutatingTool(mcpTool: MCPTool): boolean {
  */
 export type MCPClientResolver = MCPClient | (() => Promise<MCPClient>);
 
+export interface MCPToolCallObserver {
+  onStart(): void;
+  onFinish(result: { durationMs: number; ok: boolean }): void;
+}
+
 export function wrapMCPTool(
   serverName: string,
   mcpTool: MCPTool,
   client: MCPClientResolver,
   permission: Permission = 'confirm',
+  observer?: MCPToolCallObserver | undefined,
 ): Tool {
   const qualifiedName = `mcp__${serverName}__${mcpTool.name}`;
   return {
@@ -46,17 +52,25 @@ export function wrapMCPTool(
     capabilities: [ToolCapabilities.MCP_PROXY],
     inputSchema: mcpTool.inputSchema ?? { type: 'object', properties: {} },
     async execute(input, _ctx, opts) {
-      // For a dormant lazy server this spawns the process + handshakes before
-      // the first call; for an eager server it resolves to the fixed client.
-      const live = typeof client === 'function' ? await client() : client;
-      // Propagate the run's abort signal: on Ctrl+C the JSON-RPC request is
-      // dropped AND the server is told via `notifications/cancelled` to stop
-      // the in-flight work, instead of it running to completion server-side.
-      const res = await live.callTool(mcpTool.name, input, { signal: opts.signal });
-      if (res.isError) {
-        throw new Error(stringify(res.content));
+      const startedAt = Date.now();
+      observer?.onStart();
+      let ok = false;
+      try {
+        // For a dormant lazy server this spawns the process + handshakes before
+        // the first call; for an eager server it resolves to the fixed client.
+        const live = typeof client === 'function' ? await client() : client;
+        // Propagate the run's abort signal: on Ctrl+C the JSON-RPC request is
+        // dropped AND the server is told via `notifications/cancelled` to stop
+        // the in-flight work, instead of it running to completion server-side.
+        const res = await live.callTool(mcpTool.name, input, { signal: opts.signal });
+        if (res.isError) {
+          throw new Error(stringify(res.content));
+        }
+        ok = true;
+        return stringify(res.content);
+      } finally {
+        observer?.onFinish({ durationMs: Date.now() - startedAt, ok });
       }
-      return stringify(res.content);
     },
   };
 }

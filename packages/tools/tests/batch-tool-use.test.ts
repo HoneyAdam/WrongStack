@@ -103,7 +103,9 @@ describe('batchToolUseTool', () => {
       makeOpts(),
     );
     // With stop_on_error + sequential, loop should break after first failure
-    expect(result.results.length).toBeLessThanOrEqual(2);
+    expect(result.results.length).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.stop_on_error).toBe(true);
   });
 
   it('continues when stop_on_error=false even after failure', async () => {
@@ -126,6 +128,22 @@ describe('batchToolUseTool', () => {
     );
     expect(result.results.length).toBe(2);
     expect(result.failed).toBe(2);
+  });
+
+  it('handles non-Error thrown values in executeSingle', async () => {
+    const fakeTool = {
+      name: 'throws-string',
+      execute: vi.fn().mockRejectedValue('string error value'),
+    };
+    const ctx = makeCtx([fakeTool]);
+
+    const result = await batchToolUseTool.execute(
+      { calls: [{ tool: 'throws-string', input: {} }] },
+      ctx,
+      makeOpts(),
+    );
+    expect(result.results[0].success).toBe(false);
+    expect(result.results[0].error).toBe('string error value');
   });
 
   it('reports execution time', async () => {

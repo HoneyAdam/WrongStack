@@ -75,6 +75,12 @@ describe('codebase-index tool gates', () => {
     expect(out.note).toMatch(/paused after repeated failures/);
   });
 
+  it('reports open circuit without a specific last failure', async () => {
+    circuitSnapshot = { state: 'open', cooldownRemainingMs: 5000 };
+    const out = await codebaseIndexTool.execute({}, ctx(), opts());
+    expect(out.note).toContain('last: unknown');
+  });
+
   it('runs the indexer when not gated', async () => {
     const out = await codebaseIndexTool.execute({}, ctx(), opts());
     expect(out.filesIndexed).toBe(1);
@@ -107,6 +113,13 @@ describe('codebase-stats tool gates', () => {
     state.circuit = { state: 'open', cooldownRemainingMs: 3000, lastFailure: 'x' };
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
     expect(out.indexStatus).toMatch(/paused after repeated failures/);
+    expect(out.totalSymbols).toBe(5);
+  });
+
+  it('handles open circuit without a lastFailure value', async () => {
+    state.circuit = { state: 'open', cooldownRemainingMs: 3000 };
+    const out = await codebaseStatsTool.execute({}, ctx(), opts());
+    expect(out.indexStatus).toContain('unknown');
     expect(out.totalSymbols).toBe(5);
   });
 

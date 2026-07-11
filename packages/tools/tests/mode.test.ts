@@ -119,4 +119,19 @@ describe('createModeTool', () => {
     expect(result.success).toBe(false);
     expect(result.message).toContain('Unknown action');
   });
+
+  it('modeFamily returns custom for modes without tags and non-default id', async () => {
+    const modes = [{ id: 'my-mode', name: 'Custom', description: 'A custom mode' }];
+    const store = mockModeStore(modes, null);
+    const tool = createModeTool(store);
+    const result = await tool.execute({ action: 'list' }, {} as any, makeOpts());
+    expect(result.modes![0].family).toBe('custom');
+  });
+
+  it('get action returns message when no mode set', async () => {
+    const store = mockModeStore([], null);
+    const tool = createModeTool(store);
+    const result = await tool.execute({ action: 'get' }, {} as any, makeOpts());
+    expect(result.message).toContain('No mode set');
+  });
 });

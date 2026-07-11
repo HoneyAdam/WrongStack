@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { ToolCapabilities } from '@wrongstack/core';
+import { describe, expect, it, vi } from 'vitest';
 import type { MCPClient, MCPTool } from '../src/client.js';
 import { wrapMCPTool } from '../src/wrap-tool.js';
 
@@ -91,5 +91,42 @@ describe('wrapMCPTool', () => {
     const ctx = {} as Parameters<typeof wrapped.execute>[1];
     await wrapped.execute({ q: 1 }, ctx, { signal: ctrl.signal });
     expect(callTool).toHaveBeenCalledWith('fetch', { q: 1 }, { signal: ctrl.signal });
+  });
+
+  it('reports call saturation and outcomes without exposing tool input', async () => {
+    const onStart = vi.fn();
+    const onFinish = vi.fn();
+    const wrapped = wrapMCPTool(
+      'private-server',
+      { name: 'secret-tool', inputSchema: { type: 'object' } },
+      mkClient(async () => 'ok'),
+      'confirm',
+      { onStart, onFinish },
+    );
+    const ctx = {} as Parameters<typeof wrapped.execute>[1];
+    await wrapped.execute({ token: 'must-not-be-observed' }, ctx, {
+      signal: new AbortController().signal,
+    });
+    expect(onStart).toHaveBeenCalledOnce();
+    expect(onFinish).toHaveBeenCalledWith({ durationMs: expect.any(Number), ok: true });
+    expect(JSON.stringify(onFinish.mock.calls)).not.toContain('must-not-be-observed');
+  });
+
+  it('reports failed outcomes even when the client throws', async () => {
+    const onFinish = vi.fn();
+    const wrapped = wrapMCPTool(
+      'server',
+      { name: 'fails', inputSchema: { type: 'object' } },
+      mkClient(async () => {
+        throw new Error('boom');
+      }),
+      'confirm',
+      { onStart: vi.fn(), onFinish },
+    );
+    const ctx = {} as Parameters<typeof wrapped.execute>[1];
+    await expect(
+      wrapped.execute({}, ctx, { signal: new AbortController().signal }),
+    ).rejects.toThrow('boom');
+    expect(onFinish).toHaveBeenCalledWith({ durationMs: expect.any(Number), ok: false });
   });
 });

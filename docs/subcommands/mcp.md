@@ -182,6 +182,20 @@ schedules exponential-backoff reconnect cycles:
 
 A successful connect resets the cycle counter — future crashes get the full budget.
 
+## Operational health
+
+`/mcp` now shows an operational suffix for each running server: health state, cumulative
+transport/protocol/tool failure counts, and tool-call p95 latency. The same bounded snapshot powers
+WebUI Settings → MCP, `/health`, metrics, and HQ telemetry.
+
+Operational health distinguishes `disabled`, `dormant`, `connecting`, `healthy`, `degraded`, and
+`failed`. It also tracks connection/discovery/call latency, reconnect/wake/sleep/restart counts,
+in-flight and peak calls, and the latest 32 lifecycle events. Event reasons are fixed WrongStack
+codes; raw server errors, commands, URLs, tool names, arguments, and tokens are excluded.
+
+Metrics use fixed-cardinality labels only (`state`, `operation`, `kind`, and `outcome`). Server names
+are intentionally not metric labels.
+
 ## Per-server tool filtering
 
 Use `allowedTools` in config to expose only a subset of a server's tools:

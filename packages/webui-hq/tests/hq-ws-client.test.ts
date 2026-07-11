@@ -220,6 +220,59 @@ describe('HqWsClient', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  // ── Constructor URL resolution (no explicit url) ───────────────────────
+
+  it('builds URL from window.location when no url option is given', () => {
+    const noUrlClient = new HqWsClient();
+    expect(noUrlClient.state).toBe('disconnected');
+    // The URL should contain /ws/browser
+    expect((noUrlClient as unknown as { url: string }).url).toContain('/ws/browser');
+    noUrlClient.close();
+  });
+
+  it('builds URL without token when resolveHqToken returns null', () => {
+    // In node mode (no window), resolveHqToken returns null.
+    const noUrlClient = new HqWsClient();
+    const url = (noUrlClient as unknown as { url: string }).url;
+    // The URL should use the ws:// protocol and /ws/browser path
+    expect(url).toMatch(/^ws:\/\/[^/]+\/ws\/browser$/);
+    expect(url).not.toContain('?token=');
+    noUrlClient.close();
+  });
+
+  it('isHeartbeatTimedOut returns true when ws is null', () => {
+    // Before connect(), ws is null → isHeartbeatTimedOut should be true.
+    expect(client.isHeartbeatTimedOut).toBe(true);
+  });
+
+  // ── Heartbeat timeout fires close + reconnect ─────────────────────────
+
+  it('heartbeat timeout calls ws.close(4000) and schedules reconnect', () => {
+    client.connect();
+    currentWs!._open();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // deterministic jitter
+    const closeSpy = vi.spyOn(currentWs!, 'close');
+
+    // Advance to 50500ms → this fires the interval at 50s (the second tick),
+    // which calls close(4000) because isHeartbeatTimedOut is now true.
+    // The reconnect timer (~750ms) is scheduled but hasn't fired yet.
+    vi.advanceTimersByTime(50500);
+    expect(closeSpy).toHaveBeenCalledWith(4000, 'heartbeat timeout');
+    // After close, state should be reconnecting (before reconnect timer fires).
+    expect(client.state).toBe('reconnecting');
+  });
+
+  // ── WebSocket constructor throws ─────────────────────────────────────
+
+  it('calls scheduleReconnect when WebSocket constructor throws', () => {
+    const throwingCtor = vi.fn(() => { throw new Error('ws fail'); });
+    vi.stubGlobal('WebSocket', throwingCtor);
+    client.connect();
+    // It should transition to 'reconnecting' (via scheduleReconnect)
+    // without crashing.
+    expect(client.state).toBe('reconnecting');
+  });
+
   // ── Singleton ─────────────────────────────────────────────────────────
 
   it('getHqClient returns the same instance', () => {

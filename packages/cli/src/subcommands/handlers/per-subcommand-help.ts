@@ -260,7 +260,6 @@ export interface PerSubcommandHelp {
    */
   customBody?: () => string;
 }
-
 const COLUMN_WIDTH = 28;
 
 /**
@@ -358,7 +357,11 @@ const helpTable: Record<string, PerSubcommandHelp> = {
       { name: 'add <id> <command>', description: 'Register a new stdio MCP server.' },
       { name: 'remove <id>', description: 'Unregister an MCP server.' },
       { name: 'restart <id>', description: 'Restart a running MCP server.' },
-      { name: 'serve', description: 'Run the wstack MCP server (stdio transport).' },
+      {
+        name: 'serve',
+        description:
+          'Run the wstack MCP server; --resources/--prompts explicitly expose selected files.',
+      },
     ],
     seeAlso: 'wstack plugin (manage tool plugins similarly)',
   },

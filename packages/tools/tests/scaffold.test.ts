@@ -109,4 +109,13 @@ describe('scaffoldTool', () => {
       scaffoldTool.execute({ template: 'react-component', name: '../../evil' }, ctx),
     ).rejects.toThrow(/escape project root/);
   });
+
+  it('resolves explicit cwd from input', async () => {
+    const ctx = makeCtx();
+    const result = await scaffoldTool.execute(
+      { template: 'npm-package', name: 'myproject', dry_run: true, cwd: tmpDir },
+      ctx,
+    );
+    expect(result.files_created).toBeGreaterThan(0);
+  });
 });

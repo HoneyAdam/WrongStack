@@ -12,6 +12,7 @@ import {
   startToolTelemetryBridge,
 } from '@wrongstack/core';
 import type { AgentMonitorService } from '@wrongstack/core/coordination';
+import type { MCPRegistry } from '@wrongstack/mcp';
 import { startCliHqConnection } from '../hq-publisher.js';
 import { createHqCommandDispatcher, type HqCommandController } from '../hq-command-controller.js';
 
@@ -40,6 +41,7 @@ export interface SetupHqTelemetryDeps {
   teardownHandlers: (() => void)[];
   mailboxSessionTag: (sessionId: string) => string;
   hqPublisherRef: HqPublisherRef;
+  mcpRegistry: Pick<MCPRegistry, 'onOperation' | 'operationalHealth'>;
 }
 
 export interface HqTelemetryResult {
@@ -72,6 +74,7 @@ export function setupHqTelemetry(deps: SetupHqTelemetryDeps): HqTelemetryResult 
     teardownHandlers,
     mailboxSessionTag,
     hqPublisherRef,
+    mcpRegistry,
   } = deps;
 
   // Mutable state owned entirely within this function — no references
@@ -138,6 +141,27 @@ export function setupHqTelemetry(deps: SetupHqTelemetryDeps): HqTelemetryResult 
             publisher,
             runId: session.id,
             sessionId: session.id,
+          }),
+        );
+      } catch {
+        /* optional */
+      }
+      try {
+        publisher.publishEvent({
+          type: 'mcp.health.snapshot',
+          payload: { servers: mcpRegistry.operationalHealth() },
+          sessionId: session.id,
+        });
+        stopHqAuxBridges.push(
+          mcpRegistry.onOperation((operation) => {
+            publisher.publishEvent({
+              type: 'mcp.operation',
+              payload: {
+                operation,
+                servers: mcpRegistry.operationalHealth(),
+              },
+              sessionId: session.id,
+            });
           }),
         );
       } catch {

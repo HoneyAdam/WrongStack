@@ -219,3 +219,116 @@ describe('layoutFleetTopology', () => {
     expect(pos.get('project:m1:p1')).toBeDefined();
   });
 });
+
+describe('buildFleetTopology — edge cases', () => {
+  it('returns empty nodes/edges for null snapshot', () => {
+    const topology = buildFleetTopology(null);
+    expect(topology.nodes).toEqual([]);
+    expect(topology.edges).toEqual([]);
+  });
+
+  it('sorts sessions by secondary keys when machines match', () => {
+    // Two sessions on the same machine but different projects:
+    // the sort comparator reaches the projectName and sessionId branches.
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        liveSessions: [
+          {
+            sessionId: 'sess-b',
+            clientKind: 'tui',
+            machineId: 'machine-1',
+            projectId: 'proj-a',
+            projectName: 'Alpha',
+            status: 'active',
+            startedAt: '2026-07-09T00:00:00.000Z',
+            lastActivityAt: '2026-07-09T00:01:00.000Z',
+            agentCount: 0,
+            agents: [],
+          },
+          {
+            sessionId: 'sess-a',
+            clientKind: 'cli',
+            machineId: 'machine-1',
+            projectId: 'proj-b',
+            projectName: 'Beta',
+            status: 'active',
+            startedAt: '2026-07-09T00:00:00.000Z',
+            lastActivityAt: '2026-07-09T00:01:00.000Z',
+            agentCount: 0,
+            agents: [],
+          },
+        ],
+        machines: [{
+          machineId: 'machine-1',
+          hostname: 'devbox',
+          clientCount: 1,
+          sessionCount: 2,
+          agentCount: 0,
+          projectIds: ['proj-a', 'proj-b'],
+          lastActivityAt: '2026-07-09T00:01:00.000Z',
+        }],
+      }),
+    );
+    // Both sessions share one machine, so the sort must break ties by
+    // projectName → projectId. The sort output isn't directly surfaced,
+    // but the node list should contain both terminals without error.
+    expect(topology.nodes.filter((n) => n.kind === 'terminal')).toHaveLength(2);
+    expect(topology.nodes.filter((n) => n.kind === 'project')).toHaveLength(2);
+  });
+
+  it('falls back to session.projectName/projectRoot when no project record exists', () => {
+    // No snapshot.projects entry for the session's projectId —
+    // the labels/chips must use the session-level fallback.
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        liveSessions: [{
+          sessionId: 'sess-1',
+          clientKind: 'tui',
+          machineId: 'machine-1',
+          hostname: 'devbox',
+          projectId: 'orphan-proj',
+          projectName: 'Orphan',
+          projectRoot: '/tmp/orphan',
+          status: 'active',
+          startedAt: '2026-07-09T00:00:00.000Z',
+          lastActivityAt: '2026-07-09T00:01:00.000Z',
+          agentCount: 0,
+          agents: [],
+        }],
+        machines: [{
+          machineId: 'machine-1',
+          hostname: 'devbox',
+          clientCount: 1,
+          sessionCount: 1,
+          agentCount: 0,
+          projectIds: ['orphan-proj'],
+          lastActivityAt: '2026-07-09T00:01:00.000Z',
+        }],
+      }),
+    );
+    const project = topology.nodes.find((n) => n.kind === 'project');
+    // Since there's no project record, the session's projectName is used.
+    expect(project?.label).toBe('Orphan');
+    // chips should not crash even without project record fields.
+    expect(project?.chips).toBeDefined();
+  });
+
+  it('excludes disconnected clients from the topology', () => {
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        clients: [{
+          clientId: 'offline-client',
+          kind: 'webui',
+          machineId: 'machine-x',
+          connected: false,
+          connectedAt: '2026-07-09T00:00:00.000Z',
+          lastSeenAt: '2026-07-09T00:00:10.000Z',
+          projectId: 'proj-x',
+          capabilities: ['control.receive'],
+        }],
+      }),
+    );
+    // Disconnected client should not appear as a node.
+    expect(topology.nodes).toHaveLength(0);
+  });
+});

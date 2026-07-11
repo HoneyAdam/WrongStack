@@ -3,6 +3,18 @@ import type { MailboxLiveFilterState } from '../src/views/mailbox-filters.js';
 import { EMPTY_LIVE_FILTER_STATE, mailboxLiveFilterReducer } from '../src/views/mailbox-filters.js';
 
 describe('mailbox-filters reducer', () => {
+  it('exhaustive default returns state unchanged for unknown action type', () => {
+    // The default case uses a `never` assertion for compile-time
+    // exhaustiveness checking. At runtime, an unrecognised action
+    // (which should never happen with valid types) returns state unchanged.
+    const state = mailboxLiveFilterReducer(
+      EMPTY_LIVE_FILTER_STATE,
+      // @ts-expect-error: testing runtime fallthrough for unknown action
+      { type: 'unknown-action' },
+    );
+    expect(state).toBe(EMPTY_LIVE_FILTER_STATE);
+  });
+
   it('returns initial state on clear-all action', () => {
     const dirtyState: MailboxLiveFilterState = {
       types: new Set(['note']),

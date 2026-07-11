@@ -1,10 +1,11 @@
-import { color } from '../utils/color.js';
-import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../index.js';
-import type { HealthRegistry, MetricsSink } from '../types/observability.js';
+import type { HealthRegistry, MetricsRuntimeStatus, MetricsSink } from '../types/observability.js';
+import type { Plugin } from '../types/plugin.js';
+import { color } from '../utils/color.js';
 
 interface ObservabilityPluginOptions {
   metricsSink?: MetricsSink | undefined;
+  metricsStatus?: MetricsRuntimeStatus | undefined;
   healthRegistry?: HealthRegistry | undefined;
 }
 
@@ -27,10 +28,12 @@ export function createObservabilityPlugin(opts?: ObservabilityPluginOptions): Pl
     setup(api) {
       const rawConfig = api.config as never as Record<string, unknown>;
       const metricsSink = opts?.metricsSink ?? (rawConfig.metricsSink as MetricsSink | undefined);
+      const metricsStatus =
+        opts?.metricsStatus ?? (rawConfig.metricsStatus as MetricsRuntimeStatus | undefined);
       const healthRegistry =
         opts?.healthRegistry ?? (rawConfig.healthRegistry as HealthRegistry | undefined);
 
-      api.slashCommands.register(buildMetricsCommand(metricsSink));
+      api.slashCommands.register(buildMetricsCommand(metricsSink, metricsStatus));
       api.slashCommands.register(buildHealthCommand(healthRegistry));
       api.log.info('[observability] loaded — /metrics, /health available');
     },
@@ -53,18 +56,50 @@ function statusIcon(status: string): string {
   return color.red('●');
 }
 
-export function buildMetricsCommand(metricsSink?: MetricsSink): SlashCommand {
+export function buildMetricsCommand(
+  metricsSink?: MetricsSink,
+  runtimeStatus: MetricsRuntimeStatus = {
+    collectionEnabled: metricsSink !== undefined,
+    httpExporter: 'unknown',
+  },
+): SlashCommand {
+  const help = [
+    'Usage: /metrics [--json]',
+    '',
+    'Shows the current in-memory metrics snapshot and safe exporter status.',
+    'Use --json for stable machine-readable output and slash-command metadata.',
+    'Metric collection requires --metrics or --metrics-port.',
+  ].join('\n');
   return {
     name: 'metrics',
+    category: 'Inspect',
+    argsHint: '[--json]',
     description: 'Show metrics snapshot (requires --metrics flag).',
-    async run() {
+    help,
+    async run(args: string) {
+      const json = args.trim().split(/\s+/).includes('--json');
       if (!metricsSink) {
+        if (json) {
+          const unavailable = { enabled: false, exporter: runtimeStatus, snapshot: null };
+          return {
+            message: JSON.stringify(unavailable, null, 2),
+            metadata: { metrics: unavailable },
+          };
+        }
         return { message: 'Metrics not enabled. Restart with --metrics to collect.' };
       }
       const snap = metricsSink.snapshot();
-      if (snap.series.length === 0) return { message: 'No metrics recorded yet.' };
+      const payload = { enabled: true, exporter: runtimeStatus, snapshot: snap };
+      if (json) {
+        return { message: JSON.stringify(payload, null, 2), metadata: { metrics: payload } };
+      }
 
-      const lines: string[] = [];
+      const statusLine = `collection=${runtimeStatus.collectionEnabled ? 'enabled' : 'disabled'} http_exporter=${runtimeStatus.httpExporter}`;
+      if (snap.series.length === 0) {
+        return { message: `${color.dim(statusLine)}\nNo metrics recorded yet.` };
+      }
+
+      const lines: string[] = [color.dim(statusLine)];
       const byName = new Map<string, typeof snap.series>();
       for (const s of snap.series) {
         const bucket = byName.get(s.name) ?? [];
@@ -93,14 +128,35 @@ export function buildMetricsCommand(metricsSink?: MetricsSink): SlashCommand {
 }
 
 export function buildHealthCommand(healthRegistry?: HealthRegistry): SlashCommand {
+  const help = [
+    'Usage: /health [--json]',
+    '',
+    'Runs the host health registry and reports the worst aggregate status.',
+    'Use --json for stable machine-readable output and slash-command metadata.',
+    'Health collection requires --metrics or --metrics-port.',
+  ].join('\n');
   return {
     name: 'health',
+    category: 'Inspect',
+    argsHint: '[--json]',
     description: 'Run health checks (requires --metrics flag).',
-    async run() {
+    help,
+    async run(args: string) {
+      const json = args.trim().split(/\s+/).includes('--json');
       if (!healthRegistry) {
+        if (json) {
+          const unavailable = { enabled: false, status: 'unavailable', checks: [] };
+          return {
+            message: JSON.stringify(unavailable, null, 2),
+            metadata: { health: unavailable },
+          };
+        }
         return { message: 'Health checks not enabled. Restart with --metrics.' };
       }
       const result = await healthRegistry.run();
+      if (json) {
+        return { message: JSON.stringify(result, null, 2), metadata: { health: result } };
+      }
       const lines = [
         `${statusIcon(result.status)} overall: ${result.status}`,
         ...result.checks.map((c) => {

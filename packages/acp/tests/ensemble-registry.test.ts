@@ -131,6 +131,45 @@ describe('AGENTS_CATALOG', () => {
   });
 });
 
+describe('defaultProbe integration (real subprocess)', () => {
+  // The `defaultProbe` function is called internally when no probeFn is
+  // injected. We exercise it with an agent whose probe command is `node`
+  // (always available), and another whose command is definitely absent.
+  it('probes a real binary that exists on PATH', async () => {
+    const nodeEntry: ACPAgentDescriptor = {
+      id: 'node-test',
+      displayName: 'Node Test',
+      vendor: 'community',
+      probe: { command: 'node', args: ['--version'] },
+      acp: { command: 'node', args: [] },
+      supports: { loadSession: true, promptImages: false, terminal: false, fs: false },
+      integration: 'community',
+      docs: 'https://nodejs.org',
+    };
+    const reg = new EnsembleRegistry({ catalog: [nodeEntry], probeTimeoutMs: 5_000 });
+    const result = await reg.detect(nodeEntry);
+    expect(result.installed).toBe(true);
+    expect(result.version).toMatch(/^v\d/);
+  });
+
+  it('reports a missing binary as not-installed', async () => {
+    const missingEntry: ACPAgentDescriptor = {
+      id: 'not-installed',
+      displayName: 'Not Installed',
+      vendor: 'community',
+      probe: { command: 'binary-that-definitely-does-not-exist-abc123', args: ['--version'] },
+      acp: { command: 'not-installed', args: [] },
+      supports: { loadSession: true, promptImages: false, terminal: false, fs: false },
+      integration: 'experimental',
+      docs: '',
+    };
+    const reg = new EnsembleRegistry({ catalog: [missingEntry], probeTimeoutMs: 2_000 });
+    const result = await reg.detect(missingEntry);
+    expect(result.installed).toBe(false);
+    expect(result.reason).toBeTruthy();
+  });
+});
+
 describe('live probe (opt-in via RUN_LIVE_PROBE=1)', () => {
   it.runIf(process.env.RUN_LIVE_PROBE === '1')(
     'prints the live detection result for the host $PATH',

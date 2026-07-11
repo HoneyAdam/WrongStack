@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPlanCommand } from '../../src/plugins/plan-plugin.js';
 
 let tmp: string;
@@ -28,6 +28,14 @@ function makeCtx() {
 }
 
 describe('buildPlanCommand', () => {
+  it('exposes deep help without requiring configured storage', async () => {
+    const cmd = buildPlanCommand(undefined);
+    expect(cmd.category).toBe('Agent');
+    expect(cmd.argsHint).toContain('--json');
+    expect(cmd.help).toContain('Usage: /plan');
+    expect((await cmd.run('help', makeCtx())).message).toContain('Read-only:');
+  });
+
   it('reports when planPath missing', async () => {
     const cmd = buildPlanCommand(undefined);
     const res = await cmd.run('show', makeCtx());
@@ -37,6 +45,38 @@ describe('buildPlanCommand', () => {
   it('show on empty plan renders empty state', async () => {
     const res = await buildPlanCommand(planPath).run('', makeCtx());
     expect(typeof res!.message).toBe('string');
+  });
+
+  it('returns the persisted plan as JSON and metadata', async () => {
+    const cmd = buildPlanCommand(planPath);
+    const add = await cmd.run('add Structured item --json', makeCtx());
+    const addedPayload = JSON.parse(add.message);
+    expect(addedPayload).toMatchObject({
+      ok: true,
+      plan: { sessionId: 'sess-x', items: [{ title: 'Structured item' }] },
+      item: { title: 'Structured item' },
+    });
+    expect(add.metadata?.['plan']).toEqual(addedPayload);
+
+    const show = await cmd.run('show --json', makeCtx());
+    const shownPayload = JSON.parse(show.message);
+    expect(shownPayload.plan).toEqual(addedPayload.plan);
+    expect(show.metadata?.['plan']).toEqual(shownPayload);
+  });
+
+  it('returns stable structured errors in JSON mode', async () => {
+    const missing = await buildPlanCommand(undefined).run('show --json', makeCtx());
+    expect(JSON.parse(missing.message)).toMatchObject({
+      ok: false,
+      error: { code: 'storage_not_configured' },
+    });
+
+    const usage = await buildPlanCommand(planPath).run('add --json', makeCtx());
+    expect(JSON.parse(usage.message)).toMatchObject({
+      ok: false,
+      error: { code: 'usage' },
+      plan: { items: [] },
+    });
   });
 
   it('add without args returns usage', async () => {
@@ -88,7 +128,9 @@ describe('buildPlanCommand', () => {
   });
 
   it('promote without args returns usage', async () => {
-    expect((await buildPlanCommand(planPath).run('promote', makeCtx())).message).toContain('Usage:');
+    expect((await buildPlanCommand(planPath).run('promote', makeCtx())).message).toContain(
+      'Usage:',
+    );
   });
 
   it('promote with unmatched id reports no match', async () => {
@@ -125,6 +167,15 @@ describe('buildPlanCommand', () => {
     const cmd = buildPlanCommand(planPath);
     expect(typeof (await cmd.run('template', makeCtx())).message).toBe('string');
     expect(typeof (await cmd.run('template list', makeCtx())).message).toBe('string');
+  });
+
+  it('returns templates as structured read-only output', async () => {
+    const res = await buildPlanCommand(planPath).run('template list --json', makeCtx());
+    const payload = JSON.parse(res.message);
+    expect(payload.ok).toBe(true);
+    expect(payload.templates).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'new-feature' })]),
+    );
   });
 
   it('template use without name returns usage', async () => {

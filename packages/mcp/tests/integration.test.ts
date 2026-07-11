@@ -1,9 +1,8 @@
-import type { MCPServerConfig } from '@wrongstack/core';
+import type { Logger, MCPServerConfig } from '@wrongstack/core';
 import { EventBus, ToolRegistry } from '@wrongstack/core';
-import type { Logger } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MCPClient } from '../src/client.js';
 import type { MCPTool } from '../src/client.js';
+import { MCPClient } from '../src/client.js';
 import { MCPRegistry } from '../src/registry.js';
 
 const silentLog: Logger = {
@@ -148,6 +147,12 @@ describe('MCPClient + MockMCPServer', () => {
     });
     await client.connect();
     expect(client.getState()).toBe('connected');
+    expect(client.getServerMetadata()).toEqual({
+      protocolVersion: '2024-11-05',
+      capabilities: { tools: {} },
+      serverInfo: { name: 'mock', version: '1.0.0', title: undefined },
+      instructions: undefined,
+    });
     const tools = client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(['hello', 'ping']);
     await client.close();
@@ -315,9 +320,7 @@ describe('MCPRegistry + MockMCPServer', () => {
     cfg.command = '__nonexistent_binary_zzzz__';
     await reg.start(cfg);
     // Poll instead of a fixed sleep: finishes the moment retries exhaust.
-    await expect
-      .poll(() => reg.health()[0]?.alive, { timeout: 12_000, interval: 200 })
-      .toBe(false);
+    await expect.poll(() => reg.health()[0]?.alive, { timeout: 12_000, interval: 200 }).toBe(false);
   });
 
   it('skips disabled servers', async () => {

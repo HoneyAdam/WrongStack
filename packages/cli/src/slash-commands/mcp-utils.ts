@@ -98,17 +98,29 @@ function renderList(
   const lines: string[] = [];
   const liveStatus = mcpRegistry.list();
   const liveMap = new Map(liveStatus.map((s) => [s.name, s]));
+  const healthMap = new Map(
+    (typeof mcpRegistry.operationalHealth === 'function'
+      ? mcpRegistry.operationalHealth()
+      : []
+    ).map((health) => [health.name, health]),
+  );
   const configuredNames = new Set(Object.keys(configured));
 
   if (configuredNames.size > 0) {
     lines.push(color.bold('Configured servers:'));
     for (const [name, cfg] of Object.entries(configured)) {
       const live = liveMap.get(name);
+      const health = healthMap.get(name);
       const toolCount = live ? color.dim(` (${live.toolCount} tools)`) : '';
       const enabled =
         cfg.enabled === false ? `${color.dim('disabled')}  ` : `${color.green('● enabled')}  `;
       const stateStr = live ? stateBadge(live.state) : color.dim('○ not running');
-      lines.push(`  ${color.bold(name)}  ${enabled}${stateStr}${toolCount}`);
+      const operations = health
+        ? color.dim(
+            ` [${health.healthState}; failures ${health.failures.transport}/${health.failures.protocol}/${health.failures.tool}; call p95 ${health.callLatency.p95Ms ?? '-'}ms]`,
+          )
+        : '';
+      lines.push(`  ${color.bold(name)}  ${enabled}${stateStr}${toolCount}${operations}`);
       if (cfg.description) lines.push(`    ${color.dim(cfg.description)}`);
     }
     lines.push('');
@@ -157,6 +169,7 @@ async function runAdd(
   });
 
   if (!enable) {
+    if (typeof mcpRegistry.markDisabled === 'function') mcpRegistry.markDisabled(nextCfg);
     const verb = existing ? 'Updated' : 'Added (disabled — /mcp enable to start)';
     return `${color.green(verb)} "${name}" (${nextCfg.transport}). Config written to ${configPath}.`;
   }
@@ -196,6 +209,7 @@ async function runRemove(
       }),
     );
   }
+  if (typeof mcpRegistry.forget === 'function') mcpRegistry.forget(name);
   await updateJsonObjectFile(configPath, (full) => {
     const current = isMcpServerRecord(full.mcpServers) ? full.mcpServers : configured;
     setJsonPath(full, ['mcpServers'], { ...current });
@@ -260,6 +274,9 @@ async function runDisable(
     const current = isMcpServerRecord(full.mcpServers) ? full.mcpServers : {};
     setJsonPath(full, ['mcpServers', name], { ...cfg, ...current[name], enabled: false });
   });
+  if (typeof mcpRegistry.markDisabled === 'function') {
+    mcpRegistry.markDisabled({ ...cfg, name, enabled: false });
+  }
   return `${color.yellow('Disabled')} "${name}" and stopped.`;
 }
 

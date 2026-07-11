@@ -351,6 +351,8 @@ export interface SlashCommandContext {
     | undefined;
   /** Manage MCP servers: add, remove, enable, disable, restart. */
   onMcp?: ((args: string) => Promise<string>) | undefined;
+  /** Live registry used for explicit MCP resource/prompt discovery and insertion. */
+  mcpRegistry?: import('@wrongstack/mcp').MCPRegistry | undefined;
   /**
    * Structured MCP server status for diagnostics (e.g. /tuneup). Backed by
    * `mcpRegistry.describe()` — includes disabled + failed servers, unlike the
@@ -584,10 +586,10 @@ import { buildTasksCommand } from './tasks.js';
 import { buildTechStackCommand } from './techstack.js';
 import { buildTelegramSettingsCommand } from './telegram-settings.js';
 import { buildTelegramSetupCommand } from './telegram-setup.js';
-import { buildTuneupCommand } from './tuneup.js';
 import { buildTodosCommand } from './todos.js';
 import { buildToolCommand } from './tool.js';
 import { buildToolsCommand } from './tools.js';
+import { buildTuneupCommand } from './tuneup.js';
 import { buildWorkingDirCommand } from './working-dir.js';
 import { buildWorktreeCommand } from './worktree.js';
 import { buildYoloCommand } from './yolo.js';

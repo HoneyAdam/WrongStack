@@ -1422,6 +1422,13 @@ export type WSClientMessage =
   | { type: 'mcp.enable'; payload: { name: string } }
   | { type: 'mcp.disable'; payload: { name: string } }
   | { type: 'mcp.restart'; payload: { name: string } }
+  | { type: 'mcp.resources'; payload: { name: string; refresh?: boolean } }
+  | { type: 'mcp.prompts'; payload: { name: string; refresh?: boolean } }
+  | { type: 'mcp.resource.read'; payload: { name: string; uri: string } }
+  | {
+      type: 'mcp.prompt.get';
+      payload: { name: string; prompt: string; arguments?: Record<string, string> };
+    }
   // ── Integrated terminal (node-pty) client messages ───────────────────────────
   | {
       type: 'terminal.create';
@@ -1818,6 +1825,18 @@ export type WSServerMessage =
           tools?: string[];
           error?: string;
           pid?: number;
+          health?: {
+            healthState: 'disabled' | 'dormant' | 'connecting' | 'healthy' | 'degraded' | 'failed';
+            consecutiveFailures: number;
+            failures: { transport: number; protocol: number; tool: number };
+            reconnectCount: number;
+            wakeCount: number;
+            sleepCount: number;
+            restartCount: number;
+            inFlightCalls: number;
+            peakInFlightCalls: number;
+            callLatency: { count: number; lastMs?: number; p50Ms?: number; p95Ms?: number };
+          };
         }>;
       };
     }
@@ -1856,6 +1875,59 @@ export type WSServerMessage =
   | { type: 'mcp.server.disconnected'; payload: { name: string; reason: string } }
   | { type: 'mcp.server.error'; payload: { name: string; error: string } }
   | { type: 'mcp.operation_result'; payload: { success: boolean; message: string } }
+  | {
+      type: 'mcp.resources';
+      payload: {
+        name: string;
+        resources: Array<{
+          uri: string;
+          name: string;
+          description?: string;
+          mimeType?: string;
+          size?: number;
+        }>;
+        resourceTemplates: Array<{
+          uriTemplate: string;
+          name: string;
+          description?: string;
+          mimeType?: string;
+        }>;
+      };
+    }
+  | {
+      type: 'mcp.prompts';
+      payload: {
+        name: string;
+        prompts: Array<{
+          name: string;
+          description?: string;
+          arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+        }>;
+      };
+    }
+  | {
+      type: 'mcp.content.selected';
+      payload: {
+        kind: 'resource' | 'prompt';
+        untrusted: true;
+        byteSize: number;
+        provenance: {
+          origin: 'mcp';
+          serverName: string;
+          capability: 'resource' | 'prompt';
+          resourceUri?: string;
+          promptName?: string;
+          promptArgumentNames?: string[];
+        };
+        contents?: unknown[];
+        messages?: unknown[];
+        description?: string;
+      };
+    }
+  | {
+      type: 'mcp.content.error';
+      payload: { action: string; name: string; error: string };
+    }
   | { type: 'mailbox.cleared'; payload: { error?: string | undefined } }
   | { type: 'mailbox.purged'; payload: Record<string, unknown> & { error?: string | undefined } }
   // ── Integrated terminal (node-pty) server events ──────────────────────────────

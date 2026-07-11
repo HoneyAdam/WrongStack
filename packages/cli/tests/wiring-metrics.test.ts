@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { InMemoryMetricsSink } from '@wrongstack/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { registerMcpHealthCheck, setupMetrics } from '../src/wiring/metrics.js';
+import { registerMcpHealthCheck, registerMcpMetrics, setupMetrics } from '../src/wiring/metrics.js';
 
 // We control startMetricsServer to assert wiring without binding a real socket.
 const startMetricsServerMock = vi.fn();
@@ -237,9 +238,78 @@ describe('registerMcpHealthCheck', () => {
     const register = vi.fn();
     registerMcpHealthCheck(
       { register } as never,
-      { describe: () => { throw new Error('boom'); } } as never,
+      {
+        describe: () => {
+          throw new Error('boom');
+        },
+      } as never,
     );
     const result = await (register.mock.calls[0]![0] as { check(): Promise<unknown> }).check();
     expect(result).toMatchObject({ status: 'unhealthy', detail: 'registry status unavailable' });
+  });
+
+  it('uses detailed operational health when available', async () => {
+    const register = vi.fn();
+    registerMcpHealthCheck(
+      { register } as never,
+      {
+        describe: () => [],
+        operationalHealth: () => [
+          {
+            healthState: 'degraded',
+            failures: { transport: 1, protocol: 0, tool: 2 },
+          },
+        ],
+      } as never,
+    );
+    const result = await (register.mock.calls[0]![0] as { check(): Promise<unknown> }).check();
+    expect(result).toMatchObject({
+      status: 'degraded',
+      detail: '1 degraded',
+      data: { total: 1, failures: 3 },
+    });
+  });
+});
+
+describe('registerMcpMetrics', () => {
+  it('records bounded labels and never uses server names or reasons as labels', () => {
+    const sink = new InMemoryMetricsSink();
+    let listener: ((event: any) => void) | undefined;
+    const source = {
+      operationalHealth: () => [{ healthState: 'degraded', inFlightCalls: 2 }],
+      onOperation: (next: (event: any) => void) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    } as never;
+    const unsubscribe = registerMcpMetrics(sink, source);
+    listener?.({
+      serverName: 'tenant-secret-server',
+      kind: 'failure',
+      at: Date.now(),
+      connectionState: 'connected',
+      healthState: 'degraded',
+      reason: 'secret-reason',
+      failureKind: 'tool',
+      durationMs: 12,
+    });
+    const snapshot = sink.snapshot();
+    expect(snapshot.series).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'mcp.failures.total',
+          labels: { kind: 'tool' },
+        }),
+        expect.objectContaining({
+          name: 'mcp.call.duration_ms',
+          labels: { outcome: 'error' },
+        }),
+      ]),
+    );
+    expect(JSON.stringify(snapshot)).not.toContain('tenant-secret-server');
+    expect(JSON.stringify(snapshot)).not.toContain('secret-reason');
+    unsubscribe();
   });
 });

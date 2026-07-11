@@ -456,4 +456,19 @@ describe('groupMailboxEvents', () => {
     const { hasAnyActivity } = groupMailboxEvents(snapshot, []);
     expect(hasAnyActivity).toBe(false);
   });
+
+  it('handles readCount > 0 in derived counters (unread is not incremented)', () => {
+    const events: HqEventEnvelope[] = [
+      mailboxEvent(
+        'read-msg',
+        messageSummary({ mailId: 'read-msg', messageId: 'read-msg', completed: false, readCount: 2 }),
+        'demo',
+        1,
+      ),
+    ];
+    const { projects } = groupMailboxEvents(null, events);
+    // Message is incomplete but has readCount > 0 → not unread.
+    expect(projects[0]?.incompleteCount).toBe(1);
+    expect(projects[0]?.unreadCount).toBe(0);
+  });
 });

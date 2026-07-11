@@ -2,6 +2,20 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { buildChildEnv } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { MCP_CONSTANTS } from './constants.js';
+import {
+  type MCPGetPromptResult,
+  type MCPListPromptsResult,
+  type MCPListResourcesResult,
+  type MCPListResourceTemplatesResult,
+  type MCPReadResourceResult,
+  type MCPServerMetadata,
+  parseGetPromptResult,
+  parseListPromptsResult,
+  parseListResourcesResult,
+  parseListResourceTemplatesResult,
+  parseReadResourceResult,
+  parseServerMetadata,
+} from './protocol.js';
 import { normalizeMCPTools } from './tool-schema.js';
 import { type HttpTransportOptions, SSETransport, StreamableHTTPTransport } from './transport.js';
 
@@ -48,6 +62,14 @@ export interface ToolCallResult {
   isError: boolean;
 }
 
+export interface MCPRequestOptions {
+  signal?: AbortSignal | undefined;
+}
+
+export interface MCPPageOptions extends MCPRequestOptions {
+  cursor?: string | undefined;
+}
+
 interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: number;
@@ -69,6 +91,7 @@ type ExitListener = (name: string, code: number | null, signal: string | null) =
  * subscribers can call `listTools()` for the fresh set.
  */
 type ToolsChangedListener = (name: string, tools: MCPTool[]) => void;
+export type MCPListChangedListener = (name: string) => void;
 
 /**
  * Lightweight MCP client supporting three transport types:
@@ -91,6 +114,8 @@ export class MCPClient {
   >();
   private rxBuffer = '';
   private _tools: MCPTool[] = [];
+  /** Server-declared handshake metadata. Populated for stdio in the first protocol slice. */
+  private _serverMetadata?: MCPServerMetadata | undefined;
   /** Cached tool list — survives reconnects so the registry can re-register without re-discovering. */
   private _toolsCache?: MCPTool[] | undefined;
   private _drainPending = false;
@@ -102,6 +127,8 @@ export class MCPClient {
   private readonly exitListeners = new Set<ExitListener>();
   /** Notified when the server announces a tools/list_changed notification. */
   private readonly toolsChangedListeners = new Set<ToolsChangedListener>();
+  private readonly resourcesChangedListeners = new Set<MCPListChangedListener>();
+  private readonly promptsChangedListeners = new Set<MCPListChangedListener>();
   /** Notified when an HTTP transport (SSE or streamable-http) disconnects. */
   private readonly disconnectListeners = new Set<() => void>();
 
@@ -109,6 +136,16 @@ export class MCPClient {
 
   getState(): ConnectionState {
     return this.state;
+  }
+
+  getServerMetadata(): MCPServerMetadata | undefined {
+    const metadata = this._serverMetadata;
+    if (!metadata) return undefined;
+    return {
+      ...metadata,
+      capabilities: { ...metadata.capabilities },
+      serverInfo: { ...metadata.serverInfo },
+    };
   }
 
   listTools(): MCPTool[] {
@@ -150,6 +187,7 @@ export class MCPClient {
 
   async connect(): Promise<void> {
     this.state = 'connecting';
+    this._serverMetadata = undefined;
 
     if (this.opts.transport === 'stdio') {
       await this.connectStdio();
@@ -257,6 +295,12 @@ export class MCPClient {
       throw new Error(`MCP initialize failed: ${initialize.error.message}`);
     }
     try {
+      this._serverMetadata = parseServerMetadata(initialize.result);
+    } catch (err) {
+      this.state = 'failed';
+      throw new Error(`MCP initialize returned malformed server metadata: ${toErrorMessage(err)}`);
+    }
+    try {
       await this.notify('notifications/initialized', {});
     } catch (err) {
       console.warn(
@@ -316,6 +360,8 @@ export class MCPClient {
         }
       }
     });
+    this.sseTransport.onResourcesChanged(() => this.emitCapabilityChanged('resources'));
+    this.sseTransport.onPromptsChanged(() => this.emitCapabilityChanged('prompts'));
     try {
       await this.sseTransport.connect();
     } catch (err) {
@@ -335,6 +381,7 @@ export class MCPClient {
     }
     this._tools = this.sseTransport.listTools();
     this._toolsCache = this._tools;
+    this._serverMetadata = this.sseTransport.getServerMetadata();
     this.state = 'connected';
   }
 
@@ -376,6 +423,8 @@ export class MCPClient {
         }
       }
     });
+    this.httpTransport.onResourcesChanged(() => this.emitCapabilityChanged('resources'));
+    this.httpTransport.onPromptsChanged(() => this.emitCapabilityChanged('prompts'));
     try {
       await this.httpTransport.connect();
     } catch (err) {
@@ -392,6 +441,7 @@ export class MCPClient {
     }
     this._tools = this.httpTransport.listTools();
     this._toolsCache = this._tools;
+    this._serverMetadata = this.httpTransport.getServerMetadata();
     this.state = 'connected';
   }
 
@@ -422,6 +472,90 @@ export class MCPClient {
       content: result?.content ?? '',
       isError: Boolean(result?.isError),
     };
+  }
+
+  async listResources(opts: MCPPageOptions = {}): Promise<MCPListResourcesResult> {
+    const params = pageParams(opts.cursor, 'resources/list cursor');
+    return this.requestCapability(
+      'resources',
+      'resources/list',
+      params,
+      parseListResourcesResult,
+      opts,
+    );
+  }
+
+  async listResourceTemplates(opts: MCPPageOptions = {}): Promise<MCPListResourceTemplatesResult> {
+    const params = pageParams(opts.cursor, 'resources/templates/list cursor');
+    return this.requestCapability(
+      'resources',
+      'resources/templates/list',
+      params,
+      parseListResourceTemplatesResult,
+      opts,
+    );
+  }
+
+  async readResource(uri: string, opts: MCPRequestOptions = {}): Promise<MCPReadResourceResult> {
+    validateProtocolString(uri, 'resource URI');
+    return this.requestCapability(
+      'resources',
+      'resources/read',
+      { uri },
+      parseReadResourceResult,
+      opts,
+    );
+  }
+
+  async subscribeResource(uri: string, opts: MCPRequestOptions = {}): Promise<void> {
+    validateProtocolString(uri, 'resource URI');
+    this.requireResourceSubscriptions('resources/subscribe');
+    await this.requestCapability(
+      'resources',
+      'resources/subscribe',
+      { uri },
+      parseEmptyResult,
+      opts,
+    );
+  }
+
+  async unsubscribeResource(uri: string, opts: MCPRequestOptions = {}): Promise<void> {
+    validateProtocolString(uri, 'resource URI');
+    this.requireResourceSubscriptions('resources/unsubscribe');
+    await this.requestCapability(
+      'resources',
+      'resources/unsubscribe',
+      { uri },
+      parseEmptyResult,
+      opts,
+    );
+  }
+
+  async listPrompts(opts: MCPPageOptions = {}): Promise<MCPListPromptsResult> {
+    const params = pageParams(opts.cursor, 'prompts/list cursor');
+    return this.requestCapability('prompts', 'prompts/list', params, parseListPromptsResult, opts);
+  }
+
+  async getPrompt(
+    name: string,
+    args?: Record<string, string> | undefined,
+    opts: MCPRequestOptions = {},
+  ): Promise<MCPGetPromptResult> {
+    validateProtocolString(name, 'prompt name');
+    if (args && Object.keys(args).length > 64) {
+      throw new Error('MCP prompt arguments exceed the limit of 64');
+    }
+    for (const [key, value] of Object.entries(args ?? {})) {
+      validateProtocolString(key, 'prompt argument name');
+      validateProtocolString(value, `prompt argument "${key}"`, true);
+    }
+    return this.requestCapability(
+      'prompts',
+      'prompts/get',
+      args === undefined ? { name } : { name, arguments: args },
+      parseGetPromptResult,
+      opts,
+    );
   }
 
   async close(): Promise<void> {
@@ -489,8 +623,8 @@ export class MCPClient {
     // For HTTP transports, delegate to the transport's request method.
     // SSE and streamable-http both use postRaw which handles the full
     // round-trip including timeout signal.
-    if (this.sseTransport) return this.sseTransport.request(method, params, timeoutMs);
-    if (this.httpTransport) return this.httpTransport.request(method, params, timeoutMs);
+    if (this.sseTransport) return this.sseTransport.request(method, params, timeoutMs, opts);
+    if (this.httpTransport) return this.httpTransport.request(method, params, timeoutMs, opts);
 
     // stdio path
     const signal = opts?.signal;
@@ -568,6 +702,45 @@ export class MCPClient {
         reject(err);
       }
     });
+  }
+
+  private async requestCapability<T>(
+    capability: 'resources' | 'prompts',
+    method: string,
+    params: unknown,
+    parse: (value: unknown) => T,
+    opts: MCPRequestOptions,
+  ): Promise<T> {
+    if (this.state !== 'connected') {
+      throw new Error(`MCP client "${this.opts.name}" not connected (state=${this.state})`);
+    }
+    const metadata = this._serverMetadata;
+    if (!metadata) {
+      throw new Error(
+        `MCP server "${this.opts.name}" capability metadata is unavailable for ${method}`,
+      );
+    }
+    if (!metadata.capabilities[capability]) {
+      throw new Error(
+        `MCP server "${this.opts.name}" does not advertise the ${capability} capability`,
+      );
+    }
+    const response = await this.request(method, params, undefined, opts);
+    if (response.error) {
+      throw new Error(`MCP ${method} failed: ${response.error.message}`);
+    }
+    return parse(response.result);
+  }
+
+  private requireResourceSubscriptions(method: string): void {
+    if (this.state !== 'connected') {
+      throw new Error(`MCP client "${this.opts.name}" not connected (state=${this.state})`);
+    }
+    if (this._serverMetadata?.capabilities.resources?.subscribe !== true) {
+      throw new Error(
+        `MCP server "${this.opts.name}" does not advertise resource subscriptions for ${method}`,
+      );
+    }
   }
 
   /**
@@ -676,6 +849,16 @@ export class MCPClient {
     // registry can re-register the wrapped tools.
     if (typeof msg.method === 'string' && msg.method === 'notifications/tools/list_changed') {
       void this.handleToolsListChanged();
+    } else if (
+      typeof msg.method === 'string' &&
+      msg.method === 'notifications/resources/list_changed'
+    ) {
+      this.emitCapabilityChanged('resources');
+    } else if (
+      typeof msg.method === 'string' &&
+      msg.method === 'notifications/prompts/list_changed'
+    ) {
+      this.emitCapabilityChanged('prompts');
     }
   }
 
@@ -712,6 +895,34 @@ export class MCPClient {
   removeToolsChangedListener(listener: ToolsChangedListener): void {
     this.toolsChangedListeners.delete(listener);
   }
+
+  addResourcesChangedListener(listener: MCPListChangedListener): void {
+    this.resourcesChangedListeners.add(listener);
+  }
+
+  removeResourcesChangedListener(listener: MCPListChangedListener): void {
+    this.resourcesChangedListeners.delete(listener);
+  }
+
+  addPromptsChangedListener(listener: MCPListChangedListener): void {
+    this.promptsChangedListeners.add(listener);
+  }
+
+  removePromptsChangedListener(listener: MCPListChangedListener): void {
+    this.promptsChangedListeners.delete(listener);
+  }
+
+  private emitCapabilityChanged(capability: 'resources' | 'prompts'): void {
+    const listeners =
+      capability === 'resources' ? this.resourcesChangedListeners : this.promptsChangedListeners;
+    for (const listener of listeners) {
+      try {
+        listener(this.opts.name);
+      } catch {
+        /* listeners are best-effort */
+      }
+    }
+  }
 }
 
 /**
@@ -723,4 +934,31 @@ export class MCPClient {
 export function quoteWindowsArg(arg: string): string {
   if (!/[\s"]/.test(arg)) return arg;
   return `"${arg.replace(/"/g, '""')}"`;
+}
+
+const MAX_PROTOCOL_INPUT_CHARS = 8_192;
+
+function validateProtocolString(
+  value: unknown,
+  label: string,
+  allowEmpty = false,
+): asserts value is string {
+  if (typeof value !== 'string' || (!allowEmpty && value.length === 0)) {
+    throw new Error(`MCP ${label} must be ${allowEmpty ? 'a string' : 'a non-empty string'}`);
+  }
+  if (value.length > MAX_PROTOCOL_INPUT_CHARS) {
+    throw new Error(`MCP ${label} exceeds ${MAX_PROTOCOL_INPUT_CHARS} characters`);
+  }
+}
+
+function pageParams(cursor: string | undefined, label: string): Record<string, string> {
+  if (cursor === undefined) return {};
+  validateProtocolString(cursor, label);
+  return { cursor };
+}
+
+function parseEmptyResult(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Malformed MCP empty result: expected object');
+  }
 }

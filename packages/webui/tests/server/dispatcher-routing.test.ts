@@ -25,23 +25,25 @@
  * `index.ts` which only uses them internally). That keeps the test
  * surface independent of the central dispatcher file.
  */
+
+import type { WSClientMessage } from '@wrongstack/webui-server';
+import {
+  handleAutoPhaseRoute,
+  handleBrainRoute,
+  handleMailboxRoute,
+  handleMcpRoute,
+  handleModeRoute,
+  handlePrefsRoute,
+  handleProjectRoute,
+  handleProviderRoute,
+  handleSddBoardRoute,
+  handleSddWizardRoute,
+  handleSessionRoute,
+  handleShellGitRoute,
+  handleSpecsRoute,
+} from '@wrongstack/webui-server';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import type { WSClientMessage } from '@wrongstack/webui-server';
-
-import { handleProviderRoute } from '@wrongstack/webui-server';
-import { handleSessionRoute } from '@wrongstack/webui-server';
-import { handleProjectRoute } from '@wrongstack/webui-server';
-import { handleModeRoute } from '@wrongstack/webui-server';
-import { handlePrefsRoute } from '@wrongstack/webui-server';
-import { handleShellGitRoute } from '@wrongstack/webui-server';
-import { handleMailboxRoute } from '@wrongstack/webui-server';
-import { handleMcpRoute } from '@wrongstack/webui-server';
-import { handleBrainRoute } from '@wrongstack/webui-server';
-import { handleAutoPhaseRoute } from '@wrongstack/webui-server';
-import { handleSpecsRoute } from '@wrongstack/webui-server';
-import { handleSddBoardRoute } from '@wrongstack/webui-server';
-import { handleSddWizardRoute } from '@wrongstack/webui-server';
 
 /** ws stub — no real socket needed; we only assert resolved return values. */
 function fakeWs(): WebSocket {
@@ -267,6 +269,10 @@ describe('WS message dispatcher routing (Issue #31 PR 0)', () => {
     wake: vi.fn(),
     restart: vi.fn(),
     discover: vi.fn(),
+    resources: vi.fn(),
+    prompts: vi.fn(),
+    resourceRead: vi.fn(),
+    promptGet: vi.fn(),
   });
 
   it('handleMcpRoute: claims mcp.list; rejects foreign', async () => {
@@ -278,7 +284,11 @@ describe('WS message dispatcher routing (Issue #31 PR 0)', () => {
 
   it('handleMcpRoute: claims mcp.restart; rejects foreign', async () => {
     const h = mcpHandlersStub();
-    const out = await handleMcpRoute(ws, { type: 'mcp.restart', payload: { name: 'foo' } }, h as never);
+    const out = await handleMcpRoute(
+      ws,
+      { type: 'mcp.restart', payload: { name: 'foo' } },
+      h as never,
+    );
     expect(out).toBe(true);
     expect(h.restart).toHaveBeenCalledOnce();
     expect(h.restart).toHaveBeenCalledWith(ws, { type: 'mcp.restart', payload: { name: 'foo' } });
@@ -288,6 +298,18 @@ describe('WS message dispatcher routing (Issue #31 PR 0)', () => {
     const h = mcpHandlersStub();
     const out = await handleMcpRoute(ws, { type: FOREIGN }, h as never);
     expect(out).toBe(false);
+  });
+
+  it.each([
+    ['mcp.resources', 'resources'],
+    ['mcp.prompts', 'prompts'],
+    ['mcp.resource.read', 'resourceRead'],
+    ['mcp.prompt.get', 'promptGet'],
+  ] as const)('handleMcpRoute: claims %s', async (type, handler) => {
+    const h = mcpHandlersStub();
+    const out = await handleMcpRoute(ws, { type }, h as never);
+    expect(out).toBe(true);
+    expect(h[handler]).toHaveBeenCalledOnce();
   });
 
   // ── BrainRouteHandlers ─────────────────────────────────────────────

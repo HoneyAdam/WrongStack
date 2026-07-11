@@ -40,29 +40,33 @@ export function wireMetricsToEvents(events: EventBus, sink: MetricsSink): () => 
         retryable: String(e.retryable),
       }),
     ),
-    events.on('tool.started', (e) => sink.counter('tool.starts.total', 1, { tool: e.name })),
+    events.on('tool.started', (e) =>
+      sink.counter('tool.starts.total', 1, { tool: metricToolName(e.name) }),
+    ),
     events.on('tool.executed', (e) => {
-      sink.counter('tool.executions.total', 1, { tool: e.name, ok: String(e.ok) });
-      sink.histogram('tool.duration_ms', e.durationMs, { tool: e.name });
+      const tool = metricToolName(e.name);
+      sink.counter('tool.executions.total', 1, { tool, ok: String(e.ok) });
+      sink.histogram('tool.duration_ms', e.durationMs, { tool });
     }),
     events.on('token.threshold', (e) => sink.gauge('agent.tokens.used', e.used)),
     events.on('compaction.fired', (e) => {
       sink.counter('compaction.fired.total');
       sink.histogram('compaction.reduction_tokens', e.report.before - e.report.after);
     }),
-    events.on('mcp.server.connected', (e) =>
-      sink.counter('mcp.connects.total', 1, { server: e.name }),
-    ),
-    events.on('mcp.server.reconnected', (e) =>
-      sink.counter('mcp.reconnects.total', 1, { server: e.name }),
-    ),
-    events.on('mcp.server.disconnected', (e) =>
-      sink.counter('mcp.disconnects.total', 1, { server: e.name }),
-    ),
+    // MCP server names are user-controlled and may contain tenant/project
+    // identifiers. Keep them out of metric labels to bound cardinality and
+    // prevent operational metadata leaks.
+    events.on('mcp.server.connected', () => sink.counter('mcp.connects.total')),
+    events.on('mcp.server.reconnected', () => sink.counter('mcp.reconnects.total')),
+    events.on('mcp.server.disconnected', () => sink.counter('mcp.disconnects.total')),
     events.on('error', (e) => sink.counter('agent.errors.total', 1, { phase: e.phase })),
   );
 
   return () => {
     for (const u of unsubs) u();
   };
+}
+
+function metricToolName(name: string): string {
+  return name.startsWith('mcp__') ? 'mcp_proxy' : name;
 }

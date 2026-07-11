@@ -1,3 +1,4 @@
+import type { Context, SlashCommand } from '../index.js';
 import {
   addPlanItem,
   clearPlan,
@@ -11,16 +12,14 @@ import {
   setPlanItemStatus,
 } from '../storage/plan-store.js';
 import {
-  type TaskFile,
-  emptyTaskFile,
-  loadTasks,
-  saveTasks,
-} from '../storage/task-store.js';
-import { formatTaskList } from '../utils/task-format.js';
-import { formatPlanTemplates, getPlanTemplate } from '../storage/plan-templates.js';
-import { formatTodosList } from '../utils/todos-format.js';
+  formatPlanTemplates,
+  getPlanTemplate,
+  listPlanTemplates,
+} from '../storage/plan-templates.js';
+import { emptyTaskFile, loadTasks, saveTasks, type TaskFile } from '../storage/task-store.js';
 import type { Plugin } from '../types/plugin.js';
-import type { SlashCommand, Context } from '../index.js';
+import { formatTaskList } from '../utils/task-format.js';
+import { formatTodosList } from '../utils/todos-format.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 
 interface PlanPluginOptions {
@@ -37,7 +36,8 @@ export function createPlanPlugin(opts?: PlanPluginOptions): Plugin {
   return {
     name: 'wstack-plan',
     version: '1.0.0',
-    description: 'Strategic plan board: /plan show | add | start | done | promote | taskify | template | clear',
+    description:
+      'Strategic plan board: /plan show | add | start | done | promote | taskify | template | clear',
     apiVersion: '^0.1',
     capabilities: { slashCommands: true },
     defaultConfig: {},
@@ -71,65 +71,151 @@ function findPlanItemIndex(plan: PlanFile, query: string): number {
 }
 
 export function buildPlanCommand(planPath?: string): SlashCommand {
+  const help = [
+    'Usage: /plan [show|add <title>|start <id|#>|done <id|#>|remove <id|#>|promote <id|#> [subtask ...]|derive <id|#> [subtask ...]|taskify <id|#>|template [list|use <name>]|clear] [--json]',
+    '',
+    'Read-only:',
+    '  show | list             Show the persisted strategic plan.',
+    '  template [list]         List bundled plan templates.',
+    '',
+    'Mutating:',
+    '  add <title>             Add an open plan item.',
+    '  start|done <id|#>       Change an item status.',
+    '  remove <id|#>           Remove an item.',
+    '  promote|derive <id|#>   Derive live todos from a plan item.',
+    '  taskify <id|#>          Copy an item into the task store.',
+    '  template use <name>     Append a bundled template.',
+    '  clear                   Remove every plan item.',
+    '',
+    'Use --json for stable output and slash-command metadata backed by the persisted plan.',
+  ].join('\n');
+
+  const result = (
+    message: string,
+    payload: Record<string, unknown>,
+    json: boolean,
+  ): { message: string; metadata: Record<string, unknown> } => ({
+    message: json ? JSON.stringify(payload, null, 2) : message,
+    metadata: { plan: payload },
+  });
+
+  const errorResult = (code: string, message: string, json: boolean) =>
+    result(message, { ok: false, error: { code, message } }, json);
+
   return {
     name: 'plan',
+    category: 'Agent',
+    argsHint: '[show|add|start|done|remove|promote|taskify|template|clear] [--json]',
     description:
       'Strategic plan board: /plan [show|add <title>|start <id|#>|done <id|#>|remove <id|#>|promote <id|#> [subtask ...]|derive <id|#> [subtask ...]|taskify <id|#>|template [list|use <name>]|clear]',
+    help,
     async run(args: string, ctx: Context) {
-      if (!planPath) return { message: 'Plan storage is not configured for this session.' };
+      const tokens = args
+        .trim()
+        .split(/\s+/)
+        .filter((token) => token && token !== '--json');
+      const json = args.trim().split(/\s+/).includes('--json');
+      const [verb = '', ...rest] = tokens;
+      if (verb === 'help') return { message: help };
+      if (!planPath) {
+        return errorResult(
+          'storage_not_configured',
+          'Plan storage is not configured for this session.',
+          json,
+        );
+      }
+
       const sessionId = ctx?.session?.id ?? 'unknown';
-      const [verb, ...rest] = args.trim().split(/\s+/);
       const restJoined = rest.join(' ').trim();
 
       // Read-only — no lock
       if (verb === '' || verb === 'show' || verb === 'list') {
-        const plan = await loadPlan(planPath);
-        return { message: formatPlan(plan ?? emptyPlan(sessionId)) };
+        const plan = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
+        return result(formatPlan(plan), { ok: true, plan }, json);
+      }
+
+      if (verb === 'template' && (rest[0] === undefined || rest[0] === 'list')) {
+        const templates = listPlanTemplates();
+        return result(formatPlanTemplates(), { ok: true, templates }, json);
       }
 
       // taskify: reads plan, writes task — handled outside plan lock
       if (verb === 'taskify') {
-        if (!restJoined) return { message: 'Usage: /plan taskify <id|index>' };
+        if (!restJoined) {
+          return errorResult('usage', 'Usage: /plan taskify <id|index>', json);
+        }
         const plan = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
         const itemIdx = findPlanItemIndex(plan, restJoined);
-        if (itemIdx === -1 || !plan.items[itemIdx]) return { message: `No plan item matched "${restJoined}".` };
+        if (itemIdx === -1 || !plan.items[itemIdx]) {
+          return errorResult('item_not_found', `No plan item matched "${restJoined}".`, json);
+        }
         const item = plan.items[itemIdx]!;
 
         const taskPath = (ctx?.meta as Record<string, unknown>)?.['task.path'];
-        if (typeof taskPath !== 'string' || !taskPath) return { message: 'Task storage is not configured for this session.' };
+        if (typeof taskPath !== 'string' || !taskPath) {
+          return errorResult(
+            'task_storage_not_configured',
+            'Task storage is not configured for this session.',
+            json,
+          );
+        }
 
         const taskFile: TaskFile = (await loadTasks(taskPath)) ?? emptyTaskFile(sessionId);
         const now = new Date().toISOString();
-        taskFile.tasks.push({
+        const task = {
           id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          title: item.title, description: item.details,
-          type: 'feature', priority: 'medium', status: 'pending',
-          createdAt: now, updatedAt: now,
-        });
+          title: item.title,
+          description: item.details,
+          type: 'feature' as const,
+          priority: 'medium' as const,
+          status: 'pending' as const,
+          createdAt: now,
+          updatedAt: now,
+        };
+        taskFile.tasks.push(task);
         await saveTasks(taskPath, taskFile);
-        return { message: `Taskified "${item.title}" → task.\n${formatTaskList(taskFile.tasks)}` };
+        return result(
+          `Taskified "${item.title}" → task.\n${formatTaskList(taskFile.tasks)}`,
+          { ok: true, plan, task, tasks: taskFile.tasks },
+          json,
+        );
       }
 
       // Mutating ops — locked via mutatePlan
       let outputMessage = '';
-      await mutatePlan(planPath, sessionId, async (plan) => {
+      let outputError: { code: string; message: string } | undefined;
+      let outputExtra: Record<string, unknown> = {};
+      const finalPlan = await mutatePlan(planPath, sessionId, async (plan) => {
         switch (verb) {
           case 'add': {
-            if (!restJoined) { outputMessage = 'Usage: /plan add <title>'; return plan; }
+            if (!restJoined) {
+              outputMessage = 'Usage: /plan add <title>';
+              outputError = { code: 'usage', message: outputMessage };
+              return plan;
+            }
             const { plan: updated, item } = addPlanItem(plan, restJoined);
             outputMessage = `Added: ${item.title}\n${formatPlan(updated)}`;
+            outputExtra = { item };
             return updated;
           }
           case 'start':
           case 'progress': {
-            if (!restJoined) { outputMessage = 'Usage: /plan start <id|index>'; return plan; }
+            if (!restJoined) {
+              outputMessage = 'Usage: /plan start <id|index>';
+              outputError = { code: 'usage', message: outputMessage };
+              return plan;
+            }
             const updated = setPlanItemStatus(plan, restJoined, 'in_progress');
             outputMessage = formatPlan(updated);
             return updated;
           }
           case 'done':
           case 'complete': {
-            if (!restJoined) { outputMessage = 'Usage: /plan done <id|index>'; return plan; }
+            if (!restJoined) {
+              outputMessage = 'Usage: /plan done <id|index>';
+              outputError = { code: 'usage', message: outputMessage };
+              return plan;
+            }
             const updated = setPlanItemStatus(plan, restJoined, 'done');
             outputMessage = formatPlan(updated);
             return updated;
@@ -137,42 +223,69 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
           case 'remove':
           case 'delete':
           case 'rm': {
-            if (!restJoined) { outputMessage = 'Usage: /plan remove <id|index>'; return plan; }
+            if (!restJoined) {
+              outputMessage = 'Usage: /plan remove <id|index>';
+              outputError = { code: 'usage', message: outputMessage };
+              return plan;
+            }
             const updated = removePlanItem(plan, restJoined);
             outputMessage = formatPlan(updated);
             return updated;
           }
           case 'promote':
           case 'derive': {
-            if (!restJoined) { outputMessage = `Usage: /plan ${verb} <id|index> [subtask ...]`; return plan; }
+            if (!restJoined) {
+              outputMessage = `Usage: /plan ${verb} <id|index> [subtask ...]`;
+              outputError = { code: 'usage', message: outputMessage };
+              return plan;
+            }
             const [target, ...subtasks] = restJoined.split(/\s+/);
-            if (!target) { outputMessage = `Usage: /plan ${verb} <id|index> [subtask ...]`; return plan; }
-            const derived = deriveTodosFromPlanItem(plan, target, subtasks.length > 0 ? subtasks : undefined);
-            if (!derived) { outputMessage = `No plan item matched "${target}".`; return plan; }
+            if (!target) {
+              outputMessage = `Usage: /plan ${verb} <id|index> [subtask ...]`;
+              outputError = { code: 'usage', message: outputMessage };
+              return plan;
+            }
+            const derived = deriveTodosFromPlanItem(
+              plan,
+              target,
+              subtasks.length > 0 ? subtasks : undefined,
+            );
+            if (!derived) {
+              outputMessage = `No plan item matched "${target}".`;
+              outputError = { code: 'item_not_found', message: outputMessage };
+              return plan;
+            }
             ctx?.state?.replaceTodos(derived.todos);
             const label = verb === 'derive' ? 'Derived' : 'Promoted to';
             outputMessage = `${label} ${derived.todos.length} todo(s):\n${formatTodosList(derived.todos)}\n\n${formatPlan(derived.plan)}`;
+            outputExtra = { todos: derived.todos };
             return derived.plan;
           }
           case 'template': {
             const subVerb = rest[0] ?? '';
             const subRest = rest.slice(1).join(' ').trim();
-            if (subVerb === '' || subVerb === 'list') {
-              outputMessage = formatPlanTemplates();
-              return plan;
-            }
             if (subVerb === 'use') {
-              if (!subRest) { outputMessage = 'Usage: /plan template use <template-name>'; return plan; }
+              if (!subRest) {
+                outputMessage = 'Usage: /plan template use <template-name>';
+                outputError = { code: 'usage', message: outputMessage };
+                return plan;
+              }
               const template = getPlanTemplate(subRest);
-              if (!template) { outputMessage = `Unknown template "${subRest}".`; return plan; }
+              if (!template) {
+                outputMessage = `Unknown template "${subRest}".`;
+                outputError = { code: 'template_not_found', message: outputMessage };
+                return plan;
+              }
               let updated = plan;
               for (const item of template.items) {
                 ({ plan: updated } = addPlanItem(updated, item.title, item.details));
               }
               outputMessage = `Applied template "${template.name}" (${template.items.length} items):\n${formatPlan(updated)}`;
+              outputExtra = { template };
               return updated;
             }
             outputMessage = `Unknown template subcommand "${subVerb}". Try: list | use <name>`;
+            outputError = { code: 'unknown_subcommand', message: outputMessage };
             return plan;
           }
           case 'clear': {
@@ -182,11 +295,15 @@ export function buildPlanCommand(planPath?: string): SlashCommand {
           }
           default:
             outputMessage = `Unknown subcommand "${verb}". Try: show | add <title> | start <id|#> | done <id|#> | remove <id|#> | promote <id|#> | taskify <id|#> | template [list|use <name>] | clear`;
+            outputError = { code: 'unknown_subcommand', message: outputMessage };
             return plan;
         }
       });
 
-      return { message: outputMessage };
+      const payload = outputError
+        ? { ok: false, plan: finalPlan, error: outputError }
+        : { ok: true, plan: finalPlan, ...outputExtra };
+      return result(outputMessage, payload, json);
     },
   };
 }

@@ -115,6 +115,101 @@ describe('MCPServer.handleMessage', () => {
     const res = await call(server, { jsonrpc: '2.0', id: 7, method: 'ping' });
     expect(res?.result).toEqual({});
   });
+
+  it('advertises and serves only explicitly configured resources', async () => {
+    const server = new MCPServer({
+      host: makeHost(),
+      resources: [
+        {
+          uri: 'file:///project/README.md',
+          name: 'README.md',
+          mimeType: 'text/markdown',
+          size: 5,
+          contents: [
+            { uri: 'file:///project/README.md', mimeType: 'text/markdown', text: 'hello' },
+          ],
+        },
+      ],
+    });
+    const initialized = await call(server, { jsonrpc: '2.0', id: 1, method: 'initialize' });
+    expect(
+      (initialized?.result as { capabilities: { resources?: unknown } }).capabilities.resources,
+    ).toBeDefined();
+    const listed = await call(server, { jsonrpc: '2.0', id: 2, method: 'resources/list' });
+    expect((listed?.result as { resources: unknown[] }).resources).toEqual([
+      {
+        uri: 'file:///project/README.md',
+        name: 'README.md',
+        mimeType: 'text/markdown',
+        size: 5,
+      },
+    ]);
+    const read = await call(server, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'resources/read',
+      params: { uri: 'file:///project/README.md' },
+    });
+    expect((read?.result as { contents: Array<{ text: string }> }).contents[0]?.text).toBe('hello');
+  });
+
+  it('paginates explicitly configured resources', async () => {
+    const resources = Array.from({ length: 101 }, (_, index) => ({
+      uri: `mem://resource/${index}`,
+      name: `resource-${index}`,
+      contents: [{ uri: `mem://resource/${index}`, text: String(index) }],
+    }));
+    const server = new MCPServer({ host: makeHost(), resources });
+    const first = await call(server, { jsonrpc: '2.0', id: 1, method: 'resources/list' });
+    expect((first?.result as { resources: unknown[] }).resources).toHaveLength(100);
+    expect((first?.result as { nextCursor: string }).nextCursor).toBe('100');
+    const second = await call(server, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'resources/list',
+      params: { cursor: '100' },
+    });
+    expect((second?.result as { resources: unknown[] }).resources).toHaveLength(1);
+  });
+
+  it('lists and renders explicitly configured prompt templates', async () => {
+    const server = new MCPServer({
+      host: makeHost(),
+      prompts: [
+        {
+          name: 'review',
+          description: 'Review a target',
+          arguments: [{ name: 'target', required: true }],
+          template: 'Review {{target}}',
+        },
+      ],
+    });
+    const listed = await call(server, { jsonrpc: '2.0', id: 1, method: 'prompts/list' });
+    expect((listed?.result as { prompts: Array<{ name: string }> }).prompts[0]?.name).toBe(
+      'review',
+    );
+    const selected = await call(server, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'prompts/get',
+      params: { name: 'review', arguments: { target: 'src/' } },
+    });
+    expect(
+      (
+        selected?.result as {
+          messages: Array<{ content: { text: string } }>;
+        }
+      ).messages[0]?.content.text,
+    ).toBe('Review src/');
+  });
+
+  it('keeps tools-only server behavior for unadvertised resources and prompts', async () => {
+    const server = new MCPServer({ host: makeHost() });
+    for (const method of ['resources/list', 'prompts/list']) {
+      const response = await call(server, { jsonrpc: '2.0', id: 1, method });
+      expect((response?.error as { code: number }).code).toBe(-32601);
+    }
+  });
 });
 
 describe('toContentBlocks', () => {
@@ -130,6 +225,16 @@ describe('toContentBlocks', () => {
   });
   it('handles null/undefined', () => {
     expect(toContentBlocks(undefined)).toEqual([{ type: 'text', text: '' }]);
+  });
+
+  it('handles null content', () => {
+    expect(toContentBlocks(null)).toEqual([{ type: 'text', text: '' }]);
+  });
+
+  it('joins non-block array items with newlines', () => {
+    expect(toContentBlocks([{ not: 'text' }, 'string-item'])).toEqual([
+      { type: 'text', text: '{"not":"text"}\nstring-item' },
+    ]);
   });
 });
 
@@ -279,5 +384,19 @@ describe('serveHttp', () => {
     await expect(
       serveHttp(new MCPServer({ host: makeHost() }), { host: '0.0.0.0' }),
     ).rejects.toThrow(/non-loopback/);
+  });
+
+  it('returns 405 for non-POST and non-GET requests', async () => {
+    const handle = await serveHttp(new MCPServer({ host: makeHost() }), { port: 0 });
+    try {
+      const r = await fetch(handle.url, {
+        method: 'PUT',
+      });
+      expect(r.status).toBe(405);
+      const body = (await r.json()) as { error: string };
+      expect(body.error).toBe('method not allowed');
+    } finally {
+      await handle.close();
+    }
   });
 });

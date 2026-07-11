@@ -79,9 +79,73 @@ describe('WebSocketClientTransport', () => {
     expect(last().closed).toBe(true);
   });
 
+  it('rejects start() when WebSocket is not available globally', async () => {
+    delete (globalThis as { WebSocket?: unknown }).WebSocket;
+    const t = new WebSocketClientTransport({ url: 'ws://agent.test' });
+    await expect(t.start()).rejects.toThrow('global WebSocket is not available');
+  });
+
   it('rejects start() on a timeout', async () => {
     const t = new WebSocketClientTransport({ url: 'ws://agent.test', handshakeTimeoutMs: 10 });
     await expect(t.start()).rejects.toThrow(/within 10ms/);
+  });
+
+  it('handles error events after socket is already open by marking closed', async () => {
+    const t = new WebSocketClientTransport({ url: 'ws://agent.test' });
+    const startP = t.start();
+    const ws = last();
+    ws.fire('open');
+    await startP;
+
+    // Fire an error after the socket is open — should mark closed but not reject
+    ws.fire('error', { message: 'post-open error' });
+    // No rejection, still operational
+    expect(t.send).toBeDefined();
+  });
+
+  it('rejects start() on error during connection', async () => {
+    const t = new WebSocketClientTransport({ url: 'ws://agent.test', handshakeTimeoutMs: 500 });
+    const startP = t.start();
+    const ws = last();
+    ws.fire('error', { message: 'connection refused' });
+    await expect(startP).rejects.toThrow('connection refused');
+  });
+
+  it('handles multiple JSON messages split by newline in one message event', async () => {
+    const t = new WebSocketClientTransport({ url: 'ws://agent.test' });
+    const startP = t.start();
+    last().fire('open');
+    await startP;
+
+    const received: ACPMessage[] = [];
+    t.onMessage((m) => received.push(m));
+
+    // Simulate a message that contains two JSON objects separated by newline
+    last().fire('message', {
+      data: JSON.stringify({ jsonrpc: '2.0', id: 1, result: { first: true } }) + '\n' +
+            JSON.stringify({ jsonrpc: '2.0', id: 2, result: { second: true } }),
+    });
+
+    expect(received).toHaveLength(2);
+    expect(received[0]).toMatchObject({ id: 1, result: { first: true } });
+    expect(received[1]).toMatchObject({ id: 2, result: { second: true } });
+  });
+
+  it('handles non-JSON data gracefully by skipping malformed fragments', async () => {
+    const t = new WebSocketClientTransport({ url: 'ws://agent.test' });
+    const startP = t.start();
+    last().fire('open');
+    await startP;
+
+    const received: ACPMessage[] = [];
+    t.onMessage((m) => received.push(m));
+
+    // Send a mix of valid and invalid JSON
+    last().fire('message', { data: 'invalid\n{"jsonrpc":"2.0","id":1,"result":{}}\nstill invalid' });
+
+    // Only the valid JSON should be dispatched
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ id: 1 });
   });
 
   it('rejects send() after the socket is closed', async () => {

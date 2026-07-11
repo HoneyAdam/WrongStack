@@ -92,6 +92,21 @@ describe('addMcp', () => {
     expect(servers.github?.lazy).toBe(true);
   });
 
+  it('persists health thresholds', async () => {
+    await addMcp(
+      {
+        name: 'github',
+        enabled: false,
+        health: { thresholds: { callLatencyP95Ms: 500, inFlightCalls: 8 } },
+      },
+      deps(makeRegistry(), { github: githubPreset }),
+    );
+    const servers = await readServers();
+    expect(servers.github?.health).toEqual({
+      thresholds: { callLatencyP95Ms: 500, inFlightCalls: 8 },
+    });
+  });
+
   it('normalizes a bare "http" transport to streamable-http', async () => {
     await addMcp(
       { name: 'svc', transport: 'http', url: 'https://x.example/mcp', enabled: false },
@@ -129,6 +144,12 @@ describe('addMcp', () => {
     const r = await addMcp({ name: 'nope' }, deps(makeRegistry(), { github: githubPreset }));
     expect(r.ok).toBe(false);
     expect(r.message).toContain('Unknown server');
+  });
+
+  it('rejects a name-only add when no presets are registered at all', async () => {
+    const r = await addMcp({ name: 'anything' }, deps(makeRegistry()));
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('No configuration provided');
   });
 
   it('soft-warns when config persisted but the registry fails to start', async () => {
@@ -229,6 +250,74 @@ describe('restart / discover', () => {
     expect(r.ok).toBe(true);
     expect(r.tools).toEqual(['x']);
     expect(r.message).toContain('1 tool');
+  });
+
+  it('restartMcp returns error when restart throws', async () => {
+    const registry = makeRegistry({
+      list: () => [{ name: 'github', state: 'connected', toolCount: 2, tools: ['a', 'b'] }],
+      restart: vi.fn().mockRejectedValue(new Error('restart-failed')),
+    });
+    const r = await restartMcp('github', deps(registry));
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('restart-failed');
+  });
+
+  it('restartMcp starts from config when server is not in registry but is in config', async () => {
+    await addMcp({ name: 'github', enabled: true }, deps(makeRegistry(), { github: githubPreset }));
+    const registry = makeRegistry({
+      list: () => [],
+      start: vi.fn().mockResolvedValue(undefined),
+    });
+    const r = await restartMcp('github', deps(registry));
+    expect(r.ok).toBe(true);
+    expect((registry as { start: ReturnType<typeof vi.fn> }).start).toHaveBeenCalled();
+  });
+
+  it('restartMcp returns error when server is not in config or registry', async () => {
+    const r = await restartMcp('ghost', deps(makeRegistry()));
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('not in config');
+  });
+
+  it('discoverMcp propagates restart failure', async () => {
+    const r = await discoverMcp('ghost', deps(makeRegistry()));
+    expect(r.ok).toBe(false);
+  });
+
+  it('addMcp with enabled config starts via registry.start when not alreadyRegistered', async () => {
+    const registry = makeRegistry({ list: () => [] });
+    await addMcp(
+      { name: 'github', enabled: true },
+      deps(registry, { github: githubPreset }),
+    );
+    expect((registry as { start: ReturnType<typeof vi.fn> }).start).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'github', enabled: true }),
+    );
+  });
+
+  it('enableMcp calls restart on registry for already-registered server', async () => {
+    // Add disabled server first (writes to config)
+    await addMcp({ name: 'github', enabled: false }, deps(makeRegistry(), { github: githubPreset }));
+    // Now enable it with a registry that lists it as registered
+    const registry = makeRegistry({
+      list: () => [{ name: 'github', state: 'connected', toolCount: 2, tools: ['a', 'b'] }],
+      restart: vi.fn().mockResolvedValue(undefined),
+    });
+    const r = await enableMcp('github', deps(registry));
+    expect(r.ok).toBe(true);
+    expect((registry as { restart: ReturnType<typeof vi.fn> }).restart).toHaveBeenCalledWith('github');
+  });
+
+  it('updateMcp with disabled server stops it', async () => {
+    await addMcp({ name: 'github', enabled: true }, deps(makeRegistry(), { github: githubPreset }));
+    const registry = makeRegistry({ list: () => [] });
+    const r = await updateMcp(
+      { name: 'github', enabled: false },
+      deps(registry),
+    );
+    expect(r.ok).toBe(true);
+    const servers = await readServers();
+    expect(servers.github?.enabled).toBe(false);
   });
 });
 

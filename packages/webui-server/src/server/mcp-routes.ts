@@ -32,6 +32,10 @@ export interface McpRouteHandlers {
   wake: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   restart: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   discover: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
+  resources: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
+  prompts: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
+  resourceRead: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
+  promptGet: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
 }
 
 /**
@@ -90,6 +94,18 @@ export async function handleMcpRoute(
       return true;
     case 'mcp.discover':
       await handlers.discover(ws, msg);
+      return true;
+    case 'mcp.resources':
+      await handlers.resources(ws, msg);
+      return true;
+    case 'mcp.prompts':
+      await handlers.prompts(ws, msg);
+      return true;
+    case 'mcp.resource.read':
+      await handlers.resourceRead(ws, msg);
+      return true;
+    case 'mcp.prompt.get':
+      await handlers.promptGet(ws, msg);
       return true;
     default:
       return false;

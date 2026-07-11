@@ -1229,12 +1229,12 @@ describe('HQ server fleet telemetry', () => {
     });
   }
 
-  function sessionSnapshotFrame(clientId: string, machineId: string, projectId: string, sessionId: string): string {
+  function sessionSnapshotFrame(clientId: string, machineId: string, projectId: string, sessionId: string, seq = 1): string {
     return JSON.stringify({
       type: 'client.event',
       event: {
-        id: 'snap-' + sessionId, type: 'session.snapshot', schemaVersion: HQ_PROTOCOL_VERSION,
-        timestamp: new Date().toISOString(), clientId, projectId, sessionId, seq: 1,
+        id: 'snap-' + sessionId + '-' + seq, type: 'session.snapshot', schemaVersion: HQ_PROTOCOL_VERSION,
+        timestamp: new Date().toISOString(), clientId, projectId, sessionId, seq,
         payload: {
           sessionId, clientKind: 'tui', machineId, hostname: machineId + '.local', pid: 4242,
           projectId, projectName: projectId, projectRoot: '/r/' + projectId, gitBranch: 'main',
@@ -1280,6 +1280,50 @@ describe('HQ server fleet telemetry', () => {
     expect(fleet.liveSessions[0]?.agents).toHaveLength(2);
 
     client.close();
+  });
+
+  it('expires session snapshots that stop refreshing while the socket stays alive on heartbeats', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({
+      port,
+      clientCleanupIntervalMs: 50,
+      sessionSnapshotTtlMs: 200,
+    });
+
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrame('c1', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    // s-dead is published once and never refreshed — a bridge that died
+    // without session.ended. s-live keeps republishing like a healthy bridge.
+    client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-dead', 1));
+    let seq = 1;
+    const refresher = setInterval(() => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-live', ++seq));
+      }
+    }, 40);
+
+    const liveSessionIds = async (): Promise<string[]> => {
+      const fleet = (await (await fetch(`http://127.0.0.1:${handle!.port}/api/fleet`)).json()) as {
+        liveSessions: { sessionId: string }[];
+      };
+      return fleet.liveSessions.map((s) => s.sessionId).sort();
+    };
+
+    try {
+      await expect.poll(liveSessionIds, { timeout: 5_000 }).toEqual(['s-dead', 's-live']);
+      // The stale snapshot falls out; the refreshed one and the client survive.
+      await expect.poll(liveSessionIds, { timeout: 5_000 }).toEqual(['s-live']);
+      const snap = (await (await fetch(`http://127.0.0.1:${handle.port}/api/snapshot`)).json()) as {
+        clients: { clientId: string; connected: boolean }[];
+      };
+      expect(snap.clients.some((c) => c.clientId === 'c1' && c.connected)).toBe(true);
+    } finally {
+      clearInterval(refresher);
+      client.close();
+    }
   });
 
   it('serves a remote terminal full transcript from the stream ring via /api/sessions/:id/events', async () => {

@@ -37,4 +37,100 @@ describe('buildMcpSlashCommand', () => {
     expect(typeof mod.parseMcpArgs).toBe('function');
     expect(typeof mod.runMcpManagementCommand).toBe('function');
   });
+
+  it('lists resources and templates through the live registry', async () => {
+    const mcpRegistry = {
+      listResources: vi
+        .fn()
+        .mockResolvedValue([
+          { uri: 'repo://README.md', name: 'readme', mimeType: 'text/markdown', size: 42 },
+        ]),
+      listResourceTemplates: vi
+        .fn()
+        .mockResolvedValue([{ uriTemplate: 'repo://{path}', name: 'repository file' }]),
+    };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run('resources docs --refresh');
+
+    expect(mcpRegistry.listResources).toHaveBeenCalledWith('docs', { refresh: true });
+    expect(res?.message).toContain('repo://README.md');
+    expect(res?.message).toContain('repo://{path}');
+  });
+
+  it('lists prompts and required argument names', async () => {
+    const mcpRegistry = {
+      listPrompts: vi.fn().mockResolvedValue([
+        {
+          name: 'review',
+          description: 'Review code',
+          arguments: [{ name: 'target', required: true }],
+        },
+      ]),
+    };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run('prompts docs');
+
+    expect(res?.message).toContain('review (target*) — Review code');
+  });
+
+  it('inserts only an explicitly selected resource with provenance metadata', async () => {
+    const insertion = {
+      kind: 'resource',
+      untrusted: true,
+      byteSize: 5,
+      provenance: {
+        origin: 'mcp',
+        serverName: 'docs',
+        capability: 'resource',
+        resourceUri: 'repo://guide',
+      },
+      contents: [{ uri: 'repo://guide', text: 'hello' }],
+    };
+    const mcpRegistry = { selectResourceForInsertion: vi.fn().mockResolvedValue(insertion) };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run('read docs repo://guide');
+
+    expect(res?.message).toContain('untrusted MCP resource');
+    expect(res?.runText).toContain('[UNTRUSTED MCP CONTENT');
+    expect(res?.runText).toContain('repo://guide');
+    expect(res?.metadata).toEqual({ mcpInsertion: insertion.provenance });
+  });
+
+  it('passes prompt arguments and never includes argument values in metadata', async () => {
+    const insertion = {
+      kind: 'prompt',
+      untrusted: true,
+      byteSize: 12,
+      provenance: {
+        origin: 'mcp',
+        serverName: 'docs',
+        capability: 'prompt',
+        promptName: 'review',
+        promptArgumentNames: ['token'],
+      },
+      messages: [{ role: 'user', content: { type: 'text', text: 'review' } }],
+    };
+    const mcpRegistry = { selectPromptForInsertion: vi.fn().mockResolvedValue(insertion) };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run('get docs review token=secret-value');
+
+    expect(mcpRegistry.selectPromptForInsertion).toHaveBeenCalledWith('docs', 'review', {
+      token: 'secret-value',
+    });
+    expect(JSON.stringify(res?.metadata)).not.toContain('secret-value');
+  });
+
+  it('rejects malformed prompt key/value arguments before calling the registry', async () => {
+    const mcpRegistry = { selectPromptForInsertion: vi.fn() };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run('get docs review malformed');
+
+    expect(res?.message).toContain('expected key=value');
+    expect(mcpRegistry.selectPromptForInsertion).not.toHaveBeenCalled();
+  });
 });

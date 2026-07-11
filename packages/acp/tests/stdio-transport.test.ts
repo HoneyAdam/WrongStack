@@ -315,6 +315,15 @@ describe('ClientTransport', () => {
     expect(spawnOpts.cwd).toBe('/repo/project');
   });
 
+  it('child error after settlement (post-ready) marks transport closed without rejecting', async () => {
+    const { transport, child } = await startedTransport();
+    // After the transport has started successfully, an error on the child
+    // process should only mark closed (post-settled path, line 236-237)
+    child.emit('error', new Error('post-settle crash'));
+    // No rejection; the transport is just marked closed
+    expect(await transport.read()).toBeNull();
+  });
+
   it('start rejects on handshake timeout when no marker arrives', async () => {
     const child = new FakeChild();
     spawnMock.fn.mockReturnValue(child);

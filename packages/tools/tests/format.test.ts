@@ -179,4 +179,19 @@ describe('formatTool', () => {
       formatTool.executeStream = original;
     }
   });
+
+  it('uses explicit fixer biome without auto-detection', async () => {
+    let receivedArgs: string[] = [];
+    spawnStreamMocks.spawnStream.mockImplementation((opts: { args: string[] }) => {
+      receivedArgs = opts.args;
+      return fakeSpawn('')();
+    });
+    const result = await formatTool.execute(
+      { fixer: 'biome' },
+      makeCtx(),
+      makeOpts(),
+    );
+    expect(result.fixer).toBe('biome');
+    expect(receivedArgs).toContain('format');
+  });
 });

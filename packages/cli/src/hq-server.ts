@@ -96,6 +96,8 @@ export interface HqServerOptions {
   clientTtlMs?: number;
   /** Stale-client scan interval. Primarily exposed for deterministic integration tests. */
   clientCleanupIntervalMs?: number;
+  /** Session-snapshot freshness timeout. Primarily exposed for deterministic integration tests. */
+  sessionSnapshotTtlMs?: number;
 }
 
 export interface HqStartupConnectionInfo {
@@ -116,6 +118,12 @@ export interface HqServerHandle {
   port: number;
   firstRunSetup?: HqFirstRunSetup;
   close(): Promise<void>;
+}
+
+interface TrackedSessionSnapshot {
+  payload: HqSessionSnapshotPayload;
+  /** Epoch ms of the last `session.snapshot` refresh — freshness authority for the cleanup timer. */
+  receivedAt: number;
 }
 
 interface ConnectedClient {
@@ -144,9 +152,11 @@ interface ConnectedClient {
   machineId?: string;
   /**
    * Latest live session/terminal snapshot keyed by sessionId — replaced on
-   * each `session.snapshot` envelope and removed on `session.ended`.
+   * each `session.snapshot` envelope and removed on `session.ended`, or by
+   * the cleanup timer once it goes {@link SESSION_SNAPSHOT_TTL_MS} without a
+   * refresh (dead bridge on a still-heartbeating socket).
    */
-  sessions: Map<string, HqSessionSnapshotPayload>;
+  sessions: Map<string, TrackedSessionSnapshot>;
   /**
    * Latest fleet (multi-agent coordinator) snapshot keyed by runId —
    * replaced on each `fleet.snapshot` envelope from this client. Feeds the
@@ -278,6 +288,15 @@ const MAX_NON_STRICT_PORT_SCAN = 50;
 const CLIENT_TTL_MS = 60_000; // 60 s
 const CLIENT_CLEANUP_INTERVAL_MS = 30_000; // every 30 s
 const BROWSER_HEARTBEAT_INTERVAL_MS = 15_000;
+/**
+ * Session-snapshot freshness timeout. A live SessionTelemetryBridge
+ * republishes its `session.snapshot` every ~2.5s, so a snapshot that hasn't
+ * been refreshed within this window belongs to a bridge that died without a
+ * final `session.ended` (crash, dropped queue). Without this, the terminal
+ * would stay in the fleet tree forever as long as ANY traffic (e.g.
+ * `client.heartbeat`) keeps the owning socket alive.
+ */
+const SESSION_SNAPSHOT_TTL_MS = 30_000;
 
 function setHqSecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -753,6 +772,7 @@ function startHqServerWithAuth(
     // sent a WebSocket close frame, so the 'close' event never fires.
     const cleanupTimer = setInterval(() => {
       const cutoff = Date.now() - (options.clientTtlMs ?? CLIENT_TTL_MS);
+      const sessionCutoff = Date.now() - (options.sessionSnapshotTtlMs ?? SESSION_SNAPSHOT_TTL_MS);
       let changed = false;
       for (const [ws, client] of clients.entries()) {
         if (new Date(client.lastSeenAt).getTime() < cutoff) {
@@ -761,6 +781,18 @@ function startHqServerWithAuth(
           ws.terminate();
           clients.delete(ws);
           changed = true;
+          continue;
+        }
+        // Session-snapshot freshness: a socket kept alive by heartbeats can
+        // outlive its telemetry bridge. Drop sessions the bridge stopped
+        // refreshing so dead terminals fall out of the fleet tree. Fleets and
+        // mailboxes are NOT pruned here — those snapshots are event-driven,
+        // not republished on an interval, so age proves nothing about them.
+        for (const [sessionId, tracked] of client.sessions.entries()) {
+          if (tracked.receivedAt < sessionCutoff) {
+            client.sessions.delete(sessionId);
+            changed = true;
+          }
         }
       }
       if (changed) snapshotBroadcaster.broadcast();
@@ -1860,7 +1892,7 @@ function handleClient(
         const result = parseHqEventPayload(event.type, event.payload);
         if (result.ok) {
           const payload = result.payload as HqSessionSnapshotPayload;
-          client.sessions.set(payload.sessionId, payload);
+          client.sessions.set(payload.sessionId, { payload, receivedAt: Date.now() });
           snapshotBroadcaster.broadcast();
         }
         return;
@@ -2033,8 +2065,8 @@ function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
       project.machineIds = [...project.machineIds, machineId];
     }
 
-    for (const session of client.sessions.values()) {
-      sessionById.set(session.sessionId, session);
+    for (const tracked of client.sessions.values()) {
+      sessionById.set(tracked.payload.sessionId, tracked.payload);
     }
 
     for (const snapshot of client.mailboxes.values()) {

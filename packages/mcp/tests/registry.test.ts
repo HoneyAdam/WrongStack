@@ -1,4 +1,10 @@
-import { EventBus, type Logger, type MCPServerConfig, type Tool, ToolRegistry } from '@wrongstack/core';
+import {
+  EventBus,
+  type Logger,
+  type MCPServerConfig,
+  type Tool,
+  ToolRegistry,
+} from '@wrongstack/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MCPRegistry } from '../src/registry.js';
 
@@ -38,6 +44,14 @@ describe('MCPRegistry', () => {
     const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
     await reg.start(stdioCfg('off', { enabled: false }));
     expect(reg.list()).toHaveLength(0);
+    expect(reg.describe()).toEqual([
+      expect.objectContaining({ name: 'off', enabled: false, state: 'idle' }),
+    ]);
+    expect(reg.operationalHealth()).toEqual([
+      expect.objectContaining({ name: 'off', healthState: 'disabled' }),
+    ]);
+    reg.forget('off');
+    expect(reg.operationalHealth()).toHaveLength(0);
   });
 
   it('start() throws on duplicate name (no orphan client)', async () => {
@@ -207,13 +221,8 @@ describe('MCPRegistry', () => {
         reconnectPending: false,
         reconnectCycles: 0,
       };
-      (reg as never as { servers: Map<string, typeof slot> }).servers.set(
-        'cancel-timer',
-        slot,
-      );
-      (reg as never as { scheduleReconnect: (s: typeof slot) => void }).scheduleReconnect(
-        slot,
-      );
+      (reg as never as { servers: Map<string, typeof slot> }).servers.set('cancel-timer', slot);
+      (reg as never as { scheduleReconnect: (s: typeof slot) => void }).scheduleReconnect(slot);
       const handle = (
         reg as never as {
           servers: Map<string, { reconnectTimer?: NodeJS.Timeout | undefined }>;
@@ -238,10 +247,7 @@ describe('MCPRegistry', () => {
         reconnectPending: false,
         reconnectCycles: 0,
       };
-      (reg as never as { servers: Map<string, typeof slot> }).servers.set(
-        'no-respawn',
-        slot,
-      );
+      (reg as never as { servers: Map<string, typeof slot> }).servers.set('no-respawn', slot);
       const registryInternals = reg as never as {
         scheduleReconnect: (s: typeof slot) => void;
         stop: (n: string) => Promise<void>;
@@ -296,7 +302,10 @@ describe('MCPRegistry', () => {
           listTools: () => [{ name: 'new_tool', inputSchema: {} }],
         } as never as any,
       };
-      (reg as never as { servers: Map<string, typeof slot> }).servers.set('tools-change-test', slot);
+      (reg as never as { servers: Map<string, typeof slot> }).servers.set(
+        'tools-change-test',
+        slot,
+      );
       // Override toolRegistry.unregister to throw on first call
       let unregisterCall = 0;
       (reg as never as { toolRegistry: ToolRegistry }).toolRegistry = {
@@ -308,10 +317,9 @@ describe('MCPRegistry', () => {
         register: () => {},
       } as never as ToolRegistry;
       // The onToolsChanged should still process all tools
-      (reg as never as RegistryInternals).onToolsChanged(
-        'tools-change-test',
-        [{ name: 'new_tool' } as never],
-      );
+      (reg as never as RegistryInternals).onToolsChanged('tools-change-test', [
+        { name: 'new_tool' } as never,
+      ]);
       // At least one tool was attempted
       expect(unregisterCall).toBeGreaterThan(0);
     });
@@ -320,10 +328,9 @@ describe('MCPRegistry', () => {
       const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
       // Should not throw for unknown server
       expect(() =>
-        (reg as never as { onToolsChanged: (name: string, tools: { name: string }[]) => void }).onToolsChanged(
-          'never-registered',
-          [{ name: 'x' } as never],
-        ),
+        (
+          reg as never as { onToolsChanged: (name: string, tools: { name: string }[]) => void }
+        ).onToolsChanged('never-registered', [{ name: 'x' } as never]),
       ).not.toThrow();
     });
 
@@ -359,10 +366,9 @@ describe('MCPRegistry', () => {
         },
         unregister: () => {},
       } as never as ToolRegistry;
-      (reg as never as RegistryInternals).onToolsChanged(
-        'warn-test',
-        [{ name: 'bad_tool' } as never],
-      );
+      (reg as never as RegistryInternals).onToolsChanged('warn-test', [
+        { name: 'bad_tool' } as never,
+      ]);
       expect(regCall).toBe(1);
       expect(warnCalls.length).toBeGreaterThanOrEqual(1);
     });
@@ -392,11 +398,11 @@ describe('MCPRegistry', () => {
     it('onChildExit skips unknown server', () => {
       const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
       expect(() =>
-        (reg as never as { onChildExit: (name: string, code: number | null, signal: string | null) => void }).onChildExit(
-          'never-registered',
-          0,
-          null,
-        ),
+        (
+          reg as never as {
+            onChildExit: (name: string, code: number | null, signal: string | null) => void;
+          }
+        ).onChildExit('never-registered', 0, null),
       ).not.toThrow();
     });
 
@@ -440,12 +446,13 @@ describe('MCPRegistry', () => {
         reconnectCycles: 0,
         client: {} as never as any,
       };
-      (reg as never as { servers: Map<string, typeof slot> }).servers.set('http-disconnect-test', slot);
+      (reg as never as { servers: Map<string, typeof slot> }).servers.set(
+        'http-disconnect-test',
+        slot,
+      );
       const disconnects: { name: string; reason: string }[] = [];
       events.on('mcp.server.disconnected', (p) => disconnects.push(p));
-      (reg as never as RegistryInternals).onTransportDisconnect(
-        'http-disconnect-test',
-      );
+      (reg as never as RegistryInternals).onTransportDisconnect('http-disconnect-test');
       expect(slot.state).toBe('disconnected');
       expect(disconnects[0]?.reason).toBe('http-disconnect');
     });
@@ -600,7 +607,9 @@ describe('MCPRegistry', () => {
         unregister: () => {},
       } as never as ToolRegistry;
       // Trigger onToolsChanged to exercise the warn path (line 317)
-      const onToolsChanged = (reg as never as { onToolsChanged: (name: string, tools: { name: string }[]) => void }).onToolsChanged;
+      const onToolsChanged = (
+        reg as never as { onToolsChanged: (name: string, tools: { name: string }[]) => void }
+      ).onToolsChanged;
       onToolsChanged('warn-tool', [{ name: 'failing-tool' } as never]);
       expect(regCall).toBe(1);
       // onToolsChanged now re-applies via the shared applyTools helper, which

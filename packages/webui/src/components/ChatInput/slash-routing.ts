@@ -23,6 +23,10 @@ type SlashRoutingClientMessage = Extract<
   | { type: 'mode.switch' }
   | { type: 'modes.list' }
   | { type: 'mcp.list' }
+  | { type: 'mcp.resources' }
+  | { type: 'mcp.prompts' }
+  | { type: 'mcp.resource.read' }
+  | { type: 'mcp.prompt.get' }
   | { type: 'working_dir.set' }
   | { type: 'autophase.start' }
   | { type: 'autophase.pause' }
@@ -234,14 +238,66 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       addMessage({ role: 'assistant', content: `Mode → **${id}**.` });
       return true;
     }
-    case '/mcp':
+    case '/mcp': {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const action = parts[0];
+      const server = parts[1];
+      if ((action === 'resources' || action === 'prompts') && server) {
+        client?.send?.({
+          type: action === 'resources' ? 'mcp.resources' : 'mcp.prompts',
+          payload: { name: server, refresh: parts.includes('--refresh') },
+        });
+        addMessage({ role: 'assistant', content: `Fetching MCP ${action} from **${server}**…` });
+        return true;
+      }
+      if (action === 'read' && server && parts[2]) {
+        client?.send?.({ type: 'mcp.resource.read', payload: { name: server, uri: parts[2] } });
+        addMessage({
+          role: 'assistant',
+          content: `Reading selected MCP resource from **${server}**…`,
+        });
+        return true;
+      }
+      if (action === 'get' && server && parts[2]) {
+        const promptArgs: Record<string, string> = {};
+        for (const token of parts.slice(3)) {
+          const separator = token.indexOf('=');
+          if (separator <= 0) {
+            addMessage({
+              role: 'assistant',
+              content: `Invalid MCP prompt argument \`${token}\`; expected \`key=value\`.`,
+            });
+            return true;
+          }
+          promptArgs[token.slice(0, separator)] = token.slice(separator + 1);
+        }
+        client?.send?.({
+          type: 'mcp.prompt.get',
+          payload: { name: server, prompt: parts[2], arguments: promptArgs },
+        });
+        addMessage({
+          role: 'assistant',
+          content: `Getting selected MCP prompt from **${server}**…`,
+        });
+        return true;
+      }
+      if (action) {
+        addMessage({
+          role: 'assistant',
+          content:
+            'Usage: `/mcp resources <server>`, `/mcp prompts <server>`, `/mcp read <server> <uri>`, or `/mcp get <server> <prompt> [key=value...]`.',
+        });
+        return true;
+      }
       client?.send?.({ type: 'mcp.list' });
       openMainView('settings');
       addMessage({
         role: 'assistant',
-        content: '🖥️ **MCP Servers** — settings opened to the MCP tab.\n\nConfigure, enable/disable, or restart servers from the MCP section.',
+        content:
+          '🖥️ **MCP Servers** — settings opened to the MCP tab.\n\nConfigure, enable/disable, or restart servers from the MCP section.',
       });
       return true;
+    }
     case '/working-dir':
     case '/cwd': {
       const path = args.trim();

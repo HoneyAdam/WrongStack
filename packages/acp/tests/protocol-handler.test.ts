@@ -449,6 +449,117 @@ describe('ACPProtocolHandler', () => {
     });
   });
 
+  describe('notifications', () => {
+    it('handles session/cancel for an active session without error', async () => {
+      const { handler, transport } = makeHandler({ runTurn: ABORTING_RUN_TURN });
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
+      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      transport.sent.length = 0;
+
+      // Send session/cancel notification
+      const result = await handler.handleMessage({ method: 'session/cancel', params: { sessionId } });
+      expect(result).toBe(false);
+    });
+
+    it('handles session/cancel for a non-existent session without error', async () => {
+      const { handler } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      const result = await handler.handleMessage({ method: 'session/cancel', params: { sessionId: 'nonexistent' } });
+      expect(result).toBe(false);
+    });
+
+    it('handles $/cancel_request notification', async () => {
+      const { handler } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      const result = await handler.handleMessage({ method: '$/cancel_request' });
+      expect(result).toBe(false);
+    });
+
+    it('handles exit notification and returns true', async () => {
+      const { handler } = makeHandler();
+      const result = await handler.handleMessage({ method: 'exit' });
+      expect(result).toBe(true);
+    });
+
+    it('handles unknown notification without error', async () => {
+      const { handler } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      const result = await handler.handleMessage({ method: 'some/unknown_notification' });
+      expect(result).toBe(false);
+    });
+
+    it('ignores inbound JSON-RPC responses (id + result/error)', async () => {
+      const { handler } = makeHandler();
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      const result = await handler.handleMessage({ id: 99, result: { done: true } });
+      expect(result).toBe(false);
+    });
+
+    it('returns false for non-object messages', async () => {
+      const { handler } = makeHandler();
+      const result = await handler.handleMessage('not an object');
+      expect(result).toBe(false);
+    });
+
+    it('returns false for null messages', async () => {
+      const { handler } = makeHandler();
+      const result = await handler.handleMessage(null);
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('errorToJsonRpc', () => {
+    it('maps a thrown object with code+message properties to a structured error response', async () => {
+      const throwRunTurn: RunTurn = async () => {
+        throw { code: -32001, message: 'structured error', data: { detail: 'extra' } };
+      };
+      const ft = fakeTransport();
+      const handler = new ACPProtocolHandler({
+        transport: ft as never as AgentServerTransport,
+        defaultCwd: '/test',
+        runTurn: throwRunTurn,
+      });
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+      const sid = (ft.sent[ft.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      ft.sent.length = 0;
+
+      await handler.handleMessage({ id: 3, method: 'session/prompt', params: { sessionId: sid, prompt: [{ type: 'text', text: 'hi' }] } });
+
+      // The handler catches the throw and sends a JSON-RPC error response
+      const errorResp = ft.sent.find((m) => (m as { id?: number }).id === 3) as { error?: { code?: number; message?: string; data?: unknown } } | undefined;
+      // The runTurn throw hits the catch in handleRequest → errorToJsonRpc extracts
+      // the code+message+data from the thrown object (line 1048 path)
+      expect(errorResp?.error?.code).toBe(-32001);
+      expect(errorResp?.error?.message).toBe('structured error');
+      expect(errorResp?.error?.data).toEqual({ detail: 'extra' });
+    });
+
+    it('maps a plain Error to a -32603 internal error response', async () => {
+      const throwRunTurn: RunTurn = async () => {
+        throw new Error('generic failure');
+      };
+      const ft = fakeTransport();
+      const handler = new ACPProtocolHandler({
+        transport: ft as never as AgentServerTransport,
+        defaultCwd: '/test',
+        runTurn: throwRunTurn,
+      });
+      await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+      await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
+      const sid = (ft.sent[ft.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      ft.sent.length = 0;
+
+      await handler.handleMessage({ id: 3, method: 'session/prompt', params: { sessionId: sid, prompt: [{ type: 'text', text: 'hi' }] } });
+
+      // Plain Error has no code property → maps to -32603 (line 1056 path)
+      const errorResp = ft.sent.find((m) => (m as { id?: number }).id === 3) as { error?: { code?: number; message?: string } } | undefined;
+      expect(errorResp?.error?.code).toBe(-32603);
+      expect(errorResp?.error?.message).toBe('generic failure');
+    });
+  });
+
   describe('unknown method', () => {
     it('returns -32601', async () => {
       const { handler, transport } = makeHandler();

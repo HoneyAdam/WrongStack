@@ -550,6 +550,35 @@ export interface MCPServerConfig {
    * Example: passthroughEnv: ['GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_TOKEN']
    */
   passthroughEnv?: string[] | undefined;
+  /**
+   * Operational-health settings for this MCP server. Thresholds are optional;
+   * when omitted the server is considered healthy as long as its connection
+   * lifecycle succeeds. Latency thresholds compare against the rolling p95 of
+   * the bounded sample buffer; the in-flight threshold compares against the
+   * observed peak in-flight call count.
+   */
+  health?: MCPHealthConfig | undefined;
+}
+
+/** Per-server operational-health knobs. */
+export interface MCPHealthConfig {
+  thresholds?: MCPHealthThresholds | undefined;
+}
+
+/**
+ * Configurable thresholds that can push an otherwise-healthy MCP server into
+ * the `degraded` health state. All thresholds are optional and disabled when
+ * omitted so existing behaviour is preserved.
+ */
+export interface MCPHealthThresholds {
+  /** Connection latency p95 above this value marks the server degraded. */
+  connectionLatencyP95Ms?: number | undefined;
+  /** Discovery (capability listing) latency p95 above this marks degraded. */
+  discoveryLatencyP95Ms?: number | undefined;
+  /** Tool-call latency p95 above this marks degraded. */
+  callLatencyP95Ms?: number | undefined;
+  /** Peak in-flight calls above this marks the server saturated/degraded. */
+  inFlightCalls?: number | undefined;
 }
 
 export interface LogConfig {

@@ -194,4 +194,14 @@ describe('todo tool', () => {
     );
     expect(out.count).toBe(1);
   });
+
+  it('tolerates a missing task file (loadTasks returns null)', async () => {
+    (sb.ctx.meta as Record<string, unknown>)['task.path'] = path.join(sb.dir, 'absent-tasks.json');
+    const out = await todoTool.execute(
+      { todos: [{ id: 'a', content: 'do', status: 'completed', promotedFromTask: 't1' }] },
+      sb.ctx,
+      { signal: newSignal() },
+    );
+    expect(out.count).toBe(1);
+  });
 });

@@ -196,4 +196,41 @@ describe('hq-local-prefs', () => {
       unmountHook(handle);
     }
   });
+
+  it('deepClone falls back to JSON round-trip when structuredClone is unavailable', () => {
+    // Delete structuredClone from globalThis. With empty storage,
+    // loadFromStorage hits raw===null and calls deepClone(DEFAULT_PREFS).
+    const origSC = (globalThis as { structuredClone?: typeof structuredClone }).structuredClone;
+    (globalThis as { structuredClone?: typeof structuredClone }).structuredClone = undefined;
+    try {
+      clearStorage(); // ensures raw === null → deepClone(DEFAULT_PREFS) is called
+      reloadHqLocalPrefs();
+      const prefs = getHqLocalPrefsSnapshot();
+      expect(prefs.control.cmdType).toBe('steer'); // default
+    } finally {
+      (globalThis as { structuredClone?: typeof structuredClone }).structuredClone = origSC;
+    }
+  });
+
+  it('loadFromStorage catch falls back to defaults when localStorage.getItem throws', () => {
+    // Make localStorage.getItem throw so the try-catch returns defaults.
+    const origGetItem = window.localStorage.getItem.bind(window.localStorage);
+    window.localStorage.getItem = () => { throw new Error('storage error'); };
+    try {
+      reloadHqLocalPrefs();
+      const prefs = getHqLocalPrefsSnapshot();
+      // Should fall back to defaults.
+      expect(prefs.control.cmdType).toBe('steer');
+      expect(prefs.mailbox.includeCompleted).toBe(true);
+    } finally {
+      window.localStorage.getItem = origGetItem;
+    }
+  });
+
+  it('DEFAULT_PREFS is frozen and matches the snapshot at rest', async () => {
+    // The frozen default is returned by getServerSnapshot during SSR and
+    // serves as the reset target. Verify it matches a clean snapshot.
+    const { __test__: prefTest } = await import('../src/stores/hq-local-prefs.js');
+    expect(getHqLocalPrefsSnapshot()).toEqual(prefTest.DEFAULT_PREFS);
+  });
 });

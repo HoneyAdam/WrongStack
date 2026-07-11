@@ -97,6 +97,43 @@ describe('fetchAcpRegistry', () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) })) as never;
     await expect(fetchAcpRegistry()).rejects.toThrow('no agents array');
   });
+
+  it('aborts immediately when the caller signal is already aborted', async () => {
+    let capturedSignal: AbortSignal | null = null;
+    globalThis.fetch = vi.fn(async (_url: string, opts: { signal: AbortSignal }) => {
+      capturedSignal = opts.signal;
+      // The signal that was passed by fetchAcpRegistry should already be aborted
+      throw new DOMException('The operation was aborted', 'AbortError');
+    }) as never;
+
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      fetchAcpRegistry({ signal: ac.signal }),
+    ).rejects.toThrow();
+    // Verify the internal abort signal was triggered because the parent signal was already aborted
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it('listens for parent abort signal and stops the fetch', async () => {
+    let capturedSignal: AbortSignal | null = null;
+    globalThis.fetch = vi.fn(async (_url: string, opts: { signal: AbortSignal }) => {
+      capturedSignal = opts.signal;
+      return new Promise((_resolve, reject) => {
+        capturedSignal!.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted', 'AbortError'));
+        });
+      });
+    }) as never;
+
+    const ac = new AbortController();
+    const fetchP = fetchAcpRegistry({ signal: ac.signal });
+    // Let the fetch start
+    await new Promise((r) => setImmediate(r));
+    // Abort from the parent
+    ac.abort();
+    await expect(fetchP).rejects.toThrow('The operation was aborted');
+  });
 });
 
 describe('resolveAcpAgentCommand with a live registry', () => {

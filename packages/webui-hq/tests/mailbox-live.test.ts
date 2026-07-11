@@ -271,6 +271,17 @@ describe('buildLiveFeed', () => {
     expect(r.truncated).toBe(false);
   });
 
+  it('filters by projectIds — all messages are skipped (line 111 continue)', () => {
+    // buildLiveFeed does not have projectId on the message itself; when
+    // projectIds is set, every message is skipped and the result is empty.
+    const a = messageSummary({ mailId: 'a', messageId: 'a' });
+    const b = messageSummary({ mailId: 'b', messageId: 'b' });
+    const flat = [flatOf(a), flatOf(b)];
+    const { entries, totalMatched } = buildLiveFeed(flat, { projectIds: ['proj-x'] });
+    expect(entries).toHaveLength(0);
+    expect(totalMatched).toBe(0);
+  });
+
   it('combines multiple filters with AND semantics', () => {
     const matches = messageSummary({
       mailId: 'matches',

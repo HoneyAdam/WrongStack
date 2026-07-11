@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { assertNeverSessionUpdate } from '../src/types/acp-v1.js';
 
 // Smoke-test the public barrel entry points so they are loaded and their
 // re-exports stay wired.
+describe('assertNeverSessionUpdate', () => {
+  it('throws for any value (runtime exhaustiveness guard)', () => {
+    // The function is typed (x: never) => never but at runtime it
+    // throws an Error. Call it by casting away the never parameter.
+    expect(() => (assertNeverSessionUpdate as (x: string) => never)('unexpected_value')).toThrow('Unhandled sessionUpdate');
+    expect(() => (assertNeverSessionUpdate as (x: string) => never)('_unstable_foo')).toThrow('_unstable_foo');
+  });
+});
+
 describe('acp barrels', () => {
   it('root index re-exports the public surface', async () => {
     const mod = await import('../src/index.js');

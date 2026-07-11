@@ -12,7 +12,7 @@
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileServer, FsError } from '../src/client/file-server.js';
 
@@ -94,6 +94,26 @@ describe('FileServer', () => {
     await fsp.writeFile(p, 'old', 'utf8');
     await server.writeTextFile({ sessionId: 's1', path: p, content: 'new' });
     expect(await fsp.readFile(p, 'utf8')).toBe('new');
+  });
+
+  it('rejects empty path with INVALID_PATH', async () => {
+    try {
+      await server.readTextFile({ sessionId: 's1', path: '' });
+      throw new Error('should have rejected');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FsError);
+      expect((err as FsError).code).toBe('INVALID_PATH');
+    }
+  });
+
+  it('rejects attempt to write outside project root', async () => {
+    try {
+      await server.writeTextFile({ sessionId: 's1', path: '/etc/passwd', content: 'x' });
+      throw new Error('should have rejected');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FsError);
+      expect((err as FsError).code).toBe('OUTSIDE_ROOT');
+    }
   });
 
   it('cleans up the .tmp file on write failure', async () => {

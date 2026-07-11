@@ -8,6 +8,7 @@ import {
   HookRunner,
   type Logger,
   type ModelsRegistry,
+  type MetricsRuntimeStatus,
   normalizeTokenSavingTier,
   type Provider,
   type ProviderConfig,
@@ -28,6 +29,7 @@ import {
 } from '../hooks-wiring.js';
 import { makeConfirmAwaiter } from '../permission-prompt.js';
 import { installDesignStudio } from './design-studio.js';
+import { registerMcpObservability } from './metrics.js';
 import { createAgent, setupCompaction } from './pipeline.js';
 import { setupPlugins } from './plugins.js';
 
@@ -71,6 +73,7 @@ export interface LifecyclePluginsDeps {
   vault: SecretVault;
   // biome-ignore lint/suspicious/noExplicitAny: metrics sink
   metricsSink: any;
+  metricsStatus?: MetricsRuntimeStatus | undefined;
   // biome-ignore lint/suspicious/noExplicitAny: renderer
   renderer: any;
   // biome-ignore lint/suspicious/noExplicitAny: import
@@ -132,6 +135,7 @@ export async function setupLifecycleAndPlugins(
     promptLoader,
     vault,
     metricsSink,
+    metricsStatus,
     buildProviderForIdRuntime: buildProviderForIdRuntimeFn,
   } = deps;
 
@@ -300,6 +304,7 @@ export async function setupLifecycleAndPlugins(
       }
     }
   }
+  registerMcpObservability(healthRegistry, metricsSink, mcpRegistry);
 
   // ── Slash registry + mailbox + plugins ───────────────────────────────────
   const slashRegistry = new SlashCommandRegistry();
@@ -319,6 +324,7 @@ export async function setupLifecycleAndPlugins(
     agent,
     sessionWriter: context.session,
     metricsSink,
+    metricsStatus,
     modelsRegistry,
     healthRegistry,
     skillLoader: config.features.skills ? skillLoader : undefined,

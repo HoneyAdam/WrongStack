@@ -36,6 +36,18 @@ export interface MCPServer {
   lastError?: string;
   pid?: number;
   lazy?: boolean;
+  health?: {
+    healthState: 'disabled' | 'dormant' | 'connecting' | 'healthy' | 'degraded' | 'failed';
+    consecutiveFailures: number;
+    failures: { transport: number; protocol: number; tool: number };
+    reconnectCount: number;
+    wakeCount: number;
+    sleepCount: number;
+    restartCount: number;
+    inFlightCalls: number;
+    peakInFlightCalls: number;
+    callLatency: { count: number; lastMs?: number; p50Ms?: number; p95Ms?: number };
+  };
 }
 
 export interface MCPServerConfig {
@@ -171,6 +183,31 @@ function ServerCard({
               <>
                 <span className="text-muted-foreground">{t('settings:mcp.errorLabel')}</span>
                 <span className="text-destructive">{server.error}</span>
+              </>
+            )}
+            {server.health && (
+              <>
+                <span className="text-muted-foreground">Operational health</span>
+                <span>{server.health.healthState}</span>
+                <span className="text-muted-foreground">Failures (transport/protocol/tool)</span>
+                <span>
+                  {server.health.failures.transport}/{server.health.failures.protocol}/
+                  {server.health.failures.tool}
+                </span>
+                <span className="text-muted-foreground">Call latency p50/p95</span>
+                <span>
+                  {server.health.callLatency.p50Ms ?? '-'}ms /{' '}
+                  {server.health.callLatency.p95Ms ?? '-'}ms
+                </span>
+                <span className="text-muted-foreground">Reconnect / wake / sleep</span>
+                <span>
+                  {server.health.reconnectCount} / {server.health.wakeCount} /{' '}
+                  {server.health.sleepCount}
+                </span>
+                <span className="text-muted-foreground">Calls in flight / peak</span>
+                <span>
+                  {server.health.inFlightCalls} / {server.health.peakInFlightCalls}
+                </span>
               </>
             )}
           </div>

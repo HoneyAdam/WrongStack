@@ -3,8 +3,13 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildCommitCommand, buildGitcheckCommand, buildPushCommand, createGitPlugin } from '../../src/plugins/git-plugin.js';
 import type { SlashCommand } from '../../src/index.js';
+import {
+  buildCommitCommand,
+  buildGitcheckCommand,
+  buildPushCommand,
+  createGitPlugin,
+} from '../../src/plugins/git-plugin.js';
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -19,7 +24,8 @@ const commitAll = (msg: string) => {
   execFileSync('git', ['add', '.'], { cwd: tmp, stdio: 'ignore' });
   execFileSync('git', ['commit', '-q', '-m', msg], { cwd: tmp, stdio: 'ignore' });
 };
-const ctxFor = (provider?: unknown) => ({ session: { id: 's1' }, cwd: tmp, model: 'm', provider }) as never;
+const ctxFor = (provider?: unknown) =>
+  ({ session: { id: 's1' }, cwd: tmp, model: 'm', provider }) as never;
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'git-plugin-extra-'));
@@ -30,15 +36,18 @@ afterEach(async () => {
 });
 
 describe('createGitPlugin lifecycle', () => {
-  it('registers /commit /gitcheck /push, unregisters them, health ok', async () => {
+  it('registers /git /commit /gitcheck /push, unregisters them, health ok', async () => {
     const registered: SlashCommand[] = [];
     const unregister = vi.fn();
-    const api = { slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister }, log: { info: vi.fn() } } as never;
+    const api = {
+      slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister },
+      log: { info: vi.fn() },
+    } as never;
     const plugin = createGitPlugin();
     plugin.setup!(api);
-    expect(registered.map((c) => c.name).sort()).toEqual(['commit', 'gitcheck', 'push']);
+    expect(registered.map((c) => c.name).sort()).toEqual(['commit', 'git', 'gitcheck', 'push']);
     plugin.teardown!(api);
-    expect(unregister).toHaveBeenCalledTimes(3);
+    expect(unregister).toHaveBeenCalledTimes(4);
     expect(await plugin.health!()).toMatchObject({ ok: true });
   });
 });
@@ -47,9 +56,11 @@ describe('/commit heuristics with many changed files', () => {
   it('summarizes >3 changed files with a scope and "N more"', async () => {
     initGit();
     await fs.mkdir(path.join(tmp, 'src'), { recursive: true });
-    for (const n of ['a', 'b', 'c', 'd']) await fs.writeFile(path.join(tmp, 'src', `${n}.ts`), 'v1');
+    for (const n of ['a', 'b', 'c', 'd'])
+      await fs.writeFile(path.join(tmp, 'src', `${n}.ts`), 'v1');
     commitAll('init');
-    for (const n of ['a', 'b', 'c', 'd']) await fs.writeFile(path.join(tmp, 'src', `${n}.ts`), 'v2'); // modify all 4
+    for (const n of ['a', 'b', 'c', 'd'])
+      await fs.writeFile(path.join(tmp, 'src', `${n}.ts`), 'v2'); // modify all 4
     const res = await buildCommitCommand().run!('--dry-run --no-llm', ctxFor());
     const msg = stripAnsi(res!.message);
     expect(msg).toContain('(src)'); // scope from the primary dir
@@ -84,7 +95,10 @@ describe('/push edge cases', () => {
     initGit();
     await fs.writeFile(path.join(tmp, 'f.ts'), 'x');
     commitAll('init');
-    execFileSync('git', ['remote', 'add', 'origin', path.join(tmp, 'no-such-remote.git')], { cwd: tmp, stdio: 'ignore' });
+    execFileSync('git', ['remote', 'add', 'origin', path.join(tmp, 'no-such-remote.git')], {
+      cwd: tmp,
+      stdio: 'ignore',
+    });
     const res = await buildPushCommand().run!('--force', ctxFor());
     expect(stripAnsi(res!.message)).toMatch(/Push failed|fatal|error/i);
   });
@@ -93,8 +107,13 @@ describe('/push edge cases', () => {
     initGit();
     await fs.writeFile(path.join(tmp, 'f.ts'), 'x');
     commitAll('init');
-    execFileSync('git', ['remote', 'add', 'origin', path.join(tmp, 'r.git')], { cwd: tmp, stdio: 'ignore' });
-    expect((await buildPushCommand().run!('--dry-run --force', ctxFor())).message).toMatch(/Would push/);
+    execFileSync('git', ['remote', 'add', 'origin', path.join(tmp, 'r.git')], {
+      cwd: tmp,
+      stdio: 'ignore',
+    });
+    expect((await buildPushCommand().run!('--dry-run --force', ctxFor())).message).toMatch(
+      /Would push/,
+    );
   });
 });
 
@@ -108,7 +127,10 @@ describe('/commit worktree warning', () => {
     await fs.writeFile(path.join(tmp, 'a.ts'), 'v1');
     commitAll('init');
     wt = path.join(os.tmpdir(), `git-wt-${Date.now()}`);
-    execFileSync('git', ['worktree', 'add', '-q', '-b', 'feature', wt], { cwd: tmp, stdio: 'ignore' });
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'feature', wt], {
+      cwd: tmp,
+      stdio: 'ignore',
+    });
     await fs.writeFile(path.join(tmp, 'a.ts'), 'v2'); // an uncommitted change to commit
     const res = await buildCommitCommand().run!('--no-llm', ctxFor());
     const msg = stripAnsi(res!.message);

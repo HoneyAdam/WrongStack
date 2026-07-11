@@ -665,6 +665,39 @@ describe('MCPClient', () => {
       ).rejects.toThrow(/drain timeout/);
     });
 
+    it('notify() rejects with stdin error when error event fires during drain backpressure', async () => {
+      const c = new MCPClient({
+        name: 'notify-error-event',
+        transport: 'stdio',
+        command: 'echo',
+        args: ['x'],
+      });
+      const cAny = c as never as Record<string, unknown>;
+      let errorHandler: ((err: Error) => void) | undefined;
+      Object.defineProperty(cAny, 'child', {
+        value: {
+          stdin: {
+            write: () => false, // backpressure
+            on: () => {},
+            removeListener: () => {},
+            once: (event: string, cb: (...args: unknown[]) => void) => {
+              if (event === 'error') errorHandler = cb as (err: Error) => void;
+            },
+          },
+          on: () => {},
+          kill: () => {},
+        },
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(cAny, '_drainPending', { value: false, configurable: true });
+      const promise = (
+        c as never as { notify: (m: string, p: unknown) => Promise<void> }
+      ).notify('test', {});
+      errorHandler?.(new Error('stdin error event'));
+      await expect(promise).rejects.toThrow(/stdin error event/);
+    });
+
     it('notify() throws wrapped error when write throws after backpressure (lines 501-505)', async () => {
       const c = new MCPClient({
         name: 'notify-write-throw',
@@ -698,6 +731,18 @@ describe('MCPClient', () => {
           {},
         ),
       ).rejects.toThrow(/notify.*failed/);
+    });
+  });
+
+  describe('validateProtocolString', () => {
+    it('rejects prompt name exceeding max protocol input length', async () => {
+      const c = new MCPClient({ name: 'test', transport: 'stdio', command: 'echo' });
+      await expect(c.getPrompt('x'.repeat(8193))).rejects.toThrow(/exceeds 8192 characters/);
+    });
+
+    it('rejects resource URI exceeding max protocol input length', async () => {
+      const c = new MCPClient({ name: 'test', transport: 'stdio', command: 'echo' });
+      await expect(c.readResource('x'.repeat(8193))).rejects.toThrow(/exceeds 8192 characters/);
     });
   });
 

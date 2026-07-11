@@ -229,7 +229,7 @@ export async function main(argv: string[]): Promise<number> {
   });
 
   // Metrics wiring — extracted to wiring/metrics.ts
-  const { metricsSink, healthRegistry } = (() => {
+  const { metricsSink, healthRegistry, metricsStatus } = (() => {
     const ms = setupMetrics({
       flags,
       wpaths,
@@ -507,6 +507,7 @@ export async function main(argv: string[]): Promise<number> {
     promptLoader,
     vault,
     metricsSink,
+    metricsStatus,
     renderer,
     buildProviderForIdRuntime,
   });
@@ -657,6 +658,7 @@ export async function main(argv: string[]): Promise<number> {
     teardownHandlers,
     mailboxSessionTag,
     hqPublisherRef,
+    mcpRegistry,
   });
 
   // Dep-watcher consumers (tech-stack + package-outdated) — extracted to wiring/dep-watcher.ts
@@ -1472,6 +1474,7 @@ export async function main(argv: string[]): Promise<number> {
         allServerPresets: allServers(),
       });
     },
+    mcpRegistry,
     mcpStatus: () =>
       mcpRegistry.describe().map((s) => ({
         name: s.name,

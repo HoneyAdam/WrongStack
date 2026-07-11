@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import * as https from 'node:https';
 import * as net from 'node:net';
-import { ConfigError, ToolError, type HttpDispatcher } from '@wrongstack/core';
+import { ConfigError, type HttpDispatcher, ToolError } from '@wrongstack/core';
 import type { ConnectionState, JsonRpcResponse, MCPTool, ToolCallResult } from './client.js';
 import { MCP_CONSTANTS } from './constants.js';
+import { type MCPServerMetadata, parseServerMetadata } from './protocol.js';
 import { normalizeMCPTools } from './tool-schema.js';
 
 export type JsonRpcResult = {
   jsonrpc: string;
   id?: number | undefined;
+  method?: string | undefined;
+  params?: unknown | undefined;
   result?: unknown | undefined;
   error?: { code: number | undefined; message: string; data?: unknown | undefined } | undefined;
 };
@@ -148,11 +151,21 @@ export class SSEReader {
   private buffer = '';
   private dataLines: string[] = [];
   private listeners: Array<
-    (event: { jsonrpc?: string | undefined; method?: string | undefined; params?: unknown | undefined; id?: number | undefined }) => void
+    (event: {
+      jsonrpc?: string | undefined;
+      method?: string | undefined;
+      params?: unknown | undefined;
+      id?: number | undefined;
+    }) => void
   > = [];
 
   onMessage(
-    cb: (data: { jsonrpc?: string | undefined; method?: string | undefined; params?: unknown | undefined; id?: number | undefined }) => void,
+    cb: (data: {
+      jsonrpc?: string | undefined;
+      method?: string | undefined;
+      params?: unknown | undefined;
+      id?: number | undefined;
+    }) => void,
   ): () => void {
     this.listeners.push(cb);
     return () => {
@@ -177,7 +190,11 @@ export class SSEReader {
         message: `SSE: pending line exceeds ${SSE_READER_MAX_BUFFER} bytes — upstream is not framing events`,
         code: 'TOOL_EXECUTION_FAILED',
         toolName: 'mcp_transport_sse_reader',
-        context: { phase: 'feed', bufferLength: this.buffer.length, maxBuffer: SSE_READER_MAX_BUFFER },
+        context: {
+          phase: 'feed',
+          bufferLength: this.buffer.length,
+          maxBuffer: SSE_READER_MAX_BUFFER,
+        },
       });
     }
     let idx = this.buffer.indexOf('\n');
@@ -211,7 +228,11 @@ export class SSEReader {
           message: `SSE: exceeded ${SSE_READER_MAX_DATA_LINES} data lines per event — upstream is not sending blank-line delimiters`,
           code: 'TOOL_EXECUTION_FAILED',
           toolName: 'mcp_transport_sse_reader',
-          context: { phase: 'processLine', dataLineCount: this.dataLines.length, maxDataLines: SSE_READER_MAX_DATA_LINES },
+          context: {
+            phase: 'processLine',
+            dataLineCount: this.dataLines.length,
+            maxDataLines: SSE_READER_MAX_DATA_LINES,
+          },
         });
       }
       this.dataLines.push(value);
@@ -272,7 +293,7 @@ function isJsonRpcResult(v: unknown): v is JsonRpcResult {
       typeof r.error.message === 'string'
     );
   }
-  return 'result' in r || r.id === undefined;
+  return 'result' in r || typeof r.method === 'string';
 }
 
 /**
@@ -327,12 +348,6 @@ export function extractJsonRpcResults(text: string): JsonRpcResult[] {
   }
   flush();
   return out;
-}
-
-/** Pick the JSON-RPC envelope matching `id`, or the first one if none matches. */
-function pickJsonRpcResult(text: string, id: number): JsonRpcResult | undefined {
-  const results = extractJsonRpcResults(text);
-  return results.find((r) => r.id === id) ?? results[0];
 }
 
 function assertMatchingJsonRpcResult(
@@ -420,9 +435,12 @@ export abstract class BaseHTTPTransport {
   /** Per-request TLS agent — created once from HttpTransportOptions.tls */
   protected readonly tlsAgent?: https.Agent | undefined;
   protected readonly tools: MCPTool[] = [];
+  protected serverMetadata?: MCPServerMetadata | undefined;
   protected abortController?: AbortController | undefined;
   protected readonly disconnectHandlers: Array<() => void> = [];
   protected readonly toolsChangedListeners = new Set<(tools: MCPTool[]) => void>();
+  protected readonly resourcesChangedListeners = new Set<() => void>();
+  protected readonly promptsChangedListeners = new Set<() => void>();
 
   constructor(opts: HttpTransportOptions, transportName: string) {
     validateTransportUrl(opts.url);
@@ -443,7 +461,7 @@ export abstract class BaseHTTPTransport {
         }
         console.error(
           `[mcp:${transportName}] ⚠️ TLS verification DISABLED for ${this.url}. ` +
-          `Network attacks are possible — only use on localhost.`,
+            `Network attacks are possible — only use on localhost.`,
         );
       }
       this.tlsAgent = new https.Agent({
@@ -461,6 +479,16 @@ export abstract class BaseHTTPTransport {
     return [...this.tools];
   }
 
+  getServerMetadata(): MCPServerMetadata | undefined {
+    const metadata = this.serverMetadata;
+    if (!metadata) return undefined;
+    return {
+      ...metadata,
+      capabilities: { ...metadata.capabilities },
+      serverInfo: { ...metadata.serverInfo },
+    };
+  }
+
   onDisconnect(cb: () => void): () => void {
     this.disconnectHandlers.push(cb);
     return () => {
@@ -476,12 +504,42 @@ export abstract class BaseHTTPTransport {
     };
   }
 
+  onResourcesChanged(cb: () => void): () => void {
+    this.resourcesChangedListeners.add(cb);
+    return () => this.resourcesChangedListeners.delete(cb);
+  }
+
+  onPromptsChanged(cb: () => void): () => void {
+    this.promptsChangedListeners.add(cb);
+    return () => this.promptsChangedListeners.delete(cb);
+  }
+
   /**
    * Fire all disconnect handlers. Subclasses call this when the connection
    * drops so the registry can schedule reconnects.
    */
   protected notifyDisconnect(): void {
     for (const cb of this.disconnectHandlers) {
+      try {
+        cb();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  protected notifyResourcesChanged(): void {
+    for (const cb of this.resourcesChangedListeners) {
+      try {
+        cb();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  protected notifyPromptsChanged(): void {
+    for (const cb of this.promptsChangedListeners) {
       try {
         cb();
       } catch {
@@ -559,6 +617,7 @@ export class SSETransport extends BaseHTTPTransport {
 
   async connect(): Promise<void> {
     this.state = 'connecting';
+    this.serverMetadata = undefined;
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
     const startupTimer = setTimeout(() => this.abortController?.abort(), this.timeout);
@@ -599,6 +658,10 @@ export class SSETransport extends BaseHTTPTransport {
         if (msg.method && !msg.id) {
           if (msg.method === 'notifications/tools/list_changed') {
             void this.handleToolsListChanged();
+          } else if (msg.method === 'notifications/resources/list_changed') {
+            this.notifyResourcesChanged();
+          } else if (msg.method === 'notifications/prompts/list_changed') {
+            this.notifyPromptsChanged();
           }
         }
       });
@@ -625,6 +688,7 @@ export class SSETransport extends BaseHTTPTransport {
           context: { transport: 'sse', url: this.url },
         });
       }
+      this.serverMetadata = parseServerMetadata(initRes.result);
 
       try {
         await this.httpPost('notifications/initialized', {});
@@ -637,11 +701,7 @@ export class SSETransport extends BaseHTTPTransport {
         this.tools.splice(0, this.tools.length);
       } else {
         const result = toolsRes.result as { tools?: unknown | undefined } | undefined;
-        this.tools.splice(
-          0,
-          this.tools.length,
-          ...normalizeMCPTools(result?.tools),
-        );
+        this.tools.splice(0, this.tools.length, ...normalizeMCPTools(result?.tools));
       }
 
       this.state = 'connected';
@@ -780,7 +840,9 @@ export class SSETransport extends BaseHTTPTransport {
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
-    const result = res.result as { content?: unknown | undefined; isError?: boolean | undefined } | undefined;
+    const result = res.result as
+      | { content?: unknown | undefined; isError?: boolean | undefined }
+      | undefined;
     return {
       content: result?.content ?? '',
       isError: Boolean(result?.isError),
@@ -788,14 +850,21 @@ export class SSETransport extends BaseHTTPTransport {
   }
 
   /** Generic JSON-RPC request — used by MCPClient.request() for SSE transports. */
-  async request(method: string, params: unknown, timeoutMs?: number): Promise<JsonRpcResponse> {
+  async request(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<JsonRpcResponse> {
     const id = this.genId();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
-    const timeoutSignal = createTimeoutSignal(
-      this.abortController?.signal,
-      timeoutMs ?? this.requestTimeout,
-    );
+    const external = opts?.signal;
+    const parent =
+      external && this.abortController
+        ? AbortSignal.any([this.abortController.signal, external])
+        : (external ?? this.abortController?.signal);
+    const timeoutSignal = createTimeoutSignal(parent, timeoutMs ?? this.requestTimeout);
     const fetchOpts: RequestInit = {
       method: 'POST',
       headers: {
@@ -841,6 +910,15 @@ export class SSETransport extends BaseHTTPTransport {
       }
       const result = assertMatchingJsonRpcResult(data, id, method);
       return { jsonrpc: '2.0', id, result: result.result, error: result.error };
+    } catch (err) {
+      if (external?.aborted && !method.startsWith('notifications/')) {
+        void this.httpPost('notifications/cancelled', {
+          requestId: id,
+          reason: 'client aborted',
+        }).catch(() => {});
+        throw makeAbortError(method);
+      }
+      throw err;
     } finally {
       timeoutSignal.dispose();
     }
@@ -888,8 +966,51 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
     return this._nextId++;
   }
 
+  private consumeResponseText(text: string, requestId: number): JsonRpcResult | undefined {
+    const envelopes = extractJsonRpcResults(text);
+    for (const envelope of envelopes) {
+      if (envelope.id === undefined && envelope.method) this.handleNotification(envelope.method);
+    }
+    return (
+      envelopes.find((envelope) => envelope.id === requestId) ??
+      envelopes.find((envelope) => envelope.id !== undefined) ??
+      envelopes[0]
+    );
+  }
+
+  private handleNotification(method: string): void {
+    if (method === 'notifications/resources/list_changed') {
+      this.notifyResourcesChanged();
+    } else if (method === 'notifications/prompts/list_changed') {
+      this.notifyPromptsChanged();
+    } else if (method === 'notifications/tools/list_changed') {
+      void this.refreshTools();
+    }
+  }
+
+  private async refreshTools(): Promise<void> {
+    try {
+      const response = await this.postRaw('tools/list', {});
+      if (response.error) return;
+      const tools = normalizeMCPTools(
+        (response.result as { tools?: unknown | undefined } | undefined)?.tools,
+      );
+      this.tools.splice(0, this.tools.length, ...tools);
+      for (const listener of this.toolsChangedListeners) {
+        try {
+          listener([...tools]);
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* keep the last known tool catalog */
+    }
+  }
+
   async connect(): Promise<void> {
     this.state = 'connecting';
+    this.serverMetadata = undefined;
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
     const startupTimer = setTimeout(() => this.abortController?.abort(), this.timeout);
@@ -940,6 +1061,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
       if (data.error) {
         throw new Error(`initialize failed: ${data.error.message}`);
       }
+      this.serverMetadata = parseServerMetadata(data.result);
 
       // MCP Streamable HTTP spec: the server assigns a session via the
       // `Mcp-Session-Id` response header, which the client must echo on every
@@ -1005,7 +1127,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         return { jsonrpc: '2.0' };
       }
 
-      const match = pickJsonRpcResult(await res.text(), id);
+      const match = this.consumeResponseText(await res.text(), id);
       if (match) {
         return assertMatchingJsonRpcResult(match, id, method);
       }
@@ -1027,14 +1149,21 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
   }
 
   /** Generic JSON-RPC request — used by MCPClient.request() for SSE/streamable-http transports. */
-  async request(method: string, params: unknown, timeoutMs?: number): Promise<JsonRpcResponse> {
+  async request(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+    opts?: { signal?: AbortSignal | undefined },
+  ): Promise<JsonRpcResponse> {
     const id = this.genId();
     const body = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
-    const timeoutSignal = createTimeoutSignal(
-      this.abortController?.signal,
-      timeoutMs ?? this.requestTimeout,
-    );
+    const external = opts?.signal;
+    const parent =
+      external && this.abortController
+        ? AbortSignal.any([this.abortController.signal, external])
+        : (external ?? this.abortController?.signal);
+    const timeoutSignal = createTimeoutSignal(parent, timeoutMs ?? this.requestTimeout);
     const fetchOpts: RequestInit = {
       method: 'POST',
       headers: {
@@ -1047,9 +1176,8 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
       signal: timeoutSignal.signal,
     };
     this.applyTlsAgent(fetchOpts);
-    const res = await fetch(this.url, fetchOpts);
-
     try {
+      const res = await fetch(this.url, fetchOpts);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -1059,7 +1187,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         return { jsonrpc: '2.0', id };
       }
 
-      const parsed = pickJsonRpcResult(await res.text(), id);
+      const parsed = this.consumeResponseText(await res.text(), id);
       if (parsed) {
         // Convert JsonRpcResult to JsonRpcResponse
         return {
@@ -1070,6 +1198,15 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         };
       }
       throw new Error('Could not parse response as JSON-RPC');
+    } catch (err) {
+      if (external?.aborted && !method.startsWith('notifications/')) {
+        void this.postRaw('notifications/cancelled', {
+          requestId: id,
+          reason: 'client aborted',
+        }).catch(() => {});
+        throw makeAbortError(method);
+      }
+      throw err;
     } finally {
       timeoutSignal.dispose();
     }
@@ -1087,7 +1224,9 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
     if (res.error) {
       return { content: res.error.message, isError: true };
     }
-    const result = res.result as { content?: unknown | undefined; isError?: boolean | undefined } | undefined;
+    const result = res.result as
+      | { content?: unknown | undefined; isError?: boolean | undefined }
+      | undefined;
     return {
       content: result?.content ?? '',
       isError: Boolean(result?.isError),

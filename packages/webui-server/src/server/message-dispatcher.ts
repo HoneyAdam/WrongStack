@@ -92,7 +92,6 @@ export interface RunLockControl {
   get(): AbortController | null;
   set(ctrl: AbortController | null): void;
 }
-
 export interface MessageDispatcherOptions {
   state: WebuiMutableState;
   deps: WebuiDeps;
@@ -400,6 +399,14 @@ export function createMessageDispatcher(
         throw new Error('handleMcpRoute did not claim mcp.restart — check chain order');
       case 'mcp.discover':
         throw new Error('handleMcpRoute did not claim mcp.discover — check chain order');
+      case 'mcp.resources':
+        throw new Error('handleMcpRoute did not claim mcp.resources — check chain order');
+      case 'mcp.prompts':
+        throw new Error('handleMcpRoute did not claim mcp.prompts — check chain order');
+      case 'mcp.resource.read':
+        throw new Error('handleMcpRoute did not claim mcp.resource.read — check chain order');
+      case 'mcp.prompt.get':
+        throw new Error('handleMcpRoute did not claim mcp.prompt.get — check chain order');
 
       // Skills — full request→response cycle lives in skills-handlers.ts.
       case 'skills.list':

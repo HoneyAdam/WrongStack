@@ -49,7 +49,11 @@ import {
   handleMcpDiscover,
   handleMcpEnable,
   handleMcpList,
+  handleMcpPromptGet,
+  handleMcpPrompts,
   handleMcpRemove,
+  handleMcpResourceRead,
+  handleMcpResources,
   handleMcpRestart,
   handleMcpSleep,
   handleMcpUpdate,
@@ -149,8 +153,6 @@ import {
   handleSessionsList,
   handleSkillsList,
   handleStatsGet,
-  handleToolDisable,
-  handleToolEnable,
   handleTasksGet,
   handleTaskUpdate,
   handleTodosClear,
@@ -158,6 +160,8 @@ import {
   handleTodosRemove,
   handleTodoUpdate,
   handleToolConfirmResult,
+  handleToolDisable,
+  handleToolEnable,
   handleToolsList,
   handleUserMessage,
   handleWorkingDirSet,
@@ -676,6 +680,14 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       handleMcpDisable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
     'mcp.restart': (msg, ws) =>
       handleMcpRestart(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.resources': (msg, ws) =>
+      handleMcpResources(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.prompts': (msg, ws) =>
+      handleMcpPrompts(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.resource.read': (msg, ws) =>
+      handleMcpResourceRead(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.prompt.get': (msg, ws) =>
+      handleMcpPromptGet(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
 
     // ── Skills ──
     'skills.list': (_msg, ws) => handleSkillsList(introspectionCtx, ws),

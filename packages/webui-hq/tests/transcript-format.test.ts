@@ -6,7 +6,7 @@
  * summaries delegate to `@wrongstack/tools/tool-summary` — the tests below pin
  * the delegation, not the summary grammar itself.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   classifyTool,
   extractTodos,
@@ -100,6 +100,40 @@ describe('extractTodos', () => {
     ]);
   });
 
+  it('skips non-object entries in the todos array (line 84 continue)', () => {
+    const input = JSON.stringify({
+      todos: [
+        { status: 'completed', content: 'valid' },
+        null,
+        'string-item',
+        42,
+        { status: 'pending', content: 'also-valid' },
+      ],
+    });
+    const result = extractTodos(input);
+    expect(result).toHaveLength(2);
+    expect(result![0]!.content).toBe('valid');
+    expect(result![1]!.content).toBe('also-valid');
+  });
+
+  it('uses title field when content and subject are absent (line 97 branch)', () => {
+    const input = JSON.stringify({
+      todos: [{ status: 'completed', title: 'fallback-title' }],
+    });
+    expect(extractTodos(input)).toEqual([
+      { status: 'completed', content: 'fallback-title' },
+    ]);
+  });
+
+  it('returns empty string for items with no known content field', () => {
+    const input = JSON.stringify({
+      todos: [{ status: 'pending', description: 'no content here' }],
+    });
+    expect(extractTodos(input)).toEqual([
+      { status: 'pending', content: '' },
+    ]);
+  });
+
   it('returns null when there is no todo array', () => {
     expect(extractTodos('{"command":"ls"}')).toBeNull();
     expect(extractTodos('not json')).toBeNull();
@@ -115,6 +149,16 @@ describe('formatDuration', () => {
     expect(formatDuration(undefined)).toBe('');
     expect(formatDuration(-5)).toBe('');
   });
+
+  it('handles boundary conditions (exact 1s, 10s, 1m)', () => {
+    expect(formatDuration(1000)).toBe('1.0s');
+    expect(formatDuration(10_000)).toBe('10s'); // ms≥10_000 → toFixed(0)
+    // 60s boundary: ms==60_000 → 1m0s
+    expect(formatDuration(60_000)).toBe('1m0s');
+    // Infinity and NaN are rejected
+    expect(formatDuration(Infinity)).toBe('');
+    expect(formatDuration(NaN)).toBe('');
+  });
 });
 
 describe('toolDisplayName', () => {
@@ -128,6 +172,19 @@ describe('prettyInput', () => {
   it('pretty-prints JSON and passes through plain text', () => {
     expect(prettyInput('{"a":1}')).toBe('{\n  "a": 1\n}');
     expect(prettyInput('plain')).toBe('plain');
+  });
+
+  it('returns the raw input when JSON.stringify throws', () => {
+    // Stub JSON.stringify so the try-catch inside prettyInput falls through
+    // to the error handler and returns the original string.
+    const OrigStringify = JSON.stringify;
+    // @ts-expect-error: deliberate side-channel for the test
+    JSON.stringify = vi.fn(() => { throw new Error('cannot serialize'); });
+    try {
+      expect(prettyInput('{"a":1}')).toBe('{"a":1}');
+    } finally {
+      JSON.stringify = OrigStringify;
+    }
   });
 });
 

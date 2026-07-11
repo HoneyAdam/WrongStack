@@ -223,7 +223,6 @@ export async function createPreContextServices(
   const mcpRegistry = new MCPRegistry({ toolRegistry, events, log: logger, cacheDir: wpaths.cacheDir });
   if (config.features.mcp && config.mcpServers) {
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
-      if (cfg.enabled === false) continue;
       void mcpRegistry.start({ ...cfg, name }).catch((err) => {
         logger.warn(`MCP server "${name}" failed to start at boot`, err);
       });

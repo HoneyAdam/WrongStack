@@ -1,47 +1,100 @@
 export {
+  type ConnectionState,
   MCPClient,
   type MCPClientOptions,
-  type ConnectionState,
+  type MCPListChangedListener,
+  type MCPPageOptions,
+  type MCPRequestOptions,
   type MCPTool,
   type ToolCallResult,
   type Transport,
 } from './client.js';
-export { wrapMCPTool } from './wrap-tool.js';
-export { MCPRegistry, type MCPRegistryOptions } from './registry.js';
+export { MCP_CONSTANTS } from './constants.js';
 export {
-  listMcp,
+  DEFAULT_MCP_INSERTION_MAX_BYTES,
+  DEFAULT_MCP_RESOURCE_SCHEMES,
+  type MCPContentProvenance,
+  type MCPInsertionPolicy,
+  type MCPPromptInsertion,
+  type MCPResourceInsertion,
+  preparePromptInsertion,
+  prepareResourceInsertion,
+} from './content-selection.js';
+export {
   addMcp,
-  updateMcp,
-  removeMcp,
-  enableMcp,
   disableMcp,
-  restartMcp,
   discoverMcp,
+  enableMcp,
+  listMcp,
   type McpManageDeps,
-  type McpServerInput,
-  type McpServerInfo,
   type McpOpResult,
+  type McpServerInfo,
+  type McpServerInput,
+  removeMcp,
+  restartMcp,
+  updateMcp,
 } from './manage.js';
 export {
+  type MCPCapabilityManifest,
+  manifestConfigHash,
+  readCapabilityManifest,
+  readManifest,
+  writeCapabilityManifest,
+  writeManifest,
+} from './manifest-cache.js';
+export {
+  MCP_OPERATION_LIMITS,
+  type MCPFailureKind,
+  type MCPHealthState,
+  type MCPLatencySummary,
+  type MCPOperationEvent,
+  type MCPOperationKind,
+  type MCPServerOperationalHealth,
+} from './operations.js';
+export {
+  type MCPGetPromptResult,
+  type MCPImplementationInfo,
+  type MCPListPromptsResult,
+  type MCPListResourcesResult,
+  type MCPListResourceTemplatesResult,
+  type MCPPrompt,
+  type MCPPromptArgument,
+  type MCPPromptMessage,
+  type MCPReadResourceResult,
+  type MCPResource,
+  type MCPResourceContents,
+  type MCPResourceTemplate,
+  type MCPServerCapabilities,
+  type MCPServerMetadata,
+  parseGetPromptResult,
+  parseListPromptsResult,
+  parseListResourcesResult,
+  parseListResourceTemplatesResult,
+  parseReadResourceResult,
+  parseServerMetadata,
+} from './protocol.js';
+export { MCPRegistry, type MCPRegistryCatalog, type MCPRegistryOptions } from './registry.js';
+export {
   MCPServer,
-  serveStdio,
-  serveHttp,
-  toContentBlocks,
+  type MCPServerCallResult,
+  type MCPServerLogger,
+  type MCPServerOptions,
+  type MCPServerPrompt,
+  type MCPServerResource,
   type MCPServerTool,
   type MCPServerToolHost,
-  type MCPServerCallResult,
-  type MCPServerOptions,
-  type MCPServerLogger,
+  type ServeHttpHandle,
+  type ServeHttpOptions,
   type ServeStdioHandle,
   type ServeStdioOptions,
-  type ServeHttpOptions,
-  type ServeHttpHandle,
+  serveHttp,
+  serveStdio,
+  toContentBlocks,
 } from './server.js';
-export { MCP_CONSTANTS } from './constants.js';
-export { manifestConfigHash, readManifest, writeManifest } from './manifest-cache.js';
 export {
+  type HttpTransportOptions,
+  SSEReader,
   SSETransport,
   StreamableHTTPTransport,
-  SSEReader,
-  type HttpTransportOptions,
 } from './transport.js';
+export { type MCPToolCallObserver, wrapMCPTool } from './wrap-tool.js';

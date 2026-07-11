@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { wireMetricsToEvents } from '../../src/observability/event-bridge.js';
 import { EventBus } from '../../src/kernel/events.js';
+import { wireMetricsToEvents } from '../../src/observability/event-bridge.js';
 import type { MetricsSink } from '../../src/types/observability.js';
 
 const makeSink = () => {
@@ -69,7 +69,9 @@ describe('wireMetricsToEvents', () => {
       usage: usage(10, 20, 5, 3),
       stopReason: 'end_turn',
     });
-    expect(counter).toHaveBeenCalledWith('provider.responses.total', 1, { stop_reason: 'end_turn' });
+    expect(counter).toHaveBeenCalledWith('provider.responses.total', 1, {
+      stop_reason: 'end_turn',
+    });
     expect(counter).toHaveBeenCalledWith('provider.tokens.input', 10);
     expect(counter).toHaveBeenCalledWith('provider.tokens.output', 20);
     expect(counter).toHaveBeenCalledWith('provider.tokens.cache_read', 5);
@@ -138,6 +140,26 @@ describe('wireMetricsToEvents', () => {
     expect(histogram).toHaveBeenCalledWith('tool.duration_ms', 42, { tool: 'bash' });
   });
 
+  it('collapses MCP server and tool names into one bounded tool label', () => {
+    const bus = new EventBus();
+    const { sink, counter, histogram } = makeSink();
+    wireMetricsToEvents(bus, sink);
+    bus.emit('tool.started', { name: 'mcp__private-server__secret-tool', id: 't1' });
+    bus.emit('tool.executed', {
+      name: 'mcp__private-server__secret-tool',
+      durationMs: 12,
+      ok: false,
+    });
+    expect(counter).toHaveBeenCalledWith('tool.starts.total', 1, { tool: 'mcp_proxy' });
+    expect(counter).toHaveBeenCalledWith('tool.executions.total', 1, {
+      tool: 'mcp_proxy',
+      ok: 'false',
+    });
+    expect(histogram).toHaveBeenCalledWith('tool.duration_ms', 12, { tool: 'mcp_proxy' });
+    expect(JSON.stringify(counter.mock.calls)).not.toContain('private-server');
+    expect(JSON.stringify(counter.mock.calls)).not.toContain('secret-tool');
+  });
+
   it('gauges token.threshold', () => {
     const bus = new EventBus();
     const { sink, gauge } = makeSink();
@@ -155,16 +177,16 @@ describe('wireMetricsToEvents', () => {
     expect(histogram).toHaveBeenCalledWith('compaction.reduction_tokens', 60_000);
   });
 
-  it('counts mcp connect / reconnect / disconnect with server label', () => {
+  it('counts mcp connect / reconnect / disconnect without server labels', () => {
     const bus = new EventBus();
     const { sink, counter } = makeSink();
     wireMetricsToEvents(bus, sink);
     bus.emit('mcp.server.connected', { name: 'srv-a', toolCount: 3 });
     bus.emit('mcp.server.reconnected', { name: 'srv-a', toolCount: 3 });
     bus.emit('mcp.server.disconnected', { name: 'srv-a', reason: 'eof' });
-    expect(counter).toHaveBeenCalledWith('mcp.connects.total', 1, { server: 'srv-a' });
-    expect(counter).toHaveBeenCalledWith('mcp.reconnects.total', 1, { server: 'srv-a' });
-    expect(counter).toHaveBeenCalledWith('mcp.disconnects.total', 1, { server: 'srv-a' });
+    expect(counter).toHaveBeenCalledWith('mcp.connects.total');
+    expect(counter).toHaveBeenCalledWith('mcp.reconnects.total');
+    expect(counter).toHaveBeenCalledWith('mcp.disconnects.total');
   });
 
   it('counts generic error events with phase label', () => {

@@ -103,7 +103,25 @@ describe('TerminalServer', () => {
     expect(exit.exitCode === 0 || exit.exitCode === null || exit.signal !== null).toBe(true);
   });
 
-  it('release() removes the terminal from the active set', async () => {
+  it('timeout kills a long-running command when commandTimeoutMs elapses', async () => {
+    const fastTimeoutServer = new TerminalServer({ projectRoot, commandTimeoutMs: 20 });
+    try {
+      const { terminalId } = fastTimeoutServer.create({
+        sessionId: 's1',
+        command: 'node',
+        args: ['-e', 'setInterval(() => {}, 1000)'], // never exits on its own
+      });
+      const exit = await fastTimeoutServer.waitForExit(terminalId);
+      // After the 20ms timeout, the process should be killed
+      // On Windows, SIGTERM maps to TerminateProcess; exitCode is 1
+      // On POSIX, signal is 'SIGTERM'
+      expect(exit.exitCode === null || exit.exitCode !== 0).toBe(true);
+    } finally {
+      fastTimeoutServer.releaseAll();
+    }
+  });
+
+  it('release() clears the timeout handle', async () => {
     const { terminalId } = server.create({
       sessionId: 's1',
       command: 'node',
@@ -127,5 +145,57 @@ describe('TerminalServer', () => {
 
   it('output() throws for an unknown terminal', () => {
     expect(() => server.output('term_does_not_exist')).toThrow();
+  });
+
+  it('buildEnv merges agent-env vars into the child environment', async () => {
+    const { terminalId } = server.create({
+      sessionId: 's1',
+      command: 'node',
+      args: ['-e', 'console.log(process.env.MY_TEST_VAR)'],
+      env: [{ name: 'MY_TEST_VAR', value: 'agent-env-value' }],
+    });
+    const exit = await server.waitForExit(terminalId);
+    expect(exit.exitCode).toBe(0);
+    const out = server.output(terminalId);
+    expect(out.output.trim()).toBe('agent-env-value');
+  });
+
+  it('resolveCwd uses projectRoot when the requested cwd is outside', async () => {
+    const outsideCwd = path.resolve(os.tmpdir(), 'some-outside-dir-' + Date.now());
+    await fsp.mkdir(outsideCwd, { recursive: true }).catch(() => {});
+    try {
+      const { terminalId } = server.create({
+        sessionId: 's1',
+        command: 'node',
+        args: ['-e', 'console.log(process.cwd())'],
+        cwd: outsideCwd,
+      });
+      await server.waitForExit(terminalId);
+      const out = server.output(terminalId);
+      // The cwd should be the projectRoot since outsideCwd is outside
+      expect(out.output.trim()).toContain(projectRoot);
+    } finally {
+      await fsp.rm(outsideCwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('resolveCwd uses projectRoot when cwd is undefined', async () => {
+    const { terminalId } = server.create({
+      sessionId: 's1',
+      command: 'node',
+      args: ['-e', 'console.log(process.cwd())'],
+      // no cwd provided
+    });
+    await server.waitForExit(terminalId);
+    const out = server.output(terminalId);
+    expect(out.output.trim()).toContain(projectRoot);
+  });
+
+  it('kill() throws for unknown terminal', () => {
+    expect(() => server.kill('term_fake')).toThrow(/unknown terminal/);
+  });
+
+  it('waitForExit() throws for unknown terminal', async () => {
+    await expect(server.waitForExit('term_fake')).rejects.toThrow(/unknown terminal/);
   });
 });

@@ -160,6 +160,9 @@ describe('cli boot order: plugin security then built-in /security', () => {
     expect(r?.message).toContain('/security');
     expect(r?.message).toContain('audit-deps');
     expect(r?.message).toContain('scan');
+    const registered = ctx.registry.get('security');
+    expect(registered?.category).toBe('Inspect');
+    expect(registered?.help).toContain('Usage: /security');
   });
 
   it('built-in /security audit-deps still works after fix', async () => {

@@ -368,6 +368,68 @@ describe('ACPSession', () => {
     await session.close();
   });
 
+  it('captures resource-type content in agent_message_chunk via extractText', async () => {
+    const session = await startSession();
+    const t = lastTransport();
+
+    const promptP = session.prompt([textContent('show resource')], new AbortController().signal);
+    await new Promise((r) => setImmediate(r));
+    const newMsg = t.sent.find((m) => m.method === 'session/new')!;
+    t.respond(newMsg.id!, 'session/new', { sessionId: 'sess_resource' });
+    await new Promise((r) => setImmediate(r));
+    const promptMsg = t.sent.find((m) => m.method === 'session/prompt')!;
+
+    // Send an agent_message_chunk with type 'resource' (tests extractText resource branch)
+    t.emit({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: 'sess_resource',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'resource', resource: { text: 'embedded content' } } },
+      },
+    } as never as ACPMessage);
+    t.respond(promptMsg.id!, 'session/prompt', { stopReason: 'end_turn' });
+
+    const result = await promptP;
+    expect(result.text).toBe('embedded content');
+    await session.close();
+  });
+
+  it('audioContent and imageContent helper functions', async () => {
+    const mod = await vi.importActual<typeof import('../src/client/acp-session.js')>('../src/client/acp-session.js');
+    const audio = mod.audioContent('audio/wav', 'base64data');
+    expect(audio).toEqual({ type: 'audio', mimeType: 'audio/wav', data: 'base64data' });
+
+    const image = mod.imageContent('image/png', 'pngdata');
+    expect(image).toEqual({ type: 'image', mimeType: 'image/png', data: 'pngdata' });
+  });
+
+  it('captures thought_chunk updates', async () => {
+    const session = await startSession();
+    const t = lastTransport();
+
+    const promptP = session.prompt([textContent('think')], new AbortController().signal);
+    await new Promise((r) => setImmediate(r));
+    const newMsg = t.sent.find((m) => m.method === 'session/new')!;
+    t.respond(newMsg.id!, 'session/new', { sessionId: 'sess_think' });
+    await new Promise((r) => setImmediate(r));
+    const promptMsg = t.sent.find((m) => m.method === 'session/prompt')!;
+
+    t.emit({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: 'sess_think',
+        update: { sessionUpdate: 'thought_chunk', content: { type: 'text', text: 'thinking...' } },
+      },
+    } as never as ACPMessage);
+    t.respond(promptMsg.id!, 'session/prompt', { stopReason: 'end_turn' });
+
+    const result = await promptP;
+    expect(result.thoughts).toBe('thinking...');
+    await session.close();
+  });
+
   it('captures plan and usage updates from session/update', async () => {
     const session = await startSession();
     const t = lastTransport();

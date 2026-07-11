@@ -168,4 +168,44 @@ describe('renderAcpBenchText', () => {
     expect(text).toContain('PASS');
     expect(text).toContain('Bench summary: 1 pass');
   });
+
+  it('renders a message when there are no agents', () => {
+    const emptyResult = {
+      results: [],
+      summary: { pass: 0, partial: 0, fail: 0, skipped: 0 },
+      totalDurationMs: 0,
+    };
+    const text = renderAcpBenchText(emptyResult);
+    expect(text).toContain('No agents to bench.');
+  });
+});
+
+describe('runAcpBench progress and abort', () => {
+  it('calls onProgress when agents complete', async () => {
+    sessionOk();
+    promptMock.mockResolvedValue(promptReply(MARKER));
+    const onProgress = vi.fn();
+    await runAcpBench({
+      agentIds: ['x'],
+      resolveCmd: cmdFor,
+      marker: MARKER,
+      onProgress,
+    });
+    expect(onProgress).toHaveBeenCalledWith('x', 'start');
+    expect(onProgress).toHaveBeenCalledWith('x', 'done', expect.anything());
+  });
+
+  it('skips agents when the abort signal fires before they run', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const res = await runAcpBench({
+      agentIds: ['x', 'y'],
+      resolveCmd: cmdFor,
+      marker: MARKER,
+      signal: ac.signal,
+    });
+    expect(res.results[0]?.status).toBe('skipped');
+    expect(res.results[0]?.reason).toBe('aborted');
+    expect(startMock).not.toHaveBeenCalled();
+  });
 });

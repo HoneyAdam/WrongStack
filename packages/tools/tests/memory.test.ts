@@ -201,4 +201,17 @@ describe('memory tools', () => {
       await sb.cleanup();
     }
   });
+
+  it('search_memory uses default limit of 5 when not specified', async () => {
+    const { store } = fakeStore();
+    (store.search as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const tool = searchMemoryTool(store);
+    const sb = await mkSandbox();
+    try {
+      await tool.execute({ query: 'test' }, sb.ctx, { signal: newSignal() });
+      expect(store.search).toHaveBeenCalledWith('test', 'project-memory', 5);
+    } finally {
+      await sb.cleanup();
+    }
+  });
 });

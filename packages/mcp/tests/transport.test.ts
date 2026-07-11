@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  extractJsonRpcResults,
   SSEReader,
   SSETransport,
   StreamableHTTPTransport,
-  extractJsonRpcResults,
 } from '../src/transport.js';
 
 const originalUnsafeMcpTls = process.env['WRONGSTACK_UNSAFE_MCP_TLS'];
 const originalCi = process.env['CI'];
+const INIT_RESULT = {
+  protocolVersion: '2025-06-18',
+  capabilities: { tools: {}, resources: {}, prompts: {} },
+  serverInfo: { name: 'transport-fixture', version: '1.0.0' },
+};
 
 afterEach(() => {
   if (originalUnsafeMcpTls === undefined) delete process.env['WRONGSTACK_UNSAFE_MCP_TLS'];
@@ -30,6 +35,20 @@ describe('extractJsonRpcResults', () => {
     expect(r).toHaveLength(1);
     expect(r[0]?.id).toBe(2);
     expect((r[0]?.result as { tools: unknown[] }).tools).toEqual([]);
+  });
+
+  it('preserves JSON-RPC notifications alongside results', () => {
+    const envelopes = extractJsonRpcResults(
+      [
+        JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'notifications/resources/list_changed',
+        }),
+        JSON.stringify({ jsonrpc: '2.0', id: 7, result: { resources: [] } }),
+      ].join('\n'),
+    );
+    expect(envelopes).toHaveLength(2);
+    expect(envelopes[0]?.method).toBe('notifications/resources/list_changed');
   });
 
   it('joins multi-line SSE data within one event', () => {
@@ -323,7 +342,7 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
       (_u, init) => {
         const body = JSON.parse(init.body ?? '{}');
         calls.push({ method: body.method, body });
-        return jsonRes({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2024-11-05' } });
+        return jsonRes({ jsonrpc: '2.0', id: body.id, result: INIT_RESULT });
       },
       (_u, init) => {
         const body = JSON.parse(init.body ?? '{}');
@@ -346,6 +365,7 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
       const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
       await t.connect();
       expect(t.getState()).toBe('connected');
+      expect(t.getServerMetadata()?.capabilities).toMatchObject({ resources: {}, prompts: {} });
       expect(t.listTools().map((x) => x.name)).toEqual(['hello']);
       expect(calls.map((c) => c.method)).toEqual([
         'initialize',
@@ -359,7 +379,8 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
 
   it('normalizes invalid tools from streamable-http tools/list', async () => {
     const fetchImpl = mkFetch([
-      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
       () => jsonRes({ jsonrpc: '2.0' }),
       (_u, init) =>
         jsonRes({
@@ -386,7 +407,8 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
   it('callTool returns { content, isError } after a successful connect', async () => {
     const fetchImpl = mkFetch([
       // initialize
-      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
       // notifications/initialized — postRaw requires a valid JSON-RPC line
       () => jsonRes({ jsonrpc: '2.0' }),
       // tools/list
@@ -419,7 +441,8 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
 
   it('callTool surfaces error responses', async () => {
     const fetchImpl = mkFetch([
-      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
       () => jsonRes({ jsonrpc: '2.0' }),
       (_u, init) =>
         jsonRes({
@@ -487,7 +510,7 @@ describe('StreamableHTTPTransport — connect/callTool with mocked fetch', () =>
   });
 
   it('connect parses NDJSON body when content-type is not application/json', async () => {
-    const ndjson = [JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }), ''].join('\n');
+    const ndjson = [JSON.stringify({ jsonrpc: '2.0', id: 1, result: INIT_RESULT }), ''].join('\n');
     const fetchImpl = mkFetch([
       () => new Response(ndjson, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
       // notifications/initialized — postRaw requires a valid JSON-RPC line
@@ -684,7 +707,7 @@ describe('SSETransport — mocked connect + callTool', () => {
       // initialize
       (_u, init) => {
         calls.push({ method: 'initialize', body: init.body ?? '' });
-        return jsonRes({ jsonrpc: '2.0', id: 1, result: {} });
+        return jsonRes({ jsonrpc: '2.0', id: 1, result: INIT_RESULT });
       },
       // notifications/initialized
       () => jsonRes({ jsonrpc: '2.0' }),
@@ -699,6 +722,7 @@ describe('SSETransport — mocked connect + callTool', () => {
     try {
       const t = new SSETransport({ name: 'x', url: 'https://m.test' });
       await t.connect();
+      expect(t.getServerMetadata()?.serverInfo.name).toBe('transport-fixture');
       expect(calls.length).toBeGreaterThan(0);
       for (const c of calls) {
         const parsed = JSON.parse(c.body);
@@ -886,7 +910,7 @@ describe('SSETransport — mocked connect + callTool', () => {
     const fetchImpl = mkFetch([
       (_u, init) => {
         const body = JSON.parse(init.body ?? '{}');
-        return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: {} }), {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: INIT_RESULT }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -917,13 +941,16 @@ describe('SSETransport — mocked connect + callTool', () => {
         const body = JSON.parse(init.body ?? '{}');
         if (body.method === 'initialize') {
           // Simulate a server that sends back a session header
-          return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: {} }), {
-            status: 200,
-            headers: {
-              'content-type': 'application/json',
-              'x-mcp-session': 'test-session-123',
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id: body.id, result: INIT_RESULT }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+                'x-mcp-session': 'test-session-123',
+              },
             },
-          });
+          );
         }
         return jsonRes({ jsonrpc: '2.0', id: body.id, result: {} });
       },
@@ -1027,9 +1054,10 @@ describe('SSETransport — mocked connect + callTool', () => {
         requestTimeoutMs: 20,
       });
       await expect(
-        (
-          t as never as { postRaw: (method: string, params: unknown) => Promise<unknown> }
-        ).postRaw('tools/list', {}),
+        (t as never as { postRaw: (method: string, params: unknown) => Promise<unknown> }).postRaw(
+          'tools/list',
+          {},
+        ),
       ).rejects.toThrow(/body aborted|timed out/);
     } finally {
       (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
@@ -1039,7 +1067,8 @@ describe('SSETransport — mocked connect + callTool', () => {
   it('StreamableHTTPTransport.request() throws on non-OK HTTP status (lines 773-775)', async () => {
     const fetchImpl = mkFetch([
       // initialize
-      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
       // notifications/initialized
       () => jsonRes({ jsonrpc: '2.0' }),
       // tools/list
@@ -1069,7 +1098,8 @@ describe('SSETransport — mocked connect + callTool', () => {
   it('StreamableHTTPTransport.request() throws on non-JSON-RPC response (lines 778-795)', async () => {
     const fetchImpl = mkFetch([
       // initialize
-      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
       // notifications/initialized
       () => jsonRes({ jsonrpc: '2.0' }),
       // tools/list
@@ -1102,7 +1132,8 @@ describe('SSETransport — mocked connect + callTool', () => {
     // Test that request() reads multiple lines and finds the JSON-RPC result
     const fetchImpl = mkFetch([
       // initialize
-      (_u, init) => jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: {} }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
       // notifications/initialized
       () => jsonRes({ jsonrpc: '2.0' }),
       // tools/list
@@ -1193,6 +1224,112 @@ describe('SSETransport.request timeout-signal cleanup on error', () => {
     } finally {
       vi.useRealTimers();
       (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+});
+
+describe('HTTP generic request cancellation', () => {
+  it('aborts streamable HTTP resource requests and notifies the server', async () => {
+    const originalFetch = globalThis.fetch;
+    const methods: string[] = [];
+    try {
+      const transport = new StreamableHTTPTransport({
+        name: 'cancel-fixture',
+        url: 'https://mcp.example.com/',
+      });
+      (transport as never as { abortController: AbortController }).abortController =
+        new AbortController();
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = (async (_url, init) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { method: string };
+        methods.push(body.method);
+        if (body.method === 'notifications/cancelled') {
+          return new Response('', { status: 202 });
+        }
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true },
+          );
+        });
+      }) as typeof globalThis.fetch;
+
+      const controller = new AbortController();
+      const pending = transport.request('resources/read', { uri: 'mem://one' }, undefined, {
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.waitFor(() => expect(methods).toContain('notifications/cancelled'));
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = originalFetch;
+    }
+  });
+});
+
+describe('HTTP capability change listeners', () => {
+  it('registers, publishes, and removes resource and prompt listeners', () => {
+    const transport = new SSETransport({ name: 'events', url: 'https://mcp.example.com/' });
+    const onResources = vi.fn();
+    const onPrompts = vi.fn();
+    const removeResources = transport.onResourcesChanged(onResources);
+    const removePrompts = transport.onPromptsChanged(onPrompts);
+    const internals = transport as never as {
+      notifyResourcesChanged: () => void;
+      notifyPromptsChanged: () => void;
+    };
+
+    internals.notifyResourcesChanged();
+    internals.notifyPromptsChanged();
+    expect(onResources).toHaveBeenCalledOnce();
+    expect(onPrompts).toHaveBeenCalledOnce();
+
+    removeResources();
+    removePrompts();
+    internals.notifyResourcesChanged();
+    internals.notifyPromptsChanged();
+    expect(onResources).toHaveBeenCalledOnce();
+    expect(onPrompts).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches streamable HTTP notifications embedded before a matching result', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      const transport = new StreamableHTTPTransport({
+        name: 'events',
+        url: 'https://mcp.example.com/',
+      });
+      (transport as never as { abortController: AbortController }).abortController =
+        new AbortController();
+      const onResources = vi.fn();
+      const onPrompts = vi.fn();
+      transport.onResourcesChanged(onResources);
+      transport.onPromptsChanged(onPrompts);
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = (async () =>
+        new Response(
+          [
+            JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'notifications/resources/list_changed',
+            }),
+            JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'notifications/prompts/list_changed',
+            }),
+            JSON.stringify({ jsonrpc: '2.0', id: 1, result: { resources: [] } }),
+          ].join('\n'),
+          { status: 200 },
+        )) as typeof globalThis.fetch;
+
+      await expect(transport.request('resources/list', {})).resolves.toMatchObject({
+        id: 1,
+        result: { resources: [] },
+      });
+      expect(onResources).toHaveBeenCalledOnce();
+      expect(onPrompts).toHaveBeenCalledOnce();
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = originalFetch;
     }
   });
 });

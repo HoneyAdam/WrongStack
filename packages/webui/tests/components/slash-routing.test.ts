@@ -416,6 +416,52 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
     expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('settings');
   });
 
+  it('/mcp resources requests discovery without opening settings', () => {
+    const opts = makeOptions({ raw: '/mcp resources docs --refresh' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'mcp.resources',
+      payload: { name: 'docs', refresh: true },
+    });
+    expect(mocks.setCurrentViewUI).not.toHaveBeenCalledWith('settings');
+  });
+
+  it('/mcp prompts requests prompt discovery', () => {
+    const opts = makeOptions({ raw: '/mcp prompts docs' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'mcp.prompts',
+      payload: { name: 'docs', refresh: false },
+    });
+  });
+
+  it('/mcp read explicitly requests one resource', () => {
+    const opts = makeOptions({ raw: '/mcp read docs repo://guide' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'mcp.resource.read',
+      payload: { name: 'docs', uri: 'repo://guide' },
+    });
+  });
+
+  it('/mcp get parses prompt arguments', () => {
+    const opts = makeOptions({ raw: '/mcp get docs review target=src/' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'mcp.prompt.get',
+      payload: { name: 'docs', prompt: 'review', arguments: { target: 'src/' } },
+    });
+  });
+
+  it('/mcp get rejects malformed arguments locally', () => {
+    const opts = makeOptions({ raw: '/mcp get docs review malformed' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).not.toHaveBeenCalled();
+    expect(opts.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('key=value') }),
+    );
+  });
+
   it('/working-dir <path> sends working_dir.set', () => {
     const opts = makeOptions({ raw: '/working-dir /tmp/x' });
     expect(runChatSlashCommand(opts)).toBe(true);
