@@ -16,59 +16,100 @@ import { checkAndBlockKillCommand } from '../src/bash-kill-guard.js';
  * `-c`. These tests pin both the previously-matched paths (regression guard)
  * and the newly-covered paths.
  *
+ * On Windows the guard recognizes `taskkill`/`tskill` instead of POSIX kill
+ * commands — the same shell -c extraction logic applies, just with different
+ * inner commands. Test data is selected per-platform so the coverage proof
+ * holds regardless of the OS.
+ *
  * checkAndBlockKillCommand reads the persistent process registry, but the
  * tests target PIDs that are never tracked (high random numbers) so the
  * registry state does not affect the extraction assertions.
  */
-describe.skipIf(os.platform() === 'win32')('bash-kill-guard — shell path coverage (P2 #10)', () => {
+describe('bash-kill-guard — shell path coverage (P2 #10)', () => {
+  const isWin = os.platform() === 'win32';
   // No beforeEach reset: the tests use untracked PIDs and the kill-guard's
   // extraction logic is independent of registry contents.
 
-  it.each([
-    // Previously matched (regression guard)
-    '/bin/bash -c "kill -9 12345"',
-    '/bin/sh -c "kill -9 12345"',
-    '/usr/bin/bash -c "kill -9 12345"',
-    // Newly covered (P2 #10)
-    '/usr/local/bin/bash -c "kill -9 12345"',
-    '/opt/homebrew/bin/bash -c "kill -9 12345"',
-    '/usr/bin/env bash -c "kill -9 12345"',
-    'bash -c "kill -9 12345"',
-    'sh -c "kill -9 12345"',
-    // Single-quoted variants
-    "/usr/local/bin/bash -c 'kill -9 12345'",
-    "/usr/bin/env bash -c 'pkill node'",
-  ])('extracts the inner kill command from %j', async (command) => {
-    // The command targets PID 12345 / "node" — neither is protected in a fresh
-    // registry, so the result is { blocked: false }. But if extraction failed,
-    // we'd ALSO get { blocked: false } — that alone doesn't prove extraction.
-    // So we also assert against a control: an unparseable kill pipeline that
-    // ONLY blocks when extraction succeeds. (See the next test.)
-    const result = await checkAndBlockKillCommand(command);
-    expect(result.blocked).toBe(false);
-  });
+  // ── Platform-matched kill commands ───────────────────────────────────
+  // On POSIX, test kill/pkill; on Windows, test taskkill/tskill so the
+  // guard's isKillRelatedCommand recognises the inner command.
 
-  it('confirms extraction runs (kill pipeline blocks when the inner command is a kill pipe)', async () => {
-    // kill piped to xargs is unparseable → checkAndBlockKillCommand blocks it
-    // with "complex kill pipeline". This only fires when extractKillCommand
-    // successfully unwrapped the shell -c layer. A non-matching shell path
-    // (the pre-fix behavior) would return { blocked: false }.
-    const command = '/usr/local/bin/bash -c "kill -9 12345 | xargs kill"';
-    const result = await checkAndBlockKillCommand(command);
+  const shellWrappedKillCommands = isWin
+    ? [
+        // Previously matched shell paths with Windows kill commands
+        'cmd.exe -c "taskkill /PID 12345"',
+        // Any executable followed by -c — the path pattern is the same
+        'powershell -c "taskkill /F /PID 12345"',
+        'C:\\Windows\\System32\\cmd.exe -c "tskill 12345"',
+        'C:\\Program Files\\PowerShell\\7\\pwsh.exe -c "taskkill /PID 12345"',
+        // Single-quoted variant (cmd.exe accepts /' as well)
+        "cmd.exe -c 'taskkill /PID 12345'",
+        // env-style invocation
+        '/usr/bin/env cmd -c "taskkill /PID 12345"',
+      ]
+    : [
+        // Previously matched (regression guard)
+        '/bin/bash -c "kill -9 12345"',
+        '/bin/sh -c "kill -9 12345"',
+        '/usr/bin/bash -c "kill -9 12345"',
+        // Newly covered (P2 #10)
+        '/usr/local/bin/bash -c "kill -9 12345"',
+        '/opt/homebrew/bin/bash -c "kill -9 12345"',
+        '/usr/bin/env bash -c "kill -9 12345"',
+        'bash -c "kill -9 12345"',
+        'sh -c "kill -9 12345"',
+        // Single-quoted variants
+        "/usr/local/bin/bash -c 'kill -9 12345'",
+        "/usr/bin/env bash -c 'pkill node'",
+      ];
+
+  it.each(shellWrappedKillCommands)(
+    'extracts the inner kill command from %j',
+    async (command) => {
+      // The command targets PID 12345 / "node" — neither is protected in a
+      // fresh registry, so the result is { blocked: false }. But if extraction
+      // failed we'd ALSO get { blocked: false } — that alone doesn't prove
+      // extraction. So we also assert against a control: an unparseable kill
+      // pipeline that ONLY blocks when extraction succeeds. (See next test.)
+      const result = await checkAndBlockKillCommand(command);
+      expect(result.blocked).toBe(false);
+    },
+  );
+
+  // ── Pipeline block detection ────────────────────────────────────────
+  // A kill command piped into another command is unparseable → the guard
+  // blocks it with "complex kill pipeline". This only fires when
+  // extractKillCommand unwrapped the shell -c successfully.
+  // On each platform we use the appropriately recognised kill command.
+
+  // On Windows use /IM (image name) not /PID so parseKillCommand returns null
+  // (the taskkill regex only matches /PID, leaving /IM pipelines unparseable)
+  const pipelineCommand = isWin
+    ? 'cmd.exe -c "taskkill /IM notepad.exe | findstr test"'
+    : '/usr/local/bin/bash -c "kill -9 12345 | xargs kill"';
+
+  it('confirms extraction runs (kill pipeline blocks)', async () => {
+    const result = await checkAndBlockKillCommand(pipelineCommand);
     expect(result.blocked).toBe(true);
     expect(result.reason).toMatch(/complex kill pipeline/i);
   });
 
-  it('confirms extraction runs for /usr/bin/env bash (pre-fix bypass)', async () => {
-    // Same proof, different shell path that was NOT matched before the fix.
-    const command = '/usr/bin/env bash -c "kill 12345 | xargs kill"';
-    const result = await checkAndBlockKillCommand(command);
+  const envPipelineCommand = isWin
+    ? '/usr/bin/env cmd -c "taskkill /IM notepad.exe | findstr test"'
+    : '/usr/bin/env bash -c "kill 12345 | xargs kill"';
+
+  it('confirms extraction runs for /usr/bin/env shell (pre-fix bypass)', async () => {
+    const result = await checkAndBlockKillCommand(envPipelineCommand);
     expect(result.blocked).toBe(true);
     expect(result.reason).toMatch(/complex kill pipeline/i);
   });
+
+  // ── Non-kill shell -c (no false positive) ───────────────────────────
 
   it('does not match a non-kill shell -c command (no false positive)', async () => {
-    const command = '/usr/local/bin/bash -c "echo hello"';
+    const command = isWin
+      ? 'cmd.exe -c "echo hello"'
+      : '/usr/local/bin/bash -c "echo hello"';
     const result = await checkAndBlockKillCommand(command);
     expect(result.blocked).toBe(false);
   });
