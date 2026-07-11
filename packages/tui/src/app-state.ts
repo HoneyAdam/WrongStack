@@ -491,7 +491,7 @@ export type State = {
     input: unknown;
     suggestedPattern: string;
     resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
-    /** True when the call was classified destructive (enabling YOLO won't auto-approve it). */
+    /** True when the call was classified destructive. */
     destructive: boolean;
   }[];
   /**
@@ -1135,6 +1135,7 @@ export type Action =
   | { type: 'clearInputHistory' }
   | { type: 'confirmOpen'; info: State['confirmQueue'][0] }
   | { type: 'confirmClose' }
+  | { type: 'confirmClearAll' }
   | { type: 'shellCommandWarningOpen'; info: NonNullable<State['shellCommandWarning']> }
   | { type: 'shellCommandWarningClose' }
   | { type: 'enhanceOpen'; info: NonNullable<State['enhance']> }

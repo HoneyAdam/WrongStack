@@ -92,7 +92,7 @@ export async function planLanguageOperation(
     platform: process.platform,
     pathExists: async (candidate) => {
       try {
-        await fs.access(candidate);
+        await fs.access(path.resolve(detection.projectRoot, candidate));
         return true;
       } catch {
         return false;

@@ -88,7 +88,7 @@ const GROUPS: readonly HintGroup[] = [
         blurb: 'switch persona: code-reviewer, debugger, architect, tester, devops, …',
       },
       { key: '/model', blurb: 'two-step provider → model picker, hot-swap at runtime' },
-      { key: '/yolo on|off|toggle', blurb: 'auto-approve normal project work without restart' },
+      { key: '/yolo on|off|toggle', blurb: 'auto-approve tool calls without restart' },
       {
         key: '/context mode frugal|balanced|deep|archival',
         blurb: 'pick how aggressively history is trimmed',

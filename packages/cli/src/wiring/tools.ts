@@ -2,19 +2,20 @@ import type { TextBlock, Tool } from '@wrongstack/core';
 import {
   type Config,
   createContextManagerTool,
-  type DefaultMemoryStore,
   type DefaultModelsRegistry,
   DefaultModeStore,
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   applyToolDescriptionModes,
   applyToolResultRenderModes,
+  configureChildEnvGitIdentity,
   makeMailboxTool,
   makeMailInboxTool,
   makeFleetStatusTool,
   makeMailSendTool,
   normalizeTokenSavingTier,
   type TokenSavingTier,
+  type MemoryStore,
   TOKENS,
   type ToolRegistry,
   type WstackPaths,
@@ -33,12 +34,16 @@ import {
   TIER3_TOOLS,
 } from '@wrongstack/tools';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
+import {
+  createSuperMemoryTools,
+  type SuperMemoryServiceLike,
+} from '@wrongstack/super-memory';
 
 export interface ToolsWiringDeps {
   config: Config;
   toolRegistry: ToolRegistry;
   modelsRegistry: DefaultModelsRegistry;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
   wpaths: WstackPaths;
   projectRoot: string;
   cwd: string;
@@ -51,7 +56,7 @@ export interface ToolsWiringResult {
   promptBuilder: DefaultSystemPromptBuilder;
   modeStore: DefaultModeStore;
   skillLoader: DefaultSkillLoader | undefined;
-  memoryStore: DefaultMemoryStore;
+  memoryStore: MemoryStore;
 }
 
 /**
@@ -104,6 +109,9 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   // `tools.exec.allow` from any in-project repo config before this point.
   configureExecPolicy(config.tools?.exec ?? {});
   configureDangerBypass(config.tools?.exec?.danger ?? {});
+  // Commit identity for every git-touching child process. Trusted-config-only:
+  // the loader strips `git` from repo-committed in-project configs.
+  configureChildEnvGitIdentity(config.git?.identity ?? null);
 
   // Tool registry — already created by caller, just configure it here.
   // Determine token-saving tier (handles boolean backward-compat: true → 'medium')
@@ -126,6 +134,9 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
     toolRegistry.register(forgetTool(memoryStore));
     toolRegistry.register(searchMemoryTool(memoryStore));
     toolRegistry.register(relatedMemoryTool(memoryStore));
+    if (isSuperMemoryService(memoryStore)) {
+      for (const tool of createSuperMemoryTools(memoryStore)) toolRegistry.register(tool);
+    }
   }
   applyToolDescriptionModes(toolRegistry, config.tools?.descriptionMode);
   applyToolResultRenderModes(toolRegistry, config.tools?.resultRenderMode);
@@ -193,4 +204,13 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   });
 
   return { toolRegistry, systemPrompt, promptBuilder, modeStore, skillLoader, memoryStore };
+}
+
+function isSuperMemoryService(memoryStore: MemoryStore): memoryStore is SuperMemoryServiceLike {
+  const value = memoryStore as unknown as Record<string, unknown>;
+  return typeof value['retrieveForPath'] === 'function'
+    && typeof value['searchSuper'] === 'function'
+    && typeof value['graphFor'] === 'function'
+    && typeof value['verify'] === 'function'
+    && typeof value['hygiene'] === 'function';
 }

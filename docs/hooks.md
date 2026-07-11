@@ -188,9 +188,9 @@ command hook that prints nothing all mean "allow, no side effect".
 ```
 
 These outcomes are mutually exclusive. `allow` means this hook has no
-objection; it never bypasses WrongStack's permission policy. Normal YOLO work
-therefore continues silently while the existing destructive gate remains
-intact. Legacy `decision: "block"|"allow"` and `modifiedInput` outputs remain
+objection; it never bypasses WrongStack's permission policy. YOLO work
+therefore continues silently unless an explicit deny rule blocks it.
+Legacy `decision: "block"|"allow"` and `modifiedInput` outputs remain
 accepted and are normalized at the transport boundary.
 
 **Command shortcut:** exit code `2` forces `action: "deny"` (with stderr, or

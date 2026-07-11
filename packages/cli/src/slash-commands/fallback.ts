@@ -9,8 +9,8 @@ import {
   normalizeModelRef,
   noOpVault,
   type SlashCommand,
+  smartDefaultFallbackChain,
 } from '@wrongstack/core';
-import { smartDefaultFallbackChain } from '../fallback-model.js';
 import type { SlashCommandContext } from './index.js';
 
 /**

@@ -45,6 +45,12 @@ export default defineConfig({
     'src/tool-help.ts',
     'src/memory.ts',
     'src/mode.ts',
+    'src/design.ts',
+    'src/kanban.ts',
+    'src/plan.ts',
+    'src/ps-slash.ts',
+    'src/skill.ts',
+    'src/task.ts',
     'src/process-registry.ts',
     'src/circuit-breaker.ts',
     // Pure-data tool icon identity (browser-safe; consumed by WebUI + TUI).

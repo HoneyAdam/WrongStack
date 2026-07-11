@@ -190,7 +190,18 @@ export const Input = memo(function Input({
   const suppressInkCtrlRightRef = useRef(false);
 
   useInput((input, key) => {
-    if (disabled) return;
+    // Ctrl+C must survive `disabled`. The prop is set exactly during
+    // status==='aborting' and while a confirm panel is open — the two states
+    // where the escalation ladder is the only way out — and on raw-mode
+    // terminals (ConPTY/Windows) Ctrl+C arrives HERE as key data, never as a
+    // SIGINT. Forward it to the key router (whose first line routes it into
+    // the ladder); everything else stays blocked while disabled.
+    if (disabled) {
+      if (key.ctrl && (input === 'c' || input === 'C')) {
+        onKey(input, key as KeyEvent);
+      }
+      return;
+    }
     // Drop mouse reports that leaked through Ink as text. With mouse tracking on,
     // the terminal emits SGR reports (\x1b[<b;x;yM); Ink can't decode them, strips
     // the ESC, and would insert "[<b;x;yM" into the buffer. The raw-stdin handler

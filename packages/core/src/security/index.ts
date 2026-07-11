@@ -3,13 +3,11 @@ export { DefaultSecretScrubber } from './secret-scrubber.js';
 export {
   DefaultSecretVault,
   type SecretVaultOptions,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
   rewriteConfigEncrypted,
   migratePlaintextSecrets,
   rotateConfigKeys,
 } from './secret-vault.js';
-export { isSecretField } from './secret-vault.js';
+export { decryptConfigSecrets, encryptConfigSecrets, isSecretField } from './config-secrets.js';
 export {
   DefaultPermissionPolicy,
   AutoApprovePermissionPolicy,

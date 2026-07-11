@@ -62,9 +62,8 @@ import {
   runProjectCheck,
 } from './pre-launch.js';
 import { TerminalRenderer } from './renderer.js';
-import { loadManifest, touchProjectInManifest } from './slash-commands/project-utils.js';
 import { subcommands } from './subcommands/index.js';
-import { checkForUpdate, type UpdateInfo } from './update-check.js';
+import type { UpdateInfo } from './update-check.js';
 import { patchConfig } from './utils.js';
 
 interface SavedDefaultStatus {
@@ -160,15 +159,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     positional.splice(0, 2);
   }
 
-  // `--help` / `--version` are conventional flags. Route the bare forms to the
-  // `help` / `version` subcommands so they behave the same as `wstack help` /
-  // `wstack version` instead of falling through to the launch path. Only when
-  // no subcommand was given (so `wstack init --help` still runs `init` with a deprecation notice).
-  if (positional.length === 0) {
-    if (flags['help'] === true) positional.push('help');
-    else if (flags['version'] === true) positional.push('version');
-  }
-
   let bootResult;
   try {
     bootResult = await bootConfig(flags);
@@ -180,16 +170,25 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   let config = _config;
   const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
   void pathResolver; // used by callers via container binding
+  const first = positional[0];
 
   // `wrongstack quick` — accept all defaults, list plugins, open TUI with F3 panel.
-  if (positional[0] === 'quick' && positional.length === 1) {
+  // Handled here (before subcommand dispatch) so `wstack quick something` doesn't
+  // accidentally fall through to single-shot mode.
+  if (first === 'quick') {
     flags['quick'] = true;
     flags['tui'] = true;
-    // List configured plugins as debug lines (user sees them with DEBUG=1).
-    for (const plugin of config.plugins ?? []) {
-      console.debug(`[wrongstack:quick] plugin: ${plugin}`);
+    positional.splice(0, 1); // consume 'quick'
+    const plugins = config?.plugins ?? [];
+    if (plugins.length === 0) {
+      console.debug('[wrongstack:quick] No plugins configured');
+    } else {
+      for (const p of plugins) {
+        const name = typeof p === 'string' ? p : p.name;
+        const enabled = typeof p === 'object' && p.enabled === false ? ' (disabled)' : '';
+        console.debug(`[wrongstack:quick] plugin: ${name}${enabled}`);
+      }
     }
-    positional.splice(0, 1); // clear positional so execute() takes the TUI path (enteringTui = true)
   }
 
   const logger = new DefaultLogger({
@@ -218,67 +217,8 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     overlayCacheFile: wpaths.modelsOverlayCache,
   });
 
-  // Background update check — fires async, non-blocking.
-  // If --no-check flag is set or WRONGSTACK_NO_CHECK=1, skip it.
-  let updateInfo: UpdateInfo | undefined;
-  if (!flags['no-check'] && !process.env['WRONGSTACK_NO_CHECK']) {
-    // Fire-and-forget: boot doesn't wait, result attached to ctx for index.ts
-    checkForUpdate()
-      .then((info) => {
-        updateInfo = info;
-      })
-      .catch((err) => {
-        logger.debug('update check failed', { err });
-      });
-  }
-
-  // Blocking models.dev refresh — fetches fresh catalog before app starts.
-  // --no-models-refresh skips this. On timeout (15s default) or network failure,
-  // falls back to cache and logs a warning; the app still boots normally.
-  if (!flags['no-models-refresh']) {
-    try {
-      await modelsRegistry.refresh();
-      logger.info('models.dev catalog refreshed');
-    } catch (err) {
-      const msg = toErrorMessage(err);
-      logger.warn(`models.dev refresh failed (${msg}); using cached catalog`);
-    }
-  }
-
-  // Auto-discover model lists for openai-compatible gateways (omniroute, …)
-  // from their `/v1/models` endpoint and merge them into the catalog. Best-
-  // effort: a down server or missing key is a logged no-op (cache fallback).
-  try {
-    await discoverAndMergeProviders({
-      config,
-      registry: modelsRegistry,
-      cacheDir: path.dirname(wpaths.modelsCache),
-      logger,
-    });
-  } catch (err) {
-    logger.debug(`provider auto-discovery skipped: ${toErrorMessage(err)}`);
-  }
-
-  // Quick path: subcommand dispatch
-  const first = positional[0];
-  // `wrongstack quick` — launch directly into TUI with sensible defaults.
-  // Flags are set so execute() calls runTui() with initialAgentsMonitorOpen: true.
-  // Plugins are listed as debug logs (visible in log file).
-  if (first === 'quick') {
-    flags['quick'] = true;
-    flags['tui'] = true;
-    positional.splice(0, 1); // consume 'quick', don't dispatch to subcommand handler
-    const plugins = config?.plugins ?? [];
-    if (plugins.length === 0) {
-      console.debug('[wrongstack:quick] No plugins configured');
-    } else {
-      for (const p of plugins) {
-        const name = typeof p === 'string' ? p : p.name;
-        const enabled = typeof p === 'object' && p.enabled === false ? ' (disabled)' : '';
-        console.debug(`[wrongstack:quick] plugin: ${name}${enabled}`);
-      }
-    }
-  }
+  // Quick path: subcommand dispatch — run BEFORE network I/O so
+  // `wstack help/version/init` etc. don't wait for models.dev.
   if (first && subcommands[first]) {
     // Create container to get the SAME skillLoader instance that the main
     // interactive CLI uses. This ensures cache invalidation after
@@ -315,6 +255,37 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     });
     await reader.close();
     return code;
+  }
+
+  // Background update check is handled in preflight.ts → applyPrintUpdateNotice(),
+  // which has a 2-second timeout and prints the "Update available" notice.
+  // No fire-and-forget here — the preflight phase owns update notifications.
+
+  // Blocking models.dev refresh — fetches fresh catalog before app starts.
+  // --no-models-refresh skips this. On timeout (15s default) or network failure,
+  // falls back to cache and logs a warning; the app still boots normally.
+  if (!flags['no-models-refresh']) {
+    try {
+      await modelsRegistry.refresh();
+      logger.info('models.dev catalog refreshed');
+    } catch (err) {
+      const msg = toErrorMessage(err);
+      logger.warn(`models.dev refresh failed (${msg}); using cached catalog`);
+    }
+  }
+
+  // Auto-discover model lists for openai-compatible gateways (omniroute, …)
+  // from their `/v1/models` endpoint and merge them into the catalog. Best-
+  // effort: a down server or missing key is a logged no-op (cache fallback).
+  try {
+    await discoverAndMergeProviders({
+      config,
+      registry: modelsRegistry,
+      cacheDir: path.dirname(wpaths.modelsCache),
+      logger,
+    });
+  } catch (err) {
+    logger.debug(`provider auto-discovery skipped: ${toErrorMessage(err)}`);
   }
 
   const isSingleShot = positional.length > 0 || typeof flags['prompt'] === 'string';
@@ -447,21 +418,8 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     flags['no-tui'] = true;
   }
 
-  // Register the current project in ~/.wrongstack/projects.json on EVERY
-  // launch (create when missing, refresh lastSeen/lastWorkingDir when
-  // present) — the manifest is the single source of truth all surfaces
-  // (project picker, WebUI projects list, cross-session discovery) read.
-  // Best-effort: a locked/corrupt manifest must never block boot.
-  try {
-    const created = await registerProjectAtBoot({ projectRoot, cwd, wpaths });
-    if (created && isInteractiveTTY) {
-      renderer.write(
-        color.dim(`  ✓ Registered "${path.basename(projectRoot)}" in projects.json.\n`),
-      );
-    }
-  } catch {
-    // best-effort
-  }
+  // Project registration is handled by core/boot.ts → registerProjectInManifest
+  // during bootConfig. No duplicate needed here.
 
   // Mode + YOLO + Director + Autonomy prompts
   if (isInteractiveTTY) {
@@ -610,7 +568,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     renderer,
     reader,
     logger,
-    updateInfo,
     needsSetup: !noInteractiveMode ? false : !config.provider || !config.model,
   };
 }
@@ -682,28 +639,4 @@ async function checkGitInCwd(opts: {
       // parent has no .git — nothing to report
     }
   }
-}
-
-/**
- * Idempotent boot-time project registration: create the projects.json
- * entry when missing, refresh lastSeen/lastWorkingDir when present.
- * Returns true when a NEW entry was created (so the caller can print a
- * one-line notice). Auto-registers without prompting — the manifest is
- * cross-surface infrastructure (picker, WebUI, agent discovery), not an
- * opt-in nicety. Rename later via `/project rename`.
- */
-async function registerProjectAtBoot(opts: {
-  projectRoot: string;
-  cwd: string;
-  wpaths: WstackPaths;
-}): Promise<boolean> {
-  const { projectRoot, cwd, wpaths } = opts;
-  const manifest = await loadManifest(wpaths.globalConfig);
-  const existed = manifest.projects.some((p) => path.resolve(p.root) === path.resolve(projectRoot));
-  await touchProjectInManifest({
-    projectRoot,
-    globalConfigPath: wpaths.globalConfig,
-    workingDir: cwd !== projectRoot ? cwd : undefined,
-  });
-  return !existed;
 }

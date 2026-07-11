@@ -139,8 +139,8 @@ describe('AnnotationsStore', () => {
 
   it('MAX_ANNOTATIONS eviction emits storage.write operation evict', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
-    const loggedStore = new AnnotationsStore({ dir, events });
-    for (let i = 0; i < 1001; i++) {
+    const loggedStore = new AnnotationsStore({ dir, events, maxAnnotations: 10 });
+    for (let i = 0; i < 11; i++) {
       await loggedStore.add({ sessionId: 's1', atEventIndex: i, authorId: 'p1', text: `t${i}` });
     }
     const evictCalls = (events.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
@@ -149,7 +149,7 @@ describe('AnnotationsStore', () => {
         && (payload as { operation: string }).operation === 'evict',
     );
     expect(evictCalls).toHaveLength(1);
-  }, 20000);
+  });
 
   // ── storage.* event tests ─────────────────────────────────────────────────
 
@@ -242,8 +242,8 @@ describe('AnnotationsStore', () => {
   it('emits storage.write with operation evict when add() exceeds MAX_ANNOTATIONS', async () => {
     const events = new EventBus();
     const emitSpy = vi.spyOn(events, 'emit');
-    const loggedStore = new AnnotationsStore({ dir, events });
-    for (let i = 0; i < 1001; i++) {
+    const loggedStore = new AnnotationsStore({ dir, events, maxAnnotations: 10 });
+    for (let i = 0; i < 11; i++) {
       await loggedStore.add({ sessionId: 's1', atEventIndex: i, authorId: 'alice', text: `t${i}` });
     }
     const evict = emitSpy.mock.calls.find(
@@ -253,7 +253,7 @@ describe('AnnotationsStore', () => {
     );
     expect(evict).toBeDefined();
     expect(evict![1]).toMatchObject({ store: 'annotations', operation: 'evict', outcome: 'success' });
-  }, 20000);
+  });
 
   it('emits storage.write with operation resolve on successful resolve()', async () => {
     const events = new EventBus();

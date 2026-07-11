@@ -1,6 +1,6 @@
 import { expectDefined, FetchError, ToolValidationError } from '@wrongstack/core';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { guardedFetch } from './fetch.js';
+import { guardedFetch } from './_fetch-guard.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 interface SearchResult {

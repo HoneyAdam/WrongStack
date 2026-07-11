@@ -3,8 +3,8 @@ import type { Context } from '../core/context.js';
 export type Permission = 'auto' | 'confirm' | 'deny';
 
 /**
- * Risk tier for tools in YOLO mode. YOLO auto-approves normal project work,
- * while clearly destructive calls still require confirmation.
+ * Risk tier for tools in UI/audit surfaces. YOLO auto-approves non-denied
+ * calls regardless of risk tier; when YOLO is off, risk can inform prompts.
  *
  * - `safe`       — read-only, no side effects (read, glob, grep, etc.)
  * - `standard`   — non-destructive writes and mutations (write, edit, safe shell commands)

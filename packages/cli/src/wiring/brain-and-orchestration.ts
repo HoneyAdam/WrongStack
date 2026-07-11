@@ -231,16 +231,19 @@ export function setupBrainAndOrchestration(
     },
   );
 
-  // Delegate tool
-  toolRegistry.register(
-    createDelegateTool({
-      host: multiAgentHost,
-      roster: FLEET_ROSTER,
-      sessionsRoot: subagentSessionsRoot,
-      directorRunId: session.id,
-      events,
-    }),
-  );
+  // Delegate tool is only exposed when Director mode is active. With Director
+  // off, subagent/fleet work requires an explicit `/director` promotion first.
+  if (directorMode) {
+    toolRegistry.register(
+      createDelegateTool({
+        host: multiAgentHost,
+        roster: FLEET_ROSTER,
+        sessionsRoot: subagentSessionsRoot,
+        directorRunId: session.id,
+        events,
+      }),
+    );
+  }
 
   // mcp_control tool
   toolRegistry.register(

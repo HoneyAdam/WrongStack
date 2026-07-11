@@ -145,11 +145,11 @@ describe('HQ protocol', () => {
     expect(snapshot.totals.incompleteMailboxMessages).toBe(1);
   });
 
-  it('defaults to safe HQ redaction policy', () => {
+  it('defaults to full HQ content', () => {
     expect(DEFAULT_HQ_REDACTION_POLICY).toEqual({
-      rawContent: false,
-      toolArgs: 'summary',
-      paths: 'project-relative',
+      rawContent: true,
+      toolArgs: 'full',
+      paths: 'full',
     });
   });
 });
@@ -219,6 +219,22 @@ describe('parseHqFrame', () => {
     if (result.frame.type !== 'client.command_poll') return;
     expect(result.frame.clientId).toBe('cli_1');
     expect(result.frame.projectId).toBe('p_1');
+  });
+
+  it('preserves the command poll cursor and bounded limit', () => {
+    const result = parseHqFrame(
+      JSON.stringify({
+        type: 'client.command_poll',
+        clientId: 'cli_1',
+        projectId: 'p_1',
+        afterCommandId: 'cmd_24',
+        limit: 25,
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.frame.type !== 'client.command_poll') return;
+    expect(result.frame.afterCommandId).toBe('cmd_24');
+    expect(result.frame.limit).toBe(25);
   });
 
   it('parses a valid client.command_ack frame including the status enum', () => {
@@ -309,6 +325,61 @@ describe('parseHqFrame', () => {
     };
     const result = parseHqFrame(JSON.stringify(bad));
     expect(result).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('rejects invalid capability, workspace, schema, poll-limit, and ack-status values', () => {
+    const badCapability = structuredClone(validHello);
+    badCapability.payload.capabilities = ['control.execute'];
+    expect(parseHqFrame(JSON.stringify(badCapability))).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+
+    const badWorkspace = structuredClone(validHello);
+    badWorkspace.payload.project.workspaceKind = 'local';
+    expect(parseHqFrame(JSON.stringify(badWorkspace))).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+
+    const badSchema = {
+      type: 'client.event',
+      event: {
+        id: 'evt_bad',
+        type: 'custom.event',
+        schemaVersion: 99,
+        timestamp: new Date().toISOString(),
+        clientId: 'cli_1',
+        projectId: 'p_1',
+        seq: 1,
+        payload: {},
+      },
+    };
+    expect(parseHqFrame(JSON.stringify(badSchema))).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+    expect(
+      parseHqFrame(
+        JSON.stringify({
+          type: 'client.command_poll',
+          clientId: 'cli_1',
+          projectId: 'p_1',
+          limit: 0,
+        }),
+      ),
+    ).toEqual({ ok: false, reason: 'malformed' });
+    expect(
+      parseHqFrame(
+        JSON.stringify({
+          type: 'client.command_ack',
+          clientId: 'cli_1',
+          projectId: 'p_1',
+          commandId: 'cmd_1',
+          status: 'maybe',
+        }),
+      ),
+    ).toEqual({ ok: false, reason: 'malformed' });
   });
 });
 

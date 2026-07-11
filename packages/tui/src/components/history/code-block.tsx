@@ -22,7 +22,9 @@ import { stringOf, tryParseJson } from './utils.js';
 // source of truth in @wrongstack/tools/tool-diff, shared with the WebUI/HQ.
 // This file keeps only the TUI-specific rendering (ink/theme/wrap/tab-expand).
 // Imported for local use AND re-exported so this module's public API is intact.
-export type { DiffLineKind, DiffLineRow, DiffPreview };
+// Re-export straight from the source module (not the local import bindings) so
+// the dts bundler can drop the chain without leaving a dangling import behind.
+export type { DiffLineKind, DiffLineRow, DiffPreview } from '@wrongstack/tools/tool-diff';
 
 /**
  * A parsed diff paired with the file it belongs to. Used when a tool

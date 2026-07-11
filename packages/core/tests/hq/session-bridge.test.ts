@@ -226,4 +226,34 @@ describe('session telemetry bridge', () => {
 
     dispose();
   });
+
+  it('chunks large initial transcript tails below the HQ websocket payload limit', async () => {
+    const sessionId = '2026-06-23/14-00-00Z_test_chunks';
+    await writeSessionLog(
+      sessionId,
+      Array.from({ length: 70 }, (_, i) => ({
+        type: 'user_input',
+        ts: `t${i}`,
+        content: `message ${i}`,
+      })),
+    );
+
+    const calls: Calls = { snapshots: [], transcripts: [], ended: [] };
+    const dispose = startSessionTelemetryBridge({
+      publisher: fakePublisher(calls),
+      sessionId,
+      projectRoot,
+      globalRoot,
+      transcriptIntervalMs: 20,
+    });
+
+    await tick(80);
+
+    expect(calls.transcripts.length).toBeGreaterThan(1);
+    expect(calls.transcripts.map((t) => t.fromSeq)).toEqual([0, 32, 64]);
+    expect(calls.transcripts.map((t) => t.entries.length)).toEqual([32, 32, 6]);
+    expect(calls.transcripts.flatMap((t) => t.entries)).toHaveLength(70);
+
+    dispose();
+  });
 });

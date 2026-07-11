@@ -22,6 +22,7 @@ at an HQ on **another machine**; disable entirely with `/hq off`.
 | `/hq status` | Same as bare `/hq` |
 | `/hq set <url> [token]` | Configure HQ URL + optional client token, e.g. `/hq set http://192.168.1.20:3499 my-client-token` |
 | `/hq token <token>` | Set just the client token |
+| `/hq raw on` / `/hq raw off` | Publish raw chat/tool content to HQ. Default: **on** for every HQ target unless explicitly disabled. Use `raw off` only when you explicitly want redacted telemetry |
 | `/hq on` | Enable HQ publishing |
 | `/hq off` | Disable HQ publishing |
 | `/hq clear` | Remove all HQ settings |
@@ -32,6 +33,11 @@ at an HQ on **another machine**; disable entirely with `/hq off`.
 - `/hq set` changes attach on the **next session start** — an already-running
   session keeps its current connection. (Auto-discovery is different: a running
   session in discovery mode attaches live when a local HQ appears or repoints.)
+- `/hq raw on` / `/hq raw off` also applies from the **next session start**. Redaction is
+  applied publisher-side (before events leave the client process), and the HQ
+  operator can still force redaction server-side via the `redactionPolicy`
+  override in `~/.wrongstack/hq/auth.json` — that clamp is one-way (it can
+  tighten, never loosen).
 - The client token is for the `/ws/client` channel and is distinct from the HQ
   **browser** token (used to open the dashboard in a browser).
 - `set` / `status` run a quick reachability probe against the HQ URL. A `401`

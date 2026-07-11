@@ -80,7 +80,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     suggestedPattern: string;
     decisionSource?: import('../types/permission.js').PermissionDecision['source'] | undefined;
     riskTier?: import('../types/tool.js').RiskTier | undefined;
-  }): Promise<'yes' | 'no' | 'always' | 'deny'> {
+  }): Promise<'yes' | 'no' | 'always' | 'deny' | 'abort'> {
     // Headless deadlock guard (P1 #4, before-release.md): if no UI layer has
     // subscribed to `tool.confirm_needed`, emitting the event leaves the
     // resolver promise pending forever — the tool neither executes nor fails
@@ -102,6 +102,19 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
       return Promise.resolve('deny' as const);
     }
     return new Promise((resolve) => {
+      // Abort-awareness: /interrupt, Esc, or a parent abort must not leave the
+      // run blocked on a confirmation nobody will answer. Resolve as 'abort'
+      // — NOT 'no' — so the caller skips the denyOnce side effect (a
+      // session-scoped deny minted by an interrupt would silently block this
+      // tool+pattern for the rest of the session). Resolving twice is a
+      // harmless no-op, so a late UI answer after abort is safely ignored.
+      const signal = a.ctx.signal;
+      const onAbort = () => resolve('abort');
+      if (signal.aborted) {
+        resolve('abort');
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
       a.events.emit('tool.confirm_needed', {
         sessionId: a.ctx.session.id,
         tool: info.tool,
@@ -110,7 +123,10 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
         suggestedPattern: info.suggestedPattern,
         decisionSource: info.decisionSource,
         riskTier: info.riskTier,
-        resolve,
+        resolve: (choice) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(choice);
+        },
       });
     });
   }
@@ -210,9 +226,11 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
                   type: 'tool_result' as const,
                   tool_use_id: result.toolUseId,
                   content:
-                    decision === 'deny'
-                      ? `Tool "${tool.name}" denied and blocked for this pattern.`
-                      : `Tool "${tool.name}" denied by user.`,
+                    decision === 'abort'
+                      ? `Tool "${tool.name}" was not executed — the run was aborted while awaiting confirmation.`
+                      : decision === 'deny'
+                        ? `Tool "${tool.name}" denied and blocked for this pattern.`
+                        : `Tool "${tool.name}" denied by user.`,
                   is_error: true,
                 },
                 durationMs: 0,

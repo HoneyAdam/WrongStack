@@ -127,6 +127,7 @@ describe('wstack hq — token create', () => {
     expect(auth.browserTokens).toHaveLength(1);
     const token = auth.browserTokens?.[0];
     expect(token?.label).toBe('my-laptop');
+    expect(token?.capabilities).toEqual(['control.enqueue']);
     expect(token?.token.length).toBeGreaterThanOrEqual(32);
     expect(deps.renderer.captured ? null : null).toBeNull();
     // `create` prints the token once to stdout.
@@ -152,6 +153,22 @@ describe('wstack hq — token create', () => {
     expect(auth.browserTokens).toHaveLength(2);
     expect(auth.browserTokens?.[0]?.label).toBe('first');
     expect(auth.browserTokens?.[1]?.label).toBe('second');
+  });
+
+  it('accepts only browser capabilities for browser tokens', async () => {
+    const deps = makeDeps({ flags: { 'data-dir': dataDir, capabilities: 'control.enqueue' } });
+    expect(await hqCmd(['token', 'create', 'dashboard'], deps)).toBe(0);
+    expect((await readHqAuthFile(dataDir)).browserTokens?.[0]?.capabilities).toEqual([
+      'control.enqueue',
+    ]);
+
+    const invalidDeps = makeDeps({
+      flags: { 'data-dir': dataDir, capabilities: 'control.execute' },
+    });
+    expect(await hqCmd(['token', 'create', 'too-powerful'], invalidDeps)).toBe(1);
+    expect(invalidDeps.renderer.captured.err.join('')).toContain(
+      'Invalid browser token capabilities',
+    );
   });
 });
 

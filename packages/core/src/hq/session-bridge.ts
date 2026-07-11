@@ -56,6 +56,8 @@ const VALID_AGENT_STATUS = new Set<HqSessionAgentLiveStatus>([
   'waiting_user',
   'error',
 ]);
+const MAX_TRANSCRIPT_BATCH_ENTRIES = 32;
+const MAX_TRANSCRIPT_BATCH_BYTES = 512 * 1024;
 
 function toAgentSummary(a: TrackedAgentSnapshot): HqSessionAgentSummary {
   const status = (
@@ -146,6 +148,45 @@ export function startSessionTelemetryBridge(opts: SessionTelemetryBridgeOptions)
     }
   }
 
+  function publishTranscriptEntries(entries: HqTranscriptEntry[]): void {
+    let batch: HqTranscriptEntry[] = [];
+    let batchFromSeq = seqEmitted;
+
+    const publishBatch = (): void => {
+      if (batch.length === 0) return;
+      try {
+        publisher.publishTranscriptAppend({
+          sessionId: opts.sessionId,
+          fromSeq: batchFromSeq,
+          entries: batch,
+        });
+      } catch {
+        /* best-effort */
+      }
+      seqEmitted += batch.length;
+      batch = [];
+      batchFromSeq = seqEmitted;
+    };
+
+    for (const entry of entries) {
+      const candidate = [...batch, entry];
+      const candidatePayload = {
+        sessionId: opts.sessionId,
+        fromSeq: batchFromSeq,
+        entries: candidate,
+      };
+      const tooManyEntries = candidate.length > MAX_TRANSCRIPT_BATCH_ENTRIES;
+      const tooLarge =
+        batch.length > 0 &&
+        Buffer.byteLength(JSON.stringify(candidatePayload), 'utf8') >
+          MAX_TRANSCRIPT_BATCH_BYTES;
+      if (tooManyEntries || tooLarge) publishBatch();
+      batch.push(entry);
+    }
+
+    publishBatch();
+  }
+
   const offAgents = opts.events?.on('session.agents_updated', (payload) => {
     agents = payload.agents.map(toAgentSummary);
     lastActivityAt = now();
@@ -226,16 +267,7 @@ export function startSessionTelemetryBridge(opts: SessionTelemetryBridgeOptions)
           for (const entry of mapSessionEventToEntries(obj)) entries.push(entry);
         }
         if (entries.length > 0) {
-          try {
-            publisher.publishTranscriptAppend({
-              sessionId: opts.sessionId,
-              fromSeq: seqEmitted,
-              entries,
-            });
-          } catch {
-            /* best-effort */
-          }
-          seqEmitted += entries.length;
+          publishTranscriptEntries(entries);
           lastActivityAt = now();
         }
       } finally {

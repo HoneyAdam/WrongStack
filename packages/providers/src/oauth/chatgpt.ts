@@ -14,7 +14,7 @@ import {
   ParseError,
   type ProviderApiKey,
 } from '@wrongstack/core';
-import { extractAccountId } from '../openai-codex.js';
+import { extractAccountId } from '../openai-codex-account.js';
 import {
   createState,
   generatePkce,

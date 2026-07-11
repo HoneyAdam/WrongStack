@@ -85,11 +85,8 @@ export {
   handlePromptsUsed,
   type PromptsContext,
 } from './prompts-handlers.js';
-export {
-  createProviderConfigIO,
-  loadSavedProviders,
-  saveProviders,
-} from './provider-config-io.js';
+export { createProviderConfigIO } from './provider-config-standalone.js';
+export { loadSavedProviders, saveProviders } from './provider-config-io.js';
 export {
   addProvider,
   deleteKey,
@@ -222,3 +219,4 @@ export { estimateContextBreakdown } from './token-estimator.js';
 export { computeUsageCost, getCostRates } from './usage-cost.js';
 export { extractTokenFromCookie, isWildcardBind } from './ws-auth.js';
 export { validateAutonomySwitchPayload, validateBrainAskPayload, validateBrainRiskPayload, validateContextModeCreatePayload, validateContextModeDeletePayload, validateContextModeSwitchPayload, validateContextModeUpdatePayload, validateGitDiffPayload, validateMailboxAgentsPayload, validateMailboxMessagesPayload, validateMailboxPurgePayload, validateModeSwitchPayload, validateModelSwitchPayload, validatePlanTemplateUsePayload, validatePrefsUpdatePayload, validateProcessKillPayload, validateProjectsAddPayload, validateProjectsSelectPayload, validateShellOpenPayload, validateSkillsCreatePayload, validateSkillsEditPayload, validateWorkingDirSetPayload } from './ws-payload-validation.js';
+export { createZipBuffer, readZipEntries, type ZipEntryInput } from './zip.js';

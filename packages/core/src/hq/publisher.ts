@@ -6,9 +6,11 @@ import {
   type HqMailboxEventAction,
   type HqMailboxSnapshotOptions,
 } from './mailbox-mapper.js';
+import { redactHqEvent, resolveHqRedactionPolicy } from './redaction.js';
 import {
   createHqEventEnvelope,
   HQ_PROTOCOL_VERSION,
+  HQ_TRANSCRIPT_TEXT_CAP,
   type HqClientCapability,
   type HqClientCommandAckMessage,
   type HqClientCommandPollMessage,
@@ -88,6 +90,12 @@ export interface HqPublisherOptions {
   /** Dormant re-check interval while `resolveEndpoint` yields nothing. Default 5s. */
   discoveryPollMs?: number;
   /**
+   * Application-level heartbeat interval for the `/ws/client` connection.
+   * The HQ server evicts silent sockets, so this must be comfortably below
+   * the server-side client TTL even when no command handler is installed.
+   */
+  heartbeatIntervalMs?: number;
+  /**
    * Diagnostic sink for the one-time consecutive-connect-failure warning.
    * The publisher is otherwise deliberately silent (dormant queueing), which
    * made auth failures invisible: a token the server rejects — e.g. a wrong
@@ -103,7 +111,17 @@ export interface HqPublishEventOptions {
   sessionId?: string;
   runId?: string;
   timestamp?: string;
+  /**
+   * Per-string redaction cap override. Defaults to the generic 500-char
+   * summary cap; chat-transcript event types (`session.transcript`,
+   * `agent.message`) automatically get {@link HQ_TRANSCRIPT_TEXT_CAP} so
+   * full chat history survives when `rawContent` is enabled.
+   */
+  maxSummaryLength?: number;
 }
+
+/** Event types that carry full chat turns rather than telemetry summaries. */
+const TRANSCRIPT_EVENT_TYPES = new Set<string>(['session.transcript', 'agent.message']);
 
 const OPEN_STATE = 1;
 /**
@@ -119,6 +137,7 @@ const DEFAULT_DISCOVERY_POLL_MS = 5_000;
 const DEFAULT_MAX_QUEUED_MESSAGES = 2000;
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_COMMAND_POLL_LIMIT = 25;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 25_000;
 
 function defaultSocketFactory(url: string): HqSocketLike {
   const WebSocketCtor = globalThis.WebSocket;
@@ -171,6 +190,7 @@ export class HqPublisher {
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
   private readonly maxQueuedMessages: number;
+  private readonly resolvedRedactionPolicy: HqRedactionPolicy;
   private socket: HqSocketLike | null = null;
   private seq = 0;
   private queue: string[] = [];
@@ -180,6 +200,7 @@ export class HqPublisher {
   private lastAttempt: { url: string; hadToken: boolean } | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private commandPollTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastCommandId: string | undefined;
 
   constructor(private readonly options: HqPublisherOptions) {
@@ -196,6 +217,7 @@ export class HqPublisher {
     this.reconnectBaseMs = options.reconnectBaseMs ?? DEFAULT_RECONNECT_BASE_MS;
     this.reconnectMaxMs = options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS;
     this.maxQueuedMessages = options.maxQueuedMessages ?? DEFAULT_MAX_QUEUED_MESSAGES;
+    this.resolvedRedactionPolicy = resolveHqRedactionPolicy(options.redactionPolicy);
   }
 
   connect(): void {
@@ -232,6 +254,7 @@ export class HqPublisher {
       this.reconnectAttempt = 0;
       this.sendHelloNow();
       this.flushQueue();
+      this.startHeartbeat();
       if (this.options.onCommand !== undefined) {
         this.startCommandPolling();
         this.pollCommands();
@@ -246,6 +269,7 @@ export class HqPublisher {
       removeSocketListener(socket, 'close', onCloseOrError);
       removeSocketListener(socket, 'error', onCloseOrError);
       this.stopCommandPolling();
+      this.stopHeartbeat();
       if (this.socket === socket) this.socket = null;
       this.scheduleReconnect();
     };
@@ -265,6 +289,7 @@ export class HqPublisher {
       this.reconnectTimer = null;
     }
     this.stopCommandPolling();
+    this.stopHeartbeat();
     this.queue = [];
     const socket = this.socket;
     this.socket = null;
@@ -285,8 +310,16 @@ export class HqPublisher {
       ...(options.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
       ...(options.runId !== undefined ? { runId: options.runId } : {}),
     });
-    this.sendFrame({ type: 'client.event', event });
-    return event;
+    const maxSummaryLength =
+      options.maxSummaryLength ??
+      (TRANSCRIPT_EVENT_TYPES.has(options.type) ? HQ_TRANSCRIPT_TEXT_CAP : undefined);
+    const redacted = redactHqEvent(event, {
+      policy: this.resolvedRedactionPolicy,
+      projectRoot: this.options.project.projectRoot,
+      ...(maxSummaryLength !== undefined ? { maxSummaryLength } : {}),
+    }).value;
+    this.sendFrame({ type: 'client.event', event: redacted });
+    return redacted;
   }
 
   async publishMailboxSnapshot(
@@ -298,9 +331,7 @@ export class HqPublisher {
   ): Promise<HqEventEnvelope<HqMailboxSnapshotPayload>> {
     const payload = await createMailboxSnapshotPayloadFromMailbox(mailbox, {
       ...options,
-      ...(this.options.redactionPolicy !== undefined
-        ? { redactionPolicy: this.options.redactionPolicy }
-        : {}),
+      redactionPolicy: this.resolvedRedactionPolicy,
     });
     return this.publishEvent({
       type: 'mailbox.snapshot',
@@ -327,9 +358,7 @@ export class HqPublisher {
       ...(input.agent !== undefined ? { agent: input.agent } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
       ...(input.previewLength !== undefined ? { previewLength: input.previewLength } : {}),
-      ...(this.options.redactionPolicy !== undefined
-        ? { redactionPolicy: this.options.redactionPolicy }
-        : {}),
+      redactionPolicy: this.resolvedRedactionPolicy,
     });
     return this.publishEvent({
       type: 'mailbox.event',
@@ -347,6 +376,11 @@ export class HqPublisher {
   /** The project identity this publisher is bound to. */
   get project(): HqProjectIdentity {
     return this.options.project;
+  }
+
+  /** Effective publisher-side policy applied before any event leaves this process. */
+  get redactionPolicy(): HqRedactionPolicy {
+    return this.resolvedRedactionPolicy;
   }
 
   /** Publish a live session/terminal snapshot (state + agents). */
@@ -431,6 +465,7 @@ export class HqPublisher {
         client: this.options.client,
         project: this.options.project,
         capabilities: this.capabilities,
+        redactionPolicy: this.resolvedRedactionPolicy,
       },
     };
   }
@@ -491,6 +526,34 @@ export class HqPublisher {
     if (this.commandPollTimer === null) return;
     clearInterval(this.commandPollTimer);
     this.commandPollTimer = null;
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer !== null) return;
+    this.heartbeatTimer = setInterval(
+      () => this.publishHeartbeat(),
+      this.options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+    );
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer === null) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
+
+  private publishHeartbeat(): void {
+    const startedAt = Date.parse(this.options.client.startedAt);
+    const now = Date.parse(this.now());
+    this.publishEvent({
+      type: 'client.heartbeat',
+      payload: {
+        uptimeMs:
+          Number.isFinite(startedAt) && Number.isFinite(now) ? Math.max(0, now - startedAt) : 0,
+        status: 'idle',
+      },
+    });
   }
 
   private async handleServerMessage(event: unknown): Promise<void> {

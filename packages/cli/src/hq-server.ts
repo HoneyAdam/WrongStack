@@ -24,6 +24,7 @@ import * as path from 'node:path';
 import {
   DEFAULT_HQ_REDACTION_POLICY,
   HQ_PROTOCOL_VERSION,
+  HQ_TRANSCRIPT_TEXT_CAP,
   type EnsureHqFirstRunAuthResult,
   type HqBrowserMessage,
   type HqClientCapability,
@@ -43,6 +44,7 @@ import {
   type HqSessionSummary,
   type HqSnapshot,
   type HqTimeseriesSample,
+  type HqToken,
   type HqTranscriptAppendPayload,
   type HqTranscriptEntry,
   type HqWelcomePayload,
@@ -59,8 +61,11 @@ import {
   parseHqEventPayload,
   validateHqCommand,
   parseHqFrame,
+  redactHqEvent,
+  resolveHqRedactionPolicy,
   resolveHqDataDir,
-  scrubAndTruncateHqPreview,
+  tightenHqRedactionPolicy,
+  tokenHasCapability,
   watchHqAuthFile,
 } from '@wrongstack/core';
 // Inlined from @wrongstack/webui/server — avoids a hard dependency on the webui package.
@@ -85,6 +90,12 @@ export interface HqServerOptions {
    * later phases, the persistent event log and snapshot cache.
    */
   dataDir?: string;
+  /** Browser liveness frame interval. Primarily exposed for deterministic integration tests. */
+  browserHeartbeatIntervalMs?: number;
+  /** Connected-client inactivity timeout. Primarily exposed for deterministic integration tests. */
+  clientTtlMs?: number;
+  /** Stale-client scan interval. Primarily exposed for deterministic integration tests. */
+  clientCleanupIntervalMs?: number;
 }
 
 export interface HqStartupConnectionInfo {
@@ -119,6 +130,12 @@ interface ConnectedClient {
   pid?: number;
   version?: string;
   capabilities: readonly string[];
+  /** Auth token used for this socket; absent only in explicit open mode. */
+  authToken?: HqToken;
+  /** Client-declared privacy policy; operator overrides are clamped dynamically. */
+  declaredRedactionPolicy: HqRedactionPolicy;
+  /** Highest accepted event sequence for replay/duplicate protection. */
+  lastEventSeq: number;
   /**
    * Latest mailbox snapshot keyed by mailboxId — replaces (not merges) on
    * each new `mailbox.snapshot` envelope from this client.
@@ -260,28 +277,79 @@ const MAX_NON_STRICT_PORT_SCAN = 50;
  */
 const CLIENT_TTL_MS = 60_000; // 60 s
 const CLIENT_CLEANUP_INTERVAL_MS = 30_000; // every 30 s
+const BROWSER_HEARTBEAT_INTERVAL_MS = 15_000;
+
+function setHqSecurityHeaders(res: http.ServerResponse): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://esm.sh; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data:; img-src 'self' data:; connect-src 'self' ws: wss:",
+  );
+}
+
+/** Allow non-browser clients (no Origin) and same-host browser traffic only. */
+function hasTrustedBrowserOrigin(req: http.IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  if (typeof origin !== 'string' || typeof req.headers.host !== 'string') return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      parsed.host.toLowerCase() === req.headers.host.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function decodePathSegment(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
 
 function displayHost(host: string): string {
   return host === '0.0.0.0' ? '127.0.0.1' : host;
 }
 
 /** Read the full body of an HTTP request as a UTF-8 string (capped at 1 MB). */
+class RequestBodyTooLargeError extends Error {}
+
 function readRequestBody(req: http.IncomingMessage, maxBytes = 1_000_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    let settled = false;
     req.on('data', (chunk: Buffer) => {
+      if (settled) return;
       size += chunk.length;
       if (size > maxBytes) {
-        reject(new Error('request body too large'));
-        req.destroy();
+        settled = true;
+        chunks.length = 0;
+        reject(new RequestBodyTooLargeError('request body too large'));
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => {
+      if (!settled) resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', (error) => {
+      if (!settled) reject(error);
+    });
   });
+}
+
+function writeInvalidBody(res: http.ServerResponse, error: unknown): void {
+  const tooLarge = error instanceof RequestBodyTooLargeError;
+  res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: tooLarge ? 'request body too large' : 'invalid json body' }));
 }
 
 function buildHttpUrl(host: string, port: number, token?: string): string {
@@ -339,15 +407,6 @@ function lanIPv4Addresses(): string[] {
   return out;
 }
 
-function browserTokenFromUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  try {
-    return new URL(url).searchParams.get('token') ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function writeHqStartupInfo(write: (line: string) => void, handle: HqServerHandle): void {
   const startup = handle.firstRunSetup;
   write(`WrongStack HQ listening on http://${handle.host}:${handle.port}\n`);
@@ -369,8 +428,9 @@ function writeHqStartupInfo(write: (line: string) => void, handle: HqServerHandl
   write(`  WRONGSTACK_HQ_URL=${startup.clientEnv.WRONGSTACK_HQ_URL}\n`);
   if (startup.clientEnv.WRONGSTACK_HQ_TOKEN) {
     write(`  WRONGSTACK_HQ_TOKEN=${startup.clientEnv.WRONGSTACK_HQ_TOKEN}\n`);
+    write(`Credentials are stored in ${path.join(startup.dataDir, 'auth.json')}\n`);
   }
-  writeHqLanEndpoints(write, handle, browserTokenFromUrl(startup.browserUrl));
+  writeHqLanEndpoints(write, handle, undefined);
 }
 
 /** When bound to all interfaces, print LAN URLs so other machines can reach HQ. */
@@ -574,6 +634,12 @@ function extractBrowserToken(req: http.IncomingMessage, url: URL): string | unde
   return undefined;
 }
 
+function truncateHqSummary(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}…[truncated:${value.length - maxLength}]`;
+}
+
 function startHqServerWithAuth(
   options: HqServerOptions,
   host: string,
@@ -583,26 +649,30 @@ function startHqServerWithAuth(
 ): Promise<HqServerHandle> {
   const authFile = firstRunAuth.authFile;
   // Operator override merges over the default; publisher claims are
-  // clamped against this at broadcast time (see scrubAndTruncateHqPreview
-  // call sites + the welcome handshake redactionPolicy field).
+  // clamped against this at broadcast time (event redaction call sites +
+  // the welcome handshake redactionPolicy field).
   // Mutable: the file-watcher below refreshes these on auth.json change
   // (Phase 4 live reload).
   const mutableAuth: {
     operatorPolicy: HqRedactionPolicy;
+    operatorPolicyOverride: Partial<HqRedactionPolicy> | undefined;
     browserTokens: Set<string>;
     clientTokens: Set<string>;
     /** Browser token objects keyed by token string — for capability checks. */
     browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
+    clientTokenObjs: Map<string, HqToken>;
   } = {
     operatorPolicy: {
       ...DEFAULT_HQ_REDACTION_POLICY,
       ...(authFile.redactionPolicy ?? {}),
     },
+    operatorPolicyOverride: authFile.redactionPolicy,
     browserTokens: new Set((authFile.browserTokens ?? []).map((t) => t.token)),
     clientTokens: new Set((authFile.clientTokens ?? []).map((t) => t.token)),
     browserTokenObjs: new Map(
       (authFile.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
     ),
+    clientTokenObjs: new Map((authFile.clientTokens ?? []).map((token) => [token.token, token])),
   };
 
   // Surface the resolved data directory + whether an operator override
@@ -682,21 +752,30 @@ function startHqServerWithAuth(
     // This catches crash / network-drop disconnects where the remote never
     // sent a WebSocket close frame, so the 'close' event never fires.
     const cleanupTimer = setInterval(() => {
-      const cutoff = Date.now() - CLIENT_TTL_MS;
+      const cutoff = Date.now() - (options.clientTtlMs ?? CLIENT_TTL_MS);
+      let changed = false;
       for (const [ws, client] of clients.entries()) {
         if (new Date(client.lastSeenAt).getTime() < cutoff) {
           // terminate() forces the socket closed immediately without going
           // through the WS close handshake — appropriate for dead peers.
           ws.terminate();
           clients.delete(ws);
+          changed = true;
         }
       }
-      if (clients.size > 0) snapshotBroadcaster.broadcast();
-    }, CLIENT_CLEANUP_INTERVAL_MS);
+      if (changed) snapshotBroadcaster.broadcast();
+    }, options.clientCleanupIntervalMs ?? CLIENT_CLEANUP_INTERVAL_MS);
 
     const httpServer: HttpServer = http.createServer(async (req, res) => {
       try {
       const url = new URL(req.url ?? '/', `http://${host}:${port}`);
+      setHqSecurityHeaders(res);
+
+      if (req.method !== 'GET' && req.method !== 'HEAD' && !hasTrustedBrowserOrigin(req)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'forbidden: cross-origin request' }));
+        return;
+      }
 
       // When browser TOKEN MODE is active, DATA routes (/api/*) require a
       // valid browser token; WS upgrades are gated separately below. The
@@ -743,14 +822,19 @@ function startHqServerWithAuth(
       }
 
       // ── HQ API routes ──────────────────────────────────────────────
-      if (url.pathname === '/api/snapshot') {
+      if (url.pathname === '/api/snapshot' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(buildSnapshot(clients)));
         return;
       }
 
-      if (url.pathname.startsWith('/api/projects/')) {
-        const projectId = decodeURIComponent(url.pathname.slice('/api/projects/'.length));
+      if (url.pathname.startsWith('/api/projects/') && req.method === 'GET') {
+        const projectId = decodePathSegment(url.pathname.slice('/api/projects/'.length));
+        if (projectId === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'invalid projectId encoding' } }));
+          return;
+        }
         if (!projectId) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(
@@ -834,9 +918,8 @@ function startHqServerWithAuth(
         let body: { clientId?: string; type?: string; payload?: unknown };
         try {
           body = JSON.parse(await readRequestBody(req)) as { clientId?: string; type?: string; payload?: unknown };
-        } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid json body' }));
+        } catch (error) {
+          writeInvalidBody(res, error);
           return;
         }
         if (typeof body.clientId !== 'string' || typeof body.type !== 'string') {
@@ -878,6 +961,16 @@ function startHqServerWithAuth(
         if (validated === null) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'unrecognized or malformed command', type: body.type }));
+          return;
+        }
+
+        if (validated.type === 'run-command' && !tokenHasCapability(target.authToken, 'control.execute')) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: 'forbidden: target client token lacks control.execute capability',
+            }),
+          );
           return;
         }
 
@@ -940,9 +1033,8 @@ function startHqServerWithAuth(
         };
         try {
           mbody = JSON.parse(await readRequestBody(req));
-        } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid json body' }));
+        } catch (error) {
+          writeInvalidBody(res, error);
           return;
         }
         if (typeof mbody.type !== 'string' || typeof mbody.body !== 'string') {
@@ -1056,12 +1148,16 @@ function startHqServerWithAuth(
         };
         try {
           abody = JSON.parse(await readRequestBody(req));
-        } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid json body' }));
+        } catch (error) {
+          writeInvalidBody(res, error);
           return;
         }
-        const mailId = decodeURIComponent(mailboxActionMatch[1]!);
+        const mailId = decodePathSegment(mailboxActionMatch[1]!);
+        if (mailId === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid mailId encoding' }));
+          return;
+        }
         const MAILBOX_ACTIONS = ['mark-read', 'acknowledge', 'reopen', 'soft-delete', 'restore'] as const;
         const action = MAILBOX_ACTIONS.find((a) => a === abody.action);
         if (action === undefined) {
@@ -1149,7 +1245,13 @@ function startHqServerWithAuth(
         const full = url.searchParams.get('full') === '1';
         const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
         const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
-        await handleApiSessionEvents(res, decodeURIComponent(eventsMatch[1]!), limit, full, transcripts);
+        const sessionId = decodePathSegment(eventsMatch[1]!);
+        if (sessionId === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid sessionId encoding' }));
+          return;
+        }
+        await handleApiSessionEvents(res, sessionId, limit, full, transcripts);
         return;
       }
 
@@ -1160,8 +1262,13 @@ function startHqServerWithAuth(
         /^\/api\/sessions\/([^/]+)\/agents\/([^/]+)\/messages$/,
       );
       if (sessionAgentMsgMatch && req.method === 'GET') {
-        const sid = decodeURIComponent(sessionAgentMsgMatch[1]!);
-        const aid = decodeURIComponent(sessionAgentMsgMatch[2]!);
+        const sid = decodePathSegment(sessionAgentMsgMatch[1]!);
+        const aid = decodePathSegment(sessionAgentMsgMatch[2]!);
+        if (sid === null || aid === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid session or agent id encoding' }));
+          return;
+        }
         const full = url.searchParams.get('full') === '1';
         // Prefer the FULL on-disk transcript for local sessions (complete
         // history, start to end); fall back to the live ring for remote or
@@ -1183,7 +1290,12 @@ function startHqServerWithAuth(
       // session-scoped route above.
       const agentMsgMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
       if (agentMsgMatch && req.method === 'GET') {
-        const id = decodeURIComponent(agentMsgMatch[1]!);
+        const id = decodePathSegment(agentMsgMatch[1]!);
+        if (id === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'invalid agent id encoding' }));
+          return;
+        }
         const full = url.searchParams.get('full') === '1';
         // Concatenate every ring for this bare id across sessions (best-effort
         // for old callers), plus any exact bare-key ring.
@@ -1211,11 +1323,31 @@ function startHqServerWithAuth(
 
     const wss = new WebSocketServer({ noServer: true, maxPayload: 1 * 1024 * 1024 });
 
+    const browserHeartbeatTimer = setInterval(() => {
+      const heartbeat = JSON.stringify({
+        type: 'hq.heartbeat',
+        serverTime: new Date().toISOString(),
+      });
+      for (const browser of browsers) {
+        if (browser.readyState === WebSocket.OPEN) browser.send(heartbeat);
+      }
+    }, options.browserHeartbeatIntervalMs ?? BROWSER_HEARTBEAT_INTERVAL_MS);
+    browserHeartbeatTimer.unref?.();
+
     httpServer.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', `http://${host}:${port}`);
       const pathname = url.pathname;
 
       if (pathname !== '/ws/client' && pathname !== '/ws/browser') {
+        socket.destroy();
+        return;
+      }
+
+      if (!hasTrustedBrowserOrigin(req)) {
+        socket.write(
+          'HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n' +
+            JSON.stringify({ error: { code: 'INVALID_ORIGIN', message: 'Cross-origin WebSocket upgrade rejected.' } }),
+        );
         socket.destroy();
         return;
       }
@@ -1250,11 +1382,26 @@ function startHqServerWithAuth(
       });
     });
 
-    wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, pathname: string) => {
+    wss.on('connection', (ws: WebSocket, req: http.IncomingMessage, pathname: string) => {
       if (pathname === '/ws/browser') {
         handleBrowser(ws, snapshotBroadcaster, browsers);
       } else {
-        handleClient(ws, clients, browsers, eventLog, mutableAuth.operatorPolicy, snapshotBroadcaster, transcripts, agentMessages, persistence, auditLog);
+        const token = new URL(req.url ?? '/', `http://${host}:${port}`).searchParams.get('token');
+        handleClient(
+          ws,
+          clients,
+          browsers,
+          eventLog,
+          {
+            ...(token ? { token: mutableAuth.clientTokenObjs.get(token) } : {}),
+            getOperatorPolicy: () => mutableAuth.operatorPolicyOverride,
+          },
+          snapshotBroadcaster,
+          transcripts,
+          agentMessages,
+          persistence,
+          auditLog,
+        );
       }
     });
 
@@ -1269,10 +1416,14 @@ function startHqServerWithAuth(
           ...DEFAULT_HQ_REDACTION_POLICY,
           ...(next.redactionPolicy ?? {}),
         };
+        mutableAuth.operatorPolicyOverride = next.redactionPolicy;
         mutableAuth.browserTokens = new Set((next.browserTokens ?? []).map((t) => t.token));
         mutableAuth.clientTokens = new Set((next.clientTokens ?? []).map((t) => t.token));
         mutableAuth.browserTokenObjs = new Map(
           (next.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
+        );
+        mutableAuth.clientTokenObjs = new Map(
+          (next.clientTokens ?? []).map((token) => [token.token, token]),
         );
         console.warn(JSON.stringify({
           level: 'info',
@@ -1346,6 +1497,7 @@ function startHqServerWithAuth(
               }
               closed = true;
               clearInterval(cleanupTimer);
+              clearInterval(browserHeartbeatTimer);
               clearInterval(timeseriesFlushTimer);
               stopAlertEngine();
               authWatcher.close();
@@ -1413,7 +1565,10 @@ function handleClient(
   clients: Map<WebSocket, ConnectedClient>,
   browsers: Set<WebSocket>,
   eventLog: HqEventEnvelope[],
-  operatorPolicy: HqRedactionPolicy,
+  auth: {
+    token?: HqToken | undefined;
+    getOperatorPolicy: () => Partial<HqRedactionPolicy> | undefined;
+  },
   snapshotBroadcaster: HqSnapshotBroadcaster,
   transcripts: Map<string, TranscriptRing>,
   agentMessages: Map<string, HqTranscriptEntry[]>,
@@ -1468,10 +1623,31 @@ function handleClient(
     const frame = parsed.frame;
 
     if (frame.type === 'client.hello') {
+      if (registered) {
+        ws.close(1008, 'duplicate client.hello');
+        return;
+      }
       const payload = frame.payload;
       if (payload.protocolVersion !== HQ_PROTOCOL_VERSION) {
         ws.close(1008, 'protocol version mismatch');
         return;
+      }
+
+      const canPublishTelemetry =
+        auth.token === undefined || tokenHasCapability(auth.token, 'telemetry.publish');
+      const acceptedCapabilities = payload.capabilities.filter(
+        (capability) => capability === 'control.receive' || canPublishTelemetry,
+      );
+      const declaredRedactionPolicy = resolveHqRedactionPolicy(payload.redactionPolicy);
+
+      // A reconnect may overlap the old socket's close handshake. Keep one
+      // authoritative connection per clientId so control commands never land
+      // on a superseded process/socket.
+      for (const [otherWs, otherClient] of clients) {
+        if (otherWs !== ws && otherClient.clientId === payload.client.clientId) {
+          clients.delete(otherWs);
+          otherWs.close(4001, 'superseded by a newer HQ connection');
+        }
       }
 
       const client: ConnectedClient = {
@@ -1485,7 +1661,10 @@ function handleClient(
         ...(payload.client.hostname ? { hostname: payload.client.hostname } : {}),
         ...(payload.client.pid ? { pid: payload.client.pid } : {}),
         ...(payload.client.version ? { version: payload.client.version } : {}),
-        capabilities: payload.capabilities,
+        capabilities: acceptedCapabilities,
+        ...(auth.token !== undefined ? { authToken: auth.token } : {}),
+        declaredRedactionPolicy,
+        lastEventSeq: 0,
         mailboxes: new Map(),
         machineId: payload.client.machineId || payload.project.machineId,
         sessions: new Map(),
@@ -1504,10 +1683,13 @@ function handleClient(
         type: 'hq.welcome',
         protocolVersion: HQ_PROTOCOL_VERSION,
         serverTime: new Date().toISOString(),
-        acceptedCapabilities: payload.capabilities,
+        acceptedCapabilities,
         // The operator-configured override (from <dataDir>/auth.json) wins
         // over the default. The client learns the *effective* policy.
-        redactionPolicy: operatorPolicy,
+        redactionPolicy: tightenHqRedactionPolicy(
+          declaredRedactionPolicy,
+          auth.getOperatorPolicy(),
+        ),
       };
       ws.send(JSON.stringify(welcome));
 
@@ -1535,14 +1717,22 @@ function handleClient(
     if (frame.type === 'client.command_poll') {
       const client = clients.get(ws);
       if (client) {
+        if (frame.clientId !== client.clientId || frame.projectId !== client.projectId) {
+          ws.close(1008, 'command poll identity mismatch');
+          return;
+        }
         client.lastSeenAt = new Date().toISOString();
         const afterId = frame.afterCommandId;
+        const limit = frame.limit ?? 25;
         let toSend: HqQueuedCommand[];
         if (afterId === undefined) {
-          toSend = client.commandQueue.slice();
+          toSend = client.commandQueue.slice(0, limit);
         } else {
           const idx = client.commandQueue.findIndex((c) => c.commandId === afterId);
-          toSend = idx >= 0 ? client.commandQueue.slice(idx + 1) : client.commandQueue.slice();
+          toSend = (idx >= 0 ? client.commandQueue.slice(idx + 1) : client.commandQueue).slice(
+            0,
+            limit,
+          );
         }
         if (toSend.length > 0) {
           const batch = JSON.stringify({ type: 'hq.command_batch', commands: toSend });
@@ -1551,32 +1741,78 @@ function handleClient(
             auditLog?.update(cmd.commandId, { status: 'delivered' });
           }
         }
-        // Bounded queue: drop delivered commands older than the cursor to
-        // avoid unbounded growth on a long-lived client.
-        const limit = frame.limit ?? 25;
-        if (client.commandQueue.length > Math.max(limit * 4, 100)) {
-          client.commandQueue.splice(0, client.commandQueue.length - Math.max(limit * 4, 100));
-        }
       }
       return;
     }
 
     if (frame.type === 'client.command_ack') {
       const client = clients.get(ws);
-      if (client) client.lastSeenAt = new Date().toISOString();
-      auditLog?.update(frame.commandId, {
-        status: 'acked',
-        ackStatus: frame.status,
-        ...(frame.message !== undefined ? { ackMessage: frame.message } : {}),
-        ackedAt: new Date().toISOString(),
-      });
+      if (client) {
+        if (frame.clientId !== client.clientId || frame.projectId !== client.projectId) {
+          ws.close(1008, 'command ack identity mismatch');
+          return;
+        }
+        client.lastSeenAt = new Date().toISOString();
+      }
+      if (client) {
+        auditLog?.updateForClient(frame.commandId, client.clientId, {
+          status: 'acked',
+          ackStatus: frame.status,
+          ...(frame.message !== undefined ? { ackMessage: frame.message } : {}),
+          ackedAt: new Date().toISOString(),
+        });
+      }
       return;
     }
 
     if (frame.type === 'client.event') {
-      const event = frame.event;
       const client = clients.get(ws);
-      if (client) client.lastSeenAt = new Date().toISOString();
+      if (!client) return;
+      const incomingEvent = frame.event;
+      if (
+        incomingEvent.clientId !== client.clientId ||
+        incomingEvent.projectId !== client.projectId
+      ) {
+        ws.close(1008, 'event identity mismatch');
+        return;
+      }
+      if (!tokenHasCapability(client.authToken, 'telemetry.publish') && auth.token !== undefined) {
+        ws.close(1008, 'client token lacks telemetry.publish capability');
+        return;
+      }
+      if (incomingEvent.seq <= client.lastEventSeq) {
+        ws.close(1008, 'event sequence must increase monotonically');
+        return;
+      }
+      const parsedPayload = parseHqEventPayload(incomingEvent.type, incomingEvent.payload);
+      if (!parsedPayload.ok) {
+        // A single malformed telemetry payload must not take down an otherwise
+        // healthy publisher connection. Drop it before sequence advancement;
+        // identity/auth violations above still close the socket.
+        return;
+      }
+      client.lastEventSeq = incomingEvent.seq;
+      client.lastSeenAt = new Date().toISOString();
+      const event = redactHqEvent(
+        { ...incomingEvent, payload: parsedPayload.payload },
+        {
+          policy: tightenHqRedactionPolicy(
+            client.declaredRedactionPolicy,
+            auth.getOperatorPolicy(),
+          ),
+          projectRoot: client.project.projectRoot,
+          // Chat-transcript events carry full turns — the generic 500-char
+          // summary cap would truncate them a second time after the
+          // publisher already applied the transcript cap.
+          ...(incomingEvent.type === 'session.transcript' || incomingEvent.type === 'agent.message'
+            ? { maxSummaryLength: HQ_TRANSCRIPT_TEXT_CAP }
+            : {}),
+        },
+      ).value;
+
+      if (event.type === 'client.heartbeat') {
+        return;
+      }
 
       // Mailbox snapshots are authoritative rollups — adopt them into the
       // per-client mailbox map and re-broadcast the global snapshot so the
@@ -1600,17 +1836,16 @@ function handleClient(
       }
 
       // Mailbox events are transient — validate the payload so a malformed
-      // envelope cannot leak garbage to the browser live feed, and scrub +
-      // truncate the optional `summary` preview so unbounded or secret-laden
-      // text is sanitized before being stored in the event log and
-      // broadcast to browsers.
+      // envelope cannot leak garbage to the browser live feed, and truncate
+      // the optional `summary` preview before storing it in the event log and
+      // broadcasting to browsers.
       if (event.type === 'mailbox.event') {
         const payloadResult = parseHqEventPayload(event.type, event.payload);
         if (!payloadResult.ok) {
           return;
         }
         const payload = payloadResult.payload as HqMailboxEventPayload;
-        const sanitizedSummary = scrubAndTruncateHqPreview(payload.summary, 280);
+        const sanitizedSummary = truncateHqSummary(payload.summary, 280);
         const sanitizedEvent =
           sanitizedSummary === undefined
             ? event

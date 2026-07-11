@@ -1687,6 +1687,10 @@ export type WSServerMessage =
       type: 'brain.event';
       payload: SessionScopedPayload & Record<string, unknown> & { event: string };
     }
+  | {
+      type: 'memory.event';
+      payload: SessionScopedPayload & Record<string, unknown> & { event: string };
+    }
   | { type: 'session.damaged'; payload: { sessionId: string; detail: string } }
   | {
       type: 'session.rewound';

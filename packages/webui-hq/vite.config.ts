@@ -15,16 +15,15 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          markdown: ['react-markdown', 'remark-gfm', 'rehype-highlight'],
-          icons: ['lucide-react'],
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/node_modules[\\/](react|react-dom)[\\/]/.test(id)) return 'vendor';
+          if (/node_modules[\\/](react-markdown|remark-gfm|rehype-highlight)[\\/]/.test(id)) return 'markdown';
+          if (id.includes('node_modules/lucide-react/')) return 'icons';
+          return undefined;
         },
       },
     },
-  },
-  esbuild: {
-    target: 'esnext',
   },
   server: {
     port: 5174,

@@ -178,6 +178,13 @@ interface UIState {
   toggleTerminal: () => void;
   requestTerminalCreate: () => void;
 
+  /** Agent detail modal (triggered from side-panel agent row click). */
+  agentDetailModalId: string | null;
+  setAgentDetailModalId: (id: string | null) => void;
+  /** Context breakdown modal (triggered from side-panel session panel). */
+  sideContextBreakdownOpen: boolean;
+  setSideContextBreakdownOpen: (open: boolean) => void;
+
   /** Skills panel breadcrumb state — persisted so history survives panel switches. */
   skillsState: {
     /** The skill currently shown in the detail pane. */
@@ -301,6 +308,8 @@ function homeNavigationStatePatch(
     agentsMonitorOpen: false,
     processMonitorOpen: false,
     queuePanelOpen: false,
+    agentDetailModalId: null,
+    sideContextBreakdownOpen: false,
     inspectorOpen: false,
     terminalOpen: false,
     paletteOpen: false,
@@ -354,6 +363,8 @@ export const useUIStore = create<UIState>()(
       queuePanelOpen: false,
       terminalOpen: false,
       terminalCreateNonce: 0,
+      agentDetailModalId: null,
+      sideContextBreakdownOpen: false,
       selectedMailMessage: null,
       skillsState: {
         selectedSkill: null,
@@ -454,6 +465,8 @@ export const useUIStore = create<UIState>()(
       setTerminalOpen: (open: boolean) => set({ terminalOpen: open }),
       toggleTerminal: () => set((s) => ({ terminalOpen: !s.terminalOpen })),
       requestTerminalCreate: () => set((s) => ({ terminalCreateNonce: s.terminalCreateNonce + 1 })),
+      setAgentDetailModalId: (id: string | null) => set({ agentDetailModalId: id }),
+      setSideContextBreakdownOpen: (open: boolean) => set({ sideContextBreakdownOpen: open }),
       setSkillsState: (state) => set({ skillsState: state }),
       setSelectedMailMessage: (msg) => set({ selectedMailMessage: msg }),
     }),

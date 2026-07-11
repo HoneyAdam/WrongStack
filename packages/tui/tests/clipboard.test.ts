@@ -7,7 +7,16 @@ describe('readClipboardImage', () => {
     // we test here is: the function is safe to call and either returns
     // a structured ClipboardImage or null. It must NOT throw when the
     // clipboard is empty / no image is present / tooling is missing.
-    const result = await readClipboardImage();
+    // The single sanctioned throw is the >10MB size guard — the developer's
+    // real clipboard may legitimately hold a huge image while the suite
+    // runs, so treat that documented error as a pass, not a flake.
+    let result: Awaited<ReturnType<typeof readClipboardImage>>;
+    try {
+      result = await readClipboardImage();
+    } catch (err) {
+      expect((err as Error).message).toMatch(/exceeds \d+MB limit/);
+      return;
+    }
     if (result === null) {
       expect(result).toBeNull();
     } else {

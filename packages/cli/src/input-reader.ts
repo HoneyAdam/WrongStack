@@ -251,9 +251,25 @@ export class ReadlineInputReader implements InputReader {
     return new Promise<string>((resolve) => {
       let buf = '';
       const wasRaw = stdin.isRaw;
-      setRawMode(stdin, true);
-      stdin.resume();
-      stdin.setEncoding('utf8');
+      const cleanup = () => {
+        stdin.off('data', onData);
+        setRawMode(stdin, wasRaw);
+        stdin.pause();
+      };
+
+      // setRawMode/resume must be inside try-catch so cleanup always
+      // runs on setup failure — otherwise stdin stays in raw mode and
+      // the terminal becomes unusable.
+      try {
+        setRawMode(stdin, true);
+        stdin.resume();
+        stdin.setEncoding('utf8');
+      } catch (setupErr) {
+        // Restore state before propagating
+        setRawMode(stdin, wasRaw);
+        stdin.pause();
+        throw setupErr;
+      }
 
       const eraseChar = () => {
         // Move cursor back, overwrite with space, move back again.
@@ -275,10 +291,13 @@ export class ReadlineInputReader implements InputReader {
             return;
           }
           if (ch === '') {
-            // Ctrl+C
+            // Ctrl+C — resolve with empty string like readLine/readKey
+            // instead of process.exit(130), so the event bus cleanup,
+            // session save, and log flush handlers have a chance to run.
             cleanup();
             writeOut('\n');
-            process.exit(130);
+            resolve('');
+            return;
           }
           if (ch === '') {
             // Ctrl+U — clear line
@@ -306,11 +325,6 @@ export class ReadlineInputReader implements InputReader {
           buf += ch;
           writeOut('•');
         }
-      };
-      const cleanup = () => {
-        stdin.off('data', onData);
-        setRawMode(stdin, wasRaw);
-        stdin.pause();
       };
       stdin.on('data', onData);
     });

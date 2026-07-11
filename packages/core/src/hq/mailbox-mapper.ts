@@ -6,7 +6,7 @@ import type {
   HqMailboxSnapshotPayload,
   HqRedactionPolicy,
 } from './protocol.js';
-import { redactHqValue } from './redaction.js';
+import { scrubAndTruncateHqPreview } from './redaction.js';
 
 export interface HqMailboxMappingOptions {
   mailboxId: string;
@@ -24,9 +24,12 @@ export type HqMailboxEventAction = HqMailboxEventPayload['action'];
 
 function previewText(value: string | undefined, maxLength: number, policy?: Partial<HqRedactionPolicy>): string | undefined {
   if (value === undefined || value.length === 0) return undefined;
-  const redacted = redactHqValue(value, { maxSummaryLength: maxLength, policy: { rawContent: true, ...policy } }).value;
-  if (redacted.length <= maxLength) return redacted;
-  return `${redacted.slice(0, maxLength)}…`;
+  if (policy?.rawContent === false) return '[REDACTED:hq_raw_content]';
+  if (policy?.rawContent === true) {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength)}…`;
+  }
+  return scrubAndTruncateHqPreview(value, maxLength);
 }
 
 function readCount(message: MailboxMessage): number {

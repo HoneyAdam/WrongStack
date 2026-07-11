@@ -6,7 +6,7 @@ import {
 } from '@wrongstack/webui-server';
 
 describe('pending confirm resolution', () => {
-  it('auto-approves only non-destructive confirms when YOLO is enabled', () => {
+  it('auto-approves every pending confirm when YOLO is enabled', () => {
     const pending = new Map<string, PendingConfirm>();
     const decisions: string[] = [];
     pending.set('safe', {
@@ -21,9 +21,9 @@ describe('pending confirm resolution', () => {
 
     resolveYoloEligiblePendingConfirms(pending);
 
-    expect(decisions).toEqual(['safe:yes']);
+    expect(decisions).toEqual(['safe:yes', 'destructive:yes']);
     expect(pending.has('safe')).toBe(false);
-    expect(pending.has('destructive')).toBe(true);
+    expect(pending.has('destructive')).toBe(false);
   });
 
   it('resolves every pending confirm with the provided decision', () => {

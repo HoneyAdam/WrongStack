@@ -1,5 +1,5 @@
 import { internalPlan, packageNames, processPlan, unavailable } from '../profile-helpers.js';
-import type { LanguageProfile, ProfileContext } from '../types.js';
+import type { LanguageOperation, LanguageProfile, ProfileContext } from '../types.js';
 
 const COMMON_IGNORES = Object.freeze([
   '.git',
@@ -24,16 +24,16 @@ function nodeManager(ctx: ProfileContext): string | undefined {
   return ctx.workspace.packageManager ?? 'npm';
 }
 
-function scriptPlan(ctx: ProfileContext, operation: 'test' | 'build', script: string) {
+function scriptPlan(ctx: ProfileContext, operation: string, script: string) {
   const manager = nodeManager(ctx);
   if (!manager)
     return unavailable(
       ctx,
-      operation,
+      operation as LanguageOperation,
       'Conflicting Node lockfiles make the package manager ambiguous.',
     );
   const args = manager === 'npm' ? ['run', script] : [script];
-  return processPlan(ctx, operation, manager, args, {
+  return processPlan(ctx, operation as LanguageOperation, manager, args, {
     parser: 'command-text',
     reason: `Run the detected ${manager} ${script} script for this workspace.`,
     mutating: true,
@@ -117,6 +117,7 @@ function typescriptProfile(): LanguageProfile {
             )
           : scriptPlan(ctx, 'test', 'test'),
       build: async (ctx) => scriptPlan(ctx, 'build', 'build'),
+      run: async (ctx) => scriptPlan(ctx, 'run', 'dev'),
       'debug-compile': async (ctx) => {
         const run = nodeExec(ctx, 'tsc', ['--noEmit', '--pretty', 'false']);
         return processPlan(ctx, 'debug-compile', run.command, run.args, {
@@ -274,6 +275,12 @@ const goProfile: LanguageProfile = {
         mutating: true,
         executesProjectCode: true,
       }),
+    run: async (ctx) =>
+      processPlan(ctx, 'run', 'go', ['run', '.'], {
+        parser: 'command-text',
+        reason: 'Run the Go module entry point.',
+        executesProjectCode: true,
+      }),
     'debug-race': async (ctx) =>
       processPlan(ctx, 'debug-race', 'go', ['test', '-race', './...'], {
         parser: 'go-test',
@@ -379,6 +386,12 @@ const rustProfile: LanguageProfile = {
         parser: 'cargo-json',
         reason: 'Build the Rust workspace.',
         mutating: true,
+        executesProjectCode: true,
+      }),
+    run: async (ctx) =>
+      processPlan(ctx, 'run', 'cargo', ['run'], {
+        parser: 'command-text',
+        reason: 'Run the Rust workspace entry point.',
         executesProjectCode: true,
       }),
     'package-install': async (ctx) =>
@@ -618,6 +631,13 @@ const csharpProfile: LanguageProfile = {
       processPlan(ctx, 'build', 'dotnet', ['build', '--no-restore'], {
         parser: 'dotnet-build',
         reason: 'Build the nearest .NET project or solution without restoring packages.',
+        mutating: true,
+        executesProjectCode: true,
+      }),
+    run: async (ctx) =>
+      processPlan(ctx, 'run', 'dotnet', ['run', '--no-restore'], {
+        parser: 'command-text',
+        reason: 'Run the .NET project entry point.',
         mutating: true,
         executesProjectCode: true,
       }),

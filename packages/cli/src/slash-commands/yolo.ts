@@ -10,12 +10,11 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
     help: [
       'Usage:',
       '  /yolo              Show current YOLO status',
-      '  /yolo on           Enable YOLO mode (auto-approve normal project work)',
+      '  /yolo on           Enable YOLO mode (auto-approve tool calls)',
       '  /yolo off          Disable YOLO mode (restore permission prompts)',
-      '  /yolo destructive  Show destructive confirmation gate status',
+      '  /yolo destructive  Show deprecated destructive-gate compatibility status',
       '',
-      'YOLO mode auto-approves normal project work, including shell/build/test/write flows.',
-      'Clearly destructive operations still require explicit confirmation.',
+      'YOLO mode auto-approves tool calls unless an explicit deny rule blocks them.',
     ].join('\n'),
     async run(args) {
       const arg = args.trim().toLowerCase();
@@ -30,7 +29,7 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
       if (!arg) {
         const current = opts.onYolo();
         const status = current
-          ? `${color.yellow('ON')} ${color.dim('(auto-approving normal project work)')}`
+          ? `${color.yellow('ON')} ${color.dim('(auto-approving tool calls)')}`
           : `${color.green('OFF')} ${color.dim('(permission prompts active)')}`;
         const msg = `YOLO mode: ${status}`;
         opts.renderer.write(msg);
@@ -48,11 +47,11 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
       } else if (arg === 'destructive') {
         const currentMode = opts.onYolo();
         if (!currentMode) {
-          const msg = `${color.amber('YOLO is OFF.')} Destructive operations still require confirmation when YOLO is enabled.`;
+          const msg = `${color.amber('YOLO is OFF.')} Destructive-gate flags are deprecated; prompts are active because YOLO is off.`;
           opts.renderer.writeWarning(msg);
           return { message: msg };
         }
-        const msg = `${color.amber('Destructive gate:')} ${color.dim('ON — YOLO is enabled, but clearly destructive operations still require confirmation.')}`;
+        const msg = `${color.amber('Destructive gate:')} ${color.dim('deprecated — YOLO auto-approves all non-denied tool calls.')}`;
         opts.renderer.writeWarning(msg);
         return { message: msg };
       } else {
@@ -63,7 +62,7 @@ export function buildYoloCommand(opts: SlashCommandContext): SlashCommand {
 
       opts.onYolo(newState);
       const label = newState
-        ? `${color.yellow('ENABLED')} — normal project tool calls will be auto-approved`
+        ? `${color.yellow('ENABLED')} — tool calls will be auto-approved unless explicitly denied`
         : `${color.green('DISABLED')} — permission prompts are active`;
       const msg = `YOLO mode: ${label}`;
       opts.renderer.write(msg);

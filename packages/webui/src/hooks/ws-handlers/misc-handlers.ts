@@ -124,7 +124,7 @@ export function handlePrefsUpdated(msg: WSServerMessage) {
   (useLocalPrefs.getState().set as (patch: Record<string, unknown>) => void)(p);
   if (p['yolo'] === true) {
     const confirm = useUIStore.getState().confirmInfo;
-    if (confirm && confirm.riskTier !== 'destructive' && confirm.decisionSource !== 'yolo_destructive') {
+    if (confirm) {
       useUIStore.getState().hideConfirm();
     }
   }
@@ -199,6 +199,25 @@ export function handleBrainEvent(msg: WSServerMessage) {
   } else if (p.event === 'brain.decision_denied') {
     toast.warn(`Brain denied: ${p.decision?.reason ?? p.request?.question ?? 'request'}`);
   }
+}
+
+export function handleMemoryEvent(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
+  const payload = msg.payload as Record<string, unknown> & { event: string };
+  useVizStore.getState().pushEvent({
+    id: `memory_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    kind: 'memory:event',
+    timestamp: Date.now(),
+    source: 'super-memory',
+    target: 'leader',
+    label: payload.event.replace(/^memory\./, ''),
+    data: payload,
+    color: '#a78bfa',
+    flowGroup: 'memory',
+  });
+  if (payload.event === 'memory.staled') toast.warn(`Memory became stale: ${String(payload['memoryId'] ?? '')}`);
+  else if (payload.event === 'memory.contradicted') toast.warn(`Memory contradicted: ${String(payload['memoryId'] ?? '')}`);
+  else if (payload.event === 'memory.hygiene_completed') toast.info('Super Memory hygiene completed');
 }
 
 export function handleCollabEvent(msg: WSServerMessage) {
@@ -356,6 +375,7 @@ export const miscHandlerMap: Partial<Record<string, (msg: WSServerMessage) => vo
   'brain.status': handleBrainStatus,
   'brain.answer': handleBrainAnswer,
   'brain.event': handleBrainEvent,
+  'memory.event': handleMemoryEvent,
   'collab.event': handleCollabEvent,
   'collab.injection.granted': handleCollabInjectionGranted,
   'eternal.iteration': handleEternalIteration,

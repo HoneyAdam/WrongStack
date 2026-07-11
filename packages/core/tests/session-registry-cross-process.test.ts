@@ -379,6 +379,78 @@ describe('lock resilience', () => {
     expect(healed!.agents[0]?.toolCalls).toBe(7);
   });
 
+  it('recovers from a crash-zeroed (all-NUL) registry file instead of wedging writes', async () => {
+    // A system crash can leave the registry zero-filled: NTFS journals the
+    // rename metadata but the data blocks were never flushed. JSON.parse of
+    // NUL bytes used to throw inside atomicUpdate's try, silently dropping
+    // EVERY future write — no session could ever register again (Fleet HQ
+    // permanently empty, /api/sessions/:id/* permanently 404).
+    const root = await freshRoot();
+    const registryPath = path.join(root, 'session-registry.json');
+    await fs.writeFile(registryPath, ' '.repeat(6088), 'utf8');
+
+    const reg = new SessionRegistry(root);
+    expect(await reg.list()).toHaveLength(0); // read is corruption-tolerant
+
+    await reg.register({
+      sessionId: 'sess-zeroed',
+      projectSlug: 'ws',
+      projectRoot: '/ws',
+      projectName: 'WS',
+      workingDir: '/ws',
+      clientType: 'tui',
+      pid: 6010,
+      startedAt: new Date().toISOString(),
+    });
+
+    // The write healed the file: valid JSON with our entry.
+    const raw = await fs.readFile(registryPath, 'utf8');
+    expect(() => JSON.parse(raw)).not.toThrow();
+    const listed = await reg.list();
+    expect(listed.find((s) => s.sessionId === 'sess-zeroed')).toBeDefined();
+  });
+
+  it('recovers from a torn (invalid JSON) registry file', async () => {
+    const root = await freshRoot();
+    const registryPath = path.join(root, 'session-registry.json');
+    await fs.writeFile(registryPath, '{"sess-a": {"sessionId": "sess-a", "pro', 'utf8');
+
+    const reg = new SessionRegistry(root);
+    await reg.register({
+      sessionId: 'sess-torn',
+      projectSlug: 'ws',
+      projectRoot: '/ws',
+      projectName: 'WS',
+      workingDir: '/ws',
+      pid: 6011,
+      startedAt: new Date().toISOString(),
+    });
+
+    const listed = await reg.list();
+    expect(listed.find((s) => s.sessionId === 'sess-torn')).toBeDefined();
+  });
+
+  it('treats a registry file holding a non-object JSON value as empty', async () => {
+    const root = await freshRoot();
+    const registryPath = path.join(root, 'session-registry.json');
+    await fs.writeFile(registryPath, '[1,2,3]', 'utf8');
+
+    const reg = new SessionRegistry(root);
+    expect(await reg.list()).toHaveLength(0);
+
+    await reg.register({
+      sessionId: 'sess-nonobject',
+      projectSlug: 'ws',
+      projectRoot: '/ws',
+      projectName: 'WS',
+      workingDir: '/ws',
+      pid: 6012,
+      startedAt: new Date().toISOString(),
+    });
+    const listed = await reg.list();
+    expect(listed.find((s) => s.sessionId === 'sess-nonobject')).toBeDefined();
+  });
+
   it('self-heals a missing entry on heartbeat', async () => {
     const root = await freshRoot();
     const registryPath = path.join(root, 'session-registry.json');

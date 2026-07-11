@@ -27,6 +27,7 @@ const mockConfig = {
 } as any;
 
 const mockWpaths = {
+  projectRoot: '/repo',
   projectSessions: '/tmp/sessions',
   configDir: '/tmp/config',
   projectTrust: '/tmp/trust.json',

@@ -7,26 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// Mock JSZip before importing the component helpers
-vi.mock('jszip', () => ({
-  default: {
-    loadAsync: vi.fn((_bytes: Uint8Array) => {
-      // Return a minimal zip-like object that the decode path expects
-      const _content: Record<string, string> = {};
-      return Promise.resolve({
-        file: (name: string) => ({
-          async: (type: string) => {
-            if (type === 'string' && name === 'api-design/SKILL.md') {
-              return '# API Design\n\nSkill body.';
-            }
-            return undefined;
-          },
-        }),
-      });
-    }),
-  },
-}));
+import { createZipBuffer } from '@wrongstack/webui-server';
 
 // ── Mock browser APIs ───────────────────────────────────────────────────
 
@@ -222,12 +203,7 @@ describe('handleExportAll', () => {
   });
 
   it('base64-decodes the zip and triggers a download', async () => {
-    // Create a real JSZip zip with known content. vi.importActual bypasses the
-    // file-level jszip mock so we get the real constructor for encoding.
-    const JSZip = (await vi.importActual<typeof import('jszip')>('jszip')).default;
-    const zip = new JSZip();
-    zip.file('api-design/SKILL.md', API_DESIGN_BODY);
-    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const zipBuffer = createZipBuffer([{ name: 'api-design/SKILL.md', data: API_DESIGN_BODY }]);
     const zipBase64 = zipBuffer.toString('base64');
 
     const response = { zipBase64, skillCount: 1, error: undefined as string | undefined };

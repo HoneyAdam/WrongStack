@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
-import { decryptConfigSecrets } from '../security/secret-vault.js';
+import { decryptConfigSecrets } from '../security/config-secrets.js';
 import {
   type Config,
   type ConfigLoader,
@@ -85,12 +85,38 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     tokenSavingMode: 'off',
     allowOutsideProjectRoot: true,
   },
+  superMemory: {
+    enabled: true,
+    storage: {
+      projectLocal: true,
+      directory: '.wrongstack/memories',
+    },
+    inject: {
+      turnContext: true,
+      toolResults: true,
+      maxHintsPerTool: 4,
+      maxCharsPerTool: 1200,
+      maxTurnMemories: 8,
+      maxCharsPerTurn: 2400,
+      minScore: 0.65,
+      repeatCooldownMs: 30 * 60_000,
+    },
+    hygiene: {
+      autoAfterSession: true,
+      autoOnFileChange: true,
+      retentionDays: 90,
+      archiveLowConfidenceAfterDays: 30,
+    },
+    embeddings: {
+      enabled: false,
+    },
+  },
   skills: { readClaudeSkills: true },
   mcpServers: {},
   fallbackAuto: true,
   maxConcurrent: 4,
-  // YOLO on by default: auto-approve normal project work without a per-call
-  // prompt. Destructive operations still gate through a confirmation. Users
+  // YOLO on by default: auto-approve non-denied tool calls without a per-call
+  // prompt. Users
   // who want the per-call prompts set `yolo: false`. Existing installs whose
   // config lacks this key pick it up via fillMissingDefaults; an explicit
   // `false` is preserved by the deep-merge (opt-out respected).
@@ -109,8 +135,8 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
   autonomy: {
     // 'auto' by default: the agent self-drives (picks the top next-step after
     // each turn). This is a startup default, not a runtime flip — the
-    // autoProceedMaxIterations cap + autoProceedDelayMs cooldown + destructive
-    // gate + Ctrl+C / [GOAL_COMPLETE] stops remain in force. Explicit 'off'
+    // autoProceedMaxIterations cap + autoProceedDelayMs cooldown + Ctrl+C /
+    // [GOAL_COMPLETE] stops remain in force. Explicit 'off'
     // in a config file is preserved (opt-out respected).
     defaultMode: 'auto',
     autoProceedDelayMs: DEFAULT_AUTONOMY_CONFIG.autoProceedDelayMs,
@@ -291,6 +317,7 @@ type PartialConfig = Partial<Config> & {
  *   - `circuitBreaker`     — process circuit-breaker config (process gating).
  *   - `adaptiveConcurrency` — adaptive concurrency controller.
  *   - `modelRuntime`       — runtime reasoning/cache/parameters.
+ *   - `superMemory`        — benign local memory storage/injection/hygiene knobs.
  *
  * Fields deliberately NOT in the allow-list (and therefore always stripped
  * from `<project>/.wrongstack/config.json`) — see `KNOWN_DENIED_IN_PROJECT`
@@ -303,6 +330,7 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'context',
   'tools',
   'features',
+  'superMemory',
   'skills',
   'autonomy',
   'indexing',
@@ -357,6 +385,9 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
  *                      credential / command fields → RCE / secret exposure.
  *   - `hq`           — carries `token` (HQ client credential) and `url`
  *                      (HQ endpoint, similar to `baseUrl`).
+ *   - `git`          — carries `identity` (commit author/committer env
+ *                      injection); a malicious repo could spoof who appears
+ *                      to have authored the user's commits.
  */
 const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = [
   { key: 'provider', reason: 'Provider id override; can intercept prompts/responses.' },
@@ -375,6 +406,11 @@ const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = 
     key: 'fleet',
     reason:
       'Fleet supervision knobs: a repo-committed config could enable autonomous subagent spawning/steering/termination and mailbox traffic on the victim machine.',
+  },
+  {
+    key: 'git',
+    reason:
+      'Carries git.identity (GIT_AUTHOR_*/GIT_COMMITTER_* injection): a repo-committed config could spoof the author identity written into the victim\'s commit history (impersonation).',
   },
 ];
 
@@ -415,6 +451,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'plugins',
   'log',
   'features',
+  'superMemory',
   'skills',
   'yolo',
   'nextPrediction',
@@ -434,6 +471,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'extensions',
   'acp',
   'fleet',
+  'git',
 ]);
 
 /**
@@ -598,6 +636,24 @@ export function stripUnsafeInProjectFields(
     }
   }
 
+  // `superMemory` is benign except for `storage.directory`: that value is a
+  // filesystem write destination and accepts absolute paths in trusted user
+  // config. A repo-committed config must not redirect memory logs outside the
+  // project, so only the destination override is stripped.
+  const outSuperMemory = (out as Record<string, unknown>)['superMemory'];
+  if (outSuperMemory && typeof outSuperMemory === 'object') {
+    const storage = (outSuperMemory as Record<string, unknown>)['storage'];
+    if (storage && typeof storage === 'object' && 'directory' in (storage as Record<string, unknown>)) {
+      const clonedStorage = { ...(storage as Record<string, unknown>) };
+      delete clonedStorage['directory'];
+      (out as Record<string, unknown>)['superMemory'] = {
+        ...(outSuperMemory as Record<string, unknown>),
+        storage: clonedStorage,
+      };
+      stripped.push('superMemory.storage.directory');
+    }
+  }
+
   if (stripped.length > 0) {
     warn(
       JSON.stringify({
@@ -708,7 +764,7 @@ export class DefaultConfigLoader implements ConfigLoader {
   }
 
   async load(
-    opts: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined } = {},
+    opts: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined; skipIdentityValidation?: boolean } = {},
   ): Promise<Config> {
     let cfg: PartialConfig = { ...BEHAVIOR_DEFAULTS } as PartialConfig;
 
@@ -826,7 +882,7 @@ export class DefaultConfigLoader implements ConfigLoader {
     }
 
     this.validateBehavior(cfg);
-    if (this.strict) {
+    if (this.strict && !opts.skipIdentityValidation) {
       this.validateIdentity(cfg);
     }
     // In strict mode, validateIdentity has confirmed provider/model are set;

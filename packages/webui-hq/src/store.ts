@@ -92,6 +92,9 @@ function wireClient(): void {
   if (wired) return;
   wired = true;
   const client = getHqClient();
+  client.onStateChange((connectionState) => {
+    setState({ connected: connectionState === 'connected' });
+  });
   client.on((msg) => {
     if (msg.type === 'hq.snapshot') {
       setState({ snapshot: msg.snapshot, connected: true });

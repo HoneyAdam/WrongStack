@@ -130,8 +130,8 @@ MCP tool names use the `mcp__<serverName>__<toolName>` namespace — calls to
 
 **Fix options**:
 ```bash
-# Allow normal project work for this session
-/yolo on                          # clearly destructive calls may still ask
+# Auto-approve non-denied tool calls for this session
+/yolo on
 
 # Or allow specific pattern permanently
 # When prompted: press 'a' to always-allow

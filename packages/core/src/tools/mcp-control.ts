@@ -98,10 +98,10 @@ export function createMcpControlTool(opts: CreateMcpControlToolOptions): Tool {
     mutating: true,
     // `enable`/`restart` spawn a server process that, for the stdio presets,
     // fetches and runs an npm package (`npx -y <pkg>`) — effectively remote
-    // code execution. Marking the tool destructive means YOLO still prompts
-    // before it runs (plain non-YOLO already confirms via the CONFIG_MUTATE
-    // dangerous-capability net in the executor). Read-only actions
-    // (list/search) ride the same tool but are cheap to confirm/trust once.
+    // code execution. Marking the tool destructive preserves risk metadata for
+    // UI/audit surfaces; YOLO itself still auto-approves unless an explicit
+    // deny rule blocks the call. Read-only actions (list/search) ride the same
+    // tool but are cheap to confirm/trust once when YOLO is off.
     riskTier: 'destructive',
     capabilities: [ToolCapabilities.CONFIG_MUTATE],
     inputSchema,

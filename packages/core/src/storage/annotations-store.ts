@@ -76,12 +76,18 @@ export interface AnnotationsStoreOptions {
   dir: string;
   events?: EventBus;
   traceId?: string;
+  /**
+   * Override the max annotations per session (default 1000).
+   * Exposed for tests to avoid 1001 sequential disk writes on every eviction test.
+   */
+  maxAnnotations?: number;
 }
 
 export class AnnotationsStore {
   private readonly dir: string;
   private readonly events: EventBus | undefined;
   private readonly traceId: string | undefined;
+  private readonly maxAnnotations: number;
   /** Per-session write queue. Created lazily on first add. */
   private readonly writeChains = new Map<string, Promise<void>>();
 
@@ -89,6 +95,7 @@ export class AnnotationsStore {
     this.dir = opts.dir;
     this.events = opts.events;
     this.traceId = opts.traceId;
+    this.maxAnnotations = opts.maxAnnotations ?? MAX_ANNOTATIONS;
   }
 
   // ── Reads ──────────────────────────────────────────────────────────────
@@ -197,7 +204,7 @@ export class AnnotationsStore {
           const all = await this.list(input.sessionId);
           all.push(annotation);
           // Evict oldest if we crossed the cap. Resolved first, then oldest.
-          if (all.length > MAX_ANNOTATIONS) {
+          if (all.length > this.maxAnnotations) {
             const sorted = all
               .map((a, i) => ({ a, i }))
               .sort((x, y) => {
@@ -206,7 +213,7 @@ export class AnnotationsStore {
                 if (x.a.resolved !== y.a.resolved) return x.a.resolved ? 1 : -1;
                 return x.a.createdAt.localeCompare(y.a.createdAt);
               });
-            const evictCount = all.length - MAX_ANNOTATIONS;
+            const evictCount = all.length - this.maxAnnotations;
             const toEvict = new Set(sorted.slice(0, evictCount).map((s) => s.a.id));
             const kept = all.filter((a) => !toEvict.has(a.id));
             await this.writeFile(input.sessionId, { version: FILE_VERSION, annotations: kept });

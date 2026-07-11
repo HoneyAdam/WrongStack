@@ -1,0 +1,45 @@
+{
+  "name": "@wrongstack/super-memory",
+  "version": "0.285.0",
+  "license": "MIT",
+  "description": "WrongStack Super Memory: project-local JSONL memory, graph-ready anchors, retrieval, and hygiene primitives.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WrongStack/WrongStack.git",
+    "directory": "packages/super-memory"
+  },
+  "homepage": "https://github.com/WrongStack/WrongStack#readme",
+  "bugs": "https://github.com/WrongStack/WrongStack/issues",
+  "author": "ECOSTACK TECHNOLOGY OÜ",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run --config vitest.config.ts",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@wrongstack/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AutoExecutor } from '../src/auto-executor.js';
 import { EventBus } from '@wrongstack/core/kernel/events.js';
-import { DefaultTaskStore } from '../src/task-generator.js';
+import { DefaultTaskStore } from '@wrongstack/core/tasking';
 import { TaskTracker } from '../src/task-tracker.js';
 import type { TaskNode, TaskGraph } from '@wrongstack/core/types/task-graph.js';
 import type { Specification } from '@wrongstack/core/types/spec.js';

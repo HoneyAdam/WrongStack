@@ -81,6 +81,7 @@ describe.skipIf(!E2E)('HQ visual smoke (WSTACK_E2E=1)', () => {
             workspaceKind: 'git',
           },
           capabilities: ['telemetry.publish', 'session.summary', 'control.receive'],
+          redactionPolicy: { rawContent: true, toolArgs: 'summary', paths: 'project-relative' },
         },
       });
       await new Promise((r) => setTimeout(r, 300));

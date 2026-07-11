@@ -85,7 +85,7 @@ describe('handlePrefsUpdate', () => {
     expect(pendingConfirms.size).toBe(0);
   });
 
-  it('leaves destructive pending confirmations unresolved when yolo is enabled', () => {
+  it('approves destructive pending confirmations when yolo is enabled', () => {
     const { ctx, pendingConfirms } = makeCtx();
     const decisions: string[] = [];
     pendingConfirms.set('confirm_safe', {
@@ -100,9 +100,9 @@ describe('handlePrefsUpdate', () => {
 
     handlePrefsUpdate(ctx, FAKE_WS, { yolo: true });
 
-    expect(decisions).toEqual(['safe:yes']);
+    expect(decisions).toEqual(['safe:yes', 'destructive:yes']);
     expect(pendingConfirms.has('confirm_safe')).toBe(false);
-    expect(pendingConfirms.has('confirm_destructive')).toBe(true);
+    expect(pendingConfirms.has('confirm_destructive')).toBe(false);
   });
 });
 

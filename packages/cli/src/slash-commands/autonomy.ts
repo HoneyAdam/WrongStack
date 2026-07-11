@@ -44,12 +44,12 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
       '  auto     — After each turn, agent picks the best next step and continues.',
       '             Runs indefinitely until you press Esc or Ctrl+C.',
       '  eternal  — Goal-driven sense/decide/execute/reflect loop. Requires /goal.',
-      '             Force-enables regular YOLO; destructive-gated calls still use',
-      '             the permission flow. Runs until /autonomy stop or Ctrl+C twice.',
+      '             Force-enables YOLO; tool calls run without approval unless',
+      '             an explicit deny rule blocks them. Runs until /autonomy stop or Ctrl+C twice.',
       '  parallel — Fan-out 4–8 subagents per tick. Each tick decomposes the goal,',
       '             spawns N agents, awaits results, aggregates. Requires /goal.',
-      '             Force-enables regular YOLO; destructive-gated calls still use',
-      '             the permission flow. Runs until /autonomy stop or Ctrl+C twice.',
+      '             Force-enables YOLO; tool calls run without approval unless',
+      '             an explicit deny rule blocks them. Runs until /autonomy stop or Ctrl+C twice.',
       '',
       'Eternal stage flow: decide → execute → reflect → sleep | paused | stopped',
       'Stage shown in real-time. Use /goal pause to pause, /goal resume to continue.',
@@ -251,7 +251,7 @@ export function buildAutonomyCommand(opts: SlashCommandContext): SlashCommand {
             : `${color.red('ETERNAL')} mode`;
         const msg =
           `Autonomy mode: ${modeLabel} — engine launching against goal: ${color.bold(goal.goal)}\n` +
-          `${color.dim('Regular YOLO enabled; destructive-gated calls still use the permission flow. Use /autonomy stop to end. Journal at /goal journal.')}`;
+          `${color.dim('YOLO enabled; tool calls run without approval unless an explicit deny rule blocks them. Use /autonomy stop to end. Journal at /goal journal.')}`;
         opts.renderer.write(msg);
         return { message: msg };
       }

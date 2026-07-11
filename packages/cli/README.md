@@ -20,7 +20,7 @@ wstack --tui                  # Ink-based TUI
 wstack desktop                # Electron desktop app (same as --desktop)
 wstack webui                  # project WebUI (same as --webui)
 wstack hq                     # project-independent HQ dashboard (same as --hq)
-wstack --yolo                 # auto-approve normal project work; destructive calls still prompt
+wstack --yolo                 # auto-approve tool calls unless explicitly denied
 wstack "refactor src/auth.ts" # one-shot query (no interactive loop)
 
 wstack --provider <id> --model <id>   # skip the picker
@@ -101,9 +101,9 @@ API keys are encrypted at rest with AES-256-GCM and the key file at `~/.wrongsta
 | `--desktop` | Open WrongStack Desktop (also `wstack desktop`) |
 | `--webui` | Serve the project WebUI (also `wstack webui`) |
 | `--hq` | Start the project-independent HQ dashboard (also `wstack hq`) |
-| `--yolo` | Auto-approve normal in-project tool calls |
-| `--confirm-destructive` | Deprecated; destructive confirmations are always on in YOLO |
-| `--yolo-destructive` | Deprecated compatibility flag; destructive calls still prompt |
+| `--yolo` | Auto-approve tool calls unless explicitly denied |
+| `--confirm-destructive` | Deprecated compatibility flag; YOLO no longer prompts by destructiveness |
+| `--yolo-destructive` | Deprecated compatibility flag; YOLO no longer prompts by destructiveness |
 | `--force-all-yolo` | Deprecated alias for `--yolo-destructive` |
 | `--provider <id>` | Override the configured provider |
 | `--model <id>` | Override the configured model |

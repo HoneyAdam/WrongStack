@@ -56,6 +56,7 @@ const LANGUAGE_IDS: LanguageProfileId[] = [
   'swift',
   'dart',
   'elixir',
+  'deno',
   'shell',
 ];
 

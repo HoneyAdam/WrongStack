@@ -1,5 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import {
+  detectLanguageWorkspaces,
+  languageProfileRegistry,
+  planLanguageOperation,
+} from '@wrongstack/tools/languages';
 
 export interface ProjectFacts {
   build?: string | undefined;
@@ -23,19 +28,6 @@ async function pathExists(file: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** True if the root directory contains a file ending in any of `suffixes`
- *  (case-insensitive). Used to detect glob-y manifests like `*.csproj`. */
-async function hasRootFileWithSuffix(root: string, suffixes: string[]): Promise<boolean> {
-  let names: string[];
-  try {
-    names = await fs.readdir(root);
-  } catch {
-    return false;
-  }
-  const lower = suffixes.map((s) => s.toLowerCase());
-  return names.some((n) => lower.some((s) => n.toLowerCase().endsWith(s)));
 }
 
 /**
@@ -266,33 +258,6 @@ export async function detectProjectFacts(root: string): Promise<ProjectFacts> {
     /* not node */
   }
   try {
-    if (!(await pathExists(path.join(root, 'pyproject.toml')))) throw new Error('not python');
-    facts.test ??= 'pytest';
-    facts.lint ??= 'ruff check .';
-    facts.hints.push('pyproject.toml');
-  } catch {
-    /* not python */
-  }
-  try {
-    if (!(await pathExists(path.join(root, 'go.mod')))) throw new Error('not go');
-    facts.build ??= 'go build ./...';
-    facts.test ??= 'go test ./...';
-    facts.run ??= 'go run .';
-    facts.hints.push('go.mod');
-  } catch {
-    /* not go */
-  }
-  try {
-    if (!(await pathExists(path.join(root, 'Cargo.toml')))) throw new Error('not rust');
-    facts.build ??= 'cargo build';
-    facts.test ??= 'cargo test';
-    facts.lint ??= 'cargo clippy';
-    facts.run ??= 'cargo run';
-    facts.hints.push('Cargo.toml');
-  } catch {
-    /* not rust */
-  }
-  try {
     const makefile = await fs.readFile(path.join(root, 'Makefile'), 'utf8');
     const targets = parseMakeTargets(makefile);
     facts.build ??= targets.has('build') ? 'make build' : 'make';
@@ -304,123 +269,31 @@ export async function detectProjectFacts(root: string): Promise<ProjectFacts> {
   } catch {
     /* no make */
   }
-  // PHP / Composer
-  try {
-    const composer = JSON.parse(await fs.readFile(path.join(root, 'composer.json'), 'utf8')) as {
-      scripts?: Record<string, unknown>;
-    };
-    const scripts = composer.scripts ?? {};
-    if ('test' in scripts) facts.test ??= 'composer test';
-    if ('lint' in scripts) facts.lint ??= 'composer lint';
-    facts.hints.push('composer.json');
-  } catch {
-    /* not php */
-  }
-  // Java — Maven
-  try {
-    if (!(await pathExists(path.join(root, 'pom.xml')))) throw new Error('not maven');
-    facts.build ??= 'mvn package';
-    facts.test ??= 'mvn test';
-    facts.hints.push('pom.xml');
-  } catch {
-    /* not maven */
-  }
-  // JVM — Gradle (prefer the wrapper when present)
-  try {
-    const hasGradle =
-      (await pathExists(path.join(root, 'build.gradle'))) ||
-      (await pathExists(path.join(root, 'build.gradle.kts')));
-    if (!hasGradle) throw new Error('not gradle');
-    const g = (await pathExists(path.join(root, 'gradlew'))) ? './gradlew' : 'gradle';
-    facts.build ??= `${g} build`;
-    facts.test ??= `${g} test`;
-    facts.hints.push('Gradle');
-  } catch {
-    /* not gradle */
-  }
-  // .NET
-  try {
-    const hasDotnet =
-      (await pathExists(path.join(root, 'global.json'))) ||
-      (await hasRootFileWithSuffix(root, ['.csproj', '.fsproj', '.sln']));
-    if (!hasDotnet) throw new Error('not dotnet');
-    facts.build ??= 'dotnet build';
-    facts.test ??= 'dotnet test';
-    facts.run ??= 'dotnet run';
-    facts.hints.push('.NET project');
-  } catch {
-    /* not dotnet */
-  }
-  // Elixir
-  try {
-    if (!(await pathExists(path.join(root, 'mix.exs')))) throw new Error('not elixir');
-    facts.build ??= 'mix compile';
-    facts.test ??= 'mix test';
-    facts.lint ??= 'mix format --check-formatted';
-    facts.run ??= 'mix run';
-    facts.hints.push('mix.exs');
-  } catch {
-    /* not elixir */
-  }
-  // Dart / Flutter
-  try {
-    if (!(await pathExists(path.join(root, 'pubspec.yaml')))) throw new Error('not dart');
-    facts.test ??= 'dart test';
-    facts.lint ??= 'dart analyze';
-    facts.hints.push('pubspec.yaml');
-  } catch {
-    /* not dart */
-  }
-  // Deno
-  try {
-    const hasDeno =
-      (await pathExists(path.join(root, 'deno.json'))) ||
-      (await pathExists(path.join(root, 'deno.jsonc')));
-    if (!hasDeno) throw new Error('not deno');
-    facts.test ??= 'deno test';
-    facts.lint ??= 'deno lint';
-    facts.hints.push('deno.json');
-  } catch {
-    /* not deno */
-  }
-  // Swift
-  try {
-    if (!(await pathExists(path.join(root, 'Package.swift')))) throw new Error('not swift');
-    facts.build ??= 'swift build';
-    facts.test ??= 'swift test';
-    facts.run ??= 'swift run';
-    facts.hints.push('Package.swift');
-  } catch {
-    /* not swift */
-  }
-  // Ruby
-  try {
-    if (!(await pathExists(path.join(root, 'Gemfile')))) throw new Error('not ruby');
-    if (await pathExists(path.join(root, 'Rakefile'))) facts.test ??= 'bundle exec rake test';
-    facts.hints.push('Gemfile');
-  } catch {
-    /* not ruby */
-  }
-  // C / C++ — CMake (standard out-of-source build)
-  try {
-    if (!(await pathExists(path.join(root, 'CMakeLists.txt')))) throw new Error('not cmake');
-    facts.build ??= 'cmake -B build && cmake --build build';
-    facts.test ??= 'ctest --test-dir build';
-    facts.hints.push('CMakeLists.txt');
-  } catch {
-    /* not cmake */
-  }
-  // Older / pip-style Python (no pyproject.toml)
-  try {
-    const hasPip =
-      (await pathExists(path.join(root, 'requirements.txt'))) ||
-      (await pathExists(path.join(root, 'setup.py'))) ||
-      (await pathExists(path.join(root, 'setup.cfg')));
-    if (!hasPip) throw new Error('not pip');
-    facts.test ??= 'pytest';
-    facts.hints.push('requirements.txt');
-  } catch {
-    /* not pip-python */
+  // Language registry — one pass replaces 15 ecosystem-specific try/catch blocks.
+  // Fills gaps (??=) so package.json scripts and Makefile targets take priority.
+  // Only fills commands when evidence is authoritative (manifest/config/lockfile),
+  // NOT when the profile only matched via source-file extension heuristics — that
+  // path leaves commands undefined so the source scan fallback can still run.
+  const detection = await detectLanguageWorkspaces({ projectRoot: root });
+  for (const workspace of detection.workspaces) {
+    const profile = languageProfileRegistry.get(workspace.language);
+    if (!profile) continue;
+    const authoritative = workspace.evidence.some((e) => e.kind !== 'source');
+    if (authoritative) {
+      for (const op of ['build', 'test', 'lint', 'run'] as const) {
+        if (facts[op] !== undefined) continue;
+        const plan = await planLanguageOperation({
+          projectRoot: root,
+          operation: op,
+          language: workspace.language,
+        });
+        if (plan.status === 'planned') {
+          const cmd = [plan.plan.command, ...plan.plan.args].join(' ');
+          facts[op] = cmd;
+        }
+      }
+    }
+    facts.hints.push(profile.id);
   }
   // CI workflows are the strongest evidence for projects with thin/odd manifests:
   // these commands actually run on every push. Fills only gaps left above.

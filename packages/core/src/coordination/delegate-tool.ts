@@ -87,9 +87,8 @@ export interface CreateDelegateToolOptions {
 }
 
 /**
- * `delegate` — the only multi-agent tool a regular (non-director) agent
- * ever needs. It bundles spawn + assign + await into a single call and
- * transparently auto-promotes the host into director mode on first use.
+ * `delegate` — the compact multi-agent tool exposed after Director mode is
+ * enabled. It bundles spawn + assign + await into a single call.
  *
  * The model never has to ask "are we in director mode?" — it just calls
  * `delegate({ role, task })` and gets back a `TaskResult`. The cost of
@@ -186,13 +185,17 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
     description:
       "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and its own budget — use this when a task is self-contained, would otherwise blow up your context, or benefits from a specialized role (bug-hunter, security-scanner, refactor-planner, audit-log). For free-form coding tasks (not tied to a pre-defined role), pass `name` + `task` — the subagent runs as a general-purpose coding agent with a large default budget. YOU decide how big the budget is: pass `timeoutMs`, `maxIterations`, and `maxToolCalls` sized to the actual work. There is no hidden cap forcing a 3-minute / 80-iteration limit — if a monorepo audit needs 2 hours and 500 tool calls, ask for that. Call multiple delegates in parallel through the provider's parallel-tool-call surface to fan work out across roles.",
     usageHint:
-      "Set `task` to a complete instruction. Either pick `role` from the roster (audit-log, bug-hunter, refactor-planner, security-scanner) or pass `name` to run a free-form coding agent. For non-trivial work, also pass `timeoutMs`, `maxIterations`, and `maxToolCalls`. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Auto-promotes the host into director mode on first call.",
+      "Set `task` to a complete instruction. Either pick `role` from the roster (audit-log, bug-hunter, refactor-planner, security-scanner) or pass `name` to run a free-form coding agent. For non-trivial work, also pass `timeoutMs`, `maxIterations`, and `maxToolCalls`. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Requires Director mode to be active in normal CLI sessions.",
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema,
-    async execute(input: unknown) {
+    async execute(input: unknown, _ctx?: unknown, execOpts?: { signal?: AbortSignal }) {
       const sessionId = opts.directorRunId;
+      // Executor-provided abort signal (leader interrupt, Esc, timeout).
+      // Without honoring it, this tool blocks the whole agent loop until the
+      // subagent finishes — /interrupt could never unwind a delegating run.
+      const abortSignal = execOpts?.signal;
       const i = (input ?? {}) as {
         task?: string | undefined;
         role?: string | undefined;
@@ -210,6 +213,14 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
 
       if (typeof i.task !== 'string' || !i.task.trim()) {
         return { ok: false, error: '`task` is required.' };
+      }
+
+      if (abortSignal?.aborted) {
+        return {
+          ok: false,
+          stopReason: 'aborted' as const,
+          error: 'Delegation cancelled before spawn — the run was interrupted.',
+        };
       }
 
       // Human-friendly label for the subagent — surfaced in the
@@ -311,11 +322,14 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         // the host timeout. Mirrors the budget's heartbeat auto-extend.
         const dir = director;
         const result = await new Promise<
-          TaskResult | { __timeout: true } | { __emptyResult: true }
+          TaskResult | { __timeout: true } | { __emptyResult: true } | { __aborted: true }
         >((resolve) => {
           let settled = false;
           let timer: ReturnType<typeof setTimeout> | undefined;
-          const finish = (value: TaskResult | { __timeout: true } | { __emptyResult: true }) => {
+          let offAbort = () => {};
+          const finish = (
+            value: TaskResult | { __timeout: true } | { __emptyResult: true } | { __aborted: true },
+          ) => {
             /* v8 ignore next -- race-only: finish is only re-entered if the timer fires after awaitTasks settled */
             if (settled) return;
             settled = true;
@@ -323,6 +337,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             offTool();
             offIter();
             offProgress();
+            offAbort();
             resolve(value);
           };
           const arm = () => {
@@ -338,12 +353,53 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           // and other long-duration tools — these are forward motion events
           // that should reset the idle timer just like iteration.started does.
           const offProgress = dir.fleet.filter('tool.progress', bump);
+          // Leader abort (/interrupt, Esc) must break this wait immediately.
+          // The heartbeat re-arm above would otherwise keep the wait alive for
+          // as long as the (un-aborted) subagent keeps emitting events.
+          if (abortSignal) {
+            const onAbortSignal = () => finish({ __aborted: true });
+            abortSignal.addEventListener('abort', onAbortSignal, { once: true });
+            offAbort = () => abortSignal.removeEventListener('abort', onAbortSignal);
+            if (abortSignal.aborted) onAbortSignal();
+          }
           arm();
           dir
             .awaitTasks([taskId])
             .then((r) => finish(r[0] ?? { __emptyResult: true }))
             .catch(() => finish({ __timeout: true }));
         });
+
+        if ('__aborted' in result) {
+          // Stop the spawned subagent so it doesn't keep burning budget after
+          // the leader was interrupted — terminate() aborts its in-flight run
+          // and the coordinator records a 'stopped' completion for the task.
+          try {
+            await dir.terminate(subagentId);
+          } catch {
+            /* best-effort */
+          }
+          const partial = await readSubagentPartial(opts, subagentId);
+          opts.events?.emit('delegate.completed', {
+            sessionId,
+            target,
+            task: i.task,
+            ok: false,
+            status: 'aborted',
+            summary: `[${target}] aborted — the run was interrupted`,
+            durationMs: 0,
+            iterations: partial?.events ?? 0,
+            toolCalls: partial?.toolUsesObserved ?? 0,
+            subagentId,
+          });
+          return {
+            ok: false,
+            stopReason: 'aborted' as const,
+            error: 'Delegated task aborted — the run was interrupted.',
+            subagentId,
+            taskId,
+            partial,
+          };
+        }
 
         if ('__timeout' in result) {
           const partial = await readSubagentPartial(opts, subagentId);

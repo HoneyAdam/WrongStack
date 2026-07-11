@@ -32,7 +32,7 @@ import * as syncFs from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { decryptConfigSecrets } from '../security/secret-vault.js';
+import { decryptConfigSecrets } from '../security/config-secrets.js';
 import type { ProviderConfig } from '../types/config.js';
 import type { SecretVault } from '../types/secret-vault.js';
 

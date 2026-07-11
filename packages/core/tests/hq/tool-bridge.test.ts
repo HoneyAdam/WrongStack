@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { HqToolCompletedPayload, HqToolStartedPayload } from '../../src/hq/protocol.js';
+import type { HqRedactionPolicy, HqToolCompletedPayload, HqToolStartedPayload } from '../../src/hq/protocol.js';
 import type { HqPublisher } from '../../src/hq/publisher.js';
 import { startToolTelemetryBridge } from '../../src/hq/tool-bridge.js';
 import { EventBus } from '../../src/kernel/events.js';
 
-function fakePublisher(spy: ReturnType<typeof vi.fn>): HqPublisher {
+function fakePublisher(spy: ReturnType<typeof vi.fn>, redactionPolicy?: Partial<HqRedactionPolicy>): HqPublisher {
   return {
+    redactionPolicy,
     publishEvent: (o: { type: string; payload: unknown }) => {
       spy(o);
       return {} as never;
@@ -14,7 +15,7 @@ function fakePublisher(spy: ReturnType<typeof vi.fn>): HqPublisher {
 }
 
 describe('startToolTelemetryBridge', () => {
-  it('forwards tool.started with summarized input', () => {
+  it('forwards tool.started with raw input by default', () => {
     const events = new EventBus();
     const spy = vi.fn();
     const publisher = fakePublisher(spy);
@@ -29,8 +30,7 @@ describe('startToolTelemetryBridge', () => {
     expect(call.type).toBe('tool.started');
     const payload: HqToolStartedPayload = call.payload;
     expect(payload.toolName).toBe('bash');
-    expect(payload.inputSummary).toBeDefined();
-    expect(typeof payload.inputSummary).toBe('object');
+    expect(payload.inputSummary).toEqual({ command: 'echo hello', cwd: '/proj' });
     stop();
   });
 
@@ -75,7 +75,7 @@ describe('startToolTelemetryBridge', () => {
     expect(payload.status).toBe('error');
   });
 
-  it('redacts sensitive keys in tool input', () => {
+  it('keeps sensitive keys in tool input by default', () => {
     const events = new EventBus();
     const spy = vi.fn();
     const publisher = fakePublisher(spy);
@@ -87,7 +87,38 @@ describe('startToolTelemetryBridge', () => {
     });
     const payload: HqToolStartedPayload = spy.mock.calls[0]![0].payload;
     const summary = payload.inputSummary as Record<string, unknown>;
-    expect(summary.apiKey).toBe('[REDACTED:hq_sensitive_field]');
+    expect(summary.apiKey).toBe('sk-secret-123');
+  });
+
+  it('keeps secrets in tool output summaries by default', () => {
+    const events = new EventBus();
+    const spy = vi.fn();
+    startToolTelemetryBridge({ events, publisher: fakePublisher(spy) });
+    const secret = 'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    events.emit('tool.executed', {
+      name: 'bash',
+      durationMs: 10,
+      ok: true,
+      output: `token=${secret}`,
+    });
+    const payload: HqToolCompletedPayload = spy.mock.calls[0]![0].payload;
+    expect(String(payload.outputSummary)).toContain(secret);
+  });
+
+  it('scrubs secrets from tool output summaries when raw content is disabled', () => {
+    const events = new EventBus();
+    const spy = vi.fn();
+    startToolTelemetryBridge({ events, publisher: fakePublisher(spy, { rawContent: false }) });
+    const secret = 'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    events.emit('tool.executed', {
+      name: 'bash',
+      durationMs: 10,
+      ok: true,
+      output: `token=${secret}`,
+    });
+    const payload: HqToolCompletedPayload = spy.mock.calls[0]![0].payload;
+    expect(String(payload.outputSummary)).not.toContain(secret);
+    expect(String(payload.outputSummary)).toContain('[REDACTED:github_pat]');
   });
 
   it('disposer unsubscribes both listeners', () => {

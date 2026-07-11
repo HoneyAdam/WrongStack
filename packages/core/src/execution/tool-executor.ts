@@ -316,12 +316,11 @@ export class ToolExecutor {
       // project, mcp proxy, etc.). This reduces the blast radius of prompt injection.
       let effectivePermission = decision.permission;
 
-      // YOLO is the user's explicit fast-path for normal project work, so it
-      // waives the post-policy dangerous-capability net only after the permission
-      // policy has already returned `auto`. Destructive-gated calls still arrive
-      // here as `confirm` unless the destructive YOLO override is active. Outside
-      // YOLO, a trust-file auto-allow for a shell tool still gets a confirm, so a
-      // single trusted pattern can't silently widen into arbitrary shell.
+      // YOLO is the user's explicit fast-path, so it waives the post-policy
+      // dangerous-capability net after the permission policy has returned
+      // `auto`. Outside YOLO, a trust-file auto-allow for a shell tool still
+      // gets a confirm, so a single trusted pattern can't silently widen into
+      // arbitrary shell.
       // Detected via optional methods so policies without them (AutoApprove,
       // test mocks) keep the stricter default.
       const policy = this.opts.permissionPolicy;
@@ -357,12 +356,40 @@ export class ToolExecutor {
 
       if (effectivePermission === 'confirm') {
         if (this.opts.confirmAwaiter) {
-          const choice = await this.opts.confirmAwaiter(tool, use.input, use.id, tool.name);
+          // Race the interactive prompt against the run's abort signal so an
+          // interrupt never leaves the executor blocked on a confirmation
+          // nobody will answer. 'abort' produces a distinct (non-deny) error
+          // result — no trust/deny bookkeeping happens for an interrupt.
+          const awaiter = this.opts.confirmAwaiter;
+          const choice = await new Promise<'yes' | 'no' | 'always' | 'deny' | 'abort'>(
+            (resolve, reject) => {
+              const signal = ctx.signal;
+              const onAbort = () => resolve('abort');
+              if (signal.aborted) {
+                resolve('abort');
+                return;
+              }
+              signal.addEventListener('abort', onAbort, { once: true });
+              awaiter(tool, use.input, use.id, tool.name).then(
+                (c) => {
+                  signal.removeEventListener('abort', onAbort);
+                  resolve(c);
+                },
+                (e) => {
+                  signal.removeEventListener('abort', onAbort);
+                  reject(e);
+                },
+              );
+            },
+          );
           if (choice !== 'yes' && choice !== 'always') {
             const result = {
               type: 'tool_result' as const,
               tool_use_id: use.id,
-              content: `Tool "${tool.name}" denied by user.`,
+              content:
+                choice === 'abort'
+                  ? `Tool "${tool.name}" was not executed — the run was aborted while awaiting confirmation.`
+                  : `Tool "${tool.name}" denied by user.`,
               is_error: true,
             };
             budget = this.budgetForString(result.content, budget);
@@ -668,29 +695,61 @@ export class ToolExecutor {
     const combined = AbortSignal.any([parentSignal, timeoutSignal]);
 
     let output: unknown;
+    // Streaming variant takes precedence — yields progress events, then
+    // a final 'final' event with the typed output. Tools that don't
+    // implement executeStream fall through to the standard execute path.
+    // The async IIFE also captures a synchronous throw from execute() as
+    // a rejection so the race below observes it.
+    const toolPromise: Promise<unknown> =
+      typeof tool.executeStream === 'function'
+        ? this.runStreamedTool(tool, input, ctx, combined, toolUseId)
+        : (async () => tool.execute(input, ctx, { signal: combined }))();
+    // Side branch: when the race exits early on abort, the still-running
+    // tool promise must not surface its eventual rejection as an
+    // unhandled-rejection crash.
+    toolPromise.catch(() => {});
     try {
-      // Streaming variant takes precedence — yields progress events, then
-      // a final 'final' event with the typed output. Tools that don't
-      // implement executeStream fall through to the standard execute path.
-      output =
-        typeof tool.executeStream === 'function'
-          ? await this.runStreamedTool(tool, input, ctx, combined, toolUseId)
-          : await tool.execute(input, ctx, { signal: combined });
+      // Race the tool against the combined abort/timeout signal. A tool
+      // that honors the signal rejects on its own; a tool that IGNORES it
+      // (e.g. a blocking fleet wait like `delegate` or `await_tasks`)
+      // would otherwise pin the agent loop forever — the abort check in
+      // agent-loop only runs after executeTools() settles. The race
+      // guarantees the executor itself unblocks the moment the signal
+      // fires, so /interrupt, Esc, and timeouts can always unwind the run.
+      output = await new Promise<unknown>((resolve, reject) => {
+        const onAbort = () => {
+          // One macrotask of grace: a signal-honoring tool typically rejects
+          // with its own (richer) error from its abort listener, which ran
+          // before this one. Deferring our generic rejection past the pending
+          // microtask chain (promise adoption included) lets the tool's error
+          // win, while a signal-IGNORING tool is still cut off within ~1ms.
+          setTimeout(() => reject(abortReasonToError(combined.reason)), 0);
+        };
+        combined.addEventListener('abort', onAbort, { once: true });
+        toolPromise.then(
+          (v) => {
+            combined.removeEventListener('abort', onAbort);
+            resolve(v);
+          },
+          (e) => {
+            combined.removeEventListener('abort', onAbort);
+            reject(e);
+          },
+        );
+      });
     } catch (err) {
       // If aborted, run cleanup before re-throwing so the tool can release
       // resources (child processes, file handles, network connections).
       if (combined.aborted) await this.runToolCleanup(tool, input, ctx);
       throw err;
     }
-    // The tool returned without throwing, but the signal may have aborted (e.g.
-    // a timeout fired) while a tool that ignores the abort signal kept running.
-    // Treat that as an abort: clean up and surface the abort to the caller so a
-    // late, stale result is never returned as success.
+    // The tool returned without throwing, but the signal may have aborted
+    // in the same tick a signal-ignoring tool resolved. Treat that as an
+    // abort: clean up and surface the abort to the caller so a late, stale
+    // result is never returned as success.
     if (combined.aborted) {
       await this.runToolCleanup(tool, input, ctx);
-      throw combined.reason instanceof Error
-        ? combined.reason
-        : new Error(typeof combined.reason === 'string' ? combined.reason : 'tool timeout');
+      throw abortReasonToError(combined.reason);
     }
     return output;
   }
@@ -903,6 +962,13 @@ function clampTimeoutMs(timeoutMs: number, maxTimeoutMs: number): number {
   const finiteTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : fallback;
   const finiteMax = Number.isFinite(maxTimeoutMs) && maxTimeoutMs > 0 ? maxTimeoutMs : fallback;
   return Math.max(1, Math.min(finiteTimeout, finiteMax));
+}
+
+/** Normalize an AbortSignal reason (Error | string | undefined) to an Error. */
+function abortReasonToError(reason: unknown): Error {
+  return reason instanceof Error
+    ? reason
+    : new Error(typeof reason === 'string' ? reason : 'tool timeout');
 }
 
 /**

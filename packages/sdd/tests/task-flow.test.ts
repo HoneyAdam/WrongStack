@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventBus } from '@wrongstack/core/kernel/events.js';
 import { SpecDrivenDev, TaskFlow } from '../src/task-flow.js';
-import { DefaultTaskStore } from '../src/task-generator.js';
+import { DefaultTaskStore } from '@wrongstack/core/tasking';
 import { TaskTracker } from '../src/task-tracker.js';
 import type { Specification } from '@wrongstack/core/types/spec.js';
 import type { TaskNode } from '@wrongstack/core/types/task-graph.js';

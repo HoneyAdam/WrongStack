@@ -49,7 +49,7 @@ import type {
   ToolResultRenderModeConfig,
   WstackPaths,
 } from '@wrongstack/core';
-import { applyToolDescriptionModes, applyToolResultRenderModes, createContextManagerTool, makeFleetStatusTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
+import { applyToolDescriptionModes, applyToolResultRenderModes, configureChildEnvGitIdentity, createContextManagerTool, makeFleetStatusTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
 import { builtinToolsPack, configureDangerBypass, configureExecPolicy, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from '@wrongstack/tools';
 import { configureAutophasePolicy } from '../autophase-host.js';
 import type { TokenSavingTier } from '@wrongstack/core';
@@ -73,6 +73,9 @@ export interface RegisterBuiltinToolsDeps {
               }
             | undefined;
         }
+      | undefined;
+    git?:
+      | { identity?: { name?: string | undefined; email?: string | undefined } | undefined }
       | undefined;
   };
   memoryStore: MemoryStore | null | undefined;
@@ -181,4 +184,7 @@ export function registerBuiltinTools(deps: RegisterBuiltinToolsDeps): void {
   // (added to autophase's narrower base), so non-JS projects (go/cargo/…) can
   // run their verify command without confirmation when the user allowed it.
   configureAutophasePolicy(deps.config.tools?.exec ?? {});
+  // Commit identity for every git-touching child process. Trusted-config-only:
+  // the loader strips `git` from repo-committed in-project configs.
+  configureChildEnvGitIdentity(deps.config.git?.identity ?? null);
 }

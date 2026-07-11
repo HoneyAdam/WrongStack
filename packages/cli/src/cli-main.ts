@@ -60,7 +60,7 @@ import { launchEternalFromFlag } from './cli-eternal-flag.js';
 import { promptRecovery } from './cli-recovery-prompt.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
 import { refreshRuntimeModelCatalog } from './context-limit.js';
-import { type ExecutionDeps, execute } from './execution.js';
+import { execute } from './execution.js';
 import { createCliHqPublisher } from './hq-publisher.js';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from './plugin-management.js';
 import { buildPickableProviders } from './provider-helpers.js';
@@ -76,7 +76,6 @@ import {
   DEFAULTS,
   STATUSLINE_CONFIG_KEYS,
   ensureStatuslineConfig,
-  loadStatuslineConfig,
   saveStatuslineConfig,
   type StatuslineConfigKey,
 } from './slash-commands/statusline.js';
@@ -84,6 +83,15 @@ import { getSuggestions, setSuggestions } from './slash-commands/suggestion-stor
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { CLI_VERSION } from './version.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
+import { toExecuteDeps } from './wiring/to-execute-deps.js';
+import {
+  createAgentsMonitorController,
+  createEnhanceController,
+  createFleetStreamController,
+  createInterruptController,
+  createStatuslineConfigDeps,
+} from './wiring/controllers.js';
+import { setupSuperMemory } from './wiring/super-memory.js';
 import { setupDepWatcherConsumers } from './wiring/dep-watcher.js';
 import { setupHqTelemetry } from './wiring/hq-telemetry.js';
 import { setupDirectorAndAutonomy } from './wiring/director-setup.js';
@@ -694,20 +702,13 @@ export async function main(argv: string[]): Promise<number> {
   // replaces `setEnabled` with a dispatch-backed setter on mount; before
   // that the no-op setter just keeps `enabled` in sync so callers see a
   // stable view even when invoked from a non-TUI surface.
-  const fleetStreamController = {
-    enabled: true,
-    setEnabled(enabled: boolean) {
-      this.enabled = enabled;
-    },
-  };
+  const fleetStreamController = createFleetStreamController();
 
   // Shared controller for the `/interrupt` slash command. The surface (TUI)
   // rebinds `abortLeader` on mount to abort its in-flight RunController; the
   // default no-op returns false (nothing to abort). The REPL installs its own
   // below. `/interrupt` pairs this with `onFleetKill` to stop everything.
-  const interruptController = {
-    abortLeader: (): boolean => false,
-  };
+  const interruptController = createInterruptController();
   // Wire the HQ command controller's leader-abort to the shared interrupt
   // controller so an HQ `abort leader` command reaches the live RunController
   // once the REPL/TUI rebinds `abortLeader`.
@@ -761,20 +762,10 @@ export async function main(argv: string[]): Promise<number> {
   // Shared controller for the `/enhance on|off` prompt-refinement toggle.
   // Same pattern as `fleetStreamController`: the TUI rebinds `setEnabled` to a
   // dispatch-backed setter on mount. Seeded from persisted config (default on).
-  const enhanceController = {
-    enabled:
-      ((config.autonomy as Record<string, unknown> | undefined)?.['enhance'] as boolean) ?? true,
-    setEnabled(enabled: boolean) {
-      this.enabled = enabled;
-    },
-  };
+  const enhanceController = createEnhanceController(config);
 
   // Statusline config — loaded once and shared with /statusline slash command
-  const statuslineConfigDeps = {
-    get: () => loadStatuslineConfig(),
-    set: (cfg: import('./slash-commands/statusline.js').StatuslineConfig) =>
-      saveStatuslineConfig(cfg),
-  };
+  const statuslineConfigDeps = createStatuslineConfigDeps();
 
   // Statusline hidden items — derived from the config file, kept in sync with the TUI
   const hiddenItemsFromConfig = await ensureStatuslineConfig();
@@ -801,12 +792,7 @@ export async function main(argv: string[]): Promise<number> {
   // replaces `setVisible` with a dispatch-backed setter on mount; before
   // that the no-op setter just keeps `visible` in sync so callers see a
   // stable view even when invoked from a non-TUI surface.
-  const agentsMonitorController = {
-    visible: false,
-    setVisible(visible: boolean) {
-      this.visible = visible;
-    },
-  };
+  const agentsMonitorController = createAgentsMonitorController();
 
   // Mutable ref for opening TUI panels from slash commands. The slash
   // commands call `onPanelOpen.current(action)` to open panels. The TUI
@@ -1958,6 +1944,12 @@ export async function main(argv: string[]): Promise<number> {
   // Automatic codebase indexing: blocking startup index (with a visible
   // summary) + background reindex on agent edits and external file changes.
   // Runs here so the startup index completes before any front-end mounts.
+  const runSuperMemorySessionHygiene = setupSuperMemory({
+    config,
+    pipelines,
+    memoryStore,
+    logger,
+  });
   const disposeIndexing = await setupCodebaseIndexing({
     config,
     context,
@@ -2027,38 +2019,39 @@ export async function main(argv: string[]): Promise<number> {
 
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];
-  return execute({
+  return execute(toExecuteDeps({
+  core: {
     agent,
     events,
     slashRegistry,
-    attachments,
     tokenCounter,
     config,
     configStore,
-    // Real director-backed per-task agent factory — threaded to the CLI-hosted
-    // WebUI so its "New SDD Project" wizard runs the same multi-agent fleet.
-    sddSubagentFactory: multiAgentHost.makeSubagentFactory(config),
-    // Project-scoped mailbox — the AutonomousCoordinator in execution.ts
-    // subscribes to it so goals/tasks/knowledge are shared with other
-    // terminals working on the same project.
-    mailbox: brainMailbox,
-    renderer,
-    reader,
-    session,
-    mcpRegistry,
     recoveryLock,
     wpaths,
-    modelsRegistry,
     projectRoot,
     flags,
     positional,
-    effectiveMaxContext: effectiveMaxContextRef.current,
-    getEffectiveMaxContext: () => effectiveMaxContextRef.current,
+  },
+  session: {
+    attachments,
+    mailbox: brainMailbox,
+    session,
+    mcpRegistry,
     queueStore,
     context,
-    stats,
     detachTodosCheckpoint,
-    savedProviderCfg: savedProviderCfg as ExecutionDeps['savedProviderCfg'],
+    sessionStore,
+    memoryStore,
+    modeStore,
+    restoredMessages: sessResult.restoredMessages,
+    restoredToolCalls: sessResult.restoredToolCalls,
+    needsSetup,
+  },
+  provider: {
+    sddSubagentFactory: multiAgentHost.makeSubagentFactory(config),
+    modelsRegistry,
+    savedProviderCfg: savedProviderCfg as import('@wrongstack/core').ProviderConfig | undefined,
     resolvedProvider: resolvedProvider ?? undefined,
     getPickableProviders: async () => {
       await refreshRuntimeModelCatalog({
@@ -2072,119 +2065,37 @@ export async function main(argv: string[]): Promise<number> {
     onModelContextResolved: (providerId, modelId, maxContext) => {
       applyMaxContext(providerId, modelId, maxContext);
     },
+  },
+  ui: {
+    renderer,
+    reader,
+    effectiveMaxContext: effectiveMaxContextRef.current,
+    getEffectiveMaxContext: () => effectiveMaxContextRef.current,
+    stats,
+    skillLoader: config.features.skills ? skillLoader : undefined,
+    promptLoader: config.features.prompts === false ? undefined : promptLoader,
+    modeId,
+  },
+  fleet: {
     director: director ?? null,
     getDirector: () => director,
     coordinatorController,
     fleetRoster: FLEET_ROSTER as Record<string, { name: string }>,
     fleetStreamController,
-    interruptController,
-    enhanceController,
-    // Low-effort reasoning hint for the prompt refiner, recomputed each call
-    // from the active model's live capabilities so it is always gated to what
-    // the current model accepts (returns undefined when nothing can be safely
-    // reduced → refiner sends no reasoning field, as before).
-    getEnhancerReasoning: () => gatedEnhancerReasoning(activeReasoningConfig),
-    statuslineHiddenItems,
-    setStatuslineHiddenItems,
-    saveStatuslineHiddenItems,
-    getPluginItems: getPluginPickerItems,
-    onPluginToggle: togglePluginFromPicker,
-    getMcpServers: () => {
-      const servers = (config.mcpServers ?? {}) as Record<string, { name: string; transport: string; enabled?: boolean; description?: string; lazy?: boolean }>;
-      const liveStatus = mcpRegistry.list();
-      const liveMap = new Map(liveStatus.map((s) => [s.name, s]));
-      return Object.entries(servers).map(([name, cfg]) => {
-        const live = liveMap.get(name);
-        return {
-          name,
-          enabled: cfg.enabled !== false,
-          status: live ? live.state : 'stopped',
-          transport: cfg.transport ?? 'stdio',
-          description: cfg.description,
-          toolCount: live?.toolCount ?? 0,
-          lazy: cfg.lazy,
-        };
-      });
-    },
-    onMcpToggle: async (name: string) => {
-      const { enableMcp, disableMcp, listMcp } = await import('@wrongstack/mcp');
-      const deps = { configPath: wpaths.globalConfig, registry: mcpRegistry, presets: allServers() };
-      // Read fresh state from the live config file (enableMcp/disableMcp
-      // wrote to it), then determine toggle direction from the registry.
-      const live = mcpRegistry.list().find((s) => s.name === name);
-      const isCurrentlyEnabled = live !== undefined && live.state !== 'idle';
-      const result = isCurrentlyEnabled
-        ? await disableMcp(name, deps)
-        : await enableMcp(name, deps);
-      const items = await listMcp(deps);
-      return {
-        items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })),
-        message: result.ok ? (result.server ? `${result.server.status === 'connected' ? '●' : '○'} ${name}` : result.message) : undefined,
-        error: result.ok ? undefined : result.message,
-      };
-    },
-    onMcpRestart: async (name: string) => {
-      const { listMcp } = await import('@wrongstack/mcp');
-      const deps = { configPath: wpaths.globalConfig, registry: mcpRegistry, presets: allServers() };
-      try {
-        await mcpRegistry.restart(name);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const items = await listMcp(deps);
-        return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: undefined, error: message };
-      }
-      const items = await listMcp(deps);
-      return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: `Restarted "${name}".`, error: undefined };
-    },
-    getToolsItems: getToolPickerItems,
-    onToolToggle: async (name: string) => {
-      const disabled = new Set(config.tools?.disabledTools ?? []);
-      const isCurrentlyDisabled = toolRegistry.isDisabled(name);
-      if (isCurrentlyDisabled) {
-        toolRegistry.enable(name);
-        disabled.delete(name);
-      } else {
-        toolRegistry.disable(name);
-        disabled.add(name);
-      }
-      const nextTools = { ...(config.tools ?? {}), disabledTools: Array.from(disabled) };
-      config = patchConfig(config, { tools: nextTools });
-      configStore.update({ tools: nextTools });
-      return {
-        items: getToolPickerItems(),
-        message: isCurrentlyDisabled ? `Enabled "${name}".` : `Disabled "${name}".`,
-        error: undefined,
-      };
-    },
-    getBrainData: () => {
-      const ceiling = (brainSettings?.maxAutoRisk ?? 'medium') as 'off' | 'low' | 'medium' | 'high' | 'all';
-      const log = brainLog.slice(-20).map((entry: { kind: string; question: string; outcome: string; at: number }) => ({
-        kind: entry.kind,
-        question: entry.question,
-        outcome: entry.outcome,
-        age: typeof entry.at === 'number' ? (() => { const s = Math.max(0, Math.round((Date.now() - entry.at) / 1000)); if (s < 60) return `${s}s`; if (s < 3600) return `${Math.round(s / 60)}m`; return `${Math.round(s / 3600)}h`; })() : '',
-      }));
-      return { riskLevel: ceiling, log };
-    },
-    onBrainRiskLevel: (level: 'off' | 'low' | 'medium' | 'high' | 'all') => {
-      if (!brainSettings) return 'Brain settings not available.';
-      brainSettings.maxAutoRisk = level as import('@wrongstack/core').BrainAutoRisk;
-      return undefined;
-    },
-    // Interactive /auth panel host — provider/key CRUD, catalog/local adds
-    // and OAuth sign-in, all executed CLI-side against the encrypted config
-    // (secrets never enter the TUI; key values arrive pre-masked).
     authHost: createAuthPanelHost({
       vault,
       modelsRegistry,
       globalConfigPath: wpaths.globalConfig,
     }),
-    // Panel-open bridge: the SAME mutable ref handed to the slash commands
-    // above. execution.ts forwards it into runTui, where app.tsx binds
-    // `current` to the real dispatcher on mount. Without this line the ref
-    // stays null forever and `/plugin` (and every other panel-opening slash
-    // command) silently falls back to its plain-text output.
     onPanelOpen,
+  },
+  controllers: {
+    interruptController,
+    enhanceController,
+    getEnhancerReasoning: () => gatedEnhancerReasoning(activeReasoningConfig),
+    statuslineHiddenItems,
+    setStatuslineHiddenItems,
+    saveStatuslineHiddenItems,
     getYolo: setYoloMode,
     onYolo: setYoloMode,
     getAutonomy: () => autonomyMode,
@@ -2273,6 +2184,101 @@ export async function main(argv: string[]): Promise<number> {
         // Live-apply is best-effort; the persisted config is the source of truth.
       }
     },
+    onCountdownTick: (remaining) => {
+      events.emit('countdown.tick', { sessionId: sessionRef.current?.id ?? session.id, remaining });
+      return false;
+    },
+  },
+  picker: {
+    getPluginItems: getPluginPickerItems,
+    onPluginToggle: togglePluginFromPicker,
+    getMcpServers: () => {
+      const servers = (config.mcpServers ?? {}) as Record<string, { name: string; transport: string; enabled?: boolean; description?: string; lazy?: boolean }>;
+      const liveStatus = mcpRegistry.list();
+      const liveMap = new Map(liveStatus.map((s) => [s.name, s]));
+      return Object.entries(servers).map(([name, cfg]) => {
+        const live = liveMap.get(name);
+        return {
+          name,
+          enabled: cfg.enabled !== false,
+          status: live ? live.state : 'stopped',
+          transport: cfg.transport ?? 'stdio',
+          description: cfg.description,
+          toolCount: live?.toolCount ?? 0,
+          lazy: cfg.lazy,
+        };
+      });
+    },
+    onMcpToggle: async (name: string) => {
+      const { enableMcp, disableMcp, listMcp } = await import('@wrongstack/mcp');
+      const deps = { configPath: wpaths.globalConfig, registry: mcpRegistry, presets: allServers() };
+      // Read fresh state from the live config file (enableMcp/disableMcp
+      // wrote to it), then determine toggle direction from the registry.
+      const live = mcpRegistry.list().find((s) => s.name === name);
+      const isCurrentlyEnabled = live !== undefined && live.state !== 'idle';
+      const result = isCurrentlyEnabled
+        ? await disableMcp(name, deps)
+        : await enableMcp(name, deps);
+      const items = await listMcp(deps);
+      return {
+        items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })),
+        message: result.ok ? (result.server ? `${result.server.status === 'connected' ? '●' : '○'} ${name}` : result.message) : undefined,
+        error: result.ok ? undefined : result.message,
+      };
+    },
+    onMcpRestart: async (name: string) => {
+      const { listMcp } = await import('@wrongstack/mcp');
+      const deps = { configPath: wpaths.globalConfig, registry: mcpRegistry, presets: allServers() };
+      try {
+        await mcpRegistry.restart(name);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const items = await listMcp(deps);
+        return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: undefined, error: message };
+      }
+      const items = await listMcp(deps);
+      return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: `Restarted "${name}".`, error: undefined };
+    },
+    getToolsItems: getToolPickerItems,
+    onToolToggle: async (name: string) => {
+      const disabled = new Set(config.tools?.disabledTools ?? []);
+      const isCurrentlyDisabled = toolRegistry.isDisabled(name);
+      if (isCurrentlyDisabled) {
+        toolRegistry.enable(name);
+        disabled.delete(name);
+      } else {
+        toolRegistry.disable(name);
+        disabled.add(name);
+      }
+      const nextTools = { ...(config.tools ?? {}), disabledTools: Array.from(disabled) };
+      config = patchConfig(config, { tools: nextTools });
+      configStore.update({ tools: nextTools });
+      return {
+        items: getToolPickerItems(),
+        message: isCurrentlyDisabled ? `Enabled "${name}".` : `Disabled "${name}".`,
+        error: undefined,
+      };
+    },
+    getBrainData: () => {
+      const ceiling = (brainSettings?.maxAutoRisk ?? 'medium') as 'off' | 'low' | 'medium' | 'high' | 'all';
+      const log = brainLog.slice(-20).map((entry: { kind: string; question: string; outcome: string; at: number }) => ({
+        kind: entry.kind,
+        question: entry.question,
+        outcome: entry.outcome,
+        age: typeof entry.at === 'number' ? (() => { const s = Math.max(0, Math.round((Date.now() - entry.at) / 1000)); if (s < 60) return `${s}s`; if (s < 3600) return `${Math.round(s / 60)}m`; return `${Math.round(s / 3600)}h`; })() : '',
+      }));
+      return { riskLevel: ceiling, log };
+    },
+    onBrainRiskLevel: (level: 'off' | 'low' | 'medium' | 'high' | 'all') => {
+      if (!brainSettings) return 'Brain settings not available.';
+      brainSettings.maxAutoRisk = level as import('@wrongstack/core').BrainAutoRisk;
+      return undefined;
+    },
+    brain,
+    brainSettings,
+    getBrainLog: () => brainLog,
+  },
+  lifecycles: {
     onSuggestionsParsed: (suggestions) => {
       // Always update — null means "no suggestions found", which must
       // clear the list so the auto-proceed loop doesn't get stuck
@@ -2333,13 +2339,7 @@ export async function main(argv: string[]): Promise<number> {
     },
     getEternalEngine: () => eternalEngine,
     getParallelEngine: () => parallelEngine,
-    // Active SDD parallel run (if any). Lets the REPL/TUI SIGINT handler stop a
-    // running `/sdd parallel` mid-flight — without this the run is unreachable
-    // from Ctrl+C (it has its own coordinator, not the autonomy engines).
     getSddRun: () => sddRunRegistry.getActive(),
-    // Uniform lifecycle entry point for the TUI board overlay keys (c / z / x).
-    // Stops a live run for destroy; refuses clean/rollback while one is still
-    // running. Reuses the same disk-backed core helper as the WebUI + /sdd.
     onSddLifecycle: async (op, lcOpts) => {
       const active = sddRunRegistry.getActive();
       if (op === 'destroy') active?.stop();
@@ -2366,33 +2366,17 @@ export async function main(argv: string[]): Promise<number> {
       stageListeners.add(fn);
       return () => stageListeners.delete(fn);
     },
-    onCountdownTick: (remaining) => {
-      events.emit('countdown.tick', { sessionId: sessionRef.current?.id ?? session.id, remaining });
-      return false;
-    },
-    skillLoader: config.features.skills ? skillLoader : undefined,
-    promptLoader: config.features.prompts === false ? undefined : promptLoader,
-    modeId,
-    sessionStore,
-    memoryStore,
-    modeStore,
-    restoredMessages: sessResult.restoredMessages,
-    restoredToolCalls: sessResult.restoredToolCalls,
-    needsSetup,
-    // Brain plumbing for the embedded WebUI server: the SAME settings object
-    // the /brain slash command mutates, so the autonomy ceiling stays in sync
-    // across surfaces; brainLog is the shared 20-entry decision log.
-    brain,
-    brainSettings,
-    getBrainLog: () => brainLog,
-    // Clean up SessionStats event listeners and all EventBus handlers when the REPL exits.
     onDestroy: () => {
+      void runSuperMemorySessionHygiene().catch((err) => {
+        logger.warn('super-memory session hygiene failed', { error: String(err) });
+      });
       teardownHandlers.forEach((fn) => {
         fn();
       });
       stats.destroy(events);
     },
-  });
+  },
+}));
 }
 
 /**

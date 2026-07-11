@@ -21,13 +21,13 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
-import JSZip from 'jszip';
 import type { SkillLoader } from '@wrongstack/core';
 import { atomicWrite } from '@wrongstack/core';
 import type { SkillInstaller } from '@wrongstack/core/skills';
 import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { send, errMessage } from './ws-utils.js';
 import { validateSkillsCreatePayload, validateSkillsEditPayload } from './ws-payload-validation.js';
+import { createZipBuffer, type ZipEntryInput } from './zip.js';
 
 export interface SkillsContext {
   /** Backs skills.list/content/edit/export. Absent ⇒ feature disabled. */
@@ -417,17 +417,17 @@ export async function handleSkillsExport(ws: WebSocket, ctx: SkillsContext): Pro
   }
   try {
     const entries = await ctx.skillLoader.listEntries();
-    const zip = new JSZip();
+    const zipEntries: ZipEntryInput[] = [];
     for (const entry of entries) {
       try {
         const body = await ctx.skillLoader!.readBody(entry.name);
         const safeName = entry.name.replace(/\//g, '_');
-        zip.file(`${safeName}/SKILL.md`, body);
+        zipEntries.push({ name: `${safeName}/SKILL.md`, data: body });
       } catch {
         // Skip skills we can't read
       }
     }
-    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const zipBuffer = createZipBuffer(zipEntries);
     const zipBase64 = zipBuffer.toString('base64');
     send(ws, { type: 'skills.exported', payload: { zipBase64, skillCount: entries.length, error: undefined } });
   } catch (err) {

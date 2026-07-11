@@ -94,7 +94,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   await fs.mkdir(wpaths.projectSessions, { recursive: true });
   await writeProjectMeta(wpaths, projectRoot);
   // Also register/update the project in ~/.wrongstack/projects.json
-  await registerProjectInManifest(wpaths, projectRoot);
+  await registerProjectInManifest(wpaths, projectRoot, undefined, cwd !== projectRoot ? cwd : undefined);
   await ensureGitignore(projectRoot);
 
   // Clean up stale project directories left behind by tests or deleted
@@ -147,7 +147,22 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
           timestamp: new Date().toISOString(),
         }),
       );
-      config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags) });
+      try {
+        config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags), skipIdentityValidation: true });
+      } catch (fallbackErr) {
+        // Best-effort: if even the skip-validation load fails (corrupt config,
+        // FS error), create a minimal in-memory config so --webui can still show
+        // the setup screen instead of crashing at boot.
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'boot.config_fallback',
+            message: `Config load fallback triggered: ${toErrorMessage(fallbackErr)}`,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        config = Object.freeze({}) as Config;
+      }
     } else {
       throw err;
     }
@@ -260,6 +275,8 @@ async function registerProjectInManifest(
   paths: WstackPaths,
   projectRoot: string,
   events?: EventBus,
+  /** Working directory when it differs from projectRoot (e.g. subdirectory launch). */
+  workingDir?: string,
 ): Promise<void> {
   const manifestPath = path.join(paths.globalRoot, 'projects.json');
 
@@ -293,7 +310,7 @@ async function registerProjectInManifest(
 
   // Write updated manifest
   try {
-    let manifest: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string; createdAt?: string }> };
+    let manifest: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string; createdAt?: string; lastWorkingDir?: string }> };
     try {
       const raw = await fs.readFile(manifestPath, 'utf8');
       manifest = JSON.parse(raw);
@@ -305,10 +322,13 @@ async function registerProjectInManifest(
     const existing = manifest.projects.find((p) => p.root === projectRoot);
     if (existing) {
       existing.lastSeen = now;
+      if (workingDir) existing.lastWorkingDir = workingDir;
     } else {
       const slug = paths.projectSlug;
       const name = path.basename(projectRoot);
-      manifest.projects.push({ name, root: projectRoot, slug, lastSeen: now, createdAt: now });
+      const entry: Record<string, string | undefined> = { name, root: projectRoot, slug, lastSeen: now, createdAt: now };
+      if (workingDir) entry.lastWorkingDir = workingDir;
+      manifest.projects.push(entry as typeof manifest.projects[0]);
     }
 
     const writeT0 = Date.now();

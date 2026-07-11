@@ -132,9 +132,8 @@ export function ConfirmDialog() {
   // One-click "enable YOLO" straight from the approval modal. Flips the local
   // pref and pushes it to the server. The server's prefs.update handler runs
   // permissionPolicy.setYolo(true) + resolveYoloEligiblePendingConfirms(), which
-  // auto-approves the CURRENT non-destructive confirm; the broadcast
-  // prefs.updated then hides this dialog. The auto-yolo effect below is the
-  // client-side backstop. Destructive prompts stay for an explicit decision.
+  // auto-approves the current confirm; the broadcast prefs.updated then hides
+  // this dialog. The auto-yolo effect below is the client-side backstop.
   const enableYolo = () => {
     setLocalPrefs({ yolo: true });
     updatePrefs({ yolo: true });
@@ -142,8 +141,6 @@ export function ConfirmDialog() {
 
   useEffect(() => {
     if (!showConfirmDialog || !confirmInfo || !yolo) return;
-    if (confirmInfo.riskTier === 'destructive') return;
-    if (confirmInfo.decisionSource === 'yolo_destructive') return;
     handleConfirm('yes');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -241,14 +238,6 @@ export function ConfirmDialog() {
               </div>
             </div>
           )}
-
-          {yolo &&
-            (confirmInfo.riskTier === 'destructive' ||
-              confirmInfo.decisionSource === 'yolo_destructive') && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {t('confirm.yoloDestructiveNote')}
-              </div>
-            )}
 
           {!yolo && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20">

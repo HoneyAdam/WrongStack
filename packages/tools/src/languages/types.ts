@@ -13,6 +13,7 @@ export type LanguageProfileId =
   | 'swift'
   | 'dart'
   | 'elixir'
+  | 'deno'
   | 'shell';
 
 export type LanguageOperation =
@@ -24,6 +25,7 @@ export type LanguageOperation =
   | 'test-compile'
   | 'test'
   | 'build'
+  | 'run'
   | 'debug-compile'
   | 'debug-test'
   | 'debug-runtime'
@@ -212,6 +214,13 @@ export interface LanguageProfile {
   packageManagers: readonly string[];
   /** Executables an operation resolver is allowed to place in a process plan. */
   executables: readonly string[];
+  /**
+   * When false, extension matches alone never create a workspace for this
+   * profile — they only reinforce candidates a detector (manifest/config)
+   * already established. Use for profiles whose extensions are shared with
+   * another language (e.g. Deno claims .ts/.js).
+   */
+  sourceFallback?: boolean;
   operations: Readonly<Partial<Record<LanguageOperation, OperationResolver>>>;
 }
 

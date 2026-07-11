@@ -543,6 +543,7 @@ import { buildFKeyAliasCommands, buildFKeysCommand } from './f-keys.js';
 import { buildFallbackCommand } from './fallback.js';
 import { buildFixCommand } from './fix.js';
 import { buildFleetCommand } from './fleet.js';
+import { buildGitIdCommand } from './gitid.js';
 import { buildGoalCommand } from './goal.js';
 import { buildHelpCommand } from './help.js';
 import { buildInitCommand } from './init.js';
@@ -655,6 +656,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildTelegramSettingsCommand(opts),
     buildSetModelCommand(opts),
     buildFallbackCommand(opts),
+    buildGitIdCommand(opts),
     buildModelCapsCommand(opts),
     buildModelsCommand(opts),
     buildCollabCommand(opts),

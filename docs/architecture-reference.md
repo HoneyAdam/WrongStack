@@ -659,10 +659,10 @@ evaluate(tool, input, ctx):
   6. SESSION SOFT ALLOW — 'y' pressed this session → auto
   7. DENY PATTERN — matched in trust file → deny
   8. TOOL DEFAULT DENY — tool.permission === 'deny' → deny
-  9. YOLO DESTRUCTIVE GATE — destructive input → confirm
+  9. SENSITIVE READ — secret-like reads prompt when YOLO is off
   10. ALLOW PATTERN — matched in trust file → auto
   11. POLICY AUTO — policy[tool].auto === true → auto
-  12. YOLO MODE — normal project work → auto
+  12. YOLO MODE — non-denied call → auto
   13. SMART BYPASS — write/edit of already-read file → auto
   14. TOOL DEFAULT AUTO — permission === 'auto' && !mutating → auto
   15. CONFIRM — ask user via promptDelegate or return 'confirm'

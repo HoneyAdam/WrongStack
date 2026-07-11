@@ -227,6 +227,20 @@ export class HqCommandAuditLog {
     if (entry) Object.assign(entry, patch);
   }
 
+  /** Update only when the command belongs to the authenticated client. */
+  updateForClient(
+    commandId: string,
+    clientId: string,
+    patch: Partial<HqCommandAuditEntry>,
+  ): boolean {
+    const entry = this.entries.find(
+      (candidate) => candidate.commandId === commandId && candidate.clientId === clientId,
+    );
+    if (!entry) return false;
+    Object.assign(entry, patch);
+    return true;
+  }
+
   recent(limit = 200): HqCommandAuditEntry[] {
     return this.entries.slice(-limit);
   }

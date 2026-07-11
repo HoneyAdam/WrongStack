@@ -21,6 +21,8 @@ const RAW_CONTENT_KEYS = new Set([
   'prompts',
   'completion',
   'response',
+  'text',
+  'partialText',
   'assistantMessage',
   'userMessage',
   'stdout',
@@ -28,6 +30,7 @@ const RAW_CONTENT_KEYS = new Set([
   'output',
   'toolInput',
   'toolOutput',
+  'outputSummary',
   'body',
   'mailboxBody',
   'messageBody',
@@ -83,10 +86,52 @@ export interface HqRedactionResult<T> {
 
 const defaultScrubber = new DefaultSecretScrubber();
 
-function resolvePolicy(policy?: Partial<HqRedactionPolicy>): HqRedactionPolicy {
+export function resolveHqRedactionPolicy(
+  policy?: Partial<HqRedactionPolicy>,
+): HqRedactionPolicy {
   return {
     ...DEFAULT_HQ_REDACTION_POLICY,
     ...policy,
+  };
+}
+
+/**
+ * Apply an operator policy as a one-way privacy clamp. An override can make a
+ * publisher policy stricter, but can never enable raw content or broader path
+ * / tool-argument disclosure than the publisher selected.
+ */
+export function tightenHqRedactionPolicy(
+  publisherPolicy: HqRedactionPolicy,
+  operatorPolicy?: Partial<HqRedactionPolicy>,
+): HqRedactionPolicy {
+  if (operatorPolicy === undefined) return publisherPolicy;
+  const toolRank: Record<HqRedactionPolicy['toolArgs'], number> = {
+    none: 0,
+    summary: 1,
+    redacted: 2,
+    full: 3,
+  };
+  const pathRank: Record<HqRedactionPolicy['paths'], number> = {
+    none: 0,
+    redacted: 0,
+    'project-relative': 1,
+    full: 2,
+  };
+  const requestedToolArgs = operatorPolicy.toolArgs;
+  const requestedPaths = operatorPolicy.paths;
+  return {
+    rawContent:
+      publisherPolicy.rawContent &&
+      (operatorPolicy.rawContent === undefined || operatorPolicy.rawContent),
+    toolArgs:
+      requestedToolArgs !== undefined &&
+      toolRank[requestedToolArgs] < toolRank[publisherPolicy.toolArgs]
+        ? requestedToolArgs
+        : publisherPolicy.toolArgs,
+    paths:
+      requestedPaths !== undefined && pathRank[requestedPaths] < pathRank[publisherPolicy.paths]
+        ? requestedPaths
+        : publisherPolicy.paths,
   };
 }
 
@@ -124,7 +169,7 @@ function redactPath(
   projectRoot: string | undefined,
   policy: HqRedactionPolicy,
 ): string {
-  if (policy.paths === 'full') return defaultScrubber.scrub(value);
+  if (policy.paths === 'full') return value;
   if (policy.paths === 'none' || policy.paths === 'redacted') return REDACTED_PATH_REPLACEMENT;
 
   const normalizedValue = normalizePathForCompare(value);
@@ -138,8 +183,8 @@ function redactPath(
   return normalizedValue.split('/').at(-1) ?? REDACTED_PATH_REPLACEMENT;
 }
 
-function summarizeString(value: string, maxSummaryLength: number): string {
-  const scrubbed = defaultScrubber.scrub(value);
+function summarizeString(value: string, maxSummaryLength: number, scrub: boolean): string {
+  const scrubbed = scrub ? defaultScrubber.scrub(value) : value;
   if (scrubbed.length <= maxSummaryLength) return scrubbed;
   return `${scrubbed.slice(0, maxSummaryLength)}…[truncated:${scrubbed.length - maxSummaryLength}]`;
 }
@@ -157,7 +202,7 @@ export function scrubAndTruncateHqPreview(
   maxLength: number = 280,
 ): string | undefined {
   if (typeof value !== 'string' || value.length === 0) return undefined;
-  return summarizeString(value, maxLength);
+  return summarizeString(value, maxLength, true);
 }
 
 function visitValue(
@@ -170,7 +215,7 @@ function visitValue(
   },
   key?: string,
 ): { value: unknown; redacted: boolean } {
-  if (key !== undefined && isSensitiveKey(key)) {
+  if (!options.policy.rawContent && key !== undefined && isSensitiveKey(key)) {
     return { value: SENSITIVE_FIELD_REPLACEMENT, redacted: true };
   }
 
@@ -184,7 +229,7 @@ function visitValue(
       return { value: RAW_CONTENT_REPLACEMENT, redacted: true };
     }
 
-    const scrubbed = summarizeString(value, options.maxSummaryLength);
+    const scrubbed = summarizeString(value, options.maxSummaryLength, !options.policy.rawContent);
     return { value: scrubbed, redacted: scrubbed !== value };
   }
 
@@ -217,7 +262,7 @@ function visitValue(
 
 export function redactHqValue<T>(value: T, options: HqRedactOptions = {}): HqRedactionResult<T> {
   const result = visitValue(value, {
-    policy: resolvePolicy(options.policy),
+    policy: resolveHqRedactionPolicy(options.policy),
     ...(options.projectRoot !== undefined ? { projectRoot: options.projectRoot } : {}),
     maxSummaryLength: options.maxSummaryLength ?? 500,
     seen: new WeakSet<object>(),
@@ -238,7 +283,8 @@ export function redactHqEvent<TPayload>(
 }
 
 export function summarizeHqToolArgs(value: unknown, options: HqRedactOptions = {}): unknown {
-  const policy = resolvePolicy(options.policy);
+  const policy = resolveHqRedactionPolicy(options.policy);
+  if (policy.toolArgs === 'full') return value;
   if (policy.toolArgs === 'none') return '[REDACTED:hq_tool_args]';
   if (policy.toolArgs === 'redacted') return redactHqValue(value, options).value;
 
@@ -253,7 +299,7 @@ export function summarizeHqToolArgs(value: unknown, options: HqRedactOptions = {
     } else if (typeof item === 'string') {
       summary[key] = isPathKey(key)
         ? redactPath(item, options.projectRoot, policy)
-        : summarizeString(item, 120);
+        : summarizeString(item, 120, true);
     } else if (Array.isArray(item)) {
       summary[key] = `[array:${item.length}]`;
     } else if (item !== null && typeof item === 'object') {

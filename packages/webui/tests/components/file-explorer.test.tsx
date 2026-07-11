@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import React, { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useImperativeHandle } from 'react';
+import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TreeNode } from '../../src/stores/file-store';
 import { useFileStore } from '../../src/stores/file-store';

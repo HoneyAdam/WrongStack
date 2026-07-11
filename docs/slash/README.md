@@ -16,7 +16,7 @@ WrongStack's REPL supports core slash commands plus commands registered by built
 | `/techstack` | `packages/cli/src/slash-commands/techstack.ts` | Scan dependencies, verify versions, write techstack report; `/tech`, `/deps` aliases |
 | `/diag` | `packages/cli/src/slash-commands/diag-stats.ts` | Runtime diagnostics |
 | `/stats` | `packages/cli/src/slash-commands/diag-stats.ts` | Session report |
-| `/memory` | `packages/cli/src/slash-commands/memory.ts` | Persistent memory: show, remember, forget, clear |
+| `/memory` | `packages/cli/src/slash-commands/memory.ts` | Structured memory: search, graph, verify, hygiene, candidates, import |
 | `/todos` | `packages/cli/src/slash-commands/todos.ts` | Session todo list |
 | `/tasks` | `packages/cli/src/slash-commands/tasks.ts` | Structured task management with dependencies and priorities |
 | `/mode` | `packages/cli/src/slash-commands/mode.ts` | Switch or view session mode; includes token-saving lite and deep/full mode families |

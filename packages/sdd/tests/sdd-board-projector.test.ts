@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { EventBus } from '@wrongstack/core/kernel/events.js';
-import { DefaultTaskStore } from '../src/task-generator.js';
+import { DefaultTaskStore } from '@wrongstack/core/tasking';
 import { SddBoardProjector } from '../src/sdd-board-projector.js';
 import { SddBoardStore } from '../src/sdd-board-store.js';
 import { TaskTracker, type TaskTrackerChange } from '../src/task-tracker.js';

@@ -645,8 +645,55 @@ export interface FeaturesConfig {
   mailboxBridge?: 'auto' | 'off' | undefined;
 }
 
+export interface SuperMemoryConfig {
+  /** Enable the project-local Super Memory backend. Default: true. */
+  enabled?: boolean | undefined;
+  storage?: {
+    /** Store memory inside the project under a gitignored directory. Default: true. */
+    projectLocal?: boolean | undefined;
+    /** Project-relative directory. Default: ".wrongstack/memories". */
+    directory?: string | undefined;
+  } | undefined;
+  inject?: {
+    /** Add relevant memory to ordinary turn-level context. Default: true. */
+    turnContext?: boolean | undefined;
+    /** Add relevant memory to read/tree/grep/bash/edit tool results. Default: true. */
+    toolResults?: boolean | undefined;
+    /** Maximum hints appended to a single tool result. Default: 4. */
+    maxHintsPerTool?: number | undefined;
+    /** Maximum characters appended to a single tool result. Default: 1200. */
+    maxCharsPerTool?: number | undefined;
+    /** Maximum memories appended to ordinary turn context. Default: 8. */
+    maxTurnMemories?: number | undefined;
+    /** Maximum characters appended to ordinary turn context. Default: 2400. */
+    maxCharsPerTurn?: number | undefined;
+    /** Minimum retrieval score for ordinary hints. Default: 0.65. */
+    minScore?: number | undefined;
+    /** Cooldown before the same memory can be injected again. Default: 30 minutes. */
+    repeatCooldownMs?: number | undefined;
+    triggers?: Partial<Record<
+      'read' | 'tree' | 'grep' | 'glob' | 'codebase_search' | 'bash' | 'write' | 'edit' | 'patch',
+      boolean
+    >> | undefined;
+  } | undefined;
+  hygiene?: {
+    /** Run hygiene after successful sessions. Default: true. */
+    autoAfterSession?: boolean | undefined;
+    /** Re-check anchored memories when files are edited. Default: true. */
+    autoOnFileChange?: boolean | undefined;
+    /** Archive stale/low-value memories after this many days. Default: 90. */
+    retentionDays?: number | undefined;
+    /** Archive low-confidence memories after this many days. Default: 30. */
+    archiveLowConfidenceAfterDays?: number | undefined;
+  } | undefined;
+  embeddings?: {
+    /** Optional future semantic layer. Disabled by default and never required. */
+    enabled?: boolean | undefined;
+  } | undefined;
+}
+
 export interface AutonomyConfig {
-  /** Default autonomy mode at startup. Default: "off". */
+  /** Default autonomy mode at startup. Default: "auto". */
   defaultMode?: 'off' | 'suggest' | 'auto' | undefined;
   /** ms to wait before auto-proceeding in 'auto' mode. Default: 45000. */
   autoProceedDelayMs?: number | undefined;
@@ -952,6 +999,19 @@ export interface FleetSupervisorConfig {
   allowTerminate?: boolean | undefined;
 }
 
+/** Git behavior overrides for agent-run git commands. See `Config.git`. */
+export interface GitBehaviorConfig {
+  /**
+   * Commit identity injected as `GIT_AUTHOR_NAME/EMAIL` +
+   * `GIT_COMMITTER_NAME/EMAIL` into every child process. Either field may be
+   * set alone; the missing one falls back to git's own config.
+   */
+  identity?: {
+    name?: string | undefined;
+    email?: string | undefined;
+  } | undefined;
+}
+
 export interface Config {
   version: 1;
   provider: string;
@@ -1045,6 +1105,8 @@ export interface Config {
   plugins?: (string | PluginConfig)[] | undefined;
   log: LogConfig;
   features: FeaturesConfig;
+  /** Project-local structured memory, graph-ready anchors, retrieval, and hygiene. */
+  superMemory?: SuperMemoryConfig | undefined;
   /** Skill subsystem options (readClaudeSkills / mode / extraDirs). */
   skills?: SkillsConfig | undefined;
   yolo?: boolean | undefined;
@@ -1106,6 +1168,21 @@ export interface Config {
    * accidentally committing the GitHub token to project configs.
    */
   sync?: SyncConfig | undefined;
+  /**
+   * Git behavior overrides for agent-run git commands.
+   *
+   * `identity` sets the commit author/committer used by every git process
+   * WrongStack spawns (git tool, bash/exec shells, worktree manager,
+   * plugins) via the `GIT_AUTHOR_*` / `GIT_COMMITTER_*` env vars. It never
+   * touches the repo's or the user's `git config`, so commits made outside
+   * WrongStack keep their normal identity. Unset → git's own config applies
+   * (today's behavior). Manage at runtime with `/gitid`.
+   *
+   * SECURITY: in the in-project config DENY list — a repo-committed config
+   * must not be able to spoof the identity written into the user's commit
+   * history. Only honoured from the user's `~/.wrongstack/config.json`.
+   */
+  git?: GitBehaviorConfig | undefined;
   /**
    * Per-plugin namespaced config sections. Each plugin reads its own
    * subtree via `ConfigStore.getExtension(pluginName)`. Plugins should

@@ -313,12 +313,11 @@ export {
 export { DefaultSecretScrubber } from '../security/secret-scrubber.js';
 export {
   DefaultSecretVault,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
   migratePlaintextSecrets,
   rewriteConfigEncrypted,
   type SecretVaultOptions,
 } from '../security/secret-vault.js';
+export { decryptConfigSecrets, encryptConfigSecrets } from '../security/config-secrets.js';
 export {
   type AttachmentStoreOptions,
   DefaultAttachmentStore,

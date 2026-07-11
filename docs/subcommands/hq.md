@@ -38,7 +38,8 @@ the control plane (browser → client `steer` / `btw` / `queue` / `abort` /
 | `wstack hq` | Equivalent to `wstack --hq` (subcommand form) |
 | `wstack hq serve` | Same as `wstack hq` (explicit form) |
 | `wstack hq token create [label]` | Mint a browser token (enters TOKEN MODE), write to `<dataDir>/auth.json` |
-| `wstack hq token create --client [label]` | Mint a client token for `/ws/client` enrollment (Phase 4) |
+| `wstack hq token create --client [label]` | Mint a least-privilege client token for `/ws/client` enrollment |
+| `wstack hq token create --client --capabilities telemetry.publish,control.execute [label]` | Mint a client token that may receive the separately operator-enabled `run-command` flow |
 | `wstack hq token list` | List issued browser tokens (`ls` alias works) |
 | `wstack hq token list --client` | List issued client tokens (Phase 4) |
 | `wstack hq token revoke <id>` | Revoke a browser token (id prefix match; `rm`/`remove` aliases work) |
@@ -91,19 +92,20 @@ All flags are parsed by the unified `parseArgs()` in
 | `--hq` | `--hq` | boolean | `false` | Start HQ command center instead of the normal REPL/TUI/WebUI flow |
 | `--host` | `--host <ip>` or `--host=<ip>` | string | `127.0.0.1` | Bind host. Use `0.0.0.0` for LAN/VPS access |
 | `--port` | `--port <n>` or `--port=<n>` | number | `3499` | Bind port. Parsed via `Number.parseInt(value, 10)`; non-numeric values fall through as `NaN` and `startHqServer` will reject the bind |
-| `--strict-port` | `--strict-port` | boolean | `false` | Fail if the requested port is in use; otherwise scan forward for a free port (bounded). Only takes effect when passed as a standalone flag (no value) — a `--strict-port <value>` form is ignored because `strict-port` is not in the `BOOLEAN_FLAGS` set and the dispatch checks `=== true` |
+| `--strict-port` | `--strict-port` | boolean | `false` | Fail if the requested port is in use; otherwise scan forward for a free port (bounded) |
 | `--open` | `--open` | boolean | `false` | Open the dashboard URL in the default browser after the server prints its listening URL. Implementation: dynamic `import('@wrongstack/webui/server')` of `openBrowser()`. Errors are best-effort and silently swallowed |
 | `--data-dir` | `--data-dir <path>` or `--data-dir=<path>` | string | `~/.wrongstack/hq` | HQ data directory: where `auth.json` (and in later phases, the persistent event log + snapshot cache) live. Relative paths resolve against `process.cwd()`. The env var `WRONGSTACK_HQ_DATA_DIR` provides the same override without a CLI flag; the flag wins when both are set. The default honors `WRONGSTACK_HOME`, so pointing that at a sandbox also relocates HQ state |
 | `--client` | `--client` or `-c` | boolean | `false` | Token subcommand scope selector. When passed to `wstack hq token create/list/revoke`, operates on **client tokens** (validated on `/ws/client`) instead of the default **browser tokens** (validated on `/ws/browser`). Phase 4 |
+| `--capabilities` | `--capabilities <csv>` | string | scope default | Token grants. Browser tokens allow `control.enqueue`; client tokens allow `telemetry.publish` and optionally `control.execute`. New browser/client defaults are `control.enqueue` / `telemetry.publish` respectively |
 
 `--host` and `--port` accept both forms:
 - `--key=value` → `flags[name] = "value"` (parsed by the `=` branch)
 - `--key value` (next arg does not start with `-`) → `flags[name] = "value"` (parsed by the positional-value branch)
 - `--key` alone → `flags[name] = true` (parser falls through to boolean)
 
-`--hq` and `--open` are listed in `BOOLEAN_FLAGS` in `arg-parser.ts:7-42`,
-so they are always boolean. `--host`, `--port`, `--strict-port` are NOT in
-that set, so they accept a value when one is present.
+`--hq`, `--open`, `--strict-port`, and `--client` are listed in
+`BOOLEAN_FLAGS`, so they never consume the positional token label that follows.
+`--host`, `--port`, and `--capabilities` accept values.
 
 ### Dispatch order in `cli-main.ts`
 
@@ -341,7 +343,7 @@ re-exported via `@wrongstack/core/hq`. The discriminated unions are:
 
 | Channel | Union | Members |
 |---|---|---|
-| Server → browser | `HqBrowserMessage` | `HqBrowserSnapshotMessage` (`type: "hq.snapshot"`), `HqBrowserEventMessage` (`type: "hq.event"`), `HqAlertMessage` (`type: "hq.alert"`) |
+| Server → browser | `HqBrowserMessage` | `HqBrowserSnapshotMessage` (`type: "hq.snapshot"`), `HqBrowserEventMessage` (`type: "hq.event"`), `HqAlertMessage` (`type: "hq.alert"`), application heartbeat (`type: "hq.heartbeat"`) |
 | Client → server | `HqClientMessage` | `HqClientHelloMessage` (`type: "client.hello"`), `HqClientEventMessage` (`type: "client.event"`), `HqClientCommandPollMessage` (`type: "client.command_poll"`), `HqClientCommandAckMessage` (`type: "client.command_ack"`) |
 | Server → client | `HqServerMessage` | `HqWelcomePayload` (`type: "hq.welcome"`, sent on every `client.hello`), `HqServerCommandBatchMessage` (`type: "hq.command_batch"` — emitted when a `client.command_poll` drains the client's command queue) |
 
@@ -731,7 +733,7 @@ when configured. The resolution logic lives in
 | `WRONGSTACK_HQ_URL` | string | _(unset)_ | HQ endpoint. Accepts `http://host:port`, `https://host:port`, `ws://host:port[/path]`, or `wss://host:port[/path]`. The publisher normalizes the scheme (`http`→`ws`, `https`→`wss`) and appends `/ws/client` if the path is `/` or empty. When unset, the client falls back to same-machine **auto-discovery** (see below) |
 | `WRONGSTACK_HQ_ENABLED` | `0` / `1` | `1` (auto-discovery) | `0` disables publishing entirely — including auto-discovery. Any other non-empty value forces enabled even when config says otherwise |
 | `WRONGSTACK_HQ_TOKEN` | string | _(unset)_ | Optional client enrollment token. When set, the publisher appends it as a `?token=…` query parameter on the `/ws/client` upgrade. Required by Phase 2+ when the server runs in remote/auth mode |
-| `WRONGSTACK_HQ_RAW_CONTENT` | `0` / `1` | `0` | When `1`, opt-in to publishing raw prompt / output / file / log content. When `0` (default), only normalized summaries and scrubbed previews are sent. This maps to `HqRedactionPolicy.rawContent` |
+| `WRONGSTACK_HQ_RAW_CONTENT` | `0` / `1` | `1` | Publish raw prompt / output / file / log content. Defaults to **on** for every HQ target unless explicitly disabled. Set `0` to force raw-content redaction. Maps to `HqRedactionPolicy.rawContent` |
 | `WRONGSTACK_HQ_PROJECT_ALIAS` | string | basename of project root | Human-readable project name shown in HQ. Overrides the default `basename(projectRoot)` fallback (`"unknown"` if both are missing) |
 
 ### Auto-discovery mode (default)
@@ -751,6 +753,12 @@ When neither `WRONGSTACK_HQ_URL` nor a config `hq.url` is set,
 - The only opt-out is explicit: `WRONGSTACK_HQ_ENABLED=0`, config
   `hq.enabled: false`, or `/hq off`. Then no publisher is constructed and
   behavior is identical to a build without HQ support.
+- `WRONGSTACK_HQ_RAW_CONTENT` / config `hq.rawContent` and
+  `WRONGSTACK_HQ_PROJECT_ALIAS` / config `hq.projectAlias` apply in
+  auto-discovery mode exactly as with an explicit URL. HQ defaults to **raw**
+  content for every target; set `/hq raw off` or `WRONGSTACK_HQ_RAW_CONTENT=0`
+  only when you explicitly want redacted telemetry. Changes take effect for
+  sessions started afterwards.
 
 ### Config-file integration
 
@@ -800,12 +808,14 @@ simultaneously.
 
 ## Remote / relay deployment
 
-> ⚠️ **Current security posture (Phase 4).** The HQ server implements
+> ⚠️ **Current security posture.** The HQ server implements
 > **token-based authentication** for both browser (`/ws/browser`) and
 > client (`/ws/client`) WebSocket channels, with **live reload** of the
-> token lists from `auth.json`. However, it still does **not** implement
-> browser password auth, CORS enforcement, origin checks, or rate limiting
-> on its HTTP routes. For unattended / multi-tenant deployments, use
+> token lists from `auth.json`, same-origin checks for browser writes and
+> WebSocket upgrades, security response headers, scoped token capabilities,
+> strict protocol validation, and server-side redaction. It still does **not**
+> implement browser password auth, TLS termination, or per-client rate limiting.
+> For unattended / multi-tenant deployments, use
 > TOKEN MODE + a TLS-terminating reverse proxy. The plan for password auth
 > and stricter browser controls lives in
 > [Access Control and Security](../plans/hq-command-center-2026-06.md#access-control-and-security).
@@ -834,9 +844,8 @@ export WRONGSTACK_HQ_URL=http://<hq-host>:3499
 - Browser and client token auth is enforced on the respective `/ws/*`
   upgrade when TOKEN MODE is active (tokens present in `auth.json`). In
   OPEN MODE (no tokens), any connection is accepted.
-- There is no origin / CORS enforcement on the `/ws/browser` upgrade. Any
-  web page that can reach the HQ port can open a browser socket — use
-  TOKEN MODE on untrusted networks.
+- Browser-originated writes and both WebSocket upgrades require a same-host
+  `Origin`. Native clients without an `Origin` header remain supported.
 - All HTTP routes (`/`, `/api/snapshot`, `/api/projects/:id`) are
   token-gated when browser TOKEN MODE is active — the same browser token
   that unlocks `/ws/browser` also unlocks HTTP access via `?token=` or
@@ -950,10 +959,11 @@ list in `<dataDir>/auth.json`:
 
 Each channel operates independently in OPEN MODE or TOKEN MODE:
 
-- **OPEN MODE** (default, backwards compatible): the channel's token list
-  is empty or absent → all connections to that endpoint are accepted. Use
-  this for the loopback-only developer workflow (`wstack --hq` then open
-  `http://127.0.0.1:3499/`).
+- **OPEN MODE** (explicit/backwards compatible): the channel's token list
+  is empty or absent → all connections to that endpoint are accepted. A
+  brand-new data directory does not use this mode; first run creates scoped
+  browser and client tokens. To opt into open mode, keep an existing
+  `auth.json` with empty token arrays and bind only to loopback.
 - **TOKEN MODE**: one or more tokens exist → connections must append
   `?token=<full-token>` to the upgrade URL. Unknown or missing tokens are
   rejected at the HTTP layer with `401 Unauthorized`.
@@ -971,6 +981,7 @@ $ wstack hq token create "erwin@laptop"
 Created browser token.
   id:         7a3c1f2e-...
   label:      erwin@laptop
+  capabilities: control.enqueue
   token:      e1b8c0a3...
   createdAt:  2026-06-21T12:00:00.000Z
 
@@ -982,11 +993,18 @@ $ wstack hq token create --client "ci-runner"
 Created client token.
   id:         9b4d2e3f-...
   label:      ci-runner
+  capabilities: telemetry.publish
   token:      f2c9d1b4...
   createdAt:  2026-06-21T12:01:00.000Z
 
 Connect with: ws://localhost:3499/ws/client?token=f2c9d1b4...
 (Copy the token now — it will not be shown again in full.)
+
+# Explicitly opt a trusted client into the run-command gate. The client
+# must also be launched with --hq-allow-exec; commands still enter through
+# the agent permission policy.
+$ wstack hq token create --client \
+    --capabilities telemetry.publish,control.execute "trusted-operator"
 
 # Start the server:
 $ wstack hq --port 4000
@@ -1008,11 +1026,11 @@ Listing and revoking:
 ```bash
 $ wstack hq token list
 Browser tokens (1) — TOKEN MODE:
-  7a3c1f2e-...  e1b8c0…0a3  2026-06-21T12:00:00.000Z  "erwin@laptop"
+  7a3c1f2e-...  e1b8c0…0a3  2026-06-21T12:00:00.000Z  "erwin@laptop"  [control.enqueue]
 
 $ wstack hq token list --client
 Client tokens (1) — TOKEN MODE:
-  9b4d2e3f-...  f2c9…d1b4  2026-06-21T12:01:00.000Z  "ci-runner"
+  9b4d2e3f-...  f2c9…d1b4  2026-06-21T12:01:00.000Z  "ci-runner"  [telemetry.publish]
 
 $ wstack hq token revoke 7a3c1f2e
 Revoked browser token 7a3c1f2e-... ("erwin@laptop").

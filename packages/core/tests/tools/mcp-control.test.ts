@@ -71,11 +71,10 @@ describe('createMcpControlTool', () => {
     expect(tool.capabilities).toContain(ToolCapabilities.CONFIG_MUTATE);
   });
 
-  it('has riskTier "destructive" so YOLO still gates enable/restart', () => {
+  it('has riskTier "destructive" for UI/audit metadata', () => {
     // enable/restart spawn a server that, for stdio presets, runs `npx -y <pkg>`
-    // (fetch+execute an npm package). Outside YOLO the CONFIG_MUTATE
-    // dangerous-capability net already forces a confirm; marking it destructive
-    // keeps the YOLO destructive safety net prompting too.
+    // (fetch+execute an npm package). Outside YOLO the CONFIG_MUTATE dangerous-
+    // capability net still forces a confirm; in YOLO the risk tier is metadata.
     expect(tool.riskTier).toBe('destructive');
   });
 

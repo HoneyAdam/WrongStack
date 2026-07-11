@@ -284,9 +284,21 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   let exiting = false;
   const onSigint = () => {
     interrupts++;
+    // Third (or later) press — the graceful exit itself is stuck; leave NOW.
+    if (interrupts >= 3) {
+      process.exit(130);
+    }
     if (interrupts >= 2) {
       opts.renderer.writeWarning('Exiting.');
       exiting = true;
+      // Abort whatever is still in flight so the read/run loop can observe
+      // `exiting` and unwind gracefully…
+      activeCtrl?.abort();
+      // …and if it CAN'T (a run wedged past every abort layer), force the
+      // process down after a short grace instead of letting "Exiting." be
+      // a lie. unref'd so a clean exit is never delayed by this timer.
+      const hardExit = setTimeout(() => process.exit(130), 2_000);
+      hardExit.unref?.();
       return;
     }
     // In eternal or parallel mode, the first Ctrl+C should stop the engine —
@@ -1267,6 +1279,17 @@ async function runAutoProceed(
           level: 'info',
           event: 'auto_proceed_cancelled',
           suggestion: truncated,
+        }),
+      );
+      return;
+    }
+    if ((opts.getAutonomy?.() ?? 'off') !== 'auto') {
+      console.log(
+        JSON.stringify({
+          level: 'info',
+          event: 'auto_proceed_cancelled',
+          suggestion: truncated,
+          reason: 'autonomy_not_auto',
         }),
       );
       return;

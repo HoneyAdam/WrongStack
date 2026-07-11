@@ -388,7 +388,10 @@ describe('Tool lifecycle — executeStream', () => {
     setTimeout(() => ctrl.abort(), 30);
     await runPromise;
 
-    expect(observedAbort).toBe(true);
+    // The executor's abort race unblocks executeBatch the moment the signal
+    // fires — the generator observes the abort on its own next tick, so poll
+    // instead of asserting synchronously after the (now-early) return.
+    await expect.poll(() => observedAbort).toBe(true);
   });
 
   it('estimatedDurationMs field is part of the Tool type and preserved on the object', () => {

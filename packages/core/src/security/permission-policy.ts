@@ -11,8 +11,6 @@ import { safeParse } from '../utils/safe-json.js';
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import {
   getInputString,
-  isClearlyDestructiveBashCommand,
-  pathLooksInsideProject,
 } from './yolo-risk.js';
 
 /**
@@ -119,14 +117,14 @@ export interface PermissionPolicyOptions {
   trustFile: string;
   yolo?: boolean | undefined;
   /**
-   * @deprecated Kept for CLI compatibility only. YOLO no longer bypasses
-   *   destructive-operation confirmation.
+   * @deprecated Kept for CLI compatibility only. YOLO now auto-approves
+   *   every non-denied tool call, including destructive-classified calls.
    */
   yoloDestructive?: boolean | undefined;
   /** @deprecated Use `yoloDestructive`. */
   forceAllYolo?: boolean | undefined;
   /**
-   * @deprecated Destructive confirmation is always enabled in YOLO mode.
+   * @deprecated Destructive confirmation is disabled in YOLO mode.
    * Kept for compatibility with older callers.
    */
   confirmDestructive?: boolean | undefined;
@@ -144,7 +142,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   private readonly trustFile: string;
   private yolo: boolean;
   private yoloDestructive: boolean;
-  /** When true, destructive ops still require confirmation even in YOLO mode. */
+  /** Deprecated compatibility flag; no longer gates YOLO calls. */
   private confirmDestructive: boolean;
   /**
    * Session-scoped "soft deny" map. When the user presses 'n' (block once),
@@ -179,7 +177,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   /**
    * Evaluate-result cache. Keyed by `tool.name::subject` so repeated calls
    * with the same tool+input skip namespace matching, subject computation,
-   * pattern matching (matchAny), and YOLO destructive gating.
+   * and pattern matching (matchAny).
    *
    * Cleared on any state change (reload, trust, deny, yolo toggle) because
    * the result depends on the full policy state. The write-tool smart-bypass
@@ -198,7 +196,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     this.trustFile = opts.trustFile;
     this.yolo = opts.yolo ?? false;
     this.yoloDestructive = opts.yoloDestructive ?? opts.forceAllYolo ?? false;
-    this.confirmDestructive = true;
+    this.confirmDestructive = opts.confirmDestructive ?? false;
     this.promptDelegate = opts.promptDelegate;
   }
 
@@ -234,13 +232,13 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     return this.yoloDestructive;
   }
 
-  /** Toggle destructive confirmation gate (only meaningful when yolo is active). */
-  setConfirmDestructive(_enabled: boolean): void {
-    if (!this.confirmDestructive) this._evalCache.clear();
-    this.confirmDestructive = true;
+  /** Toggle deprecated destructive confirmation compatibility flag. */
+  setConfirmDestructive(enabled: boolean): void {
+    if (this.confirmDestructive !== enabled) this._evalCache.clear();
+    this.confirmDestructive = enabled;
   }
 
-  /** Check whether destructive confirmation gate is active. */
+  /** Check deprecated destructive confirmation compatibility flag. */
   getConfirmDestructive(): boolean {
     return this.confirmDestructive;
   }
@@ -321,34 +319,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       return decision;
     }
 
-    // 5. YOLO destructive gate — runs before trust-file allow rules so
-    // "always allow" cannot silently bypass a destructive operation. YOLO is
-    // supposed to remove friction for normal work; destructive calls still need
-    // an explicit per-call approval when the gate is active.
-    if (this.yolo) {
-      const destructive = this.isDestructiveYoloCall(tool, input, ctx);
-      if (destructive) {
-        if (this.promptDelegate) {
-          const decision = await this.promptDelegate(tool, input, subject ?? tool.name);
-          if (decision === 'deny') {
-            await this.deny({ tool: tool.name, pattern: subject ?? tool.name });
-            return { permission: 'deny', source: 'user', reason: 'user denied destructive yolo' };
-          }
-          return {
-            permission: decision === 'yes' || decision === 'always' ? 'auto' : 'deny',
-            source: 'user',
-            reason: 'destructive yolo approved for this call',
-          };
-        }
-        return {
-          permission: 'confirm',
-          source: 'yolo_destructive',
-          riskTier: 'destructive',
-          reason: 'destructive tool needs explicit approval in YOLO mode',
-        };
-      }
-    }
-
     // 6. Allow (trust file)
     if (entry?.allow && subject && matchesTrust(entry.allow, subject)) {
       const decision: PermissionDecision = { permission: 'auto', source: 'trust', reason: 'matched allow pattern' };
@@ -394,8 +364,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       };
     }
 
-    // 7. YOLO — auto-approve normal project work. Clearly destructive calls
-    // were handled above before trust-file allow rules.
+    // 7. YOLO — auto-approve every non-denied call.
     if (this.yolo) {
       const decision: PermissionDecision = { permission: 'auto', source: 'yolo' };
       this._evalCache.set(cacheKey, decision);
@@ -453,72 +422,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       return { permission: decision === 'yes' ? 'auto' : 'deny', source: 'user' };
     }
     return { permission: 'confirm', source: 'default' };
-  }
-
-  // Capability-based destructive check (preferred over name-based)
-  private isDestructiveByCapability(tool: Tool): boolean {
-    const caps = tool.capabilities ?? [];
-    if (caps.includes(ToolCapabilities.SHELL_ARBITRARY)) return true;
-    if (caps.includes(ToolCapabilities.SHELL_RESTRICTED)) return true;
-    if (caps.includes(ToolCapabilities.SHELL_EXEC)) return true;
-    if (caps.includes(ToolCapabilities.FS_WRITE)) return true;
-    if (caps.includes(ToolCapabilities.FS_WRITE_OUTSIDE_PROJECT)) return true;
-    return false;
-  }
-
-  private isDestructiveYoloCall(tool: Tool, input: unknown, ctx: Context): boolean {
-    // 0. mcp_control is a multi-action tool: list/search/activate/deactivate
-    //     are read-only or ephemeral toggles and should bypass the YOLO
-    //     destructive gate. Only enable/disable/restart mutate config or
-    //     start external processes (npx -y <pkg>) and are truly destructive.
-    if (tool.name === 'mcp_control') {
-      const action = getInputString(input, 'action');
-      if (action === 'list' || action === 'search' || action === 'activate' || action === 'deactivate') {
-        return false;
-      }
-    }
-
-    // 1. Capability-based check (preferred — works for all tools, not just hardcoded names)
-    if (this.isDestructiveByCapability(tool)) {
-      const caps = tool.capabilities ?? [];
-
-      // Shell-family tools are powerful, but not every shell call is
-      // destructive. Classify the actual command string, regardless of whether
-      // the tool is `bash`, `exec`, a formatter shell tool, or a plugin shell
-      // wrapper.
-      if (
-        caps.includes(ToolCapabilities.SHELL_ARBITRARY) ||
-        caps.includes(ToolCapabilities.SHELL_RESTRICTED) ||
-        caps.includes(ToolCapabilities.SHELL_EXEC)
-      ) {
-        const command = shellCommandLineFromInput(input);
-        return command ? isClearlyDestructiveBashCommand(command, ctx.projectRoot) : tool.riskTier === 'destructive';
-      }
-
-      if (caps.includes(ToolCapabilities.FS_WRITE_OUTSIDE_PROJECT)) return true;
-
-      // For ordinary write tools, only project escapes are destructive. In-
-      // project edits/writes/formats are normal YOLO work.
-      if (caps.includes(ToolCapabilities.FS_WRITE)) {
-        const targetPath = getInputString(input, 'path') ?? getInputString(input, 'file');
-        if (!targetPath || !ctx.projectRoot) return false;
-        return !pathLooksInsideProject(targetPath, ctx.projectRoot);
-      }
-    }
-
-    // 2. Legacy name-based fallback (for tools without capabilities)
-    if (tool.name === 'bash' || tool.name === 'shell' || tool.name === 'exec') {
-      const command = shellCommandLineFromInput(input);
-      return command ? isClearlyDestructiveBashCommand(command, ctx.projectRoot) : tool.riskTier === 'destructive';
-    }
-
-    if (tool.name === 'write' || tool.name === 'edit' || tool.name === 'replace' || tool.name === 'patch') {
-      const targetPath = getInputString(input, 'path') ?? getInputString(input, 'file');
-      if (!targetPath || !ctx.projectRoot) return false;
-      return !pathLooksInsideProject(targetPath, ctx.projectRoot);
-    }
-
-    return tool.riskTier === 'destructive';
   }
 
   private isSensitiveReadCall(tool: Tool, input: unknown): boolean {

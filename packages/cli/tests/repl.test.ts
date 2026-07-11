@@ -659,7 +659,7 @@ describe('runRepl', () => {
         async (): Promise<RunResult> => ({
           status: 'done',
           iterations: 1,
-          finalText: '💡 Next steps\n1. Run tests\n',
+          finalText: '<nextsteps>\n1. Run tests\n</nextsteps>',
         }),
       );
       const agent = makeFakeAgent({ run });
@@ -685,6 +685,48 @@ describe('runRepl', () => {
 
       // Only one agent run: user's "hello" input
       expect(run).toHaveBeenCalledTimes(1);
+      expect(suggestions).toEqual(['Run tests']);
+    });
+
+    it('does not auto-proceed if autonomy turns off before feeding the suggestion', async () => {
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: '<nextsteps>\n1. Run pnpm test\n</nextsteps>',
+        }),
+      );
+      const agent = makeFakeAgent({ run });
+      const renderer = makeFakeRenderer();
+      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const slashRegistry = makeExitRegistry();
+      const suggestions: string[] = [];
+      let autonomy = 'auto' as 'auto' | 'off';
+
+      await runRepl({
+        agent,
+        renderer,
+        reader,
+        slashRegistry,
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => autonomy,
+        autoProceedDelayMs: 0,
+        onSuggestionsParsed: (parsed) => {
+          suggestions.length = 0;
+          if (parsed) suggestions.push(...parsed);
+        },
+        getSuggestions: () => {
+          if (suggestions.length > 0) autonomy = 'off';
+          return suggestions;
+        },
+      });
+
+      const allTexts = run.mock.calls.map((c: unknown[]) => {
+        const blocks = c[0] as Array<{ type: string; text?: string }> | undefined;
+        return blocks?.map((b) => b.text ?? '').join(' ') ?? '';
+      });
+      expect(allTexts).not.toContain('Run pnpm test');
     });
   });
 

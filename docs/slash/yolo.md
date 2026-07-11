@@ -6,8 +6,9 @@
 permission policy, YOLO auto-approves tool calls that were not blocked earlier
 by a session soft-deny, trust-file deny rule, or `tool.permission === 'deny'`.
 
-`--yolo-destructive` and `--force-all-yolo` are accepted for compatibility, but
-they do not bypass destructive-operation confirmation.
+`--confirm-destructive`, `--yolo-destructive`, and `--force-all-yolo` are
+accepted for compatibility, but they no longer add an extra destructive
+confirmation gate in YOLO mode.
 
 ## Usage
 
@@ -17,16 +18,9 @@ they do not bypass destructive-operation confirmation.
 | `/yolo on` | Enable YOLO mode |
 | `/yolo off` | Disable YOLO mode and restore permission prompts |
 | `/yolo toggle` | Toggle current state |
-| `/yolo destructive` | Show destructive gate status |
+| `/yolo destructive` | Show deprecated destructive-gate compatibility status |
 
 The command also accepts `enable`, `true`, `1`, `disable`, `false`, and `0`.
-
-### /yolo destructive
-
-When YOLO is enabled, `/yolo destructive` controls whether destructive
-operations (file deletion, shell commands with destructive side effects) still
-prompt for confirmation. The gate is always on; this command reports that
-status.
 
 ## Security Model Interaction
 
@@ -37,14 +31,10 @@ YOLO approval:
 2. Trust-file deny patterns.
 3. Tool-level `permission: 'deny'`.
 
-YOLO also checks whether the input is clearly destructive. In that mode, risky
-calls return
-`source: 'yolo_destructive'` and prompt.
-
 ```typescript
 // In YOLO mode:
 bash({ command: 'echo hello' }) // auto, source: 'yolo'
-bash({ command: 'rm -rf /' })   // confirm, source: 'yolo_destructive'
+bash({ command: 'rm -rf /' })   // auto, source: 'yolo', unless explicitly denied
 ```
 
 ## CLI Flags
@@ -52,7 +42,7 @@ bash({ command: 'rm -rf /' })   // confirm, source: 'yolo_destructive'
 | Flag | Effect |
 |---|---|
 | `--yolo` | Enable YOLO mode at startup |
-| `--confirm-destructive` | Deprecated; clearly destructive calls already prompt |
+| `--confirm-destructive` | Deprecated compatibility flag |
 | `--yolo-destructive` | Deprecated compatibility flag |
 | `--force-all-yolo` | Deprecated compatibility flag |
 
@@ -60,5 +50,4 @@ bash({ command: 'rm -rf /' })   // confirm, source: 'yolo_destructive'
 
 - `packages/cli/src/slash-commands/yolo.ts`
 - `packages/core/src/security/permission-policy.ts`
-- `packages/core/src/security/yolo-risk.ts`
 - `packages/core/src/types/tool.ts`

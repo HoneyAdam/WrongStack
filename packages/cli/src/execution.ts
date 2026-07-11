@@ -34,75 +34,39 @@
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
-  type Agent,
-  type AttachmentStore,
-  type AutonomyStage,
   attachTodosCheckpoint,
   CHIMERA_REVIEW_PROMPT,
   type ChimeraReviewNeededPayload,
-  type Config,
-  type ConfigStore,
   type CoordinatorEvent,
-  type Director,
-  type EventBus,
-  type GlobalMailbox,
-  type MemoryStore,
-  type ModelsRegistry,
-  type ModeStore,
   mergeCustomModelDefs,
   normalizeTokenSavingTier,
-  type ProviderConfig,
-  type RecoveryLock,
-  type ResolvedProvider,
-  type SessionStore,
-  type SessionWriter,
-  type SlashCommandRegistry,
   type SubagentConfig,
   setQueuedMessagesSnapshot,
-  type TokenCounter,
   type TokenSavingTier,
   WIDE_SUBAGENT_CAPABILITIES,
-  type WstackPaths,
 } from '@wrongstack/core';
-import type { MCPRegistry } from '@wrongstack/mcp';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
 import { runWebUIDispatch } from './boot/dispatch-webui.js';
 import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
-import {
-  registerDebugStreamCallback,
-  restoreDebugStreamCallback,
-} from './boot/tui-debug-stream.js';
+import { registerDebugStreamCallback, restoreDebugStreamCallback } from './boot/tui-debug-stream.js';
 import { getLiveSessions, onSwitchToSession } from './boot/tui-live-sessions.js';
-import {
-  getProjectPickerItems,
-  onProjectSelect,
-  type ProjectPickerContext,
-} from './boot/tui-project-picker-callback.js';
+import { getProjectPickerItems, onProjectSelect, type ProjectPickerContext } from './boot/tui-project-picker-callback.js';
 import { handleProjectSwitchSpawn } from './boot/tui-project-spawn.js';
-import {
-  type ProjectSwitchContext,
-  switchProjectInPlace as switchProjectInPlaceExtracted,
-} from './boot/tui-project-switch.js';
+import { switchProjectInPlace as switchProjectInPlaceExtracted, type ProjectSwitchContext } from './boot/tui-project-switch.js';
 import type { TuiRuntimeState } from './boot/tui-runtime-state.js';
-import {
-  getSDDContext as getSDDContextExtracted,
-  onSDDOutput as onSDDOutputExtracted,
-} from './boot/tui-sdd-callback.js';
+import { getSDDContext as getSDDContextExtracted, onSDDOutput as onSDDOutputExtracted } from './boot/tui-sdd-callback.js';
 import { resumeSession } from './boot/tui-session-resume.js';
 import { createSettingsAdapter } from './boot/tui-settings-adapter.js';
 import { FleetStatusLine } from './fleet-statusline.js';
-import type { ReadlineInputReader } from './input-reader.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { resolveActiveApiKey } from './provider-config-utils.js';
-import type { TerminalRenderer } from './renderer.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
-import type { SessionStats } from './session-stats.js';
-import type { StatuslineConfigKey } from './slash-commands/statusline.js';
 import { setSuggestions } from './slash-commands/suggestion-store.js';
 import { CLI_VERSION } from './version.js';
+import type { ExecuteDeps } from './execute-deps.js';
 
 /**
  * Settings payload shared by `saveSettings` (persist) and `applyLiveSettings`
@@ -167,410 +131,56 @@ export interface LiveSettingsInput {
   cacheTtl?: 'default' | '5m' | '1h' | undefined;
 }
 
-type PluginPickerItem = {
-  name: string;
-  enabled: boolean;
-  risk: 'low' | 'medium' | 'high';
-  summary: string;
-};
+export type { ExecuteDeps, PluginPickerItem, McpPickerItem, ToolPickerItem, BrainData, BrainLogEntry, RestoredToolCall } from './execute-deps.js';
 
-type McpPickerItem = {
-  name: string;
-  enabled: boolean;
-  status: string;
-  transport: string;
-  description?: string | undefined;
-  toolCount: number;
-  lazy?: boolean | undefined;
-};
-
-type ToolPickerItem = {
-  name: string;
-  owner: string;
-  category: string;
-  enabled: boolean;
-  mutating: boolean;
-  permission: string;
-  descMode: 'extend' | 'simple';
-  description: string;
-};
-
-export interface ExecutionDeps {
-  agent: Agent;
-  events: EventBus;
-  slashRegistry: SlashCommandRegistry;
-  attachments: AttachmentStore;
-  tokenCounter: TokenCounter;
-  config: Config;
-  /** Live config store — used to read/persist `/settings` values from the TUI. */
-  configStore: ConfigStore;
-  /** Per-task agent factory for the CLI-hosted WebUI's SDD wizard (multi-agent run). */
-  sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
-  renderer: TerminalRenderer;
-  reader: ReadlineInputReader;
-  session: SessionWriter;
-  mcpRegistry: MCPRegistry;
-  recoveryLock: RecoveryLock;
-  wpaths: WstackPaths;
-  modelsRegistry: ModelsRegistry;
-  projectRoot: string;
-  flags: Record<string, string | boolean>;
-  positional: string[];
-  effectiveMaxContext: number;
-  getEffectiveMaxContext?: (() => number | undefined) | undefined;
-  queueStore: import('@wrongstack/core').QueueStore;
-  context: import('@wrongstack/core').Context;
-  /**
-   * Project-scoped mailbox (mailbox-bus) that lives across all sessions
-   * for this project. The AutonomousCoordinator subscribes to it so
-   * goals/tasks/knowledge are visible to every terminal in the project.
-   */
-  mailbox: GlobalMailbox;
-  stats: SessionStats;
-  detachTodosCheckpoint?: (() => void | Promise<void>) | undefined;
-  savedProviderCfg: ProviderConfig | undefined;
-  resolvedProvider: ResolvedProvider | undefined;
-  getPickableProviders: () => Promise<Array<{ id: string; family: string; models: string[] }>>;
-  switchProviderAndModel: (
-    providerId: string,
-    modelId: string,
-  ) => string | null | Promise<string | null>;
-  onModelContextResolved?:
-    | ((providerId: string, modelId: string, maxContext: number) => void)
-    | undefined;
-  /** Initial director snapshot for the TUI fleet panel. Null when director mode is off. */
-  director: Director | null;
-  /** Read the current director; unlike `director`, this sees lazy promotion after startup. */
-  getDirector?: (() => Director | null) | undefined;
-  /** Mutable holder for coordinator callbacks — filled by execute() when coordinator is created. */
-  coordinatorController?: Record<string, unknown> | undefined;
-  /** Fleet roster for human-readable subagent names. */
-  fleetRoster?: Record<string, { name: string }>;
-  /**
-   * Shared controller object for the `/fleet stream on|off` toggle. The
-   * TUI installs a dispatch-backed setter on mount; the slash command
-   * reads/writes via this object so both surfaces stay synchronized.
-   */
-  fleetStreamController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  };
-  /** Shared controller for the `/interrupt` slash command (leader abort). The
-   *  TUI rebinds `abortLeader` on mount; the REPL installs its own. */
-  interruptController?: {
-    abortLeader: () => boolean;
-  };
-  /** Shared controller for the `/enhance on|off` prompt-refinement toggle. */
-  enhanceController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  };
-  /**
-   * Returns a capability-gated low-effort reasoning hint for the prompt
-   * refiner (or undefined when nothing can be safely reduced). Recomputed per
-   * call so it tracks the active model. The TUI forwards it to
-   * `enhanceUserPrompt` so the refiner does not waste thinking on this shallow
-   * rewrite task.
-   */
-  getEnhancerReasoning?: () => import('@wrongstack/core').ReasoningRequest | undefined;
-  /** Status bar hidden items controller (passed to TUI). */
-  statuslineHiddenItems: StatuslineConfigKey[];
-  setStatuslineHiddenItems: (items: StatuslineConfigKey[]) => void;
-  /** Atomically updates in-memory state AND persists statusline hidden items. */
-  saveStatuslineHiddenItems: (items: StatuslineConfigKey[]) => Promise<void>;
-  /** Load toggleable plugin rows for the interactive TUI plugin picker. */
-  getPluginItems?: (() => PluginPickerItem[]) | undefined;
-  /** Toggle a plugin from the interactive TUI plugin picker. */
-  onPluginToggle?:
-    | ((name: string) => Promise<{
-        items: PluginPickerItem[];
-        message?: string | undefined;
-        error?: string | undefined;
-      }>)
-    | undefined;
-  /** Load MCP server rows for the interactive TUI MCP picker. */
-  getMcpServers?: (() => McpPickerItem[]) | undefined;
-  /** Toggle one MCP server (enable/disable) from the interactive TUI MCP picker. */
-  onMcpToggle?:
-    | ((name: string) => Promise<{
-        items: McpPickerItem[];
-        message?: string | undefined;
-        error?: string | undefined;
-      }>)
-    | undefined;
-  /** Restart one MCP server from the interactive TUI MCP picker. */
-  onMcpRestart?:
-    | ((name: string) => Promise<{
-        items: McpPickerItem[];
-        message?: string | undefined;
-        error?: string | undefined;
-      }>)
-    | undefined;
-  /** Load tool rows for the interactive TUI tool picker. */
-  getToolsItems?: (() => ToolPickerItem[]) | undefined;
-  /** Toggle one tool (enable/disable) from the interactive TUI tool picker. */
-  onToolToggle?:
-    | ((name: string) => Promise<{
-        items: ToolPickerItem[];
-        message?: string | undefined;
-        error?: string | undefined;
-      }>)
-    | undefined;
-  /** Get current brain risk level and decision log for the Brain panel. */
-  getBrainData?:
-    | (() => { riskLevel: 'off' | 'low' | 'medium' | 'high' | 'all'; log: Array<{ kind: string; question: string; outcome: string; age: string }> })
-    | undefined;
-  /** Set brain risk ceiling from the Brain panel. Returns error string or undefined on success. */
-  onBrainRiskLevel?:
-    | ((level: 'off' | 'low' | 'medium' | 'high' | 'all') => string | undefined)
-    | undefined;
-  /** Get current Shadow Agent state. */
-  getShadowData?:
-    | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
-    | undefined;
-  /** Start Shadow Agent. Returns message or error. */
-  onShadowStart?: (() => Promise<string | undefined>) | undefined;
-  /** Stop Shadow Agent. Returns message or error. */
-  onShadowStop?: (() => Promise<string | undefined>) | undefined;
-  /** Host for the interactive TUI `/auth` panel (keys, OAuth, local adds). */
-  authHost?: import('@wrongstack/tui').AuthPanelHost | undefined;
-  /** Agents monitor overlay controller (passed to TUI). */
-  agentsMonitorController?: {
-    visible: boolean;
-    setVisible: (visible: boolean) => void;
-  };
-  /**
-   * Mutable ref for opening TUI panels from slash commands. The slash commands
-   * call `onPanelOpen.current(action)` to open panels. The TUI sets
-   * `onPanelOpen.current` to its actual dispatch function on mount.
-   */
-  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
-  /** Query the live YOLO state from the permission policy. */
-  getYolo?: (() => boolean) | undefined;
-  /** Set the live YOLO state from TUI-owned controls such as ConfirmPrompt. */
-  onYolo?: ((setTo?: boolean) => boolean) | undefined;
-  /** Query the live autonomy mode. */
-  getAutonomy?: (() => import('./slash-commands/autonomy.js').AutonomyMode) | undefined;
-  /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
-  onAutonomy?: ((mode: import('./slash-commands/autonomy.js').AutonomyMode) => void) | undefined;
-  /** Whether next-task prediction is enabled (toggled via /next). */
-  getNextPredict?: (() => boolean) | undefined;
-  /**
-   * Apply `/settings` changes to the RUNNING session (not just persist them).
-   * Called by `saveSettings` after the config is written. The host (cli-main)
-   * wires each field to its live runtime setter — policy.setYolo, onNextPredict,
-   * enhanceController, agent.maxIterations, the logger level, the session
-   * bridge's audit level, and the auto-compactor's on/off gate. Boot-only
-   * settings (MCP/plugins/skills/etc.) are intentionally not applied here.
-   */
-  applyLiveSettings?: ((s: LiveSettingsInput) => void) | undefined;
-  /** Receive suggestions parsed from the assistant turn (null clears them). */
-  onSuggestionsParsed?: ((suggestions: string[] | null) => void) | undefined;
-  /** Read current suggestions (for auto-proceed in 'auto' autonomy mode). */
-  getSuggestions?: (() => string[]) | undefined;
-  /** Read current auto suggestions (items with auto="true" attribute). Used by YOLO+auto autonomy. */
-  getAutoSuggestions?: (() => string[]) | undefined;
-  /** Autonomy next prompt template for YOLO+auto mode. Contains {{suggestion}} placeholder. */
-  autonomyNextPrompt?: string | undefined;
-  /** Delay before auto-proceeding with a suggestion in 'auto' mode (ms). */
-  autoProceedDelayMs?: number | undefined;
-  /** Maximum auto-proceed iterations before stopping. Default 50. 0 = unlimited. */
-  autoProceedMaxIterations?: number | undefined;
-  /** Host Brain arbiter (same instance bound at TOKENS.BrainArbiter). */
-  brain?: import('@wrongstack/core').BrainArbiter | undefined;
-  /** Host brain settings — the SAME object /brain mutates (shared ceiling). */
-  brainSettings?: { maxAutoRisk: import('@wrongstack/core').BrainAutoRisk } | undefined;
-  /** Read the host's rolling brain decision log (newest last, ≤20 entries). */
-  getBrainLog?:
-    | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
-    | undefined;
-  /**
-   * LLM validation gate called before starting the auto-proceed countdown.
-   * Receives the top suggestion and the last agent output; returns `true`
-   * when auto-proceeding is safe. Forwarded verbatim to the REPL.
-   */
-  onValidateAutoProceed?:
-    | ((suggestion: string, lastOutput: string) => Promise<boolean>)
-    | undefined;
-  /**
-   * Access the (possibly null) eternal-autonomy engine. The REPL drives
-   * `runOneIteration()` from its main loop when autonomy is 'eternal'.
-   */
-  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
-  /**
-   * Access the (possibly null) parallel-eternal engine. The REPL drives
-   * `runOneIteration()` from its main loop when autonomy is 'eternal-parallel'.
-   */
-  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
-  /**
-   * Access the active SDD parallel run's control surface (or null). The REPL/TUI
-   * SIGINT handler uses this to stop a running `/sdd parallel` on the first Ctrl+C
-   * — the run has its own coordinator, so it is otherwise unreachable from there.
-   */
-  getSddRun?: (() => import('@wrongstack/sdd').SddRunControl | null) | undefined;
-  /**
-   * Apply a post-run SDD lifecycle op (clean worktrees / rollback / destroy) from
-   * the host. Drives the TUI board overlay keys (c / z / x) so they work even
-   * after the run finished (when `getSddRun()` is null and the in-process control
-   * drain is gone). The host stops any live run for `destroy` and refuses
-   * clean/rollback while a run is still running.
-   */
-  onSddLifecycle?:
-    | ((
-        op: 'cleanup_worktrees' | 'rollback' | 'destroy',
-        opts?: { revertMerged?: boolean },
-      ) => Promise<import('@wrongstack/sdd').SddLifecycleResult>)
-    | undefined;
-  /**
-   * Subscribe to live per-iteration events from the eternal engine.
-   * Returns an unsubscribe function. The TUI uses this to render each
-   * iteration as a live event entry instead of polling goal.json after
-   * the fact. REPL doesn't need it (drives iterations sequentially).
-   */
-  subscribeEternalIteration?: (
-    fn: (entry: import('@wrongstack/core').JournalEntry) => void,
-  ) => () => void;
-  /**
-   * Subscribe to per-iteration stage transitions from the autonomy engines.
-   * Returns an unsubscribe function. TUI uses this to render live status
-   * (decide/execute/reflect or decompose/fanout/aggregate) in the status bar.
-   */
-  subscribeEternalStage?: ((fn: (stage: AutonomyStage) => void) => () => void) | undefined;
-  /**
-   * Called every second during the auto-proceed countdown with the
-   * remaining seconds. Return true to abort the countdown and switch
-   * to manual mode.
-   */
-  onCountdownTick?: ((remainingSeconds: number) => boolean | void) | undefined;
-  /** Skill loader for the skill generator wizard. */
-  skillLoader?: import('@wrongstack/core').SkillLoader | undefined;
-  /** Prompt loader for the prompt library (webui prompts.* handlers). */
-  promptLoader?: import('@wrongstack/core').PromptLoader | undefined;
-  /** Active agent mode id shown in the status bar (e.g. "teach", "brief"). */
-  modeId?: string | undefined;
-  /** Session store — used by WebUI for session.resume, session.delete, sessions.list. */
-  sessionStore?: SessionStore | undefined;
-  /** Memory store — used by WebUI for the MemoryPanel. */
-  memoryStore?: MemoryStore | undefined;
-  /** Mode store — used by WebUI for the ModePicker panel. */
-  modeStore?: ModeStore | undefined;
-  /**
-   * Messages restored from a previous session resume. When non-empty, the
-   * TUI renders the prior conversation as visible history entries.
-   */
-  restoredMessages?: import('@wrongstack/core').Message[] | undefined;
-  /**
-   * Tool execution records from a previous session (tool_call_end JSONL
-   * events). Used by the TUI to render tool entries on resume.
-   */
-  restoredToolCalls?:
-    | Array<{
-        name: string;
-        id: string;
-        durationMs: number;
-        ok: boolean;
-        outputBytes?: number | undefined;
-        outputTokens?: number | undefined;
-        outputLines?: number | undefined;
-      }>
-    | undefined;
-  /** When true, the WebUI shows a provider/model setup screen instead of the chat. */
-  needsSetup?: boolean | undefined;
-  /** Called when the REPL shuts down — use to clean up event listeners etc. */
-  onDestroy?: (() => void) | undefined;
-  /** Called in the execute() finally block to stop the AutonomousCoordinator cleanly. */
-  onCoordinatorStop?: (() => void) | undefined;
-}
-
-export async function execute(deps: ExecutionDeps): Promise<number> {
+export async function execute(deps: ExecuteDeps): Promise<number> {
   const {
-    agent,
-    events,
-    slashRegistry,
-    attachments,
-    tokenCounter,
-    config,
-    configStore,
-    sddSubagentFactory,
-    renderer,
-    reader,
-    session,
-    mcpRegistry,
-    recoveryLock: initialRecoveryLock,
-    wpaths: initialWpaths,
-    modelsRegistry,
-    projectRoot: initialProjectRoot,
-    flags,
-    positional,
-    effectiveMaxContext,
-    getEffectiveMaxContext,
-    queueStore,
-    context,
-    mailbox,
-    stats,
-    detachTodosCheckpoint,
-    savedProviderCfg,
-    resolvedProvider,
-    getPickableProviders,
-    switchProviderAndModel,
-    onModelContextResolved,
-    director,
-    getDirector,
-    coordinatorController,
-    fleetRoster,
-    fleetStreamController,
-    interruptController,
-    enhanceController,
-    getEnhancerReasoning,
-    statuslineHiddenItems,
-    setStatuslineHiddenItems,
-    saveStatuslineHiddenItems,
-    getPluginItems,
-    onPluginToggle,
-    getMcpServers,
-    onMcpToggle,
-    onMcpRestart,
-    getToolsItems,
-    onToolToggle,
-    getBrainData,
-    onBrainRiskLevel,
-    getShadowData,
-    onShadowStart,
-    onShadowStop,
-    authHost,
-    agentsMonitorController,
-    onPanelOpen,
-    getYolo,
-    onYolo,
-    getAutonomy,
-    onAutonomy,
-    getNextPredict,
-    onSuggestionsParsed,
-    getSuggestions,
-    getAutoSuggestions,
-    autonomyNextPrompt,
-    autoProceedDelayMs,
-    autoProceedMaxIterations,
-    brain,
-    brainSettings,
-    getBrainLog,
-    onValidateAutoProceed,
-    getEternalEngine,
-    getParallelEngine,
-    getSddRun,
-    onSddLifecycle,
-    subscribeEternalIteration,
-    subscribeEternalStage,
-    skillLoader,
-    promptLoader,
-    modeId,
-    sessionStore,
-    memoryStore,
-    modeStore,
-    restoredMessages,
-    restoredToolCalls,
-    needsSetup,
+    core: {
+      agent, events, config, configStore, wpaths: initialWpaths,
+      projectRoot: initialProjectRoot, flags, positional, slashRegistry,
+      tokenCounter, recoveryLock: initialRecoveryLock,
+    },
+    session: {
+      session, context, attachments, queueStore, mcpRegistry, mailbox,
+      sessionStore, memoryStore, modeStore, detachTodosCheckpoint,
+      restoredMessages, restoredToolCalls, needsSetup,
+    },
+    provider: {
+      modelsRegistry, savedProviderCfg, resolvedProvider,
+      getPickableProviders, switchProviderAndModel, onModelContextResolved,
+      sddSubagentFactory,
+    },
+    ui: {
+      renderer, reader, stats, effectiveMaxContext, getEffectiveMaxContext,
+      skillLoader, promptLoader, modeId,
+    },
+    fleet: {
+      director, getDirector, coordinatorController, fleetRoster,
+      fleetStreamController, agentsMonitorController, authHost, onPanelOpen,
+    },
+    controllers: {
+      interruptController, enhanceController, getEnhancerReasoning,
+      statuslineHiddenItems, setStatuslineHiddenItems, saveStatuslineHiddenItems,
+      getYolo, onYolo, getAutonomy, onAutonomy, getNextPredict,
+      applyLiveSettings, onCountdownTick,
+    },
+    picker: {
+      getPluginItems, onPluginToggle, getMcpServers, onMcpToggle, onMcpRestart,
+      getToolsItems, onToolToggle, getBrainData, onBrainRiskLevel, getBrainLog,
+      brain, brainSettings, getShadowData, onShadowStart, onShadowStop,
+    } = {},
+    lifecycles: {
+      getSuggestions, getAutoSuggestions, onSuggestionsParsed,
+      autonomyNextPrompt, autoProceedDelayMs, autoProceedMaxIterations,
+      onValidateAutoProceed, getEternalEngine, getParallelEngine, getSddRun,
+      onSddLifecycle, subscribeEternalIteration, subscribeEternalStage,
+      onDestroy, onCoordinatorStop,
+    } = {},
   } = deps;
+
+  // Mutable local for onCoordinatorStop — the coordinator setup in the TUI
+  // branch reassigns it via the onCoordinatorStopSetter callback.
+  let onCoordinatorStopImpl: (() => void) | undefined = onCoordinatorStop;
 
   const wpaths = initialWpaths;
   const projectRoot = initialProjectRoot;
@@ -855,7 +465,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             getDirector,
             coordinatorController,
             onCoordinatorStopSetter: (fn) => {
-              deps.onCoordinatorStop = fn ?? undefined;
+              onCoordinatorStopImpl = fn ?? undefined;
             },
           })
         : {
@@ -966,7 +576,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
             configStore,
             wpaths,
             fleetStreamController,
-            applyLiveSettings: deps.applyLiveSettings,
+            applyLiveSettings,
           }),
           effectiveMaxContext,
           // Terminal title animation: read from config (default on).
@@ -984,6 +594,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
               'confirmExit'
             ] as boolean) ?? true,
           director,
+          getDirector,
           fleetRoster,
           // ── AutonomousCoordinator: project-level multi-session coordination ─────────
           // The coordinator tracks goals, tasks, knowledge, and consensus across all
@@ -1264,7 +875,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         needsSetup,
         renderer,
         onAutonomy,
-        applyLiveSettings: deps.applyLiveSettings,
+        applyLiveSettings,
         activeRecoveryLock,
         onModelContextResolved,
         sddSubagentFactory,
@@ -1360,29 +971,33 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
         agentsMonitorController,
         fleetStreamController,
         interruptController,
-        onInterruptFleet: director
-          ? () => {
-              // Mirror the slash /fleet kill path: remove (not just terminate)
-              // every running/idle subagent so a Ctrl+C stops the whole fleet.
-              let killed = 0;
-              for (const sa of director.status().subagents) {
-                if (sa.status === 'running' || sa.status === 'idle') {
-                  try {
-                    director.remove(sa.id);
-                    killed++;
-                  } catch {
-                    /* best-effort */
-                  }
-                }
+        onInterruptFleet: () => {
+          // Mirror the slash /fleet kill path: remove (not just terminate)
+          // every running/idle subagent so a Ctrl+C stops the whole fleet.
+          // Resolved through getDirector so subagents spawned via the LAZY
+          // director build (delegate tool in a non---director session) are
+          // seen too — the static `director` is null there.
+          const dir = getDirector?.() ?? director;
+          if (!dir) return 0;
+          let killed = 0;
+          for (const sa of dir.status().subagents) {
+            if (sa.status === 'running' || sa.status === 'idle') {
+              try {
+                void dir.remove(sa.id);
+                killed++;
+              } catch {
+                /* best-effort */
               }
-              return killed;
             }
-          : undefined,
-        onAgentIterationComplete: director
-          ? (tokens) => director.setLeaderContextPressure(tokens)
-          : undefined,
-        onCountdownTick: deps.onCountdownTick,
-        onDestroy: deps.onDestroy,
+          }
+          return killed;
+        },
+        onAgentIterationComplete: (tokens) => {
+          const dir = getDirector?.() ?? director;
+          dir?.setLeaderContextPressure(tokens);
+        },
+        onCountdownTick,
+        onDestroy,
       });
     }
   } finally {
@@ -1394,7 +1009,7 @@ export async function execute(deps: ExecutionDeps): Promise<number> {
     fleetStatusLine?.stop();
     // Stop the AutonomousCoordinator so its while-loop exits cleanly.
     // This sets running=false; the loop terminates at the next iteration check.
-    deps.onCoordinatorStop?.();
+    onCoordinatorStopImpl?.();
     // stats.render is synchronous but can throw — isolate it so cleanup
     // always runs regardless.
     try {

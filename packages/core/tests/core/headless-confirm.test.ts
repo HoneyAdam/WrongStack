@@ -175,4 +175,47 @@ describe('Headless confirm fallback (P1 #4)', () => {
     // Tool executed because the listener approved.
     expect(result.finalText).toBe('ok');
   }, 10_000);
+
+  it('unblocks a pending confirm when the run is aborted (/interrupt path)', async () => {
+    let executed = false;
+    const danger: Tool = {
+      name: 'danger',
+      description: 'a destructive op requiring confirm',
+      inputSchema: { type: 'object' },
+      permission: 'confirm',
+      riskTier: 'destructive',
+      mutating: true,
+      async execute() {
+        executed = true;
+        return 'should-not-reach';
+      },
+    } as Tool;
+    const provider = new MockProvider([
+      {
+        content: [{ type: 'tool_use', id: 'u1', name: 'danger', input: {} }],
+        stopReason: 'tool_use',
+      },
+      { content: [{ type: 'text', text: 'never reached' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, events, tmp } = await buildHeadlessAgent(provider, [danger]);
+    cleanupDirs.push(tmp);
+
+    // A listener IS attached but never answers — the confirm panel is "on
+    // screen" while the user reaches for /interrupt instead. Before the
+    // abort-awareness fix in waitForConfirm this awaited forever.
+    let sawConfirm = false;
+    events.on('tool.confirm_needed', () => {
+      sawConfirm = true;
+    });
+
+    const ctrl = new AbortController();
+    const pending = agent.run('do the dangerous thing', { signal: ctrl.signal });
+    await expect.poll(() => sawConfirm).toBe(true);
+    ctrl.abort('user interrupt (/interrupt)');
+
+    const result = await pending;
+    expect(result.status).toBe('aborted');
+    // The tool must never have executed — the confirm was aborted, not approved.
+    expect(executed).toBe(false);
+  }, 10_000);
 });

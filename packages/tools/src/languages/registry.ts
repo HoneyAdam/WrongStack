@@ -13,6 +13,7 @@ const KNOWN_OPERATIONS = new Set<LanguageOperation>([
   'test-compile',
   'test',
   'build',
+  'run',
   'debug-compile',
   'debug-test',
   'debug-runtime',

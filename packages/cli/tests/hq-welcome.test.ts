@@ -74,9 +74,9 @@ describe('HQ server welcome handshake', () => {
             projectName: 'Welcome Test Project',
             projectRoot: '/tmp/proj_welcome',
             machineId: 'machine-welcome-001',
-            workspaceKind: 'local',
+            workspaceKind: 'directory',
           },
-          capabilities: ['mailbox.summary', 'session.events', 'tool.events'],
+          capabilities: ['mailbox.summary', 'session.summary', 'fleet.summary'],
         },
       }),
     );
@@ -107,13 +107,13 @@ describe('HQ server welcome handshake', () => {
     expect(new Date(parsed.serverTime).toISOString()).toBe(parsed.serverTime);
     expect(parsed.acceptedCapabilities).toEqual([
       'mailbox.summary',
-      'session.events',
-      'tool.events',
+      'session.summary',
+      'fleet.summary',
     ]);
     expect(parsed.redactionPolicy).toEqual({
-      rawContent: false,
-      toolArgs: 'summary',
-      paths: 'project-relative',
+      rawContent: true,
+      toolArgs: 'full',
+      paths: 'full',
     });
 
     client.close();

@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/tools",
-  "version": "0.284.1",
+  "version": "0.285.0",
   "license": "MIT",
   "description": "WrongStack built-in tools: read/write/edit, bash/exec, grep/glob, git, fetch, test, lint, and more.",
   "repository": {
@@ -175,6 +175,30 @@
     "./mode": {
       "types": "./dist/mode.d.ts",
       "import": "./dist/mode.js"
+    },
+    "./design": {
+      "types": "./dist/design.d.ts",
+      "import": "./dist/design.js"
+    },
+    "./kanban": {
+      "types": "./dist/kanban.d.ts",
+      "import": "./dist/kanban.js"
+    },
+    "./plan": {
+      "types": "./dist/plan.d.ts",
+      "import": "./dist/plan.js"
+    },
+    "./ps-slash": {
+      "types": "./dist/ps-slash.d.ts",
+      "import": "./dist/ps-slash.js"
+    },
+    "./skill": {
+      "types": "./dist/skill.d.ts",
+      "import": "./dist/skill.js"
+    },
+    "./task": {
+      "types": "./dist/task.d.ts",
+      "import": "./dist/task.js"
     },
     "./process-registry": {
       "types": "./dist/process-registry.d.ts",

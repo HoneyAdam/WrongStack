@@ -6,11 +6,10 @@
  */
 
 import { Bot, LayoutGrid, Wrench } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
 import { useFleetStore, useUIStore } from '@/stores';
-import { AgentDetail } from '../FleetPanel';
 import { useAppTranslation } from '@/i18n';
 
 const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean }> =
@@ -76,7 +75,7 @@ function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void
 export function AgentsPanel() {
   const fleetAgents = useFleetStore((s) => s.agents);
   const { t } = useAppTranslation();
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const setAgentDetailModalId = useUIStore((s) => s.setAgentDetailModalId);
 
   const fleetList = useMemo(() => {
     const arr = Array.from(fleetAgents.values());
@@ -90,9 +89,6 @@ export function AgentsPanel() {
   }, [fleetAgents]);
 
   const running = fleetList.filter((a) => a.status === 'running').length;
-  const selectedAgent = selectedAgentId
-    ? (fleetList.find((a) => a.id === selectedAgentId) ?? null)
-    : null;
 
   if (fleetList.length === 0) {
     return (
@@ -121,7 +117,7 @@ export function AgentsPanel() {
       </div>
       <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto bg-[hsl(var(--surface-2)/0.35)] p-2">
         {fleetList.map((a) => (
-          <AgentRow key={a.id} agent={a} onClick={() => setSelectedAgentId(a.id)} />
+          <AgentRow key={a.id} agent={a} onClick={() => setAgentDetailModalId(a.id)} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border/70 bg-card/75 px-3 py-2">
@@ -134,9 +130,6 @@ export function AgentsPanel() {
           {t('activity:agents.openFull')}
         </button>
       </div>
-      {selectedAgent && (
-        <AgentDetail agent={selectedAgent} onClose={() => setSelectedAgentId(null)} />
-      )}
     </>
   );
 }

@@ -68,12 +68,4 @@ export class TaskGenerator {
   }
 }
 
-// Re-export the concrete store implementation so sdd's tests can do
-// `import { DefaultTaskStore } from '../src/task-generator.js'`.
-// Lives in core (./tasking/task-store.ts); this is a pass-through.
-// Use the public package root because @wrongstack/core's package.json
-// `exports` field only declares `./tasking` as a subpath, not
-// `./tasking/task-store.js` (the latter would need a separate entry
-// and a dist file matching the subpath).
-export { DefaultTaskStore } from '@wrongstack/core';
 export { TaskStore };

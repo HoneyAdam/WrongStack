@@ -187,7 +187,10 @@ function addSourceFallbacks(
             pathDepth(b.root, projectRoot) - pathDepth(a.root, projectRoot) ||
             a.root.localeCompare(b.root),
         );
-      const candidate = containing[0] ?? getCandidate(state, profile, projectRoot);
+      const candidate =
+        containing[0] ??
+        (profile.sourceFallback === false ? undefined : getCandidate(state, profile, projectRoot));
+      if (!candidate) continue;
       candidate.evidence.push({
         kind: 'source',
         path: source,
@@ -217,7 +220,10 @@ function addTargetEvidence(
               pathDepth(b.root, projectRoot) - pathDepth(a.root, projectRoot) ||
               a.root.localeCompare(b.root),
           )[0]!
-        : getCandidate(state, profile, path.dirname(target));
+        : profile.sourceFallback === false
+          ? undefined
+          : getCandidate(state, profile, path.dirname(target));
+    if (!candidate) continue;
     candidate.evidence.push({
       kind: 'target',
       path: target,

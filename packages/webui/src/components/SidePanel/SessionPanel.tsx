@@ -35,8 +35,6 @@ import { useLocalPrefs } from '@/stores/local-prefs';
 import { fmtTok } from '../ChatView/utils';
 import { downloadChatAsMarkdown } from '../CommandPalette';
 import { ContextFillBar } from '../ContextBar';
-import { ContextBreakdownModal } from '../ContextBreakdownModal';
-
 // ── Formatting helpers ────────────────────────────────────────────────
 
 function fmtCost(v: number): string {
@@ -209,7 +207,7 @@ export function SessionPanel() {
     [localPrefs, updatePrefs],
   );
 
-  const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const setSideContextBreakdownOpen = useUIStore((s) => s.setSideContextBreakdownOpen);
 
   // Elapsed time ticks every second while a session exists — the old
   // sidebar computed Date.now() in render and showed a frozen value.
@@ -309,7 +307,7 @@ export function SessionPanel() {
         <div className="space-y-1.5 border-b border-border/70 bg-card/35 px-4 py-2.5">
           <button
             type="button"
-            onClick={() => setBreakdownOpen(true)}
+            onClick={() => setSideContextBreakdownOpen(true)}
             className="w-full block text-left"
             title={t('activity:sessionPanel.contextTitle')}
           >
@@ -325,7 +323,7 @@ export function SessionPanel() {
           </button>
           <button
             type="button"
-            onClick={() => setBreakdownOpen(true)}
+            onClick={() => setSideContextBreakdownOpen(true)}
             className="w-full block"
             title={t('activity:sessionPanel.contextTitle')}
           >
@@ -555,8 +553,6 @@ export function SessionPanel() {
           </div>
         )}
       </div>
-
-      <ContextBreakdownModal open={breakdownOpen} onClose={() => setBreakdownOpen(false)} />
     </div>
   );
 }

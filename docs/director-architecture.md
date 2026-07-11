@@ -32,7 +32,7 @@
 | `SubagentBudget` | `packages/core/src/coordination/subagent-budget.ts` | Per-subagent hard/soft budget enforcement (iterations, tools, tokens, cost, timeout). |
 | `DirectorStateCheckpoint` | `packages/core/src/storage/director-state.ts` | Incremental on-disk snapshot of fleet state for crash recovery. |
 | `makeDirectorSessionFactory` | `packages/core/src/coordination/director-session.ts` | Produces per-subagent JSONL session writers under `<runDir>/<subagentId>.jsonl`. |
-| `createDelegateTool` | `packages/core/src/coordination/delegate-tool.ts` | Single-tool spawn+assign+await bundling with auto-promotion to director mode. |
+| `createDelegateTool` | `packages/core/src/coordination/delegate-tool.ts` | Single-tool spawn+assign+await bundling available after Director mode is active. |
 
 ### Director Tools (10 total — as of this release)
 

@@ -8,7 +8,6 @@
  * with no side-channel state.
  */
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { ConfigError, type ProviderConfig, type SecretVault, atomicWrite } from '@wrongstack/core';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 
@@ -85,26 +84,5 @@ export async function saveProviders(
   await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 }
 
-// ---------------------------------------------------------------------------
-// Standalone WebUI server helpers (boot phase — not WS-connected)
-// ---------------------------------------------------------------------------
-
-import { DefaultSecretVault } from '@wrongstack/core';
-
-/**
- * Small helper for the standalone WebUI entry point: create a
- * `{ load, save }` pair from a config path alone (uses the
- * config-directory-relative `.key` file for the vault). The `--webui`
- * CLI mode and the standalone server both need to read/write the
- * `providers` map identically.
- */
-export function createProviderConfigIO(configPath: string) {
-  const keyFile = path.join(path.dirname(configPath), '.key');
-  const vault = new DefaultSecretVault({ keyFile });
-
-  return {
-    load: () => loadSavedProviders(configPath, vault),
-    save: (providers: Record<string, ProviderConfig>) =>
-      saveProviders(configPath, vault, providers),
-  };
-}
+// createProviderConfigIO (the standalone boot-phase helper) lives in
+// provider-config-standalone.ts so this module stays vault-free.

@@ -62,7 +62,7 @@ interface Tool<I, O> {
 | `inputSchema` | JSON Schema subset (no `$ref`, no `format`). Validated by `validateAgainstSchema` before `execute` runs. |
 | `permission` | `auto` runs without prompting. `confirm` prompts the user. `deny` rejects calls without prompting (useful for read-only modes). |
 | `mutating` | UI hint that this tool may change the workspace. Doesn't enforce anything — `permission` is the real gate. |
-| `riskTier` | Optional risk classification: `safe`, `standard`, or `destructive`. YOLO auto-approves normal project work; clearly destructive calls still prompt. |
+| `riskTier` | Optional risk classification: `safe`, `standard`, or `destructive`. YOLO auto-approves non-denied calls; when YOLO is off, risk can inform prompts. |
 | `capabilities` | Optional capability tags (e.g. `['fs.read']`, `['net.outbound']`). Used by the permission policy and plugin mutation rules to decide who can invoke or modify the tool. See **Capability Model** below. |
 | `maxOutputBytes` | Hard cap. The executor truncates and emits a warning. |
 | `timeoutMs` | Hard cap. After this, the executor aborts via the run's `AbortController`. |
@@ -73,8 +73,7 @@ interface Tool<I, O> {
 
 - **`auto`** — runs without prompting. Use for read-only or clearly-safe
   ops. The user can still globally enable `--yolo` to skip `confirm`
-  prompts for normal project work; clearly destructive calls still require
-  confirmation.
+  prompts when YOLO is off.
 - **`confirm`** — prompts the user before each call. Use for write paths,
   shell execution, network mutations, anything reviewable.
 - **`deny`** — rejected before `execute` runs. Mostly used by per-tool

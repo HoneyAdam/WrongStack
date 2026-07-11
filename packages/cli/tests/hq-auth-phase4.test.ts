@@ -297,6 +297,7 @@ describe('HQ Phase 4 — token subcommand --client flag', () => {
     expect(auth.clientTokens).toBeDefined();
     expect(auth.clientTokens).toHaveLength(1);
     expect(auth.clientTokens?.[0]?.label).toBe('my-ci');
+    expect(auth.clientTokens?.[0]?.capabilities).toEqual(['telemetry.publish']);
     // browserTokens should NOT be populated
     expect(auth.browserTokens).toBeUndefined();
 
@@ -314,6 +315,34 @@ describe('HQ Phase 4 — token subcommand --client flag', () => {
     expect(auth.browserTokens).toBeDefined();
     expect(auth.browserTokens).toHaveLength(1);
     expect(auth.clientTokens).toBeUndefined();
+  });
+
+  it('honors --client after top-level parsing consumed the flag', async () => {
+    const deps = makeDeps({ flags: { 'data-dir': dataDir, client: true } });
+    const code = await hqCmd(['token', 'create', 'parsed-client'], deps);
+    expect(code).toBe(0);
+
+    const auth = await readHqAuthFile(dataDir);
+    expect(auth.browserTokens).toBeUndefined();
+    expect(auth.clientTokens?.[0]).toMatchObject({
+      label: 'parsed-client',
+      capabilities: ['telemetry.publish'],
+    });
+  });
+
+  it('mints an execution-capable client token only when explicitly requested', async () => {
+    const deps = makeDeps({
+      flags: {
+        'data-dir': dataDir,
+        client: true,
+        capabilities: 'telemetry.publish,control.execute',
+      },
+    });
+    expect(await hqCmd(['token', 'create', 'operator'], deps)).toBe(0);
+    expect((await readHqAuthFile(dataDir)).clientTokens?.[0]?.capabilities).toEqual([
+      'telemetry.publish',
+      'control.execute',
+    ]);
   });
 
   it('`wstack hq token list --client` lists client tokens', async () => {

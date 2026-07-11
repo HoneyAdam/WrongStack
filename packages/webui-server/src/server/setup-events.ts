@@ -695,6 +695,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     } as never as WSServerMessage);
   });
 
+  // ── Super Memory events — retrieval, verification and hygiene observability ──
+  events.onPattern('memory.*', (eventName, payload) => {
+    broadcast(clients, {
+      type: 'memory.event',
+      payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
+    });
+  });
+
   // ── Client status events — immediate broadcast to WebUI + write to status.json ──
   // Emitted by TUI/CLI/WebUI when significant status changes occur (tool calls, tokens, etc.)
   events.on('client.status', async (e) => {

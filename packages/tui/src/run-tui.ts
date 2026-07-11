@@ -26,6 +26,7 @@ import {
 } from '@wrongstack/core';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
+import { getProcessRegistry } from '@wrongstack/tools';
 import { render } from 'ink';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
@@ -219,6 +220,13 @@ export interface RunTuiOptions {
    * when multi-agent / director mode is disabled.
    */
   director?: Director | null | undefined;
+  /**
+   * Read the CURRENT director. Unlike the static `director` option (captured
+   * at boot, null in non---director sessions), this sees a director the fleet
+   * host built lazily on the first delegate/spawn — the TUI's fleet-teardown
+   * paths (Ctrl+C, Esc, /steer) resolve through it.
+   */
+  getDirector?: (() => Director | null) | undefined;
   /**
    * Optional roster reference for resolving subagent role ids to
    * human-readable names. Same value passed to director.tools().
@@ -780,6 +788,14 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     // Detach all listeners first so cleanup() doesn't race with process.exit()
     detachListeners();
     unregisterTuiClient();
+    // Tree-kill every tracked child (bash/exec tools, background shells)
+    // BEFORE exiting — on win32, process.exit() orphans cmd.exe grandchildren
+    // otherwise and they keep burning CPU/RAM after the TUI is gone.
+    try {
+      getProcessRegistry().killAll({ force: true });
+    } catch {
+      // best-effort — exiting either way
+    }
     // Hard exit skips every async teardown path, including the session
     // writer's buffered flush — drain it synchronously so the last events
     // of the aborted run survive on disk.
@@ -837,18 +853,52 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   };
 
   process.on('SIGINT', sigintHandler);
-  for (const s of ['SIGTERM', 'SIGHUP']) {
+  // SIGBREAK = Ctrl+Break on Windows — an escape hatch users reach for when
+  // Ctrl+C appears dead. Same clean-shutdown path as SIGTERM/SIGHUP.
+  for (const s of ['SIGTERM', 'SIGHUP', 'SIGBREAK']) {
     try {
-      process.on(s, signalHandler);
+      process.on(s as NodeJS.Signals, signalHandler);
     } catch {
       // Platform may not support this signal
     }
   }
   process.on('exit', exitHandler);
 
+  // ── Last-resort raw Ctrl+C watcher ──────────────────────────────────────
+  // In raw mode the terminal NEVER raises SIGINT for Ctrl+C — it arrives as
+  // a 0x03 byte on stdin. The App's key router handles it (escalation
+  // ladder: abort → exit → hard-exit), but that path depends on Ink's input
+  // pipeline and a responsive React tree. This listener is independent of
+  // both: it only OBSERVES the byte stream and force-exits after 3 rapid
+  // presses, sharing the same timestamp window as the SIGINT path so mixed
+  // delivery still counts. When the ladder is healthy it exits on the 2nd
+  // press and this watcher never fires; when the tree is wedged, 3 presses
+  // within 2s still get the user out — guaranteed.
+  const onRawCtrlC = (data: Buffer | string): void => {
+    const hasCtrlC =
+      typeof data === 'string' ? data.includes('\x03') : data.includes(0x03);
+    if (!hasCtrlC) return;
+    const now = Date.now();
+    ctrlCPressTimestamps = ctrlCPressTimestamps.filter((t) => now - t < RAPID_EXIT_WINDOW_MS);
+    ctrlCPressTimestamps.push(now);
+    if (ctrlCPressTimestamps.length >= RAPID_EXIT_THRESHOLD) {
+      ctrlCPressTimestamps = [];
+      forceExitViaRapidCtrlC();
+    }
+  };
+  // Attached AFTER Ink renders (see the `inkInstance = instance` site) — a
+  // 'data' listener flips stdin into flowing mode, and doing that before Ink
+  // mounts would drop keystrokes typed during boot.
+
   const detachListeners = () => {
     process.off('SIGINT', sigintHandler);
+    inkStdin.off('data', onRawCtrlC);
     for (const s of signals) process.off(s, signalHandler);
+    try {
+      process.off('SIGBREAK' as NodeJS.Signals, signalHandler);
+    } catch {
+      // ignore — see install site
+    }
     for (const s of swallowSignals) {
       try {
         process.off(s, swallow);
@@ -1076,6 +1126,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           effectiveMaxContext: opts.effectiveMaxContext,
           onExit,
           director: opts.director ?? null,
+          getDirector: opts.getDirector,
           fleetRoster: opts.fleetRoster,
           onClearHistory: opts.onClearHistory
             ? (dispatch) => opts.onClearHistory?.(dispatch)
@@ -1153,6 +1204,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       );
       // Wire the hoisted reference so signal handlers can unmount Ink.
       inkInstance = instance;
+      // Arm the last-resort raw Ctrl+C watcher now that Ink owns stdin —
+      // attaching a 'data' listener earlier would flip the stream into
+      // flowing mode before Ink mounts and drop boot-time keystrokes.
+      inkStdin.on('data', onRawCtrlC);
     } catch (err) {
       writeErr(
         `wstack: TUI failed to start: ${err instanceof Error ? err.message : String(err)}\n`,

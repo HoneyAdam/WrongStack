@@ -6,20 +6,19 @@
  *
  * Sources:
  *  - `tool.started` (EventBus) → `tool.started` envelope. Raw tool input is
- *    summarized via {@link summarizeHqToolArgs} so no secrets or oversized
- *    payloads leak to the HQ browser.
+ *    shaped via {@link summarizeHqToolArgs} according to the active HQ policy.
  *  - `tool.executed` (EventBus) → `tool.completed` envelope (carries the
  *    richer post-execution signal: duration, ok/error, output bytes).
  *
  * All payload fields are plain serializable data — no closures. The
- * `tool.started.input` raw args are the only sensitive surface and are
- * reduced to a summary before publishing.
+ * `tool.started.input` raw args follow the publisher redaction policy before
+ * publishing.
  *
  * @module hq/tool-bridge
  */
 import type { EventBus } from '../kernel/events.js';
-import { summarizeHqToolArgs } from './redaction.js';
-import type { HqEventEnvelope, HqToolCompletedPayload, HqToolStartedPayload } from './protocol.js';
+import { resolveHqRedactionPolicy, scrubAndTruncateHqPreview, summarizeHqToolArgs } from './redaction.js';
+import type { HqEventEnvelope, HqRedactionPolicy, HqToolCompletedPayload, HqToolStartedPayload } from './protocol.js';
 import type { HqPublisher } from './publisher.js';
 
 export interface ToolTelemetryBridgeOptions {
@@ -81,6 +80,7 @@ export function startToolTelemetryBridge(opts: ToolTelemetryBridgeOptions): () =
         ...(p.input !== undefined
           ? {
               inputSummary: summarizeHqToolArgs(p.input, {
+                policy: publisher.redactionPolicy,
                 ...(opts.projectRoot !== undefined ? { projectRoot: opts.projectRoot } : {}),
               }),
             }
@@ -106,7 +106,7 @@ export function startToolTelemetryBridge(opts: ToolTelemetryBridgeOptions): () =
         status: p.ok ? 'success' : 'error',
         durationMs: p.durationMs,
         ...(p.output !== undefined && p.output.length > 0
-          ? { outputSummary: truncateForSummary(p.output) }
+          ? { outputSummary: truncateForSummary(p.output, publisher.redactionPolicy) }
           : {}),
       };
       publisher.publishEvent({
@@ -127,9 +127,13 @@ export function startToolTelemetryBridge(opts: ToolTelemetryBridgeOptions): () =
   };
 }
 
-function truncateForSummary(output: string, max = 280): unknown {
-  if (output.length <= max) return output;
-  return `${output.slice(0, max)}…[truncated:${output.length - max}]`;
+function truncateForSummary(output: string, policy?: Partial<HqRedactionPolicy>, max = 280): unknown {
+  const resolved = resolveHqRedactionPolicy(policy);
+  if (resolved.rawContent) {
+    if (output.length <= max) return output;
+    return `${output.slice(0, max)}…[truncated:${output.length - max}]`;
+  }
+  return scrubAndTruncateHqPreview(output, max) ?? '';
 }
 
 /** Re-export for type-only consumers. */

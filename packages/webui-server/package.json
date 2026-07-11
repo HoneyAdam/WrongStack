@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/webui-server",
-  "version": "0.284.1",
+  "version": "0.285.0",
   "license": "MIT",
   "description": "WrongStack WebUI HTTP/WebSocket server module — extracted from @wrongstack/webui in PR #243/244 to remove the CLI -> @wrongstack/webui/server cross-package edge (audit §3.1.1). Pure backend: HTTP routes, WebSocket handlers, MCP tool wrappers, HTML serving. The web frontend lives in @wrongstack/webui; this package is the standalone server it can run on.",
   "keywords": [
@@ -49,7 +49,6 @@
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
     "@wrongstack/tools": "workspace:*",
-    "jszip": "^3.10.1",
     "ws": "^8.21.0"
   },
   "devDependencies": {

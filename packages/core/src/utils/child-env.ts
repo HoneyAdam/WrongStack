@@ -145,6 +145,39 @@ export interface BuildChildEnvOptions {
 }
 
 /**
+ * Commit identity applied to every git-touching child process via the
+ * `GIT_AUTHOR_*` / `GIT_COMMITTER_*` env vars. Env-var identity outranks
+ * every `git config` layer (repo/global/system), so commits made by any
+ * tool (git tool, bash/exec, worktree manager, plugins) carry this
+ * name/email without touching the user's git config — hand-made commits
+ * in a normal terminal are unaffected.
+ */
+export interface GitIdentity {
+  name?: string | undefined;
+  email?: string | undefined;
+}
+
+let gitIdentity: GitIdentity | null = null;
+
+/**
+ * Set (or clear with `null`) the git commit identity injected by
+ * `buildChildEnv()`. Wired at boot from the user-level `config.git.identity`
+ * (the config loader strips `git` from repo-committed in-project configs —
+ * identity spoofing must not be repo-controllable) and re-applied at runtime
+ * by the `/gitid` slash command.
+ */
+export function configureChildEnvGitIdentity(identity: GitIdentity | null | undefined): void {
+  const name = identity?.name?.trim();
+  const email = identity?.email?.trim();
+  gitIdentity = name || email ? { name: name || undefined, email: email || undefined } : null;
+}
+
+/** Current configured git identity, or null when none is set. */
+export function getChildEnvGitIdentity(): Readonly<GitIdentity> | null {
+  return gitIdentity;
+}
+
+/**
  * Build a filtered child-process environment suitable for bash, exec, and
  * MCP server subprocesses. Strips API keys, tokens, and other credentials
  * while preserving system/tooling variables.
@@ -234,6 +267,20 @@ export function buildChildEnv(optsOrSessionId?: BuildChildEnvOptions | string): 
       upper === 'PAGER'
     ) {
       out[k] = v;
+    }
+  }
+
+  // Configured commit identity. Applied in passthrough mode too — it is the
+  // operator's explicit intent, not a parent-env leak. Placed BEFORE the
+  // extras merge so a caller-provided GIT_* override still wins.
+  if (gitIdentity) {
+    if (gitIdentity.name) {
+      out['GIT_AUTHOR_NAME'] = gitIdentity.name;
+      out['GIT_COMMITTER_NAME'] = gitIdentity.name;
+    }
+    if (gitIdentity.email) {
+      out['GIT_AUTHOR_EMAIL'] = gitIdentity.email;
+      out['GIT_COMMITTER_EMAIL'] = gitIdentity.email;
     }
   }
 

@@ -21,10 +21,8 @@ whitespace-tolerant, but they must occupy the entire line:
   decide.
 
 ### Operating principles
-- YOLO is active for normal project work. Proceed with routine
-  in-project tool use without pre-confirming; pick the best path and execute it.
-  If the permission system raises a destructive-gated confirmation, wait
-  for that flow instead of trying to bypass it.
+- YOLO is active. Proceed with tool use without pre-confirming unless an
+  explicit deny rule blocks the call; pick the best path and execute it.
 - Use tools freely; multiple calls per turn are normal and expected.
 - When working on a todo, mark it `in_progress` via the todos tool
   before tool work and `completed` (or `cancelled` with a reason)

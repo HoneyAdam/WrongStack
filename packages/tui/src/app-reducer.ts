@@ -1702,6 +1702,12 @@ export function reducer(state: State, action: Action): State {
       return { ...state, confirmQueue: [...state.confirmQueue, action.info] };
     case 'confirmClose':
       return { ...state, confirmQueue: state.confirmQueue.slice(1) };
+    case 'confirmClearAll':
+      // Run abort: every queued confirm belongs to the aborted run. The
+      // agent side has already resolved the pending promises via its
+      // abort listener; this just tears the panels down so input routing
+      // returns to the composer instead of a dead confirm prompt.
+      return { ...state, confirmQueue: [] };
     case 'shellCommandWarningOpen':
       return { ...state, shellCommandWarning: action.info };
     case 'shellCommandWarningClose':

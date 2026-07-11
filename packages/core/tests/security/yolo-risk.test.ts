@@ -6,10 +6,9 @@ import {
 } from '../../src/security/yolo-risk.js';
 
 /**
- * P2 #12 (before-release.md): isClearlyDestructiveBashCommand() is a critical
- * security gate — it decides whether a YOLO-mode command gets auto-approved or
- * triggers a destructive confirmation prompt. Despite being called on every
- * `bash` tool invocation in YOLO mode, it had zero unit tests.
+ * P2 #12 (before-release.md): isClearlyDestructiveBashCommand() is a risk
+ * classifier retained for UI/audit metadata and compatibility. It used to
+ * decide whether a YOLO-mode command triggered an extra confirmation prompt.
  *
  * These tests pin the heuristic regex patterns and the hasDestructiveDelete()
  * path analysis. The project root used for path-boundary checks is a temp

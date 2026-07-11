@@ -32,4 +32,4 @@ Check `stopReason` on the returned object:
 - `aborted` — the user or another tool stopped it; don't retry silently.
 - `error` — infrastructure problem; surface it.
 
-`delegate` auto-promotes you into director mode on first call — no setup tool needed. For fine-grained control over a long-running fleet, use `spawn_subagent` + `assign_task` + `await_tasks` directly. Fire-and-forget assigns report back automatically: a completed non-awaited task posts its result to your mailbox, injected before your next step.
+`delegate` is available only after Director mode is active. For fine-grained control over a long-running fleet, use `spawn_subagent` + `assign_task` + `await_tasks` directly. Fire-and-forget assigns report back automatically: a completed non-awaited task posts its result to your mailbox, injected before your next step.

@@ -58,6 +58,7 @@ import {
   ToolValidationError,
   WIDE_SUBAGENT_CAPABILITIES,
   WorktreeManager,
+  createFallbackModelExtension,
   wstackGlobalRoot,
 } from '@wrongstack/core';
 import { makePreferSideConflictResolver } from '@wrongstack/sdd';
@@ -68,7 +69,6 @@ import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
-import { createFallbackModelExtension } from '../fallback-model.js';
 import { buildRoutingRunner } from './routing.js';
 import { createFleetStatusBroadcaster } from './status-broadcast.js';
 import { setActiveFleetSupervisor } from './supervisor-registry.js';
@@ -165,9 +165,9 @@ export interface MultiAgentDeps {
 /**
  * Per-session options that flip the orchestration mode. Director mode
  * routes lifecycle through a `Director`, which unlocks manifest writing
- * and (later) FleetBus observability — at the cost of building a slightly
- * heavier wrapper around the same coordinator. Default mode is the plain
- * coordinator path that existing `/spawn` users already rely on.
+ * and FleetBus observability. When Director mode is off, public subagent
+ * spawn/delegate surfaces stay disabled until an explicit `/director`
+ * promotion flips the flag.
  */
 export interface MultiAgentHostOptions {
   /**
@@ -1587,8 +1587,16 @@ export class MultiAgentHost {
       shadowIntervalMs?: number | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
-    // Always build a Director (directorMode or not) so that spawn routes
-    // through the same code path. The Director handles all orchestration.
+    if (this.opts.directorMode === false && !this.director) {
+      throw new AgentError({
+        message: 'Director mode is off — run /director first, or start with --director.',
+        code: 'AGENT_RUN_FAILED',
+        context: { phase: 'subagent-spawn' },
+      });
+    }
+
+    // Build the Director only after the session has opted into director mode.
+    // The Director handles all orchestration once enabled.
     const isShadowSpawn = opts?.name === 'shadow';
     if (isShadowSpawn) this.shadowAutoStartSuppressions++;
     try {

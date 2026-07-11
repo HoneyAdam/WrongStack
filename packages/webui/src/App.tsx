@@ -20,6 +20,7 @@ import {
   resetUiNavigationToHome,
   useChatStore,
   useConfigStore,
+  useFleetStore,
   useFileStore,
   useSessionStore,
   useUIStore,
@@ -40,8 +41,10 @@ import { CommandPalette, downloadChatAsMarkdown } from './components/CommandPale
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConfirmModalHost, PromptModalHost } from './components/ConfirmModal';
 import { ConnectionBanner } from './components/ConnectionBanner';
+import { ContextBreakdownModal } from './components/ContextBreakdownModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FleetMonitor } from './components/FleetMonitor';
+import { AgentDetail } from './components/FleetPanel';
 import { InspectorPanel } from './components/InspectorPanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -291,6 +294,11 @@ function AppInner() {
   const sessionTitle = useSessionStore((s) => s.session?.title);
   const sessionId = useSessionStore((s) => s.session?.id);
   const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
+  const agentDetailModalId = useUIStore((s) => s.agentDetailModalId);
+  const setAgentDetailModalId = useUIStore((s) => s.setAgentDetailModalId);
+  const sideContextBreakdownOpen = useUIStore((s) => s.sideContextBreakdownOpen);
+  const setSideContextBreakdownOpen = useUIStore((s) => s.setSideContextBreakdownOpen);
+  const fleetAgents = useFleetStore((s) => s.agents);
 
   useEffect(() => {
     if (!desktopShell) return;
@@ -1235,6 +1243,25 @@ function AppInner() {
             <QueuePanel open={queuePanelOpen} onClose={() => setQueuePanelOpen(false)} />
           </Suspense>
         </ErrorBoundary>
+      )}
+
+      {/* Agent detail modal — triggered from side-panel agent row click */}
+      {agentDetailModalId && (() => {
+        const modalAgent = fleetAgents.get(agentDetailModalId) ?? null;
+        if (!modalAgent) return null;
+        return (
+          <Suspense fallback={null}>
+            <AgentDetail agent={modalAgent} onClose={() => setAgentDetailModalId(null)} />
+          </Suspense>
+        );
+      })()}
+
+      {/* Context breakdown modal — triggered from side-panel session panel */}
+      {sideContextBreakdownOpen && (
+        <ContextBreakdownModal
+          open={sideContextBreakdownOpen}
+          onClose={() => setSideContextBreakdownOpen(false)}
+        />
       )}
 
       {/* Global overlays */}

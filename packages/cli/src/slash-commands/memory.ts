@@ -2,13 +2,24 @@ import type { SlashCommand } from '@wrongstack/core';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
+import type {
+  LegacyImportResult,
+  MemoryCandidate,
+  MemoryGraphEdge,
+  MemoryVerificationResult,
+  SuperMemory,
+  SuperMemoryAuditRecord,
+  SuperMemoryHygieneReport,
+  SuperMemoryServiceLike,
+  SuperMemoryStats,
+} from '@wrongstack/super-memory';
 
 export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'memory',
     category: 'Inspect',
     description:
-      'Inspect or edit persistent memory: /memory [show|remember <text>|forget <query> [--exact]|clear|compact|stats]',
+      'Inspect or edit persistent memory: /memory [show|search|file|path|graph|remember|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|stats]',
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
@@ -63,6 +74,57 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             message: n === 0 ? `No entries matched "${query}".` : `Forgot ${n} entries.`,
           };
         }
+        case 'file':
+        case 'path': {
+          if (!restJoined) return { message: `Usage: /memory ${cmd} <path>` };
+          return runPathMemory(store, restJoined, cmd === 'path');
+        }
+        case 'search': {
+          if (!restJoined) return { message: 'Usage: /memory search <query>' };
+          if (!isSuperMemoryStore(store)) {
+            const entries = await store.search(restJoined, 'project-memory', 20);
+            return { message: formatLegacyEntries(entries.map((entry) => entry.text), restJoined) };
+          }
+          return { message: formatSuperMemories(await store.searchSuper(restJoined, { limit: 20 }), `Search: ${restJoined}`) };
+        }
+        case 'graph': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('graph');
+          if (!restJoined) return { message: 'Usage: /memory graph <memory-id|path|query>' };
+          return { message: formatGraph(await store.graphFor(restJoined, 2, 100), restJoined) };
+        }
+        case 'verify': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('verify');
+          return { message: formatVerification(await store.verify(restJoined || undefined)) };
+        }
+        case 'hygiene': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('hygiene');
+          return { message: formatHygiene(await store.hygiene()) };
+        }
+        case 'candidates': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('candidates');
+          const action = rest[0]?.toLowerCase() ?? 'list';
+          if (action === 'accept') {
+            if (!rest[1]) return { message: 'Usage: /memory candidates accept <candidate-id>' };
+            const accepted = await store.acceptCandidate(rest[1]);
+            return { message: accepted ? `Accepted ${rest[1]} as ${accepted.id}.` : `Candidate ${rest[1]} was not found.` };
+          }
+          if (action === 'reject') {
+            if (!rest[1]) return { message: 'Usage: /memory candidates reject <candidate-id> [reason]' };
+            const rejected = await store.rejectCandidate(rest[1], rest.slice(2).join(' ') || 'Rejected from /memory.');
+            return { message: rejected ? `Rejected ${rest[1]}.` : `Candidate ${rest[1]} was not found.` };
+          }
+          return { message: formatCandidates(await store.listCandidates(action === 'all')) };
+        }
+        case 'audit': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('audit');
+          return { message: formatAudit(await store.readAudit(50)) };
+        }
+        case 'import-legacy': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('import-legacy');
+          const legacyPaths = [opts.paths?.projectMemory, opts.paths?.globalMemory].filter((value): value is string => !!value);
+          if (legacyPaths.length === 0) return { message: 'Legacy memory paths are unavailable in this session.' };
+          return { message: formatLegacyImport(await store.importLegacy(legacyPaths)) };
+        }
         case 'clear': {
           await store.clear();
           return { message: 'Cleared all memory scopes.' };
@@ -71,19 +133,123 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           return runCompact(opts);
         }
         case 'stats': {
+          if (isSuperMemoryStore(store)) return { message: formatSuperStats(await store.stats()) };
           return runStats(opts);
         }
         default:
           return {
             message: unknownSubcommand(
               cmd,
-              ['show', 'remember', 'forget', 'clear', 'compact', 'stats'],
+              ['show', 'search', 'file', 'path', 'graph', 'remember', 'forget', 'hygiene', 'verify', 'candidates', 'audit', 'import-legacy', 'clear', 'compact', 'stats'],
               'memory',
             ),
           };
       }
     },
   };
+}
+
+async function runPathMemory(
+  store: NonNullable<SlashCommandContext['memoryStore']>,
+  targetPath: string,
+  includeAncestors: boolean,
+): Promise<{ message: string }> {
+  if (!isSuperMemoryStore(store)) {
+    return {
+      message:
+        '`/memory file` requires the Super Memory backend. Enable `superMemory.enabled` and restart the session.',
+    };
+  }
+  const memories = await store.retrieveForPath({
+    path: targetPath,
+    limit: 20,
+    includeAncestors,
+  });
+  if (memories.length === 0) {
+    return { message: `No Super Memory entries are attached to ${targetPath}.` };
+  }
+  const lines = [`## Super Memory for ${targetPath}`];
+  for (const memory of memories) {
+    const tags = memory.tags.length > 0 ? ` ${memory.tags.map((tag) => `#${tag}`).join(' ')}` : '';
+    const anchor = memory.anchors.find((a) => a.path || a.symbol || a.command);
+    const anchorText = anchor ? `\n  anchor: ${anchor.path ?? anchor.symbol ?? anchor.command}` : '';
+    lines.push(`- [${memory.kind}|${memory.status}] ${memory.text}${tags}${anchorText}`);
+  }
+  return { message: lines.join('\n') };
+}
+
+type CliSuperMemoryService = SuperMemoryServiceLike & {
+  stats(): Promise<SuperMemoryStats>;
+  importLegacy(files: string[]): Promise<LegacyImportResult>;
+  readAudit(limit?: number): Promise<SuperMemoryAuditRecord[]>;
+};
+
+function isSuperMemoryStore(store: NonNullable<SlashCommandContext['memoryStore']>): store is NonNullable<SlashCommandContext['memoryStore']> & CliSuperMemoryService {
+  const value = store as unknown as Record<string, unknown>;
+  return typeof value['retrieveForPath'] === 'function'
+    && typeof value['searchSuper'] === 'function'
+    && typeof value['graphFor'] === 'function'
+    && typeof value['hygiene'] === 'function';
+}
+
+function requiresSuperMemory(command: string): { message: string } {
+  return { message: `\`/memory ${command}\` requires the Super Memory backend. Enable \`superMemory.enabled\` and restart the session.` };
+}
+
+function formatSuperMemories(memories: SuperMemory[], title: string): string {
+  if (memories.length === 0) return `No Super Memory entries matched ${title}.`;
+  return [`## Super Memory — ${title}`, ...memories.map((memory) => `- \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`)].join('\n');
+}
+
+function formatLegacyEntries(entries: string[], query: string): string {
+  return entries.length === 0 ? `No memory entries matched "${query}".` : [`## Memory — Search: ${query}`, ...entries.map((text) => `- ${text}`)].join('\n');
+}
+
+function formatGraph(edges: MemoryGraphEdge[], query: string): string {
+  if (edges.length === 0) return `No graph relationships matched "${query}".`;
+  return [`## Memory Graph — ${query}`, ...edges.map((edge) => `- ${edge.from} —[${edge.relation}:${edge.weight.toFixed(2)}]→ ${edge.to}`)].join('\n');
+}
+
+function formatVerification(results: MemoryVerificationResult[]): string {
+  if (results.length === 0) return 'No memories were available to verify.';
+  const counts = new Map<string, number>();
+  for (const result of results) counts.set(result.status, (counts.get(result.status) ?? 0) + 1);
+  const lines = ['## Super Memory Verification', ...[...counts].map(([status, count]) => `- ${status}: ${count}`)];
+  for (const result of results.filter((item) => item.status !== 'verified').slice(0, 20)) {
+    lines.push(`- \`${result.memoryId}\`: ${result.anchors.map((anchor) => anchor.reason).join('; ') || result.status}`);
+  }
+  return lines.join('\n');
+}
+
+function formatHygiene(report: SuperMemoryHygieneReport): string {
+  return [
+    '## Super Memory Hygiene',
+    `Examined ${report.examined}; deduplicated ${report.deduplicated}; superseded ${report.superseded}.`,
+    `Verified ${report.verified}; staled ${report.staled}; archived ${report.archived}; deleted ${report.deleted}.`,
+  ].join('\n');
+}
+
+function formatCandidates(candidates: MemoryCandidate[]): string {
+  if (candidates.length === 0) return 'No memory candidates.';
+  return ['## Memory Candidates', ...candidates.map((candidate) => `- \`${candidate.id}\` [${candidate.status}|${candidate.kind}] ${candidate.text}`)].join('\n');
+}
+
+function formatAudit(rows: SuperMemoryAuditRecord[]): string {
+  if (rows.length === 0) return 'Super Memory audit log is empty.';
+  return ['## Super Memory Audit', ...rows.map((row) => `- ${row.at} ${row.event}${row.memoryId ? ` \`${row.memoryId}\`` : ''}${row.reason ? ` — ${row.reason}` : ''}`)].join('\n');
+}
+
+function formatLegacyImport(result: LegacyImportResult): string {
+  return `Legacy import complete: ${result.imported} imported, ${result.skipped} skipped from ${result.files} file(s).`;
+}
+
+function formatSuperStats(stats: SuperMemoryStats): string {
+  return [
+    '## Super Memory Stats',
+    `Total: ${stats.total}; active ${stats.byStatus.active}; stale ${stats.byStatus.stale}; archived ${stats.byStatus.archived}; deleted ${stats.byStatus.deleted}.`,
+    `Graph edges: ${stats.edges}.`,
+    `Kinds: ${Object.entries(stats.byKind).map(([kind, count]) => `${kind}=${count}`).join(', ') || 'none'}.`,
+  ].join('\n');
 }
 
 // ── /memory compact — LLM-driven memory review and optimization ────────

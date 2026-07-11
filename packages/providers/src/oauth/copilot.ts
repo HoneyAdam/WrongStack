@@ -9,7 +9,7 @@
  */
 
 import { FetchError, ParseError, type ProviderApiKey } from '@wrongstack/core';
-import { copilotBaseUrlFromToken, refreshCopilotToken } from '../github-copilot.js';
+import { copilotBaseUrlFromToken, refreshCopilotToken } from '../github-copilot-token.js';
 import type { BeginOAuthDeps, OAuthLoginOutcome, OAuthSession } from './types.js';
 
 const CLIENT_ID = 'Iv1.b507a08c87ecfe98';

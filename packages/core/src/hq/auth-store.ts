@@ -252,8 +252,12 @@ export async function ensureHqFirstRunAuthFile(
     }
   }
 
-  const browserToken = mintHqToken('first-run browser');
-  const clientToken = mintHqToken('first-run client');
+  // First-run credentials are deliberately least-privilege. Operators can
+  // mint an execution-capable client token explicitly when remote command
+  // execution is required; a freshly started HQ must never grant it by
+  // accident.
+  const browserToken = { ...mintHqToken('first-run browser'), capabilities: ['control.enqueue'] };
+  const clientToken = { ...mintHqToken('first-run client'), capabilities: ['telemetry.publish'] };
   const authFile: HqAuthFile = {
     version: HQ_AUTH_FILE_VERSION,
     updatedAt: new Date().toISOString(),

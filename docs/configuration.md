@@ -54,7 +54,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | `model` | `string` | *(required)* | Active model id (e.g. `claude-opus-4-7`, `gpt-4.1`). |
 | `apiKey` | `string` | — | API key for the active provider. Auto-encrypted on first contact. |
 | `baseUrl` | `string` | — | Custom API base URL. Overrides the provider's default endpoint. |
-| `yolo` | `boolean` | `false` | Auto-approve normal project work. Clearly destructive calls still prompt. Overridden by `--yolo` CLI flag. |
+| `yolo` | `boolean` | `true` | Auto-approve non-denied tool calls. Set false to restore permission prompts. Overridden by `--yolo` CLI flag. |
 | `fallbackModels` | `string[]` | — | Ordered fallback chain tried when the primary model is overloaded (429/529/5xx) and its own retries are exhausted. Each entry is `model`, `provider/model`, or `provider model`. Cross-provider. After a fallback hop, the primary is retried only after its cooldown expires. Overridden by `--fallback-model a,b,c`. |
 | `fallbackProfiles` | `Record<string, string[]>` | — | Named fallback chains. `/setmodel` and WebUI Model Routing can point a role/phase/default entry at a profile. |
 | `fallbackAuto` | `boolean` | `true` | Auto-derive a fallback chain from other keyed providers when `fallbackModels` is empty. Toggle with `/fallback auto on\|off`. |
@@ -642,6 +642,39 @@ Each key is a plugin name. The value is a free-form object validated by the plug
 
 ---
 
+## `git` — Agent git behavior
+
+```jsonc
+{
+  "git": {
+    "identity": {
+      "name": "Alt Name",          // optional — falls back to git config
+      "email": "alt@example.com"   // optional — falls back to git config
+    }
+  }
+}
+```
+
+`git.identity` sets the commit author/committer for **every git command WrongStack runs** (the `git` tool, `bash`/`exec` shells, worktree operations, plugins). It is injected as `GIT_AUTHOR_NAME/EMAIL` + `GIT_COMMITTER_NAME/EMAIL` environment variables on child processes, so:
+
+- your repo/global `git config` is never modified;
+- commits you make yourself in a normal terminal are unaffected;
+- push credentials (`gh` auth, credential helpers) are unaffected — only the identity written into the commit changes.
+
+When unset, git's own configuration applies (default behavior). Manage at runtime with `/gitid`:
+
+```
+/gitid                          # show the identity in effect
+/gitid set Alt Name alt@example.com
+/gitid set alt@example.com      # email only
+/gitid set ... --session        # apply without persisting
+/gitid clear
+```
+
+**Security:** `git` is on the in-project config deny list — a repo-committed `.wrongstack/config.json` cannot set it (commit-identity spoofing). Only `~/.wrongstack/config.json` is honoured.
+
+---
+
 ## Environment variables
 
 | Variable | Description |
@@ -656,7 +689,7 @@ Each key is a plugin name. The value is a free-form object validated by the plug
 | `WRONGSTACK_HQ_URL` | HQ command center URL for telemetry publishing (e.g. `http://localhost:3499`). When set, TUI/REPL/WebUI/CLI hosts connect to this HQ and publish mailbox events, fleet snapshots, and client lifecycle telemetry. See [HQ Command Center Plan](./plans/hq-command-center-2026-06.md). |
 | `WRONGSTACK_HQ_TOKEN` | Client enrollment token for HQ authentication. Required for non-loopback HQ servers. Passed as `?token=` on the outbound `/ws/client` WebSocket. |
 | `WRONGSTACK_HQ_ENABLED` | Set `1` to force HQ publishing even when `WRONGSTACK_HQ_URL` is unset (defaults to `http://localhost:3499`). Set `0` to explicitly disable when `WRONGSTACK_HQ_URL` is set. |
-| `WRONGSTACK_HQ_RAW_CONTENT` | Set `1` to opt into sending raw prompt/tool/mailbox content to HQ. **Off by default** — HQ telemetry redacts raw bodies, file contents, and full tool args unless this is enabled. Only use with trusted HQ servers. |
+| `WRONGSTACK_HQ_RAW_CONTENT` | Raw prompt/tool/mailbox content publishing to HQ. **Defaults on for every HQ target** unless explicitly disabled. Set `0` to force raw-content redaction. |
 | `WRONGSTACK_HQ_PROJECT_ALIAS` | Override the project display name sent to HQ (e.g. `monorepo-core` instead of the directory basename). |
 | `METRICS_HOST` | Prometheus metrics bind address (default `127.0.0.1`). |
 | `NO_COLOR` | Disable ANSI color output. |

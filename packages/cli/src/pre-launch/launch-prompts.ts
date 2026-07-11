@@ -10,7 +10,7 @@ import type { TerminalRenderer } from '../renderer.js';
 export interface LaunchModeChoices {
   /** TUI or plain REPL. */
   mode: 'tui' | 'repl';
-  /** Auto-approve normal project work; destructive-gated calls may still prompt. */
+  /** Auto-approve tool calls except explicit deny rules. */
   yolo: boolean;
   /** Start with Director mode on (fleet manifest + scratchpad enabled). */
   director: boolean;
@@ -164,7 +164,7 @@ export async function runLaunchPrompts(opts: {
   } else {
     const answer = (
       await reader.readLine(
-        `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve normal project work)')} ${color.dim('[Y/n/q]')} `,
+        `  ${color.amber('?')} YOLO mode ${color.dim('(auto-approve tool calls)')} ${color.dim('[Y/n/q]')} `,
       )
     )
       .trim()

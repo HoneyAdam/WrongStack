@@ -1,0 +1,113 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import type {
+  AnchorVerificationResult,
+  MemoryAnchor,
+  MemoryVerificationResult,
+  SuperMemory,
+  VerificationStatus,
+} from '../types.js';
+
+const execFileAsync = promisify(execFile);
+
+export async function verifyMemoryAnchors(
+  projectRoot: string,
+  memory: SuperMemory,
+  checkedAt = new Date().toISOString(),
+): Promise<MemoryVerificationResult> {
+  const anchors = await Promise.all(
+    memory.anchors.map((anchor) => verifyAnchor(projectRoot, anchor)),
+  );
+  return {
+    memoryId: memory.id,
+    status: aggregateStatus(anchors),
+    checkedAt,
+    anchors,
+  };
+}
+
+async function verifyAnchor(
+  projectRoot: string,
+  anchor: MemoryAnchor,
+): Promise<AnchorVerificationResult> {
+  if (anchor.type === 'command') {
+    return { anchor, status: 'unknown', reason: 'Command anchors require execution evidence.' };
+  }
+  if (!anchor.path) {
+    return { anchor, status: 'unknown', reason: 'Anchor has no path.' };
+  }
+
+  const absolutePath = path.resolve(projectRoot, anchor.path);
+  if (!isInside(projectRoot, absolutePath)) {
+    return { anchor, status: 'stale', reason: 'Anchor resolves outside the project root.' };
+  }
+
+  let stat;
+  try {
+    stat = await fs.stat(absolutePath);
+  } catch {
+    return { anchor, status: 'stale', reason: 'Anchored path no longer exists.' };
+  }
+
+  if (anchor.type === 'directory') {
+    return stat.isDirectory()
+      ? { anchor, status: 'verified', reason: 'Directory exists.' }
+      : { anchor, status: 'stale', reason: 'Directory anchor points to a non-directory.' };
+  }
+  if (!stat.isFile()) {
+    return { anchor, status: 'stale', reason: 'File anchor points to a non-file.' };
+  }
+
+  const body = await fs.readFile(absolutePath);
+  const contentHash = `sha256:${createHash('sha256').update(body).digest('hex')}`;
+  if (anchor.contentHash && anchor.contentHash !== contentHash) {
+    return { anchor, status: 'stale', reason: 'File content hash changed.', contentHash };
+  }
+
+  if (anchor.symbol) {
+    const text = body.toString('utf8');
+    if (!containsSymbol(text, anchor.symbol)) {
+      return { anchor, status: 'stale', reason: `Symbol "${anchor.symbol}" no longer exists.`, contentHash };
+    }
+  }
+
+  let gitBlobHash: string | undefined;
+  if (anchor.gitBlobHash || anchor.type === 'git') {
+    try {
+      const result = await execFileAsync('git', ['hash-object', absolutePath], {
+        cwd: projectRoot,
+        windowsHide: true,
+        timeout: 5_000,
+      });
+      gitBlobHash = result.stdout.trim();
+      if (anchor.gitBlobHash && anchor.gitBlobHash !== gitBlobHash) {
+        return { anchor, status: 'stale', reason: 'Git blob hash changed.', contentHash, gitBlobHash };
+      }
+    } catch {
+      return { anchor, status: 'unknown', reason: 'Git blob could not be calculated.', contentHash };
+    }
+  }
+
+  return { anchor, status: 'verified', reason: 'Anchor is current.', contentHash, gitBlobHash };
+}
+
+function containsSymbol(text: string, symbol: string): boolean {
+  const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`).test(text);
+}
+
+function aggregateStatus(results: AnchorVerificationResult[]): VerificationStatus {
+  if (results.length === 0) return 'unknown';
+  if (results.some((result) => result.status === 'contradicted')) return 'contradicted';
+  if (results.some((result) => result.status === 'stale')) return 'stale';
+  if (results.every((result) => result.status === 'verified')) return 'verified';
+  return 'unknown';
+}
+
+function isInside(root: string, target: string): boolean {
+  const relative = path.relative(path.resolve(root), target);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}

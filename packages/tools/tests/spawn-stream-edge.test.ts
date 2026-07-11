@@ -69,11 +69,12 @@ describe('spawnStream edge cases', () => {
       args: ['-e', 'setInterval(()=>process.stdout.write("tick\\n"),5)'],
       cwd: process.cwd(),
       signal: ac.signal,
+      flushBytes: 1, // yield on first byte so we don't wait 4KB (~13s) before aborting
     });
     // Pull one event, then abort — the onAbort sentinel must wake the loop.
     await gen.next();
     ac.abort();
     const result = await drain(gen);
     expect(result).toHaveProperty('exitCode');
-  }, 15_000);
+  });
 });

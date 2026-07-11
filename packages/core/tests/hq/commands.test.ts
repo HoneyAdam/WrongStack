@@ -75,6 +75,23 @@ describe('HqCommandAuditLog', () => {
     expect(entry.ackStatus).toBe('completed');
   });
 
+  it('updates an acknowledgement only for the owning client', () => {
+    const log = new HqCommandAuditLog();
+    log.record({
+      commandId: 'owned',
+      type: 'abort',
+      clientId: 'client-a',
+      enqueuedBy: 'operator',
+      enqueuedAt: 't1',
+      status: 'queued',
+    });
+
+    expect(log.updateForClient('owned', 'client-b', { status: 'acked' })).toBe(false);
+    expect(log.recent()[0]?.status).toBe('queued');
+    expect(log.updateForClient('owned', 'client-a', { status: 'acked' })).toBe(true);
+    expect(log.recent()[0]?.status).toBe('acked');
+  });
+
   it('caps the ring at max entries', () => {
     const log = new HqCommandAuditLog(5);
     for (let i = 0; i < 10; i++) {

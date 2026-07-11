@@ -12,9 +12,9 @@ export interface ConfirmPromptProps {
   input: unknown;
   suggestedPattern: string;
   onDecision: (decision: ConfirmDecision) => void;
-  /** Enable YOLO mode (capital Y). Approves the current call only when non-destructive. */
+  /** Enable YOLO mode (capital Y). Approves the current call. */
   onEnableYolo: () => void;
-  /** Whether this call was classified destructive (enabling YOLO won't auto-approve it). */
+  /** Whether this call was classified destructive. */
   destructive?: boolean;
 }
 
@@ -221,7 +221,7 @@ export function ConfirmPrompt({
         <Text dimColor>
           {' '}
           Tip: press <Text bold color="yellow">Y</Text> to enable YOLO mode
-          {destructive ? ' (skips future non-destructive approvals)' : ' (skips future approvals)'}.
+          {destructive ? ' (skips this and future approvals)' : ' (skips future approvals)'}.
         </Text>
       </Box>
     </Box>

@@ -32,8 +32,6 @@ export const BOOLEAN_FLAGS = new Set([
   'director',
   'no-director',
   'no-autonomy',
-  'autonomy',
-  'eternal',
   'no-hints',
   'hints',
   'no-hooks',
@@ -44,6 +42,8 @@ export const BOOLEAN_FLAGS = new Set([
   'token-saving-mode',
   'hq',
   'hq-allow-exec',
+  'strict-port',
+  'client',
 ]);
 
 // ------------------------------------------------------------------ main args

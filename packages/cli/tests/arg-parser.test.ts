@@ -79,6 +79,18 @@ describe('parseArgs', () => {
     expect(r.positional).toEqual(['hq', 'token', 'list']);
   });
 
+  it('does not consume the token label after the boolean --client flag', () => {
+    const r = parseArgs(['hq', 'token', 'create', '--client', 'build-agent']);
+    expect(r.flags.client).toBe(true);
+    expect(r.positional).toEqual(['hq', 'token', 'create', 'build-agent']);
+  });
+
+  it('treats --strict-port as a boolean HQ flag', () => {
+    const r = parseArgs(['hq', 'serve', '--strict-port', 'leftover']);
+    expect(r.flags['strict-port']).toBe(true);
+    expect(r.positional).toEqual(['leftover']);
+  });
+
   it('parses --fallback-model as a value flag (comma list preserved)', () => {
     expect(BOOLEAN_FLAGS.has('fallback-model')).toBe(false);
     const r = parseArgs(['--fallback-model', 'planner,haiku']);

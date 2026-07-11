@@ -143,6 +143,13 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   forget: 'brain',
   search_memory: 'brain',
   find_related_memories: 'brain',
+  memory_for_file: 'brain',
+  memory_for_path: 'brain',
+  memory_search: 'brain',
+  memory_graph: 'brain',
+  memory_verify: 'brain',
+  memory_hygiene: 'brain',
+  memory_candidates: 'brain',
 };
 
 /**

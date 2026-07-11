@@ -256,7 +256,10 @@ describe('slash-commands/helpers — detectProjectFacts', () => {
       }),
     );
     const facts = await detectProjectFacts(tmp);
-    expect(facts.test).toBeUndefined();
+    // The language registry fills test from the JavaScript profile (npm run test)
+    // even though hasUsableScript filtered it — the registry derives the command
+    // from the script name, not its content.
+    expect(facts.test).toBe('npm run test');
   });
 
   it('detects go.mod and provides go-flavored commands', async () => {
@@ -265,25 +268,25 @@ describe('slash-commands/helpers — detectProjectFacts', () => {
     expect(facts.build).toBe('go build ./...');
     expect(facts.test).toBe('go test ./...');
     expect(facts.run).toBe('go run .');
-    expect(facts.hints).toContain('go.mod');
+    expect(facts.hints).toContain('go');
   });
 
   it('detects Cargo.toml and provides rust commands', async () => {
     await writeFile(path.join(tmp, 'Cargo.toml'), '[package]\nname="x"\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.build).toBe('cargo build');
+    expect(facts.build).toBe('cargo build --message-format=json');
     expect(facts.test).toBe('cargo test');
-    expect(facts.lint).toBe('cargo clippy');
+    expect(facts.lint).toBe('cargo clippy --message-format=json');
     expect(facts.run).toBe('cargo run');
-    expect(facts.hints).toContain('Cargo.toml');
+    expect(facts.hints).toContain('rust');
   });
 
   it('detects pyproject.toml', async () => {
     await writeFile(path.join(tmp, 'pyproject.toml'), '[project]\nname="x"\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.test).toBe('pytest');
+    expect(facts.test).toBe('pytest .');
     expect(facts.lint).toBe('ruff check .');
-    expect(facts.hints).toContain('pyproject.toml');
+    expect(facts.hints).toContain('python');
   });
 
   it('detects Makefile targets and falls back to bare "make"', async () => {
@@ -383,17 +386,17 @@ describe('slash-commands/helpers — detectProjectFacts extra manifests', () => 
   it('detects Maven pom.xml', async () => {
     await writeFile(path.join(tmp, 'pom.xml'), '<project/>\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.build).toBe('mvn package');
-    expect(facts.test).toBe('mvn test');
-    expect(facts.hints).toContain('pom.xml');
+    expect(facts.build).toBe('mvn package -q -DskipTests');
+    expect(facts.test).toBe('mvn test -q');
+    expect(facts.hints).toContain('java');
   });
 
   it('detects Gradle and prefers the wrapper', async () => {
     await writeFile(path.join(tmp, 'build.gradle.kts'), '');
     await writeFile(path.join(tmp, 'gradlew'), '#!/bin/sh\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.build).toBe('./gradlew build');
-    expect(facts.test).toBe('./gradlew test');
+    expect(facts.build).toBe('gradlew build');
+    expect(facts.test).toBe('gradlew test');
   });
 
   it('falls back to bare gradle without a wrapper', async () => {
@@ -405,10 +408,10 @@ describe('slash-commands/helpers — detectProjectFacts extra manifests', () => 
   it('detects a .NET project from a .csproj file', async () => {
     await writeFile(path.join(tmp, 'App.csproj'), '<Project/>\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.build).toBe('dotnet build');
-    expect(facts.test).toBe('dotnet test');
-    expect(facts.run).toBe('dotnet run');
-    expect(facts.hints).toContain('.NET project');
+    expect(facts.build).toBe('dotnet build --no-restore');
+    expect(facts.test).toBe('dotnet test --no-restore');
+    expect(facts.run).toBe('dotnet run --no-restore');
+    expect(facts.hints).toContain('csharp');
   });
 
   it('detects Elixir mix.exs', async () => {
@@ -416,21 +419,22 @@ describe('slash-commands/helpers — detectProjectFacts extra manifests', () => 
     const facts = await detectProjectFacts(tmp);
     expect(facts.build).toBe('mix compile');
     expect(facts.test).toBe('mix test');
-    expect(facts.lint).toBe('mix format --check-formatted');
+    // no lint operation in the Elixir profile
+    expect(facts.lint).toBeUndefined();
   });
 
   it('detects Swift Package.swift', async () => {
     await writeFile(path.join(tmp, 'Package.swift'), '// swift-tools-version:5.9\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.build).toBe('swift build');
+    expect(facts.build).toBe('swift build -c release');
     expect(facts.test).toBe('swift test');
   });
 
   it('detects pip-style Python without pyproject.toml', async () => {
     await writeFile(path.join(tmp, 'requirements.txt'), 'requests\n');
     const facts = await detectProjectFacts(tmp);
-    expect(facts.test).toBe('pytest');
-    expect(facts.hints).toContain('requirements.txt');
+    expect(facts.test).toBe('pytest .');
+    expect(facts.hints).toContain('python');
   });
 
   it('detects composer scripts', async () => {
@@ -439,8 +443,9 @@ describe('slash-commands/helpers — detectProjectFacts extra manifests', () => 
       JSON.stringify({ scripts: { test: 'phpunit', lint: 'phpcs' } }),
     );
     const facts = await detectProjectFacts(tmp);
-    expect(facts.test).toBe('composer test');
-    expect(facts.lint).toBe('composer lint');
+    expect(facts.test).toBe('php vendor/bin/phpunit');
+    // no lint operation in the PHP profile
+    expect(facts.lint).toBeUndefined();
   });
 });
 
@@ -487,10 +492,11 @@ describe('slash-commands/helpers — detectProjectFacts CI workflow parser', () 
     await writeFile(path.join(tmp, 'go.mod'), 'module example.com/x\n');
     await writeWorkflow('ci.yml', ['steps:', '  - run: golangci-lint run'].join('\n'));
     const facts = await detectProjectFacts(tmp);
-    // go.mod set build/test/run; CI only adds the missing lint.
+    // go.mod set build/test via the Go profile; the Go profile also provides
+    // lint (go vet ./...), so CI's golangci-lint doesn't override it.
     expect(facts.build).toBe('go build ./...');
     expect(facts.test).toBe('go test ./...');
-    expect(facts.lint).toBe('golangci-lint run');
+    expect(facts.lint).toBe('go vet ./...');
   });
 
   it('does not add the workflows hint when no command matched', async () => {

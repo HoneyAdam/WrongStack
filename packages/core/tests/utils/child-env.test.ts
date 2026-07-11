@@ -4,7 +4,12 @@
  * NODE_OPTIONS sanitization, and passthrough mode.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { buildChildEnv, sanitizeNodeOptions } from '../../src/utils/child-env.js';
+import {
+  buildChildEnv,
+  configureChildEnvGitIdentity,
+  getChildEnvGitIdentity,
+  sanitizeNodeOptions,
+} from '../../src/utils/child-env.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -172,5 +177,68 @@ describe('buildChildEnv', () => {
     process.env = { NODE_ENV: 'test', PATH: '/usr/bin' };
     const result = buildChildEnv();
     expect(result.NODE_ENV).toBe('test');
+  });
+});
+
+// ============================================================================
+// git identity injection
+// ============================================================================
+
+describe('configureChildEnvGitIdentity', () => {
+  afterEach(() => {
+    configureChildEnvGitIdentity(null);
+  });
+
+  it('injects all four GIT_* vars when name and email are set', () => {
+    process.env = { PATH: '/usr/bin' };
+    configureChildEnvGitIdentity({ name: 'Alt Name', email: 'alt@example.com' });
+    const result = buildChildEnv();
+    expect(result.GIT_AUTHOR_NAME).toBe('Alt Name');
+    expect(result.GIT_COMMITTER_NAME).toBe('Alt Name');
+    expect(result.GIT_AUTHOR_EMAIL).toBe('alt@example.com');
+    expect(result.GIT_COMMITTER_EMAIL).toBe('alt@example.com');
+  });
+
+  it('injects only email vars when name is unset', () => {
+    process.env = { PATH: '/usr/bin' };
+    configureChildEnvGitIdentity({ email: 'alt@example.com' });
+    const result = buildChildEnv();
+    expect(result.GIT_AUTHOR_NAME).toBeUndefined();
+    expect(result.GIT_COMMITTER_NAME).toBeUndefined();
+    expect(result.GIT_AUTHOR_EMAIL).toBe('alt@example.com');
+    expect(result.GIT_COMMITTER_EMAIL).toBe('alt@example.com');
+  });
+
+  it('injects nothing when cleared with null', () => {
+    process.env = { PATH: '/usr/bin' };
+    configureChildEnvGitIdentity({ name: 'Alt', email: 'alt@example.com' });
+    configureChildEnvGitIdentity(null);
+    const result = buildChildEnv();
+    expect(result.GIT_AUTHOR_NAME).toBeUndefined();
+    expect(result.GIT_AUTHOR_EMAIL).toBeUndefined();
+  });
+
+  it('treats whitespace-only values as unset', () => {
+    configureChildEnvGitIdentity({ name: '  ', email: '' });
+    expect(getChildEnvGitIdentity()).toBeNull();
+  });
+
+  it('overrides an inherited GIT_AUTHOR_* from the parent env', () => {
+    process.env = { PATH: '/usr/bin', GIT_AUTHOR_NAME: 'Parent Name' };
+    configureChildEnvGitIdentity({ name: 'Configured Name' });
+    const result = buildChildEnv();
+    expect(result.GIT_AUTHOR_NAME).toBe('Configured Name');
+  });
+
+  it('lets an explicit extra override the configured identity', () => {
+    process.env = { PATH: '/usr/bin' };
+    configureChildEnvGitIdentity({ name: 'Configured Name' });
+    const result = buildChildEnv({ extra: { GIT_AUTHOR_NAME: 'Caller Name' } });
+    expect(result.GIT_AUTHOR_NAME).toBe('Caller Name');
+  });
+
+  it('getChildEnvGitIdentity returns the trimmed configured identity', () => {
+    configureChildEnvGitIdentity({ name: ' Alt Name ', email: ' alt@example.com ' });
+    expect(getChildEnvGitIdentity()).toEqual({ name: 'Alt Name', email: 'alt@example.com' });
   });
 });

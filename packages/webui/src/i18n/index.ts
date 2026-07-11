@@ -161,4 +161,6 @@ export {
   normalizeLocale,
   SUPPORTED_LNGS,
 } from './languages';
-export { i18n };
+// Re-export straight from the module (not the local default-import binding)
+// so the dts bundler can drop the chain without leaving a dangling import.
+export { default as i18n } from 'i18next';

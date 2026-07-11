@@ -58,7 +58,7 @@ describe('handleToolConfirmNeeded', () => {
     expect(useUIStore.getState().confirmInfo?.id).toBe('confirm_1');
   });
 
-  it('auto-approves non-destructive stale prompts when YOLO is on', () => {
+  it('auto-approves stale prompts when YOLO is on', () => {
     useLocalPrefs.getState().set({ yolo: true });
 
     fireConfirm({
@@ -74,7 +74,7 @@ describe('handleToolConfirmNeeded', () => {
     expect(useUIStore.getState().showConfirmDialog).toBe(false);
   });
 
-  it('keeps destructive prompts visible even when YOLO is on', () => {
+  it('auto-approves destructive prompts when YOLO is on', () => {
     useLocalPrefs.getState().set({ yolo: true });
 
     fireConfirm({
@@ -87,9 +87,8 @@ describe('handleToolConfirmNeeded', () => {
       riskTier: 'destructive',
     });
 
-    expect(sendConfirm).not.toHaveBeenCalled();
-    expect(useUIStore.getState().showConfirmDialog).toBe(true);
-    expect(useUIStore.getState().confirmInfo?.riskTier).toBe('destructive');
+    expect(sendConfirm).toHaveBeenCalledWith('confirm_3', 'yes');
+    expect(useUIStore.getState().showConfirmDialog).toBe(false);
   });
 });
 
@@ -100,7 +99,7 @@ describe('handlePrefsUpdated confirm visibility', () => {
     useUIStore.getState().hideConfirm();
   });
 
-  it('hides a non-destructive visible confirm when YOLO turns on', () => {
+  it('hides a visible confirm when YOLO turns on', () => {
     useUIStore.getState().showConfirm({
       id: 'confirm_safe',
       toolName: 'batch_tool_use',
@@ -115,7 +114,7 @@ describe('handlePrefsUpdated confirm visibility', () => {
     expect(useUIStore.getState().confirmInfo).toBeNull();
   });
 
-  it('keeps a destructive visible confirm when YOLO turns on', () => {
+  it('hides a destructive visible confirm when YOLO turns on', () => {
     useUIStore.getState().showConfirm({
       id: 'confirm_destructive',
       toolName: 'bash',
@@ -127,7 +126,7 @@ describe('handlePrefsUpdated confirm visibility', () => {
 
     handlePrefsUpdated({ type: 'prefs.updated', payload: { yolo: true } } as never);
 
-    expect(useUIStore.getState().showConfirmDialog).toBe(true);
-    expect(useUIStore.getState().confirmInfo?.id).toBe('confirm_destructive');
+    expect(useUIStore.getState().showConfirmDialog).toBe(false);
+    expect(useUIStore.getState().confirmInfo).toBeNull();
   });
 });

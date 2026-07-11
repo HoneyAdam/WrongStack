@@ -349,8 +349,7 @@ export class ParallelEternalEngine {
       '── EXECUTION PROTOCOL ──',
       '• Execute the assigned task end-to-end using multiple tool calls.',
       '• Emit `[done]` on its own line when the task is complete.',
-      '• Do not ask before routine in-project tool use — YOLO is active for normal project work.',
-      '• If a destructive-gated confirmation appears, wait for the permission flow.',
+      '• Do not ask before tool use — YOLO is active unless an explicit deny rule blocks the call.',
       '• If the overall Mission is accomplished, emit `[GOAL_COMPLETE]` followed by a verification recipe.',
       '• Keep output concise — summarize findings, do not transcribe files.',
     ].join('\n');

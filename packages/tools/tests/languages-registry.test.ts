@@ -44,6 +44,7 @@ describe('LanguageProfileRegistry', () => {
       'cpp',
       'swift',
       'dart',
+      'deno',
       'elixir',
       'shell',
     ]);

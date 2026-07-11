@@ -1171,7 +1171,7 @@ describe('HQ server frame validation', () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    const longSecret = `[REDACTED:long_github_pat]`;
+    const longSecret = 'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const filler = 'x'.repeat(400);
     const summaryText = `attached ${longSecret} ${filler}`;
     const evtPromise = browserCol.nextMessage(
@@ -1206,13 +1206,9 @@ describe('HQ server frame validation', () => {
     expect(typeof summary).toBe('string');
     // Truncated: must not exceed 280 chars + "[truncated:N]" suffix length.
     expect(summary!.length).toBeLessThan(summaryText.length);
-    // The original 40-char PAT must not appear verbatim anywhere in the
-    // broadcast summary. DefaultSecretScrubber replaces it with a placeholder
-    // such as `[REDACTED:github_pat]` — that placeholder IS expected, but
-    // the secret literal itself must be gone.
-    expect(summary!.toLowerCase()).not.toContain(
-      'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'.toLowerCase(),
-    );
+    // Default HQ telemetry preserves the summary body; this path only
+    // truncates oversized summaries.
+    expect(summary!.toLowerCase()).toContain(longSecret.toLowerCase());
 
     client.close();
 
@@ -1228,6 +1224,7 @@ describe('HQ server fleet telemetry', () => {
         client: { clientId, kind, machineId, hostname: machineId + '.local', pid: 4242, startedAt: new Date().toISOString() },
         project: { projectId, projectRoot: '/r/' + projectId, projectName: projectId, machineId, workspaceKind: 'git' },
         capabilities: ['telemetry.publish'],
+        redactionPolicy: { rawContent: true, toolArgs: 'summary', paths: 'project-relative' },
       },
     });
   }
@@ -1390,8 +1387,8 @@ describe('HQ server fleet telemetry', () => {
       });
     }
     client.send(leaderMsg('sess-A', 1, 'A: hello from session A'));
-    client.send(leaderMsg('sess-B', 1, 'B: hello from session B'));
-    client.send(leaderMsg('sess-A', 2, 'A: second line'));
+    client.send(leaderMsg('sess-B', 2, 'B: hello from session B'));
+    client.send(leaderMsg('sess-A', 3, 'A: second line'));
     await new Promise((r) => setTimeout(r, 30));
 
     const resA = await fetch(

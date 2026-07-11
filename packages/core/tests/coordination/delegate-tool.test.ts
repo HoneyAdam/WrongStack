@@ -645,6 +645,75 @@ describe('createDelegateTool', () => {
     await director.shutdown();
   });
 
+  // ─────────────────────────────────────────────────────────────────
+  // Abort-signal handling — /interrupt & Esc must unblock the delegate
+  // wait immediately and stop the spawned subagent (the heartbeat
+  // re-arm would otherwise keep the wait alive as long as the subagent
+  // keeps emitting events).
+  // ─────────────────────────────────────────────────────────────────
+
+  it('honors the executor abort signal: unblocks, reports aborted, and stops the subagent', async () => {
+    let subagentSignal: AbortSignal | undefined;
+    const runner = vi.fn(
+      async (_task: TaskSpec, rctx: SubagentRunContext): Promise<SubagentRunOutcome> => {
+        subagentSignal = rctx.signal;
+        // Block until the coordinator aborts this subagent (terminate()).
+        await new Promise<void>((resolve) => {
+          rctx.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        return { result: 'stopped late', iterations: 1, toolCalls: 0 };
+      },
+    );
+    director = new Director({
+      config: {
+        coordinatorId: 'abort-director',
+        doneCondition: { type: 'all_tasks_done' },
+        maxConcurrent: 1,
+      },
+      runner,
+    });
+    const hostBus = new EventBus();
+    const completed: Array<{ ok: boolean; status?: string }> = [];
+    hostBus.on('delegate.completed', (e) => completed.push({ ok: e.ok, status: e.status }));
+    const tool = createDelegateTool({
+      host: buildHost(director),
+      roster: FLEET_ROSTER,
+      events: hostBus,
+    });
+
+    const ctrl = new AbortController();
+    const pending = tool.execute(
+      { role: 'bug-hunter', task: 'long-running work' },
+      null as never,
+      { signal: ctrl.signal },
+    ) as Promise<{ ok: boolean; stopReason?: string; error?: string }>;
+    // Let spawn + assign land, then interrupt the leader.
+    await expect.poll(() => runner.mock.calls.length).toBeGreaterThan(0);
+    ctrl.abort('user interrupt (/interrupt)');
+    const out = await pending;
+
+    expect(out.ok).toBe(false);
+    expect(out.stopReason).toBe('aborted');
+    expect(out.error).toMatch(/interrupted/);
+    // The delegate must terminate the spawned subagent, not orphan it.
+    await expect.poll(() => subagentSignal?.aborted).toBe(true);
+    expect(completed).toEqual([{ ok: false, status: 'aborted' }]);
+    await director.shutdown();
+  });
+
+  it('returns aborted before spawning when the signal is already aborted', async () => {
+    // host is intentionally promotion-refusing: if the pre-spawn abort check
+    // is missing, the tool would return the promotion error instead.
+    const tool = createDelegateTool({ host: buildHost(null) });
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const out = (await tool.execute({ name: 'worker', task: 'x' }, null as never, {
+      signal: ctrl.signal,
+    })) as { ok: boolean; stopReason?: string };
+    expect(out.ok).toBe(false);
+    expect(out.stopReason).toBe('aborted');
+  });
+
   it('does not throw when no events bus is wired (best-effort emits)', async () => {
     director = buildLiveDirector();
     const tool = createDelegateTool({ host: buildHost(director), roster: FLEET_ROSTER });

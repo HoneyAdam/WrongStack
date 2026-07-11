@@ -15,7 +15,7 @@ export type HqClientCapability =
   | 'mailbox.summary'
   | 'control.receive';
 
-export type HqToolArgsPolicy = 'none' | 'summary' | 'redacted';
+export type HqToolArgsPolicy = 'none' | 'summary' | 'redacted' | 'full';
 
 export type HqPathPolicy = 'none' | 'project-relative' | 'redacted' | 'full';
 
@@ -26,10 +26,20 @@ export interface HqRedactionPolicy {
 }
 
 export const DEFAULT_HQ_REDACTION_POLICY: HqRedactionPolicy = {
-  rawContent: false,
-  toolArgs: 'summary',
-  paths: 'project-relative',
+  rawContent: true,
+  toolArgs: 'full',
+  paths: 'full',
 };
+
+/**
+ * Per-string cap applied when redacting chat-transcript events
+ * (`session.transcript` / `agent.message`). The generic 500-char summary cap
+ * is right for telemetry rollups but would mangle full chat-history rendering
+ * in the HQ Console once `rawContent` is enabled — messages and tool outputs
+ * routinely exceed it. Applied publisher-side AND at the server's re-redaction
+ * so both hops agree.
+ */
+export const HQ_TRANSCRIPT_TEXT_CAP = 16_000;
 
 export interface HqClientIdentity {
   clientId: string;
@@ -56,6 +66,8 @@ export interface HqClientHelloPayload {
   client: HqClientIdentity;
   project: HqProjectIdentity;
   capabilities: readonly HqClientCapability[];
+  /** Publisher-side policy already applied before telemetry leaves the client. */
+  redactionPolicy?: HqRedactionPolicy;
 }
 
 export interface HqWelcomePayload {
@@ -604,7 +616,16 @@ export interface HqAlertMessage {
   timestamp: string;
 }
 
-export type HqBrowserMessage = HqBrowserSnapshotMessage | HqBrowserEventMessage | HqAlertMessage;
+export interface HqHeartbeatMessage {
+  type: 'hq.heartbeat';
+  serverTime: string;
+}
+
+export type HqBrowserMessage =
+  | HqBrowserSnapshotMessage
+  | HqBrowserEventMessage
+  | HqAlertMessage
+  | HqHeartbeatMessage;
 
 export interface HqClientHelloMessage {
   type: 'client.hello';
@@ -671,6 +692,22 @@ const KNOWN_HQ_CLIENT_FRAME_TYPES = new Set<HqClientMessage['type']>([
   'client.command_ack',
 ]);
 
+const HQ_CLIENT_KINDS = new Set<HqClientKind>(['tui', 'repl', 'webui', 'cli', 'unknown']);
+const HQ_WORKSPACE_KINDS = new Set<HqWorkspaceKind>(['git', 'directory', 'unknown']);
+const HQ_CLIENT_CAPABILITIES = new Set<HqClientCapability>([
+  'telemetry.publish',
+  'session.summary',
+  'fleet.summary',
+  'mailbox.summary',
+  'control.receive',
+]);
+const HQ_COMMAND_ACK_STATUSES = new Set<HqClientCommandAckMessage['status']>([
+  'accepted',
+  'completed',
+  'failed',
+  'rejected',
+]);
+
 /** Top-level object + string `type` guard. */
 function hasStringType(x: unknown): x is { type: string } {
   return typeof x === 'object' && x !== null && typeof (x as { type?: unknown }).type === 'string';
@@ -682,6 +719,7 @@ function isHqClientIdentity(x: unknown): x is HqClientIdentity {
   return (
     typeof v.clientId === 'string' &&
     typeof v.kind === 'string' &&
+    HQ_CLIENT_KINDS.has(v.kind as HqClientKind) &&
     typeof v.machineId === 'string' &&
     typeof v.startedAt === 'string'
   );
@@ -695,7 +733,21 @@ function isHqProjectIdentity(x: unknown): x is HqProjectIdentity {
     typeof v.projectRoot === 'string' &&
     typeof v.projectName === 'string' &&
     typeof v.machineId === 'string' &&
-    typeof v.workspaceKind === 'string'
+    typeof v.workspaceKind === 'string' &&
+    HQ_WORKSPACE_KINDS.has(v.workspaceKind as HqWorkspaceKind)
+  );
+}
+
+function isHqRedactionPolicy(x: unknown): x is HqRedactionPolicy {
+  if (typeof x !== 'object' || x === null) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.rawContent === 'boolean' &&
+    (v.toolArgs === 'none' || v.toolArgs === 'summary' || v.toolArgs === 'redacted' || v.toolArgs === 'full') &&
+    (v.paths === 'none' ||
+      v.paths === 'project-relative' ||
+      v.paths === 'redacted' ||
+      v.paths === 'full')
   );
 }
 
@@ -706,7 +758,13 @@ function isHqClientHelloPayload(x: unknown): x is HqClientHelloPayload {
     typeof v.protocolVersion === 'number' &&
     isHqClientIdentity(v.client) &&
     isHqProjectIdentity(v.project) &&
-    Array.isArray(v.capabilities)
+    Array.isArray(v.capabilities) &&
+    v.capabilities.every(
+      (capability) =>
+        typeof capability === 'string' &&
+        HQ_CLIENT_CAPABILITIES.has(capability as HqClientCapability),
+    ) &&
+    (v.redactionPolicy === undefined || isHqRedactionPolicy(v.redactionPolicy))
   );
 }
 
@@ -716,18 +774,26 @@ function isHqEventEnvelope(x: unknown): x is HqEventEnvelope {
   return (
     typeof v.id === 'string' &&
     typeof v.type === 'string' &&
-    typeof v.schemaVersion === 'number' &&
+    v.schemaVersion === HQ_PROTOCOL_VERSION &&
     typeof v.timestamp === 'string' &&
     typeof v.clientId === 'string' &&
     typeof v.projectId === 'string' &&
-    typeof v.seq === 'number'
+    Number.isSafeInteger(v.seq) &&
+    (v.seq as number) >= 0 &&
+    Object.hasOwn(v, 'payload')
   );
 }
 
 function isHqClientCommandPollMessage(x: unknown): x is HqClientCommandPollMessage {
   if (typeof x !== 'object' || x === null) return false;
   const v = x as Record<string, unknown>;
-  return typeof v.clientId === 'string' && typeof v.projectId === 'string';
+  return (
+    typeof v.clientId === 'string' &&
+    typeof v.projectId === 'string' &&
+    (v.afterCommandId === undefined || typeof v.afterCommandId === 'string') &&
+    (v.limit === undefined ||
+      (Number.isSafeInteger(v.limit) && (v.limit as number) > 0 && (v.limit as number) <= 200))
+  );
 }
 
 function isHqClientCommandAckMessage(x: unknown): x is HqClientCommandAckMessage {
@@ -737,7 +803,9 @@ function isHqClientCommandAckMessage(x: unknown): x is HqClientCommandAckMessage
     typeof v.clientId === 'string' &&
     typeof v.projectId === 'string' &&
     typeof v.commandId === 'string' &&
-    typeof v.status === 'string'
+    typeof v.status === 'string' &&
+    HQ_COMMAND_ACK_STATUSES.has(v.status as HqClientCommandAckMessage['status']) &&
+    (v.message === undefined || typeof v.message === 'string')
   );
 }
 
@@ -788,7 +856,15 @@ export function parseHqFrame(raw: string | Buffer): HqParseResult {
       }
       return {
         ok: true,
-        frame: { type: 'client.command_poll', clientId: obj.clientId, projectId: obj.projectId },
+        frame: {
+          type: 'client.command_poll',
+          clientId: obj.clientId,
+          projectId: obj.projectId,
+          ...(typeof obj.afterCommandId === 'string'
+            ? { afterCommandId: obj.afterCommandId }
+            : {}),
+          ...(typeof obj.limit === 'number' ? { limit: obj.limit } : {}),
+        },
       };
     case 'client.command_ack':
       if (!isHqClientCommandAckMessage(obj)) {
@@ -830,6 +906,7 @@ const KNOWN_HQ_EVENT_PAYLOAD_TYPES = new Set<string>([
   'tool.started',
   'tool.completed',
   'session.usage',
+  'client.heartbeat',
 ]);
 
 function isHqMailboxMessageSummary(x: unknown): x is HqMailboxMessageSummary {
@@ -1112,6 +1189,23 @@ function isHqUsagePayload(x: unknown): x is HqUsagePayload {
   return !Array.isArray(x);
 }
 
+function isHqClientHeartbeatPayload(x: unknown): x is HqClientHeartbeatPayload {
+  if (typeof x !== 'object' || x === null || Array.isArray(x)) return false;
+  const v = x as Record<string, unknown>;
+  return (
+    typeof v.uptimeMs === 'number' &&
+    (v.activeSessionId === undefined || typeof v.activeSessionId === 'string') &&
+    (v.activeRunId === undefined || typeof v.activeRunId === 'string') &&
+    typeof v.status === 'string' &&
+    (v.status === 'active' ||
+      v.status === 'idle' ||
+      v.status === 'stale' ||
+      v.status === 'error') &&
+    (v.activeSubagents === undefined || typeof v.activeSubagents === 'number') &&
+    (v.queuedTasks === undefined || typeof v.queuedTasks === 'number')
+  );
+}
+
 /**
  * Validate the `payload` field of a {@link HqEventEnvelope} for known
  * event types. Returns `{ ok: true, payload }` with a narrowed payload
@@ -1185,6 +1279,10 @@ export function parseHqEventPayload(
         : { ok: false, reason: 'malformed-payload' };
     case 'session.usage':
       return isHqUsagePayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'client.heartbeat':
+      return isHqClientHeartbeatPayload(payload)
         ? { ok: true, payload }
         : { ok: false, reason: 'malformed-payload' };
     default: {

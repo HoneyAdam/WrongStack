@@ -5,7 +5,7 @@ import {
   effectiveFallbackChain,
   parseModelRef,
   smartDefaultFallbackChain,
-} from '../src/fallback-model.js';
+} from '@wrongstack/core';
 
 const logger = { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() } as never;
 

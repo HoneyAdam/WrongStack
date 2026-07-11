@@ -69,28 +69,23 @@ describe('session soft deny / allow', () => {
 describe('yolo + confirmDestructive', () => {
   const destructiveBash = () => tool('bash', 'confirm', { capabilities: ['shell.arbitrary'] });
 
-  it('confirms a destructive call with no prompt delegate', async () => {
+  it('auto-approves a destructive-classified call with no prompt delegate', async () => {
     const p = new DefaultPermissionPolicy({ trustFile });
     p.setYolo(true);
     p.setConfirmDestructive(true);
     const d = await p.evaluate(destructiveBash(), { command: 'rm -rf /' }, ctx());
-    expect(d).toMatchObject({ permission: 'confirm', source: 'yolo_destructive', riskTier: 'destructive' });
+    expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
 
-  it('honors the prompt delegate decisions for a destructive call', async () => {
+  it('does not call the prompt delegate for destructive-classified YOLO calls', async () => {
     const delegate = vi.fn();
     const p = new DefaultPermissionPolicy({ trustFile, promptDelegate: delegate });
     p.setYolo(true);
     p.setConfirmDestructive(true);
 
     delegate.mockResolvedValueOnce('always');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /etc' }, ctx())).toMatchObject({ permission: 'auto', reason: expect.stringContaining('approved for this call') });
-    delegate.mockResolvedValueOnce('deny');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /usr' }, ctx())).toMatchObject({ permission: 'deny' });
-    delegate.mockResolvedValueOnce('yes');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /var' }, ctx())).toMatchObject({ permission: 'auto' });
-    delegate.mockResolvedValueOnce('no');
-    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /boot' }, ctx())).toMatchObject({ permission: 'deny' });
+    expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /etc' }, ctx())).toMatchObject({ permission: 'auto', source: 'yolo' });
+    expect(delegate).not.toHaveBeenCalled();
   });
 
   it('auto-approves a non-destructive call under yolo', async () => {
@@ -209,9 +204,9 @@ describe('destructive detection — capability and legacy paths', () => {
     return p;
   };
 
-  it('treats a fs.write.outside-project capability as destructive', async () => {
+  it('auto-approves a fs.write.outside-project capability under yolo', async () => {
     const d = await yoloDestructive().evaluate(tool('deploy', 'confirm', { capabilities: ['fs.write.outside-project'] }), {}, ctx());
-    expect(d).toMatchObject({ permission: 'confirm', source: 'yolo_destructive' });
+    expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
 
   it('a fs.write tool with no path is not destructive', async () => {
@@ -219,9 +214,9 @@ describe('destructive detection — capability and legacy paths', () => {
     expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
 
-  it('legacy name-based: an edit outside the project is destructive', async () => {
+  it('legacy name-based: an edit outside the project is auto-approved under yolo', async () => {
     const d = await yoloDestructive().evaluate(tool('edit'), { path: '/etc/passwd' }, ctx());
-    expect(d).toMatchObject({ permission: 'confirm', source: 'yolo_destructive' });
+    expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
 
   it('legacy name-based: an edit with no path is not destructive', async () => {
@@ -229,9 +224,9 @@ describe('destructive detection — capability and legacy paths', () => {
     expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
 
-  it('legacy: a non-file tool falls through to the riskTier check', async () => {
+  it('legacy: riskTier destructive still auto-approves under yolo', async () => {
     const d = await yoloDestructive().evaluate(tool('exec', 'confirm', { riskTier: 'destructive' }), {}, ctx());
-    expect(d).toMatchObject({ permission: 'confirm', source: 'yolo_destructive' });
+    expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
 });
 

@@ -26,6 +26,7 @@ import {
 import { buildRecoveryStrategies } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
+import { SuperMemoryStore } from '@wrongstack/super-memory';
 
 export interface CreateContainerOptions {
   config: Config;
@@ -42,7 +43,7 @@ export interface CreateContainerOptions {
     yoloDestructive?: boolean | undefined;
     /** @deprecated Use `yoloDestructive`. */
     forceAllYolo?: boolean | undefined;
-    /** When true, destructive ops prompt even in YOLO mode. */
+    /** Deprecated compatibility flag; YOLO no longer prompts by destructiveness. */
     confirmDestructive?: boolean | undefined;
     promptDelegate?: (
       tool: Tool,
@@ -129,7 +130,13 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
       }),
   );
 
-  const memoryStore = new DefaultMemoryStore({ paths: wpaths, events: opts.events });
+  const memoryStore = config.superMemory?.enabled === false
+    ? new DefaultMemoryStore({ paths: wpaths, events: opts.events })
+    : new SuperMemoryStore({
+        projectRoot: wpaths.projectRoot,
+        directory: config.superMemory?.storage?.directory,
+        events: opts.events,
+      });
   container.bind(TOKENS.MemoryStore, () => memoryStore);
 
   const skillLoader = new DefaultSkillLoader({

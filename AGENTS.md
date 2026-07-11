@@ -4,7 +4,7 @@
 
 ## Project brief
 
-WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that auto-approves trusted/YOLO-normal project work while gating destructive or project-escaping calls. Monorepo: 18 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron). Entry: `apps/wrongstack/src/main.ts` → `packages/cli/src/index.ts`.
+WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that prompts for mutating/sensitive work when YOLO is off and auto-approves tool calls in YOLO mode unless an explicit deny rule blocks them. Monorepo: 18 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron). Entry: `apps/wrongstack/src/main.ts` → `packages/cli/src/index.ts`.
 
 ## Package map
 
@@ -21,6 +21,7 @@ runtime/           — Default runtime wiring: makeDefaultRuntime()
 kanban/            — Kanban/task-board primitives and queue state helpers
 sdd/               — Spec-Driven Development stores, trackers, and workflow helpers
 security-scanner/  — Security scanning package surface
+super-memory/      — Project-local structured memory, graph, verification, hygiene, and retrieval
 telegram/          — Telegram bridge plugin
 webui/             — Vite+React web UI frontend and client state (docs/webui.md)
 webui-server/      — Shared Node WebUI backend used by standalone, CLI, and Desktop
@@ -31,7 +32,7 @@ apps/wrongstack/   — bin entry (wrongstack / wstack)
 apps/desktop/      — Electron desktop shell
 ```
 
-**Dependency direction:** `core` stays at the bottom of the runtime graph and must not depend on `cli`, `tui`, `webui`, `webui-server`, `webui-hq`, or apps. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/bench/kanban/sdd/security-scanner` sit above or beside `core` according to package contracts. `cli/tui/webui-server/webui-hq/apps` compose the lower packages. Never reverse a surface dependency into the kernel.
+**Dependency direction:** `core` stays at the bottom of the runtime graph and must not depend on `cli`, `tui`, `webui`, `webui-server`, `webui-hq`, or apps. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/bench/kanban/sdd/security-scanner/super-memory` sit above or beside `core` according to package contracts. `cli/tui/webui-server/webui-hq/apps` compose the lower packages. Never reverse a surface dependency into the kernel.
 
 ## Kernel (~1670 lines, `packages/core/src/kernel/`)
 
@@ -162,7 +163,7 @@ Sessions: `~/.wrongstack/projects/<sha256(absProjectRoot).slice(0,12)>/sessions/
 
 In-tree project state: committed `.wrongstack/AGENTS.md`, `.wrongstack/skills/`, optional `.wrongstack/config.json`; everything else in `~/.wrongstack/projects/<hash>/`.
 
-**Security — `inProjectConfig` is untrusted.** `<project>/.wrongstack/config.json` is attacker-controllable (ships in a repo) yet merges above the user's global config. `stripUnsafeInProjectFields()` (`config-loader.ts`) is an **allow-list** — only benign preferences (`model`, `context`, `tools`, `features`, `autonomy`, `indexing`, `session`, `log`, `launch`, …) survive; everything else (`provider`, `apiKey`, `baseUrl`, `providers`, `mcpServers`, `hooks`, `plugins`, `sync`, `yolo`, `extensions`, `hq`, `acp`, `fleet`) is dropped with a warning (otherwise: RCE via `mcpServers`/`hooks`/LSP `command`, key exfil via `baseUrl`). `assertInProjectAllowListComplete()` throws if a new top-level `Config` field isn't classified in `IN_PROJECT_ALLOWED_KEYS` or `KNOWN_DENIED_IN_PROJECT` — new fields are **denied by default**; update one of the two lists when adding a field. Sensitive per-project config → non-committed `~/.wrongstack/projects/<hash>/config.local.json`.
+**Security — `inProjectConfig` is untrusted.** `<project>/.wrongstack/config.json` is attacker-controllable (ships in a repo) yet merges above the user's global config. `stripUnsafeInProjectFields()` (`config-loader.ts`) is an **allow-list** — only benign preferences (`model`, `context`, `tools`, `features`, `autonomy`, `indexing`, `session`, `log`, `launch`, …) survive; everything else (`provider`, `apiKey`, `baseUrl`, `providers`, `mcpServers`, `hooks`, `plugins`, `sync`, `yolo`, `extensions`, `hq`, `acp`, `fleet`) is dropped with a warning (otherwise: RCE via `mcpServers`/`hooks`/LSP `command`, key exfil via `baseUrl`). Allowed parents still have nested guards: `tools.exec.allow`/`.danger`, `skills.extraDirs`/`.registryUrl`, and `superMemory.storage.directory` are stripped. `assertInProjectAllowListComplete()` throws if a new top-level `Config` field isn't classified in `IN_PROJECT_ALLOWED_KEYS` or `KNOWN_DENIED_IN_PROJECT` — new fields are **denied by default**; update one of the two lists when adding a field. Sensitive per-project config → non-committed `~/.wrongstack/projects/<hash>/config.local.json`.
 
 ## Observability & commands
 

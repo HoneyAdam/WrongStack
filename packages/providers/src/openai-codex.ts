@@ -32,6 +32,7 @@ import {
 } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
+import { extractAccountId } from './openai-codex-account.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { createSseLineFoldingTransform, parseSSE } from './sse.js';
@@ -42,7 +43,6 @@ import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
-const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 const DEFAULT_CODEX_BASE = 'https://chatgpt.com/backend-api';
 
 export interface CodexOAuthTokens {
@@ -95,22 +95,9 @@ export async function refreshCodexAccessToken(
   };
 }
 
-/** Extract `chatgpt_account_id` from an access-token JWT, or null. */
-export function extractAccountId(token: string): string | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<
-      string,
-      unknown
-    >;
-    const auth = payload[JWT_CLAIM_PATH] as { chatgpt_account_id?: string } | undefined;
-    const id = auth?.chatgpt_account_id;
-    return typeof id === 'string' && id.length > 0 ? id : null;
-  } catch {
-    return null;
-  }
-}
+// extractAccountId lives in openai-codex-account.ts so the oauth entry can
+// use it without bundling this provider. Re-exported for API compatibility.
+export { extractAccountId } from './openai-codex-account.js';
 
 // ── Provider ────────────────────────────────────────────────────────────────
 

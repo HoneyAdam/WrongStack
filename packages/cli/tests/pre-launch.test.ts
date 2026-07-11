@@ -248,7 +248,7 @@ describe('runLaunchPrompts', () => {
     });
     expect(result.yolo).toBe(true);
     const yoloPrompt = stripAnsi(String(vi.mocked(reader.readLine).mock.calls[1]?.[0] ?? ''));
-    expect(yoloPrompt).toContain('auto-approve normal project work');
+    expect(yoloPrompt).toContain('auto-approve tool calls');
   });
 
   it("'n' on yolo prompt disables YOLO mode", async () => {

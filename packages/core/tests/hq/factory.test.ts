@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { HQ_AUTH_FILE_VERSION, resolveHqConfigFromEnv, writeHqAuthFile, writeHqRuntimeFile } from '../../src/hq/index.js';
+import { describe, expect, it } from 'vitest';
+import {
+  createHqPublisherFromEnv,
+  HQ_AUTH_FILE_VERSION,
+  resolveHqConfig,
+  resolveHqConfigFromEnv,
+  writeHqAuthFile,
+  writeHqRuntimeFile,
+} from '../../src/hq/index.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'hq-factory-'));
@@ -14,6 +21,24 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 }
 
 describe('HQ publisher factory env config', () => {
+  it('gives separate publishers in the same process distinct client ids', () => {
+    const common = {
+      clientKind: 'cli' as const,
+      projectRoot: process.cwd(),
+      config: { url: 'http://127.0.0.1:3499', enabled: true },
+    };
+
+    const first = createHqPublisherFromEnv(common);
+    const second = createHqPublisherFromEnv(common);
+
+    expect(first?.identity.clientId).toBeTruthy();
+    expect(second?.identity.clientId).toBeTruthy();
+    expect(first?.identity.clientId).not.toBe(second?.identity.clientId);
+    expect(first?.identity.clientId).toContain(`:cli:${process.pid}:`);
+    first?.close();
+    second?.close();
+  });
+
   it('uses WRONGSTACK_HQ_TOKEN when explicitly provided', async () => {
     await withTempDir(async (dir) => {
       await writeHqAuthFile(dir, {
@@ -197,6 +222,72 @@ describe('HQ publisher factory env config', () => {
         dataDir: dir,
       });
       expect(config?.token).toBeUndefined();
+    });
+  });
+
+  it('defaults rawContent to true for same-machine discovery mode', async () => {
+    // Same-machine HQ: data never leaves the machine — full chat history by
+    // default. (Placeholder-only history made the HQ Console useless.)
+    await withTempDir(async (dir) => {
+      const config = resolveHqConfigFromEnv({ WRONGSTACK_HQ_DATA_DIR: dir });
+      expect(config).toMatchObject({ discover: true, rawContent: true });
+    });
+  });
+
+  it('defaults rawContent to true for an explicit loopback URL', async () => {
+    await withTempDir(async (dir) => {
+      const config = resolveHqConfigFromEnv({
+        WRONGSTACK_HQ_URL: 'http://127.0.0.1:3499',
+        WRONGSTACK_HQ_DATA_DIR: dir,
+      });
+      expect(config?.rawContent).toBe(true);
+    });
+  });
+
+  it('defaults rawContent to true for a remote URL', async () => {
+    await withTempDir(async (dir) => {
+      const config = resolveHqConfigFromEnv({
+        WRONGSTACK_HQ_URL: 'http://hq.example.com:3499',
+        WRONGSTACK_HQ_DATA_DIR: dir,
+      });
+      expect(config?.rawContent).toBe(true);
+    });
+  });
+
+  it('honors WRONGSTACK_HQ_RAW_CONTENT in same-machine discovery mode', async () => {
+    // Regression: the discovery branch used to return early WITHOUT reading
+    // the rawContent opt-in, so a local `wstack --hq` chat history was
+    // permanently [REDACTED:hq_raw_content] with no way to enable it.
+    await withTempDir(async (dir) => {
+      const config = resolveHqConfigFromEnv({
+        WRONGSTACK_HQ_DATA_DIR: dir,
+        WRONGSTACK_HQ_RAW_CONTENT: '1',
+      });
+      expect(config).toMatchObject({ discover: true, rawContent: true });
+    });
+  });
+
+  it('honors config hq.rawContent + hq.projectAlias in discovery mode', async () => {
+    await withTempDir(async (dir) => {
+      const config = resolveHqConfig({
+        env: { WRONGSTACK_HQ_DATA_DIR: dir },
+        config: { rawContent: true, projectAlias: 'my-project' },
+      });
+      expect(config).toMatchObject({
+        discover: true,
+        rawContent: true,
+        projectAlias: 'my-project',
+      });
+    });
+  });
+
+  it('lets WRONGSTACK_HQ_RAW_CONTENT=0 override config hq.rawContent=true', async () => {
+    await withTempDir(async (dir) => {
+      const config = resolveHqConfig({
+        env: { WRONGSTACK_HQ_DATA_DIR: dir, WRONGSTACK_HQ_RAW_CONTENT: '0' },
+        config: { rawContent: true },
+      });
+      expect(config?.rawContent).toBe(false);
     });
   });
 

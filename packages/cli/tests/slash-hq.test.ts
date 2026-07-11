@@ -80,6 +80,22 @@ describe('/hq slash command', () => {
     expect(JSON.parse(readFileSync(globalConfig, 'utf8')).hq.enabled).toBe(false);
   });
 
+  it('raw on / off toggles hq.rawContent', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const onRes = await buildHqCommand(ctx).run!('raw on');
+    expect(stripAnsi(onRes!.message!)).toContain('unredacted');
+    expect(JSON.parse(readFileSync(globalConfig, 'utf8')).hq.rawContent).toBe(true);
+    await buildHqCommand(ctx).run!('raw off');
+    expect(JSON.parse(readFileSync(globalConfig, 'utf8')).hq.rawContent).toBe(false);
+  });
+
+  it('raw without on/off shows usage and writes nothing', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildHqCommand(ctx).run!('raw');
+    expect(stripAnsi(res!.message!)).toContain('Usage:');
+    expect(existsSync(globalConfig)).toBe(false);
+  });
+
   it('clear removes the hq section', async () => {
     const { ctx, globalConfig } = makeCtx({ hq: { url: 'http://x:3499', enabled: true } });
     await buildHqCommand(ctx).run!('clear');

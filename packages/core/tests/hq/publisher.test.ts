@@ -133,6 +133,84 @@ function parseSent(socket: FakeSocket): unknown[] {
 }
 
 describe('HqPublisher', () => {
+  it('publishes raw transcript text by default while still applying secret scrubbing', () => {
+    const socket = new FakeSocket();
+    socket.readyState = 1;
+    const publisher = new HqPublisher({
+      url: 'http://localhost:3499',
+      client,
+      project,
+      socketFactory: () => socket,
+    });
+    publisher.connect();
+    const event = publisher.publishEvent({
+      type: 'session.transcript',
+      payload: {
+        sessionId: 's1',
+        fromSeq: 0,
+        entries: [{ ts: '2026-06-21T12:00:00.000Z', role: 'user', text: 'private prompt' }],
+      },
+    });
+
+    expect((event.payload as { entries: Array<{ text: string }> }).entries[0]?.text).toBe('private prompt');
+    const hello = parseSent(socket)[0] as { payload: { redactionPolicy: unknown } };
+    expect(hello.payload.redactionPolicy).toEqual({
+      rawContent: true,
+      toolArgs: 'full',
+      paths: 'full',
+    });
+    publisher.close();
+  });
+
+  it('allows explicitly opted-in raw transcript text while still applying secret scrubbing', () => {
+    const socket = new FakeSocket();
+    socket.readyState = 1;
+    const publisher = new HqPublisher({
+      url: 'http://localhost:3499',
+      client,
+      project,
+      redactionPolicy: { rawContent: true },
+      socketFactory: () => socket,
+    });
+    publisher.connect();
+    const event = publisher.publishEvent({
+      type: 'session.transcript',
+      payload: {
+        sessionId: 's1',
+        fromSeq: 0,
+        entries: [{ ts: '2026-06-21T12:00:00.000Z', role: 'user', text: 'visible prompt' }],
+      },
+    });
+    expect((event.payload as { entries: Array<{ text: string }> }).entries[0]?.text).toBe(
+      'visible prompt',
+    );
+    publisher.close();
+  });
+
+  it('does not truncate opted-in transcript text at the generic 500-char summary cap', () => {
+    const socket = new FakeSocket();
+    socket.readyState = 1;
+    const publisher = new HqPublisher({
+      url: 'http://localhost:3499',
+      client,
+      project,
+      redactionPolicy: { rawContent: true },
+      socketFactory: () => socket,
+    });
+    publisher.connect();
+    const longText = 'x'.repeat(4_000);
+    const event = publisher.publishEvent({
+      type: 'session.transcript',
+      payload: {
+        sessionId: 's1',
+        fromSeq: 0,
+        entries: [{ ts: '2026-06-21T12:00:00.000Z', role: 'assistant', text: longText }],
+      },
+    });
+    expect((event.payload as { entries: Array<{ text: string }> }).entries[0]?.text).toBe(longText);
+    publisher.close();
+  });
+
   it('connects to /ws/client and sends hello plus queued mailbox events', () => {
     const sockets: FakeSocket[] = [];
     const publisher = new HqPublisher({
@@ -161,7 +239,41 @@ describe('HqPublisher', () => {
       { type: 'client.hello' },
       { type: 'client.event', event: { type: 'mailbox.event', payload: { action: 'message.sent' } } },
     ]);
-    expect(JSON.stringify(frames)).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(JSON.stringify(frames)).toContain('abcdefghijklmnopqrstuvwxyz');
+  });
+
+  it('sends application heartbeats while the socket is open', () => {
+    vi.useFakeTimers();
+    const socket = new FakeSocket();
+    const publisher = new HqPublisher({
+      url: 'http://localhost:3499',
+      client,
+      project,
+      now: () => '2026-06-21T12:00:01.000Z',
+      idFactory: () => 'heartbeat_evt',
+      heartbeatIntervalMs: 1_000,
+      socketFactory: () => socket,
+    });
+
+    publisher.connect();
+    socket.open();
+    vi.advanceTimersByTime(1_000);
+
+    expect(parseSent(socket)).toContainEqual({
+      type: 'client.event',
+      event: {
+        id: 'heartbeat_evt',
+        type: 'client.heartbeat',
+        schemaVersion: 1,
+        timestamp: '2026-06-21T12:00:01.000Z',
+        clientId: 'client_1',
+        projectId: 'project_1',
+        seq: 1,
+        payload: { uptimeMs: 1000, status: 'idle' },
+      },
+    });
+    publisher.close();
+    vi.useRealTimers();
   });
 
   it('treats socket factory failures as best-effort and queues telemetry', () => {

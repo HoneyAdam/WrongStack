@@ -46,9 +46,9 @@ export interface PermissionPolicy {
   getYoloDestructive?(): boolean;
   /** Optional runtime setter for the deprecated destructive YOLO override. */
   setYoloDestructive?(enabled: boolean): void;
-  /** Query whether destructive-operation confirmation gate is active. */
+  /** Query the deprecated destructive-confirm compatibility flag. */
   getConfirmDestructive?(): boolean;
-  /** Compatibility setter; current default policy keeps the gate enabled in YOLO mode. */
+  /** Compatibility setter; current default policy no longer confirms in YOLO mode. */
   setConfirmDestructive?(enabled: boolean): void;
   /** Set the prompt delegate (optional). */
   setPromptDelegate?(delegate: ((tool: Tool, input: unknown, suggestedPattern: string) => Promise<'yes' | 'no' | 'always' | 'deny'>) | undefined): void;

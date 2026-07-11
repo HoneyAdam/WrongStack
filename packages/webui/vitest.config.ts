@@ -5,6 +5,13 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Exclude typescript from the SSR transform (same fix as the root
+  // vitest.config.ts): typescript.js declares a sourceMappingURL but the npm
+  // package ships no .map file, so vite logs an ENOENT sourcemap warning on
+  // every run when the aliased-from-source packages pull it into the graph.
+  ssr: {
+    external: ['typescript', 'typescript/lib/typescript'],
+  },
   test: {
     globals: true,
     environment: 'jsdom',
@@ -67,10 +74,6 @@ export default defineConfig({
       // partial @wrongstack/core / node:fs mocks work exactly as they did when
       // these suites imported ../../src/server/* before the PR-018b extraction.
       '@wrongstack/webui-server': path.resolve(__dirname, '../../packages/webui-server/src'),
-      // jszip moved to @wrongstack/webui-server (PR-018b) and is no longer a
-      // direct webui dependency, but two suites still exercise zip logic
-      // directly. Resolve it from webui-server's installed copy.
-      jszip: path.resolve(__dirname, '../../packages/webui-server/node_modules/jszip'),
       '@wrongstack/tools/tool-icons': path.resolve(__dirname, '../../packages/tools/src/tool-icons.ts'),
       '@wrongstack/tools/next-steps': path.resolve(__dirname, '../../packages/tools/src/next-steps.ts'),
     },

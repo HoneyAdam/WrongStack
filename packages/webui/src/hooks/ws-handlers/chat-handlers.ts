@@ -140,11 +140,7 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
     decisionSource?: string | undefined;
     riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
   };
-  if (
-    useLocalPrefs.getState().yolo === true &&
-    payload.riskTier !== 'destructive' &&
-    payload.decisionSource !== 'yolo_destructive'
-  ) {
+  if (useLocalPrefs.getState().yolo === true) {
     getWSClient(useConfigStore.getState().wsUrl).sendConfirm(payload.id, 'yes');
     useUIStore.getState().hideConfirm();
     return;

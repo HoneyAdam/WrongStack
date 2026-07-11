@@ -1,5 +1,5 @@
 import { packageNames, processPlan, unavailable } from '../profile-helpers.js';
-import type { LanguageProfile } from '../types.js';
+import type { LanguageProfile, ProfileContext } from '../types.js';
 
 const IGNORES = Object.freeze([
   '.git',
@@ -107,8 +107,45 @@ function pythonProfile(): LanguageProfile {
           reason: 'Audit Python dependencies for vulnerabilities.',
           network: true,
         }),
+      run: async (ctx) => {
+        // Try common Python entry points in priority order.
+        const entries = ['main.py', 'app.py', '__main__.py', 'manage.py'];
+        const first: string | undefined = (
+          await Promise.all(
+            entries.map((name) => ctx.pathExists(name).then((ok) => (ok ? name : undefined))),
+          )
+        ).find(Boolean);
+        const args = first ? [first] : [];
+        return processPlan(ctx, 'run', 'python3', args, {
+          parser: 'command-text',
+          reason: first
+            ? `Run the Python entry point ${first}.`
+            : 'Run the Python project (no common entry point detected — add the module path manually).',
+          executesProjectCode: true,
+          mutating: true,
+        });
+      },
     }),
   };
+}
+
+function hasGradleEvidence(ctx: ProfileContext): boolean {
+  return ctx.workspace.evidence.some(
+    (e) =>
+      (e.kind === 'manifest' &&
+        (e.value === 'build.gradle' ||
+          e.value === 'build.gradle.kts' ||
+          e.value === 'settings.gradle')) ||
+      (e.kind === 'lockfile' && e.value === 'gradle.lockfile'),
+  );
+}
+
+async function gradleRunner(ctx: ProfileContext): Promise<string> {
+  // Check for the Gradle wrapper at the workspace root. The wrapper is the
+  // conventional way to run Gradle — it pins the Gradle version and downloads
+  // it automatically if missing.
+  if (await ctx.pathExists('gradlew')) return 'gradlew';
+  return 'gradle';
 }
 
 function javaProfile(): LanguageProfile {
@@ -126,15 +163,22 @@ function javaProfile(): LanguageProfile {
     ]),
     ignoredDirectories: IGNORES,
     packageManagers: Object.freeze(['maven', 'gradle']),
-    executables: Object.freeze(['mvn', 'gradle', 'java', 'kotlinc']),
+    executables: Object.freeze(['mvn', 'gradle', 'gradlew', 'java', 'kotlinc']),
     operations: Object.freeze({
-      semantic: async (ctx) =>
-        processPlan(ctx, 'semantic', 'mvn', ['compile', '-q'], {
-          parser: 'maven',
-          reason: 'Compile the Maven project.',
+      semantic: async (ctx) => {
+        const isGradle = hasGradleEvidence(ctx);
+        const runner = isGradle ? await gradleRunner(ctx) : 'mvn';
+        const args = isGradle ? ['compileJava'] : ['compile', '-q'];
+        const reason = isGradle
+          ? 'Compile the Gradle project.'
+          : 'Compile the Maven project.';
+        return processPlan(ctx, 'semantic', runner, args, {
+          parser: isGradle ? 'gradle' : 'maven',
+          reason,
           mutating: true,
           executesProjectCode: true,
-        }),
+        });
+      },
       lint: async (ctx) =>
         unavailable(
           ctx,
@@ -147,20 +191,47 @@ function javaProfile(): LanguageProfile {
           'format-check',
           'Java formatting check requires a configured spotless or google-java-format plugin.',
         ),
-      test: async (ctx) =>
-        processPlan(ctx, 'test', 'mvn', ['test', '-q'], {
-          parser: 'maven',
-          reason: 'Run Maven tests.',
+      test: async (ctx) => {
+        const isGradle = hasGradleEvidence(ctx);
+        const runner = isGradle ? await gradleRunner(ctx) : 'mvn';
+        const args = isGradle ? ['test'] : ['test', '-q'];
+        const reason = isGradle ? 'Run Gradle tests.' : 'Run Maven tests.';
+        return processPlan(ctx, 'test', runner, args, {
+          parser: isGradle ? 'gradle' : 'maven',
+          reason,
           mutating: true,
           executesProjectCode: true,
-        }),
-      build: async (ctx) =>
-        processPlan(ctx, 'build', 'mvn', ['package', '-q', '-DskipTests'], {
-          parser: 'maven',
-          reason: 'Build the Maven project, skipping tests.',
+        });
+      },
+      build: async (ctx) => {
+        const isGradle = hasGradleEvidence(ctx);
+        const runner = isGradle ? await gradleRunner(ctx) : 'mvn';
+        const args = isGradle ? ['build'] : ['package', '-q', '-DskipTests'];
+        const reason = isGradle
+          ? 'Build the Gradle project.'
+          : 'Build the Maven project, skipping tests.';
+        return processPlan(ctx, 'build', runner, args, {
+          parser: isGradle ? 'gradle' : 'maven',
+          reason,
           mutating: true,
           executesProjectCode: true,
-        }),
+        });
+      },
+      run: async (ctx) => {
+        if (!hasGradleEvidence(ctx))
+          return unavailable(
+            ctx,
+            'run',
+            'Maven run requires exec-maven-plugin configuration. Use `mvn exec:java -q` manually.',
+          );
+        const runner = await gradleRunner(ctx);
+        return processPlan(ctx, 'run', runner, ['run'], {
+          parser: 'command-text',
+          reason: `Run the Gradle project entry point via ${runner}.`,
+          executesProjectCode: true,
+          mutating: true,
+        });
+      },
       'package-install': async (ctx) =>
         unavailable(
           ctx,
@@ -249,6 +320,26 @@ function rubyProfile(): LanguageProfile {
           reason: 'Audit Ruby gems for vulnerabilities.',
           network: true,
         }),
+      run: async (ctx) => {
+        // Try common Ruby entry points in priority order.
+        const entries = ['main.rb', 'app.rb', 'server.rb', 'config.ru'];
+        const first: string | undefined = (
+          await Promise.all(
+            entries.map((name) => ctx.pathExists(name).then((ok) => (ok ? name : undefined))),
+          )
+        ).find(Boolean);
+        const hasGemfile = await ctx.pathExists('Gemfile');
+        const cmd = hasGemfile ? 'bundle' : 'ruby';
+        const args = hasGemfile ? ['exec', 'ruby', first ?? ''] : [first ?? ''];
+        return processPlan(ctx, 'run', cmd, args, {
+          parser: 'command-text',
+          reason: first
+            ? `Run the Ruby entry point ${first}.`
+            : 'Run the Ruby project (no common entry point detected — add the file path manually).',
+          executesProjectCode: true,
+          mutating: true,
+        });
+      },
     }),
   };
 }
@@ -339,6 +430,12 @@ function swiftProfile(): LanguageProfile {
           mutating: true,
           executesProjectCode: true,
         }),
+      run: async (ctx) =>
+        processPlan(ctx, 'run', 'swift', ['run'], {
+          parser: 'command-text',
+          reason: 'Run the Swift package entry point.',
+          executesProjectCode: true,
+        }),
     }),
   };
 }
@@ -399,6 +496,48 @@ function dartProfile(): LanguageProfile {
           reason: 'Check for outdated Dart packages.',
           network: true,
         }),
+      run: async (ctx) =>
+        processPlan(ctx, 'run', 'dart', ['run'], {
+          parser: 'command-text',
+          reason: 'Run the Dart / Flutter project entry point.',
+          executesProjectCode: true,
+        }),
+    }),
+  };
+}
+
+function denoProfile(): LanguageProfile {
+  return {
+    id: 'deno',
+    displayName: 'Deno',
+    extensions: Object.freeze(['.ts', '.tsx', '.js', '.jsx']),
+    lspLanguageIds: Object.freeze(['typescript', 'javascript']),
+    detectors: Object.freeze([
+      { kind: 'config', filename: 'deno.json', weight: 90 },
+      { kind: 'config', filename: 'deno.jsonc', weight: 90 },
+      { kind: 'config', filename: 'import_map.json', weight: 60 },
+    ]),
+    ignoredDirectories: IGNORES,
+    packageManagers: Object.freeze([]),
+    executables: Object.freeze(['deno']),
+    // .ts/.js extensions are shared with the TypeScript/JavaScript profiles;
+    // only a deno.json(c)/import_map.json detector hit may establish a workspace.
+    sourceFallback: false,
+    operations: Object.freeze({
+      test: async (ctx) =>
+        processPlan(ctx, 'test', 'deno', ['test'], {
+          parser: 'deno-test',
+          reason: 'Run Deno tests.',
+          mutating: true,
+          executesProjectCode: true,
+        }),
+      run: async (ctx) =>
+        processPlan(ctx, 'run', 'deno', ['run', '--allow-all', 'main.ts'], {
+          parser: 'command-text',
+          reason: 'Run the Deno project entry point with full permission.',
+          executesProjectCode: true,
+          mutating: true,
+        }),
     }),
   };
 }
@@ -432,6 +571,12 @@ function elixirProfile(): LanguageProfile {
           parser: 'mix',
           reason: 'Compile the Mix project.',
           mutating: true,
+          executesProjectCode: true,
+        }),
+      run: async (ctx) =>
+        processPlan(ctx, 'run', 'mix', ['run'], {
+          parser: 'command-text',
+          reason: 'Run the Mix project entry point.',
           executesProjectCode: true,
         }),
       'package-install': async (ctx) =>
@@ -501,6 +646,7 @@ export const ADDITIONAL_LANGUAGE_PROFILES: readonly LanguageProfile[] = Object.f
   cppProfile(),
   swiftProfile(),
   dartProfile(),
+  denoProfile(),
   elixirProfile(),
   shellProfile(),
 ]);

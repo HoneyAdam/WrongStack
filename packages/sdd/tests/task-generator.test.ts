@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DefaultTaskStore, TaskGenerator, extractVerificationCommand } from '../src/task-generator.js';
+import { DefaultTaskStore } from '@wrongstack/core/tasking';
+import { TaskGenerator, extractVerificationCommand } from '../src/task-generator.js';
 import { TaskTracker } from '../src/task-tracker.js';
 import type { TaskStore } from '../src/task-tracker.js';
 import type { TaskGraph } from '@wrongstack/core/types/task-graph.js';

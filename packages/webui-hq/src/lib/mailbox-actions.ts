@@ -14,6 +14,7 @@
  * component so the server remains the source of truth.
  */
 import type { MailboxActionInput, MailboxActionResult } from '@wrongstack/core';
+import { markAuthRequired } from '../store.js';
 import { authorizedFetch } from './auth.js';
 
 /** Wire input: the core action input + the HQ project routing key. */
@@ -23,12 +24,13 @@ export type HqMailboxActionInput = MailboxActionInput & {
 };
 
 interface ServerError {
-  error: { code: string; message: string };
+  error: string | { code: string; message: string };
 }
 
 function isServerError(value: unknown): value is ServerError {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as { error?: unknown };
+  if (typeof v.error === 'string') return true;
   if (typeof v.error !== 'object' || v.error === null) return false;
   const e = v.error as { code?: unknown; message?: unknown };
   return typeof e.code === 'string' && typeof e.message === 'string';
@@ -41,11 +43,17 @@ async function postAction(input: HqMailboxActionInput): Promise<MailboxActionRes
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
+  if (res.status === 401) markAuthRequired();
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
     try {
       const body = (await res.json()) as unknown;
-      if (isServerError(body)) detail = `${body.error.code}: ${body.error.message}`;
+      if (isServerError(body)) {
+        detail =
+          typeof body.error === 'string'
+            ? body.error
+            : `${body.error.code}: ${body.error.message}`;
+      }
     } catch {
       // ignore JSON parse errors; the status line is enough
     }

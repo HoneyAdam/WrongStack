@@ -47,6 +47,7 @@ const LANGUAGE_IDS: LanguageProfileId[] = [
   'swift',
   'dart',
   'elixir',
+  'deno',
   'shell',
 ];
 
@@ -59,6 +60,7 @@ const OPERATIONS: LanguageOperation[] = [
   'test-compile',
   'test',
   'build',
+  'run',
   'debug-compile',
   'debug-test',
   'debug-runtime',

@@ -18,7 +18,6 @@ export function resolveYoloEligiblePendingConfirms(
   pendingConfirms: Map<string, PendingConfirm>,
 ): void {
   for (const [id, confirm] of pendingConfirms) {
-    if (isDestructivePendingConfirm(confirm)) continue;
     pendingConfirms.delete(id);
     confirm.resolve('yes');
   }

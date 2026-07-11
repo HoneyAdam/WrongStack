@@ -23,7 +23,7 @@ describe('/yolo slash command', () => {
       expect(cmd.help).toContain('/yolo on');
       expect(cmd.help).toContain('/yolo off');
       expect(cmd.help).toContain('/yolo destructive');
-      expect(cmd.help).toContain('auto-approves normal project work');
+      expect(cmd.help).toContain('auto-approves tool calls');
     });
   });
 
@@ -63,7 +63,7 @@ describe('/yolo slash command', () => {
       const result = await cmd.run!('');
       const message = stripAnsi(result!.message!);
       expect(message).toMatch(/YOLO mode: ON/);
-      expect(message).toContain('normal project work');
+      expect(message).toContain('tool calls');
     });
 
     it('does NOT call onYolo with an argument when querying', async () => {
@@ -98,7 +98,7 @@ describe('/yolo slash command', () => {
         expect(state).toBe(true);
         const message = stripAnsi(result!.message!);
         expect(message).toMatch(/ENABLED/);
-        expect(message).toContain('normal project tool calls');
+        expect(message).toContain('tool calls will be auto-approved');
       },
     );
 

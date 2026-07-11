@@ -47,7 +47,7 @@ describe('ConfirmDialog YOLO behavior', () => {
     expect(useUIStore.getState().showConfirmDialog).toBe(false);
   });
 
-  it('keeps destructive prompts visible when YOLO turns on', async () => {
+  it('auto-approves destructive prompts when YOLO turns on', async () => {
     render(<ConfirmDialog />);
 
     act(() => {
@@ -63,9 +63,9 @@ describe('ConfirmDialog YOLO behavior', () => {
     });
 
     await waitFor(() => {
-      expect(useUIStore.getState().showConfirmDialog).toBe(true);
+      expect(sendConfirm).toHaveBeenCalledWith('confirm_2', 'yes');
     });
-    expect(sendConfirm).not.toHaveBeenCalled();
+    expect(useUIStore.getState().showConfirmDialog).toBe(false);
   });
 
   it('offers an "Enable YOLO" CTA when yolo is off; clicking it enables YOLO and auto-approves the prompt', async () => {
@@ -81,7 +81,7 @@ describe('ConfirmDialog YOLO behavior', () => {
       });
     });
 
-    const cta = getByTitle('Enable YOLO mode (auto-approve this and future non-destructive calls)');
+    const cta = getByTitle('Enable YOLO mode (auto-approve this and future tool calls)');
     expect(cta).toBeTruthy();
 
     await act(async () => {
@@ -91,7 +91,7 @@ describe('ConfirmDialog YOLO behavior', () => {
     // Pref flipped locally and pushed to the server.
     expect(useLocalPrefs.getState().yolo).toBe(true);
     expect(updatePrefs).toHaveBeenCalledWith({ yolo: true });
-    // The now-live YOLO effect auto-approves the visible non-destructive prompt.
+    // The now-live YOLO effect auto-approves the visible prompt.
     await waitFor(() => {
       expect(sendConfirm).toHaveBeenCalledWith('confirm_3', 'yes');
     });

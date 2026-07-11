@@ -720,5 +720,14 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
           });
         }),
       );
+
+      eventUnsubscribers.push(
+        deps.events.onPattern('memory.*', (eventName, payload) => {
+          broadcast({
+            type: 'memory.event',
+            payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
+          });
+        }),
+      );
   };
 }

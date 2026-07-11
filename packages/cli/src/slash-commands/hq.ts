@@ -41,7 +41,7 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
     name: 'hq',
     category: 'Config',
     description: 'Connect to and inspect a WrongStack HQ command center.',
-    argsHint: '[status | set <url> [token] | token <t> | on | off | clear]',
+    argsHint: '[status | set <url> [token] | token <t> | raw on|off | on | off | clear]',
     help: [
       'Stream this client’s live session + agents to an HQ command center.',
       '',
@@ -51,6 +51,8 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
       '  /hq set <url> [token]   Point this client at an HQ, e.g.',
       '                            /hq set http://192.168.1.20:3499 my-client-token',
       '  /hq token <token>       Set just the client token',
+      '  /hq raw on | off        Publish raw chat/tool content to HQ. Default: on for',
+      '                            every HQ target unless explicitly disabled',
       '  /hq on | off            Enable / disable HQ publishing',
       '  /hq clear               Remove all HQ settings',
       '',
@@ -120,6 +122,25 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
         return { message: `${color.green('✓')} HQ client token saved ${color.dim(maskToken(token))}` };
       }
 
+      // ── raw on / off ────────────────────────────────────────────────────
+      if (sub === 'raw') {
+        const mode = (rest[0] ?? '').trim().toLowerCase();
+        if (mode !== 'on' && mode !== 'off') {
+          return { message: `${color.amber('Usage:')} /hq raw on|off ${color.dim('(publish raw chat/tool content to HQ)')}` };
+        }
+        const on = mode === 'on';
+        await persistConfigSetting(persistDeps, (cfg) => {
+          const hq = (cfg.hq as Record<string, unknown> | undefined) ?? {};
+          hq.rawContent = on;
+          cfg.hq = hq;
+        });
+        return {
+          message:
+            `${color.green('✓')} HQ raw content → ${on ? color.amber('on (unredacted)') : color.dim('off (redacted)')}\n` +
+            `  ${color.dim('Applies to sessions started after this change. Only enable for HQ servers you trust.')}`,
+        };
+      }
+
       // ── on / off ────────────────────────────────────────────────────────
       if (sub === 'on' || sub === 'off') {
         const on = sub === 'on';
@@ -179,14 +200,16 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
         if (resolved.discover) lines.push(`  mode:    ${color.cyan('auto-discovery')}`);
         lines.push(`  source:  ${color.dim(source)}`);
         lines.push(`  token:   ${resolved.token ? color.dim(maskToken(resolved.token)) : color.dim('none (open mode)')}`);
-        if (resolved.rawContent === true) lines.push(`  content: ${color.amber('raw (unredacted)')}`);
+        lines.push(
+          `  content: ${resolved.rawContent === true ? color.amber('raw (unredacted)') : color.dim('redacted — explicitly disabled; enable with /hq raw on')}`,
+        );
         if (resolved.projectAlias) lines.push(`  alias:   ${color.cyan(resolved.projectAlias)}`);
         lines.push(`  status:  ${await probeHq(resolved.url)}`);
         return { message: lines.join('\n') };
       }
 
       return {
-        message: `${color.red('Unknown subcommand:')} ${sub}\n${color.dim('Try /hq, /hq set <url> [token], /hq on|off, /hq clear, or /help hq')}`,
+        message: `${color.red('Unknown subcommand:')} ${sub}\n${color.dim('Try /hq, /hq set <url> [token], /hq raw on|off, /hq on|off, /hq clear, or /help hq')}`,
       };
     },
   };

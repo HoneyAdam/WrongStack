@@ -214,13 +214,14 @@ even though Phase 1 is read-only. The HQ channel carries, at minimum:
   HQ_PROTOCOL_VERSION` closes the socket with WebSocket close code `1008`.
 - Frame size is capped at 1 MiB (`WebSocketServer({ maxPayload: 1 * 1024 *
   1024 })`).
-- **Browser token auth** (`/ws/browser`): OPEN MODE by default (all
-  connections accepted). Enter TOKEN MODE by running
-  `wstack hq token create` — browsers must then append `?token=<full-token>`
+- **Browser token auth** (`/ws/browser`): a brand-new HQ data directory
+  bootstraps a scoped browser token (`control.enqueue`). Browsers append
+  `?token=<full-token>`
   to the upgrade URL. Unknown/missing tokens are rejected with `401
   Unauthorized` at the HTTP layer.
-- **Client token auth** (`/ws/client`): OPEN MODE by default. Enter TOKEN
-  MODE by running `wstack hq token create --client` — clients must then
+- **Client token auth** (`/ws/client`): first run also bootstraps a
+  least-privilege client token (`telemetry.publish`). Additional clients use
+  `wstack hq token create --client` and must then
   append `?token=<full-token>` (or set `WRONGSTACK_HQ_TOKEN`). Browser and
   client token lists are separate — a browser token cannot be replayed on
   `/ws/client` and vice versa (cross-channel isolation).
@@ -232,6 +233,14 @@ even though Phase 1 is read-only. The HQ channel carries, at minimum:
   (`/`, `/api/snapshot`, `/api/projects/:id`) require a valid browser
   token via `?token=…` query param or `Authorization: Bearer` header.
   Client-only tokens do not unlock HTTP routes.
+- **Browser-origin controls**: state-changing HTTP routes and WebSocket
+  upgrades reject cross-host browser `Origin` values. Native clients with no
+  `Origin` remain supported. HQ responses include CSP, anti-framing,
+  MIME-sniffing, referrer, and permissions-policy headers.
+- **Scoped control plane**: browser control requires `control.enqueue`;
+  telemetry requires `telemetry.publish`; `run-command` additionally requires
+  a target client token with `control.execute` and the client-side
+  `--hq-allow-exec` opt-in. The agent permission policy still applies.
 
 **Phase 1 non-goals (status as of Phase 4).**
 
@@ -242,13 +251,13 @@ even though Phase 1 is read-only. The HQ channel carries, at minimum:
   live `auth.json` reload via a file-watcher.
 - 📋 **still planned**: browser password auth (for multi-tenant /
   unattended deployments where token-sharing is impractical).
-- 📋 **still planned**: CORS / origin enforcement.
+- ✅ **shipped**: same-host browser Origin enforcement for writes and WS upgrades.
 - 📋 **still planned**: rate limiting on HTTP endpoints or WebSocket frames.
 - 📋 **still planned**: TLS termination (HQ speaks plain HTTP/WS;
   reverse-proxy it).
 - 📋 **still planned**: audit log of who connected, when, and from which IP.
-- 📋 **still planned**: persistence of client / browser state beyond the
-  process lifetime (`<dataDir>/events.jsonl` schema reserved).
+- ✅ **shipped**: persistent event log, snapshot cache, and time series under
+  the HQ data directory.
 
 See [HQ command center — Remote / relay deployment](docs/subcommands/hq.md#remote--relay-deployment)
 for what is and is not safe to expose today, and the
@@ -283,14 +292,12 @@ controls.
   repo, or a tampered MCP response, can carry prompt-injection content
   that the next LLM turn might act on. The user is the last line of
   defense via the `confirm` permission prompt.
-- **HQ command center auth is opt-in (token mode).** See
+- **HQ command center supports explicit OPEN MODE for compatibility.** See
   [HQ command center (Phase 4)](#hq-command-center-phase-4) and the
-  [Phase 2+ auth roadmap](#hq-phase-2-auth-roadmap). By default both
-  `/ws/browser` and `/ws/client` run in OPEN MODE (all connections
-  accepted); run `wstack hq token create` (browser) or
-  `wstack hq token create --client` (client) to enter TOKEN MODE.
-  Browser password auth, CORS, origin, and rate-limit controls
-  are not yet shipped — do not expose `--host 0.0.0.0` on a public VPS or
+  [Phase 2+ auth roadmap](#hq-phase-2-auth-roadmap). First run creates
+  scoped browser and client tokens. An existing `auth.json` with empty token
+  arrays deliberately enables OPEN MODE. Browser password auth and
+  rate-limit controls are not yet shipped — do not expose `--host 0.0.0.0` on a public VPS or
   any network you do not fully trust until those land.
 
 ### Accepted risks & deliberate trade-offs (from 2026 security audits)
@@ -371,7 +378,7 @@ from each other — a browser token cannot be replayed on `/ws/client`
 and vice versa (cross-channel isolation).
 
 ```bash
-wstack hq token create --client --name ci-runner   # ✅ shipped (Phase 4)
+wstack hq token create --client ci-runner          # ✅ shipped
 wstack hq token list --client                      # ✅ shipped (Phase 4)
 wstack hq token revoke --client <id>               # ✅ shipped (Phase 4)
 ```
@@ -392,15 +399,18 @@ Token model:
   against the client token allowlist. Empty list = OPEN MODE (backwards
   compatible). Live reload via `fs.watch` means token changes take effect
   without a server restart.
+- ✅ **shipped**: least-privilege defaults and capability scope. Browser
+  tokens default to `control.enqueue`; client tokens default to
+  `telemetry.publish`. `control.execute` must be requested explicitly with
+  `--capabilities telemetry.publish,control.execute`.
 - 🚧 **partial**: server stores the raw token today (mode `0o600`,
   atomic write). Hashing with a slow KDF is planned to harden at-rest
   storage.
-- 📋 **planned**: capability scope (`telemetry.publish`,
-  `control.receive`) and `expiresAt` per-token.
+- 📋 **planned**: `expiresAt` per-token.
 
 ### Frame & endpoint hygiene
 
-**Planned** — none of these have shipped.
+**Partially shipped.**
 
 - Rate-limit WebSocket frames and HTTP endpoints (token bucket per IP,
   per channel).
@@ -408,8 +418,8 @@ Token model:
   justify a separate larger cap).
 - Add an audit log of `connect` / `disconnect` / `auth_fail` / `token_used`
   events with `clientId`, `projectId`, IP, and timestamp.
-- Reject messages that exceed the redaction policy (e.g. raw tool args
-  arriving despite `rawContent: false`).
+- ✅ Publisher and server both enforce redaction; the operator policy can
+  tighten but never loosen the publisher-declared policy.
 
 ### Persistence
 

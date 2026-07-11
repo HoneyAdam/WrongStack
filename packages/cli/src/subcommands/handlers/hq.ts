@@ -95,10 +95,6 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   return 0;
 }
 
-function redactToken(s: string): string {
-  return s.replace(/\?token=[^&]*/i, '?token=[REDACTED]');
-}
-
 function writeStartupInfo(deps: SubcommandDeps, handle: HqServerHandle): void {
   deps.renderer.write(`WrongStack HQ listening on http://${handle.host}:${handle.port}\n`);
   if (!handle.firstRunSetup) {
@@ -107,12 +103,20 @@ function writeStartupInfo(deps: SubcommandDeps, handle: HqServerHandle): void {
     return;
   }
 
-  deps.renderer.write(`Browser endpoint: ${redactToken(handle.firstRunSetup.browserUrl)}\n`);
-  deps.renderer.write(`Client endpoint:  ${redactToken(handle.firstRunSetup.clientUrl)}\n`);
-  deps.renderer.write(`\nFirst-run HQ auth created in ${handle.firstRunSetup.dataDir}\n`);
+  deps.renderer.write(`Browser endpoint: ${handle.firstRunSetup.browserUrl}\n`);
+  deps.renderer.write(`Client endpoint:  ${handle.firstRunSetup.clientUrl}\n`);
+  deps.renderer.write(
+    handle.firstRunSetup.createdAuth
+      ? `\nFirst-run HQ auth created in ${handle.firstRunSetup.dataDir}\n`
+      : `\nHQ auth loaded from ${handle.firstRunSetup.dataDir}\n`,
+  );
   deps.renderer.write(`Start clients with:\n`);
   deps.renderer.write(`  WRONGSTACK_HQ_URL=${handle.firstRunSetup.clientEnv.WRONGSTACK_HQ_URL}\n`);
-  deps.renderer.write(`  WRONGSTACK_HQ_TOKEN=[REDACTED]\n`);
+  if (handle.firstRunSetup.clientEnv.WRONGSTACK_HQ_TOKEN) {
+    deps.renderer.write(
+      `  WRONGSTACK_HQ_TOKEN=${handle.firstRunSetup.clientEnv.WRONGSTACK_HQ_TOKEN}\n`,
+    );
+  }
 }
 
 async function hqTokenCmd(args: string[], deps: SubcommandDeps): Promise<number> {
@@ -140,19 +144,80 @@ async function hqTokenCmd(args: string[], deps: SubcommandDeps): Promise<number>
  */
 type TokenScope = 'browser' | 'client';
 
-/** Detect `--client` / `-c` flag from the arg list. */
-function resolveTokenScope(args: string[]): TokenScope {
-  return args.some((a) => a === '--client' || a === '-c') ? 'client' : 'browser';
+const TOKEN_CAPABILITIES: Record<TokenScope, readonly string[]> = {
+  browser: ['control.enqueue'],
+  client: ['telemetry.publish', 'control.execute'],
+};
+
+const DEFAULT_TOKEN_CAPABILITIES: Record<TokenScope, readonly string[]> = {
+  browser: ['control.enqueue'],
+  client: ['telemetry.publish'],
+};
+
+/** Detect `--client` / `-c`, including flags already consumed by parseArgs(). */
+function resolveTokenScope(args: string[], deps: SubcommandDeps): TokenScope {
+  return deps.flags?.['client'] === true ||
+    deps.flags?.['c'] === true ||
+    args.some((a) => a === '--client' || a === '-c')
+    ? 'client'
+    : 'browser';
 }
 
-/** Strip flags from args, returning only positional values. */
-function positionals(args: string[]): string[] {
-  return args.filter((a) => !a.startsWith('-'));
+/** Strip token flags and their values from direct-handler args. */
+function tokenPositionals(args: string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg) continue;
+    if (arg === '--client' || arg === '-c' || arg.startsWith('--capabilities=')) continue;
+    if (arg === '--capabilities') {
+      i += 1;
+      continue;
+    }
+    if (!arg.startsWith('-')) result.push(arg);
+  }
+  return result;
+}
+
+function readCapabilitiesFlag(args: string[], deps: SubcommandDeps): string | boolean | undefined {
+  const parsed = deps.flags?.['capabilities'];
+  if (parsed !== undefined) return parsed;
+  const inline = args.find((arg) => arg.startsWith('--capabilities='));
+  if (inline) return inline.slice('--capabilities='.length);
+  const index = args.indexOf('--capabilities');
+  return index >= 0 ? args[index + 1] ?? true : undefined;
+}
+
+function resolveTokenCapabilities(
+  scope: TokenScope,
+  args: string[],
+  deps: SubcommandDeps,
+): { capabilities?: string[]; error?: string } {
+  const raw = readCapabilitiesFlag(args, deps);
+  if (raw === undefined) return { capabilities: [...DEFAULT_TOKEN_CAPABILITIES[scope]] };
+  if (typeof raw !== 'string') {
+    return { error: '--capabilities requires a comma-separated value.' };
+  }
+
+  const capabilities = [...new Set(raw.split(',').map((item) => item.trim()).filter(Boolean))];
+  const allowed = new Set(TOKEN_CAPABILITIES[scope]);
+  const invalid = capabilities.filter((capability) => !allowed.has(capability));
+  if (invalid.length > 0) {
+    return {
+      error: `Invalid ${scope} token capabilities: ${invalid.join(', ')}. Allowed: ${[...allowed].join(', ')}.`,
+    };
+  }
+  return { capabilities };
 }
 
 async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number> {
-  const scope = resolveTokenScope(args);
-  const pos = positionals(args);
+  const scope = resolveTokenScope(args, deps);
+  const resolvedCapabilities = resolveTokenCapabilities(scope, args, deps);
+  if (resolvedCapabilities.error) {
+    deps.renderer.writeError(`${resolvedCapabilities.error}\n`);
+    return 1;
+  }
+  const pos = tokenPositionals(args);
   const label = pos[0]; // first positional is the label
   const dataDir = resolveDataDir(deps);
   const tokenField = scope === 'client' ? 'clientTokens' : 'browserTokens';
@@ -162,7 +227,10 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
       dataDir,
       (current) => {
         const tokens = current[tokenField] ?? [];
-        const newToken = mintHqToken(label);
+        const newToken = {
+          ...mintHqToken(label),
+          capabilities: resolvedCapabilities.capabilities,
+        };
         return {
           ...current,
           [tokenField]: [...tokens, newToken],
@@ -176,6 +244,7 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
     deps.renderer.write(`Created ${scope} token.\n`);
     deps.renderer.write(`  id:         ${token.id}\n`);
     if (token.label) deps.renderer.write(`  label:      ${token.label}\n`);
+    deps.renderer.write(`  capabilities: ${(token.capabilities ?? []).join(', ') || '(none)'}\n`);
     deps.renderer.write(`  token:      ${token.token}\n`);
     deps.renderer.write(`  createdAt:  ${token.createdAt}\n`);
     deps.renderer.write(`\n`);
@@ -189,7 +258,7 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
 }
 
 async function tokenList(args: string[], deps: SubcommandDeps): Promise<number> {
-  const scope = resolveTokenScope(args);
+  const scope = resolveTokenScope(args, deps);
   const dataDir = resolveDataDir(deps);
   const tokenField = scope === 'client' ? 'clientTokens' : 'browserTokens';
   const authFile = await readHqAuthFile(dataDir, {
@@ -207,7 +276,8 @@ async function tokenList(args: string[], deps: SubcommandDeps): Promise<number> 
   deps.renderer.write('\n');
   for (const t of tokens) {
     const masked = `${t.token.slice(0, 6)}…${t.token.slice(-4)} (${t.token.length} chars)`;
-    deps.renderer.write(`  ${t.id}  ${masked}  ${t.createdAt}${t.label ? `  "${t.label}"` : ''}${t.lastUsedAt ? `  lastUsed ${t.lastUsedAt}` : ''}\n`);
+    const capabilities = t.capabilities === undefined ? 'legacy-unscoped' : t.capabilities.join(',') || 'none';
+    deps.renderer.write(`  ${t.id}  ${masked}  ${t.createdAt}${t.label ? `  "${t.label}"` : ''}  [${capabilities}]${t.lastUsedAt ? `  lastUsed ${t.lastUsedAt}` : ''}\n`);
   }
   deps.renderer.write('\n');
   deps.renderer.write(`${scope === 'client' ? 'Clients' : 'Browsers'} must append ?token=<full-token> to /ws/${scope}.\n`);
@@ -215,8 +285,8 @@ async function tokenList(args: string[], deps: SubcommandDeps): Promise<number> 
 }
 
 async function tokenRevoke(args: string[], deps: SubcommandDeps): Promise<number> {
-  const scope = resolveTokenScope(args);
-  const pos = positionals(args);
+  const scope = resolveTokenScope(args, deps);
+  const pos = tokenPositionals(args);
   const idPrefix = pos[0];
   if (!idPrefix) {
     deps.renderer.writeError(`Usage: wstack hq token revoke ${scope === 'client' ? '--client ' : ''}<id-prefix>\n`);
@@ -283,6 +353,7 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write(`  --strict-port       Fail if port is in use.\n`);
   deps.renderer.write(`  --open              Open the dashboard in the default browser.\n`);
   deps.renderer.write(`  --client, -c        Operate on client tokens instead of browser tokens.\n`);
+  deps.renderer.write(`  --capabilities <csv>  Token grants (browser: control.enqueue; client: telemetry.publish,control.execute).\n`);
   deps.renderer.write('\n');
   deps.renderer.write(`auth.json schema version: ${HQ_AUTH_FILE_VERSION}.\n`);
 }

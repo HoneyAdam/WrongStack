@@ -47,6 +47,7 @@ import {
   Context,
   applyToolDescriptionModes,
   applyToolResultRenderModes,
+  configureChildEnvGitIdentity,
   resolveContextWindowPolicy,
   getSessionRegistry,
   makeMailboxTool,
@@ -206,6 +207,9 @@ export async function createPreContextServices(
   applyToolResultRenderModes(toolRegistry, config.tools?.resultRenderMode);
   configureExecPolicy(config.tools?.exec ?? {});
   configureDangerBypass(config.tools?.exec?.danger ?? {});
+  // Commit identity for every git-touching child process. Trusted-config-only:
+  // the loader strips `git` from repo-committed in-project configs.
+  configureChildEnvGitIdentity(config.git?.identity ?? null);
   console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
 
   // ── MCP registry ──

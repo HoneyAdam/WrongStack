@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { createHqEventEnvelope } from '../../src/hq/protocol.js';
+import {
+  createHqEventEnvelope,
+  DEFAULT_HQ_REDACTION_POLICY,
+} from '../../src/hq/protocol.js';
 import {
   redactHqEvent,
   redactHqValue,
   scrubAndTruncateHqPreview,
   summarizeHqToolArgs,
+  resolveHqRedactionPolicy,
+  tightenHqRedactionPolicy,
 } from '../../src/hq/redaction.js';
 
 describe('HQ redaction', () => {
-  it('drops raw prompt/tool/file content by default', () => {
+  it('keeps raw prompt/tool/file content by default', () => {
     const result = redactHqValue({
       prompt: 'implement a secret feature',
       fileContent: 'const value = 1;',
@@ -16,51 +21,66 @@ describe('HQ redaction', () => {
       safeSummary: 'tool completed',
     });
 
-    expect(result.redacted).toBe(true);
+    expect(result.redacted).toBe(false);
     expect(result.value).toEqual({
-      prompt: '[REDACTED:hq_raw_content]',
-      fileContent: '[REDACTED:hq_raw_content]',
-      nested: { stdout: '[REDACTED:hq_raw_content]' },
+      prompt: 'implement a secret feature',
+      fileContent: 'const value = 1;',
+      nested: { stdout: 'very long raw command output' },
       safeSummary: 'tool completed',
     });
   });
 
-  it('redacts sensitive fields regardless of raw content policy', () => {
-    const result = redactHqValue(
-      {
-        token: 'plain-token-value',
-        headers: {
-          Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
-        },
-        rawContent: 'allowed raw text',
+  it('keeps sensitive fields when raw content is enabled', () => {
+    const result = redactHqValue({
+      token: 'plain-token-value',
+      headers: {
+        Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
       },
-      { policy: { rawContent: true } },
-    );
+      rawContent: 'allowed raw text',
+    });
+
+    expect(result.value).toEqual({
+      token: 'plain-token-value',
+      headers: {
+        Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
+      },
+      rawContent: 'allowed raw text',
+    });
+  });
+
+  it('redacts sensitive fields when raw content is explicitly disabled', () => {
+    const result = redactHqValue({
+      token: 'plain-token-value',
+      headers: {
+        Authorization: 'Bearer abcdefghijklmnopqrstuvwxyz',
+      },
+      rawContent: 'hidden raw text',
+    }, { policy: { rawContent: false } });
 
     expect(result.value).toEqual({
       token: '[REDACTED:hq_sensitive_field]',
       headers: {
         Authorization: '[REDACTED:hq_sensitive_field]',
       },
-      rawContent: 'allowed raw text',
+      rawContent: '[REDACTED:hq_raw_content]',
     });
   });
 
-  it('scrubs secrets that appear in non-sensitive strings', () => {
+  it('does not scrub secrets in non-sensitive strings by default', () => {
     const result = redactHqValue({
       summary: 'using Bearer abcdefghijklmnopqrstuvwxyz for auth',
     });
 
-    expect(result.value.summary).toContain('[REDACTED:bearer_token]');
+    expect(result.value.summary).toBe('using Bearer abcdefghijklmnopqrstuvwxyz for auth');
   });
 
-  it('converts project-local paths to project-relative paths', () => {
+  it('converts project-local paths to project-relative paths when requested', () => {
     const result = redactHqValue(
       {
         projectRoot: 'D:\\Codebox\\PROJECTS\\WrongStack',
         filePath: 'D:\\Codebox\\PROJECTS\\WrongStack\\packages\\core\\src\\hq\\protocol.ts',
       },
-      { projectRoot: 'D:/Codebox/PROJECTS/WrongStack' },
+      { policy: { paths: 'project-relative' }, projectRoot: 'D:/Codebox/PROJECTS/WrongStack' },
     );
 
     expect(result.value).toEqual({
@@ -102,11 +122,11 @@ describe('HQ redaction', () => {
     expect(result.value.sessionId).toBe('session_1');
     expect(result.value.payload).toEqual({
       toolName: 'bash',
-      output: '[REDACTED:hq_raw_content]',
+      output: 'SECRET_TOKEN=abcdefghijklmnopqrstuvwxyz123456',
     });
   });
 
-  it('redacts mailbox bodies while keeping scrubbed previews useful', () => {
+  it('keeps mailbox bodies and previews by default', () => {
     const result = redactHqValue(
       {
         message: {
@@ -122,11 +142,8 @@ describe('HQ redaction', () => {
     expect(result.value).toEqual({
       message: {
         subject: 'Please review auth flow',
-        body: '[REDACTED:hq_raw_content]',
-        // The bearer_token pattern consumes the leading delimiter but ends on a
-        // NON-consuming lookahead (so adjacent tokens sharing a delimiter both
-        // redact — see secret-scrubber.ts), hence the trailing space survives.
-        bodyPreview: 'Use[REDACTED:bearer_token] for the repro',
+        body: 'The raw mailbox body should not be shipped to HQ by default.',
+        bodyPreview: 'Use Bearer abcdefghijklmnopqrstuvwxyz for the repro',
         outcomePreview: 'Fixed in session_1',
       },
     });
@@ -155,6 +172,28 @@ describe('HQ redaction', () => {
     expect(summarizeHqToolArgs({ command: 'secret' }, { policy: { toolArgs: 'none' } })).toBe(
       '[REDACTED:hq_tool_args]',
     );
+  });
+
+  it('tightens publisher policy without allowing an operator override to loosen it', () => {
+    const publisher = resolveHqRedactionPolicy({
+      rawContent: true,
+      toolArgs: 'redacted',
+      paths: 'full',
+    });
+    expect(
+      tightenHqRedactionPolicy(publisher, {
+        rawContent: false,
+        toolArgs: 'summary',
+        paths: 'project-relative',
+      }),
+    ).toEqual({ rawContent: false, toolArgs: 'summary', paths: 'project-relative' });
+    expect(
+      tightenHqRedactionPolicy(resolveHqRedactionPolicy(), {
+        rawContent: true,
+        toolArgs: 'redacted',
+        paths: 'full',
+      }),
+    ).toEqual({ rawContent: true, toolArgs: 'redacted', paths: 'full' });
   });
 });
 

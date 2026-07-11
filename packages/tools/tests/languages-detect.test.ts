@@ -136,13 +136,26 @@ describe('detectLanguageWorkspaces', () => {
       file('swift/Sources/main.swift', 'print("hi")'),
       file('dart/pubspec.yaml', 'name: x'),
       file('dart/lib/main.dart', 'void main(){}'),
+      file('deno/deno.json', '{}'),
+      file('deno/main.ts', 'console.log("hi");'),
       file('ex/mix.exs', 'defmodule X.MixProject do end'),
       file('ex/lib/x.ex', 'defmodule X do end'),
       file('sh/script.sh', '#!/bin/bash\necho hi'),
     ]);
     const result = await detectLanguageWorkspaces({ projectRoot: root });
     const detected = new Set(result.workspaces.map((w) => w.language));
-    for (const lang of ['python', 'java', 'ruby', 'c', 'cpp', 'swift', 'dart', 'elixir', 'shell']) {
+    for (const lang of [
+      'python',
+      'java',
+      'ruby',
+      'c',
+      'cpp',
+      'swift',
+      'dart',
+      'deno',
+      'elixir',
+      'shell',
+    ]) {
       expect(detected.has(lang as any), `expected ${lang} to be detected`).toBe(true);
     }
   });

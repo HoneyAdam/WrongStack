@@ -643,6 +643,13 @@ export interface AppProps {
   // --- Fleet ---
   /** Live director for fleet panel rendering. Null when director mode is off. */
   director: Director | null;
+  /**
+   * Read the CURRENT director. Unlike the static `director` prop (captured at
+   * boot, null in non---director sessions), this sees a director the fleet
+   * host built lazily on the first delegate/spawn. Fleet teardown paths
+   * (Ctrl+C, Esc, /steer) resolve through this.
+   */
+  getDirector?: (() => Director | null) | undefined;
   /** Optional roster for human-readable subagent names. */
   fleetRoster?: Record<string, { name: string }> | undefined;
   /**
@@ -950,6 +957,7 @@ export function App({
   effectiveMaxContext,
   onExit,
   director,
+  getDirector,
   fleetRoster,
   onClearHistory,
   clearTerminal,
@@ -1405,6 +1413,35 @@ export function App({
   stateRef.current = state;
   const draftRef = useRef({ buffer: state.buffer, cursor: state.cursor });
   draftRef.current = { buffer: state.buffer, cursor: state.cursor };
+
+  // Live director accessor. The static `director` prop is captured at boot
+  // and stays null when the fleet host builds its director LAZILY (first
+  // delegate/spawn in a non---director session). Every fleet-teardown path
+  // (Ctrl+C, Esc, /steer) must resolve through this or it silently no-ops
+  // on lazily spawned subagents.
+  const liveDirector = useCallback(
+    (): Director | null => getDirector?.() ?? director,
+    [getDirector, director],
+  );
+
+  // Tear down pending tool-confirm panels when a run is aborted. The agent
+  // side resolves the underlying promises as 'abort' via its signal listener
+  // (which fires synchronously inside `activeCtrlRef.abort()`), so the
+  // resolve('no') here is an idempotent belt-and-braces — a settled promise
+  // ignores it — guaranteeing the executor can never stay parked on a dead
+  // prompt. The dispatch returns input routing to the composer.
+  const clearPendingConfirms = useCallback(() => {
+    const queue = stateRef.current.confirmQueue;
+    if (queue.length === 0) return;
+    for (const c of queue) {
+      try {
+        c.resolve('no');
+      } catch {
+        /* already settled */
+      }
+    }
+    dispatch({ type: 'confirmClearAll' });
+  }, [dispatch]);
 
   // Interactive /auth panel controller — owns provider/key mutations, the
   // flow runner (catalog/custom/local adds, OAuth sign-in) and its modal
@@ -2492,15 +2529,17 @@ export function App({
       const snapshot = { runningTools, subagents, subagentsTerminated, partialAssistantText };
 
       activeCtrlRef.current?.abort('user interrupt (/steer)');
+      clearPendingConfirms();
       dispatch({ type: 'steerStart', snapshot });
       const droppedCount = s.queue.length;
       if (droppedCount > 0) dispatch({ type: 'queueClear' });
-      if (director && subagentsTerminated > 0) {
+      const steerDir = liveDirector();
+      if (steerDir && subagentsTerminated > 0) {
         const cap = new Promise<void>((resolve) => {
           const t = setTimeout(resolve, 1500);
           t.unref?.();
         });
-        void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+        void Promise.race([steerDir.terminateAll().catch(() => undefined), cap]);
       }
       const preamble = buildSteeringPreamble(snapshot, text);
       // Consume immediately — the preamble already carries the steering frame;
@@ -2508,7 +2547,7 @@ export function App({
       dispatch({ type: 'steerConsume' });
       return { preamble, droppedCount, subagentsTerminated };
     },
-    [director, dispatch],
+    [liveDirector, clearPendingConfirms, dispatch],
   );
 
   // `/steer <message>` — slash-command equivalent of Esc-to-steer.
@@ -2909,11 +2948,13 @@ export function App({
     autoSubmitCapWarnedRef.current = false;
   }, [autonomyLive]);
   useEffect(() => {
+    const liveAutonomy = getAutonomy?.() ?? autonomyLive;
     // Only run when idle and in auto mode
-    if (state.status !== 'idle' || autonomyLive !== 'auto') {
+    if (state.status !== 'idle' || liveAutonomy !== 'auto') {
       clearInterval(nextStepsAutoSubmitTimerRef.current);
       nextStepsAutoSubmitTimerRef.current = undefined;
       setNextStepsAutoSubmitCountdown(null);
+      setNextStepsAutoSubmitLabel(null);
       nextStepsAutoSubmitSuggestionRef.current = null;
       return;
     }
@@ -2984,6 +3025,10 @@ export function App({
         nextStepsAutoSubmitTimerRef.current = undefined;
         setNextStepsAutoSubmitCountdown(null);
         setNextStepsAutoSubmitLabel(null);
+        if ((getAutonomy?.() ?? autonomyLive) !== 'auto') {
+          nextStepsAutoSubmitSuggestionRef.current = null;
+          return;
+        }
         // Auto-submit the suggestion
         const suggestion = nextStepsAutoSubmitSuggestionRef.current;
         nextStepsAutoSubmitSuggestionRef.current = null;
@@ -3031,8 +3076,12 @@ export function App({
     state.enhanceBusy,
     state.continueConfirm,
     nextStepsRecheck,
+    getAutonomy,
     getSettings,
     getSuggestions,
+    getAutoSuggestions,
+    getYolo,
+    autonomyNextPrompt,
     dispatch,
   ]);
 
@@ -3863,6 +3912,18 @@ export function App({
         },
       });
     });
+    const offMemoryStale = events.on('memory.staled', (e) => {
+      dispatch({ type: 'addEntry', entry: { kind: 'warn', text: `Super Memory stale: ${e.memoryId} — ${e.reason}` } });
+    });
+    const offMemoryContradicted = events.on('memory.contradicted', (e) => {
+      dispatch({ type: 'addEntry', entry: { kind: 'warn', text: `Super Memory contradicted: ${e.memoryId}` } });
+    });
+    const offMemoryHygiene = events.on('memory.hygiene_completed', (e) => {
+      dispatch({
+        type: 'addEntry',
+        entry: { kind: 'info', text: `Super Memory hygiene: ${e.examined} examined, ${e.deduplicated} deduplicated, ${e.staled} stale, ${e.archived} archived.` },
+      });
+    });
     return () => {
       offDelta();
       offThinking();
@@ -3879,6 +3940,9 @@ export function App({
       offTrustPersisted();
       offDelegateStart();
       offDelegateDone();
+      offMemoryStale();
+      offMemoryContradicted();
+      offMemoryHygiene();
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, [events, agent.ctx.todos]);
@@ -4068,18 +4132,58 @@ export function App({
   // Install the leader-abort handler for the /interrupt slash command. Slash
   // commands don't get the RunController, so the command can't stop the current
   // iteration on its own — it calls this. The fleet teardown is /interrupt's
-  // own onFleetKill, so this only aborts the leader + flips the status. Because
-  // slash commands dispatch even mid-run in the TUI, /interrupt stops a run
-  // that is wedged retrying a 429.
+  // own onFleetKill, so this aborts the leader, stops any autonomy driver,
+  // and flips the status. Because slash commands dispatch even mid-run in the
+  // TUI, /interrupt stops a run that is wedged retrying a 429.
   useEffect(() => {
     if (!interruptController) return;
     interruptController.abortLeader = () => {
-      if (stateRef.current.status === 'idle') return false;
-      activeCtrlRef.current?.abort('user interrupt (/interrupt)');
-      dispatch({ type: 'status', status: 'aborting' });
-      return true;
+      let interrupted = false;
+      // Stop autonomy drivers FIRST so they can't kick off the next
+      // iteration after the in-flight one aborts. /interrupt is a direct
+      // user command — the same stop authority as Ctrl+C. Checked
+      // independently of `status`: the driver loop parks status at 'idle'
+      // for a 200ms yield between iterations, and /interrupt landing in
+      // that window must still stop the loop.
+      const eternalEngine = getEternalEngine?.();
+      const parallelEngine = getParallelEngine?.();
+      const autonomyRunning =
+        eternalLoopRunningRef.current ||
+        parallelLoopRunningRef.current ||
+        eternalEngine?.currentState === 'running' ||
+        parallelEngine?.currentState === 'running';
+      if (autonomyRunning) {
+        eternalEngine?.stop();
+        parallelEngine?.stop();
+        switchAutonomy?.('off');
+        interrupted = true;
+      }
+      const sddRun = getSddRun?.();
+      if (sddRun?.isRunning()) {
+        sddRun.stop();
+        interrupted = true;
+      }
+      if (stateRef.current.status !== 'idle') {
+        activeCtrlRef.current?.abort('user interrupt (/interrupt)');
+        // The abort signal has already resolved any pending tool-confirm
+        // promise as 'abort' (synchronously, inside abort()); tear the panels
+        // down too so input routing returns to the composer immediately.
+        clearPendingConfirms();
+        dispatch({ type: 'status', status: 'aborting' });
+        interrupted = true;
+      }
+      return interrupted;
     };
-  }, [interruptController, dispatch, stateRef]);
+  }, [
+    interruptController,
+    dispatch,
+    stateRef,
+    clearPendingConfirms,
+    getEternalEngine,
+    getParallelEngine,
+    getSddRun,
+    switchAutonomy,
+  ]);
 
   // Track double-Esc for input buffer clearing.
   const lastEscAtRef = useRef(0);
@@ -4323,7 +4427,16 @@ export function App({
     onPickerEnter,
   });
 
-  // Handle SIGINT as a three-stage escalation:
+  // Synchronous Ctrl+C press counter for the escalation ladder. The reducer's
+  // `state.interrupts` is display/UI state — it only updates on a React
+  // re-render, so two rapid presses (or ANY presses while the tree is busy
+  // re-rendering a wedged 'aborting' run — exactly when the user is hammering
+  // Ctrl+C) would BOTH read 0 and both take the "first press" branch, and the
+  // exit stage would never fire. This ref is the source of truth for the
+  // ladder stage; the dispatches below keep the UI state in sync.
+  const interruptsSyncRef = useRef(0);
+
+  // The Ctrl+C escalation ladder, as a callable — three stages:
   //   1st press — stop work and stay at the prompt: cancel the foreground
   //     run + kill the fleet, OR (in autonomy / background-only mode) halt
   //     the engines + terminate the fleet. Pickers cancel instead.
@@ -4331,26 +4444,43 @@ export function App({
   //     hard-exit fallback timer in case the React tree is wedged.
   //   3rd press — immediate process.exit, so a wedged Ink loop can't trap
   //     the user.
-  useEffect(() => {
-    const onSigint = () => {
+  // Invoked from TWO entry points: the process SIGINT listener (external
+  // signals, and terminals that deliver Ctrl+C as a signal) and handleKey's
+  // top-of-function intercept — raw-mode terminals (ConPTY/Windows, and any
+  // tty in raw mode) deliver Ctrl+C as KEY DATA and never generate SIGINT,
+  // so without the key-data route the whole ladder is unreachable from the
+  // keyboard there.
+  const runInterruptLadder = useCallback(() => {
       const current = stateRef.current;
+      const pressCount = interruptsSyncRef.current + 1;
+      interruptsSyncRef.current = pressCount;
       // Second (or later) Ctrl+C — exit no matter what. Status may be
       // 'aborting', 'running', or 'streaming'; the user has clearly
       // decided they want out. Try Ink's graceful exit first, then
       // hard-exit on a short timer in case the React tree is wedged.
-      if (current.interrupts >= 1) {
+      if (pressCount >= 2) {
         // Second (or later) Ctrl+C — the user wants out. Force-kill tracked
         // processes regardless of state.
         getProcessRegistry().killAll({ force: true });
         // If we already asked Ink to unmount and the user pressed again, the
-        // React tree is wedged — hard-exit immediately.
+        // React tree is wedged — hard-exit immediately. Drain the session
+        // writer synchronously first so the aborted run's last events
+        // survive on disk (process.exit skips every async teardown path).
         if (exitRequestedRef.current) {
+          try {
+            agent.ctx.session.flushSync?.();
+          } catch {
+            /* best-effort — exiting either way */
+          }
           process.exit(130);
         }
         exitRequestedRef.current = true;
         dispatch({ type: 'interrupt' });
         // Terminate any lingering fleet so subagents don't outlive the TUI.
-        if (director) void director.terminateAll().catch(() => undefined);
+        {
+          const dir = liveDirector();
+          if (dir) void dir.terminateAll().catch(() => undefined);
+        }
         // Graceful Ink unmount first: it restores the terminal (raw mode off,
         // cursor shown) and routes the 130 exit code
         // through run-tui's settle(). A bare process.exit() here would skip
@@ -4358,7 +4488,14 @@ export function App({
         // broken" symptom. Fall back to a hard exit if Ink never unmounts.
         onExit(130);
         exit();
-        const hardExit = setTimeout(() => process.exit(130), 400);
+        const hardExit = setTimeout(() => {
+          try {
+            agent.ctx.session.flushSync?.();
+          } catch {
+            /* best-effort — exiting either way */
+          }
+          process.exit(130);
+        }, 400);
         hardExit.unref?.();
         return;
       }
@@ -4406,7 +4543,28 @@ export function App({
 
       if (activeCtrlRef.current) {
         activeCtrlRef.current.abort('user interrupt (Ctrl+C)');
+        clearPendingConfirms();
         dispatch({ type: 'status', status: 'aborting' });
+        // Halt any autonomy driver / SDD run too, so it can't kick off the
+        // NEXT iteration after this one aborts. Mirrors /interrupt's
+        // abortLeader — a foreground run and background drivers can
+        // coexist (e.g. a run submitted while an SDD run drains).
+        {
+          const eEng = getEternalEngine?.();
+          const pEng = getParallelEngine?.();
+          const autonomyRunning =
+            eternalLoopRunningRef.current ||
+            parallelLoopRunningRef.current ||
+            eEng?.currentState === 'running' ||
+            pEng?.currentState === 'running';
+          if (autonomyRunning) {
+            eEng?.stop();
+            pEng?.stop();
+            switchAutonomy?.('off');
+          }
+          const sdd = getSddRun?.();
+          if (sdd?.isRunning()) sdd.stop();
+        }
         // Kill every running subagent on the first interrupt — without
         // this the parent agent.run() stays parked in `await delegate
         // → director.awaitTasks` forever and the "press again to exit"
@@ -4417,12 +4575,13 @@ export function App({
         // pressed Ctrl+C; their patience is finite. The second
         // Ctrl+C still forces exit immediately via the path above,
         // so this race only matters for the polite-shutdown window.
-        if (director) {
+        const ctrlCDir = liveDirector();
+        if (ctrlCDir) {
           const cap = new Promise<void>((resolve) => {
             const t = setTimeout(resolve, 1500);
             t.unref?.();
           });
-          void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+          void Promise.race([ctrlCDir.terminateAll().catch(() => undefined), cap]);
         }
         // Kill all tracked bash/exec processes from the process registry.
         // This ensures runaway child processes (including background bashes
@@ -4439,7 +4598,7 @@ export function App({
             type: 'addEntry',
             entry: {
               kind: 'warn',
-              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}${procTag}. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
+              text: `Iteration cancelled${ctrlCDir ? ' + fleet terminated' : ''}${procTag}. Dropped ${droppedCount} queued message${droppedCount === 1 ? '' : 's'}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
             },
           });
         } else {
@@ -4447,7 +4606,7 @@ export function App({
             type: 'addEntry',
             entry: {
               kind: 'warn',
-              text: `Iteration cancelled${director ? ' + fleet terminated' : ''}${procTag}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
+              text: `Iteration cancelled${ctrlCDir ? ' + fleet terminated' : ''}${procTag}. ${confirmExitRef.current ? 'Press Ctrl+C again to confirm exit.' : 'Press Ctrl+C again to exit.'}`,
             },
           });
         }
@@ -4480,12 +4639,13 @@ export function App({
           getParallelEngine?.()?.stop();
           if (sddRunning) sddRun?.stop();
           if (autonomyRunning) switchAutonomy?.('off');
-          if (director) {
+          const bgDir = liveDirector();
+          if (bgDir) {
             const cap = new Promise<void>((resolve) => {
               const t = setTimeout(resolve, 1500);
               t.unref?.();
             });
-            void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+            void Promise.race([bgDir.terminateAll().catch(() => undefined), cap]);
           }
           const killed = getProcessRegistry().killAll();
           const bits: string[] = [];
@@ -4516,25 +4676,41 @@ export function App({
           entry: { kind: 'warn', text: `Press Ctrl+C again to exit.${procTag}` },
         });
       }
-    };
-    process.on('SIGINT', onSigint);
+  }, [agent, liveDirector, clearPendingConfirms, dispatch, getEternalEngine, getParallelEngine, getSddRun, switchAutonomy, onExit, exit]);
+
+  // Route real SIGINTs (external kill, terminals that deliver Ctrl+C as a
+  // signal) into the ladder. Keyboard Ctrl+C on raw-mode terminals arrives
+  // as key data and enters via handleKey's intercept instead.
+  useEffect(() => {
+    process.on('SIGINT', runInterruptLadder);
     return () => {
-      process.off('SIGINT', onSigint);
+      process.off('SIGINT', runInterruptLadder);
     };
-  }, [director, getEternalEngine, getParallelEngine, getSddRun, switchAutonomy, onExit, exit]);
+  }, [runInterruptLadder]);
 
   const handleKey = async (input: string, key: KeyEvent) => {
+    // ── Ctrl+C: THE unconditional escape hatch ────────────────────────
+    // Raw-mode terminals (ConPTY/Windows, and any tty in raw mode) deliver
+    // Ctrl+C as KEY DATA — no SIGINT is ever generated — so it must be
+    // routed into the escalation ladder from here. This check runs BEFORE
+    // every modal/status guard below on purpose: Ctrl+C has to work
+    // precisely when everything else is wedged ('aborting' block, pending
+    // confirm panel, enhance overlay, …). The ladder itself is state-aware
+    // (cancels open pickers on the first press, aborts + kills the fleet,
+    // then exits on the second press, hard-exits on the third).
+    if (key.ctrl && (input === 'c' || input === 'C' || input === '\x03')) {
+      runInterruptLadder();
+      return;
+    }
     // Note: we no longer block input while the agent is running. Enter
     // routes through the queue when busy (see submit()), but typing,
     // backspace, paste, and clipboard-image all stay live.
     // Exception: when status is 'aborting', all input is blocked — except
-    // Ctrl+C which the SIGINT handler processes directly (not through handleKey).
-    // We check interrupts here so the second Ctrl+C can still reach the handler
-    // even though status is 'aborting'.
+    // Ctrl+C, which the intercept above routes into the ladder before this
+    // guard can swallow it (and real SIGINTs bypass handleKey entirely).
     // Block input while aborting — unless the user is mid-steering
     // (they need to type their new direction) or already pressed Ctrl+C
-    // twice (exit ladder takes priority). Ctrl+C SIGINT handler bypasses
-    // handleKey entirely so it always fires regardless of this guard.
+    // twice (exit ladder takes priority).
     if (state.status === 'aborting' && !state.steeringPending && state.interrupts === 0) return;
     // Block all input while confirmation prompt is shown — the ConfirmPrompt
     // component handles y/n/a/d/escape/enter itself and Input's disabled prop
@@ -4746,6 +4922,7 @@ export function App({
 
       // ── Immediate interrupt (confirmExit is off) ────────────────────
       activeCtrlRef.current?.abort();
+      clearPendingConfirms();
       dispatch({ type: 'status', status: 'aborting' });
       dispatch({ type: 'steerStart', snapshot });
 
@@ -4753,12 +4930,13 @@ export function App({
       // on the old direction, finish minutes later, and pollute the
       // chat with task.completed events the model doesn't care about
       // anymore. Cap at 1.5s so a wedged bridge can't hang the steer.
-      if (director && subagentsTerminated > 0) {
+      const escDir = liveDirector();
+      if (escDir && subagentsTerminated > 0) {
         const cap = new Promise<void>((resolve) => {
           const t = setTimeout(resolve, 1500);
           t.unref?.();
         });
-        void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+        void Promise.race([escDir.terminateAll().catch(() => undefined), cap]);
       }
 
       // Drop anything queued — steering means the user is redirecting,
@@ -5694,6 +5872,7 @@ export function App({
     // re-enter runBlocks without going through submit — without this reset a
     // stale counter from a prior abort would make the next run's first
     // Ctrl+C force-exit instead of aborting.
+    interruptsSyncRef.current = 0;
     dispatch({ type: 'resetInterrupts' });
     dispatch({ type: 'status', status: 'running' });
 
@@ -6038,6 +6217,7 @@ export function App({
       return;
     }
 
+    interruptsSyncRef.current = 0;
     dispatch({ type: 'resetInterrupts' });
     // Manual input re-arms the next-steps auto-submit loop: the consecutive
     // cap counts AUTOMATIC turns between user inputs only.
@@ -7024,9 +7204,8 @@ export function App({
               };
               // Capital-Y: enable YOLO mode straight from the prompt. Persists
               // via saveSettings (→ applyLiveSettings → permissionPolicy.setYolo)
-              // and flips the statusline chip live. For non-destructive calls it
-              // also approves THIS call; destructive calls stay for an explicit
-              // y/n/a/d (enabling YOLO never auto-approves destructive work).
+              // and flips the statusline chip live. YOLO also approves this
+              // pending call.
               const onEnableYolo = () => {
                 if (resolved) return;
                 onYolo?.(true);
@@ -7035,11 +7214,9 @@ export function App({
                 if (cur && saveSettings) {
                   Promise.resolve(saveSettings({ ...cur, yolo: true })).catch(() => {});
                 }
-                if (!head.destructive) {
-                  resolved = true;
-                  head.resolve('yes');
-                  dispatch({ type: 'confirmClose' });
-                }
+                resolved = true;
+                head.resolve('yes');
+                dispatch({ type: 'confirmClose' });
               };
               return (
                 <ConfirmPrompt
@@ -7062,14 +7239,16 @@ export function App({
                   if (!escConfirm) return;
                   const { snapshot } = escConfirm;
                   activeCtrlRef.current?.abort('user interrupt (Esc)');
+                  clearPendingConfirms();
                   dispatch({ type: 'status', status: 'aborting' });
                   dispatch({ type: 'steerStart', snapshot });
-                  if (director && snapshot.subagentsTerminated > 0) {
+                  const escConfirmDir = liveDirector();
+                  if (escConfirmDir && snapshot.subagentsTerminated > 0) {
                     const cap = new Promise<void>((resolve) => {
                       const t = setTimeout(resolve, 1500);
                       t.unref?.();
                     });
-                    void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+                    void Promise.race([escConfirmDir.terminateAll().catch(() => undefined), cap]);
                   }
                   const droppedCount = state.queue.length;
                   if (droppedCount > 0) dispatch({ type: 'queueClear' });

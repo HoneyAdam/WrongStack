@@ -189,6 +189,8 @@ describe('HQ auth-store — ensureHqFirstRunAuthFile', () => {
       expect(result.created).toBe(true);
       expect(result.browserToken?.token).toBeTruthy();
       expect(result.clientToken?.token).toBeTruthy();
+      expect(result.browserToken?.capabilities).toEqual(['control.enqueue']);
+      expect(result.clientToken?.capabilities).toEqual(['telemetry.publish']);
       expect(result.authFile.browserTokens).toHaveLength(1);
       expect(result.authFile.clientTokens).toHaveLength(1);
       expect(await fs.stat(hqAuthFilePath(dir))).toBeTruthy();

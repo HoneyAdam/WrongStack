@@ -120,6 +120,11 @@ describe('MultiAgentHost', () => {
     await expect(host.stopAll()).resolves.toBeUndefined();
   });
 
+  it('spawn() rejects when director mode is explicitly off', async () => {
+    const host = new MultiAgentHost(makeDeps(), { directorMode: false });
+    await expect(host.spawn('do a thing')).rejects.toThrow(/Director mode is off/);
+  });
+
   it('kill() before any spawn returns false', async () => {
     const host = new MultiAgentHost(makeDeps());
     expect(await host.kill('any-id')).toBe(false);
@@ -490,9 +495,8 @@ describe('MultiAgentHost', () => {
       expect(host.isDirectorMode()).toBe(false);
     });
 
-    it('isDirectorMode() becomes true after first spawn (Director always built)', async () => {
-      // After the single-path refactoring, spawn() always builds a Director
-      // regardless of directorMode, so isDirectorMode() flips after spawn.
+    it('isDirectorMode() becomes true after first spawn in director mode', async () => {
+      // With director mode enabled, spawn() builds the Director lazily.
       const directed = new MultiAgentHost(makeDeps(), { directorMode: true });
       expect(directed.isDirectorMode()).toBe(false); // not yet built
       await directed.spawn('a thing');
