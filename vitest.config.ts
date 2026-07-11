@@ -166,7 +166,7 @@ export default defineConfig({
         // Achievable after recent additions (observability health(),
         // MCP health check error path, SpecDrivenDev tests).
         // Raise by 1% as each new test file lands.
-        lines: 71,
+        lines: 72,
         functions: 71,
         branches: 61,
         statements: 70,
