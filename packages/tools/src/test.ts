@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
+import { tryLegacyCodeOperation } from './languages/legacy-bridge.js';
 
 interface TestInput {
   files?: string | string[] | undefined;
@@ -29,7 +30,7 @@ export const testTool: Tool<TestInput, TestOutput> = {
   name: 'test',
   category: 'Code Quality',
   description:
-    'Execute the project\'s test suite. This is one of the most critical tools for validating that your changes are correct.',
+    "Execute the project's test suite. This is one of the most critical tools for validating that your changes are correct.",
   usageHint:
     'ESSENTIAL BEFORE CONSIDERING WORK DONE:\n\n' +
     '- Use `files` or `grep` to run only relevant tests during development.\n' +
@@ -78,6 +79,32 @@ export const testTool: Tool<TestInput, TestOutput> = {
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<TestOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const runner = input.runner ?? 'auto';
+
+    // Delegate to the language planner for non-JS ecosystems (Go, Rust, PHP, C#).
+    if (runner === 'auto') {
+      const bridge = await tryLegacyCodeOperation('test', {
+        cwd,
+        projectRoot: ctx.projectRoot,
+        signal: opts.signal,
+      });
+      if (bridge?.run) {
+        const run = bridge.run;
+        yield {
+          type: 'final',
+          output: {
+            runner: bridge.language,
+            exit_code: run.exitCode ?? 0,
+            tests_run: (run.summary.passed ?? 0) + (run.summary.failed ?? 0),
+            passed: run.summary.passed ?? 0,
+            failed: run.summary.failed ?? 0,
+            duration_ms: run.durationMs,
+            output: normalizeCommandOutput(run.output || run.error || ''),
+            truncated: run.truncated,
+          },
+        };
+        return;
+      }
+    }
 
     const detected = runner === 'auto' ? await detectRunner(cwd) : runner;
     if (!detected) {
@@ -172,7 +199,13 @@ function buildArgs(runner: string, input: TestInput): string[] {
 
 function parseResult(
   runner: string,
-  result: { stdout: string; stderr: string; exitCode: number; truncated: boolean; error?: string | undefined },
+  result: {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    truncated: boolean;
+    error?: string | undefined;
+  },
   duration: number,
 ): TestOutput {
   const out = result.stdout + result.stderr;

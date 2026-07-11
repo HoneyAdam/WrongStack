@@ -87,6 +87,9 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   lint: 'code',
   format: 'code',
   typecheck: 'code',
+  language_info: 'code',
+  language: 'code',
+  language_package: 'package',
 
   // Testing
   test: 'test',

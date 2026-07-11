@@ -1,6 +1,7 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
+import { tryLegacyCodeOperation } from './languages/legacy-bridge.js';
 
 interface LintInput {
   files?: string | string[] | undefined;
@@ -64,6 +65,31 @@ export const lintTool: Tool<LintInput, LintOutput> = {
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<LintOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const linter = input.linter ?? 'auto';
+
+    // Delegate to the language planner for non-JS ecosystems (Go, Rust, PHP, C#).
+    if (linter === 'auto' && !input.files) {
+      const bridge = await tryLegacyCodeOperation('lint', {
+        cwd,
+        projectRoot: ctx.projectRoot,
+        signal: opts.signal,
+      });
+      if (bridge?.run) {
+        const run = bridge.run;
+        yield {
+          type: 'final',
+          output: {
+            linter: bridge.language,
+            files_checked: 0,
+            errors: run.summary.errors,
+            warnings: run.summary.warnings,
+            output: normalizeCommandOutput(run.output || run.error || ''),
+            fix_applied: false,
+            truncated: run.truncated,
+          },
+        };
+        return;
+      }
+    }
 
     const detected = linter === 'auto' ? await detectLinter(cwd) : linter;
     /* v8 ignore start -- detectLinter always falls back to 'biome' (never null) and explicit linters are truthy; this is defensive. */

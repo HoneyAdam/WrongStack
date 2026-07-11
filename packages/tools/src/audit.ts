@@ -1,6 +1,7 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { spawnStream } from './_spawn-stream.js';
 import { detectPackageManager, safeResolve } from './_util.js';
+import { tryLegacyPackageOperation } from './languages/legacy-bridge.js';
 
 interface AuditInput {
   cwd?: string | undefined;
@@ -66,6 +67,40 @@ export const auditTool: Tool<AuditInput, AuditOutput> = {
   },
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<AuditOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
+
+    // Delegate to the language planner for non-JS ecosystems (Go, Rust, PHP, C#).
+    const bridge = await tryLegacyPackageOperation('package-audit', {
+      cwd,
+      projectRoot: ctx.projectRoot,
+      signal: opts.signal,
+    });
+    if (bridge?.outcome) {
+      const outcome = bridge.outcome;
+      const vulns = outcome.vulnerabilities.map((v) => ({
+        severity: v.severity,
+        package: v.package,
+        title: v.advisory ?? 'Unknown vulnerability',
+        url: v.url ?? '',
+      }));
+      const total = vulns.length;
+      const summary =
+        total === 0
+          ? 'No vulnerabilities found'
+          : `Found ${total} vulnerabilities: ${vulns.filter((a) => a.severity === 'critical').length} critical, ${vulns.filter((a) => a.severity === 'high').length} high`;
+      yield {
+        type: 'final',
+        output: {
+          exit_code: outcome.run?.exitCode ?? 0,
+          vulnerabilities: vulns,
+          total,
+          summary,
+          output: outcome.run?.output ?? '',
+          truncated: outcome.run?.truncated ?? false,
+        },
+      };
+      return;
+    }
+
     const manager = await detectPackageManager(cwd);
     yield { type: 'log', text: `Auditing with ${manager}…`, data: { manager } };
 

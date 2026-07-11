@@ -1,8 +1,9 @@
+import { join } from 'node:path';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { detectPackageEcosystem, recordPackageAction } from '@wrongstack/core';
-import { join } from 'node:path';
 import { spawnStream } from './_spawn-stream.js';
 import { detectPackageManager, normalizeCommandOutput, safeResolve } from './_util.js';
+import { tryLegacyPackageOperation } from './languages/legacy-bridge.js';
 
 interface InstallInput {
   packages?: string | string[] | undefined;
@@ -57,7 +58,8 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
       save: {
         type: 'string',
         enum: ['dependency', 'dev', 'optional'],
-        description: 'Where to save the package(s): "dependency", "devDependencies", or "optionalDependencies".',
+        description:
+          'Where to save the package(s): "dependency", "devDependencies", or "optionalDependencies".',
       },
       cwd: {
         type: 'string',
@@ -65,7 +67,8 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
       },
       dry_run: {
         type: 'boolean',
-        description: 'If true, show what would be installed without actually modifying package.json or node_modules.',
+        description:
+          'If true, show what would be installed without actually modifying package.json or node_modules.',
       },
       global: {
         type: 'boolean',
@@ -90,6 +93,42 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
   },
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<InstallOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
+
+    // Delegate to the language planner for non-JS ecosystems (Go, Rust, PHP, C#).
+    if (!input.global) {
+      const pkgList = input.packages
+        ? Array.isArray(input.packages)
+          ? input.packages
+          : input.packages.split(',').map((p) => p.trim())
+        : [];
+      const bridge = await tryLegacyPackageOperation(
+        'package-install',
+        {
+          cwd,
+          projectRoot: ctx.projectRoot,
+          signal: opts.signal,
+        },
+        pkgList,
+      );
+      if (bridge?.outcome) {
+        const outcome = bridge.outcome;
+        const run = outcome.run;
+        yield {
+          type: 'final',
+          output: {
+            exit_code: run?.exitCode ?? 0,
+            packages: [],
+            output: normalizeCommandOutput(
+              run?.output || outcome.manifestsChanged.join(', ') || 'ok',
+            ),
+            truncated: run?.truncated ?? false,
+            dry_run: input.dry_run ?? false,
+          },
+        };
+        return;
+      }
+    }
+
     const pkgManager = await detectPackageManager(cwd);
     yield { type: 'log', text: `Resolving with ${pkgManager}…`, data: { phase: 'resolve' } };
 
@@ -168,10 +207,12 @@ export const installTool: Tool<InstallInput, InstallOutput> = {
     // Skip global installs (no manifest modification) and dry runs.
     const isSuccess = result.exitCode === 0 && !output.dry_run && !input.global;
     if (isSuccess && pkgList.length > 0) {
-      const trackerOpts = ctx.meta?.['packageTrackerOpts'] as {
-        storageDir: string;
-        projectRoot: string;
-      } | undefined;
+      const trackerOpts = ctx.meta?.['packageTrackerOpts'] as
+        | {
+            storageDir: string;
+            projectRoot: string;
+          }
+        | undefined;
       if (trackerOpts) {
         const manifestPath = resolveManifestPath(cwd, pkgManager);
         for (const pkg of pkgList) {
@@ -221,4 +262,3 @@ function resolveManifestPath(cwd: string, pkgManager: string): string {
       return join(cwd, 'package.json');
   }
 }
-

@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
+import { tryLegacyCodeOperation } from './languages/legacy-bridge.js';
 
 interface TypecheckInput {
   project?: string | undefined;
@@ -25,7 +26,7 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
   name: 'typecheck',
   category: 'Code Quality',
   description:
-    'Run the project\'s TypeScript type checker (`tsc --noEmit` or equivalent). Essential for verifying type safety before making changes or committing.',
+    "Run the project's TypeScript type checker (`tsc --noEmit` or equivalent). Essential for verifying type safety before making changes or committing.",
   usageHint:
     'ALWAYS RUN BEFORE CONSIDERING WORK COMPLETE:\n\n' +
     '- Use this to catch type errors early.\n' +
@@ -68,6 +69,28 @@ export const typecheckTool: Tool<TypecheckInput, TypecheckOutput> = {
   },
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<TypecheckOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
+
+    // Delegate to the language planner for non-JS ecosystems (Go, Rust, PHP, C#).
+    const bridge = await tryLegacyCodeOperation('semantic', {
+      cwd,
+      projectRoot: ctx.projectRoot,
+      signal: opts.signal,
+    });
+    if (bridge?.run) {
+      const run = bridge.run;
+      yield {
+        type: 'final',
+        output: {
+          project: `${bridge.language} workspace`,
+          exit_code: run.exitCode ?? 0,
+          errors: run.summary.errors,
+          warnings: run.summary.warnings,
+          output: normalizeCommandOutput(run.output || run.error || ''),
+          truncated: run.truncated,
+        },
+      };
+      return;
+    }
 
     let args: string[];
     let project: string;

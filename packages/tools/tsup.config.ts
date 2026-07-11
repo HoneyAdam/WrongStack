@@ -32,6 +32,7 @@ export default defineConfig({
     'src/format.ts',
     'src/typecheck.ts',
     'src/test.ts',
+    'src/languages/index.ts',
     'src/install.ts',
     'src/audit.ts',
     'src/outdated.ts',

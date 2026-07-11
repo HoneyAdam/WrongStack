@@ -1,6 +1,7 @@
 import type { Tool, ToolStreamEvent } from '@wrongstack/core';
 import { spawnStream } from './_spawn-stream.js';
 import { normalizeCommandOutput, safeResolve } from './_util.js';
+import { tryLegacyCodeOperation } from './languages/legacy-bridge.js';
 
 interface FormatInput {
   files?: string | string[] | undefined;
@@ -20,7 +21,8 @@ interface FormatOutput {
 export const formatTool: Tool<FormatInput, FormatOutput> = {
   name: 'format',
   category: 'Code Quality',
-  description: 'Format source files according to project style (Biome). Can also run in check-only mode.',
+  description:
+    'Format source files according to project style (Biome). Can also run in check-only mode.',
   usageHint:
     'RUN REGULARLY:\n\n' +
     '- Use on changed files before committing.\n' +
@@ -63,6 +65,30 @@ export const formatTool: Tool<FormatInput, FormatOutput> = {
   async *executeStream(input, ctx, opts): AsyncGenerator<ToolStreamEvent<FormatOutput>> {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const fixer = input.fixer ?? 'auto';
+
+    // Delegate to the language planner for non-JS ecosystems (Go, Rust, PHP, C#).
+    if (fixer === 'auto' && !input.files) {
+      const op = input.check ? 'format-check' : 'format-write';
+      const bridge = await tryLegacyCodeOperation(op, {
+        cwd,
+        projectRoot: ctx.projectRoot,
+        signal: opts.signal,
+      });
+      if (bridge?.run) {
+        const run = bridge.run;
+        yield {
+          type: 'final',
+          output: {
+            fixer: bridge.language,
+            files_checked: 0,
+            files_changed: run.summary.errors > 0 ? 0 : 1,
+            output: normalizeCommandOutput(run.output || run.error || ''),
+            truncated: run.truncated,
+          },
+        };
+        return;
+      }
+    }
 
     const detected = fixer === 'auto' ? await detectFixer(cwd) : fixer;
     /* v8 ignore start -- detectFixer always falls back to 'biome' (never null) and explicit fixers are truthy; this is defensive. */

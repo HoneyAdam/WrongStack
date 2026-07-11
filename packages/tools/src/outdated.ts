@@ -1,11 +1,8 @@
 import { spawn } from 'node:child_process';
-import { buildChildEnv } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core';
 import { detectPackageManager, safeResolve } from './_util.js';
-import {
-  buildWin32CmdShimInvocation,
-  resolveWin32Command,
-} from './_win32-resolve.js';
+import { buildWin32CmdShimInvocation, resolveWin32Command } from './_win32-resolve.js';
 
 interface OutdatedInput {
   cwd?: string | undefined;
@@ -86,6 +83,65 @@ export const outdatedTool: Tool<OutdatedInput, OutdatedOutput> = {
     const cwd = input.cwd ? safeResolve(input.cwd, ctx) : ctx.cwd;
     const manager = await detectPackageManager(cwd);
 
+    // When no JS package manager was detected (npm is the fallback), try the
+    // language bridge for non-JS ecosystems. The bridge is checked AFTER
+    // detectPackageManager so the legacy stat-based detection runs first.
+    if (manager === 'npm') {
+      try {
+        const { detectNonJsEcosystem } = await import('./languages/legacy-bridge.js');
+        const nonJs = await detectNonJsEcosystem(cwd, ctx.projectRoot);
+        if (nonJs) {
+          const { planLanguageOperation, executePackagePlan } = await import(
+            './languages/index.js'
+          );
+          const planResult = await planLanguageOperation({
+            projectRoot: ctx.projectRoot,
+            cwd,
+            operation: 'package-outdated',
+            language: nonJs,
+            signal: opts.signal,
+          });
+          if (planResult.status === 'planned') {
+            const runner = executePackagePlan({
+              projectRoot: ctx.projectRoot,
+              workspace: planResult.workspace,
+              plan: planResult.plan,
+              packages: [],
+              signal: opts.signal,
+            });
+            let outcome = null;
+            for (;;) {
+              const next = await runner.next();
+              if (next.done) {
+                outcome = next.value;
+                break;
+              }
+            }
+            if (outcome) {
+              const packages = outcome.outdated.map((o) => ({
+                name: o.name,
+                current: o.previous ?? 'unknown',
+                latest: o.resolved ?? 'unknown',
+                wanted: o.requested ?? o.resolved ?? 'unknown',
+                type: 'unknown',
+                location: o.name,
+              }));
+              return {
+                exit_code: outcome.run?.exitCode ?? 0,
+                packages,
+                total: packages.length,
+                output:
+                  outcome.run?.output ?? (packages.length === 0 ? 'All packages up to date' : ''),
+                truncated: outcome.run?.truncated ?? false,
+              };
+            }
+          }
+        }
+      } catch {
+        // Bridge not available — fall through to npm outdated.
+      }
+    }
+
     const args: string[] = ['outdated', '--json'];
     if (input.format === 'table') args.push('--table');
     if (input.include_deprecated) args.push('--include', 'deprecated');
@@ -106,11 +162,19 @@ function runOutdated(
     const MAX = 100_000;
 
     const resolved = resolveWin32Command(manager);
-    const needsShell = process.platform === 'win32' && (resolved.endsWith('.cmd') || resolved.endsWith('.bat'));
+    const needsShell =
+      process.platform === 'win32' && (resolved.endsWith('.cmd') || resolved.endsWith('.bat'));
     const shim = needsShell ? buildWin32CmdShimInvocation(resolved, args) : null;
     const spawnCmd = shim?.command ?? resolved;
     const spawnArgs = shim?.args ?? args;
-    const child = spawn(spawnCmd, spawnArgs, { cwd, signal, env: buildChildEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, ...(shim ? { windowsVerbatimArguments: shim.windowsVerbatimArguments } : {}) });
+    const child = spawn(spawnCmd, spawnArgs, {
+      cwd,
+      signal,
+      env: buildChildEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...(shim ? { windowsVerbatimArguments: shim.windowsVerbatimArguments } : {}),
+    });
     child.stdout?.on('data', (c) => {
       if (stdout.length < MAX) stdout += c.toString();
     });

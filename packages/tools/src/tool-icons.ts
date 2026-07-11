@@ -113,6 +113,9 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   lint: 'code',
   format: 'settings',
   typecheck: 'code',
+  language_info: 'code',
+  language: 'code',
+  language_package: 'package',
   test: 'test',
   // ── packages ──
   install: 'package',

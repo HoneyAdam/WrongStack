@@ -20,6 +20,9 @@ import { grepTool } from './grep.js';
 import { installTool } from './install.js';
 import { jsonTool } from './json.js';
 import { kanbanTool } from './kanban.js';
+import { languageTool } from './languages/execute-tool.js';
+import { languagePackageTool } from './languages/package-tool.js';
+import { languageInfoTool } from './languages/tool.js';
 import { lintTool } from './lint.js';
 import { logsTool } from './logs.js';
 import { outdatedTool } from './outdated.js';
@@ -110,6 +113,9 @@ export const TIER2_TOOLS: Tool[] = [
   formatTool,
   typecheckTool,
   testTool,
+  languageInfoTool,
+  languageTool,
+  languagePackageTool,
   todoTool,
   planTool,
   kanbanTool,
@@ -167,6 +173,9 @@ export const builtinTools: Tool[] = [
   formatTool,
   typecheckTool,
   testTool,
+  languageInfoTool,
+  languageTool,
+  languagePackageTool,
   installTool,
   auditTool,
   outdatedTool,

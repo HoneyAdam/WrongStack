@@ -62,6 +62,7 @@ export { grepTool } from './grep.js';
 export { installTool } from './install.js';
 export { jsonTool } from './json.js';
 export { kanbanTool } from './kanban.js';
+export * from './languages/index.js';
 export { lintTool } from './lint.js';
 export { logsTool } from './logs.js';
 export { forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool } from './memory.js';

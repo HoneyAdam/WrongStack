@@ -120,6 +120,10 @@
       "types": "./dist/typecheck.d.ts",
       "import": "./dist/typecheck.js"
     },
+    "./languages": {
+      "types": "./dist/languages/index.d.ts",
+      "import": "./dist/languages/index.js"
+    },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js"
