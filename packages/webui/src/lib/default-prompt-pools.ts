@@ -16,7 +16,7 @@ export interface PromptCard {
 }
 
 /** How many prompts to surface per card at once. */
-export const PROMPTS_PER_CARD = 3;
+export const PROMPTS_PER_CARD = 4;
 
 export const DEFAULT_PROMPT_CARDS: PromptCard[] = [
   {
@@ -133,6 +133,6 @@ export function sampleN<T>(pool: readonly T[], n: number): T[] {
 /** Sample a fresh subset of prompts for every card. */
 export function shuffleAllCards(cards: PromptCard[]): Record<string, string[]> {
   const out: Record<string, string[]> = {};
-  for (const card of cards) out[card.id] = sampleN(card.pool, 3);
+  for (const card of cards) out[card.id] = sampleN(card.pool, PROMPTS_PER_CARD);
   return out;
 }
