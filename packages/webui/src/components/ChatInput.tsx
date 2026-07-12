@@ -733,6 +733,7 @@ export function ChatInput({
               onClick={() => setPasteHint(null)}
               className="opacity-60 hover:opacity-100 shrink-0"
               title={t('chat:input.dismissTitle')}
+              aria-label={t('chat:input.dismissTitle')}
             >
               ×
             </button>
@@ -770,6 +771,7 @@ export function ChatInput({
                 type="button"
                 onClick={() => removeImage(img.id)}
                 title={t('chat:input.removeImageTitle')}
+                aria-label={t('chat:input.removeImageTitle')}
                 className="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               >
                 ×

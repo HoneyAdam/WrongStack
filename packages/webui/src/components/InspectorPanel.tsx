@@ -112,6 +112,7 @@ export function InspectorPanel() {
           'text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors',
         )}
         title={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
+        aria-label={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
       >
         <span className="flex items-center gap-2 min-w-0">
           {inspectorOpen ? (

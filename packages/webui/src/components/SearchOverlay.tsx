@@ -219,6 +219,7 @@ export function SearchOverlay() {
             'p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed',
           )}
           title={t('activity:search.prevHit')}
+          aria-label={t('activity:search.prevHit')}
         >
           <ArrowUp className="h-3.5 w-3.5" />
         </button>
@@ -230,6 +231,7 @@ export function SearchOverlay() {
             'p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed',
           )}
           title={t('activity:search.nextHit')}
+          aria-label={t('activity:search.nextHit')}
         >
           <ArrowDown className="h-3.5 w-3.5" />
         </button>
@@ -238,6 +240,7 @@ export function SearchOverlay() {
           onClick={close}
           className="p-1 rounded hover:bg-muted text-muted-foreground"
           title={t('activity:search.close')}
+          aria-label={t('activity:search.close')}
         >
           <X className="h-3.5 w-3.5" />
         </button>

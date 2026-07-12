@@ -121,6 +121,7 @@ function ToastItem({ entry }: { entry: ToastEntry }) {
         onClick={() => dismiss(entry.id)}
         className="text-muted-foreground hover:text-foreground"
         title={t('activity:toast.dismiss')}
+        aria-label={t('activity:toast.dismiss')}
       >
         <X className="h-3.5 w-3.5" />
       </button>
