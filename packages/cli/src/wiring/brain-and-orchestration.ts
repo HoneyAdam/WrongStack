@@ -1,27 +1,28 @@
 import { join } from 'node:path';
 import {
-  assembleBrainTiers,
   type BrainAutoRisk,
   BrainDecisionLedger,
   BrainDecisionQueue,
   type BrainEscalationMode,
   BrainMonitor,
+  type BrainRuntime,
   type Config,
+  createBrainRuntime,
   createDelegateTool,
-  createLedgerGuardBrainArbiter,
   createMcpControlTool,
   createMcpUseTool,
-  createTieredBrainArbiter,
-  DefaultBrainArbiter,
   EscalationRoutingBrainArbiter,
   FLEET_ROSTER,
   ObservableBrainArbiter,
   type Provider,
+  resolveBrainConfigDefaults,
+  type SecretVault,
   type SessionWriter,
   terminalPolicyDecision,
   TOKENS,
   type ToolRegistry,
 } from '@wrongstack/core';
+import { persistConfigSetting } from '../settings-menu.js';
 import { buildProviderForId } from './provider-runtime.js';
 import { MultiAgentHost } from '../multi-agent.js';
 import { subscribeBrainDecisionLog } from '../boot/brain-decision-log.js';
@@ -43,16 +44,18 @@ export interface BrainRuntimeSettings {
   /** 'headless' = never block on a human; terminal policy resolves escalations. */
   mode: BrainEscalationMode;
   /** Human-readable pool labels (e.g. "anthropic/claude-haiku"), empty = session model. */
-  poolLabels: string[];
+  readonly poolLabels: string[];
   /** Human-readable council seat labels, empty = council disabled. */
-  councilLabels: string[];
+  readonly councilLabels: string[];
   /** Absolute path of the persistent decision ledger (undefined = disabled). */
-  ledgerPath?: string | undefined;
+  readonly ledgerPath?: string | undefined;
 }
 
 export interface BrainOrchestrationDeps {
   events: AnyObj;
   config: Config;
+  /** Secret vault for the global-config persist path of Brain settings. */
+  vault: SecretVault;
   container: AnyObj;
   provider: Provider;
   session: SessionWriter;
@@ -86,6 +89,8 @@ export interface BrainOrchestrationResult {
   brain: ObservableBrainArbiter;
   brainLog: AnyObj[];
   brainSettings: BrainRuntimeSettings;
+  /** Live-editable Brain config owner (apply = live + persist-to-global). */
+  brainRuntime: BrainRuntime;
   brainQueue: BrainDecisionQueue;
   multiAgentHost: MultiAgentHost;
   shadowController: AnyObj;
@@ -107,6 +112,7 @@ export function setupBrainAndOrchestration(
   const {
     events,
     config,
+    vault,
     container,
     provider,
     session,
@@ -139,67 +145,111 @@ export function setupBrainAndOrchestration(
   // ── Global Brain chain — policy → LLM/council → escalation ─────────────
   // Escalation routing is config-driven: 'interactive' prompts the human,
   // 'headless' resolves through the terminal policy so the Brain NEVER
-  // blocks on a person. Switch live with `/brain mode <m>`. The LLM pool
-  // and council come from `config.brain` via the shared tier assembly.
-  const brainCfg = config.brain;
+  // blocks on a person. Switch live with `/brain mode <m>`. The whole
+  // `config.brain` surface (pool, council, timeouts, ledger) is owned by a
+  // BrainRuntime: apply() rebuilds the inner tiers live AND persists to the
+  // GLOBAL config (`brain` is on the in-project deny list).
+  // Product defaults (minimum-human): headless mode, pool seeded from the
+  // user's own fallbackModels (council auto-derives at ≥2), adaptive risk
+  // ceiling. Resolved at boot — explicit config.brain fields always win.
+  const brainCfg = resolveBrainConfigDefaults(config.brain, {
+    fallbackModels: config.fallbackModels,
+  });
 
   // Persistent decision ledger — records every decision + observed outcome
   // (budget extensions vs. later task results, steer re-triggers) and feeds
   // outcome stats of similar past decisions back into the LLM/council
   // prompts. Lives OUTSIDE the repo, per project, across sessions.
-  const ledgerEnabled = brainCfg?.ledger?.enabled !== false;
+  // Start/stop is host-owned so the runtime can toggle it live.
   const ledgerPath = join(wpaths.projectDir, 'brain-ledger.jsonl');
-  const brainLedger = ledgerEnabled
-    ? new BrainDecisionLedger({ events, filePath: ledgerPath })
-    : undefined;
-  if (brainLedger) {
+  let ledgerEnabled = brainCfg?.ledger?.enabled !== false;
+  let brainLedger: BrainDecisionLedger | undefined;
+  const startLedger = (): void => {
+    if (brainLedger) return;
+    brainLedger = new BrainDecisionLedger({ events, filePath: ledgerPath });
     void brainLedger.start();
-    teardownHandlers.push(() => {
-      void brainLedger.stop();
-    });
-  }
+  };
+  if (ledgerEnabled) startLedger();
+  teardownHandlers.push(() => {
+    void brainLedger?.stop();
+  });
 
-  const tiers = assembleBrainTiers({
-    brainConfig: brainCfg,
+  // Shared queue options object: BrainDecisionQueue keeps the REFERENCE, so
+  // mutating timeoutMs in onApplied makes `/brain human-timeout` live. Do
+  // not replace this with a defensive copy in the queue.
+  const queueOpts = {
+    timeoutMs: brainCfg?.humanTimeoutMs,
+    onTimeout: terminalPolicyDecision,
+  };
+  const brainQueue = new BrainDecisionQueue(events, queueOpts);
+
+  const brainRuntime = createBrainRuntime({
+    initialConfig: brainCfg,
     defaultProviderId: config.provider,
     sessionProvider: () => provider,
     sessionModel: () => config.model,
     resolveProvider: (providerId) => buildProviderForId({ config, providerRegistry }, providerId),
-    getDecisionDigest: brainLedger ? (request) => brainLedger.digestFor(request) : undefined,
+    ledger: {
+      getPath: () => (ledgerEnabled ? ledgerPath : undefined),
+      isEnabled: () => ledgerEnabled,
+      setEnabled: (on) => {
+        ledgerEnabled = on;
+        if (on) {
+          startLedger();
+        } else {
+          void brainLedger?.stop();
+          brainLedger = undefined;
+        }
+      },
+      failureStreakFor: (request) => brainLedger?.failureStreakFor(request) ?? 0,
+      getDecisionDigest: (request) => brainLedger?.digestFor(request),
+    },
+    // config.brain is denied in project scope (read AND write side), so the
+    // persist path always targets ~/.wrongstack/config.json.
+    persist: (brainConfig) =>
+      persistConfigSetting(
+        { configStore, globalConfigPath: wpaths.globalConfig, vault, forceGlobal: true },
+        (decrypted) => {
+          decrypted['brain'] = brainConfig as never;
+        },
+      ),
+    onApplied: (snapshot) => {
+      queueOpts.timeoutMs = snapshot.humanTimeoutMs;
+    },
   });
 
+  // Back-compat live settings facade: every existing mutation site
+  // (`/brain risk|mode`, the TUI panel, the WebUI brain.risk handler)
+  // assigns `brainSettings.maxAutoRisk/mode` — the accessors route those
+  // through runtime.apply(), which live-applies AND persists.
   const brainSettings: BrainRuntimeSettings = {
-    maxAutoRisk: brainCfg?.maxAutoRisk ?? 'medium',
-    mode: brainCfg?.mode ?? 'interactive',
-    poolLabels: tiers.poolLabels,
-    councilLabels: tiers.councilLabels,
-    ledgerPath: brainLedger ? ledgerPath : undefined,
+    get maxAutoRisk() {
+      return brainRuntime.getMaxAutoRisk();
+    },
+    set maxAutoRisk(level: BrainAutoRisk) {
+      void brainRuntime.apply({ maxAutoRisk: level }).persisted;
+    },
+    get mode() {
+      return brainRuntime.getMode();
+    },
+    set mode(mode: BrainEscalationMode) {
+      void brainRuntime.apply({ mode }).persisted;
+    },
+    get poolLabels() {
+      return brainRuntime.getSnapshot().poolLabels;
+    },
+    get councilLabels() {
+      return brainRuntime.getSnapshot().councilLabels;
+    },
+    get ledgerPath() {
+      return brainRuntime.getSnapshot().ledger.path;
+    },
   };
-  const brainQueue = new BrainDecisionQueue(events, {
-    // An unanswered interactive prompt degrades to the terminal policy
-    // instead of hanging the caller forever (when a timeout is configured).
-    timeoutMs: brainCfg?.humanTimeoutMs,
-    onTimeout: terminalPolicyDecision,
-  });
 
-  const tiered = createTieredBrainArbiter({
-    policy: new DefaultBrainArbiter(),
-    autonomous: tiers.autonomous,
-    getMaxAutoRisk: () => brainSettings.maxAutoRisk,
-    council: tiers.council,
-    getCouncilMinRisk: tiers.getCouncilMinRisk,
-  });
-  // Deterministic ledger guard OUTSIDE the tiered arbiter: K consecutive
-  // observed failures for a decision group → deny without any LLM call.
-  const guarded = brainLedger
-    ? createLedgerGuardBrainArbiter({
-        inner: tiered,
-        failureStreakFor: (request) => brainLedger.failureStreakFor(request),
-        denyAfter: brainCfg?.ledger?.autoDenyAfterFailures,
-      })
-    : tiered;
   const brain = new ObservableBrainArbiter(
-    new EscalationRoutingBrainArbiter(guarded, brainQueue, () => brainSettings.mode),
+    new EscalationRoutingBrainArbiter(brainRuntime.arbiter, brainQueue, () =>
+      brainRuntime.getMode(),
+    ),
     events,
   );
   container.bind(TOKENS.BrainArbiter, () => brain);
@@ -339,6 +389,7 @@ export function setupBrainAndOrchestration(
     brain,
     brainLog,
     brainSettings,
+    brainRuntime,
     brainQueue,
     multiAgentHost,
     shadowController,

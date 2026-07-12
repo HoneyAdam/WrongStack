@@ -20,6 +20,7 @@ import type { HistoryEntry } from './components/history.js';
 import type { ProviderOption } from './components/model-picker.js';
 import type { HelpEntry } from './components/help-panel.js';
 import type { BrainLogEntry, BrainRiskLevel } from './components/brain-panel.js';
+import type { BrainPanelSettings } from './components/brain-panel-model.js';
 import type { McpPickerItem } from './components/mcp-picker.js';
 import type { PluginPickerItem } from './components/plugin-picker.js';
 import type { ToolPickerItem } from './components/tools-picker.js';
@@ -269,6 +270,15 @@ export type State = {
     hint?: string | undefined;
     /** Live search filter in step 2. */
     searchQuery: string;
+    /**
+     * 'switch' — Enter switches the SESSION model (the /model command).
+     * 'pick'   — generic reusable selection: Enter just RETURNS the choice
+     *            to whoever called requestModelPick (Brain pool/voters/judge,
+     *            future callers); other panels stay open underneath.
+     */
+    purpose: 'switch' | 'pick';
+    /** Overlay title override for 'pick' invocations. */
+    title?: string | undefined;
   };
   /** Single-step autonomy mode picker — opened by `/autonomy`. */
   autonomyPicker: {
@@ -395,6 +405,11 @@ export type State = {
      * `CYCLE_INTERVAL_SECONDS`. Persisted on every ←/→ change in `/settings`.
      */
     animationStyle: 'rainbow' | 'wave' | 'pulse' | 'dots' | 'breathe' | 'cycle';
+    // Safety
+    /** Whether the process circuit breaker gates bash/exec. */
+    breakerEnabled: boolean;
+    /** Auto kill/reset delay (ms) when the breaker trips. 0 = manual recovery. */
+    breakerAutoKillResetMs: number;
     /**
      * Live filter for the row-search modal (entered via `/`). Empty
      * string means filter is inactive. Non-empty means the user is
@@ -451,6 +466,12 @@ export type State = {
     log: BrainLogEntry[];
     selected: number;
     hint?: string | undefined;
+    /** Settings-editor state (only meaningful when a BrainPanelHost is wired). */
+    view: 'settings' | 'log';
+    settings?: BrainPanelSettings | undefined;
+    /** Settings-view row cursor. */
+    row: number;
+    busy: boolean;
   };
   /** Help panel — opened by `/help`. */
   helpPanel: {
@@ -924,7 +945,7 @@ export type Action =
   | { type: 'slashPickerOpen'; query: string; matches: SlashCommandMatch[] }
   | { type: 'slashPickerClose' }
   | { type: 'slashPickerMove'; delta: number }
-  | { type: 'modelPickerOpen'; providers: ProviderOption[] }
+  | { type: 'modelPickerOpen'; providers: ProviderOption[]; purpose?: 'switch' | 'pick' | undefined; title?: string | undefined }
   | { type: 'modelPickerClose' }
   | { type: 'modelPickerMove'; delta: number }
   | { type: 'modelPickerPickProvider'; providerId: string; models: string[] }
@@ -1013,6 +1034,8 @@ export type Action =
       thinkingWord: string;
       cacheTtl: CacheTtl;
       configScope: 'global' | 'project';
+      breakerEnabled: boolean;
+      breakerAutoKillResetMs: number;
     }
   | { type: 'settingsClose' }
   | { type: 'settingsFieldMove'; delta: number }
@@ -1083,12 +1106,16 @@ export type Action =
   | { type: 'toolsPickerBusy'; busy: boolean }
   | { type: 'toolsPickerHint'; text?: string | undefined }
   | { type: 'toolsPickerFilter'; filter: string }
-  | { type: 'brainOpen'; riskLevel: BrainRiskLevel; log: BrainLogEntry[] }
+  | { type: 'brainOpen'; riskLevel: BrainRiskLevel; log: BrainLogEntry[]; settings?: BrainPanelSettings | undefined }
   | { type: 'brainClose' }
   | { type: 'brainMove'; delta: number }
   | { type: 'brainRiskChange'; delta: number }
   | { type: 'brainSetLog'; log: BrainLogEntry[] }
   | { type: 'brainHint'; text?: string | undefined }
+  | { type: 'brainSettingsLoaded'; settings: BrainPanelSettings }
+  | { type: 'brainView'; view: 'settings' | 'log' }
+  | { type: 'brainRowMove'; delta: number }
+  | { type: 'brainBusy'; busy: boolean }
   | { type: 'helpOpen'; entries: HelpEntry[] }
   | { type: 'helpClose' }
   | { type: 'helpMove'; delta: number }

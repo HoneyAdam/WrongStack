@@ -5,6 +5,8 @@ export interface BrainRouteHandlers {
   status: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   risk: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   ask: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
+  configGet: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
+  configSet: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
 }
 
 export async function handleBrainRoute(
@@ -21,6 +23,12 @@ export async function handleBrainRoute(
       return true;
     case 'brain.ask':
       await handlers.ask(ws, msg);
+      return true;
+    case 'brain.config.get':
+      await handlers.configGet(ws, msg);
+      return true;
+    case 'brain.config.set':
+      await handlers.configSet(ws, msg);
       return true;
     default:
       return false;

@@ -1,0 +1,275 @@
+/**
+ * Brain panel controller — opens the panel and translates settings-view
+ * key actions into BrainPanelHost mutations (live apply + persist on the
+ * CLI side), refreshing the snapshot and surfacing errors as panel hints.
+ * Extracted from app.tsx (hotspot guardrail).
+ */
+
+import React from 'react';
+import type { Action } from '../app-state.js';
+import type { BrainRiskLevel } from '../components/brain-panel.js';
+import {
+  AUTO_DENY_PRESETS,
+  type BrainPanelHost,
+  type BrainPanelRow,
+  cyclePreset,
+  DECISION_TIMEOUT_PRESETS,
+  HUMAN_TIMEOUT_PRESETS,
+} from '../components/brain-panel-model.js';
+
+/** Selection returned by the shared model-pick overlay (null = cancelled). */
+export type ModelPickSelection = { providerId: string; model: string } | null;
+
+export interface UseBrainPanelOptions {
+  dispatch: React.Dispatch<Action>;
+  getBrainData?:
+    | (() => {
+        riskLevel: BrainRiskLevel;
+        log: Array<{ kind: string; question: string; outcome: string; age: string }>;
+      })
+    | undefined;
+  brainPanelHost?: BrainPanelHost | undefined;
+  /**
+   * The SHARED two-step model picker (same overlay as /model), invoked in
+   * 'pick' mode: resolves with the selection instead of switching the
+   * session model. Provided by App's requestModelPick.
+   */
+  requestModelPick?: ((title: string) => Promise<ModelPickSelection>) | undefined;
+}
+
+export interface BrainPanelController {
+  openBrainPanel: () => void;
+  handleBrainAdjust: (row: BrainPanelRow, delta: number) => void;
+  handleBrainEnter: (row: BrainPanelRow) => void;
+  handleBrainDelete: (row: BrainPanelRow) => void;
+  handleBrainVoterMod: (index: number, mod: 'persona' | 'veto') => void;
+}
+
+export function useBrainPanel(opts: UseBrainPanelOptions): BrainPanelController {
+  const { dispatch, getBrainData, brainPanelHost, requestModelPick } = opts;
+
+  const openBrainPanel = React.useCallback(() => {
+    if (!getBrainData) return;
+    const data = getBrainData();
+    dispatch({
+      type: 'brainOpen',
+      riskLevel: data.riskLevel,
+      log: data.log,
+      settings: brainPanelHost?.getSettings(),
+    });
+  }, [dispatch, getBrainData, brainPanelHost]);
+
+  // Run one BrainPanelHost mutation: busy → apply+persist → refresh + hint.
+  // `onSuccess` chains a follow-up UI step (e.g. reopening the voter picker).
+  const runBrainMutation = React.useCallback(
+    (op: () => Promise<string | null>, successHint?: string, onSuccess?: () => void) => {
+      if (!brainPanelHost) return;
+      dispatch({ type: 'brainBusy', busy: true });
+      void op()
+        .then((err) => {
+          dispatch({ type: 'brainSettingsLoaded', settings: brainPanelHost.getSettings() });
+          dispatch({
+            type: 'brainHint',
+            text: err ?? successHint ?? 'Saved to ~/.wrongstack/config.json',
+          });
+          if (!err) onSuccess?.();
+        })
+        .catch((e: unknown) => {
+          dispatch({ type: 'brainBusy', busy: false });
+          dispatch({ type: 'brainHint', text: e instanceof Error ? e.message : String(e) });
+        });
+    },
+    [dispatch, brainPanelHost],
+  );
+
+  const reportError = React.useCallback(
+    (e: unknown) => {
+      dispatch({ type: 'brainBusy', busy: false });
+      dispatch({ type: 'brainHint', text: e instanceof Error ? e.message : String(e) });
+    },
+    [dispatch],
+  );
+
+  /** Pick one model via the shared overlay, then run the host mutation. */
+  const pickThenApply = React.useCallback(
+    (title: string, apply: (providerId: string, model: string) => Promise<string | null>) => {
+      if (!requestModelPick) return;
+      void requestModelPick(title)
+        .then((sel) => {
+          if (sel) runBrainMutation(() => apply(sel.providerId, sel.model));
+        })
+        .catch(reportError);
+    },
+    [requestModelPick, runBrainMutation, reportError],
+  );
+
+  /**
+   * Multi-add voter flow: the shared picker reopens after every added voter
+   * so a ≥2-seat council is assembled in one pass; Esc/cancel ends the loop.
+   */
+  const addVotersViaPicker = React.useCallback(() => {
+    const host = brainPanelHost;
+    if (!host || !requestModelPick) return;
+    const loop = async (): Promise<void> => {
+      const sel = await requestModelPick('Add council voter (Esc = done)');
+      if (!sel) return;
+      const err = await host.addVoter(sel.providerId, sel.model);
+      dispatch({ type: 'brainSettingsLoaded', settings: host.getSettings() });
+      dispatch({
+        type: 'brainHint',
+        text: err ?? `Voter added: ${sel.providerId}/${sel.model} — pick another or Esc`,
+      });
+      if (!err) await loop();
+    };
+    void loop().catch(reportError);
+  }, [dispatch, brainPanelHost, requestModelPick, reportError]);
+
+  const handleBrainAdjust = React.useCallback(
+    (row: BrainPanelRow, delta: number) => {
+      const host = brainPanelHost;
+      const settings = host?.getSettings();
+      if (!host || !settings) return;
+      switch (row.kind) {
+        case 'mode':
+          runBrainMutation(() =>
+            host.setMode(settings.mode === 'headless' ? 'interactive' : 'headless'),
+          );
+          return;
+        case 'risk': {
+          const levels: BrainRiskLevel[] = ['off', 'low', 'medium', 'high', 'all'];
+          const next = levels[
+            (levels.indexOf(settings.riskLevel) + delta + levels.length) % levels.length
+          ] as BrainRiskLevel;
+          runBrainMutation(() => host.setRisk(next), `Risk ceiling → ${next.toUpperCase()}`);
+          return;
+        }
+        case 'strategy':
+          runBrainMutation(() =>
+            host.setStrategy(settings.strategy === 'fallback' ? 'round-robin' : 'fallback'),
+          );
+          return;
+        case 'timeout':
+          runBrainMutation(() =>
+            host.setDecisionTimeout(
+              cyclePreset(DECISION_TIMEOUT_PRESETS, settings.decisionTimeoutMs, delta),
+            ),
+          );
+          return;
+        case 'humanTimeout':
+          runBrainMutation(() =>
+            host.setHumanTimeout(
+              cyclePreset(HUMAN_TIMEOUT_PRESETS, settings.humanTimeoutMs, delta),
+            ),
+          );
+          return;
+        case 'councilToggle':
+          runBrainMutation(() => host.setCouncilEnabled(!settings.councilEnabled));
+          return;
+        case 'councilMinRisk': {
+          const risks = ['medium', 'high', 'critical'] as const;
+          const next = risks[
+            (risks.indexOf(settings.councilMinRisk) + delta + risks.length) % risks.length
+          ] as (typeof risks)[number];
+          runBrainMutation(() => host.setCouncilMinRisk(next));
+          return;
+        }
+        case 'ledgerToggle':
+          runBrainMutation(() => host.setLedgerEnabled(!settings.ledgerEnabled));
+          return;
+        case 'autoDeny':
+          runBrainMutation(() =>
+            host.setAutoDeny(cyclePreset(AUTO_DENY_PRESETS, settings.autoDenyAfterFailures, delta)),
+          );
+          return;
+        case 'voter':
+          runBrainMutation(() => host.cycleVoterPersona(row.index));
+          return;
+        default:
+          return;
+      }
+    },
+    [brainPanelHost, runBrainMutation],
+  );
+
+  const handleBrainEnter = React.useCallback(
+    (row: BrainPanelRow) => {
+      switch (row.kind) {
+        case 'mode':
+        case 'strategy':
+        case 'ledgerToggle':
+          handleBrainAdjust(row, 1);
+          return;
+        case 'councilToggle': {
+          // Enter = SET UP the council, not a bare toggle-save: enable it if
+          // needed, then flow straight into voter selection. Plain on/off
+          // stays on ←/→ (handleBrainAdjust).
+          const settings = brainPanelHost?.getSettings();
+          if (!brainPanelHost || !settings) return;
+          if (settings.councilEnabled) {
+            addVotersViaPicker();
+            return;
+          }
+          const host = brainPanelHost;
+          runBrainMutation(
+            () => host.setCouncilEnabled(true),
+            'Council enabled — pick voters (Esc when done)',
+            addVotersViaPicker,
+          );
+          return;
+        }
+        case 'poolAdd': {
+          const host = brainPanelHost;
+          if (!host) return;
+          pickThenApply('Add Brain pool model', (providerId, model) =>
+            host.addPoolModel(providerId, model),
+          );
+          return;
+        }
+        case 'voterAdd':
+          addVotersViaPicker();
+          return;
+        case 'judge': {
+          const host = brainPanelHost;
+          if (!host) return;
+          pickThenApply('Pick council judge', (providerId, model) =>
+            host.setJudge(providerId, model),
+          );
+          return;
+        }
+        default:
+          return;
+      }
+    },
+    [brainPanelHost, handleBrainAdjust, addVotersViaPicker, pickThenApply, runBrainMutation],
+  );
+
+  const handleBrainDelete = React.useCallback(
+    (row: BrainPanelRow) => {
+      const host = brainPanelHost;
+      if (!host) return;
+      if (row.kind === 'poolModel') runBrainMutation(() => host.removePoolModel(row.index));
+      else if (row.kind === 'voter') runBrainMutation(() => host.removeVoter(row.index));
+      else if (row.kind === 'judge') runBrainMutation(() => host.clearJudge(), 'Judge → auto');
+    },
+    [brainPanelHost, runBrainMutation],
+  );
+
+  const handleBrainVoterMod = React.useCallback(
+    (index: number, mod: 'persona' | 'veto') => {
+      const host = brainPanelHost;
+      if (!host) return;
+      runBrainMutation(() =>
+        mod === 'persona' ? host.cycleVoterPersona(index) : host.toggleVoterVeto(index),
+      );
+    },
+    [brainPanelHost, runBrainMutation],
+  );
+
+  return {
+    openBrainPanel,
+    handleBrainAdjust,
+    handleBrainEnter,
+    handleBrainDelete,
+    handleBrainVoterMod,
+  };
+}

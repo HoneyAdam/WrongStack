@@ -488,6 +488,12 @@ export interface SlashCommandContext {
         ledgerPath?: string | undefined;
       }
     | undefined;
+  /**
+   * Live-editable Brain config owner — `/brain model|models|strategy|
+   * timeout|council|ledger` setters call `apply()` (live rebuild +
+   * persist to the global config).
+   */
+  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
   /** Recent Brain decisions (newest last) for `/brain status`. */
   getBrainLog?:
     | (() => ReadonlyArray<{ at: number; kind: string; question: string; outcome: string }>)
@@ -586,6 +592,7 @@ import { buildPruneCommand } from './prune.js';
 import { buildSddCommand } from './sdd.js';
 import { buildExitCommand, buildLoadCommand, buildSaveCommand } from './session.js';
 import { buildSetModelCommand } from './setmodel.js';
+import { buildRefinerCommand } from './refiner.js';
 import { buildSuggestCommand } from './suggest.js';
 import { buildDesktopCommand, buildWebuiCommand } from './surfaces.js';
 
@@ -681,6 +688,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildTelegramSetupCommand(opts),
     buildTelegramSettingsCommand(opts),
     buildSetModelCommand(opts),
+    buildRefinerCommand(opts),
     buildFallbackCommand(opts),
     buildGitCommand(opts),
     buildCommitCommand(opts),

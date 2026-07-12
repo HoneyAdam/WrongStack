@@ -55,6 +55,8 @@ export interface WebUIDispatchContext {
   getBrainLog:
     | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
     | undefined;
+  /** Live-editable Brain config owner (brain.config.get/set WS handlers). */
+  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
   subscribeEternalIteration: ((fn: (entry: JournalEntry) => void) => () => void) | undefined;
   sessionStore: SessionStore | undefined;
   memoryStore: MemoryStore | undefined;
@@ -116,6 +118,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     mcpRegistry,
     brain,
     brainSettings,
+    brainRuntime,
     getBrainLog,
     subscribeEternalIteration,
     sessionStore,
@@ -241,6 +244,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     sessionsDir: projectSessionsDir,
     brain,
     brainSettings,
+    brainRuntime,
     getBrainLog,
     onSessionSwapped: (newSessionId: string) => {
       // Re-point crash recovery (active.json) at the resumed session —

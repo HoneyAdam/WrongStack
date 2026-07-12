@@ -1,11 +1,18 @@
-import { Brain, Loader2 } from 'lucide-react';
-import { type ReactElement, useCallback, useEffect, useState } from 'react';
-import { useAppTranslation } from '@/i18n';
+import { ArrowDown, ArrowUp, Brain, Loader2, Plus, X } from 'lucide-react';
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import type { WSServerMessage } from '@/types';
+import type {
+  BrainConfigPatchWire,
+  BrainConfigWire,
+  BrainCouncilVoterWire,
+  WSServerMessage,
+} from '@/types';
 import { cn } from '@/lib/utils';
+import { ModelPickDialog } from '../ModelPickDialog';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { PreferenceSelect } from './PreferenceControls';
+import { PreferenceToggle } from './PreferenceToggle';
 
 const RISK_LEVELS = ['off', 'low', 'medium', 'high', 'all'] as const;
 type RiskLevel = (typeof RISK_LEVELS)[number];
@@ -26,73 +33,194 @@ const RISK_COPY: Record<RiskLevel, string> = {
   all: 'Auto-decide everything',
 };
 
+const PERSONAS = ['executor', 'skeptic', 'auditor'] as const;
+
+const DECISION_TIMEOUTS: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default (15s)' },
+  { value: '5000', label: '5s' },
+  { value: '10000', label: '10s' },
+  { value: '20000', label: '20s' },
+  { value: '30000', label: '30s' },
+  { value: '60000', label: '60s' },
+];
+
+const HUMAN_TIMEOUTS: Array<{ value: string; label: string }> = [
+  { value: 'off', label: 'Wait forever' },
+  { value: '30000', label: '30s' },
+  { value: '60000', label: '1m' },
+  { value: '120000', label: '2m' },
+  { value: '300000', label: '5m' },
+];
+
+const FRACTIONS: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default (0.5)' },
+  { value: '0.34', label: '1/3' },
+  { value: '0.5', label: '1/2' },
+  { value: '0.67', label: '2/3' },
+  { value: '0.75', label: '3/4' },
+  { value: '1', label: 'All' },
+];
+
 function RiskDot({ level }: { level: RiskLevel }) {
   return <span className={cn('inline-block h-2.5 w-2.5 rounded-full', RISK_COLORS[level])} />;
 }
 
+function entryLabel(entry: { provider?: string | undefined; model: string }): string {
+  return entry.provider ? `${entry.provider}/${entry.model}` : entry.model;
+}
+
+/** What the shared ModelPickDialog is currently choosing a model FOR. */
+type PickTarget = 'pool' | 'voter' | 'judge' | null;
+
+const PICK_TITLES: Record<Exclude<PickTarget, null>, { title: string; hint: string }> = {
+  pool: { title: 'Add Brain pool model', hint: 'Ordered decision pool — first is primary.' },
+  voter: {
+    title: 'Add council voter',
+    hint: 'Dialog stays open — add ≥2 voters, then close.',
+  },
+  judge: { title: 'Pick council judge', hint: 'Tie-breaker that sees every vote.' },
+};
+
 export function BrainSection(): ReactElement {
-  const { t } = useAppTranslation();
   const { client } = useWebSocket();
-  const [riskLevel, setRiskLevel] = useState<RiskLevel>('medium');
-  const [log, setLog] = useState<Array<{ kind: string; question: string; outcome: string; age: string }>>([]);
+  const [config, setConfig] = useState<BrainConfigWire | null>(null);
+  const [log, setLog] = useState<
+    Array<{ kind: string; question: string; outcome: string; age: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [persistError, setPersistError] = useState<string | null>(null);
+  const [pickTarget, setPickTarget] = useState<PickTarget>(null);
 
-  // Fetch brain status on mount
+  // Fetch brain status + editable config on mount
   useEffect(() => {
     client.send({ type: 'brain.status' });
+    client.send({ type: 'brain.config.get' });
   }, [client]);
 
-  // Listen for brain status responses
+  // Listen for brain status/config responses
   useEffect(() => {
-    const handler = (msg: WSServerMessage) => {
-      if (msg.type === 'brain.status') {
-        const p = msg.payload as {
-          maxAutoRisk: string;
-          log: Array<{ at: number; kind: string; question: string; outcome: string }>;
-        };
-        setRiskLevel((RISK_LEVELS as readonly string[]).includes(p.maxAutoRisk) ? (p.maxAutoRisk as RiskLevel) : 'medium');
-        const now = Date.now();
-        setLog(
-          p.log.slice(-10).map((entry) => {
-            const s = Math.max(0, Math.round((now - entry.at) / 1000));
-            const age = s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`;
-            return { kind: entry.kind, question: entry.question, outcome: entry.outcome, age };
-          }),
-        );
-        setLoading(false);
-      }
+    const offStatus = client.on('brain.status', (msg: WSServerMessage) => {
+      const p = msg.payload as {
+        maxAutoRisk: string;
+        log: Array<{ at: number; kind: string; question: string; outcome: string }>;
+      };
+      const now = Date.now();
+      setLog(
+        p.log.slice(-10).map((entry) => {
+          const s = Math.max(0, Math.round((now - entry.at) / 1000));
+          const age =
+            s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`;
+          return { kind: entry.kind, question: entry.question, outcome: entry.outcome, age };
+        }),
+      );
+      setLoading(false);
+    });
+    const offConfig = client.on('brain.config', (msg: WSServerMessage) => {
+      const p = msg.payload as { config: BrainConfigWire; persisted: boolean; error?: string };
+      setConfig(p.config);
+      setPersistError(p.persisted ? null : (p.error ?? 'Settings applied live but not saved.'));
+      setBusy(false);
+      setLoading(false);
+    });
+    return () => {
+      offStatus();
+      offConfig();
     };
-    client.on('message', handler);
-    return () => client.off('message', handler);
   }, [client]);
 
-  const handleRiskChange = useCallback(
-    (level: RiskLevel) => {
+  /** Every control funnels here: live-apply + persist on the server, reconcile on reply. */
+  const sendPatch = useCallback(
+    (patch: BrainConfigPatchWire) => {
       setBusy(true);
-      client.send({ type: 'brain.risk', payload: { level } });
-      setRiskLevel(level);
-      // Refresh status after a short delay
-      setTimeout(() => {
-        client.send({ type: 'brain.status' });
-        setBusy(false);
-      }, 500);
+      client.send({ type: 'brain.config.set', payload: { patch } });
     },
     [client],
   );
 
+  const handleRiskChange = useCallback(
+    (level: RiskLevel) => {
+      setConfig((prev) => (prev ? { ...prev, maxAutoRisk: level } : prev));
+      sendPatch({ maxAutoRisk: level });
+    },
+    [sendPatch],
+  );
+
+  const voters: BrainCouncilVoterWire[] = useMemo(
+    () => config?.council.voters ?? [],
+    [config],
+  );
+
+  const setVoters = useCallback(
+    (next: BrainCouncilVoterWire[]) => {
+      sendPatch({ council: { voters: next.length > 0 ? next : null } });
+    },
+    [sendPatch],
+  );
+
+  const riskLevel: RiskLevel = (RISK_LEVELS as readonly string[]).includes(
+    config?.maxAutoRisk ?? '',
+  )
+    ? ((config?.maxAutoRisk ?? 'medium') as RiskLevel)
+    : 'medium';
+
+  /** Shared picker resolution: route the selection to pool / voters / judge. */
+  const handleModelPicked = useCallback(
+    (candidate: { provider: string; model: string }): boolean | undefined => {
+      if (!config || !pickTarget) return undefined;
+      const ref = `${candidate.provider}/${candidate.model}`;
+      if (pickTarget === 'pool') {
+        sendPatch({ models: [...config.models.map(entryLabel), ref] });
+        return undefined;
+      }
+      if (pickTarget === 'judge') {
+        sendPatch({ council: { judge: ref } });
+        return undefined;
+      }
+      // voter: multi-add — keep the dialog open until the user closes it.
+      setVoters([
+        ...voters,
+        {
+          provider: candidate.provider,
+          model: candidate.model,
+          persona: PERSONAS[voters.length % PERSONAS.length],
+        },
+      ]);
+      return true;
+    },
+    [config, pickTarget, sendPatch, setVoters, voters],
+  );
+
   return (
     <div className="space-y-4">
+      <ModelPickDialog
+        open={pickTarget !== null}
+        title={pickTarget ? PICK_TITLES[pickTarget].title : ''}
+        hint={pickTarget ? PICK_TITLES[pickTarget].hint : undefined}
+        onPick={handleModelPicked}
+        onClose={() => setPickTarget(null)}
+      />
       <div className="flex items-center gap-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
           <Brain className="h-5 w-5" />
         </span>
         <div className="min-w-0">
           <h3 className="text-base font-semibold">Brain</h3>
-          <p className="text-xs text-muted-foreground">Decision routing and autonomous risk ceiling.</p>
+          <p className="text-xs text-muted-foreground">
+            Decision models, council, escalation and risk ceiling — applied live, saved to the
+            global config.
+          </p>
         </div>
-        {loading && <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />}
+        {(loading || busy) && (
+          <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />
+        )}
       </div>
+
+      {persistError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {persistError}
+        </div>
+      )}
 
       {/* Risk ceiling */}
       <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
@@ -103,10 +231,7 @@ export function BrainSection(): ReactElement {
               key={level}
               variant={riskLevel === level ? 'default' : 'outline'}
               size="sm"
-              className={cn(
-                'gap-1.5 text-xs',
-                riskLevel === level && 'shadow-sm',
-              )}
+              className={cn('gap-1.5 text-xs', riskLevel === level && 'shadow-sm')}
               disabled={busy}
               onClick={() => handleRiskChange(level)}
             >
@@ -115,22 +240,333 @@ export function BrainSection(): ReactElement {
             </Button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">
-          {RISK_COPY[riskLevel]}
-        </p>
+        <p className="text-xs text-muted-foreground">{RISK_COPY[riskLevel]}</p>
       </div>
+
+      {config && (
+        <>
+          {/* Escalation */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <label className="text-sm font-medium">Escalation</label>
+            <PreferenceSelect
+              label="Mode"
+              hint="Headless: the Brain never blocks on a human — unanswered escalations resolve via the safe terminal policy. Applies to CLI/TUI sessions; the standalone WebUI Brain is always headless."
+              value={config.mode}
+              options={[
+                { value: 'interactive', label: 'Interactive (ask me)' },
+                { value: 'headless', label: 'Headless (never ask)' },
+              ]}
+              onChange={(mode) => sendPatch({ mode })}
+            />
+            <PreferenceSelect
+              label="Decision timeout"
+              hint="Per-LLM-call time budget for one Brain decision."
+              value={config.decisionTimeoutMs ? String(config.decisionTimeoutMs) : 'default'}
+              options={DECISION_TIMEOUTS}
+              onChange={(v) =>
+                sendPatch({ decisionTimeoutMs: v === 'default' ? null : Number(v) })
+              }
+            />
+            <PreferenceSelect
+              label="Human answer timeout"
+              hint="Interactive mode: how long an escalation prompt may wait before the terminal policy resolves it."
+              value={config.humanTimeoutMs ? String(config.humanTimeoutMs) : 'off'}
+              options={HUMAN_TIMEOUTS}
+              onChange={(v) => sendPatch({ humanTimeoutMs: v === 'off' ? null : Number(v) })}
+            />
+          </div>
+
+          {/* Decision models */}
+          <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Decision models</label>
+              <Badge variant="outline" className="text-[10px]">
+                {config.usingSessionModel
+                  ? 'session model'
+                  : `${config.poolLabels.length}/${config.models.length} resolved`}
+              </Badge>
+            </div>
+            <PreferenceToggle
+              label="Use session model"
+              hint="Decide with whatever model the session is running. Turn off by adding models below."
+              value={config.usingSessionModel}
+              onChange={() => {
+                if (!config.usingSessionModel) sendPatch({ models: null });
+              }}
+            />
+            {config.models.length > 0 && (
+              <div className="space-y-1">
+                {config.models.map((entry, i) => (
+                  <div
+                    key={`${entryLabel(entry)}-${i}`}
+                    className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
+                  >
+                    <span className="text-muted-foreground w-4 shrink-0">{i + 1}.</span>
+                    <span className="flex-1 truncate font-mono">{entryLabel(entry)}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={busy || i === 0}
+                      onClick={() => {
+                        const next = config.models.map(entryLabel);
+                        const item = next.splice(i, 1)[0];
+                        if (item) next.splice(i - 1, 0, item);
+                        sendPatch({ models: next });
+                      }}
+                    >
+                      <ArrowUp className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={busy || i === config.models.length - 1}
+                      onClick={() => {
+                        const next = config.models.map(entryLabel);
+                        const item = next.splice(i, 1)[0];
+                        if (item) next.splice(i + 1, 0, item);
+                        sendPatch({ models: next });
+                      }}
+                    >
+                      <ArrowDown className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-destructive"
+                      disabled={busy}
+                      onClick={() => {
+                        const next = config.models.map(entryLabel).filter((_, j) => j !== i);
+                        sendPatch({ models: next.length > 0 ? next : null });
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              disabled={busy}
+              onClick={() => setPickTarget('pool')}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add model
+            </Button>
+            {config.models.length > 1 && (
+              <PreferenceSelect
+                label="Pool strategy"
+                hint="Fallback: first model is primary, the rest are tried in order on failure. Round-robin: decisions rotate across the pool."
+                value={config.strategy}
+                options={[
+                  { value: 'fallback', label: 'Fallback' },
+                  { value: 'round-robin', label: 'Round-robin' },
+                ]}
+                onChange={(strategy) => sendPatch({ strategy })}
+              />
+            )}
+          </div>
+
+          {/* Council */}
+          <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Council</label>
+              <Badge variant={config.council.enabled ? 'default' : 'outline'} className="text-[10px]">
+                {config.council.enabled ? 'convened' : 'disabled'}
+              </Badge>
+            </div>
+            <PreferenceToggle
+              label="Enable multi-LLM council"
+              hint="High-stakes questions are voted on by independent seats (executor / skeptic-with-veto / auditor) instead of one model. Needs ≥2 resolvable voters (explicit seats below, or a ≥2-model pool)."
+              value={config.council.enabled}
+              onChange={() => sendPatch({ council: { enabled: !config.council.enabled } })}
+            />
+            {config.council.enabled && config.councilLabels.length > 0 && voters.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Seats derived from the pool: {config.councilLabels.join(', ')}
+              </p>
+            )}
+            {voters.length > 0 && (
+              <div className="space-y-1">
+                {voters.map((voter, i) => (
+                  <div
+                    key={`${entryLabel(voter)}-${i}`}
+                    className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
+                  >
+                    <span className="flex-1 truncate font-mono">{entryLabel(voter)}</span>
+                    <select
+                      value={voter.persona ?? PERSONAS[i % PERSONAS.length]}
+                      onChange={(e) =>
+                        setVoters(
+                          voters.map((v, j) => (j === i ? { ...v, persona: e.target.value } : v)),
+                        )
+                      }
+                      className="h-6 rounded border bg-background px-1 text-[10px]"
+                    >
+                      {PERSONAS.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                      {voter.persona && !(PERSONAS as readonly string[]).includes(voter.persona) && (
+                        <option value={voter.persona}>{voter.persona}</option>
+                      )}
+                    </select>
+                    <Button
+                      variant={voter.veto ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-6 px-1.5 text-[10px]"
+                      disabled={busy}
+                      onClick={() =>
+                        setVoters(voters.map((v, j) => (j === i ? { ...v, veto: !v.veto } : v)))
+                      }
+                    >
+                      veto
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-destructive"
+                      disabled={busy}
+                      onClick={() => setVoters(voters.filter((_, j) => j !== i))}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              disabled={busy}
+              onClick={() => setPickTarget('voter')}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add voter
+            </Button>
+            <PreferenceSelect
+              label="Risk floor"
+              hint="Minimum question risk that convenes the council instead of the single-model tier."
+              value={config.council.minRisk}
+              options={[
+                { value: 'medium', label: 'Medium+' },
+                { value: 'high', label: 'High+' },
+                { value: 'critical', label: 'Critical only' },
+              ]}
+              onChange={(minRisk) => sendPatch({ council: { minRisk } })}
+            />
+            <div className="flex items-start justify-between gap-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">Judge</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  Tie-breaker model that sees every vote's rationale.
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span className="max-w-[180px] truncate font-mono text-xs">
+                  {config.council.judge ? entryLabel(config.council.judge) : 'auto'}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={busy}
+                  onClick={() => setPickTarget('judge')}
+                >
+                  Pick…
+                </Button>
+                {config.council.judge && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={busy}
+                    onClick={() => sendPatch({ council: { judge: null } })}
+                  >
+                    Auto
+                  </Button>
+                )}
+              </div>
+            </div>
+            <PreferenceSelect
+              label="Quorum"
+              hint="Fraction of seats that must return a valid vote."
+              value={config.council.quorum !== undefined ? String(config.council.quorum) : 'default'}
+              options={FRACTIONS}
+              onChange={(v) => sendPatch({ council: { quorum: v === 'default' ? null : Number(v) } })}
+            />
+            <PreferenceSelect
+              label="Approval"
+              hint="Fraction of cast vote weight the winning option must exceed."
+              value={
+                config.council.approval !== undefined ? String(config.council.approval) : 'default'
+              }
+              options={FRACTIONS}
+              onChange={(v) =>
+                sendPatch({ council: { approval: v === 'default' ? null : Number(v) } })
+              }
+            />
+          </div>
+
+          {/* Ledger */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <label className="text-sm font-medium">Decision ledger</label>
+            <PreferenceToggle
+              label="Record decisions + outcomes"
+              hint="Persists every decision and its observed outcome; similar past outcomes are fed back into future Brain prompts."
+              value={config.ledger.enabled}
+              onChange={() => sendPatch({ ledger: { enabled: !config.ledger.enabled } })}
+            />
+            <PreferenceSelect
+              label="Auto-deny after failures"
+              hint="Deny deterministically (no LLM) once this many consecutive approvals of a decision group ended in observed failures."
+              value={
+                config.ledger.autoDenyAfterFailures !== undefined
+                  ? String(config.ledger.autoDenyAfterFailures)
+                  : 'default'
+              }
+              options={[
+                { value: 'default', label: 'Default (3)' },
+                { value: '0', label: 'Off' },
+                { value: '2', label: '2' },
+                { value: '3', label: '3' },
+                { value: '5', label: '5' },
+              ]}
+              onChange={(v) =>
+                sendPatch({
+                  ledger: { autoDenyAfterFailures: v === 'default' ? null : Number(v) },
+                })
+              }
+            />
+            {config.ledger.path && (
+              <p className="truncate text-xs text-muted-foreground">{config.ledger.path}</p>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Recent decisions */}
       <div className="space-y-2 rounded-md border border-border/70 bg-card/70 p-3">
         <label className="text-sm font-medium">Recent decisions ({log.length})</label>
         <div className="space-y-1 max-h-[300px] overflow-y-auto">
           {log.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-2">No decisions recorded yet this session.</p>
+            <p className="text-xs text-muted-foreground py-2">
+              No decisions recorded yet this session.
+            </p>
           ) : (
             log.map((entry, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs">
+              <div
+                key={i}
+                className="flex items-start gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
+              >
                 <span className="text-muted-foreground shrink-0 w-8">{entry.age}</span>
-                <Badge variant="outline" className="text-[10px] shrink-0">{entry.kind}</Badge>
+                <Badge variant="outline" className="text-[10px] shrink-0">
+                  {entry.kind}
+                </Badge>
                 <span className="flex-1 truncate">{entry.question}</span>
                 {entry.outcome && (
                   <span className="text-muted-foreground shrink-0 italic">{entry.outcome}</span>

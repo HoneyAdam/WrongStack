@@ -60,11 +60,10 @@ import {
   installDesignStudioMiddleware,
   ObservableBrainArbiter as ObservableBrainArbiterCtor,
   resolveContextWindowPolicy,
-  assembleBrainTiers,
   BrainDecisionLedger,
-  createLedgerGuardBrainArbiter,
-  createTieredBrainArbiter,
-  DefaultBrainArbiter,
+  createBrainRuntime,
+  type BrainRuntime,
+  resolveBrainConfigDefaults,
   EscalationRoutingBrainArbiter,
   GlobalMailbox,
   mailboxSessionTag,
@@ -125,6 +124,12 @@ export interface AgentServicesInput {
   sessionReader: SessionReader;
   /** Annotations store (collab notes). */
   annotationsStore: AnnotationsStore;
+  /**
+   * Persist the canonical `config.brain` to the GLOBAL config (serialized
+   * behind startWebUI's config write lock). Absent = Brain edits are
+   * live-only.
+   */
+  persistBrainConfig?: ((config: import('@wrongstack/core/types').BrainConfig) => Promise<void>) | undefined;
 }
 
 export interface AgentServices {
@@ -137,9 +142,12 @@ export interface AgentServices {
   pipelines: AgentPipelines;
   brain: ObservableBrainArbiter;
   brainSettings: { maxAutoRisk: BrainAutoRisk };
+  /** Live-editable Brain config owner (brain.config.get/set routes). */
+  brainRuntime: BrainRuntime;
   brainLog: Array<{ at: number; kind: string; question: string; outcome: string }>;
   brainMonitor: BrainMonitor;
-  /** Persistent decision ledger (undefined when disabled via config). */
+  /** LIVE persistent decision ledger (undefined when disabled). Read via the
+   *  services object at shutdown — ledger toggles swap the instance. */
   brainLedger: BrainDecisionLedger | undefined;
   codebaseIndexing: { onFileWritten(filePath: string): void; dispose(): void };
   autoPhaseHandler: AutoPhaseWebSocketHandler;
@@ -396,20 +404,25 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   // The standalone WebUI has no blocking human prompt surface, so the
   // escalation tier always resolves through the terminal policy (safe
   // default or deny) — the Brain never returns a dangling `ask_human`.
-  // The LLM pool + council come from `config.brain` (shared assembly).
-  const brainSettings: { maxAutoRisk: BrainAutoRisk } = {
-    maxAutoRisk: config.brain?.maxAutoRisk ?? 'medium',
+  // The whole `config.brain` surface is owned by a BrainRuntime: the
+  // brain.config.set route live-rebuilds the tiers AND persists globally
+  // (config.brain is on the in-project deny list).
+  // Product defaults (minimum-human): pool seeded from fallbackModels,
+  // adaptive risk ceiling. Explicit config.brain fields always win.
+  const brainCfg = resolveBrainConfigDefaults(config.brain, {
+    fallbackModels: config.fallbackModels,
+  });
+  const brainLedgerPath = join(wpaths.projectDir, 'brain-ledger.jsonl');
+  let brainLedgerEnabled = brainCfg.ledger?.enabled !== false;
+  let brainLedger: BrainDecisionLedger | undefined;
+  const startBrainLedger = (): void => {
+    if (brainLedger) return;
+    brainLedger = new BrainDecisionLedger({ events, filePath: brainLedgerPath });
+    void brainLedger.start();
   };
-  const brainLedger =
-    config.brain?.ledger?.enabled !== false
-      ? new BrainDecisionLedger({
-          events,
-          filePath: join(wpaths.projectDir, 'brain-ledger.jsonl'),
-        })
-      : undefined;
-  if (brainLedger) void brainLedger.start();
-  const brainTiers = assembleBrainTiers({
-    brainConfig: config.brain,
+  if (brainLedgerEnabled) startBrainLedger();
+  const brainRuntime = createBrainRuntime({
+    initialConfig: brainCfg,
     defaultProviderId: config.provider,
     sessionProvider: () => provider,
     sessionModel: () => context.model,
@@ -423,26 +436,35 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
         type: providerId,
       } as never);
     },
-    getDecisionDigest: brainLedger ? (request) => brainLedger.digestFor(request) : undefined,
+    ledger: {
+      getPath: () => (brainLedgerEnabled ? brainLedgerPath : undefined),
+      isEnabled: () => brainLedgerEnabled,
+      setEnabled: (on) => {
+        brainLedgerEnabled = on;
+        if (on) {
+          startBrainLedger();
+        } else {
+          void brainLedger?.stop();
+          brainLedger = undefined;
+        }
+      },
+      failureStreakFor: (request) => brainLedger?.failureStreakFor(request) ?? 0,
+      getDecisionDigest: (request) => brainLedger?.digestFor(request),
+    },
+    persist: input.persistBrainConfig,
   });
-  const tieredBrain = createTieredBrainArbiter({
-    policy: new DefaultBrainArbiter(),
-    autonomous: brainTiers.autonomous,
-    getMaxAutoRisk: () => brainSettings.maxAutoRisk,
-    council: brainTiers.council,
-    getCouncilMinRisk: brainTiers.getCouncilMinRisk,
-  });
-  // Deterministic ledger guard OUTSIDE the tiered arbiter: K consecutive
-  // observed failures for a decision group → deny without any LLM call.
-  const guardedBrain = brainLedger
-    ? createLedgerGuardBrainArbiter({
-        inner: tieredBrain,
-        failureStreakFor: (request) => brainLedger.failureStreakFor(request),
-        denyAfter: config.brain?.ledger?.autoDenyAfterFailures,
-      })
-    : tieredBrain;
+  // Back-compat facade for the risk-only route: assignment routes through
+  // runtime.apply(), which live-applies AND persists.
+  const brainSettings: { maxAutoRisk: BrainAutoRisk } = {
+    get maxAutoRisk() {
+      return brainRuntime.getMaxAutoRisk();
+    },
+    set maxAutoRisk(level: BrainAutoRisk) {
+      void brainRuntime.apply({ maxAutoRisk: level }).persisted;
+    },
+  };
   const brain = new ObservableBrainArbiterCtor(
-    new EscalationRoutingBrainArbiter(guardedBrain, undefined, () => 'headless'),
+    new EscalationRoutingBrainArbiter(brainRuntime.arbiter, undefined, () => 'headless'),
     events,
   );
   container.bind(TOKENS.BrainArbiter, () => brain);
@@ -485,12 +507,12 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   const brainMonitor = new BrainMonitor({
     events,
     brain,
-    toolFailureStreak: config.brain?.monitor?.toolFailureStreak,
-    errorStormCount: config.brain?.monitor?.errorStormCount,
-    stallMs: config.brain?.monitor?.stallMs,
-    fileChurnThreshold: config.brain?.monitor?.fileChurnThreshold,
-    fileChurnWindowMs: config.brain?.monitor?.fileChurnWindowMs,
-    cooldownMs: config.brain?.monitor?.cooldownMs,
+    toolFailureStreak: brainCfg.monitor?.toolFailureStreak,
+    errorStormCount: brainCfg.monitor?.errorStormCount,
+    stallMs: brainCfg.monitor?.stallMs,
+    fileChurnThreshold: brainCfg.monitor?.fileChurnThreshold,
+    fileChurnWindowMs: brainCfg.monitor?.fileChurnWindowMs,
+    cooldownMs: brainCfg.monitor?.cooldownMs,
     sessionId: () => context.session?.id,
     intervene: async ({ subject, body }) => {
       const tag = mailboxSessionTag(input.sessionGetter().id);
@@ -558,6 +580,9 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     input.sessionReader,
     input.annotationsStore,
     collabBus,
+    {
+      getActiveSessionId: () => context.session.id,
+    },
   );
 
   return {
@@ -570,9 +595,13 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     pipelines,
     brain,
     brainSettings,
+    brainRuntime,
     brainLog,
     brainMonitor,
-    brainLedger,
+    // Getter: ledger toggles swap the instance, shutdown must stop the LIVE one.
+    get brainLedger() {
+      return brainLedger;
+    },
     codebaseIndexing,
     autoPhaseHandler,
     specsHandler,

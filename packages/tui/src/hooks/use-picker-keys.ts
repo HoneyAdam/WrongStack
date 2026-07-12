@@ -10,6 +10,7 @@
 
 import { useCallback } from 'react';
 import type { Action, State } from '../app-reducer.js';
+import { brainPanelRows } from '../components/brain-panel-model.js';
 import type { KeyEvent } from '../components/input.js';
 import { settingsPickerJumpField } from '../components/settings-picker.js';
 import { STATUSLINE_ITEMS } from '../components/statusline-picker.js';
@@ -61,6 +62,20 @@ export interface PickerKeysHost {
   onToolsPickerToggle: (() => Promise<void> | void) | undefined;
   onHelpPanelEnter: (() => void) | undefined;
   onBrainRiskChange: ((delta: number) => void) | undefined;
+  /** Settings-view value edit: ←/→ on the focused row. */
+  onBrainAdjust: ((row: import('../components/brain-panel-model.js').BrainPanelRow, delta: number) => void) | undefined;
+  /** Settings-view Enter: toggle a boolean row or open the model picker. */
+  onBrainEnter: ((row: import('../components/brain-panel-model.js').BrainPanelRow) => void) | undefined;
+  /** Settings-view d/Delete on a removable row. */
+  onBrainDelete: ((row: import('../components/brain-panel-model.js').BrainPanelRow) => void) | undefined;
+  /** Voter row modifiers: p = cycle persona, v = toggle veto. */
+  onBrainVoterMod: ((index: number, mod: 'persona' | 'veto') => void) | undefined;
+  /**
+   * Generic model-pick resolution: Enter on the model step when the picker
+   * was opened with purpose 'pick' (requestModelPick) — the selection is
+   * RETURNED to the caller instead of switching the session model.
+   */
+  onModelPicked: ((providerId: string, modelId: string) => void) | undefined;
   onShadowStart: (() => Promise<void> | void) | undefined;
   onShadowStop: (() => Promise<void> | void) | undefined;
   onFKeyPickerEnter: (() => void) | undefined;
@@ -249,6 +264,13 @@ export function usePickerKeys(
             const providerId = state.modelPicker.pickedProviderId;
             const modelId = state.modelPicker.filteredOptions[state.modelPicker.selected];
             if (!providerId || !modelId) return true;
+            // Generic 'pick' invocation: hand the selection back to the
+            // requestModelPick caller — no session-model switch.
+            if (state.modelPicker.purpose === 'pick') {
+              host.onModelPicked?.(providerId, modelId);
+              dispatch({ type: 'modelPickerClose' });
+              return true;
+            }
             const complete = (err: string | null | undefined) => {
               if (err) {
                 dispatch({ type: 'modelPickerHint', text: err });
@@ -687,10 +709,72 @@ export function usePickerKeys(
         return true;
       }
 
-      // ── Brain panel (risk ceiling + decision log) ─────────────
+      // ── Brain panel (settings editor + decision log) ──────────
+      // NOTE: model selection for pool/voters/judge goes through the SHARED
+      // model picker (requestModelPick → state.modelPicker, handled above).
       if (state.brainPanel.open) {
+        const panel = state.brainPanel;
+
+        // Settings editor view (needs a settings snapshot from the host).
+        if (panel.view === 'settings' && panel.settings) {
+          const rows = brainPanelRows(panel.settings);
+          const row = rows[Math.min(panel.row, Math.max(0, rows.length - 1))];
+          if (key.escape) {
+            dispatch({ type: 'brainClose' });
+            return true;
+          }
+          if (key.tab) {
+            dispatch({ type: 'brainView', view: 'log' });
+            return true;
+          }
+          if (key.mouse?.kind === 'wheel') {
+            dispatch({ type: 'brainRowMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
+            return true;
+          }
+          if (key.upArrow) {
+            dispatch({ type: 'brainRowMove', delta: -1 });
+            return true;
+          }
+          if (key.downArrow) {
+            dispatch({ type: 'brainRowMove', delta: 1 });
+            return true;
+          }
+          if (!row || panel.busy) return true;
+          if (key.leftArrow) {
+            host.onBrainAdjust?.(row, -1);
+            return true;
+          }
+          if (key.rightArrow) {
+            host.onBrainAdjust?.(row, 1);
+            return true;
+          }
+          if (isEnter) {
+            if (debouncedEnter(host)) return true;
+            host.onBrainEnter?.(row);
+            return true;
+          }
+          if ((input === 'd' || input === 'D' || key.delete) && (row.kind === 'poolModel' || row.kind === 'voter' || row.kind === 'judge')) {
+            host.onBrainDelete?.(row);
+            return true;
+          }
+          if ((input === 'p' || input === 'P') && row.kind === 'voter') {
+            host.onBrainVoterMod?.(row.index, 'persona');
+            return true;
+          }
+          if ((input === 'v' || input === 'V') && row.kind === 'voter') {
+            host.onBrainVoterMod?.(row.index, 'veto');
+            return true;
+          }
+          return true;
+        }
+
+        // Log view (legacy behavior + Tab back to settings when editable).
         if (key.escape) {
           dispatch({ type: 'brainClose' });
+          return true;
+        }
+        if (key.tab && panel.settings) {
+          dispatch({ type: 'brainView', view: 'settings' });
           return true;
         }
         if (key.mouse?.kind === 'wheel') {

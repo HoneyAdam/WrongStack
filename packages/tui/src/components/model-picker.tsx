@@ -24,6 +24,11 @@ export interface ModelPickerProps {
   searchQuery?: string | undefined;
   /** Status hint (e.g. error from a failed switch attempt) shown at the bottom. */
   hint?: string | undefined;
+  /**
+   * Overlay title. Defaults to 'Switch model' (the /model command); generic
+   * `requestModelPick` callers pass their own (e.g. "Add council voter").
+   */
+  titleLabel?: string | undefined;
 }
 
 const MAX_VISIBLE = 10;
@@ -59,12 +64,14 @@ export function ModelPicker({
   pickedProviderId,
   searchQuery,
   hint,
+  titleLabel,
 }: ModelPickerProps): React.ReactElement {
+  const title = titleLabel ?? 'Switch model';
   if (step === 'provider') {
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={UI_COLORS.border} paddingX={1}>
         <Text color={UI_COLORS.title} bold>
-          {'━━ Switch model — Step 1/2: Pick provider ━━'}
+          {`━━ ${title} — Step 1/2: Pick provider ━━`}
         </Text>
         <Text dimColor>↑/↓ navigate · Enter select · Esc cancel · Ctrl+C exit</Text>
         {providerOptions.length === 0 ? (
@@ -116,7 +123,7 @@ export function ModelPicker({
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={UI_COLORS.border} paddingX={1}>
       <Text color={UI_COLORS.title} bold>
-        {'━━ Switch model — Step 2/2: Pick model '}({pickedProviderId}
+        {`━━ ${title} — Step 2/2: Pick model `}({pickedProviderId}
         {searchHint}){' ━━'}
       </Text>
       <Text dimColor>↑/↓ navigate · Enter select · Esc back · Ctrl+C exit · type to filter</Text>

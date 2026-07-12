@@ -1058,6 +1058,75 @@ export interface WSWorktreeDiffResult {
   payload: { dir: string; summary: WorktreeDiffSummary | null };
 }
 
+/** One Brain pool/judge model entry on the wire ("provider/model" grammar when a string). */
+export interface BrainModelEntryWire {
+  provider?: string | undefined;
+  model: string;
+}
+
+/** One Brain council voting seat on the wire. */
+export interface BrainCouncilVoterWire extends BrainModelEntryWire {
+  persona?: string | undefined;
+  weight?: number | undefined;
+  veto?: boolean | undefined;
+}
+
+/** JSON-safe snapshot of the live Brain config (mirrors core's BrainConfigSnapshot). */
+export interface BrainConfigWire {
+  mode: 'headless' | 'interactive';
+  maxAutoRisk: 'off' | 'low' | 'medium' | 'high' | 'all';
+  models: BrainModelEntryWire[];
+  strategy: 'fallback' | 'round-robin';
+  decisionTimeoutMs?: number | undefined;
+  humanTimeoutMs?: number | undefined;
+  council: {
+    /** EFFECTIVE enablement (voters>=2 default rule applied). */
+    enabled: boolean;
+    configured?: boolean | undefined;
+    minRisk: 'medium' | 'high' | 'critical';
+    voters: BrainCouncilVoterWire[];
+    quorum?: number | undefined;
+    approval?: number | undefined;
+    judge?: BrainModelEntryWire | undefined;
+  };
+  ledger: {
+    enabled: boolean;
+    autoDenyAfterFailures?: number | undefined;
+    path?: string | undefined;
+  };
+  poolLabels: string[];
+  councilLabels: string[];
+  usingSessionModel: boolean;
+}
+
+/** Partial Brain config update: omitted = untouched, null = clear, arrays replace. */
+export interface BrainConfigPatchWire {
+  mode?: 'headless' | 'interactive' | undefined;
+  maxAutoRisk?: 'off' | 'low' | 'medium' | 'high' | 'all' | undefined;
+  models?: Array<string | BrainModelEntryWire> | null | undefined;
+  strategy?: 'fallback' | 'round-robin' | null | undefined;
+  decisionTimeoutMs?: number | null | undefined;
+  humanTimeoutMs?: number | null | undefined;
+  council?:
+    | {
+        enabled?: boolean | null | undefined;
+        minRisk?: 'medium' | 'high' | 'critical' | null | undefined;
+        voters?: Array<string | BrainCouncilVoterWire> | null | undefined;
+        quorum?: number | null | undefined;
+        approval?: number | null | undefined;
+        judge?: string | BrainModelEntryWire | null | undefined;
+      }
+    | null
+    | undefined;
+  ledger?:
+    | {
+        enabled?: boolean | undefined;
+        autoDenyAfterFailures?: number | null | undefined;
+      }
+    | null
+    | undefined;
+}
+
 export type WSClientMessage =
   | WSUserMessage
   | WSToolConfirmResult
@@ -1375,6 +1444,8 @@ export type WSClientMessage =
   | { type: 'brain.status' }
   | { type: 'brain.risk'; payload: { level: string } }
   | { type: 'brain.ask'; payload: { question: string } }
+  | { type: 'brain.config.get' }
+  | { type: 'brain.config.set'; payload: { patch: BrainConfigPatchWire } }
   | { type: 'model.refine'; payload: { text: string } }
   | { type: 'skills.list' }
   | { type: 'skills.content'; payload: { name: string; source: string } }
@@ -1691,6 +1762,19 @@ export type WSServerMessage =
       payload: {
         maxAutoRisk: string;
         log: Array<{ at: number; kind: string; question: string; outcome: string }>;
+        /** Enrichment fields — present when the server wires a BrainRuntime. */
+        mode?: 'headless' | 'interactive' | undefined;
+        poolLabels?: string[] | undefined;
+        councilLabels?: string[] | undefined;
+        ledgerPath?: string | undefined;
+      };
+    }
+  | {
+      type: 'brain.config';
+      payload: {
+        config: BrainConfigWire;
+        persisted: boolean;
+        error?: string | undefined;
       };
     }
   | {

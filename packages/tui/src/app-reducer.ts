@@ -8,6 +8,7 @@ import {
 } from './components/auth-panel-model.js';
 // Reducer — pure state transformation. Types are in app-state.ts.
 // This file has NO React or Ink dependencies.
+import { brainPanelRows } from './components/brain-panel-model.js';
 import type { HistoryEntry } from './components/history.js';
 import { filterPromptPicker } from './components/prompt-picker.js';
 import { nextSendModeIndex, SEND_MODE_OPTIONS } from './components/send-mode-picker.js';
@@ -22,6 +23,7 @@ import {
   CONTEXT_MODES,
   DELAY_PRESETS_MS,
   ENHANCE_DELAY_PRESETS,
+  BREAKER_TIMEOUT_PRESETS,
   ENHANCE_LANGUAGES,
   LOG_LEVELS,
   MAX_CONCURRENT_PRESETS,
@@ -376,10 +378,14 @@ export function reducer(state: State, action: Action): State {
       // effect in app.tsx.
       return { ...state, inputHistory: [], historyIndex: 0, historyDraft: '' };
     }
-    case 'modelPickerOpen':
+    case 'modelPickerOpen': {
+      const purpose = action.purpose ?? 'switch';
       return {
         ...state,
-        ...closePanels(state),
+        // Generic 'pick' invocations are transient overlays ON TOP of the
+        // calling panel (e.g. the Brain panel) — leave other panels open so
+        // the caller is still there when the promise resolves.
+        ...(purpose === 'pick' ? {} : closePanels(state)),
         modelPicker: {
           open: true,
           step: 'provider',
@@ -389,8 +395,11 @@ export function reducer(state: State, action: Action): State {
           selected: 0,
           hint: undefined,
           searchQuery: '',
+          purpose,
+          title: action.title,
         },
       };
+    }
     case 'modelPickerClose':
       return {
         ...state,
@@ -402,6 +411,8 @@ export function reducer(state: State, action: Action): State {
           filteredOptions: [],
           selected: 0,
           searchQuery: '',
+          purpose: 'switch',
+          title: undefined,
         },
       };
     case 'modelPickerMove': {
@@ -706,6 +717,8 @@ export function reducer(state: State, action: Action): State {
           cacheTtl: action.cacheTtl,
           configScope: action.configScope,
           animationStyle: action.animationStyle,
+          breakerEnabled: action.breakerEnabled,
+          breakerAutoKillResetMs: action.breakerAutoKillResetMs,
           hint: undefined,
         },
       };
@@ -1142,6 +1155,28 @@ export function reducer(state: State, action: Action): State {
           },
         };
       }
+      // ── Safety ─────────────────────────────────────────────────────────────
+      // Field 37: circuit breaker (boolean toggle)
+      if (f === 37)
+        return {
+          ...state,
+          settingsPicker: { ...sp, breakerEnabled: !sp.breakerEnabled, hint: undefined },
+        };
+      // Field 38: breaker auto kill/reset timeout (cycle presets)
+      if (f === 38) {
+        const j = BREAKER_TIMEOUT_PRESETS.indexOf(sp.breakerAutoKillResetMs);
+        const base = j < 0 ? 0 : j;
+        const next =
+          (base + action.delta + BREAKER_TIMEOUT_PRESETS.length) % BREAKER_TIMEOUT_PRESETS.length;
+        return {
+          ...state,
+          settingsPicker: {
+            ...sp,
+            breakerAutoKillResetMs: expectDefined(BREAKER_TIMEOUT_PRESETS[next]),
+            hint: undefined,
+          },
+        };
+      }
       return state;
     }
     case 'settingsValueSet': {
@@ -1440,11 +1475,17 @@ export function reducer(state: State, action: Action): State {
           log: action.log,
           selected: 0,
           hint: undefined,
+          // With a settings snapshot the panel opens in editor view;
+          // without one it falls back to the legacy risk+log view.
+          view: action.settings ? 'settings' : 'log',
+          settings: action.settings,
+          row: 0,
+          busy: false,
         },
       };
     }
     case 'brainClose':
-      return { ...state, brainPanel: { ...state.brainPanel, open: false } };
+      return { ...state, brainPanel: { ...state.brainPanel, open: false, busy: false } };
     case 'brainMove': {
       const count = state.brainPanel.log.length;
       if (count === 0) return state;
@@ -1480,6 +1521,40 @@ export function reducer(state: State, action: Action): State {
       };
     case 'brainHint':
       return { ...state, brainPanel: { ...state.brainPanel, hint: action.text } };
+    case 'brainSettingsLoaded': {
+      const rows = brainPanelRows(action.settings);
+      return {
+        ...state,
+        brainPanel: {
+          ...state.brainPanel,
+          settings: action.settings,
+          riskLevel: action.settings.riskLevel,
+          row: Math.min(state.brainPanel.row, Math.max(0, rows.length - 1)),
+          busy: false,
+        },
+      };
+    }
+    case 'brainView':
+      return {
+        ...state,
+        brainPanel: { ...state.brainPanel, view: action.view, hint: undefined },
+      };
+    case 'brainRowMove': {
+      const settings = state.brainPanel.settings;
+      if (!settings) return state;
+      const count = brainPanelRows(settings).length;
+      if (count === 0) return state;
+      return {
+        ...state,
+        brainPanel: {
+          ...state.brainPanel,
+          row: (state.brainPanel.row + action.delta + count) % count,
+          hint: undefined,
+        },
+      };
+    }
+    case 'brainBusy':
+      return { ...state, brainPanel: { ...state.brainPanel, busy: action.busy } };
     case 'helpOpen':
       return {
         ...state,

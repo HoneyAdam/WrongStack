@@ -200,6 +200,25 @@ export function validateBrainAskPayload(
   return { ok: true, value: { question: question.trim() } };
 }
 
+export interface BrainConfigSetPayload {
+  patch: Record<string, unknown>;
+}
+
+export function validateBrainConfigSetPayload(
+  payload: unknown,
+): PayloadValidationResult<BrainConfigSetPayload> {
+  if (!isRecord(payload)) {
+    return { ok: false, message: 'brain.config.set payload must be an object with a patch object' };
+  }
+  const patch = payload['patch'];
+  if (!isRecord(patch)) {
+    // Field-level validation happens in BrainRuntime.apply(), which throws
+    // BEFORE any live state changes — this only guards the envelope shape.
+    return { ok: false, message: 'brain.config.set payload.patch must be an object' };
+  }
+  return { ok: true, value: { patch } };
+}
+
 export interface AutonomySwitchPayload {
   mode: string;
 }
@@ -276,6 +295,8 @@ const BOOLEAN_PREF_KEYS = new Set([
   'hqRawContent',
   'fallbackAuto',
   'favoriteModelsOnly',
+  'breakerEnabled',
+  'debugStream',
 ]);
 
 /** Keys whose value must be an array of strings (e.g. an ordered model list). */
@@ -290,9 +311,17 @@ const NUMBER_PREF_KEYS = new Set([
   'maxConcurrent',
   'enhanceDelayMs',
   'tgLongToolMs',
+  'breakerAutoKillResetMs',
 ]);
 
-const STRING_PREF_KEYS = new Set(['hqUrl', 'hqToken', 'uiLocale']);
+const STRING_PREF_KEYS = new Set([
+  'hqUrl',
+  'hqToken',
+  'uiLocale',
+  'thinkingWord',
+  'refinerProvider',
+  'refinerModel',
+]);
 
 const ENUM_PREF_KEYS: Record<string, Set<string>> = {
   autonomy: AUTONOMY_VALUES,
@@ -305,6 +334,9 @@ const ENUM_PREF_KEYS: Record<string, Set<string>> = {
   reasoningMode: REASONING_MODE_VALUES,
   reasoningEffort: REASONING_EFFORT_VALUES,
   cacheTtl: CACHE_TTL_VALUES,
+  statuslineMode: new Set(['minimum', 'detailed', 'no-color']),
+  animationStyle: new Set(['rainbow', 'wave', 'pulse', 'dots', 'breathe', 'cycle']),
+  fsAccess: new Set(['unrestricted', 'project']),
 };
 
 function validateModelRuntimeValue(modelRuntime: Record<string, unknown>, path: string): string | null {

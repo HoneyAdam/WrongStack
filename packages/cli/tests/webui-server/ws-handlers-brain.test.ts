@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import type { BrainConfigPatch, BrainConfigSnapshot, BrainRuntime } from '@wrongstack/core';
+import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import type {
   BrainHandlerContext,
@@ -7,6 +8,8 @@ import type {
 import type { WsServerMessage } from '../../src/webui-server/ws-handlers/index.js';
 import {
   handleBrainAsk,
+  handleBrainConfigGet,
+  handleBrainConfigSet,
   handleBrainRisk,
   handleBrainStatus,
 } from '../../src/webui-server/ws-handlers/index.js';
@@ -90,6 +93,129 @@ describe('handleBrainRisk', () => {
     // The SAME object is mutated (shared with /brain).
     expect(settings.maxAutoRisk).toBe('all');
     expect(lastOfType(cap, 'brain.status')?.payload).toMatchObject({ maxAutoRisk: 'all' });
+  });
+});
+
+const SNAPSHOT: BrainConfigSnapshot = {
+  mode: 'headless',
+  maxAutoRisk: 'all',
+  models: [{ provider: 'a', model: 'x' }],
+  strategy: 'fallback',
+  decisionTimeoutMs: undefined,
+  humanTimeoutMs: undefined,
+  council: {
+    enabled: false,
+    configured: undefined,
+    minRisk: 'high',
+    voters: [],
+    quorum: undefined,
+    approval: undefined,
+    judge: undefined,
+  },
+  ledger: { enabled: true, autoDenyAfterFailures: undefined, path: 'C:/x/ledger.jsonl' },
+  poolLabels: ['a/x'],
+  councilLabels: [],
+  usingSessionModel: false,
+};
+
+function makeRuntime(over: {
+  persistOk?: boolean;
+  applyThrows?: string;
+} = {}): { runtime: BrainRuntime; patches: BrainConfigPatch[] } {
+  const patches: BrainConfigPatch[] = [];
+  const runtime = {
+    arbiter: { decide: vi.fn() },
+    getMode: () => SNAPSHOT.mode,
+    getMaxAutoRisk: () => SNAPSHOT.maxAutoRisk,
+    getHumanTimeoutMs: () => undefined,
+    getSnapshot: () => SNAPSHOT,
+    getConfig: () => ({}),
+    apply: (patch: BrainConfigPatch) => {
+      if (over.applyThrows) throw new Error(over.applyThrows);
+      patches.push(patch);
+      return {
+        snapshot: SNAPSHOT,
+        persisted: Promise.resolve(
+          over.persistOk === false ? { ok: false, error: 'disk full' } : { ok: true },
+        ),
+      };
+    },
+  } as unknown as BrainRuntime;
+  return { runtime, patches };
+}
+
+describe('handleBrainStatus enrichment', () => {
+  it('includes mode/pool/council/ledger fields when a runtime is wired', () => {
+    const { runtime } = makeRuntime();
+    const { ctx, cap } = makeCtx({ brainRuntime: runtime });
+    handleBrainStatus(ctx, FAKE_WS);
+    expect(lastOfType(cap, 'brain.status')?.payload).toMatchObject({
+      mode: 'headless',
+      poolLabels: ['a/x'],
+      councilLabels: [],
+      ledgerPath: 'C:/x/ledger.jsonl',
+    });
+  });
+});
+
+describe('handleBrainConfigGet/Set', () => {
+  it('config.get replies with the snapshot', () => {
+    const { runtime } = makeRuntime();
+    const { ctx, cap } = makeCtx({ brainRuntime: runtime });
+    handleBrainConfigGet(ctx, FAKE_WS);
+    expect(lastOfType(cap, 'brain.config')?.payload).toEqual({
+      config: SNAPSHOT,
+      persisted: true,
+    });
+  });
+
+  it('config.get errors when no runtime is wired', () => {
+    const { ctx, cap } = makeCtx();
+    handleBrainConfigGet(ctx, FAKE_WS);
+    expect(lastResultMsg(cap)?.success).toBe(false);
+    expect(lastResultMsg(cap)?.message).toContain('not editable');
+  });
+
+  it('config.set applies the patch, replies brain.config + refreshed status', async () => {
+    const { runtime, patches } = makeRuntime();
+    const { ctx, cap } = makeCtx({ brainRuntime: runtime });
+    await handleBrainConfigSet(ctx, FAKE_WS, { patch: { strategy: 'round-robin' } });
+    expect(patches).toEqual([{ strategy: 'round-robin' }]);
+    expect(lastOfType(cap, 'brain.config')?.payload).toMatchObject({ persisted: true });
+    expect(lastOfType(cap, 'brain.status')).toBeDefined();
+  });
+
+  it('config.set rejects a missing/invalid patch envelope', async () => {
+    const { runtime, patches } = makeRuntime();
+    const { ctx, cap } = makeCtx({ brainRuntime: runtime });
+    await handleBrainConfigSet(ctx, FAKE_WS, { patch: 'nope' });
+    expect(patches).toEqual([]);
+    expect(lastResultMsg(cap)?.success).toBe(false);
+  });
+
+  it('config.set surfaces apply() validation errors as brain.config error', async () => {
+    const { runtime } = makeRuntime({ applyThrows: 'Invalid maxAutoRisk: extreme' });
+    const { ctx, cap } = makeCtx({ brainRuntime: runtime });
+    await handleBrainConfigSet(ctx, FAKE_WS, { patch: { maxAutoRisk: 'extreme' } });
+    const payload = lastOfType(cap, 'brain.config')?.payload as {
+      persisted: boolean;
+      error?: string;
+    };
+    expect(payload.persisted).toBe(false);
+    expect(payload.error).toContain('Invalid maxAutoRisk');
+  });
+
+  it('config.set reports persist failure while keeping the live change', async () => {
+    const { runtime, patches } = makeRuntime({ persistOk: false });
+    const { ctx, cap } = makeCtx({ brainRuntime: runtime });
+    await handleBrainConfigSet(ctx, FAKE_WS, { patch: { mode: 'headless' } });
+    expect(patches).toEqual([{ mode: 'headless' }]);
+    const payload = lastOfType(cap, 'brain.config')?.payload as {
+      persisted: boolean;
+      error?: string;
+    };
+    expect(payload.persisted).toBe(false);
+    expect(payload.error).toContain('disk full');
   });
 });
 

@@ -293,6 +293,7 @@ export async function main(argv: string[]): Promise<number> {
       projectRoot,
       projectName: path.basename(projectRoot),
       appConfig: config,
+      logger,
     });
     hqPublisher?.connect();
     if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
@@ -327,6 +328,7 @@ export async function main(argv: string[]): Promise<number> {
     renderer,
     flags,
     events,
+    logger,
     onRecovery: (abandoned, autoRecover) =>
       promptRecovery(reader, renderer, abandoned, autoRecover),
   });
@@ -607,11 +609,13 @@ export async function main(argv: string[]): Promise<number> {
     brain,
     brainLog,
     brainSettings,
+    brainRuntime,
     multiAgentHost,
     shadowController,
   } = setupBrainAndOrchestration({
     events,
     config,
+    vault,
     container,
     provider,
     session,
@@ -887,6 +891,7 @@ export async function main(argv: string[]): Promise<number> {
     reader,
     brain,
     brainSettings,
+    brainRuntime,
     getBrainLog: () => brainLog,
     coordinatorController,
     shadowController,
@@ -1536,7 +1541,7 @@ export async function main(argv: string[]): Promise<number> {
             subagentFactory: multiAgentHost.makeSubagentFactory(config),
             events,
           };
-          parallelEngine = new ParallelEternalEngine(parallelOptions);
+          parallelEngine = new ParallelEternalEngine({ ...parallelOptions, logger });
         }
         void parallelEngine.prime?.();
       } else {
@@ -1550,6 +1555,7 @@ export async function main(argv: string[]): Promise<number> {
             onStage: broadcastAutonomyStage,
             brain,
             events,
+            logger,
           });
         }
         void eternalEngine.prime();
@@ -1936,6 +1942,7 @@ export async function main(argv: string[]): Promise<number> {
     effectiveMaxContext: effectiveMaxContextRef.current,
     configRef,
     autonomyModeRef,
+    logger,
   });
   // Sync local `config` with any mutation the helper applied (e.g. yolo
   // flag flip). Using a ref keeps the helper's call site clean — no return
@@ -2280,6 +2287,7 @@ export async function main(argv: string[]): Promise<number> {
     },
     brain,
     brainSettings,
+    brainRuntime,
     getBrainLog: () => brainLog,
   },
   lifecycles: {

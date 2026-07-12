@@ -99,6 +99,8 @@ import { PhaseMonitor } from './components/phase-monitor.js';
 import { PhasePanel } from './components/phase-panel.js';
 import { PlanPanel } from './components/plan-panel.js';
 import { BrainPanel, type BrainRiskLevel } from './components/brain-panel.js';
+import { useBrainPanel } from './hooks/use-brain-panel.js';
+import { useModelPickRequest } from './hooks/use-model-pick.js';
 import { McpPicker, type McpPickerItem } from './components/mcp-picker.js';
 import { PluginPicker, type PluginPickerItem } from './components/plugin-picker.js';
 import { ToolsPicker, type ToolPickerItem } from './components/tools-picker.js';
@@ -437,6 +439,8 @@ export interface AppProps {
   onBrainRiskLevel?:
     | ((level: BrainRiskLevel) => string | undefined)
     | undefined;
+  /** Full Brain settings editor bridge (live apply + persist). */
+  brainPanelHost?: import('./components/brain-panel-model.js').BrainPanelHost | undefined;
   /** Get current Shadow Agent state. */
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
@@ -943,6 +947,7 @@ export function App({
   onToolToggle,
   getBrainData,
   onBrainRiskLevel,
+  brainPanelHost,
   getShadowData,
   onShadowStart,
   onShadowStop,
@@ -1195,12 +1200,10 @@ export function App({
 
   const { openModePicker } = useModePicker({ dispatch, getModes });
 
-  // ── Brain panel ────────────────────────────────────────────────
-  const openBrainPanel = React.useCallback(() => {
-    if (!getBrainData) return;
-    const data = getBrainData();
-    dispatch({ type: 'brainOpen', riskLevel: data.riskLevel, log: data.log });
-  }, [getBrainData]);
+  // ── Brain panel + shared /model overlay in generic 'pick' mode ─
+  const { requestModelPick, handleModelPicked } = useModelPickRequest({ dispatch, getPickableProviders, pickerOpen: state.modelPicker.open });
+  const brainCtl = useBrainPanel({ dispatch, getBrainData, brainPanelHost, requestModelPick });
+  const openBrainPanel = brainCtl.openBrainPanel;
 
   const changeBrainRisk = React.useCallback(
     (delta: number) => {
@@ -2409,6 +2412,8 @@ export function App({
             cacheTtl: sp.cacheTtl,
             configScope: sp.configScope,
             animationStyle: sp.animationStyle,
+            breakerEnabled: sp.breakerEnabled,
+            breakerAutoKillResetMs: sp.breakerAutoKillResetMs,
           });
         }
         if (prev.projectPicker) {
@@ -2794,6 +2799,8 @@ export function App({
       cacheTtl: s.cacheTtl ?? 'default',
       configScope: s.configScope ?? 'global',
       animationStyle: s.animationStyle ?? 'rainbow',
+      breakerEnabled: s.breakerEnabled ?? false,
+      breakerAutoKillResetMs: s.breakerAutoKillResetMs ?? 60_000,
     });
   }, [getSettings]);
 
@@ -3149,6 +3156,8 @@ export function App({
         cacheTtl: sp.cacheTtl,
         configScope: sp.configScope,
         animationStyle: sp.animationStyle,
+        breakerEnabled: sp.breakerEnabled,
+        breakerAutoKillResetMs: sp.breakerAutoKillResetMs,
       }),
     ).then((err: string | null) => {
       if (err) dispatch({ type: 'settingsHint', text: err });
@@ -3191,6 +3200,8 @@ export function App({
     state.settingsPicker.cacheTtl,
     state.settingsPicker.configScope,
     state.settingsPicker.animationStyle,
+    state.settingsPicker.breakerEnabled,
+    state.settingsPicker.breakerAutoKillResetMs,
     saveSettings,
   ]);
 
@@ -4402,7 +4413,9 @@ export function App({
       submitRef.current(`/${entry.name}`);
     },
     onBrainRiskChange: changeBrainRisk,
-    onShadowStart: handleShadowStart,
+    onBrainAdjust: brainCtl.handleBrainAdjust, onBrainEnter: brainCtl.handleBrainEnter,
+    onBrainDelete: brainCtl.handleBrainDelete, onBrainVoterMod: brainCtl.handleBrainVoterMod,
+    onModelPicked: handleModelPicked, onShadowStart: handleShadowStart,
     onShadowStop: handleShadowStop,
     onAuthEnter: authPanelController.onAuthEnter,
     onAuthBack: authPanelController.onAuthBack,
@@ -5303,6 +5316,8 @@ export function App({
           cacheTtl: cfg.cacheTtl ?? 'default',
           configScope: cfg.configScope ?? 'global',
           animationStyle: cfg.animationStyle ?? 'rainbow',
+          breakerEnabled: cfg.breakerEnabled ?? false,
+          breakerAutoKillResetMs: cfg.breakerAutoKillResetMs ?? 60_000,
         });
       }
       return;
@@ -6987,6 +7002,7 @@ export function App({
               pickedProviderId={state.modelPicker.pickedProviderId}
               searchQuery={state.modelPicker.searchQuery}
               hint={state.modelPicker.hint}
+              titleLabel={state.modelPicker.title}
             />
           ) : null}
           {state.autonomyPicker.open ? (
@@ -7074,6 +7090,8 @@ export function App({
               cacheTtl={state.settingsPicker.cacheTtl}
               configScope={state.settingsPicker.configScope}
               animationStyle={state.settingsPicker.animationStyle}
+              breakerEnabled={state.settingsPicker.breakerEnabled}
+              breakerAutoKillResetMs={state.settingsPicker.breakerAutoKillResetMs}
               filter={state.settingsPicker.filter}
               hint={state.settingsPicker.hint}
             />
@@ -7111,14 +7129,7 @@ export function App({
               filter={state.toolsPicker.filter}
             />
           ) : null}
-          {state.brainPanel.open ? (
-            <BrainPanel
-              riskLevel={state.brainPanel.riskLevel}
-              log={state.brainPanel.log}
-              selected={state.brainPanel.selected}
-              hint={state.brainPanel.hint}
-            />
-          ) : null}
+          {state.brainPanel.open && !state.modelPicker.open ? <BrainPanel {...state.brainPanel} /> : null}
           {state.helpPanel.open ? (
             <HelpPanel
               entries={state.helpPanel.entries}

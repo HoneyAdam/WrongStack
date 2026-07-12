@@ -162,7 +162,7 @@ export async function startWebUI(
     memoryStore, events, mcpRegistry, sessionReader,
     annotationsStore, tokenCounter, modeStore, customModeStore,
     skillLoader, skillInstaller, promptsCtx, modelCapabilitiesRef,
-    provider, context,
+    provider, context, sessionIdentity,
   } = preContext;
   let sessionStore = preContext.sessionStore;
   let session = preContext.session;
@@ -208,6 +208,12 @@ export async function startWebUI(
     sessionGetter: () => session,
     sessionReader,
     annotationsStore,
+    // Brain settings persist to the GLOBAL config only (config.brain is on
+    // the in-project deny list), serialized behind the shared write lock.
+    persistBrainConfig: (brainConfig) =>
+      updateGlobalConfig((decrypted) => {
+        decrypted['brain'] = brainConfig;
+      }, 'brain.config'),
   });
   const {
     compactor,
@@ -217,9 +223,9 @@ export async function startWebUI(
     pipelines,
     brain,
     brainSettings,
+    brainRuntime,
     brainLog,
     brainMonitor,
-    brainLedger,
     codebaseIndexing,
     autoPhaseHandler,
     specsHandler,
@@ -436,11 +442,13 @@ export async function startWebUI(
     terminalHandler,
     brain,
     brainSettings,
+    brainRuntime,
     brainLog,
   };
 
   const cb: WebuiCallbacks = {
     sessionStartPayload,
+    onSessionSwapped: (sessionId) => sessionIdentity.activate(sessionId),
     updateAutoCompactionMaxContext,
     updateGlobalConfig,
     persistPrefsToConfig,
@@ -590,8 +598,10 @@ export async function startWebUI(
     onShutdown: async () => {
       credentialWatcherClose?.();
       brainMonitor.stop();
-      await brainLedger?.stop().catch(() => {});
+      // Read via the services getter — ledger toggles swap the instance.
+      await agentServices.brainLedger?.stop().catch(() => {});
       await mcpRegistry.stopAll().catch(() => undefined);
+      await sessionIdentity.stop();
       eventArming.getDispose()?.();
       if (eternalSubscription) { eternalSubscription.dispose(); eternalSubscription = null; }
       codebaseIndexing.dispose();

@@ -50,6 +50,8 @@ import {
 import type {
   AutoCompactionMiddleware,
   BrainAutoRisk,
+  BrainConfigPatch,
+  BrainRuntime,
   Compactor,
   ConfigStore,
   Logger,
@@ -88,6 +90,7 @@ import {
 } from './mcp-handlers.js';
 import {
   validateBrainAskPayload,
+  validateBrainConfigSetPayload,
   validateBrainRiskPayload,
   validateGitDiffPayload,
   validateMailboxAgentsPayload,
@@ -211,7 +214,7 @@ export interface WebuiDeps {
   vault: SecretVault;
   globalConfigPath: string;
   /** Per-project layout — expose only the bits the route layer touches. */
-  wpaths: { globalRoot: string; globalSkills: string };
+  wpaths: { globalRoot: string; globalSkills: string; projectSessions: string };
   configStore: ConfigStore;
   tokenCounter: DefaultTokenCounter;
   permissionPolicy: PermissionPolicy;
@@ -245,6 +248,8 @@ export interface WebuiDeps {
   /** Brain monitoring + last-20 decision log. */
   brain: ObservableBrainArbiter;
   brainSettings: { maxAutoRisk: BrainAutoRisk };
+  /** Live-editable Brain config owner (brain.config.get/set). */
+  brainRuntime: BrainRuntime;
   brainLog: Array<{ at: number; kind: string; question: string; outcome: string }>;
 }
 
@@ -270,6 +275,8 @@ export interface WebuiCallbacks {
     mode: string;
     contextMode: string;
   }>;
+  /** Re-point registry, recovery, and HQ identity after a writer swap. */
+  onSessionSwapped: (sessionId: string) => Promise<void>;
   /** Re-build the AutoCompaction middleware denominator on model switch. */
   updateAutoCompactionMaxContext: (
     newProvider: Provider,
@@ -532,8 +539,10 @@ export function buildRoutes(
     getProjectRoot: state.getProjectRoot,
     getSession: state.getSession,
     getSessionStore: state.getSessionStore,
+    sessionsDir: deps.wpaths.projectSessions,
     setSession: state.setSession,
     setSessionStartedAt: state.setSessionStartedAt,
+    onSessionSwapped: cb.onSessionSwapped,
     sessionStartPayload: cb.sessionStartPayload,
   });
 
@@ -664,6 +673,34 @@ export function buildRoutes(
         }
       }
 
+      // Process circuit breaker — flip the runtime singleton so the toggle
+      // takes effect on the next bash/exec without a restart (same pattern
+      // as /settings breaker in the CLI).
+      if (
+        typeof payload['breakerEnabled'] === 'boolean' ||
+        typeof payload['breakerAutoKillResetMs'] === 'number'
+      ) {
+        const { getProcessRegistry } = await import('@wrongstack/tools');
+        getProcessRegistry().setBreakerConfig({
+          ...(typeof payload['breakerEnabled'] === 'boolean'
+            ? { enabled: payload['breakerEnabled'] }
+            : {}),
+          ...(typeof payload['breakerAutoKillResetMs'] === 'number'
+            ? { autoKillResetMs: payload['breakerAutoKillResetMs'] }
+            : {}),
+        });
+      }
+
+      // debugStream — WireAdapter checks the runtime singleton on every
+      // stream() call, so the toggle applies to the next request.
+      if (typeof payload['debugStream'] === 'boolean') {
+        const { setDebugStreamEnabled } = await import('@wrongstack/providers');
+        setDebugStreamEnabled(payload['debugStream']);
+      }
+
+      // fsAccess is persist-only — file-tool scoping is wired at session
+      // boot, so a change applies on the next session (hinted in the UI).
+
       // logLevel — the DefaultLogger.level property is a public mutable
       // field. Setting it at runtime changes the log threshold immediately
       // (the log() method checks LEVEL_RANK on every call).
@@ -787,12 +824,24 @@ export function buildRoutes(
     promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
   };
 
+  const sendBrainStatus = (ws: WebSocket): void => {
+    const snapshot = deps.brainRuntime.getSnapshot();
+    send(ws, {
+      type: 'brain.status',
+      payload: {
+        maxAutoRisk: deps.brainSettings.maxAutoRisk,
+        log: deps.brainLog,
+        mode: snapshot.mode,
+        poolLabels: snapshot.poolLabels,
+        councilLabels: snapshot.councilLabels,
+        ledgerPath: snapshot.ledger.path,
+      },
+    });
+  };
+
   const brainRoutes: BrainRouteHandlers = {
     status: (ws) => {
-      send(ws, {
-        type: 'brain.status',
-        payload: { maxAutoRisk: deps.brainSettings.maxAutoRisk, log: deps.brainLog },
-      });
+      sendBrainStatus(ws);
     },
     risk: (ws, msg) => {
       const parsed = validateBrainRiskPayload(msg.payload);
@@ -802,10 +851,44 @@ export function buildRoutes(
       }
       const { level } = parsed.value;
       deps.brainSettings.maxAutoRisk = level as BrainAutoRisk;
+      sendBrainStatus(ws);
+    },
+    configGet: (ws) => {
       send(ws, {
-        type: 'brain.status',
-        payload: { maxAutoRisk: deps.brainSettings.maxAutoRisk, log: deps.brainLog },
+        type: 'brain.config',
+        payload: { config: deps.brainRuntime.getSnapshot(), persisted: true },
       });
+    },
+    configSet: async (ws, msg) => {
+      const parsed = validateBrainConfigSetPayload(msg.payload);
+      if (!parsed.ok) {
+        sendResult(ws, false, parsed.message);
+        return;
+      }
+      try {
+        // BrainRuntime.apply is the field-level validator: unknown fields /
+        // bad values throw BEFORE any live state changes.
+        const { persisted } = deps.brainRuntime.apply(parsed.value.patch as BrainConfigPatch);
+        const result = await persisted;
+        send(ws, {
+          type: 'brain.config',
+          payload: {
+            config: deps.brainRuntime.getSnapshot(),
+            persisted: result.ok,
+            ...(result.ok ? {} : { error: result.error ?? 'Persist failed.' }),
+          },
+        });
+        sendBrainStatus(ws);
+      } catch (err) {
+        send(ws, {
+          type: 'brain.config',
+          payload: {
+            config: deps.brainRuntime.getSnapshot(),
+            persisted: false,
+            error: `Invalid Brain setting: ${errMessage(err)}`,
+          },
+        });
+      }
     },
     ask: async (ws, msg) => {
       const parsed = validateBrainAskPayload(msg.payload);

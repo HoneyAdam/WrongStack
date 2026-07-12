@@ -28,6 +28,33 @@ export {
   type BrainTierAssemblyOptions,
 } from './brain-chain.js';
 export {
+  BRAIN_EVALUATION_CASE_VERSION,
+  type BrainEvaluationCaseResult,
+  type BrainEvaluationCaseV1,
+  type BrainEvaluationCaseValidation,
+  type BrainEvaluationExpectations,
+  type BrainEvaluationFailure,
+  type BrainEvaluationFailureCode,
+  type BrainEvaluationMetrics,
+  type BrainEvaluationReport,
+  runBrainEvaluation,
+  validateBrainEvaluationCase,
+} from './brain-evaluation.js';
+export {
+  type BrainApplyResult,
+  type BrainConfigPatch,
+  type BrainConfigSnapshot,
+  type BrainCouncilMinRisk,
+  type BrainCouncilPatch,
+  type BrainDefaultsContext,
+  type BrainPoolStrategy,
+  type BrainRuntime,
+  type BrainRuntimeLedgerHost,
+  type BrainRuntimeOptions,
+  createBrainRuntime,
+  resolveBrainConfigDefaults,
+} from './brain-runtime.js';
+export {
   COUNCIL_REFUSE_OPTION_ID,
   type CouncilBrainOptions,
   type CouncilVoter,

@@ -255,6 +255,8 @@ export interface PickerDeps {
         councilLabels?: string[] | undefined;
       }
     | undefined;
+  /** Live-editable Brain config owner (WebUI brain.config.* + TUI panel setters). */
+  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
     | undefined;

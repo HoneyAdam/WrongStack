@@ -61,6 +61,7 @@ import { getSDDContext as getSDDContextExtracted, onSDDOutput as onSDDOutputExtr
 import { resumeSession } from './boot/tui-session-resume.js';
 import { createSettingsAdapter } from './boot/tui-settings-adapter.js';
 import { FleetStatusLine } from './fleet-statusline.js';
+import { createBrainPanelHost } from './brain-menu/panel-service.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { resolveActiveApiKey } from './provider-config-utils.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
@@ -167,7 +168,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     picker: {
       getPluginItems, onPluginToggle, getMcpServers, onMcpToggle, onMcpRestart,
       getToolsItems, onToolToggle, getBrainData, onBrainRiskLevel, getBrainLog,
-      brain, brainSettings, getShadowData, onShadowStart, onShadowStop,
+      brain, brainSettings, brainRuntime, getShadowData, onShadowStart, onShadowStop,
     } = {},
     lifecycles: {
       getSuggestions, getAutoSuggestions, onSuggestionsParsed,
@@ -767,6 +768,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           onToolToggle,
           getBrainData,
           onBrainRiskLevel,
+          brainPanelHost: brainRuntime ? createBrainPanelHost({ brainRuntime }) : undefined,
           getShadowData,
           onShadowStart,
           onShadowStop,
@@ -864,6 +866,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         mcpRegistry,
         brain,
         brainSettings,
+        brainRuntime,
         getBrainLog,
         subscribeEternalIteration,
         sessionStore: activeSessionStore,

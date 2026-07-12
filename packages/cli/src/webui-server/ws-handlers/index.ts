@@ -59,6 +59,8 @@ export {
 export {
   type BrainHandlerContext,
   handleBrainAsk,
+  handleBrainConfigGet,
+  handleBrainConfigSet,
   handleBrainRisk,
   handleBrainStatus,
 } from './brain.js';

@@ -242,6 +242,8 @@ export interface CliWebUIOptions {
         councilLabels?: string[] | undefined;
       }
     | undefined;
+  /** Live-editable Brain config owner (brain.config.get/set handlers). */
+  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
   /** Read the host's rolling brain decision log (newest last, ≤20 entries). */
   getBrainLog?:
     | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
@@ -780,6 +782,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
 
   const brainCtx: BrainHandlerContext = {
     brainSettings: opts.brainSettings,
+    brainRuntime: opts.brainRuntime,
     getBrainLog: opts.getBrainLog,
     // Prefer the host-supplied arbiter; otherwise resolve the one bound
     // in the agent container (if any). Mirrors the former inline lookup.

@@ -744,6 +744,23 @@ export interface AutonomyConfig {
   mouseMode?: boolean | undefined;
   /** Enable prompt refinement before sending. Default: true. */
   enhance?: boolean | undefined;
+  /**
+   * Provider id to use for goal refinement (`/goal set`). When set,
+   * the refiner uses this provider's model (see `refinerModel`)
+   * instead of the session's main provider/model. Falls back to the
+   * main session provider when unset or when the provider is unavailable.
+   * Default: unset (uses the main session provider).
+   */
+  refinerProvider?: string | undefined;
+  /**
+   * Model id to use for goal refinement. When `refinerProvider` is
+   * also set, the refiner uses this specific model on that provider.
+   * When only `refinerModel` is set (without a provider), the model
+   * is used on the session's main provider. When both are unset, the
+   * session's main model is used. Falls back to heuristic on failure.
+   * Default: unset (uses the main session model).
+   */
+  refinerModel?: string | undefined;
   /** Prompt-refinement preview countdown in ms. Default: 60000. */
   enhanceDelayMs?: number | undefined;
   /** Prompt-refinement language mode. Default: "original". */
@@ -1109,17 +1126,23 @@ export interface BrainConfig {
    * 'headless'    — the Brain NEVER blocks on a human. Escalations resolve
    *                 via the terminal policy (recommended option for low/medium
    *                 risk, request fallback semantics, otherwise deny).
-   * 'interactive' — escalations prompt the human in the TUI/WebUI (default).
-   * Switch live with `/brain mode <headless|interactive>`.
+   * 'interactive' — escalations prompt the human in the TUI/WebUI.
+   * Default (resolved at boot by `resolveBrainConfigDefaults`): 'headless' —
+   * minimum-human out of the box. Switch live with `/brain mode <m>`.
    */
   mode?: 'headless' | 'interactive' | undefined;
-  /** Initial autonomy ceiling for the LLM tier. Default 'medium'. Live-set via `/brain risk`. */
+  /**
+   * Initial autonomy ceiling for the LLM tier. Default (resolved at boot):
+   * adaptive — 'all' when a council can convene (≥2 voters/pool models),
+   * otherwise 'high'. Live-set via `/brain risk`.
+   */
   maxAutoRisk?: 'off' | 'low' | 'medium' | 'high' | 'all' | undefined;
   /**
    * Ordered LLM pool for Brain decisions (`parseModelRef` grammar or
    * entries). With `strategy: 'fallback'` the first entry is primary and the
    * rest are tried in order when it fails; with 'round-robin' calls rotate
-   * across the pool. When unset, the session provider/model is used.
+   * across the pool. Default (resolved at boot): the user's `fallbackModels`
+   * chain; with none configured, the session provider/model is used.
    */
   models?: Array<string | BrainModelEntry> | undefined;
   /** Pool selection strategy. Default 'fallback'. */
@@ -1129,7 +1152,8 @@ export interface BrainConfig {
   /**
    * Interactive mode only: how long an ask-human prompt may stay unanswered
    * before it resolves through the terminal policy instead of blocking
-   * forever. Unset = wait indefinitely (legacy behavior).
+   * forever. Default (resolved at boot): 120000. Set 0 to wait indefinitely
+   * (legacy behavior).
    */
   humanTimeoutMs?: number | undefined;
   /** Multi-LLM council for high-stakes decisions. */

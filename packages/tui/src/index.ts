@@ -13,6 +13,11 @@ export type {
   AuthPanelHost,
   AuthProviderRow,
 } from './components/auth-panel-model.js';
+export type {
+  BrainPanelHost,
+  BrainPanelSettings,
+  BrainPanelVoter,
+} from './components/brain-panel-model.js';
 export { parseInline } from './markdown.js';
 export { replaySessionEvents } from './components/history/replay.js';
 // parseNextSteps now lives in @wrongstack/tools/next-steps (shared with WebUI and CLI).

@@ -99,6 +99,8 @@ import {
   handleAbort,
   handleAutonomySwitch,
   handleBrainAsk,
+  handleBrainConfigGet,
+  handleBrainConfigSet,
   handleBrainRisk,
   handleBrainStatus,
   handleContextClear,
@@ -620,6 +622,9 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       handleBrainRisk(brainCtx, ws, (msg as { payload?: { level?: string } }).payload?.level ?? ''),
     'brain.ask': (msg, ws) =>
       handleBrainAsk(brainCtx, ws, (msg as { payload?: { question?: string } }).payload?.question),
+    'brain.config.get': (_msg, ws) => handleBrainConfigGet(brainCtx, ws),
+    'brain.config.set': (msg, ws) =>
+      handleBrainConfigSet(brainCtx, ws, (msg as { payload?: unknown }).payload),
 
     // ── Preferences ──
     'prefs.get': (_msg, ws) => handlePrefsGet(prefsCtx, ws),

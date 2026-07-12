@@ -403,6 +403,8 @@ export interface RunTuiOptions {
   onBrainRiskLevel?:
     | ((level: 'off' | 'low' | 'medium' | 'high' | 'all') => string | undefined)
     | undefined;
+  /** Full Brain settings editor bridge (live apply + persist to global config). */
+  brainPanelHost?: import('./components/brain-panel-model.js').BrainPanelHost | undefined;
   /** Get current Shadow Agent state. */
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
@@ -1158,6 +1160,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onToolToggle: opts.onToolToggle,
           getBrainData: opts.getBrainData,
           onBrainRiskLevel: opts.onBrainRiskLevel,
+          brainPanelHost: opts.brainPanelHost,
           getShadowData: opts.getShadowData,
           onShadowStart: opts.onShadowStart,
           onShadowStop: opts.onShadowStop,

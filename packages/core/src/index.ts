@@ -409,6 +409,33 @@ export {
   type BrainTierAssemblyOptions,
 } from './execution/brain-chain.js';
 export {
+  BRAIN_EVALUATION_CASE_VERSION,
+  type BrainEvaluationCaseResult,
+  type BrainEvaluationCaseV1,
+  type BrainEvaluationCaseValidation,
+  type BrainEvaluationExpectations,
+  type BrainEvaluationFailure,
+  type BrainEvaluationFailureCode,
+  type BrainEvaluationMetrics,
+  type BrainEvaluationReport,
+  runBrainEvaluation,
+  validateBrainEvaluationCase,
+} from './execution/brain-evaluation.js';
+export {
+  type BrainApplyResult,
+  type BrainConfigPatch,
+  type BrainConfigSnapshot,
+  type BrainCouncilMinRisk,
+  type BrainCouncilPatch,
+  type BrainDefaultsContext,
+  type BrainPoolStrategy,
+  type BrainRuntime,
+  type BrainRuntimeLedgerHost,
+  type BrainRuntimeOptions,
+  createBrainRuntime,
+  resolveBrainConfigDefaults,
+} from './execution/brain-runtime.js';
+export {
   COUNCIL_REFUSE_OPTION_ID,
   type CouncilBrainOptions,
   type CouncilVoter,
@@ -583,6 +610,15 @@ export type {
 export type { ProviderRunner, RunProviderOptions } from './types/provider-runner.js';
 export type { SecretScrubber } from './types/secret-scrubber.js';
 export type { RotatableSecretVault, SecretVault } from './types/secret-vault.js';
+export {
+  TRUST_POLICY_JSON_SCHEMA,
+  TRUST_POLICY_LIMITS,
+  TRUST_POLICY_SCHEMA_VERSION,
+  type TrustPolicyDiagnostic,
+  type TrustPolicyDiagnosticCode,
+  type TrustPolicyValidationResult,
+  validateTrustPolicy,
+} from './security/permission-policy-schema.js';
 export {
   encryptedPrefixForVersion,
   noOpVault,

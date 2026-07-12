@@ -1,4 +1,4 @@
-import type { BrainArbiter, BrainAutoRisk } from '@wrongstack/core';
+import type { BrainArbiter, BrainAutoRisk, BrainConfigPatch, BrainRuntime } from '@wrongstack/core';
 import type { WebSocket } from 'ws';
 import type { WsCommon } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
@@ -25,6 +25,11 @@ export interface BrainLogEntry {
 export interface BrainHandlerContext extends WsCommon {
   /** Shared autonomy ceiling — the SAME object `/brain` mutates. */
   brainSettings: { maxAutoRisk: BrainAutoRisk } | undefined;
+  /**
+   * Live-editable Brain config owner. Powers `brain.config.get/set` and
+   * enriches `brain.status`; risk-only hosts may leave it undefined.
+   */
+  brainRuntime?: BrainRuntime | undefined;
   /** Read the host's rolling Brain decision log, or undefined when not wired. */
   getBrainLog: (() => BrainLogEntry[]) | undefined;
   /** Resolve the active Brain arbiter (host instance, else container-bound), or undefined. */
@@ -38,13 +43,75 @@ function sendResult(ctx: WsCommon, ws: WebSocket, success: boolean, message: str
 }
 
 export function handleBrainStatus(ctx: BrainHandlerContext, ws: WebSocket): void {
+  const snapshot = ctx.brainRuntime?.getSnapshot();
   ctx.send(ws, {
     type: 'brain.status',
     payload: {
-      maxAutoRisk: ctx.brainSettings?.maxAutoRisk ?? 'medium',
+      maxAutoRisk: ctx.brainSettings?.maxAutoRisk ?? snapshot?.maxAutoRisk ?? 'medium',
       log: ctx.getBrainLog?.() ?? [],
+      // Additive enrichment — only present when a BrainRuntime is wired.
+      ...(snapshot
+        ? {
+            mode: snapshot.mode,
+            poolLabels: snapshot.poolLabels,
+            councilLabels: snapshot.councilLabels,
+            ledgerPath: snapshot.ledger.path,
+          }
+        : {}),
     },
   });
+}
+
+export function handleBrainConfigGet(ctx: BrainHandlerContext, ws: WebSocket): void {
+  if (!ctx.brainRuntime) {
+    sendResult(ctx, ws, false, 'Brain config is not editable on this server (no BrainRuntime wired).');
+    return;
+  }
+  ctx.send(ws, {
+    type: 'brain.config',
+    payload: { config: ctx.brainRuntime.getSnapshot(), persisted: true },
+  });
+}
+
+export async function handleBrainConfigSet(
+  ctx: BrainHandlerContext,
+  ws: WebSocket,
+  payload: unknown,
+): Promise<void> {
+  if (!ctx.brainRuntime) {
+    sendResult(ctx, ws, false, 'Brain config is not editable on this server (no BrainRuntime wired).');
+    return;
+  }
+  const patch = (payload as { patch?: unknown } | undefined)?.patch;
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    sendResult(ctx, ws, false, 'brain.config.set requires a { patch: {...} } payload.');
+    return;
+  }
+  try {
+    // The runtime is the validator: unknown fields / bad values throw
+    // BEFORE any live state changes.
+    const { persisted } = ctx.brainRuntime.apply(patch as BrainConfigPatch);
+    const result = await persisted;
+    ctx.send(ws, {
+      type: 'brain.config',
+      payload: {
+        config: ctx.brainRuntime.getSnapshot(),
+        persisted: result.ok,
+        ...(result.ok ? {} : { error: result.error ?? 'Persist failed.' }),
+      },
+    });
+    // Keep risk-only surfaces (status views, TUI mirrors) in sync.
+    handleBrainStatus(ctx, ws);
+  } catch (err) {
+    ctx.send(ws, {
+      type: 'brain.config',
+      payload: {
+        config: ctx.brainRuntime.getSnapshot(),
+        persisted: false,
+        error: `Invalid Brain setting: ${toErrorMessage(err)}`,
+      },
+    });
+  }
 }
 
 export function handleBrainRisk(ctx: BrainHandlerContext, ws: WebSocket, level: string): void {
