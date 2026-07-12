@@ -10,6 +10,7 @@ export type { BashShell } from './_shell-pick.js';
 export { auditTool } from './audit.js';
 export { bashTool } from './bash.js';
 export { batchToolUseTool } from './batch-tool-use.js';
+export * from './browser/index.js';
 // builtinTools moved to './builtin.ts' so consumers that only need a subset of
 // tools don't transitively import all 30. Use `@wrongstack/tools/builtin`.
 export { builtinTools, OPTIONAL_TOOLS, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from './builtin.js';
@@ -43,6 +44,16 @@ export {
 export { designTool } from './design.js';
 export { diffTool } from './diff.js';
 export { documentTool } from './document.js';
+export {
+  discoverE2EProjects,
+  type E2EExecutionPlan,
+  type E2EFramework,
+  type E2EPackageManager,
+  type E2EPlanOutput,
+  type E2EProjectPlan,
+  type E2EServerHint,
+  e2ePlanTool,
+} from './e2e.js';
 export { editTool } from './edit.js';
 export {
   configureDangerBypass,

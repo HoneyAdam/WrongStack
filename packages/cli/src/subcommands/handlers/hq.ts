@@ -65,8 +65,9 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const port = typeof flags['port'] === 'string' ? Number.parseInt(flags['port'], 10) : 3499;
   const strictPort = flags['strict-port'] === true;
   const open = flags['open'] === true;
+  const password = typeof flags['password'] === 'string' ? flags['password'] : undefined;
 
-  const handle = await startHqServer({ host, port, strictPort, dataDir });
+  const handle = await startHqServer({ host, port, strictPort, dataDir, ...(password !== undefined ? { password } : {}) });
 
   if (open) {
     try {

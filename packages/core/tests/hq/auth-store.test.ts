@@ -7,12 +7,20 @@ import {
   defaultHqDataDir,
   emptyHqAuthFile,
   ensureHqFirstRunAuthFile,
+  hashHqPassword,
   hqAuthFilePath,
+  hqRuntimeFilePath,
   mintHqBrowserToken,
+  mintHqCookieSecret,
+  mintHqToken,
   mutateHqAuthFile,
   readHqAuthFile,
+  readHqRuntimeFileSync,
   resolveHqDataDir,
+  tokenHasCapability,
+  verifyHqPassword,
   writeHqAuthFile,
+  writeHqRuntimeFile,
   type HqAuthFile,
 } from '../../src/hq/auth-store.js';
 import { wstackGlobalRoot } from '../../src/utils/wstack-paths.js';
@@ -264,5 +272,165 @@ describe('HQ auth-store — mintHqBrowserToken', () => {
     const b = mintHqBrowserToken();
     expect(a.id).not.toBe(b.id);
     expect(a.token).not.toBe(b.token);
+  });
+});
+
+describe('HQ auth-store — tokenHasCapability', () => {
+  it('returns false for undefined token', () => {
+    expect(tokenHasCapability(undefined, 'anything')).toBe(false);
+  });
+
+  it('returns true when token has no capabilities field (unrestricted)', () => {
+    expect(tokenHasCapability({ id: 't1', token: 'abc', createdAt: 'x' }, 'anything')).toBe(true);
+  });
+
+  it('returns true when capabilities include the requested capability', () => {
+    const token = { id: 't1', token: 'abc', createdAt: 'x', capabilities: ['read', 'write'] };
+    expect(tokenHasCapability(token, 'read')).toBe(true);
+    expect(tokenHasCapability(token, 'write')).toBe(true);
+  });
+
+  it('returns false when capabilities do not include the requested capability', () => {
+    const token = { id: 't1', token: 'abc', createdAt: 'x', capabilities: ['read'] };
+    expect(tokenHasCapability(token, 'delete')).toBe(false);
+  });
+});
+
+describe('HQ auth-store — hqRuntimeFilePath + writeHqRuntimeFile + readHqRuntimeFileSync', () => {
+  it('hqRuntimeFilePath joins dataDir + runtime.json', () => {
+    expect(hqRuntimeFilePath('/tmp/hq')).toBe(path.join('/tmp/hq', 'runtime.json'));
+  });
+
+  it('writeHqRuntimeFile writes a parseable runtime file', async () => {
+    await withTempDir(async (dir) => {
+      const input = { url: 'http://localhost:7788', pid: process.pid };
+      await writeHqRuntimeFile(dir, input);
+      const raw = await fs.readFile(hqRuntimeFilePath(dir), 'utf8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.url).toBe('http://localhost:7788');
+      expect(parsed.pid).toBe(process.pid);
+      expect(typeof parsed.updatedAt).toBe('string');
+      expect(parsed.updatedAt.length).toBeGreaterThan(0);
+
+      // read back via sync reader
+      const readBack = readHqRuntimeFileSync(dir);
+      expect(readBack?.url).toBe('http://localhost:7788');
+    });
+  });
+
+  it('readHqRuntimeFileSync returns undefined for non-existent file', () => {
+    const tmp = path.join(os.tmpdir(), `hq-auth-nonexistent-${Date.now()}`);
+    expect(readHqRuntimeFileSync(tmp)).toBeUndefined();
+  });
+
+  it('readHqRuntimeFileSync returns undefined for corrupt JSON', async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(hqRuntimeFilePath(dir), '{ not json');
+      expect(readHqRuntimeFileSync(dir)).toBeUndefined();
+    });
+  });
+
+  it('readHqRuntimeFileSync returns undefined for empty url', async () => {
+    await withTempDir(async (dir) => {
+      await writeHqRuntimeFile(dir, { url: '  ', pid: process.pid });
+      expect(readHqRuntimeFileSync(dir)).toBeUndefined();
+    });
+  });
+
+  it('readHqRuntimeFileSync returns undefined when pid is not alive', async () => {
+    await withTempDir(async (dir) => {
+      await writeHqRuntimeFile(dir, { url: 'http://localhost:7788', pid: 999999999 });
+      expect(readHqRuntimeFileSync(dir)).toBeUndefined();
+    });
+  });
+});
+
+describe('HQ auth-store — mintHqToken (underlying)', () => {
+  it('produces a token with id + token + createdAt when no label', () => {
+    const t = mintHqToken();
+    expect(typeof t.id).toBe('string');
+    expect(t.id.length).toBeGreaterThan(0);
+    expect(typeof t.token).toBe('string');
+    expect(t.token.length).toBeGreaterThanOrEqual(32);
+    expect(() => new Date(t.createdAt).toISOString()).not.toThrow();
+    expect(t.label).toBeUndefined();
+  });
+
+  it('includes label when provided', () => {
+    const t = mintHqToken('test token');
+    expect(t.label).toBe('test token');
+  });
+});
+
+describe('HQ auth-store — readHqAuthFile error path (non-ENOENT access error)', () => {
+  it('returns empty file on non-ENOENT read error', async () => {
+    // Point to a path that looks like a file but is actually a directory
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'hq-auth-'));
+    const subdir = path.join(dir, 'subdir');
+    await fs.mkdir(subdir);
+    try {
+      const f = await readHqAuthFile(subdir);
+      expect(f.version).toBe(HQ_AUTH_FILE_VERSION);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('HQ auth-store — ensureHqFirstRunAuthFile error path', () => {
+  it('handles access failure on existing auth.json', async () => {
+    await withTempDir(async (dir) => {
+      const file = hqAuthFilePath(dir);
+      // Create the file then make it unreadable (Unix only)
+      await writeHqAuthFile(dir, { version: 1, updatedAt: 'x' });
+      try {
+        await fs.chmod(file, 0o000);
+        const warn = vi.fn();
+        const result = await ensureHqFirstRunAuthFile(dir, { warn });
+        expect(result.created).toBe(false);
+      } catch {
+        // On Windows chmod may silently succeed; skip
+      } finally {
+        await fs.chmod(file, 0o600).catch(() => {});
+      }
+    });
+  });
+});
+
+describe('HQ auth-store — password login', () => {
+  it('hashes and verifies a password', async () => {
+    const hash = await hashHqPassword('hq-secret');
+    expect(hash).toMatch(/^scrypt\$/);
+    expect(await verifyHqPassword('hq-secret', hash)).toBe(true);
+    expect(await verifyHqPassword('wrong', hash)).toBe(false);
+  });
+
+  it('rejects malformed or empty hashes', async () => {
+    expect(await verifyHqPassword('x', '')).toBe(false);
+    expect(await verifyHqPassword('x', 'plain$wrong')).toBe(false);
+    expect(await verifyHqPassword('x', 'scrypt$only')).toBe(false);
+  });
+
+  it('produces distinct hashes for the same password', async () => {
+    const a = await hashHqPassword('same');
+    const b = await hashHqPassword('same');
+    expect(a).not.toBe(b);
+  });
+
+  it('mints a cookie secret', () => {
+    const s = mintHqCookieSecret();
+    expect(typeof s).toBe('string');
+    expect(s.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it('first-run stores a password hash and cookie secret', async () => {
+    await withTempDir(async (dir) => {
+      const result = await ensureHqFirstRunAuthFile(dir, { password: 'hq-password' });
+      expect(result.created).toBe(true);
+      expect(result.authFile.passwordHash).toMatch(/^scrypt\$/);
+      expect(typeof result.authFile.cookieSecret).toBe('string');
+      expect(await verifyHqPassword('hq-password', result.authFile.passwordHash ?? '')).toBe(true);
+    });
   });
 });

@@ -15,7 +15,7 @@
  *
  * @module hq-server
  */
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import type { Server as HttpServer } from 'node:http';
 import * as http from 'node:http';
@@ -62,6 +62,7 @@ import {
   ensureHqFirstRunAuthFile,
   parseHqEventPayload,
   validateHqCommand,
+  verifyHqPassword,
   parseHqFrame,
   redactHqEvent,
   resolveHqRedactionPolicy,
@@ -100,6 +101,8 @@ export interface HqServerOptions {
   clientCleanupIntervalMs?: number;
   /** Session-snapshot freshness timeout. Primarily exposed for deterministic integration tests. */
   sessionSnapshotTtlMs?: number;
+  /** Optional browser password login. When provided on first-run, the auth file stores a scrypt hash. */
+  password?: string;
 }
 
 export interface HqStartupConnectionInfo {
@@ -331,6 +334,97 @@ function hasTrustedBrowserOrigin(req: http.IncomingMessage): boolean {
   } catch {
     return false;
   }
+}
+
+const HQ_SESSION_COOKIE = 'hq.session';
+const HQ_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function signHqSession(sessionId: string, secret: string): string {
+  return createHmac('sha256', secret).update(sessionId).digest('base64url');
+}
+
+function serializeHqSessionCookie(sessionId: string, secret: string): string {
+  return `${sessionId}.${signHqSession(sessionId, secret)}`;
+}
+
+function parseHqSessionCookie(value: string, secret: string): string | undefined {
+  const dot = value.indexOf('.');
+  if (dot === -1) return undefined;
+  const sessionId = value.slice(0, dot);
+  const sig = value.slice(dot + 1);
+  if (!sessionId || !sig) return undefined;
+  const expected = signHqSession(sessionId, secret);
+  try {
+    if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return undefined;
+  } catch {
+    return undefined;
+  }
+  return sessionId;
+}
+
+function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof cookieHeader !== 'string') return out;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (key) out[key] = decodeURIComponent(value);
+  }
+  return out;
+}
+
+function setHqSessionCookie(res: http.ServerResponse, value: string): void {
+  const header = `${HQ_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(HQ_SESSION_MAX_AGE_MS / 1000)}`;
+  res.setHeader('Set-Cookie', header);
+}
+
+function clearHqSessionCookie(res: http.ServerResponse): void {
+  const header = `${HQ_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  res.setHeader('Set-Cookie', header);
+}
+
+interface HqBrowserAuthContext {
+  kind: 'token';
+  token: string;
+  id: string;
+  capabilities?: string[];
+}
+
+type HqBrowserAuthResult = HqBrowserAuthContext | 'cookie' | undefined;
+
+function isTokenAuth(auth: HqBrowserAuthResult): auth is HqBrowserAuthContext {
+  return auth !== undefined && auth !== 'cookie';
+}
+
+function authenticateBrowserRequest(
+  req: http.IncomingMessage,
+  url: URL,
+  mutableAuth: {
+    browserTokens: Set<string>;
+    browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
+    passwordHash?: string | undefined;
+    cookieSecret?: string | undefined;
+  },
+  sessions: Map<string, { createdAt: number }>,
+): HqBrowserAuthResult {
+  const token = extractBrowserToken(req, url);
+  if (token && mutableAuth.browserTokens.has(token)) {
+    const obj = mutableAuth.browserTokenObjs.get(token);
+    const ctx: HqBrowserAuthContext = { kind: 'token', token, id: obj?.id ?? 'unknown' };
+    if (obj?.capabilities !== undefined) ctx.capabilities = obj.capabilities;
+    return ctx;
+  }
+  if (mutableAuth.passwordHash && mutableAuth.cookieSecret) {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const raw = cookies[HQ_SESSION_COOKIE];
+    if (raw) {
+      const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret);
+      if (sessionId && sessions.has(sessionId)) return 'cookie';
+    }
+  }
+  return undefined;
 }
 
 function decodePathSegment(value: string): string | null {
@@ -639,6 +733,7 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
   // remains operator-owned, including explicit empty-token open mode.
   const firstRunAuth = await ensureHqFirstRunAuthFile(dataDir, {
     warn: (msg: string) => console.warn(JSON.stringify({ level: 'warn', event: 'hq.auth_load_failed', message: msg, timestamp: new Date().toISOString() })),
+    ...(options.password !== undefined ? { password: options.password } : {}),
   });
   return startHqServerWithAuth(options, host, port, dataDir, firstRunAuth);
 }
@@ -688,6 +783,8 @@ function startHqServerWithAuth(
     /** Browser token objects keyed by token string — for capability checks. */
     browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
     clientTokenObjs: Map<string, HqToken>;
+    passwordHash?: string | undefined;
+    cookieSecret?: string | undefined;
   } = {
     operatorPolicy: {
       ...DEFAULT_HQ_REDACTION_POLICY,
@@ -700,6 +797,8 @@ function startHqServerWithAuth(
       (authFile.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
     ),
     clientTokenObjs: new Map((authFile.clientTokens ?? []).map((token) => [token.token, token])),
+    passwordHash: authFile.passwordHash,
+    cookieSecret: authFile.cookieSecret,
   };
 
   // Surface the resolved data directory + whether an operator override
@@ -714,6 +813,7 @@ function startHqServerWithAuth(
     operatorPolicyActive: authFile.redactionPolicy !== undefined,
     browserTokenMode: mutableAuth.browserTokens.size > 0,
     clientTokenMode: mutableAuth.clientTokens.size > 0,
+    passwordMode: mutableAuth.passwordHash !== undefined,
     timestamp: new Date().toISOString(),
   }));
   void options;
@@ -721,6 +821,7 @@ function startHqServerWithAuth(
   return new Promise((resolve, reject) => {
     const clients = new Map<WebSocket, ConnectedClient>();
     const browsers = new Set<WebSocket>();
+    const sessions = new Map<string, { createdAt: number }>();
     const eventLog: HqEventEnvelope[] = [];
     const transcripts = new Map<string, TranscriptRing>();
     // Per-subagent message history (keyed by subagentId), fed by agent.message
@@ -817,23 +918,30 @@ function startHqServerWithAuth(
         return;
       }
 
-      // When browser TOKEN MODE is active, DATA routes (/api/*) require a
-      // valid browser token; WS upgrades are gated separately below. The
-      // dashboard shell — index.html, /assets/*, the SPA fallback — is
-      // served publicly so a token-less (or stale-token) browser can render
-      // the token-entry gate instead of a bare JSON 401; the shell carries
-      // no telemetry, every byte of data flows through the gated channels.
-      // Token is accepted via ?token= query param (for browser/dashboard
-      // use) or Authorization: Bearer header (programmatic / curl access).
-      if (mutableAuth.browserTokens.size > 0 && url.pathname.startsWith('/api/')) {
-        const supplied = extractBrowserToken(req, url);
-        if (!supplied || !mutableAuth.browserTokens.has(supplied)) {
+      // When browser TOKEN MODE or PASSWORD MODE is active, DATA routes
+      // (/api/*) require a valid browser token OR a signed password session
+      // cookie. WS upgrades are gated separately below. The dashboard shell —
+      // index.html, /assets/*, the SPA fallback — is served publicly so an
+      // unauthenticated browser can render the token/password entry gate
+      // instead of a bare JSON 401; the shell carries no telemetry, every byte
+      // of data flows through the gated channels.
+      if (
+        url.pathname.startsWith('/api/') &&
+        url.pathname !== '/api/auth/status' &&
+        url.pathname !== '/api/login' &&
+        (mutableAuth.browserTokens.size > 0 || mutableAuth.passwordHash)
+      ) {
+        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+        if (!auth) {
+          const tokenOnly = mutableAuth.browserTokens.size > 0 && !mutableAuth.passwordHash;
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
               error: {
-                code: 'INVALID_TOKEN',
-                message: 'A valid ?token= or Authorization: Bearer is required for HTTP access in browser token mode.',
+                code: tokenOnly ? 'INVALID_TOKEN' : 'UNAUTHORIZED',
+                message: tokenOnly
+                  ? 'A valid ?token= or Authorization: Bearer is required for HTTP access in browser token mode.'
+                  : 'A valid browser token or password session is required.',
               },
             }),
           );
@@ -862,6 +970,67 @@ function startHqServerWithAuth(
       }
 
       // ── HQ API routes ──────────────────────────────────────────────
+      if (url.pathname === '/api/auth/status' && req.method === 'GET') {
+        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            tokenMode: mutableAuth.browserTokens.size > 0,
+            passwordMode: mutableAuth.passwordHash !== undefined,
+            loggedIn: auth !== undefined,
+          }),
+        );
+        return;
+      }
+
+      if (url.pathname === '/api/login' && req.method === 'POST') {
+        if (!mutableAuth.passwordHash) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'PASSWORD_NOT_CONFIGURED', message: 'Password login is not enabled on this HQ server.' } }));
+          return;
+        }
+        let body: { password?: unknown };
+        try {
+          body = JSON.parse(await readRequestBody(req)) as { password?: unknown };
+        } catch (error) {
+          writeInvalidBody(res, error);
+          return;
+        }
+        if (typeof body.password !== 'string' || body.password.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'password is required' } }));
+          return;
+        }
+        const ok = await verifyHqPassword(body.password, mutableAuth.passwordHash);
+        if (!ok || !mutableAuth.cookieSecret) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'INVALID_PASSWORD', message: 'Invalid password.' } }));
+          return;
+        }
+        const sessionId = randomUUID();
+        sessions.set(sessionId, { createdAt: Date.now() });
+        setHqSessionCookie(res, serializeHqSessionCookie(sessionId, mutableAuth.cookieSecret));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ loggedIn: true }));
+        return;
+      }
+
+      if (url.pathname === '/api/logout' && req.method === 'POST') {
+        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+        if (auth === 'cookie') {
+          const cookies = parseCookieHeader(req.headers.cookie);
+          const raw = cookies[HQ_SESSION_COOKIE];
+          if (raw) {
+            const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret ?? '');
+            if (sessionId) sessions.delete(sessionId);
+          }
+        }
+        clearHqSessionCookie(res);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ loggedIn: false }));
+        return;
+      }
+
       if (url.pathname === '/api/snapshot' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(buildSnapshot(clients)));
@@ -932,20 +1101,20 @@ function startHqServerWithAuth(
       // where any browser token suffices). The target client must advertise
       // the `control.receive` capability.
       if (url.pathname === '/api/command' && req.method === 'POST') {
-        // Auth: reuse the browser-token gate already active for this request.
-        const suppliedToken = extractBrowserToken(req, url);
+        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
         const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
-        if (inBrowserTokenMode) {
-          if (!suppliedToken || !mutableAuth.browserTokens.has(suppliedToken)) {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'unauthorized' }));
-            return;
-          }
+        const inPasswordMode = mutableAuth.passwordHash !== undefined;
+        if ((inBrowserTokenMode || inPasswordMode) && !auth) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'unauthorized' }));
+          return;
         }
-        // Capability check: the browser token must grant control.enqueue.
-        // In open mode (no browser tokens configured), control is allowed.
-        const tokenObj = suppliedToken !== undefined ? mutableAuth.browserTokenObjs.get(suppliedToken) : undefined;
+        const tokenObj = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
+        // Capability check: a token must grant control.enqueue; password-session
+        // logins inherit full browser access. In open mode (no browser tokens or
+        // password configured), control is allowed.
         const canEnqueue =
+          auth === 'cookie' ||
           !inBrowserTokenMode ||
           tokenObj?.capabilities === undefined ||
           tokenObj.capabilities.includes('control.enqueue');
@@ -1022,7 +1191,7 @@ function startHqServerWithAuth(
           commandId,
           type: validated.type,
           clientId: target.clientId,
-          enqueuedBy: tokenObj?.id ?? 'open-mode',
+          enqueuedBy: auth === 'cookie' ? 'password-session' : tokenObj?.id ?? 'open-mode',
           enqueuedAt: queued.createdAt,
           status: 'queued',
         };
@@ -1043,16 +1212,17 @@ function startHqServerWithAuth(
       // SessionRegistry — the browser never supplies a raw filesystem path,
       // so this cannot be abused to write outside known projects.
       if (url.pathname === '/api/mailbox-send' && req.method === 'POST') {
-        // Auth mirrors /api/command: browser token + control.enqueue.
-        const suppliedToken = extractBrowserToken(req, url);
+        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
         const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
-        if (inBrowserTokenMode && (!suppliedToken || !mutableAuth.browserTokens.has(suppliedToken))) {
+        const inPasswordMode = mutableAuth.passwordHash !== undefined;
+        if ((inBrowserTokenMode || inPasswordMode) && !auth) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'unauthorized' }));
           return;
         }
-        const tokenObj = suppliedToken !== undefined ? mutableAuth.browserTokenObjs.get(suppliedToken) : undefined;
+        const tokenObj = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
         const canEnqueue =
+          auth === 'cookie' ||
           !inBrowserTokenMode ||
           tokenObj?.capabilities === undefined ||
           tokenObj.capabilities.includes('control.enqueue');
@@ -1162,15 +1332,17 @@ function startHqServerWithAuth(
       // control.enqueue capability.
       const mailboxActionMatch = url.pathname.match(/^\/api\/mailbox\/messages\/([^/]+)\/action$/);
       if (mailboxActionMatch && req.method === 'POST') {
-        const suppliedToken = extractBrowserToken(req, url);
+        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
         const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
-        if (inBrowserTokenMode && (!suppliedToken || !mutableAuth.browserTokens.has(suppliedToken))) {
+        const inPasswordMode = mutableAuth.passwordHash !== undefined;
+        if ((inBrowserTokenMode || inPasswordMode) && !auth) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'unauthorized' }));
           return;
         }
-        const tokenObj = suppliedToken !== undefined ? mutableAuth.browserTokenObjs.get(suppliedToken) : undefined;
+        const tokenObj = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
         const canEnqueue =
+          auth === 'cookie' ||
           !inBrowserTokenMode ||
           tokenObj?.capabilities === undefined ||
           tokenObj.capabilities.includes('control.enqueue');
@@ -1396,10 +1568,28 @@ function startHqServerWithAuth(
       // client tokens are separate — a browser-only token cannot be
       // replayed on /ws/client and vice versa. OPEN MODE for a channel
       // when its token set is empty (backwards compatible).
+      // Browser channel also accepts a signed password session cookie so
+      // password-logged-in tabs can open the WebSocket without exposing the
+      // password in the URL.
       const tokenSet = pathname === '/ws/browser' ? mutableAuth.browserTokens : mutableAuth.clientTokens;
-      if (tokenSet.size > 0) {
+      const needsAuth = pathname === '/ws/browser'
+        ? tokenSet.size > 0 || mutableAuth.passwordHash !== undefined
+        : tokenSet.size > 0;
+      if (needsAuth) {
         const supplied = url.searchParams.get('token') ?? '';
-        if (!supplied || !tokenSet.has(supplied)) {
+        const tokenValid = supplied && tokenSet.has(supplied);
+        const cookieValid =
+          pathname === '/ws/browser' &&
+          mutableAuth.passwordHash !== undefined &&
+          mutableAuth.cookieSecret !== undefined &&
+          ((): boolean => {
+            const cookies = parseCookieHeader(req.headers.cookie);
+            const raw = cookies[HQ_SESSION_COOKIE];
+            if (!raw) return false;
+            const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret!);
+            return sessionId !== undefined && sessions.has(sessionId);
+          })();
+        if (!tokenValid && !cookieValid) {
           socket.write(
             'HTTP/1.1 401 Unauthorized\r\n' +
               'Content-Type: application/json\r\n' +
@@ -1407,8 +1597,11 @@ function startHqServerWithAuth(
               '\r\n' +
               JSON.stringify({
                 error: {
-                  code: 'INVALID_TOKEN',
-                  message: `A valid ?token= is required for ${pathname} connections in token mode.`,
+                  code: 'UNAUTHORIZED',
+                  message:
+                    pathname === '/ws/browser'
+                      ? 'A valid ?token= or password session is required for browser connections.'
+                      : 'A valid ?token= is required for client connections in token mode.',
                 },
               }),
           );
@@ -1465,12 +1658,15 @@ function startHqServerWithAuth(
         mutableAuth.clientTokenObjs = new Map(
           (next.clientTokens ?? []).map((token) => [token.token, token]),
         );
+        mutableAuth.passwordHash = next.passwordHash;
+        mutableAuth.cookieSecret = next.cookieSecret;
         console.warn(JSON.stringify({
           level: 'info',
           event: 'hq.auth.reloaded',
           message: 'HQ auth.json reloaded',
           browserTokenCount: mutableAuth.browserTokens.size,
           clientTokenCount: mutableAuth.clientTokens.size,
+          passwordMode: mutableAuth.passwordHash !== undefined,
           timestamp: new Date().toISOString(),
         }));
       },

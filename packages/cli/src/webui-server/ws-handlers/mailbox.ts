@@ -6,6 +6,7 @@
  * - mailbox.agents   — query online/stored agent statuses
  * - mailbox.clear    — clear all mailbox messages
  * - mailbox.purge    — purge stale messages by age
+ * - mailbox.compact  — remove expired, read-by-all, and stale messages
  */
 import type { WebSocket } from 'ws';
 import * as path from 'node:path';
@@ -170,6 +171,34 @@ export async function handleMailboxPurge(
   } catch (err) {
     ctx.send(ws, {
       type: 'mailbox.purged',
+      payload: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+}
+
+export async function handleMailboxCompact(
+  ctx: MailboxContext,
+  msg: {
+    payload?: {
+      readMaxAgeMs?: number;
+      defaultTtlMs?: number;
+      completedMaxAgeMs?: number;
+      incompleteMaxAgeMs?: number;
+    };
+  },
+  ws: WebSocket,
+): Promise<void> {
+  const mb = getMailbox(ctx);
+  if (!mb) {
+    ctx.send(ws, { type: 'mailbox.compacted', payload: { error: 'No project root available' } });
+    return;
+  }
+  try {
+    const result = await mb.autoCompact(msg.payload);
+    ctx.send(ws, { type: 'mailbox.compacted', payload: result });
+  } catch (err) {
+    ctx.send(ws, {
+      type: 'mailbox.compacted',
       payload: { error: err instanceof Error ? err.message : String(err) },
     });
   }

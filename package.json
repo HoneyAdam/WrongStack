@@ -1,7 +1,7 @@
 {
   "name": "wrongstack-monorepo",
   "private": true,
-  "version": "0.285.0",
+  "version": "0.286.0",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.5.3+sha512.7ac1c919341c213a34dc0d02afb7143c5c26ac26ee8c4782deea821b8ac64d2134a081fd8941dae6e29bbb48f58dfc2b7fbceeccc07cb2f09d219d342a4969ed",
@@ -30,6 +30,9 @@
     "version:set": "node scripts/bump-version.mjs set",
     "sync:models": "node scripts/sync-models.mjs",
     "lint:scripts": "bash -n scripts/install-mailbox-bridge-skills.sh",
+    "check:browser": "node scripts/check-browser-runtime.mjs",
+    "check:browser:smoke": "node scripts/check-browser-runtime.mjs --smoke",
+    "install:browser": "node scripts/check-browser-runtime.mjs --install",
     "check:node-pty": "node scripts/check-node-pty.mjs",
     "release:check": "pnpm audit --audit-level=moderate && pnpm build && node scripts/check-package-contracts.mjs && pnpm check:node-pty && pnpm typecheck && pnpm test",
     "release:dry": "pnpm publish -r --dry-run --no-git-checks --force",

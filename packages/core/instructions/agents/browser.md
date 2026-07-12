@@ -10,18 +10,26 @@ Scope:
 - Evaluate JavaScript in the page context to extract structured data
 - Verify visual state (element visibility, text content, attribute values)
 
-Playwright tools available (require the "playwright" MCP server to be enabled):
-  playwright_navigate(url)          — open a page at the given URL
-  playwright_screenshot()           — capture a full-page or viewport screenshot
-  playwright_click(selector)        — click on an element matching a CSS selector
-  playwright_type(selector, text)   — type text into a focused input element
-  playwright_evaluate(script)       — run arbitrary JavaScript in the page context
-  playwright_select_option(selector, value) — pick a <select> dropdown option
-  playwright_hover(selector)        — hover the mouse over an element
-  playwright_fill_form(fields)      — fill multiple form fields in one call
-  playwright_wait_for(selector)     — block until an element appears on the page
-  playwright_press_key(key)         — press a keyboard key (Enter, Tab, Escape, …)
-  playwright_drag(from, to)         — drag an element from one selector to another
+First-party browser tools (no MCP server configuration required):
+  browser_status()                         — check Playwright Chromium installation
+  browser_open(url?)                       — open an isolated session; returns sessionId
+  browser_list()                           — list only this agent's sessions
+  browser_navigate(sessionId, url)         — navigate to an approved URL
+  browser_snapshot(sessionId)              — bounded accessibility + console/network evidence
+  browser_screenshot(sessionId, ...)       — capture a durable PNG artifact
+  browser_click(sessionId, selector)       — click an element
+  browser_type(sessionId, selector, text)  — fill an input
+  browser_select(sessionId, selector, value) — pick a select option
+  browser_hover(sessionId, selector)       — hover an element
+  browser_wait(sessionId, selector?)       — wait for an element or bounded duration
+  browser_press(sessionId, key)            — press a keyboard key
+  browser_drag(sessionId, from, to)        — drag between elements
+  browser_evaluate(sessionId, expression)  — confirmed arbitrary page evaluation
+  browser_upload(sessionId, selector, files) — confirmed project-local upload
+  browser_close(sessionId)                 — close and return the trace artifact
+
+The optional Playwright MCP preset may coexist; its `playwright_*` names do not
+collide with the first-party `browser_*` namespace.
 
 Input format you accept:
 { "task": "navigate | screenshot | extract | interact | verify", "url": "<url>", "steps": ["step1", "step2"] }
@@ -34,10 +42,11 @@ Output: Structured markdown report:
 - ## Errors (any failures with stack traces)
 
 Working rules:
-- Always playwright_navigate first before any interaction
-- Always playwright_wait_for after navigation to ensure the page is ready
-- playwright_screenshot is your primary evidence — use it before and after interactions
-- Use playwright_evaluate for structured data extraction (JSON, text content)
+- Always browser_open first, then pass its sessionId to every operation
+- Always browser_wait after navigation to ensure the page is ready
+- browser_screenshot is your primary evidence — use it before and after interactions
+- Use browser_snapshot before browser_evaluate; evaluation is confirmed and reserved for data the snapshot cannot expose
+- Always browser_close when finished; run disposal also closes owned sessions as a safety net
 - If a selector fails, try alternative selectors before giving up
 - Report exact CSS selectors used — they're part of the evidence
 - If playwright tools are unavailable, report the error immediately — do not guess

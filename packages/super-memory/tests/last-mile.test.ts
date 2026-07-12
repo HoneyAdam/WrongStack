@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SuperMemoryStore } from '../src/store.js';
-import { appendJsonl, readJsonl, readJsonlSnapshot } from '../src/jsonl.js';
+import { readJsonl } from '../src/jsonl.js';
 import { verifyMemoryAnchors } from '../src/anchors/verify.js';
 import { createSuperMemoryTurnMiddleware } from '../src/middleware/turn-memory.js';
 import { formatMemoryHintsDetailed } from '../src/retrieval/format.js';
@@ -97,7 +97,7 @@ describe('store.ts — verify with signal and memory id', () => {
 // =========================================================
 describe('store.ts — hygiene stats counts', () => {
   it('hygiene report shows duplicated count for superseded', async () => {
-    const mem = await store.rememberSuper({ text: 'A unique memory for hygiene test.', importance: 0.5 });
+    await store.rememberSuper({ text: 'A unique memory for hygiene test.', importance: 0.5 });
     const report = await store.hygiene({ verify: false });
     // Should examine at least 1
     expect(report.examined).toBeGreaterThanOrEqual(1);

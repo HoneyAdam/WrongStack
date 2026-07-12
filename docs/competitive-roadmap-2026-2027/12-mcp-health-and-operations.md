@@ -2,7 +2,7 @@
 
 **Priority:** P0  
 **Horizon:** 0–3 months  
-**Status:** In Progress
+**Status:** Implemented
 
 ## Outcome
 
@@ -56,10 +56,12 @@ Completed:
   connected surface into `HqSnapshot.mcpServers`, renders a sortable/filterable table with health,
   latency, saturation, failure, lifecycle counters, and threshold-check badges, and highlights
   degraded/failed servers with a tab badge.
+- Added long-running fault-injection soak tests for stdio and streamable-http transports:
+  `packages/mcp/tests/stdio-fault-soak.test.ts` exercises repeated child-process crashes and
+  verifies reconnect bounds, operational counters, and recovery once the process stabilizes;
+  `packages/mcp/tests/http-fault-soak.test.ts` exercises intermittent 5xx/network errors,
+  persistent endpoint death, and alternating connect/call faults with mocked `fetch`, verifying
+  bounded retry counts and correct `healthy`/`degraded`/`failed` transitions.
 - Added regression coverage for state derivation, bounded latency/event buffers, redacted reason
   codes, tool-call outcomes/saturation, disabled configurations, health aggregation, metric
-  cardinality, threshold evaluation, and HQ MCP snapshot aggregation.
-
-Remaining:
-
-- Add long-running stdio and HTTP fault-injection soak tests.
+  cardinality, threshold evaluation, HQ MCP snapshot aggregation, and fault-injection soak paths.

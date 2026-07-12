@@ -2,6 +2,7 @@ import type { Tool } from '@wrongstack/core';
 import { auditTool } from './audit.js';
 import { bashTool } from './bash.js';
 import { batchToolUseTool } from './batch-tool-use.js';
+import { browserTools } from './browser/tools.js';
 import {
   codebaseIndexTool,
   codebaseSearchTool,
@@ -10,6 +11,7 @@ import {
 import { designTool } from './design.js';
 import { diffTool } from './diff.js';
 import { documentTool } from './document.js';
+import { e2ePlanTool } from './e2e.js';
 import { editTool } from './edit.js';
 import { execTool } from './exec.js';
 import { fetchTool } from './fetch.js';
@@ -55,6 +57,8 @@ import { writeTool } from './write.js';
  * and auto-documentation.
  */
 export const OPTIONAL_TOOLS: Tool[] = [
+  ...browserTools,
+  e2ePlanTool,
   installTool,
   auditTool,
   outdatedTool,
@@ -150,6 +154,8 @@ export const TIER3_TOOLS: Tool[] = [
 ];
 
 export const builtinTools: Tool[] = [
+  ...browserTools,
+  e2ePlanTool,
   readTool,
   writeTool,
   editTool,

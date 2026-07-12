@@ -72,6 +72,7 @@ const coreEntries = entryMap([
 const toolEntries = entryMap([
   'src/index.ts',
   'src/builtin.ts',
+  'src/browser/index.ts',
   'src/pack.ts',
   'src/read.ts',
   'src/write.ts',

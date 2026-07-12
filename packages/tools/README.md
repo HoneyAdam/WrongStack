@@ -42,6 +42,24 @@ pnpm add @wrongstack/tools @wrongstack/core
 | `fetch` | `auto` | no | SSRF-hardened (IPv4 + IPv6 private CIDR, redirect re-validation, http://-downgrade refused) |
 | `search` | `auto` | no | Web search via configured provider |
 
+### Browser
+
+First-party `browser_*` tools lazily launch Playwright Chromium and use isolated per-agent
+contexts. Observation tools are automatic; navigation, interaction, screenshot persistence,
+upload, and evaluation require confirmation where appropriate. See
+[browser automation](../../docs/browser-automation.md) for the lifecycle and security contract.
+Credential entry uses `browser_type.secretEnv` so audit records retain a placeholder rather than
+the secret value.
+
+### E2E discovery
+
+| Tool | Permission | Mutating | Notes |
+|------|------------|----------|-------|
+| `e2e_plan` | `auto` | no | Statically discovers Playwright/Cypress configs, servers, specs, and exact argv without evaluating project code |
+
+See [the browser-aware E2E runner guide](../../docs/e2e-runner.md). Process startup and test
+execution remain separate permission-gated steps.
+
 ### Project lifecycle
 
 | Tool | Permission | Notes |
@@ -87,6 +105,7 @@ const all = new ToolRegistry(builtinTools);
 - **`bash` / `exec` child env sanitized** to a fixed allowlist + secret-substring strip (`TOKEN` / `SECRET` / `PASSWORD` / `AUTH` / `BEARER` / `COOKIE` / `PRIVATE` / `KEY`). Opt-out via `WRONGSTACK_BASH_ENV_PASSTHROUGH=1`.
 - **`bash` POSIX process-group kill** with `SIGTERM → 800 ms → SIGKILL`. Runaway grandchildren can't survive the timeout.
 - **`fetch` SSRF defenses**: numeric CIDR checks for IPv4 (`10/8`, `127/8`, `169.254/16`, `100.64/10`, `224/4`, `240/4`, …) and 8-group-expanded IPv6 (including Node's compressed `::ffff:7f00:1` form for v4-mapped addresses). Redirect target re-validated on every hop. `http://` downgrade refused.
+- **`browser_*` isolation and SSRF defenses**: one context per agent/session, private-host and URL-credential rejection, guarded subrequests, disabled downloads, project-root-confined uploads, bounded/redacted evidence, and abort/run-disposal cleanup.
 - **`patch` diff-target validation**: every `+++` target post-strip is resolved against `projectRoot` before GNU patch sees the diff. `strip` clamped to `≥1`. Temp diff written to a `0700 mkdtemp` directory. Run with `LANG=C` / `LC_ALL=C`.
 - **`replace` / `grep` symlink-safe**: lstat + realpath + projectRoot revalidation; symlinks skipped, not followed.
 - **User-regex ReDoS guard** (`_regex.ts`): 512-char cap, nested-quantifier rejection (`(a+)+`, `(?:x+)*`), 64 KB subject-line cap. Applied to `grep`, `replace`, `logs`.

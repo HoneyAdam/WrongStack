@@ -97,4 +97,15 @@ describe('StreamCoalescer', () => {
     tick();
     expect(flush).not.toHaveBeenCalled();
   });
+
+  it('falls back to queueMicrotask when requestAnimationFrame is unavailable (line 36)', async () => {
+    // Remove requestAnimationFrame so scheduleRaf uses queueMicrotask
+    vi.stubGlobal('requestAnimationFrame', undefined);
+    const c = new StreamCoalescer();
+    const flush = vi.fn();
+    c.push('a', 'hello', flush);
+    // Wait for microtask queue to drain (queueMicrotask fires before macrotasks)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(flush).toHaveBeenCalledWith('a', 'hello');
+  });
 });

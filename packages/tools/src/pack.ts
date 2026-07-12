@@ -3,6 +3,6 @@ import { builtinTools } from './builtin.js';
 export const builtinToolsPack = {
   name: 'builtin-tools',
   description:
-    'The complete set of built-in tools that ship with WrongStack. Covers filesystem (read/write/edit/replace/glob/grep/tree), execution (bash/exec/git/install), networking (fetch/search), code quality (lint/test/typecheck/format), planning (todo/plan/memory), and meta tools (tool-search/tool-help/batch-tool-use/codebase-*).',
+    'The complete set of built-in tools that ship with WrongStack. Covers filesystem, execution, first-party browser automation, read-only E2E planning, networking, code quality, planning, and meta tools.',
   tools: builtinTools,
 };

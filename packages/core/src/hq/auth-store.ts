@@ -20,7 +20,7 @@
  *
  * @module hq/auth-store
  */
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as syncFs from 'node:fs';
 import * as path from 'node:path';
@@ -119,6 +119,10 @@ export interface HqAuthFile {
   browserTokens?: HqToken[];
   /** Client tokens — validated on `/ws/client` upgrades (Phase 4). */
   clientTokens?: HqToken[];
+  /** scrypt hash of the optional browser password login. */
+  passwordHash?: string;
+  /** Secret used to sign browser session cookies. */
+  cookieSecret?: string;
 }
 
 /** An empty auth file — what a brand-new HQ install starts with. */
@@ -225,6 +229,12 @@ export async function writeHqAuthFile(dataDir: string, file: HqAuthFile): Promis
   await atomicWrite(target, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
+export interface EnsureHqFirstRunAuthOptions {
+  warn?: (msg: string) => void;
+  /** Optional browser password login. Hashed with scrypt before storage. */
+  password?: string;
+}
+
 export interface EnsureHqFirstRunAuthResult {
   authFile: HqAuthFile;
   created: boolean;
@@ -239,7 +249,7 @@ export interface EnsureHqFirstRunAuthResult {
  */
 export async function ensureHqFirstRunAuthFile(
   dataDir: string,
-  opts: { warn?: (msg: string) => void } = {},
+  opts: EnsureHqFirstRunAuthOptions = {},
 ): Promise<EnsureHqFirstRunAuthResult> {
   const file = hqAuthFilePath(dataDir);
   try {
@@ -264,6 +274,10 @@ export async function ensureHqFirstRunAuthFile(
     browserTokens: [browserToken],
     clientTokens: [clientToken],
   };
+  if (opts.password) {
+    authFile.passwordHash = await hashHqPassword(opts.password);
+    authFile.cookieSecret = mintHqCookieSecret();
+  }
   await writeHqAuthFile(dataDir, authFile);
   return { authFile: await readHqAuthFile(dataDir, opts), created: true, browserToken, clientToken };
 }
@@ -287,6 +301,54 @@ export async function mutateHqAuthFile(
   const next = await mutator(current);
   await writeHqAuthFile(dataDir, next);
   return next;
+}
+
+const HQ_PASSWORD_SALT_BYTES = 16;
+const HQ_PASSWORD_HASH_BYTES = 32;
+const HQ_PASSWORD_SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
+
+/**
+ * Hash a browser password for storage in `auth.json`. Uses scrypt with a
+ * random salt; the returned string is `scrypt$<salt>$<hash>` in base64url.
+ */
+export function hashHqPassword(password: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const salt = randomBytes(HQ_PASSWORD_SALT_BYTES);
+    scrypt(password, salt, HQ_PASSWORD_HASH_BYTES, HQ_PASSWORD_SCRYPT_PARAMS, (err, derivedKey) => {
+      if (err) return reject(err);
+      const payload = `scrypt$${salt.toString('base64url')}$${derivedKey.toString('base64url')}`;
+      resolve(payload);
+    });
+  });
+}
+
+/**
+ * Verify a browser password against a stored scrypt hash.
+ */
+export async function verifyHqPassword(password: string, hash: string): Promise<boolean> {
+  const parts = hash.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt' || !parts[1] || !parts[2]) return false;
+  let salt: Buffer;
+  let expected: Buffer;
+  try {
+    salt = Buffer.from(parts[1], 'base64url');
+    expected = Buffer.from(parts[2], 'base64url');
+  } catch {
+    return false;
+  }
+  if (salt.length === 0 || expected.length === 0) return false;
+  const derived = await new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, expected.length, HQ_PASSWORD_SCRYPT_PARAMS, (err, key) => {
+      if (err) reject(err);
+      else resolve(key);
+    });
+  });
+  return timingSafeEqual(derived, expected);
+}
+
+/** Mint a secret used to sign browser session cookies. */
+export function mintHqCookieSecret(): string {
+  return randomBytes(32).toString('base64url');
 }
 
 /**

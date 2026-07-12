@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SUPER_MEMORY_SCHEMA_VERSION,
   superToLegacyScope,
   legacyToSuperScope,
   kindToLegacyType,

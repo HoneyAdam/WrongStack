@@ -1,35 +1,27 @@
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSuperMemoryTools } from '../src/tools/memory-tools.js';
 import type { SuperMemoryServiceLike } from '../src/tools/memory-tools.js';
-import type { SuperMemory, MemoryGraphEdge, MemoryVerificationResult, SuperMemoryHygieneReport, MemoryCandidate } from '../src/types.js';
 
 function createMockService(): SuperMemoryServiceLike {
   return {
-    async remember(text, scope, opts?) {
-      return { id: 'mem_1', text, scope: scope === 'user-memory' ? 'user' : 'project', revision: 1, kind: 'fact', status: 'active', importance: 0.5, confidence: 0.5, freshness: 0.5, tags: [], anchors: [], sources: [], createdAt: '', updatedAt: '' };
-    },
-    async list(scope) {
-      return [{ text: 'test', scope, ts: '', type: 'fact', priority: 'medium', tags: ['test'] }];
-    },
-    async search(query, scope) {
-      return [];
-    },
-    async findRelated(query, scope, limit) {
-      return [];
-    },
-    async count() { return 0; },
-    async stats() { return { total: 0, byStatus: { active: 0, stale: 0, superseded: 0, contradicted: 0, archived: 0, deleted: 0 }, byKind: {}, edges: 0 }; },
-    async retrieveForPath(opts) { return []; },
-    async searchSuper(query, opts?) { return []; },
-    async graphFor(query, maxDepth?, limit?) { return []; },
-    async verify(memoryId?, signal?) { return []; },
-    async hygiene(options?, signal?) { return { startedAt: '', completedAt: '', examined: 0, deduplicated: 0, superseded: 0, contradicted: 0, staled: 0, archived: 0, deleted: 0, verified: 0 }; },
-    async listCandidates(includeResolved?) { return []; },
-    async acceptCandidate(candidateId) { return undefined; },
-    async rejectCandidate(candidateId, reason) { return false; },
+    async readAll() { return ''; },
+    async read() { return ''; },
+    async remember() {},
+    async forget() { return 0; },
+    async consolidate() {},
+    async clear() {},
+    async list() { return []; },
+    async search() { return []; },
+    async findRelated() { return []; },
+    withTraceId() { return this; },
+    async retrieveForPath() { return []; },
+    async searchSuper() { return []; },
+    async graphFor() { return []; },
+    async verify() { return []; },
+    async hygiene() { return { startedAt: '', completedAt: '', examined: 0, deduplicated: 0, superseded: 0, contradicted: 0, staled: 0, archived: 0, deleted: 0, verified: 0 }; },
+    async listCandidates() { return []; },
+    async acceptCandidate() { return undefined; },
+    async rejectCandidate() { return false; },
   };
 }
 
@@ -66,7 +58,7 @@ describe('memory_for_file tool', () => {
     const service = createMockService();
     service.retrieveForPath = retrieveForPath;
 
-    const [tool] = createSuperMemoryTools(service);
+    const tool = createSuperMemoryTools(service)[0]!;
     const signal = new AbortController().signal;
     await tool.execute({ path: 'src/file.ts', limit: 5 }, {} as never, { signal } as never);
 
@@ -78,7 +70,7 @@ describe('memory_for_file tool', () => {
   });
 
   it('throws on abort', async () => {
-    const [tool] = createSuperMemoryTools(createMockService());
+    const tool = createSuperMemoryTools(createMockService())[0]!;
     const abort = new AbortController();
     abort.abort();
     await expect(tool.execute({ path: 'x' }, {} as never, { signal: abort.signal } as never)).rejects.toThrow();

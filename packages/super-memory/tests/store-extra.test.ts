@@ -77,7 +77,7 @@ describe('SuperMemoryStore — legacy remember() options', () => {
   });
 
   it('remembers with user-memory scope', async () => {
-    const mem = await store.remember('user item', 'user-memory');
+    await store.remember('user item', 'user-memory');
     // Returns void — memory stored regardless
     const found = await store.searchSuper('user item', { includeStatuses: ['active'] });
     expect(found.length).toBeGreaterThanOrEqual(1);
@@ -129,7 +129,7 @@ describe('SuperMemoryStore — candidates', () => {
   });
 
   it('rejects a candidate', async () => {
-    const result = await store.consolidateSession({
+    await store.consolidateSession({
       sessionId: 's2',
       facts: [{ text: 'Reject me.', confidence: 0.4, importance: 0.4 }],
     });
@@ -168,7 +168,7 @@ describe('SuperMemoryStore — graph traversal', () => {
 
 describe('SuperMemoryStore — searchSuper', () => {
   it('searches with status filter', async () => {
-    const mem = await store.rememberSuper({ text: 'Test search.', importance: 0.5 });
+    await store.rememberSuper({ text: 'Test search.', importance: 0.5 });
     // Update via rememberSuper with supersedes should work but we can't directly update
     // Instead use a second remember with same text (dedup will merge)
     const activeOnly = await store.searchSuper('Test', { includeStatuses: ['active'] });

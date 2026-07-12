@@ -222,11 +222,8 @@ describe('setupPlugins', () => {
   const EXPECTED_BUILTINS = [
     'wstack-prompts',
     'wstack-sync',
-    'wstack-git',
-    'wstack-observability',
     'wstack-security',
     'wstack-skills',
-    'wstack-plan',
   ];
 
   function fakePaths() {
@@ -312,16 +309,16 @@ describe('setupPlugins', () => {
 
   it('opts a single built-in out via config.plugins { enabled: false }', async () => {
     const deps = {
-      ...baseDeps({ plugins: [{ name: 'wstack-git', enabled: false }] as never }),
+      ...baseDeps({ plugins: [{ name: 'wstack-security', enabled: false }] as never }),
       paths: fakePaths(),
     };
     await setupPlugins(deps as never);
     const [plugins] = loadPluginsMock.mock.calls[0]!;
     const names = (plugins as Array<{ name: string }>).map((p) => p.name);
-    expect(names).not.toContain('wstack-git');
+    expect(names).not.toContain('wstack-security');
     // the rest stay enabled by default
     expect(names).toContain('wstack-prompts');
-    expect(names).toContain('wstack-plan');
+    expect(names).toContain('wstack-skills');
   });
 
   it('treats enabled short-name built-in config entries as controls, not bare package imports', async () => {

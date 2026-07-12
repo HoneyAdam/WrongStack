@@ -112,4 +112,10 @@ describe('printLaunchHints', () => {
     await printLaunchHints(r2, {}, { groupIndex: 0 });
     expect(r2.write).toHaveBeenCalled();
   });
+
+  it('renders hints using random group when no cursorFile or groupIndex specified', async () => {
+    const r = makeRenderer();
+    await printLaunchHints(r, {});
+    expect(r.write).toHaveBeenCalled();
+  });
 });

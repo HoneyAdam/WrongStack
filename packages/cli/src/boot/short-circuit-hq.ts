@@ -97,6 +97,7 @@ export async function handleHqShortCircuit(
   } else port = DEFAULT_PORT;
 
   const dataDir = typeof flags['data-dir'] === 'string' ? flags['data-dir'] : undefined;
+  const password = typeof flags['password'] === 'string' ? flags['password'] : undefined;
   // User explicitly chose a port if they either passed --port OR accepted
   // a non-default value from the interactive prompt.
   const userProvidedPort =
@@ -132,6 +133,7 @@ export async function handleHqShortCircuit(
       strictPort: flags['strict-port'] === true,
       exactPort: userProvidedPort,
       ...(dataDir !== undefined ? { dataDir } : {}),
+      ...(password !== undefined ? { password } : {}),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

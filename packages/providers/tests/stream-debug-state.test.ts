@@ -125,5 +125,31 @@ describe('stream-debug-state', () => {
         expect.stringContaining('4.0KB'),
       );
     });
+
+    it('formats bytes under 1024 as B', () => {
+      const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const stats: DebugStreamStats = {
+        chunkCount: 0,
+        lastChunkSize: 512,
+        lastDeltaMs: 10,
+        totalBytes: 512,
+        lastChunkAt: '2025-01-01T12:00:00.000Z',
+      };
+      defaultDebugStreamCallback(stats);
+      expect(write).toHaveBeenCalledWith(expect.stringContaining('512B'));
+    });
+
+    it('formats bytes >= 1MB with MB suffix', () => {
+      const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const stats: DebugStreamStats = {
+        chunkCount: 0,
+        lastChunkSize: 1048576,
+        lastDeltaMs: 10,
+        totalBytes: 2097152,
+        lastChunkAt: '2025-01-01T12:00:00.000Z',
+      };
+      defaultDebugStreamCallback(stats);
+      expect(write).toHaveBeenCalledWith(expect.stringContaining('2.0MB'));
+    });
   });
 });

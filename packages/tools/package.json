@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/tools",
-  "version": "0.285.0",
+  "version": "0.286.0",
   "license": "MIT",
   "description": "WrongStack built-in tools: read/write/edit, bash/exec, grep/glob, git, fetch, test, lint, and more.",
   "repository": {
@@ -23,6 +23,10 @@
     "./builtin": {
       "types": "./dist/builtin.d.ts",
       "import": "./dist/builtin.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js"
     },
     "./pack": {
       "types": "./dist/pack.d.ts",
@@ -226,6 +230,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
+    "@playwright/test": "^1.61.1",
     "@typescript/typescript6": "^6.0.2",
     "@wrongstack/core": "workspace:*",
     "@wrongstack/kanban": "workspace:*",

@@ -157,5 +157,6 @@ export {
   handleMailboxMessages,
   handleMailboxAgents,
   handleMailboxClear,
+  handleMailboxCompact,
   handleMailboxPurge,
 } from './mailbox.js';

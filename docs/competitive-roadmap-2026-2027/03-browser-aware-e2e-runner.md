@@ -2,7 +2,7 @@
 
 **Priority:** P1  
 **Horizon:** 3–6 months  
-**Status:** Proposed
+**Status:** In Progress
 
 ## Outcome
 
@@ -37,3 +37,23 @@ Turn generic test execution plus browser automation into a guided E2E workflow t
 - Artifact storage and rendering from the multimodal plan.
 - Quality engineering conventions for traces and visual baselines.
 
+## Implementation progress (2026-07-12)
+
+Completed:
+
+- Added an auto-approved, read-only `e2e_plan` builtin shared by CLI, TUI, WebUI, Desktop, and
+  fleet workers through the normal tool registry.
+- Added bounded monorepo discovery for Playwright and Cypress configs, dependencies, package
+  scripts, package managers, and specs with cancellation and traversal containment.
+- Added static managed-server/base-URL inspection without importing executable project configs;
+  dynamic values are reported as incomplete instead of being evaluated.
+- Added deterministic package-script or framework-default command/argv plans without spawning a
+  process or rewriting existing configuration.
+- Added Playwright and Cypress fixture coverage for nested workspaces, server hints, filtering,
+  cancellation, and path-containment behavior.
+
+Remaining:
+
+- Integrate permission-gated server and test execution with the process registry.
+- Normalize Playwright/Cypress failures, logs, screenshots, videos, and traces.
+- Add generated smoke journeys plus WebUI/TUI evidence views and rerun controls.

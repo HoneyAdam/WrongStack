@@ -27,6 +27,11 @@ export interface SuperMemoryRetrieverLike {
   recordInjection?(memoryIds: string[], trigger: string, sessionId?: string): void | Promise<void>;
 }
 
+export type SuperMemorySearchLike = Pick<
+  SuperMemoryRetrieverLike,
+  'searchSuper' | 'recordInjection'
+>;
+
 export type MemoryToolTrigger =
   | 'read'
   | 'tree'

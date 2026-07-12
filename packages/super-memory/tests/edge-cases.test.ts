@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SuperMemoryStore } from '../src/store.js';
 import { verifyMemoryAnchors } from '../src/anchors/verify.js';
-import { formatMemoryHints, formatMemoryHintsDetailed } from '../src/retrieval/format.js';
+import { formatMemoryHintsDetailed } from '../src/retrieval/format.js';
 import { createSuperMemoryToolCallMiddleware } from '../src/middleware/tool-call-memory.js';
 import type { SuperMemory } from '../src/types.js';
 
@@ -59,8 +59,8 @@ describe('store.ts — compareMemoryQuality', () => {
   });
 
   it('breaks ties by confidence', async () => {
-    await store.rememberSuper({ text: 'Same imp higher conf.', importance: 0.5, confidence: 0.9, createdAt: '2026-01-01T00:00:00.000Z' });
-    await store.rememberSuper({ text: 'Same imp lower conf.', importance: 0.5, confidence: 0.3, createdAt: '2026-01-02T00:00:00.000Z' });
+    await store.rememberSuper({ text: 'Same imp higher conf.', importance: 0.5, confidence: 0.9 });
+    await store.rememberSuper({ text: 'Same imp lower conf.', importance: 0.5, confidence: 0.3 });
 
     const results = await store.searchSuper('Same imp');
     // Higher confidence should come first
@@ -315,7 +315,7 @@ describe('store.ts — legacy API coverage', () => {
 
   it('scoreRelevant returns scored entries sorted by relevance', async () => {
     await store.rememberSuper({ text: 'Relevant result.', importance: 0.5, scope: 'project' });
-    const results = await store.scoreRelevant('relevant', 'project-memory', 10);
+    const results = await store.scoreRelevant({ currentTask: 'relevant' }, 'project-memory', 10);
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0]?.score).toBeGreaterThan(0);
   });
@@ -326,8 +326,6 @@ describe('store.ts — legacy API coverage', () => {
 // ======================================================
 describe('store.ts — createCandidate', () => {
   it('creates a candidate with all fields', async () => {
-    const { ulid } = await import('@wrongstack/core/utils');
-    const id = (store as any).candidateId?.() ?? `cand_${ulid()}`;
     const mem = await store.rememberSuper({ text: 'Original for candidate.' });
     const candidate = await (store as any).createCandidate?.({
       text: 'Candidate text',

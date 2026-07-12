@@ -42,6 +42,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install first-party browser (Linux)
+        if: runner.os == 'Linux'
+        run: node scripts/check-browser-runtime.mjs --install --with-deps
+
+      - name: Install first-party browser (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/check-browser-runtime.mjs --install
+
+      - name: Smoke test first-party browser
+        run: node scripts/check-browser-runtime.mjs --smoke
+
       # node-pty prebuilt smoke check. Catches pnpm 11 + Node 22/24 +
       # optionalDependencies regressions that the rest of CI misses
       # because vitest never actually loads the native binary (it just

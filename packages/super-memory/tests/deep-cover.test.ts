@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { EventBus } from '@wrongstack/core/kernel';
 import { SuperMemoryStore } from '../src/store.js';
 
 let tmpDir: string;
@@ -311,6 +312,7 @@ describe('store.ts — listSuper status combinations', () => {
       importance: 0.9,
       supersedes: [mem.id],
     });
+    expect(mem2.id).not.toBe(mem.id);
     // The original should now be superseded
     const supersededList = await store.listSuper(['superseded']);
     // Verification: either superseded or still active
@@ -395,7 +397,7 @@ describe('store.ts — importLegacy type parsing', () => {
 // =========================================================
 describe('store.ts — events in constructor', () => {
   it('accepts EventBus in options without crashing', () => {
-    const eventBus = { emit: () => {}, on: () => {}, off: () => {} };
+    const eventBus = new EventBus();
     const s = new SuperMemoryStore({ projectRoot: tmpDir, events: eventBus });
     expect(s).toBeDefined();
   });

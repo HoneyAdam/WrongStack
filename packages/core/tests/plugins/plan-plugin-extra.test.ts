@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlashCommand } from '../../src/index.js';
-import { buildPlanCommand, createPlanPlugin } from '../../src/plugins/plan-plugin.js';
+import { buildPlanCommand as buildCliPlanCommand } from '../../../cli/src/slash-commands/plan.js';
 
 let tmp: string;
 let planPath: string;
@@ -22,34 +22,14 @@ afterEach(async () => {
 const ctx = (over: Record<string, unknown> = {}) =>
   ({ session: { id: 'sess-x' }, meta: {}, state: { replaceTodos: vi.fn() }, ...over }) as never;
 
-describe('createPlanPlugin lifecycle', () => {
-  function makeApi(config: Record<string, unknown> = {}) {
-    const registered: SlashCommand[] = [];
-    const unregister = vi.fn();
-    const api = {
-      config,
-      slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister },
-      log: { info: vi.fn() },
-    } as never;
-    return { api, registered, unregister };
-  }
-
-  it('registers /plan on setup, unregisters on teardown, health ok', async () => {
-    const { api, registered, unregister } = makeApi();
-    const plugin = createPlanPlugin({ paths: { projectPlan: planPath } as never });
-    plugin.setup!(api);
-    expect(registered[0]?.name).toBe('plan');
-    plugin.teardown!(api);
-    expect(unregister).toHaveBeenCalledWith('plan');
-    expect(await plugin.health!()).toMatchObject({ ok: true });
-  });
-
-  it('reads paths from api.config when no opts given (and reports unconfigured storage)', async () => {
-    const { api, registered } = makeApi({}); // no paths → command built with undefined planPath
-    createPlanPlugin().setup!(api);
-    expect((await registered[0]!.run!('show', ctx())).message).toContain('not configured');
-  });
-});
+function buildPlanCommand(planPath?: string): SlashCommand {
+  const command = buildCliPlanCommand({ planPath } as never);
+  return {
+    ...command,
+    run: (args, context) =>
+      buildCliPlanCommand({ planPath, context } as never).run!(args, context),
+  };
+}
 
 describe('/plan taskify (findPlanItemIndex paths)', () => {
   it('usage, no-match, missing task storage, and success by index/id/title', async () => {

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSuperMemoryTurnMiddleware } from '../src/middleware/turn-memory.js';
 import type { SuperMemory } from '../src/types.js';
-import type { Message } from '@wrongstack/core';
 
 describe('createSuperMemoryTurnMiddleware', () => {
   const makeMemory = (overrides: Partial<SuperMemory> = {}): SuperMemory => ({

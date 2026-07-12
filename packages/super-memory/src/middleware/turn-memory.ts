@@ -1,10 +1,10 @@
 import type { Middleware } from '@wrongstack/core/kernel';
 import type { Message, Request } from '@wrongstack/core';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
-import type { SuperMemoryRetrieverLike } from './tool-call-memory.js';
+import type { SuperMemorySearchLike } from './tool-call-memory.js';
 
 export interface SuperMemoryTurnMiddlewareOptions {
-  memory: SuperMemoryRetrieverLike;
+  memory: SuperMemorySearchLike;
   maxMemories?: number | undefined;
   maxChars?: number | undefined;
   minScore?: number | undefined;

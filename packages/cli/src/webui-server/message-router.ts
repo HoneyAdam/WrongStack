@@ -169,6 +169,7 @@ import {
 import {
   handleMailboxAgents,
   handleMailboxClear,
+  handleMailboxCompact,
   handleMailboxMessages,
   handleMailboxPurge,
 } from './ws-handlers/mailbox.js';
@@ -760,6 +761,8 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     'mailbox.clear': (_msg, ws) => handleMailboxClear(mailboxCtx, ws),
     'mailbox.purge': (msg, ws) =>
       handleMailboxPurge(mailboxCtx, msg as Parameters<typeof handleMailboxPurge>[1], ws),
+    'mailbox.compact': (msg, ws) =>
+      handleMailboxCompact(mailboxCtx, msg as Parameters<typeof handleMailboxCompact>[1], ws),
 
     // ── Silent no-ops (standalone server wires real handlers) ──
     'collab.join': noop,

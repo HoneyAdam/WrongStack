@@ -273,6 +273,36 @@ describe('parseGoalState — journal', () => {
     ]);
   });
 
+  it('drops entries with wrong-typed status field (line 51)', () => {
+    const raw = {
+      goal: 'T',
+      journal: [
+        { iteration: 1, status: 123 },      // numeric status → dropped
+        { iteration: 2, status: true },      // boolean status → dropped
+        { iteration: 3, status: 'active' },  // valid string status → kept
+      ],
+    };
+    const result = parseGoalState(raw);
+    expect(result!.journal).toHaveLength(1);
+    expect(result!.journal![0].iteration).toBe(3);
+    expect(result!.journal![0].status).toBe('active');
+  });
+
+  it('drops entries with non-finite progress (NaN/Infinity)', () => {
+    const raw = {
+      goal: 'T',
+      journal: [
+        { iteration: 1, progress: Number.NaN },       // NaN → dropped
+        { iteration: 2, progress: Number.POSITIVE_INFINITY }, // Infinity → dropped
+        { iteration: 3, progress: 50 },               // valid → kept
+      ],
+    };
+    const result = parseGoalState(raw);
+    expect(result!.journal).toHaveLength(1);
+    expect(result!.journal![0].iteration).toBe(3);
+    expect(result!.journal![0].progress).toBe(50);
+  });
+
   it('preserves optional string fields that are missing or undefined', () => {
     // A row with only the required `iteration` field is valid.
     // Optional fields are allowed to be absent.

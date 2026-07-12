@@ -31,6 +31,7 @@ See `packages/tools/src/builtin.ts` for the full list. Common categories:
 - **Filesystem:** read, write, edit, replace, glob, grep, tree, patch, diff, json
 - **Execution:** bash, exec, git
 - **Network:** fetch, search
+- **Browser:** browser-status/open/list/navigate/snapshot/screenshot/click/type/select/press/hover/drag/wait/evaluate/upload/close
 - **Project:** lint, format, typecheck, test, install, audit, outdated, logs, document, scaffold
 - **Agent control:** todo, plan, tool-search, tool-use, batch-tool-use, tool-help, memory, mode
 

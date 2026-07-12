@@ -94,6 +94,7 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   // Testing
   test: 'test',
   tests: 'test',
+  e2e_plan: 'test',
 
   // Package management
   install: 'package',

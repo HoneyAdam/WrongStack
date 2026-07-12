@@ -181,13 +181,15 @@ describe('GlobalMailbox client registry', () => {
     expect((await mb.getClientStatuses()).length).toBe(2); // sort comparator invoked
   });
 
-  it('marks clients offline once stale', async () => {
+  it('prunes stale clients from the registry', async () => {
     const old = new Date(Date.now() - 120_000).toISOString();
     await fs.writeFile(
       mb.clientRegistryPath,
       JSON.stringify({ c1: { clientId: 'c1', sessionId: 's', name: 'Old', source: 'tui', registeredAt: old, lastSeenAt: old } }),
     );
-    expect((await mb.getClientStatuses())[0]?.online).toBe(false);
+    // Clients past CLIENT_STALE_MS (60s) are pruned entirely, so the
+    // registry returns empty instead of a client with online:false.
+    expect(await mb.getClientStatuses()).toEqual([]);
   });
 });
 

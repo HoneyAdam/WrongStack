@@ -173,7 +173,7 @@ describe('store.ts — verify all memories', () => {
 describe('store.ts — scoreRelevant with scope', () => {
   it('returns scored entries sorted by relevance', async () => {
     await store.rememberSuper({ text: 'Relevant score test.' });
-    const results = await store.scoreRelevant('relevant', 'project-memory', 10);
+    const results = await store.scoreRelevant({ currentTask: 'relevant' }, 'project-memory', 10);
     expect(results.length).toBeGreaterThanOrEqual(0);
   });
 });
@@ -202,7 +202,6 @@ describe('store.ts — consolidateSession scope', () => {
         text: 'Scope test fact.',
         confidence: 0.4,
         importance: 0.4,
-        scope: 'user',
       }],
     });
     const candidates = await store.listCandidates();

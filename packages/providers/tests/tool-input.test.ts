@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { parseToolInput } from '../src/_tool-input.js';
 
+function dedent(s: string): string {
+  return s.replace(/^[ \t]+/gm, '');
+}
+
 describe('parseToolInput (provider stream → canonical Record<string, unknown>)', () => {
   it('returns {} for undefined / empty', () => {
     expect(parseToolInput(undefined)).toEqual({});

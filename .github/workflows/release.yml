@@ -47,6 +47,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install and smoke test first-party browser
+        run: |
+          node scripts/check-browser-runtime.mjs --install --with-deps
+          node scripts/check-browser-runtime.mjs --smoke
+
       # Build all packages so `tsc --noEmit` during typecheck can
       # find cross-package declarations (e.g. packages/bench
       # imports @wrongstack/core and needs core/dist/index.d.ts).

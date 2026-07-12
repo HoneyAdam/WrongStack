@@ -149,4 +149,8 @@ describe('normalizeLocale', () => {
   it('handles case-insensitive matching', () => {
     expect(normalizeLocale('TR')).toBe('tr');
   });
+
+  it('handles whitespace-only tag that trims to empty (line 67)', () => {
+    expect(normalizeLocale('   ')).toBe(FALLBACK_LNG);
+  });
 });

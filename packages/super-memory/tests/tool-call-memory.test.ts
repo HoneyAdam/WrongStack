@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSuperMemoryToolCallMiddleware, type SuperMemoryToolCallMiddlewareOptions } from '../src/middleware/tool-call-memory.js';
+import { createSuperMemoryToolCallMiddleware } from '../src/middleware/tool-call-memory.js';
 import type { ToolCallPipelinePayload } from '@wrongstack/core';
 import { SuperMemoryStore } from '../src/store.js';
 
@@ -94,7 +94,7 @@ describe('SuperMemoryToolCallMiddleware — mutation triggers', () => {
     const spy = vi.fn(verifyForPaths);
     const store = makeStore();
     const mw = createSuperMemoryToolCallMiddleware({
-      memory: { ...store, verifyForPaths: spy },
+      memory: Object.assign(store, { verifyForPaths: spy }),
       triggers: { write: true },
     });
     await store.rememberSuper({
@@ -114,7 +114,7 @@ describe('SuperMemoryToolCallMiddleware — mutation triggers', () => {
     const verifyForPaths = vi.fn();
     const store = makeStore();
     const mw = createSuperMemoryToolCallMiddleware({
-      memory: { ...store, verifyForPaths },
+      memory: Object.assign(store, { verifyForPaths }),
       verifyOnMutation: false,
     });
     const payload = makePayload();
@@ -144,7 +144,7 @@ describe('SuperMemoryToolCallMiddleware — patch tool', () => {
         },
       },
       result: { type: 'tool_result', tool_use_id: 'tu_patch', name: 'patch', content: 'applied' },
-      ctx: { projectRoot: tmpDir, cwd: tmpDir, session: { id: 'patch-session' } },
+      ctx: { projectRoot: tmpDir, cwd: tmpDir, session: { id: 'patch-session' } } as ToolCallPipelinePayload['ctx'],
     });
 
     await mw.handler(payload as never, async (p) => p);
@@ -157,7 +157,7 @@ describe('SuperMemoryToolCallMiddleware — replace tool with dry_run check', ()
     const verifyForPaths = vi.fn();
     const store = makeStore();
     const mw = createSuperMemoryToolCallMiddleware({
-      memory: { ...store, verifyForPaths },
+      memory: Object.assign(store, { verifyForPaths }),
       triggers: { edit: true },
     });
     const payload = makePayload({
@@ -177,7 +177,7 @@ describe('SuperMemoryToolCallMiddleware — replace tool with dry_run check', ()
     const verifyForPaths = vi.fn();
     const store = makeStore();
     const mw = createSuperMemoryToolCallMiddleware({
-      memory: { ...store, verifyForPaths },
+      memory: Object.assign(store, { verifyForPaths }),
       triggers: { edit: true },
     });
     const payload = makePayload({

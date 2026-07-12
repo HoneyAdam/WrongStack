@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SuperMemoryStore } from '../src/store.js';
-import type { MemoryEntry, MemoryScope } from '@wrongstack/core';
 
 let tmpDir: string;
 let store: SuperMemoryStore;
@@ -59,7 +58,7 @@ describe('store.ts — scoreRelevant limit', () => {
   it('respects scoreRelevant limit', async () => {
     await store.rememberSuper({ text: 'Score A.' });
     await store.rememberSuper({ text: 'Score B.' });
-    const results = await store.scoreRelevant('Score', 'project-memory', 1);
+    const results = await store.scoreRelevant({ currentTask: 'Score' }, 'project-memory', 1);
     expect(results.length).toBeLessThanOrEqual(1);
   });
 });
