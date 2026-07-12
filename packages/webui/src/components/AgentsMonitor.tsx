@@ -238,8 +238,8 @@ export function AgentCard({ agent, isLeader }: { agent: SubagentView; isLeader: 
             {t('activity:agentsMonitor.recentTools')}
           </div>
           <div className="space-y-0.5">
-            {last8Tools.map((tool, i) => (
-              <div key={i} className="flex items-center gap-2 text-[10px] font-mono">
+            {last8Tools.map((tool) => (
+              <div key={`${tool.name}-${tool.at}`} className="flex items-center gap-2 text-[10px] font-mono">
                 <span
                   className={cn(
                     'shrink-0',

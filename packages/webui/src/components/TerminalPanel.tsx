@@ -1,6 +1,7 @@
 import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useSessionStore, useUIStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
+import { safeId } from '@/lib/utils';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
@@ -75,14 +76,9 @@ function persistTerminalHeight(height: number): void {
   }
 }
 
-/** Stable terminal id. crypto.randomUUID is available in all browsers that run
- *  this app; fall back to a timestamp-random combo. */
+/** Stable terminal id. Uses the shared browser-safe safeId helper. */
 function newTerminalId(): string {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `term-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  }
+  return safeId();
 }
 
 function createTerminalTab(index: number): TerminalTab {

@@ -387,8 +387,8 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
               {/* ── Interview transcript — full Q&A history ── */}
               {snapshot?.answers.length || (agentText && phase === 'questioning') || busy ? (
                 <div className="space-y-2.5">
-                  {snapshot?.answers.map((qa, i) => (
-                    <div key={i} className="space-y-2.5">
+                  {snapshot?.answers.map((qa) => (
+                    <div key={qa.question.slice(0, 64)} className="space-y-2.5">
                       <ChatBubble role="assistant" text={qa.question} />
                       <ChatBubble role="user" text={qa.answer} />
                     </div>
@@ -413,8 +413,8 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                   </div>
                   <p className="mb-2 text-xs text-muted-foreground">{snapshot.spec.overview}</p>
                   <ul className="space-y-0.5 text-xs">
-                    {snapshot.spec.requirements.map((r, i) => (
-                      <li key={i} className="flex gap-1.5">
+                    {snapshot.spec.requirements.map((r) => (
+                      <li key={`${r.priority}-${r.description.slice(0, 32)}`} className="flex gap-1.5">
                         <span
                           className={cn(
                             'shrink-0 font-mono uppercase',

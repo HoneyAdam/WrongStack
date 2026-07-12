@@ -2,6 +2,7 @@ import { expectDefined } from '@wrongstack/core';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ChatMessage } from './types.js';
+import { safeId } from '@/lib/utils';
 
 /**
  * Strip immediately-repeated paragraphs/lines from an assistant reply.
@@ -177,7 +178,7 @@ export const useChatStore = create<ChatState>()(
       boundSessionId: null as string | null,
 
       addMessage: (msg) => {
-        const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+        const id = `msg_${Date.now()}_${safeId().slice(0, 8)}`;
         const fullMsg: ChatMessage = { ...msg, id, timestamp: msg.timestamp ?? Date.now() };
         set((state) => {
           const next: Partial<ChatState> = {

@@ -558,9 +558,9 @@ export function BrainSection(): ReactElement {
               No decisions recorded yet this session.
             </p>
           ) : (
-            log.map((entry, i) => (
+            log.map((entry) => (
               <div
-                key={i}
+                key={`${entry.age}-${entry.kind}-${entry.question.slice(0, 32)}`}
                 className="flex items-start gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
               >
                 <span className="text-muted-foreground shrink-0 w-8">{entry.age}</span>

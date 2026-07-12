@@ -225,9 +225,9 @@ export function SddTaskDrawer({
           />
           {task.fallbackModels && task.fallbackModels.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
-              {task.fallbackModels.map((f, i) => (
+              {task.fallbackModels.map((f) => (
                 <span
-                  key={i}
+                  key={f}
                   className="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground"
                 >
                   ↳ {f}

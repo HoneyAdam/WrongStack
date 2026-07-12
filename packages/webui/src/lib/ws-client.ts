@@ -21,6 +21,7 @@ import {
   stripTokenFromAddressBar,
   stripTokenFromUrl,
 } from './ws-client-utils';
+import { safeId } from '@/lib/utils';
 
 // Re-export types for backward compat
 export type { WsStatus };
@@ -476,7 +477,7 @@ export class WrongStackWebSocketClient {
   }
 
   sendMessage(content: string, images?: WSUserMessageImage[]): string {
-    const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const id = `msg_${Date.now()}_${safeId().slice(0, 8)}`;
     this.send({
       type: 'user_message',
       payload: this.withSession({
