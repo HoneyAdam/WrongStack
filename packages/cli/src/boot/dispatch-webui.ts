@@ -44,7 +44,14 @@ export interface WebUIDispatchContext {
   modelsRegistry: ModelsRegistry;
   mcpRegistry: MCPRegistry;
   brain: BrainArbiter | undefined;
-  brainSettings: { maxAutoRisk: import('@wrongstack/core').BrainAutoRisk } | undefined;
+  brainSettings:
+    | {
+        maxAutoRisk: import('@wrongstack/core').BrainAutoRisk;
+        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        poolLabels?: string[] | undefined;
+        councilLabels?: string[] | undefined;
+      }
+    | undefined;
   getBrainLog:
     | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
     | undefined;

@@ -1,0 +1,432 @@
+/**
+ * BrainDecisionLedger — the Brain's persistent memory + learning loop.
+ *
+ * Every Brain decision already flows over the EventBus (`brain.decision_*`,
+ * `brain.intervention` — emitted by `ObservableBrainArbiter` and
+ * `BrainMonitor`). The ledger subscribes to those events, appends each
+ * decision to a JSONL file, and — the part that makes it a LEARNING loop —
+ * correlates decisions with their real-world outcomes using events the host
+ * already emits, with ZERO changes to the deciders:
+ *
+ *   - budget extensions — `subagent.budget_extended` carries subagentId +
+ *     kind, which deterministically reconstructs the director's decision id
+ *     (`director-budget-<subagentId>-<kind>`). When that subagent's task
+ *     later lands (`subagent.task_completed`), the extension decision gets a
+ *     success/failure outcome: "we granted more budget — did it help?"
+ *   - steers — a `brain.intervention` of the same kind re-triggering within
+ *     the retry window means the previous steer did NOT fix the problem →
+ *     failure outcome for the earlier intervention.
+ *
+ * Outcomes are appended as their own JSONL rows, re-emitted as
+ * `brain.outcome` events for the UI surfaces, and folded into
+ * `digestFor(request)` — a short text block the LLM/council tiers inject
+ * into their decision prompts so the Brain sees how its past similar calls
+ * actually turned out ("the last 3 extends all failed — stop extending").
+ *
+ * The file survives sessions: `start()` seeds the in-memory ring from the
+ * JSONL tail, so learning carries across runs of the same project.
+ *
+ * @module brain-ledger
+ */
+
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import type { EventBus } from '../kernel/events.js';
+import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from './brain.js';
+
+export interface BrainLedgerEntry {
+  at: number;
+  sessionId?: string | undefined;
+  /** `BrainDecisionRequest.id` this row belongs to. */
+  requestId: string;
+  kind: 'answered' | 'denied' | 'ask_human' | 'intervention' | 'outcome';
+  source?: string | undefined;
+  risk?: string | undefined;
+  question?: string | undefined;
+  optionId?: string | undefined;
+  /** Rationale / deny reason / outcome detail (truncated). */
+  detail?: string | undefined;
+  outcome?: 'success' | 'failure' | undefined;
+}
+
+export interface BrainDecisionLedgerOptions {
+  events: EventBus;
+  /** JSONL file the ledger appends to (e.g. `<projectDir>/brain-ledger.jsonl`). */
+  filePath: string;
+  /** In-memory ring size (also the seed size read from disk). Default 500. */
+  maxMemoryEntries?: number | undefined;
+  /**
+   * A same-kind BrainMonitor intervention re-triggering within this window
+   * marks the PREVIOUS steer as a failure. Default 10 minutes.
+   */
+  interventionRetryWindowMs?: number | undefined;
+  /** Override the clock for deterministic tests. */
+  now?: (() => number) | undefined;
+}
+
+const QUESTION_MAX = 200;
+const DETAIL_MAX = 240;
+
+const truncate = (s: string | undefined, max: number): string | undefined =>
+  s === undefined ? undefined : s.length > max ? `${s.slice(0, max - 1)}…` : s;
+
+/**
+ * Group similar decisions: identical questions about different subjects
+ * (subagent ids, task ids, counts) should share one history. Tokens that
+ * contain a digit are id/number-shaped — collapse them to `#`.
+ */
+export function brainDecisionKey(source: string | undefined, question: string): string {
+  const normalized = question
+    .toLowerCase()
+    .replace(/[^\s]*\d[^\s]*/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
+  return `${source ?? '?'}:${normalized}`;
+}
+
+function fmtAge(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  return `${Math.round(s / 3600)}h ago`;
+}
+
+export interface LedgerGuardBrainArbiterOptions {
+  inner: BrainArbiter;
+  /** Typically `BrainDecisionLedger.failureStreakFor`. */
+  failureStreakFor: (
+    request: Pick<BrainDecisionRequest, 'source' | 'question' | 'id'>,
+  ) => number;
+  /**
+   * Deny deterministically once this many consecutive failure outcomes are
+   * on record for the request's decision group. Default 3. 0 disables.
+   */
+  denyAfter?: number | undefined;
+}
+
+/**
+ * Deterministic guard derived from the ledger's outcome history: when the
+ * last `denyAfter` approvals of a decision group ALL ended in observed
+ * failures, the request is denied outright — no LLM call, no council, no
+ * escalation. Deny is safe by contract at every Brain call site ("do not
+ * take the proposed action"), so this converts repeated observed waste
+ * (budget extensions that never help, steers that never stick) into a hard
+ * policy rule. A later observed success resets the streak and lifts the
+ * guard automatically.
+ *
+ * Position OUTSIDE the tiered arbiter (between it and the escalation
+ * router): a guard denial must be terminal, not a fall-through to the
+ * escalation tier where a `recommended: true` option could resurrect the
+ * very action the history condemned.
+ */
+export function createLedgerGuardBrainArbiter(
+  opts: LedgerGuardBrainArbiterOptions,
+): BrainArbiter {
+  const denyAfter = opts.denyAfter ?? 3;
+  return {
+    async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
+      if (denyAfter > 0) {
+        const streak = opts.failureStreakFor(request);
+        if (streak >= denyAfter) {
+          return {
+            type: 'deny',
+            reason:
+              `Ledger guard: the last ${streak} approved decisions of this kind all ` +
+              `ended in observed failures — denying deterministically until a success ` +
+              `is recorded. (${request.question.slice(0, 120)})`,
+          };
+        }
+      }
+      return opts.inner.decide(request);
+    },
+  };
+}
+
+export class BrainDecisionLedger {
+  private readonly entries: BrainLedgerEntry[] = [];
+  private readonly outcomeByRequest = new Map<string, 'success' | 'failure'>();
+  /** subagentId → decision request ids awaiting that subagent's task result. */
+  private readonly pendingBudgetOutcomes = new Map<string, Set<string>>();
+  private readonly lastInterventionByKind = new Map<string, { requestId: string; at: number }>();
+  private readonly unsubscribers: Array<() => void> = [];
+  /** Serialized fire-and-forget writes — awaited by `stop()` (drain). */
+  private writeChain: Promise<unknown> = Promise.resolve();
+  private dirReady = false;
+
+  private readonly maxMemoryEntries: number;
+  private readonly retryWindowMs: number;
+  private readonly now: () => number;
+
+  constructor(private readonly opts: BrainDecisionLedgerOptions) {
+    this.maxMemoryEntries = opts.maxMemoryEntries ?? 500;
+    this.retryWindowMs = opts.interventionRetryWindowMs ?? 10 * 60_000;
+    this.now = opts.now ?? Date.now;
+  }
+
+  /**
+   * Subscribe to the EventBus and seed the in-memory ring from the JSONL
+   * tail. The returned promise resolves once the seed load finished
+   * (best-effort — a missing/corrupt file is an empty history, not an error).
+   */
+  async start(): Promise<void> {
+    const { events } = this.opts;
+    this.unsubscribers.push(
+      events.on('brain.decision_answered', (e) => {
+        this.record({
+          at: e.at,
+          sessionId: e.sessionId,
+          requestId: e.request.id,
+          kind: 'answered',
+          source: e.request.source,
+          risk: e.request.risk,
+          question: truncate(e.request.question, QUESTION_MAX),
+          optionId: e.decision.type === 'answer' ? e.decision.optionId : undefined,
+          detail:
+            e.decision.type === 'answer'
+              ? truncate(e.decision.rationale ?? e.decision.text, DETAIL_MAX)
+              : undefined,
+        });
+      }),
+      events.on('brain.decision_denied', (e) => {
+        this.record({
+          at: e.at,
+          sessionId: e.sessionId,
+          requestId: e.request.id,
+          kind: 'denied',
+          source: e.request.source,
+          risk: e.request.risk,
+          question: truncate(e.request.question, QUESTION_MAX),
+          detail: e.decision.type === 'deny' ? truncate(e.decision.reason, DETAIL_MAX) : undefined,
+        });
+      }),
+      events.on('brain.decision_ask_human', (e) => {
+        this.record({
+          at: e.at,
+          sessionId: e.sessionId,
+          requestId: e.request.id,
+          kind: 'ask_human',
+          source: e.request.source,
+          risk: e.request.risk,
+          question: truncate(e.request.question, QUESTION_MAX),
+        });
+      }),
+      events.on('brain.intervention', (e) => {
+        this.record({
+          at: e.at,
+          sessionId: e.sessionId,
+          requestId: e.request.id,
+          kind: 'intervention',
+          source: e.request.source,
+          risk: e.request.risk,
+          question: truncate(`[${e.kind}] ${e.request.question}`, QUESTION_MAX),
+          detail: e.intervened ? 'steered' : 'observed only',
+        });
+        if (!e.intervened) return;
+        // A same-kind re-engagement inside the retry window means the
+        // previous steer did not fix the underlying problem.
+        const prev = this.lastInterventionByKind.get(e.kind);
+        if (prev && e.at - prev.at <= this.retryWindowMs) {
+          this.recordOutcome(
+            prev.requestId,
+            'failure',
+            `same signal (${e.kind}) re-triggered ${fmtAge(e.at - prev.at).replace(' ago', ' later')}`,
+            e.sessionId,
+          );
+        }
+        this.lastInterventionByKind.set(e.kind, { requestId: e.request.id, at: e.at });
+      }),
+      // ── Outcome correlation: budget extensions ────────────────────────
+      events.on('subagent.budget_extended', (e) => {
+        // The director's decision id is deterministic — reconstruct it.
+        const requestId = `director-budget-${e.subagentId}-${e.kind}`;
+        if (!this.entries.some((entry) => entry.requestId === requestId)) return;
+        let set = this.pendingBudgetOutcomes.get(e.subagentId);
+        if (!set) {
+          set = new Set();
+          this.pendingBudgetOutcomes.set(e.subagentId, set);
+        }
+        set.add(requestId);
+      }),
+      events.on('subagent.task_completed', (e) => {
+        const pending = this.pendingBudgetOutcomes.get(e.subagentId);
+        if (!pending) return;
+        this.pendingBudgetOutcomes.delete(e.subagentId);
+        const outcome = e.status === 'success' ? 'success' : 'failure';
+        for (const requestId of pending) {
+          this.recordOutcome(
+            requestId,
+            outcome,
+            `budget-extended subagent's task ${e.status}`,
+            e.sessionId,
+          );
+        }
+      }),
+    );
+    await this.load();
+  }
+
+  /** Unsubscribe and drain pending writes. Safe to call twice. */
+  async stop(): Promise<void> {
+    for (const off of this.unsubscribers) off();
+    this.unsubscribers.length = 0;
+    await this.writeChain.catch(() => {});
+  }
+
+  /**
+   * Attach a real-world outcome to an earlier decision. Appended to the
+   * JSONL, folded into future digests, and re-emitted as `brain.outcome`.
+   */
+  recordOutcome(
+    requestId: string,
+    outcome: 'success' | 'failure',
+    detail?: string,
+    sessionId?: string,
+  ): void {
+    this.outcomeByRequest.set(requestId, outcome);
+    this.record({
+      at: this.now(),
+      sessionId,
+      requestId,
+      kind: 'outcome',
+      outcome,
+      detail: truncate(detail, DETAIL_MAX),
+    });
+    this.opts.events.emit('brain.outcome', {
+      sessionId,
+      requestId,
+      outcome,
+      detail,
+      at: this.now(),
+    });
+  }
+
+  /** Last `n` ledger rows, oldest first. */
+  tail(n: number): BrainLedgerEntry[] {
+    return this.entries.slice(-n);
+  }
+
+  /**
+   * Consecutive most-recent FAILURE outcomes among answered decisions of
+   * this request's group. Decisions whose outcome is still unknown are
+   * skipped (they neither extend nor break the streak); the first known
+   * SUCCESS ends it. Powers the deterministic ledger guard: "the last K
+   * times we approved this, it went wrong — stop approving".
+   */
+  failureStreakFor(request: Pick<BrainDecisionRequest, 'source' | 'question' | 'id'>): number {
+    const key = brainDecisionKey(request.source, request.question);
+    let streak = 0;
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const e = this.entries[i];
+      if (
+        !e ||
+        e.kind !== 'answered' ||
+        e.requestId === request.id ||
+        e.question === undefined ||
+        brainDecisionKey(e.source, e.question) !== key
+      ) {
+        continue;
+      }
+      const outcome = this.outcomeByRequest.get(e.requestId);
+      if (outcome === undefined) continue;
+      if (outcome === 'success') break;
+      streak += 1;
+    }
+    return streak;
+  }
+
+  /**
+   * Short decision-history block for the LLM/council prompt: how similar
+   * past decisions went and — when known — how they turned OUT. Returns
+   * undefined when there is no relevant history (no prompt noise).
+   */
+  digestFor(request: Pick<BrainDecisionRequest, 'source' | 'question' | 'id'>): string | undefined {
+    const key = brainDecisionKey(request.source, request.question);
+    const related = this.entries.filter(
+      (e) =>
+        (e.kind === 'answered' || e.kind === 'denied') &&
+        e.requestId !== request.id &&
+        e.question !== undefined &&
+        brainDecisionKey(e.source, e.question) === key,
+    );
+    if (related.length === 0) return undefined;
+
+    const recent = related.slice(-5).reverse();
+    const now = this.now();
+    const lines = recent.map((e) => {
+      const what =
+        e.kind === 'denied' ? 'denied' : e.optionId ? `chose [${e.optionId}]` : 'answered';
+      const outcome = this.outcomeByRequest.get(e.requestId);
+      const suffix =
+        outcome === 'failure'
+          ? ' → later FAILED'
+          : outcome === 'success'
+            ? ' → later succeeded'
+            : '';
+      return `- ${fmtAge(now - e.at)}: ${what}${suffix}`;
+    });
+    const approved = related.filter((e) => e.kind === 'answered');
+    const failedAfter = approved.filter(
+      (e) => this.outcomeByRequest.get(e.requestId) === 'failure',
+    ).length;
+    const summary =
+      `Summary: ${related.length} similar decision(s); ` +
+      `${approved.length} answered${failedAfter > 0 ? ` (${failedAfter} later failed)` : ''}, ` +
+      `${related.length - approved.length} denied.`;
+    return [...lines, summary].join('\n');
+  }
+
+  // ── Private ───────────────────────────────────────────────────────────
+
+  private record(entry: BrainLedgerEntry): void {
+    this.entries.push(entry);
+    if (this.entries.length > this.maxMemoryEntries) {
+      this.entries.splice(0, this.entries.length - this.maxMemoryEntries);
+    }
+    this.append(entry);
+  }
+
+  private append(entry: BrainLedgerEntry): void {
+    this.writeChain = this.writeChain
+      .then(async () => {
+        if (!this.dirReady) {
+          await mkdir(dirname(this.opts.filePath), { recursive: true });
+          this.dirReady = true;
+        }
+        await appendFile(this.opts.filePath, `${JSON.stringify(entry)}\n`, 'utf8');
+      })
+      .catch(() => {
+        // Ledger persistence is best-effort — never destabilize the host.
+      });
+  }
+
+  /** Seed the in-memory ring from the JSONL tail (cross-session learning). */
+  private async load(): Promise<void> {
+    let raw: string;
+    try {
+      raw = await readFile(this.opts.filePath, 'utf8');
+    } catch {
+      return; // No ledger yet.
+    }
+    const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+    const seed: BrainLedgerEntry[] = [];
+    for (const line of lines.slice(-this.maxMemoryEntries)) {
+      try {
+        const parsed = JSON.parse(line) as BrainLedgerEntry;
+        if (typeof parsed?.requestId === 'string' && typeof parsed.at === 'number') {
+          seed.push(parsed);
+        }
+      } catch {
+        // Skip corrupt rows — a partial tail is still useful history.
+      }
+    }
+    // Entries recorded while the file was loading stay AFTER the seed.
+    this.entries.unshift(...seed);
+    if (this.entries.length > this.maxMemoryEntries) {
+      this.entries.splice(0, this.entries.length - this.maxMemoryEntries);
+    }
+    for (const e of this.entries) {
+      if (e.kind === 'outcome' && e.outcome) this.outcomeByRequest.set(e.requestId, e.outcome);
+    }
+  }
+}

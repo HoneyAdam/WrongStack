@@ -219,6 +219,7 @@ export async function startWebUI(
     brainSettings,
     brainLog,
     brainMonitor,
+    brainLedger,
     codebaseIndexing,
     autoPhaseHandler,
     specsHandler,
@@ -589,6 +590,7 @@ export async function startWebUI(
     onShutdown: async () => {
       credentialWatcherClose?.();
       brainMonitor.stop();
+      await brainLedger?.stop().catch(() => {});
       await mcpRegistry.stopAll().catch(() => undefined);
       eventArming.getDispose()?.();
       if (eternalSubscription) { eternalSubscription.dispose(); eternalSubscription = null; }

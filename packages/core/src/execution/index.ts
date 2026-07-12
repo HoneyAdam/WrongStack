@@ -13,11 +13,26 @@ export {
 export {
   type AutonomyBrainOptions,
   type BrainAutoRisk,
+  type BrainLlmTarget,
+  buildBrainUserMessage,
+  completeBrainLlm,
   createAutonomyBrain,
   createTieredBrainArbiter,
   formatDecisionSummary,
+  parseOptionDecision,
   type TieredBrainArbiterOptions,
 } from './autonomy-brain.js';
+export {
+  assembleBrainTiers,
+  type BrainTierAssembly,
+  type BrainTierAssemblyOptions,
+} from './brain-chain.js';
+export {
+  COUNCIL_REFUSE_OPTION_ID,
+  type CouncilBrainOptions,
+  type CouncilVoter,
+  createCouncilBrainArbiter,
+} from './council-brain.js';
 export {
   type AutonomyPromptContributorOptions,
   makeAutonomyPromptContributor,

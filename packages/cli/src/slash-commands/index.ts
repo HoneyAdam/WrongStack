@@ -485,6 +485,7 @@ export interface SlashCommandContext {
         mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
         poolLabels?: string[] | undefined;
         councilLabels?: string[] | undefined;
+        ledgerPath?: string | undefined;
       }
     | undefined;
   /** Recent Brain decisions (newest last) for `/brain status`. */

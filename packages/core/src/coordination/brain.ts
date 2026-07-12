@@ -86,6 +86,12 @@ export class ObservableBrainArbiter implements BrainArbiter {
 export interface BrainDecisionQueueOptions {
   /** Safety fallback if the human never answers. Default: no timeout. */
   timeoutMs?: number | undefined;
+  /**
+   * Decision to resolve with when the timeout fires. Default: deny.
+   * Headless-leaning hosts pass `terminalPolicyDecision` here so an
+   * unanswered prompt degrades to the safe default instead of a bare deny.
+   */
+  onTimeout?: ((request: BrainDecisionRequest) => BrainDecision) | undefined;
 }
 
 /**
@@ -142,7 +148,12 @@ export class BrainDecisionQueue {
       if (this.opts.timeoutMs && this.opts.timeoutMs > 0) {
         entry.timer = setTimeout(() => {
           this.pending.delete(request.id);
-          resolve({ type: 'deny', reason: 'Brain human decision timed out.' });
+          resolve(
+            this.opts.onTimeout?.(request) ?? {
+              type: 'deny',
+              reason: 'Brain human decision timed out.',
+            },
+          );
         }, this.opts.timeoutMs);
       }
       this.pending.set(request.id, entry);
@@ -158,6 +169,81 @@ export class BrainDecisionQueue {
       pending.resolve({ type: 'deny', reason: 'Brain decision queue disposed.' });
       this.pending.delete(id);
     }
+  }
+}
+
+/** Escalation routing for the outermost Brain tier. See `EscalationRoutingBrainArbiter`. */
+export type BrainEscalationMode = 'interactive' | 'headless';
+
+/**
+ * Resolve an `ask_human` escalation WITHOUT a human — the terminal policy of
+ * a headless Brain. The ladder is deliberately conservative:
+ *
+ *   1. A caller-recommended option at low/medium request risk is chosen —
+ *      the caller already declared it the safe default.
+ *   2. `fallback: 'continue'` requests continue (the caller stated that
+ *      continuing is the safe default when nobody can decide).
+ *   3. Everything else is denied. Denial is always safe by contract: every
+ *      Brain call site treats deny as "do not take the proposed action".
+ *
+ * The rationale names the terminal policy so decision logs/ledgers make the
+ * degradation visible instead of silent.
+ */
+export function terminalPolicyDecision(request: BrainDecisionRequest): BrainDecision {
+  const recommended = request.options?.find((option) => option.recommended);
+  if (recommended && (request.risk === 'low' || request.risk === 'medium')) {
+    return {
+      type: 'answer',
+      optionId: recommended.id,
+      text: recommended.label,
+      rationale:
+        'Headless terminal policy: caller-recommended option accepted at ' +
+        `${request.risk} risk (no human available by configuration).`,
+    };
+  }
+  if (request.fallback === 'continue') {
+    return {
+      type: 'answer',
+      text: 'Continue with the caller default.',
+      rationale:
+        'Headless terminal policy: request declares continue as its safe fallback.',
+    };
+  }
+  return {
+    type: 'deny',
+    reason:
+      `Headless terminal policy: no safe automatic option for "${request.question}" ` +
+      `(risk: ${request.risk}). The proposed action was not taken.`,
+  };
+}
+
+/**
+ * Outermost escalation tier that never lets an `ask_human` decision leak to
+ * the caller. Routing is read PER DECISION so `/brain mode` switches apply
+ * live:
+ *
+ *   - 'interactive' (and a queue is wired) → prompt the human via the
+ *     `BrainDecisionQueue`, exactly like `HumanEscalatingBrainArbiter`.
+ *   - 'headless' (or no queue) → resolve through `terminalPolicyDecision`.
+ *
+ * This is the layer that makes a fully unattended Brain possible: with mode
+ * 'headless' every decision terminates in answer/deny, never in a blocking
+ * prompt.
+ */
+export class EscalationRoutingBrainArbiter implements BrainArbiter {
+  constructor(
+    private readonly inner: BrainArbiter,
+    private readonly queue: BrainDecisionQueue | undefined,
+    private readonly getMode: () => BrainEscalationMode,
+  ) {}
+
+  async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
+    const decision = await this.inner.decide(request);
+    if (decision.type !== 'ask_human') return decision;
+    if (this.getMode() === 'interactive' && this.queue) {
+      return this.queue.requestHumanDecision(request);
+    }
+    return terminalPolicyDecision(request);
   }
 }
 

@@ -233,8 +233,15 @@ export interface CliWebUIOptions {
   sessionStore?: SessionStore | undefined;
   /** Host Brain arbiter (same instance bound at TOKENS.BrainArbiter). */
   brain?: BrainArbiter | undefined;
-  /** Host brain settings — the SAME object /brain mutates (shared ceiling). */
-  brainSettings?: { maxAutoRisk: BrainAutoRisk } | undefined;
+  /** Host brain settings — the SAME object /brain mutates (shared ceiling + mode). */
+  brainSettings?:
+    | {
+        maxAutoRisk: BrainAutoRisk;
+        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        poolLabels?: string[] | undefined;
+        councilLabels?: string[] | undefined;
+      }
+    | undefined;
   /** Read the host's rolling brain decision log (newest last, ≤20 entries). */
   getBrainLog?:
     | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
