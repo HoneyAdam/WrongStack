@@ -188,7 +188,6 @@ export function TaskCard({
           {onAssign && agents && agents.length > 0 && (
             assigning ? (
               <select
-                autoFocus
                 defaultValue={task.assignee ?? ''}
                 onChange={(e) => {
                   onAssign(task.id, e.target.value);

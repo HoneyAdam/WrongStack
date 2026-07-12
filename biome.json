@@ -50,7 +50,17 @@
         "useLiteralKeys": "off"
       },
       "a11y": {
-        "preset": "none"
+        "preset": "recommended",
+        "noStaticElementInteractions": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useSemanticElements": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "noLabelWithoutControl": "warn",
+        "useFocusableInteractive": "warn",
+        "useAriaPropsForRole": "warn",
+        "useButtonType": "warn",
+        "noSvgWithoutTitle": "warn",
+        "useValidAriaRole": "warn"
       }
     }
   },

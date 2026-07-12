@@ -248,7 +248,6 @@ export function SddTaskDrawer({
           {verifyEditing ? (
             <div className="flex flex-col gap-1">
               <input
-                autoFocus
                 value={verifyText}
                 onChange={(e) => setVerifyText(e.target.value)}
                 onKeyDown={(e) => {
@@ -384,7 +383,6 @@ export function SddTaskDrawer({
         {reassigning ? (
           <div className="sdd-rise flex items-center gap-1.5">
             <input
-              autoFocus
               value={reassignName}
               onChange={(e) => setReassignName(e.target.value)}
               onKeyDown={(e) => {
@@ -490,7 +488,6 @@ export function SddTaskDrawer({
             </label>
             <textarea
               id="sdd-split-input"
-              autoFocus
               rows={3}
               value={splitText}
               onChange={(e) => setSplitText(e.target.value)}

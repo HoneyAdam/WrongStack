@@ -486,7 +486,6 @@ export function ChatView() {
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft); setRenamingTitle(false); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingTitle(false); } }}
                   placeholder={t('chat:sessionNamePlaceholder')}
                   className="h-6 px-1.5 text-[11px] bg-background border border-primary/40 rounded-md focus:outline-none focus:ring-1 focus:ring-ring shrink-0 w-36"
-                  autoFocus
                 />
               ) : (
                 <button

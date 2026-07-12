@@ -570,7 +570,6 @@ export function SkillsList({ className }: { className?: string }) {
                 }}
                 placeholder={t('activity:skillsList.installPlaceholder')}
                 className="w-full rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                autoFocus
               />
 
               {/* Scope toggle */}
@@ -682,7 +681,6 @@ export function SkillsList({ className }: { className?: string }) {
                   }}
                   placeholder={t('activity:skillsList.namePlaceholder')}
                   className="w-full rounded-md border border-border/70 bg-background/70 px-3 py-2 font-mono text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  autoFocus
                 />
               </div>
 
