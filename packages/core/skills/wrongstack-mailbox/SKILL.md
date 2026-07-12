@@ -371,18 +371,55 @@ setInterval(() => {
 }, 30_000);
 ```
 
-### Poll, don't long-poll
+### Real-time push via SSE (preferred) or polling
 
-The bridge does not support long-polling or websockets. Poll for new
-messages on a 5–10 s interval. Don't poll faster than 1 Hz — that's noisy
-and gives nothing useful.
-
-For normal inbox catch-up, prefer `/mailbox/check` over manual
-`/mailbox/query` + `/mailbox/ack-many`. It checks direct mail,
-`baseId` alias mail, and broadcasts in one call, dedupes messages, and
-can optionally mark them read or completed via one batch ack.
+The bridge supports **Server-Sent Events (SSE)** on `GET /mailbox/events`
+for real-time push. This is the preferred approach — no polling needed.
 
 ```ts
+// Open an SSE connection that pushes events in real-time.
+const res = await fetch(`${url}/mailbox/events`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+const reader = res.body!.getReader();
+const decoder = new TextDecoder();
+
+for (;;) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  const text = decoder.decode(value);
+  // SSE events arrive as: data: {"type":"message.sent",...}\n\n
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    const event = JSON.parse(line.slice(6));
+    if (event.type === 'message.sent') {
+      console.log(`[${event.type}] ${event.from} → ${event.to}: ${event.messageId}`);
+      // Fetch the full message via /mailbox/query or /mailbox/check.
+    }
+  }
+}
+```
+
+**SSE event types:**
+
+| Event `type` | When | Payload fields |
+|--------------|------|---------------|
+| `message.sent` | A message was sent via `POST /mailbox/send` | `messageId`, `from`, `to`, `timestamp` |
+
+The SSE stream sends a `: connected` comment on open and a
+`: keepalive` comment every 15 s to prevent proxy/CDN timeouts.
+
+**Important:** SSE events carry only the message id and metadata — not
+the full message body. When you receive an event, call `/mailbox/check`
+or `/mailbox/query` to fetch the complete message content.
+
+**Fallback: polling.** If your HTTP client doesn't support SSE (or you're
+behind a proxy that buffers responses), poll on a 5–10 s interval. Don't
+poll faster than 1 Hz — the bridge enforces a rate limit of 120 requests
+per minute per bearer token.
+
+```ts
+// Fallback: poll every 5 s when SSE is unavailable.
 async function pollOnce(): Promise<void> {
   const result = await mb('/mailbox/check', {
     agentId,
@@ -504,7 +541,7 @@ All routes take JSON bodies on POST (or no body on GET). All require
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/mailbox/send` | Send a message |
+| POST | `/mailbox/send` | Send a message (supports optional `ttlMs` for auto-expiry) |
 | POST | `/mailbox/query` | Query messages (filters: `to`, `from`, `unreadBy`, `type`, `minPriority`, `incompleteOnly`, `limit`, `since`) |
 | POST | `/mailbox/check` | Read inbox mail for `agentId`/`baseId` plus broadcasts; optionally `markRead=false`, `completed=true`, `outcome` |
 | POST | `/mailbox/ack` | Acknowledge one message |
@@ -516,6 +553,7 @@ All routes take JSON bodies on POST (or no body on GET). All require
 | POST | `/mailbox/heartbeat` | Update client heartbeat |
 | GET | `/mailbox/agents` | List all registered agents |
 | GET | `/mailbox/agents/online` | List agents with a live heartbeat (within 60 s) |
+| GET | `/mailbox/events` | **SSE stream** — real-time push of mailbox events (auth required) |
 | GET | `/healthz` | Liveness probe — does NOT require auth |
 
 ### Error shape
@@ -528,6 +566,7 @@ All routes take JSON bodies on POST (or no body on GET). All require
 |------|------|----------------------------|
 | `VALIDATION_ERROR` | 400 | Missing or wrong-type field. Read the message; it tells you which field. |
 | `UNAUTHORIZED` | 401 | Token mismatch. Re-read `~/.wrongstack/projects/<slug>/.mailbox.token` and try again — the bridge may have restarted. |
+| `RATE_LIMITED` | 429 | Rate limit exceeded (max 120 requests/min per token). Slow down or use SSE instead of polling. |
 | `NOT_FOUND` | 404 | Wrong route. Check the path table above. |
 | `INTERNAL_ERROR` | 500 | WrongStack-side failure. Retry once; if it persists, surface to the user. |
 
@@ -606,9 +645,9 @@ await mb('/mailbox/send', {
 - **Don't reuse one `agentId` across multiple external sessions.** If
   two processes register under the same id, heartbeats overwrite each
   other and read receipts become unreliable.
-- **Don't poll faster than 1 Hz.** The bridge isn't load-tested for
-  high-frequency polling, and there's no rate limit at the server side
-  — your noisy client can starve other agents.
+- **Don't poll faster than 1 Hz.** The bridge enforces a rate limit of
+  120 requests/min per bearer token (returns `429 RATE_LIMITED` beyond
+  that). Prefer SSE (`GET /mailbox/events`) over polling when possible.
 - **Don't include the token in any logged output.** It's the only
   credential. If you must print the URL, redact the token (`[REDACTED]`).
 - **Don't reply to a broadcast with another broadcast.** Replies should
