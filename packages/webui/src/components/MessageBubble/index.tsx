@@ -33,6 +33,7 @@ import { ToolDiffView, diffFromToolInput } from '../DiffView';
 import { ToolResult } from '../ToolResult';
 import { NextStepsBar, fillInput, parseNextSteps } from '../NextStepsBar';
 import { toast } from '../Toaster';
+import { toWireImages } from '../ChatInput/image-attachments.js';
 import { AttachmentGallery } from './AttachmentGallery.js';
 import { CopyButton } from './CopyButton.js';
 import { StreamingMarkdown } from './StreamingMarkdown.js';
@@ -139,6 +140,17 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [message.id, message.thinkingLog, searchActiveMessageId, searchOpen]);
 
+  /** Attachments of a user message that can still be resent — only those
+   *  whose data URL survived (persistence strips it, so after a refresh a
+   *  regenerate/edit resend degrades to text-only, matching the placeholder
+   *  chip the bubble already shows). */
+  const resendableAttachments = (msg: ChatMessage) =>
+    (msg.attachments ?? []).flatMap((a) =>
+      a.dataUrl
+        ? [{ id: a.id, dataUrl: a.dataUrl, mediaType: a.mediaType, bytes: a.bytes, name: a.name }]
+        : [],
+    );
+
   const regenerate = () => {
     const all = useChatStore.getState().messages;
     const idx = all.findIndex((m) => m.id === message.id);
@@ -157,10 +169,15 @@ export const MessageBubble = memo(function MessageBubble({
       return;
     }
     const userMsg = expectDefined(all[userIdx]);
+    const atts = resendableAttachments(userMsg);
     truncateAfter(userMsg.id);
-    addMessage({ role: 'user', content: userMsg.content });
+    addMessage({
+      role: 'user',
+      content: userMsg.content,
+      ...(atts.length > 0 ? { attachments: atts.map((a) => ({ ...a, kind: 'image' as const })) } : {}),
+    });
     setLoading(true);
-    client.sendMessage(userMsg.content);
+    client.sendMessage(userMsg.content, atts.length > 0 ? toWireImages(atts) : undefined);
   };
 
   const toggleTool = (id: string) => {
@@ -183,10 +200,15 @@ export const MessageBubble = memo(function MessageBubble({
       toast.error(t('common:status.notConnectedRetry'));
       return;
     }
+    const atts = resendableAttachments(message);
     truncateAfter(message.id);
-    addMessage({ role: 'user', content: next });
+    addMessage({
+      role: 'user',
+      content: next,
+      ...(atts.length > 0 ? { attachments: atts.map((a) => ({ ...a, kind: 'image' as const })) } : {}),
+    });
     setLoading(true);
-    client.sendMessage(next);
+    client.sendMessage(next, atts.length > 0 ? toWireImages(atts) : undefined);
     setEditing(false);
     setEditValue('');
   };
