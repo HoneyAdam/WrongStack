@@ -576,7 +576,9 @@ export class PhaseOrchestrator {
     };
 
     if (decision.type !== 'answer') return false;
-    return decision.optionId === 'resolve' || /\bresolve\b/i.test(decision.text);
+    // Control-plane check: automatic conflict resolution runs ONLY on the
+    // exact option id. Prose mentioning "resolve" is not authorization.
+    return decision.optionId === 'resolve';
   }
 
   private setIntegrationMetadata(

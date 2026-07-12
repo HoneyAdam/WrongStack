@@ -974,6 +974,22 @@ export class EternalAutonomyEngine {
         ].join('\n'),
         risk: 'high',
         fallback: 'continue',
+        // Structured verdict — completion is control-plane input, decided by
+        // exact option id rather than sniffing prose for "done"/"complete".
+        options: [
+          {
+            id: 'goal_complete',
+            label: 'The goal is complete — stop the eternal run',
+            consequence: 'The engine stops and the goal file is archived.',
+            risk: 'high',
+          },
+          {
+            id: 'keep_working',
+            label: 'Not complete yet — keep working',
+            consequence: 'The engine continues iterating on the goal.',
+            risk: 'low',
+          },
+        ],
       });
 
       // Log the brain decision into the journal
@@ -996,8 +1012,10 @@ export class EternalAutonomyEngine {
         return false;
       }
       if (decision.type === 'answer') {
-        const text = decision.text.toLowerCase();
-        return text.includes('complete') || text.includes('done') || text.includes('yes');
+        // Exact option id only. An answer that names neither option (e.g. a
+        // policy fallback "continue") conservatively keeps the run alive —
+        // never stop on prose.
+        return decision.optionId === 'goal_complete';
       }
       return true;
     } catch {
