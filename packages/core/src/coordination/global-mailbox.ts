@@ -206,6 +206,13 @@ export class GlobalMailbox implements Mailbox {
   private _recipientIndex: Map<string, Set<number>> | null = null;
 
   /**
+   * Sender → Set of indices into `_messageCache`. Same lifecycle and
+   * safety properties as `_recipientIndex`, but keyed on `msg.from`
+   * so `query({ from })` can skip the full scan.
+   */
+  private _senderIndex: Map<string, Set<number>> | null = null;
+
+  /**
    * @param projectDir — `~/.wrongstack/projects/<slug>/`
    * @param events — optional EventBus for real-time TUI/WebUI notifications
    * @param hqPublisher — optional HQ publisher, or getter, for cross-project telemetry
@@ -332,6 +339,10 @@ export class GlobalMailbox implements Mailbox {
     // broadcasts `*`) instead of scanning the full cache. Falls back to
     // the full scan when the index is unavailable or when multiple
     // non-recipient filters are present (the index doesn't help there).
+    //
+    // Sender index fast-path: symmetric — when filtering ONLY by `from`
+    // (no `to`, `type`, `minPriority`), iterate only messages from that
+    // sender.
     let candidates: Iterable<MailboxMessage>;
     if (
       q.to !== undefined &&
@@ -347,6 +358,18 @@ export class GlobalMailbox implements Mailbox {
       const broadcasts = this._recipientIndex.get('*');
       if (broadcasts !== undefined) for (const i of broadcasts) indices.add(i);
       candidates = [...indices].sort((a, b) => a - b).map((i) => all[i]!);
+    } else if (
+      q.from !== undefined &&
+      q.to === undefined &&
+      this._senderIndex !== null &&
+      q.type === undefined &&
+      q.minPriority === undefined
+    ) {
+      // Sender index fast-path: iterate only messages from `q.from`.
+      const indices = this._senderIndex.get(q.from);
+      candidates = indices !== undefined
+        ? [...indices].sort((a, b) => a - b).map((i) => all[i]!)
+        : [];
     } else {
       candidates = all;
     }
@@ -845,6 +868,7 @@ export class GlobalMailbox implements Mailbox {
     this._messageCacheMtime = -1;
     this._messageCacheSize = -1;
     this._recipientIndex = null;
+    this._senderIndex = null;
   }
 
   async clearAll(): Promise<void> {
@@ -1133,12 +1157,18 @@ export class GlobalMailbox implements Mailbox {
           delete parsed['readAt'];
         }
         this._messageCache!.push(parsed as never as MailboxMessage);
-        // Update recipient index for the newly appended message.
+        // Update recipient + sender indexes for the newly appended message.
+        const idx = this._messageCache!.length - 1;
         if (this._recipientIndex !== null) {
-          const idx = this._messageCache!.length - 1;
           const to = (parsed as { to: string }).to;
           let set = this._recipientIndex.get(to);
           if (set === undefined) { set = new Set(); this._recipientIndex.set(to, set); }
+          set.add(idx);
+        }
+        if (this._senderIndex !== null) {
+          const from = (parsed as { from: string }).from;
+          let set = this._senderIndex.get(from);
+          if (set === undefined) { set = new Set(); this._senderIndex.set(from, set); }
           set.add(idx);
         }
       } catch {
@@ -1324,6 +1354,7 @@ export class GlobalMailbox implements Mailbox {
       this._messageCacheMtime = -1;
       this._messageCacheSize = -1;
       this._recipientIndex = null;
+      this._senderIndex = null;
       return;
     }
     this._messageCache = messages;
@@ -1333,24 +1364,30 @@ export class GlobalMailbox implements Mailbox {
   }
 
   /**
-   * Build the recipient index from the current `_messageCache` contents.
-   * Called only from `_setMessageCache` so the index is always in sync
+   * Build the recipient AND sender indexes from the current `_messageCache`.
+   * Called only from `_setMessageCache` so both indexes are always in sync
    * with a freshly-replaced cache array.
    */
   private _rebuildRecipientIndex(): void {
     const cache = this._messageCache;
     if (cache === null) {
       this._recipientIndex = null;
+      this._senderIndex = null;
       return;
     }
-    const idx = new Map<string, Set<number>>();
+    const recIdx = new Map<string, Set<number>>();
+    const sndIdx = new Map<string, Set<number>>();
     for (let i = 0; i < cache.length; i++) {
-      const to = cache[i]!.to;
-      let set = idx.get(to);
-      if (set === undefined) { set = new Set(); idx.set(to, set); }
-      set.add(i);
+      const msg = cache[i]!;
+      let rSet = recIdx.get(msg.to);
+      if (rSet === undefined) { rSet = new Set(); recIdx.set(msg.to, rSet); }
+      rSet.add(i);
+      let sSet = sndIdx.get(msg.from);
+      if (sSet === undefined) { sSet = new Set(); sndIdx.set(msg.from, sSet); }
+      sSet.add(i);
     }
-    this._recipientIndex = idx;
+    this._recipientIndex = recIdx;
+    this._senderIndex = sndIdx;
   }
 
   /**
@@ -1388,6 +1425,12 @@ export class GlobalMailbox implements Mailbox {
     if (this._recipientIndex !== null) {
       let set = this._recipientIndex.get(msg.to);
       if (set === undefined) { set = new Set(); this._recipientIndex.set(msg.to, set); }
+      set.add(newIdx);
+    }
+    // Update the sender index with the new message's position.
+    if (this._senderIndex !== null) {
+      let set = this._senderIndex.get(msg.from);
+      if (set === undefined) { set = new Set(); this._senderIndex.set(msg.from, set); }
       set.add(newIdx);
     }
     // Advance the trackers synchronously with the content push so a
