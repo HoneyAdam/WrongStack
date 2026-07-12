@@ -202,6 +202,8 @@ export {
 } from './coordination/fleet-supervisor.js';
 export { GlobalMailbox, resolveProjectDir, getSharedMailbox, _clearMailboxSingletons } from './coordination/global-mailbox.js';
 export type { AutoCompactOptions, AutoCompactResult } from './coordination/mailbox-types.js';
+export { MailboxEventEmitter } from './coordination/mailbox-events.js';
+export type { MailboxEvent, MailboxEventType, MailboxEventListener } from './coordination/mailbox-events.js';
 export {
   SessionRegistry,
   getSessionRegistry,

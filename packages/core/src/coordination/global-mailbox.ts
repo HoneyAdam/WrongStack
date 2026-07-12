@@ -55,6 +55,7 @@ import {
   MESSAGE_CACHE_MAX_ENTRIES,
   REGISTRY_CACHE_TTL_MS,
 } from './mailbox-constants.js';
+import { MailboxEventEmitter } from './mailbox-events.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -133,6 +134,12 @@ export class GlobalMailbox implements Mailbox {
   /** Optional HQ publisher for cross-project command-center telemetry. */
   private readonly _hqPublisher?: HqPublisherRef | undefined;
   /**
+   * Optional SSE event emitter for real-time push to HTTP bridge clients.
+   * When present, `send`/`ack`/`softDelete`/`restore` emit events that
+   * connected SSE subscribers receive instantly.
+   */
+  readonly eventEmitter?: MailboxEventEmitter | undefined;
+  /**
    * Local cache of the agent registry to avoid re-reading on every call.
    * Time-bounded: the registry file is shared ACROSS PROCESSES (that's the
    * whole point of GlobalMailbox), so a cache served forever would never see
@@ -202,13 +209,15 @@ export class GlobalMailbox implements Mailbox {
    * @param projectDir — `~/.wrongstack/projects/<slug>/`
    * @param events — optional EventBus for real-time TUI/WebUI notifications
    * @param hqPublisher — optional HQ publisher, or getter, for cross-project telemetry
+   * @param eventEmitter — optional SSE event emitter for HTTP bridge push
    */
-  constructor(projectDir: string, events?: EventBus, hqPublisher?: HqPublisherRef) {
+  constructor(projectDir: string, events?: EventBus, hqPublisher?: HqPublisherRef, eventEmitter?: MailboxEventEmitter) {
     this.messagePath = path.join(projectDir, MAILBOX_FILE);
     this.registryPath = path.join(projectDir, '_mailbox.registry.json');
     this.clientRegistryPath = path.join(projectDir, CLIENT_REGISTRY_FILE);
     this._events = events;
     this._hqPublisher = hqPublisher;
+    this.eventEmitter = eventEmitter;
   }
 
   private get hqMailboxId(): string {
@@ -293,6 +302,14 @@ export class GlobalMailbox implements Mailbox {
       to: msg.to,
       type: msg.type,
       subject: msg.subject,
+    });
+    // SSE push for external HTTP bridge clients.
+    this.eventEmitter?.emit({
+      type: 'message.sent' as const,
+      messageId: msg.id,
+      from: msg.from,
+      to: msg.to,
+      timestamp: now,
     });
 
     return msg;

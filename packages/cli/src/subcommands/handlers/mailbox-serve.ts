@@ -68,6 +68,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import {
   GlobalMailbox,
+  MailboxEventEmitter,
   type AgentHeartbeatInput,
   type AgentRegistrationInput,
   type ClientHeartbeatInput,
@@ -218,7 +219,8 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   // acquireResult.kind === 'acquired' — we own the slot. Now bind
   // the HTTP server.
   const tentative = acquireResult.lock;
-  const mailbox = new GlobalMailbox(projectDir);
+  const eventEmitter = new MailboxEventEmitter();
+  const mailbox = new GlobalMailbox(projectDir, undefined, undefined, eventEmitter);
 
   // Rate limiter — one instance for all connections, keyed by bearer token.
   const rateLimiter = new RateLimiter();
@@ -228,7 +230,7 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   rateLimitCleanup.unref?.();
 
   const server = createServer((req, res) => {
-    void handle(mailbox, tentative.token, rateLimiter, req, res);
+    void handle(mailbox, tentative.token, rateLimiter, eventEmitter, req, res);
   });
 
   // Listen semantics:
@@ -314,6 +316,7 @@ async function handle(
   mailbox: GlobalMailbox,
   expectedToken: string,
   rateLimiter: RateLimiter,
+  eventEmitter: MailboxEventEmitter,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -409,6 +412,9 @@ async function handle(
       const statuses = await mailbox.getOnlineAgents();
       return writeJson(res, 200, { data: statuses, count: statuses.length });
     }
+    if (method === 'GET' && url === '/mailbox/events') {
+      return handleSse(req, res, eventEmitter);
+    }
 
     return writeJson(res, 404, { error: { code: 'NOT_FOUND', message: `no route for ${method} ${url}` } });
   } catch (err) {
@@ -417,6 +423,62 @@ async function handle(
     const status = code === 'VALIDATION_ERROR' ? 400 : 500;
     return writeJson(res, status, { error: { code, message } });
   }
+}
+
+// ── SSE (Server-Sent Events) ──────────────────────────────────────────────
+
+/**
+ * Handle `GET /mailbox/events` — opens an SSE stream that pushes mailbox
+ * events in real-time. Events: `message.sent`, `message.acked`,
+ * `message.deleted`, `message.restored`.
+ *
+ * The stream stays open until the client disconnects or the server shuts
+ * down. A keep-alive comment is sent every 15s to prevent proxy timeouts.
+ *
+ * Auth + rate limiting are handled by the caller (the `handle` function
+ * authorizes before dispatching here).
+ */
+function handleSse(
+  req: IncomingMessage,
+  res: ServerResponse,
+  eventEmitter: MailboxEventEmitter,
+): void {
+  // SSE headers — keep-alive, text/event-stream, no buffering.
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-store',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no', // disable nginx buffering
+  });
+
+  // Initial comment so the client knows the stream is alive.
+  res.write(': connected\n\n');
+
+  // Subscribe to mailbox events.
+  const unsub = eventEmitter.subscribe((event) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      // write failed — connection is dead; unsubscribe.
+      unsub();
+    }
+  });
+
+  // Keep-alive comment every 15s to prevent proxy/CDN timeouts.
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 15_000);
+
+  // Cleanup on client disconnect.
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    unsub();
+    try { res.end(); } catch { /* already closed */ }
+  });
 }
 
 function authorize(req: IncomingMessage, expectedToken: string): boolean {
@@ -787,6 +849,7 @@ function writeStartupInfo(deps: SubcommandDeps, info: StartupInfo): void {
   deps.renderer.write('  POST /mailbox/heartbeat         update client heartbeat\n');
   deps.renderer.write('  GET  /mailbox/agents            list all registered agents\n');
   deps.renderer.write('  GET  /mailbox/agents/online     list agents with a live heartbeat\n');
+  deps.renderer.write('  GET  /mailbox/events            SSE stream — real-time mailbox push\n');
   deps.renderer.write('  GET  /healthz                   health probe (no auth)\n');
   deps.renderer.write('\n');
   deps.renderer.write('Send the bearer token in: Authorization: Bearer <token>\n');
