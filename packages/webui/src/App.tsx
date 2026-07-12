@@ -48,7 +48,6 @@ import { AgentDetail } from './components/FleetPanel';
 import { InspectorPanel } from './components/InspectorPanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
-import { SetupScreen } from './components/SetupScreen';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
@@ -103,6 +102,9 @@ const SddWizard = lazy(() =>
 );
 const SessionsDashboard = lazy(() =>
   import('./components/SessionsDashboard').then((m) => ({ default: m.SessionsDashboard })),
+);
+const SetupScreen = lazy(() =>
+  import('./components/SetupScreen').then((m) => ({ default: m.SetupScreen })),
 );
 const SkillDetailView = lazy(() =>
   import('./components/SkillDetailView').then((m) => ({ default: m.SkillDetailView })),
@@ -1034,9 +1036,11 @@ function AppInner() {
         )}
         {currentView === 'setup' && (
           <ErrorBoundary level="panel" name="Setup">
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-              <SetupScreen />
-            </div>
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <SetupScreen />
+              </div>
+            </Suspense>
           </ErrorBoundary>
         )}
         {currentView === 'autophase' && (

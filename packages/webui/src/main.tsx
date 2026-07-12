@@ -12,10 +12,15 @@ import './i18n';
 import { App } from './App';
 import './index.css';
 import './syntax-highlight.css';
-import { startAnalyticsFlush } from './lib/analytics';
+import { startAnalyticsFlush, stopAnalyticsFlush } from './lib/analytics';
 
 // Start the analytics flush timer on app init
 startAnalyticsFlush();
+
+// Clean up the timer on Vite HMR dispose so hot-reloads don't stack intervals.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopAnalyticsFlush());
+}
 
 ReactDOM.createRoot(expectDefined(document.getElementById('root'))).render(
   <React.StrictMode>

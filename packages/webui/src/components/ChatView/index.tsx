@@ -702,7 +702,14 @@ export function ChatView() {
             </div>
           </div>
         ) : (
-          <VList ref={vlistRef} className="h-full" onScroll={handleScroll}>
+          <VList
+            ref={vlistRef}
+            className="h-full"
+            onScroll={handleScroll}
+            role="log"
+            aria-label="Chat transcript"
+            aria-live="polite"
+          >
             {rows.map((row, i) => (
               <ChatRowView
                 key={row.key}

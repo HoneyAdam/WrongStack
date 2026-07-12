@@ -78,6 +78,18 @@ export function startAnalyticsFlush(): void {
   }, FLUSH_INTERVAL_MS);
 }
 
+/** Stop the periodic flush timer and flush any pending events. Call on teardown or HMR dispose. */
+export function stopAnalyticsFlush(): void {
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  // Best-effort final flush so queued events are not lost.
+  if (ANALYTICS_QUEUE.length > 0) {
+    void flushAnalytics();
+  }
+}
+
 export function trackEvent(
   event: string,
   category: string,
