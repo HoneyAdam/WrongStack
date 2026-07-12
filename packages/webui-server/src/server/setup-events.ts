@@ -952,7 +952,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         // entry isn't found yet (first tick before registration settles).
         const mySlug = sessions.find((s) => s.pid === process.pid)?.projectSlug;
         const live = sessions
-          .filter((s) => s.status !== 'stale')
+          // Only surface sessions with fresh heartbeats. 'stale' = process
+          // dead, 'lost' = heartbeat timed out, 'closing' = process shut down.
+          // Showing anything other than 'active'/'idle' means the HQ map
+          // accumulates dead client entries that never go away until the 5 min
+          // LOST_GRACE_MS or CLOSING_GRACE_MS expires.
+          .filter(
+            (s) => s.status === 'active' || s.status === 'idle',
+          )
           .filter((s) => (mySlug ? s.projectSlug === mySlug : true))
           .map((s) => ({
             sessionId: s.sessionId,

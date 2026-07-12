@@ -630,7 +630,7 @@ export class Director implements ICoordinator {
       opts.subagentIdleTimeoutMs >= 0
         ? opts.subagentIdleTimeoutMs
         : undefined;
-    this.retireSubagentOnTaskComplete = opts.retireSubagentOnTaskComplete ?? false;
+    this.retireSubagentOnTaskComplete = opts.retireSubagentOnTaskComplete ?? true;
     this.sharedScratchpadPath = opts.sharedScratchpadPath ?? null;
     this.maxSpawns = opts.maxSpawns ?? Number.POSITIVE_INFINITY;
     this.maxSpawnDepth = opts.fleetManager?.maxSpawnDepth ?? resolveMaxSpawnDepth(opts.maxSpawnDepth);
@@ -1891,10 +1891,27 @@ export class Director implements ICoordinator {
 
   async terminate(subagentId: string): Promise<void> {
     await this.coordinator.stop(subagentId);
+    // Remove the subagent fully — stop() only marks it 'stopped' in the
+    // coordinator but keeps the entry, the bridge, nicknames, and fleet
+    // state alive. Without remove(), every explicit terminate_subagent
+    // call leaks a stopped agent that accumulates on HQ forever.
+    void this.remove(subagentId).catch((err) =>
+      this.logShutdownError('terminate_remove', err),
+    );
   }
 
   async terminateAll(): Promise<void> {
+    const ids = this.status().subagents.map((s) => s.id);
     await this.coordinator.stopAll();
+    // Full cleanup for every subagent — same reasoning as terminate().
+    // We re-read the id list BEFORE stopAll() because some may already
+    // be gone by the time the stop completes; remove() is a no-op for
+    // already-deleted ids.
+    for (const id of ids) {
+      void this.remove(id).catch((err) =>
+        this.logShutdownError('terminate_all_remove', err),
+      );
+    }
   }
 
   async remove(subagentId: string): Promise<void> {
