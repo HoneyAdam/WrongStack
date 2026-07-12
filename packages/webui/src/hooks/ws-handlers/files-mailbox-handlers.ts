@@ -11,7 +11,22 @@ function queryMailbox() {
   ws?.send?.({ type: 'mailbox.agents', payload: {} });
 }
 
-export { queryMailbox };
+/**
+ * Debounced mailbox refresh — collapses rapid bursts of mailbox events
+ * (e.g. a subagent sending 5 results) into a single refresh. The 300ms
+ * window is short enough that the panel feels real-time but avoids
+ * hammering the WS with redundant query requests on every event.
+ */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedRefresh(): void {
+  if (refreshTimer !== null) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    queryMailbox();
+  }, 300);
+}
+
+export { queryMailbox, debouncedRefresh };
 
 export function handleFilesTree(msg: WSServerMessage) {
   const p = msg.payload as { root: string; tree: TreeNode[]; error?: string | undefined };
@@ -46,7 +61,9 @@ export function handleMailboxEvent(msg: WSServerMessage) {
     useVizStore.getState().pushEvent(vizEv);
     useVizStore.getState().setActive(true);
   }
-  queryMailbox();
+  // Smart refresh: 'message_sent' events are high-frequency when multiple
+  // agents are active. Debounce avoids redundant WS query bursts.
+  debouncedRefresh();
 }
 
 export function handleMailboxMessages(msg: WSServerMessage) {
@@ -65,11 +82,11 @@ export function handleMailboxReceived(msg: WSServerMessage) {
     useVizStore.getState().pushEvent(vizEv);
     useVizStore.getState().setActive(true);
   }
-  queryMailbox();
+  debouncedRefresh();
 }
 
 export function handleMailboxAgentRegistered(_msg: WSServerMessage) {
-  queryMailbox();
+  debouncedRefresh();
 }
 
 export function handleMailboxCleared(_msg: WSServerMessage) {
@@ -78,7 +95,7 @@ export function handleMailboxCleared(_msg: WSServerMessage) {
 }
 
 export function handleMailboxPurged(_msg: WSServerMessage) {
-  queryMailbox();
+  debouncedRefresh();
 }
 
 export function handleMailboxCompacted(msg: WSServerMessage) {
@@ -92,7 +109,7 @@ export function handleMailboxCompacted(msg: WSServerMessage) {
       remaining: p.remaining ?? 0,
     });
   }
-  queryMailbox();
+  debouncedRefresh();
 }
 
 export const filesMailboxHandlerMap: Partial<Record<string, (msg: WSServerMessage) => void>> = {
