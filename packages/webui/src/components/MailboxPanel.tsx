@@ -201,10 +201,10 @@ export function MailboxPanel({ className }: { className?: string }) {
                   onClick={handleCompact}
                   disabled={compacting}
                   className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary disabled:opacity-40 transition-colors"
-                  title="Auto-compact: remove expired, read-by-all, and stale messages"
+                  title={t('activity:mailbox.compactTitle')}
                 >
                   <Zap className="h-3 w-3" />
-                  {compacting ? 'Compacting…' : 'Compact'}
+                  {compacting ? t('activity:mailbox.compacting') : t('activity:mailbox.compact')}
                 </button>
               </div>
               {/* Compaction result badge */}
@@ -212,12 +212,12 @@ export function MailboxPanel({ className }: { className?: string }) {
                 <div className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] bg-primary/5 text-primary/70 border border-primary/10">
                   <Zap className="h-3 w-3 shrink-0" />
                   <span>
-                    Removed {lastCompaction.totalRemoved}
-                    {lastCompaction.expiredRemoved > 0 && ` (${lastCompaction.expiredRemoved} expired)`}
-                    {lastCompaction.readByAllRemoved > 0 && ` (${lastCompaction.readByAllRemoved} read-by-all)`}
-                    {lastCompaction.stalePurged > 0 && ` (${lastCompaction.stalePurged} stale)`}
+                    {t('activity:mailbox.compactRemoved', { count: lastCompaction.totalRemoved })}
+                    {lastCompaction.expiredRemoved > 0 && ` (${t('activity:mailbox.compactExpired', { count: lastCompaction.expiredRemoved })})`}
+                    {lastCompaction.readByAllRemoved > 0 && ` (${t('activity:mailbox.compactReadByAll', { count: lastCompaction.readByAllRemoved })})`}
+                    {lastCompaction.stalePurged > 0 && ` (${t('activity:mailbox.compactStale', { count: lastCompaction.stalePurged })})`}
                     {' — '}
-                    {lastCompaction.remaining} remaining
+                    {t('activity:mailbox.compactRemaining', { count: lastCompaction.remaining })}
                   </span>
                 </div>
               )}
