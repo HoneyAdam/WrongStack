@@ -138,8 +138,20 @@ function attachMailboxCheckerInner(
   // in flight, but queue the result as a BTW note so the agent only consumes it
   // at the next safe loop boundary. This is the important separation: polling
   // is continuous, conversation mutation remains serialized by the agent loop.
+  //
+  // PUSH-NOTIFICATION SHORT-CIRCUIT: when a same-process agent sends a message,
+  // GlobalMailbox.emitCustom('mailbox.message_sent', ...) fires on the EventBus.
+  // We subscribe to that event and trigger an immediate (debounced) awareness
+  // poll — so in-process messages surface in <500ms instead of waiting up to
+  // the full poll interval. The poll interval is intentionally kept higher
+  // (30s) as a fallback for cross-process messages that don't trigger the
+  // in-process event.
+  const AWARENESS_FALLBACK_INTERVAL_MS = MAILBOX_AWARENESS_INTERVAL_MS; // cross-process fallback
+  const AWARENESS_PUSH_DEBOUNCE_MS = 500; // collapse bursts from the same sender
   let pollInFlight = false;
   let awarenessDisposed = false;
+  let pushDebounceTimer: NodeJS.Timeout | null = null;
+
   const pollMailboxAwareness = async () => {
     if (awarenessDisposed || pollInFlight) return;
     pollInFlight = true;
@@ -154,13 +166,40 @@ function attachMailboxCheckerInner(
       pollInFlight = false;
     }
   };
+
+  // Push-triggered poll: debounce so a rapid burst of messages (e.g. a
+  // subagent sending 5 results) collapses into a single poll after 500ms
+  // rather than firing 5 polls.
+  const triggerPushPoll = () => {
+    if (awarenessDisposed) return;
+    if (pushDebounceTimer !== null) clearTimeout(pushDebounceTimer);
+    pushDebounceTimer = setTimeout(() => {
+      pushDebounceTimer = null;
+      void pollMailboxAwareness();
+    }, AWARENESS_PUSH_DEBOUNCE_MS);
+  };
+
+  // Subscribe to in-process 'mailbox.message_sent' events for push-based
+  // awareness. The GlobalMailbox instance emits this on every send().
+  let pushUnsub: (() => void) | null = null;
+  if (a.events && typeof a.events.onPattern === 'function') {
+    pushUnsub = a.events.onPattern('mailbox.message_sent', () => {
+      triggerPushPoll();
+    });
+  }
+
+  // Fallback polling for cross-process messages (other terminal sessions,
+  // external agents via the HTTP bridge). These don't trigger the in-process
+  // EventBus event, so we still need periodic polling — just less frequently.
   const awarenessTimer = setInterval(() => {
     void pollMailboxAwareness();
-  }, MAILBOX_AWARENESS_INTERVAL_MS);
+  }, AWARENESS_FALLBACK_INTERVAL_MS);
   awarenessTimer.unref?.();
   a.ctx.registerAbortHook(() => {
     awarenessDisposed = true;
     clearInterval(awarenessTimer);
+    if (pushDebounceTimer !== null) clearTimeout(pushDebounceTimer);
+    pushUnsub?.();
   });
 
   // Start background auto-compaction: periodically removes messages that

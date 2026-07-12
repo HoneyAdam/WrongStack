@@ -41,8 +41,8 @@ export const MESSAGE_CACHE_MAX_ENTRIES = 10_000;
 
 // ── Polling / heartbeat intervals (used by mailbox-attach.ts) ──────────────
 
-/** Background mailbox awareness polling interval. */
-export const MAILBOX_AWARENESS_INTERVAL_MS = 5_000;
+/** Background mailbox awareness polling interval (cross-process fallback). */
+export const MAILBOX_AWARENESS_INTERVAL_MS = 30_000;
 
 /** Agent heartbeat interval in the attach layer. */
 export const MAILBOX_HEARTBEAT_INTERVAL_MS = 30_000;
