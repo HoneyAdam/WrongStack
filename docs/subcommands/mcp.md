@@ -34,6 +34,15 @@ Servers are started automatically when WrongStack boots (REPL/TUI mode).
 | `/mcp enable <name>` | Enable in config + start (runtime) |
 | `/mcp disable <name>` | Disable in config + stop (runtime) |
 | `/mcp restart <name>` | Stop and restart a running server |
+| `/mcp auth start <name> <client-id> <redirect-uri> [scopes...]` | Begin manual PKCE OAuth for an HTTP server |
+| `/mcp auth complete <name> <callback-url>` | Complete OAuth and store encrypted tokens |
+| `/mcp auth status <name>` | Show non-secret authorization state |
+| `/mcp auth logout <name>` | Remove stored credentials for the server/resource |
+
+OAuth authorization is currently a REPL/TUI slash-command flow, not a `wstack mcp` process-level
+subcommand. The server must already be registered with an SSE or streamable-HTTP URL. PKCE
+verifier/state remain in memory for at most ten minutes; completed access/refresh tokens are stored
+under the project state through SecretVault and are never written to `mcpServers` config.
 
 ## Config format
 

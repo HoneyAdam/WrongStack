@@ -16,6 +16,10 @@ used by the CLI subcommand.
 | `/mcp enable <name>` | Enable a configured server and start it |
 | `/mcp disable <name>` | Disable a configured server and stop it |
 | `/mcp restart <name>` | Restart a running server in the current REPL session |
+| `/mcp auth start <name> <client-id> <redirect-uri> [scopes...]` | Discover OAuth metadata and begin a bounded PKCE authorization |
+| `/mcp auth complete <name> <callback-url>` | Exchange the one-time callback and save encrypted credentials |
+| `/mcp auth status <name>` | Show non-secret authorization state, scopes, and expiry |
+| `/mcp auth logout <name>` | Remove the server/resource credential binding |
 
 Alias: `/mcp-servers`.
 
@@ -61,6 +65,23 @@ counters, call saturation, and recent safe lifecycle events. WebUI, HealthRegist
 and HQ consume the same snapshot. Metric labels never include server/tool names, arguments, URLs,
 or tokens.
 
+## OAuth for remote HTTP servers
+
+Registered SSE and streamable-HTTP servers can use the manual/headless OAuth flow:
+
+```text
+/mcp auth start private-api wrongstack http://127.0.0.1:43123/callback tools:read
+# Open the returned authorization URL, then paste its final callback URL:
+/mcp auth complete private-api http://127.0.0.1:43123/callback?code=...&state=...
+/mcp auth status private-api
+```
+
+The pending PKCE verifier and state are memory-only, bounded, and expire after ten minutes. The
+authorization code is consumed once. Access and refresh tokens are resource-bound and encrypted in
+the non-repository project state; they never enter `config.json` or MCP capability manifests.
+`/mcp auth logout` removes that exact server/resource binding. This is currently the headless/manual
+CLI flow; a managed loopback listener and WebUI controls remain planned.
+
 ## Examples
 
 ```text
@@ -68,6 +89,7 @@ or tokens.
 /mcp add filesystem --enable
 /mcp enable github
 /mcp restart brave-search
+/mcp auth status private-api
 ```
 
 ## Code Reference
@@ -77,4 +99,5 @@ or tokens.
 - `packages/cli/src/subcommands/handlers/mcp.ts`
 - `packages/core/src/infrastructure/mcp-servers.ts`
 - `packages/mcp/src/manage.ts` — shared management core (used by both WebUI servers)
+- `packages/mcp/src/authorization-manager.ts` — bounded PKCE/manual authorization coordinator
 - `packages/webui/src/server/mcp-handlers.ts` — WebUI WS ↔ manage.ts translator

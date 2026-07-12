@@ -1,5 +1,11 @@
 import type { EventBus, Logger, MCPServerConfig, Tool, ToolRegistry } from '@wrongstack/core';
 import { expectDefined } from '@wrongstack/core';
+import type { MCPAuthorizationProvider } from './authorization.js';
+import type {
+  MCPAuthorizationManager,
+  MCPAuthorizationStartResult,
+  MCPAuthorizationStatus,
+} from './authorization-manager.js';
 import { type ConnectionState, MCPClient, type MCPTool } from './client.js';
 import { MCP_CONSTANTS } from './constants.js';
 import {
@@ -123,6 +129,12 @@ export interface MCPRegistryOptions {
    * Default: false.
    */
   lazyMode?: boolean | undefined;
+  /** Resolve host-owned, vault-backed OAuth state for an HTTP server. */
+  authorizationProviderFactory?:
+    | ((server: Readonly<MCPServerConfig>) => MCPAuthorizationProvider | undefined)
+    | undefined;
+  /** Coordinate manual/headless OAuth start, completion, status, and logout. */
+  authorizationManager?: MCPAuthorizationManager | undefined;
 }
 
 export interface MCPRegistryCatalog {
@@ -144,6 +156,8 @@ export class MCPRegistry {
   private readonly lazyMode: boolean;
   private readonly cacheDir?: string | undefined;
   private readonly idleTimeoutMs: number;
+  private readonly authorizationProviderFactory?: MCPRegistryOptions['authorizationProviderFactory'];
+  private readonly authorizationManager?: MCPAuthorizationManager | undefined;
   private readonly operationListeners = new Set<MCPOperationListener>();
   /** Single shared idle sweep timer (started lazily; unref'd; cleared on stopAll). */
   private idleTimer?: ReturnType<typeof setInterval> | undefined;
@@ -155,12 +169,71 @@ export class MCPRegistry {
     this.lazyMode = opts.lazyMode ?? false;
     this.cacheDir = opts.cacheDir;
     this.idleTimeoutMs = opts.idleTimeoutMs ?? MCP_CONSTANTS.IDLE.DEFAULT_TIMEOUT_MS;
+    this.authorizationProviderFactory = opts.authorizationProviderFactory;
+    this.authorizationManager = opts.authorizationManager;
   }
 
   private requireSlot(name: string): ServerSlot {
     const slot = this.servers.get(name);
     if (!slot) throw new Error(`MCP server "${name}" not registered`);
     return slot;
+  }
+
+  async beginAuthorization(
+    name: string,
+    input: {
+      clientId: string;
+      redirectUri: string;
+      scopes?: readonly string[] | undefined;
+      challengeHeader?: string | null | undefined;
+      signal?: AbortSignal | undefined;
+    },
+  ): Promise<MCPAuthorizationStartResult> {
+    const manager = this.requireAuthorizationManager();
+    const cfg = this.requireHttpServerConfig(name);
+    return manager.begin({
+      serverName: name,
+      resource: cfg.url!,
+      ...input,
+    });
+  }
+
+  async completeAuthorization(
+    name: string,
+    callbackUrl: string,
+    signal?: AbortSignal | undefined,
+  ): Promise<MCPAuthorizationStatus> {
+    const manager = this.requireAuthorizationManager();
+    const cfg = this.requireHttpServerConfig(name);
+    return manager.complete({ serverName: name, resource: cfg.url!, callbackUrl, signal });
+  }
+
+  async authorizationStatus(name: string): Promise<MCPAuthorizationStatus> {
+    const manager = this.requireAuthorizationManager();
+    const cfg = this.requireHttpServerConfig(name);
+    return manager.status(name, cfg.url!);
+  }
+
+  async disconnectAuthorization(name: string): Promise<boolean> {
+    const manager = this.requireAuthorizationManager();
+    const cfg = this.requireHttpServerConfig(name);
+    return manager.disconnect(name, cfg.url!);
+  }
+
+  private requireAuthorizationManager(): MCPAuthorizationManager {
+    if (!this.authorizationManager) {
+      throw new Error('MCP authorization management is not configured for this host');
+    }
+    return this.authorizationManager;
+  }
+
+  private requireHttpServerConfig(name: string): MCPServerConfig {
+    const cfg = this.servers.get(name)?.cfg ?? this.disabledServers.get(name);
+    if (!cfg) throw new Error(`MCP server "${name}" not registered`);
+    if (cfg.transport === 'stdio' || !cfg.url) {
+      throw new Error(`MCP server "${name}" does not use an HTTP transport`);
+    }
+    return cfg;
   }
 
   async start(cfg: MCPServerConfig): Promise<void> {
@@ -1063,6 +1136,7 @@ export class MCPRegistry {
           startupTimeoutMs: slot.cfg.startupTimeoutMs,
           requestTimeoutMs: slot.cfg.requestTimeoutMs,
           passthroughEnv: slot.cfg.passthroughEnv,
+          authorizationProvider: this.authorizationProviderFactory?.(slot.cfg),
         });
         if (slot.cfg.transport === 'stdio') {
           client.addExitListener(this.onChildExit);

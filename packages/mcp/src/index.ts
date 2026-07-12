@@ -1,4 +1,41 @@
 export {
+  authorizationHeaderForToken,
+  authorizationServerMetadataUrls,
+  canonicalMcpResource,
+  createMcpAuthorizationRequest,
+  discoverMcpAuthorization,
+  exchangeMcpAuthorizationCode,
+  type MCPAccessToken,
+  type MCPAuthorizationChallenge,
+  type MCPAuthorizationContext,
+  type MCPAuthorizationDiscoveryOptions,
+  type MCPAuthorizationDiscoveryResult,
+  type MCPAuthorizationJsonFetcher,
+  type MCPAuthorizationProvider,
+  type MCPAuthorizationRequestOptions,
+  type MCPAuthorizationServerMetadata,
+  type MCPAuthorizationSession,
+  type MCPProtectedResourceMetadata,
+  type MCPTokenExchangeOptions,
+  type MCPTokenRefreshOptions,
+  type MCPTokenSet,
+  parseAuthorizationServerMetadata,
+  parseMcpAuthorizationCallback,
+  parseMcpBearerChallenge,
+  parseProtectedResourceMetadata,
+  protectedResourceMetadataUrls,
+  refreshMcpAccessToken,
+  validateMcpAuthorizationServerMetadata,
+} from './authorization.js';
+export {
+  type MCPAuthorizationCompleteInput,
+  MCPAuthorizationManager,
+  type MCPAuthorizationManagerOptions,
+  type MCPAuthorizationStartInput,
+  type MCPAuthorizationStartResult,
+  type MCPAuthorizationStatus,
+} from './authorization-manager.js';
+export {
   type ConnectionState,
   MCPClient,
   type MCPClientOptions,
@@ -91,6 +128,15 @@ export {
   serveStdio,
   toContentBlocks,
 } from './server.js';
+export {
+  createVaultBackedMcpAuthorizationProviderFactory,
+  type MCPAuthorizationStateEvent,
+  MCPRefreshingAuthorizationProvider,
+  type MCPRefreshingAuthorizationProviderOptions,
+  type MCPStoredAuthorization,
+  type MCPVaultProviderFactoryOptions,
+  MCPVaultTokenStore,
+} from './token-store.js';
 export {
   type HttpTransportOptions,
   SSEReader,

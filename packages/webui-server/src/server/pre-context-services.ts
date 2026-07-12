@@ -64,7 +64,12 @@ import {
   createSuperMemoryTools,
   type SuperMemoryServiceLike,
 } from '@wrongstack/super-memory';
-import { MCPRegistry } from '@wrongstack/mcp';
+import {
+  MCPAuthorizationManager,
+  MCPRegistry,
+  MCPVaultTokenStore,
+  createVaultBackedMcpAuthorizationProviderFactory,
+} from '@wrongstack/mcp';
 import { buildProviderFactoriesFromRegistry } from '@wrongstack/providers';
 import { createDefaultContainer } from '@wrongstack/runtime';
 import {
@@ -139,7 +144,7 @@ export interface PreContextServices {
 export async function createPreContextServices(
   input: PreContextServicesInput,
 ): Promise<PreContextServices> {
-  const { config, wpaths, logger, opts, projectRoot, workingDir, needsProvider } = input;
+  const { config, wpaths, logger, opts, vault, projectRoot, workingDir, needsProvider } = input;
 
   // ── ModelsRegistry ──
   const modelsRegistry =
@@ -220,7 +225,21 @@ export async function createPreContextServices(
   console.log('[WebUI] Tool registry loaded:', toolRegistry.list().length, 'tools');
 
   // ── MCP registry ──
-  const mcpRegistry = new MCPRegistry({ toolRegistry, events, log: logger, cacheDir: wpaths.cacheDir });
+  const mcpTokenStore = new MCPVaultTokenStore(
+    path.join(wpaths.projectDir, 'mcp-auth.json'),
+    vault,
+  );
+  const mcpAuthorizationManager = new MCPAuthorizationManager({ store: mcpTokenStore });
+  const mcpRegistry = new MCPRegistry({
+    toolRegistry,
+    events,
+    log: logger,
+    cacheDir: wpaths.cacheDir,
+    authorizationProviderFactory: createVaultBackedMcpAuthorizationProviderFactory({
+      store: mcpTokenStore,
+    }),
+    authorizationManager: mcpAuthorizationManager,
+  });
   if (config.features.mcp && config.mcpServers) {
     for (const [name, cfg] of Object.entries(config.mcpServers)) {
       void mcpRegistry.start({ ...cfg, name }).catch((err) => {

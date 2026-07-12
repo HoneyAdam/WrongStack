@@ -2,6 +2,12 @@ import { randomBytes } from 'node:crypto';
 import * as https from 'node:https';
 import * as net from 'node:net';
 import { ConfigError, type HttpDispatcher, ToolError } from '@wrongstack/core';
+import {
+  authorizationHeaderForToken,
+  canonicalMcpResource,
+  type MCPAuthorizationProvider,
+  parseMcpBearerChallenge,
+} from './authorization.js';
 import type { ConnectionState, JsonRpcResponse, MCPTool, ToolCallResult } from './client.js';
 import { MCP_CONSTANTS } from './constants.js';
 import { type MCPServerMetadata, parseServerMetadata } from './protocol.js';
@@ -10,11 +16,18 @@ import { normalizeMCPTools } from './tool-schema.js';
 export type JsonRpcResult = {
   jsonrpc: string;
   id?: number | undefined;
-  method?: string | undefined;
-  params?: unknown | undefined;
   result?: unknown | undefined;
   error?: { code: number | undefined; message: string; data?: unknown | undefined } | undefined;
 };
+
+type JsonRpcMethodEnvelope = {
+  jsonrpc: '2.0';
+  id?: number | string | undefined;
+  method: string;
+  params?: unknown | undefined;
+};
+
+type JsonRpcEnvelope = JsonRpcResult | JsonRpcMethodEnvelope;
 
 export interface HttpTransportOptions {
   name: string;
@@ -22,6 +35,7 @@ export interface HttpTransportOptions {
   headers?: Record<string, string> | undefined;
   startupTimeoutMs?: number | undefined;
   requestTimeoutMs?: number | undefined;
+  authorizationProvider?: MCPAuthorizationProvider | undefined;
   /**
    * Per-request TLS configuration. When set, an https.Agent is created
    * and passed to fetch via the `dispatch` option. This avoids globally
@@ -283,17 +297,31 @@ export class SSEReader {
 
 function isJsonRpcResult(v: unknown): v is JsonRpcResult {
   if (typeof v !== 'object' || v === null) return false;
-  const r = v as JsonRpcResult;
-  if (r.jsonrpc !== '2.0') return false;
-  if (r.error !== undefined) {
+  const r = v as Record<string, unknown>;
+  if (r['jsonrpc'] !== '2.0' || typeof r['id'] !== 'number') return false;
+  if (Object.hasOwn(r, 'method')) return false;
+
+  const hasResult = Object.hasOwn(r, 'result');
+  const hasError = Object.hasOwn(r, 'error');
+  if (hasResult === hasError) return false;
+  if (hasError) {
+    const error = r['error'];
     return (
-      typeof r.error === 'object' &&
-      r.error !== null &&
-      typeof r.error.code === 'number' &&
-      typeof r.error.message === 'string'
+      typeof error === 'object' &&
+      error !== null &&
+      typeof (error as Record<string, unknown>)['code'] === 'number' &&
+      typeof (error as Record<string, unknown>)['message'] === 'string'
     );
   }
-  return 'result' in r || typeof r.method === 'string';
+  return true;
+}
+
+function isJsonRpcMethodEnvelope(v: unknown): v is JsonRpcMethodEnvelope {
+  if (typeof v !== 'object' || v === null) return false;
+  const envelope = v as Record<string, unknown>;
+  if (envelope['jsonrpc'] !== '2.0' || typeof envelope['method'] !== 'string') return false;
+  const id = envelope['id'];
+  return id === undefined || typeof id === 'number' || typeof id === 'string';
 }
 
 /**
@@ -304,8 +332,8 @@ function isJsonRpcResult(v: unknown): v is JsonRpcResult {
  * un-prefixed before parsing. Multi-line `data:` values within one event are
  * joined per the SSE spec.
  */
-export function extractJsonRpcResults(text: string): JsonRpcResult[] {
-  const out: JsonRpcResult[] = [];
+function extractJsonRpcEnvelopes(text: string): JsonRpcEnvelope[] {
+  const out: JsonRpcEnvelope[] = [];
   let dataBuf: string[] = [];
   const flush = () => {
     if (dataBuf.length === 0) return;
@@ -314,7 +342,7 @@ export function extractJsonRpcResults(text: string): JsonRpcResult[] {
     if (!joined) return;
     try {
       const parsed = JSON.parse(joined);
-      if (isJsonRpcResult(parsed)) out.push(parsed);
+      if (isJsonRpcResult(parsed) || isJsonRpcMethodEnvelope(parsed)) out.push(parsed);
     } catch {
       /* ignore non-JSON event data */
     }
@@ -340,7 +368,7 @@ export function extractJsonRpcResults(text: string): JsonRpcResult[] {
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed);
-        if (isJsonRpcResult(parsed)) out.push(parsed);
+        if (isJsonRpcResult(parsed) || isJsonRpcMethodEnvelope(parsed)) out.push(parsed);
       } catch {
         /* ignore */
       }
@@ -348,6 +376,11 @@ export function extractJsonRpcResults(text: string): JsonRpcResult[] {
   }
   flush();
   return out;
+}
+
+/** Extract only response envelopes; notifications and server requests are not responses. */
+export function extractJsonRpcResults(text: string): JsonRpcResult[] {
+  return extractJsonRpcEnvelopes(text).filter(isJsonRpcResult);
 }
 
 function assertMatchingJsonRpcResult(
@@ -363,20 +396,12 @@ function assertMatchingJsonRpcResult(
       context: { method, expectedId, reason: 'not-jsonrpc-envelope' },
     });
   }
-  if (data.id !== undefined && data.id !== expectedId) {
+  if (data.id !== expectedId) {
     throw new ToolError({
       message: `Invalid JSON-RPC response: id mismatch for ${method} (expected ${expectedId}, got ${data.id})`,
       code: 'TOOL_EXECUTION_FAILED',
       toolName: 'mcp_transport_jsonrpc',
       context: { method, expectedId, actualId: data.id, reason: 'id-mismatch' },
-    });
-  }
-  if (data.id === undefined && !method.startsWith('notifications/')) {
-    throw new ToolError({
-      message: `Invalid JSON-RPC response: missing id for ${method}`,
-      code: 'TOOL_EXECUTION_FAILED',
-      toolName: 'mcp_transport_jsonrpc',
-      context: { method, expectedId, reason: 'missing-id' },
     });
   }
   return data;
@@ -432,6 +457,9 @@ export abstract class BaseHTTPTransport {
   protected readonly headers: Record<string, string>;
   protected readonly timeout: number;
   protected readonly requestTimeout: number;
+  protected readonly name: string;
+  protected readonly authorizationProvider?: MCPAuthorizationProvider | undefined;
+  protected readonly authorizationResource: string;
   /** Per-request TLS agent — created once from HttpTransportOptions.tls */
   protected readonly tlsAgent?: https.Agent | undefined;
   protected readonly tools: MCPTool[] = [];
@@ -441,11 +469,15 @@ export abstract class BaseHTTPTransport {
   protected readonly toolsChangedListeners = new Set<(tools: MCPTool[]) => void>();
   protected readonly resourcesChangedListeners = new Set<() => void>();
   protected readonly promptsChangedListeners = new Set<() => void>();
+  protected protocolVersion?: string | undefined;
 
   constructor(opts: HttpTransportOptions, transportName: string) {
     validateTransportUrl(opts.url);
+    this.name = opts.name;
     this.url = opts.url;
     this.headers = { ...opts.headers };
+    this.authorizationProvider = opts.authorizationProvider;
+    this.authorizationResource = canonicalMcpResource(opts.url);
     this.timeout = opts.startupTimeoutMs ?? 10_000;
     this.requestTimeout = opts.requestTimeoutMs ?? 60_000;
     if (opts.tls) {
@@ -473,6 +505,46 @@ export abstract class BaseHTTPTransport {
 
   getState(): ConnectionState {
     return this.state;
+  }
+
+  protected async fetchWithAuthorization(
+    input: string,
+    init: RequestInit,
+    signal?: AbortSignal | undefined,
+  ): Promise<Response> {
+    const context = {
+      serverName: this.name,
+      resource: this.authorizationResource,
+      signal,
+    };
+    const send = async (): Promise<Response> => {
+      signal?.throwIfAborted();
+      const headers = new Headers(init.headers);
+      if (this.protocolVersion) headers.set('MCP-Protocol-Version', this.protocolVersion);
+      const token = await this.authorizationProvider?.getAccessToken(context);
+      signal?.throwIfAborted();
+      if (token) {
+        headers.set(
+          'Authorization',
+          authorizationHeaderForToken(token, this.authorizationResource),
+        );
+      }
+      return fetch(input, { ...init, headers });
+    };
+
+    let response = await send();
+    if (response.status !== 401 || !this.authorizationProvider?.handleUnauthorized) {
+      return response;
+    }
+    const challenge = parseMcpBearerChallenge(
+      response.headers.get('www-authenticate'),
+      this.authorizationResource,
+    );
+    const retry = await this.authorizationProvider.handleUnauthorized(challenge, context);
+    if (!retry) return response;
+    await response.body?.cancel().catch(() => undefined);
+    response = await send();
+    return response;
   }
 
   listTools(): MCPTool[] {
@@ -629,7 +701,7 @@ export class SSETransport extends BaseHTTPTransport {
         signal,
       };
       this.applyTlsAgent(fetchOpts);
-      const response = await fetch(sseUrl, fetchOpts);
+      const response = await this.fetchWithAuthorization(sseUrl, fetchOpts, signal);
 
       if (!response.ok) {
         throw new ToolError({
@@ -689,6 +761,7 @@ export class SSETransport extends BaseHTTPTransport {
         });
       }
       this.serverMetadata = parseServerMetadata(initRes.result);
+      this.protocolVersion = this.serverMetadata.protocolVersion;
 
       try {
         await this.httpPost('notifications/initialized', {});
@@ -777,7 +850,7 @@ export class SSETransport extends BaseHTTPTransport {
     // fetch lives INSIDE the try so dispose() runs on every exit path — a
     // rejected fetch must not leak the timeout timer / abort listener.
     try {
-      const res = await fetch(this.url, fetchOpts);
+      const res = await this.fetchWithAuthorization(this.url, fetchOpts, timeoutSignal.signal);
       if (!res.ok) {
         // Cap the body — a misbehaving server could return megabytes of
         // HTML and that's not useful in an error message anyway.
@@ -880,7 +953,7 @@ export class SSETransport extends BaseHTTPTransport {
     // mismatched result) — not just success — or the timer keeps ticking and the
     // abort listener leaks for the full timeout on each failed request.
     try {
-      const res = await fetch(this.url, fetchOpts);
+      const res = await this.fetchWithAuthorization(this.url, fetchOpts, timeoutSignal.signal);
 
       if (!res.ok) {
         throw new ToolError({
@@ -967,14 +1040,17 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
   }
 
   private consumeResponseText(text: string, requestId: number): JsonRpcResult | undefined {
-    const envelopes = extractJsonRpcResults(text);
+    const envelopes = extractJsonRpcEnvelopes(text);
     for (const envelope of envelopes) {
-      if (envelope.id === undefined && envelope.method) this.handleNotification(envelope.method);
+      if ('method' in envelope && envelope.id === undefined) {
+        this.handleNotification(envelope.method);
+      }
     }
+    const responses = envelopes.filter(isJsonRpcResult);
     return (
-      envelopes.find((envelope) => envelope.id === requestId) ??
-      envelopes.find((envelope) => envelope.id !== undefined) ??
-      envelopes[0]
+      responses.find((envelope) => envelope.id === requestId) ??
+      responses.find((envelope) => envelope.id !== undefined) ??
+      responses[0]
     );
   }
 
@@ -1036,7 +1112,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         signal,
       };
       this.applyTlsAgent(initFetchOpts);
-      const initRes = await fetch(this.url, initFetchOpts);
+      const initRes = await this.fetchWithAuthorization(this.url, initFetchOpts, signal);
 
       if (!initRes.ok) {
         throw new Error(`initialize HTTP ${initRes.status}: ${initRes.statusText}`);
@@ -1062,6 +1138,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         throw new Error(`initialize failed: ${data.error.message}`);
       }
       this.serverMetadata = parseServerMetadata(data.result);
+      this.protocolVersion = this.serverMetadata.protocolVersion;
 
       // MCP Streamable HTTP spec: the server assigns a session via the
       // `Mcp-Session-Id` response header, which the client must echo on every
@@ -1116,7 +1193,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
     // fetch lives INSIDE the try so dispose() runs on every exit path — a
     // rejected fetch must not leak the timeout timer / abort listener.
     try {
-      const res = await fetch(this.url, fetchOpts);
+      const res = await this.fetchWithAuthorization(this.url, fetchOpts, timeoutSignal.signal);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -1177,7 +1254,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
     };
     this.applyTlsAgent(fetchOpts);
     try {
-      const res = await fetch(this.url, fetchOpts);
+      const res = await this.fetchWithAuthorization(this.url, fetchOpts, timeoutSignal.signal);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }

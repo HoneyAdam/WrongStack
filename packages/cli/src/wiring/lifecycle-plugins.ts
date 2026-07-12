@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import {
   allServers,
   type Config,
@@ -21,7 +22,12 @@ import {
   type ToolRegistry,
   type WstackPaths,
 } from '@wrongstack/core';
-import { MCPRegistry } from '@wrongstack/mcp';
+import {
+  MCPAuthorizationManager,
+  MCPRegistry,
+  MCPVaultTokenStore,
+  createVaultBackedMcpAuthorizationProviderFactory,
+} from '@wrongstack/mcp';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import {
   createLifecycleHooksExtension,
@@ -285,12 +291,21 @@ export async function setupLifecycleAndPlugins(
   agent.extensions.register(createLifecycleHooksExtension(hookRunner));
 
   // ── MCP servers ──────────────────────────────────────────────────────────
+  const mcpTokenStore = new MCPVaultTokenStore(
+    path.join(wpaths.projectDir, 'mcp-auth.json'),
+    vault,
+  );
+  const mcpAuthorizationManager = new MCPAuthorizationManager({ store: mcpTokenStore });
   const mcpRegistry = new MCPRegistry({
     toolRegistry,
     events,
     log: logger,
     lazyMode: normalizeTokenSavingTier(config.features.tokenSavingMode) !== 'off',
     cacheDir: wpaths.cacheDir,
+    authorizationProviderFactory: createVaultBackedMcpAuthorizationProviderFactory({
+      store: mcpTokenStore,
+    }),
+    authorizationManager: mcpAuthorizationManager,
   });
   if (config.features.mcp) {
     const presets = allServers();

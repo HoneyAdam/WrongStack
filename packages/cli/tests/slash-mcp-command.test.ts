@@ -133,4 +133,64 @@ describe('buildMcpSlashCommand', () => {
     expect(res?.message).toContain('expected key=value');
     expect(mcpRegistry.selectPromptForInsertion).not.toHaveBeenCalled();
   });
+
+  it('starts manual OAuth without exposing the PKCE verifier', async () => {
+    const mcpRegistry = {
+      beginAuthorization: vi.fn().mockResolvedValue({
+        authorizationUrl: 'https://auth.example.com/authorize?state=safe-state',
+        expiresAt: Date.parse('2026-07-13T03:00:00.000Z'),
+      }),
+    };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run(
+      'auth start remote wrongstack http://127.0.0.1:43123/callback tools:read',
+    );
+
+    expect(mcpRegistry.beginAuthorization).toHaveBeenCalledWith('remote', {
+      clientId: 'wrongstack',
+      redirectUri: 'http://127.0.0.1:43123/callback',
+      scopes: ['tools:read'],
+    });
+    expect(res?.message).toContain('https://auth.example.com/authorize');
+    expect(res?.message).not.toContain('codeVerifier');
+  });
+
+  it('completes OAuth and renders only non-secret status', async () => {
+    const callbackUrl = 'http://127.0.0.1:43123/callback?code=one-time&state=expected';
+    const mcpRegistry = {
+      completeAuthorization: vi.fn().mockResolvedValue({
+        state: 'authorized',
+        resource: 'https://mcp.example.com/mcp',
+        scopes: ['tools:read'],
+        canRefresh: true,
+      }),
+    };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const res = await cmd.run(`auth complete remote ${callbackUrl}`);
+
+    expect(mcpRegistry.completeAuthorization).toHaveBeenCalledWith('remote', callbackUrl);
+    expect(res?.message).toContain('state=authorized');
+    expect(res?.message).not.toContain('one-time');
+  });
+
+  it('shows status and removes stored OAuth credentials', async () => {
+    const mcpRegistry = {
+      authorizationStatus: vi.fn().mockResolvedValue({
+        state: 'expired',
+        resource: 'https://mcp.example.com/mcp',
+        scopes: [],
+        canRefresh: true,
+      }),
+      disconnectAuthorization: vi.fn().mockResolvedValue(true),
+    };
+    const cmd = buildMcpSlashCommand({ mcpRegistry } as never);
+
+    const status = await cmd.run('auth status remote');
+    const logout = await cmd.run('auth logout remote');
+
+    expect(status?.message).toContain('state=expired');
+    expect(logout?.message).toContain('credentials removed');
+  });
 });

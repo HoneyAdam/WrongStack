@@ -37,18 +37,24 @@ describe('extractJsonRpcResults', () => {
     expect((r[0]?.result as { tools: unknown[] }).tools).toEqual([]);
   });
 
-  it('preserves JSON-RPC notifications alongside results', () => {
-    const envelopes = extractJsonRpcResults(
+  it('excludes notifications and server requests from response results', () => {
+    const responses = extractJsonRpcResults(
       [
         JSON.stringify({
           jsonrpc: '2.0',
           method: 'notifications/resources/list_changed',
         }),
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 7,
+          method: 'sampling/createMessage',
+          params: {},
+        }),
         JSON.stringify({ jsonrpc: '2.0', id: 7, result: { resources: [] } }),
       ].join('\n'),
     );
-    expect(envelopes).toHaveLength(2);
-    expect(envelopes[0]?.method).toBe('notifications/resources/list_changed');
+    expect(responses).toHaveLength(1);
+    expect(responses[0]?.id).toBe(7);
   });
 
   it('joins multi-line SSE data within one event', () => {
@@ -1158,6 +1164,42 @@ describe('SSETransport — mocked connect + callTool', () => {
       ).request('tools/call', { name: 'x', arguments: {} });
       // Should have found the JSON-RPC result in the NDJSON lines
       expect((res as { result?: unknown }).result).toBeDefined();
+    } finally {
+      (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
+    }
+  });
+
+  it('does not accept a colliding server request as an HTTP response', async () => {
+    const fetchImpl = mkFetch([
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: INIT_RESULT }),
+      () => jsonRes({ jsonrpc: '2.0' }),
+      (_u, init) =>
+        jsonRes({ jsonrpc: '2.0', id: JSON.parse(init.body ?? '{}').id, result: { tools: [] } }),
+      (_u, init) => {
+        const id = JSON.parse(init.body ?? '{}').id;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            method: 'sampling/createMessage',
+            params: { messages: [] },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    ]);
+    const origFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof globalThis.fetch }).fetch = fetchImpl;
+    try {
+      const t = new StreamableHTTPTransport({ name: 'x', url: 'https://m.test' });
+      await t.connect();
+      await expect(
+        (t as never as { request: (m: string, p: unknown) => Promise<unknown> }).request(
+          'tools/call',
+          { name: 'x', arguments: {} },
+        ),
+      ).rejects.toThrow(/Could not parse response as JSON-RPC/);
     } finally {
       (globalThis as { fetch: typeof globalThis.fetch }).fetch = origFetch;
     }

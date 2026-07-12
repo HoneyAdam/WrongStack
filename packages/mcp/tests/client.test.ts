@@ -385,6 +385,93 @@ describe('MCPClient', () => {
       // Allow async handleToolsListChanged to complete
       await new Promise((r) => setTimeout(r, 50));
     });
+
+    it('does not resolve a pending call from a colliding server request', () => {
+      const c = new MCPClient({ name: 'request-collision', transport: 'stdio', command: 'echo' });
+      const resolve = vi.fn();
+      const reject = vi.fn();
+      const timer = setTimeout(() => {}, 10_000);
+      const write = vi.fn((_value: string) => true);
+      const internals = c as never as {
+        child: { stdin: { write: (value: string) => boolean } };
+        pending: Map<
+          number,
+          {
+            resolve: (value: unknown) => void;
+            reject: (error: Error) => void;
+            timer: NodeJS.Timeout;
+          }
+        >;
+        onLine: (line: string) => void;
+      };
+      internals.child = { stdin: { write } };
+      internals.pending.set(42, { resolve, reject, timer });
+
+      internals.onLine(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 42,
+          method: 'sampling/createMessage',
+          params: { messages: [] },
+        }),
+      );
+
+      expect(resolve).not.toHaveBeenCalled();
+      expect(internals.pending.has(42)).toBe(true);
+      expect(write).toHaveBeenCalledOnce();
+      expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({
+        jsonrpc: '2.0',
+        id: 42,
+        error: { code: -32601, message: 'Client sampling is disabled by policy' },
+      });
+
+      clearTimeout(timer);
+      internals.pending.delete(42);
+    });
+
+    it('returns method-not-found for unknown server requests', () => {
+      const c = new MCPClient({ name: 'unknown-request', transport: 'stdio', command: 'echo' });
+      const write = vi.fn((_value: string) => true);
+      const internals = c as never as {
+        child: { stdin: { write: (value: string) => boolean } };
+        onLine: (line: string) => void;
+      };
+      internals.child = { stdin: { write } };
+
+      internals.onLine(
+        JSON.stringify({ jsonrpc: '2.0', id: 'server-1', method: 'roots/list', params: {} }),
+      );
+
+      expect(JSON.parse(String(write.mock.calls[0]?.[0]))).toMatchObject({
+        jsonrpc: '2.0',
+        id: 'server-1',
+        error: { code: -32601, message: 'Method not found: roots/list' },
+      });
+    });
+
+    it('still resolves a pending call from a strict response envelope', () => {
+      const c = new MCPClient({ name: 'strict-response', transport: 'stdio', command: 'echo' });
+      const resolve = vi.fn();
+      const timer = setTimeout(() => {}, 10_000);
+      const internals = c as never as {
+        pending: Map<
+          number,
+          {
+            resolve: (value: unknown) => void;
+            reject: (error: Error) => void;
+            timer: NodeJS.Timeout;
+          }
+        >;
+        onLine: (line: string) => void;
+      };
+      internals.pending.set(9, { resolve, reject: vi.fn(), timer });
+
+      internals.onLine(JSON.stringify({ jsonrpc: '2.0', id: 9, result: { ok: true } }));
+
+      expect(resolve).toHaveBeenCalledWith({ jsonrpc: '2.0', id: 9, result: { ok: true } });
+      expect(internals.pending.has(9)).toBe(false);
+      clearTimeout(timer);
+    });
   });
 
   describe('addExitListener / removeExitListener', () => {

@@ -40,6 +40,58 @@ describe('MCPRegistry', () => {
     events = new EventBus();
   });
 
+  it('routes authorization management through the exact configured HTTP resource', async () => {
+    const authorizationManager = {
+      begin: vi.fn().mockResolvedValue({ authorizationUrl: 'https://auth.test/authorize' }),
+      complete: vi.fn(),
+      status: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const reg = new MCPRegistry({
+      toolRegistry: toolReg,
+      events,
+      log: silentLog,
+      authorizationManager: authorizationManager as never,
+    });
+    reg.markDisabled({
+      name: 'remote',
+      transport: 'streamable-http',
+      url: 'https://mcp.example.com/team',
+      enabled: false,
+    });
+
+    await reg.beginAuthorization('remote', {
+      clientId: 'wrongstack',
+      redirectUri: 'http://127.0.0.1:43123/callback',
+      scopes: ['tools:read'],
+    });
+
+    expect(authorizationManager.begin).toHaveBeenCalledWith({
+      serverName: 'remote',
+      resource: 'https://mcp.example.com/team',
+      clientId: 'wrongstack',
+      redirectUri: 'http://127.0.0.1:43123/callback',
+      scopes: ['tools:read'],
+    });
+  });
+
+  it('refuses authorization management for stdio servers', async () => {
+    const reg = new MCPRegistry({
+      toolRegistry: toolReg,
+      events,
+      log: silentLog,
+      authorizationManager: { begin: vi.fn() } as never,
+    });
+    reg.markDisabled({ ...stdioCfg('local'), enabled: false });
+
+    await expect(
+      reg.beginAuthorization('local', {
+        clientId: 'wrongstack',
+        redirectUri: 'http://127.0.0.1:43123/callback',
+      }),
+    ).rejects.toThrow(/does not use an HTTP transport/);
+  });
+
   it('skips disabled servers', async () => {
     const reg = new MCPRegistry({ toolRegistry: toolReg, events, log: silentLog });
     await reg.start(stdioCfg('off', { enabled: false }));

@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { buildChildEnv } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
+import type { MCPAuthorizationProvider } from './authorization.js';
 import { MCP_CONSTANTS } from './constants.js';
 import {
   type MCPGetPromptResult,
@@ -31,6 +32,8 @@ export interface MCPClientOptions {
   headers?: Record<string, string> | undefined;
   startupTimeoutMs?: number | undefined;
   requestTimeoutMs?: number | undefined;
+  /** Host-owned, vault-backed authorization for HTTP transports. */
+  authorizationProvider?: MCPAuthorizationProvider | undefined;
   /**
    * Allowlist of env var names to forward from the parent process (process.env)
    * to the child. Values are resolved at spawn time and merged into `env`
@@ -82,6 +85,33 @@ export interface JsonRpcResponse {
   id: number;
   result?: unknown | undefined;
   error?: { code: number | undefined; message: string; data?: unknown | undefined } | undefined;
+}
+
+type JsonRpcServerRequest = {
+  jsonrpc: '2.0';
+  id: number | string;
+  method: string;
+  params?: unknown | undefined;
+};
+
+function isJsonRpcResponse(value: unknown): value is JsonRpcResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const response = value as Record<string, unknown>;
+  if (response['jsonrpc'] !== '2.0' || typeof response['id'] !== 'number') return false;
+  if (Object.hasOwn(response, 'method')) return false;
+
+  const hasResult = Object.hasOwn(response, 'result');
+  const hasError = Object.hasOwn(response, 'error');
+  if (hasResult === hasError) return false;
+  if (!hasError) return true;
+
+  const error = response['error'];
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    typeof (error as Record<string, unknown>)['code'] === 'number' &&
+    typeof (error as Record<string, unknown>)['message'] === 'string'
+  );
 }
 
 type ExitListener = (name: string, code: number | null, signal: string | null) => void;
@@ -333,6 +363,7 @@ export class MCPClient {
       headers: this.opts.headers,
       startupTimeoutMs: this.opts.startupTimeoutMs,
       requestTimeoutMs: this.opts.requestTimeoutMs,
+      authorizationProvider: this.opts.authorizationProvider,
     };
     this.sseTransport = new SSETransport(httpOpts);
     this.sseTransport.onDisconnect(() => {
@@ -396,6 +427,7 @@ export class MCPClient {
       headers: this.opts.headers,
       startupTimeoutMs: this.opts.startupTimeoutMs,
       requestTimeoutMs: this.opts.requestTimeoutMs,
+      authorizationProvider: this.opts.authorizationProvider,
     };
     this.httpTransport = new StreamableHTTPTransport(httpOpts);
     this.httpTransport.onDisconnect(() => {
@@ -828,37 +860,69 @@ export class MCPClient {
   }
 
   private onLine(line: string): void {
-    let msg: JsonRpcResponse & { method?: string | undefined; params?: unknown | undefined };
+    let msg: unknown;
     try {
-      msg = JSON.parse(line) as JsonRpcResponse & {
-        method?: string | undefined;
-        params?: unknown | undefined;
-      };
+      msg = JSON.parse(line);
     } catch {
       return;
     }
-    if (msg.id !== undefined && this.pending.has(msg.id)) {
+
+    if (typeof msg !== 'object' || msg === null) return;
+    const envelope = msg as Record<string, unknown>;
+    if (envelope['jsonrpc'] !== '2.0') return;
+
+    // A server request is never a response, even if its id collides with one
+    // of our pending calls. Resolve pending calls only after the envelope has
+    // passed the strict response guard below.
+    if (typeof envelope['method'] === 'string') {
+      const id = envelope['id'];
+      if (typeof id === 'number' || typeof id === 'string') {
+        this.handleServerRequest({
+          jsonrpc: '2.0',
+          id,
+          method: envelope['method'],
+          params: envelope['params'],
+        });
+        return;
+      }
+
+      // Notifications have a `method` but no `id`. The MCP spec defines
+      // list_changed notifications for cache invalidation.
+      if (Object.hasOwn(envelope, 'id')) return;
+      if (envelope['method'] === 'notifications/tools/list_changed') {
+        void this.handleToolsListChanged();
+      } else if (envelope['method'] === 'notifications/resources/list_changed') {
+        this.emitCapabilityChanged('resources');
+      } else if (envelope['method'] === 'notifications/prompts/list_changed') {
+        this.emitCapabilityChanged('prompts');
+      }
+      return;
+    }
+
+    if (!isJsonRpcResponse(msg)) return;
+    if (this.pending.has(msg.id)) {
       const entry = this.pending.get(msg.id);
       this.pending.delete(msg.id);
       entry?.resolve(msg);
-      return;
     }
-    // Notifications have a `method` but no `id`. The MCP spec defines
-    // `notifications/tools/list_changed` for tool-set invalidation —
-    // refresh the cache asynchronously and fire listeners so the
-    // registry can re-register the wrapped tools.
-    if (typeof msg.method === 'string' && msg.method === 'notifications/tools/list_changed') {
-      void this.handleToolsListChanged();
-    } else if (
-      typeof msg.method === 'string' &&
-      msg.method === 'notifications/resources/list_changed'
-    ) {
-      this.emitCapabilityChanged('resources');
-    } else if (
-      typeof msg.method === 'string' &&
-      msg.method === 'notifications/prompts/list_changed'
-    ) {
-      this.emitCapabilityChanged('prompts');
+  }
+
+  private handleServerRequest(request: JsonRpcServerRequest): void {
+    const message =
+      request.method === 'sampling/createMessage'
+        ? 'Client sampling is disabled by policy'
+        : `Method not found: ${request.method}`;
+    const response = {
+      jsonrpc: '2.0',
+      id: request.id,
+      error: { code: -32601, message },
+    };
+
+    try {
+      this.child?.stdin?.write(`${JSON.stringify(response)}\n`);
+    } catch {
+      // Best-effort protocol reply. A closed stdio stream is handled by the
+      // normal child-exit path, which also rejects every pending client call.
     }
   }
 
