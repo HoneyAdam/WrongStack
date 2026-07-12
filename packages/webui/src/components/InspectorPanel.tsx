@@ -177,7 +177,7 @@ export function InspectorPanel() {
       >
         <div className="flex flex-col" style={{ height: PANEL_HEIGHT }}>
           {/* Tab bar */}
-          <div className="flex items-center gap-1 px-2 h-8 border-b bg-muted/30 shrink-0">
+          <div className="flex items-center gap-1 px-2 h-8 border-b bg-muted/30 shrink-0" role="tablist" aria-label={t('activity:inspector.label')}>
             <TabButton
               active={inspectorTab === 'fleet'}
               onClick={openFleetTab}
@@ -185,6 +185,8 @@ export function InspectorPanel() {
               label={t('activity:inspector.tabFleet')}
               count={fleetTotal}
               running={runningCount}
+              tabId="inspector-tab-fleet"
+              panelId="inspector-panel-fleet"
             />
             <TabButton
               active={inspectorTab === 'agents'}
@@ -192,6 +194,8 @@ export function InspectorPanel() {
               icon={<Users className="h-3.5 w-3.5" />}
               label={t('activity:inspector.tabAgents')}
               count={fleetTotal}
+              tabId="inspector-tab-agents"
+              panelId="inspector-panel-agents"
             />
             <TabButton
               active={inspectorTab === 'sideEffects'}
@@ -199,6 +203,8 @@ export function InspectorPanel() {
               icon={<Activity className="h-3.5 w-3.5" />}
               label={t('activity:inspector.tabAudit')}
               count={sideEffectCount}
+              tabId="inspector-tab-sideEffects"
+              panelId="inspector-panel-sideEffects"
             />
             <div className="flex-1" />
             <button
@@ -213,7 +219,12 @@ export function InspectorPanel() {
           </div>
 
           {/* Content */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div
+            className="flex-1 min-h-0 overflow-y-auto"
+            role="tabpanel"
+            id={`inspector-panel-${inspectorTab}`}
+            aria-labelledby={`inspector-tab-${inspectorTab}`}
+          >
             {inspectorTab === 'fleet' ? (
               <FleetTabContent
                 fleetList={fleetList}
@@ -255,6 +266,8 @@ function TabButton({
   label,
   count,
   running,
+  tabId,
+  panelId,
 }: {
   active: boolean;
   onClick: () => void;
@@ -262,11 +275,17 @@ function TabButton({
   label: string;
   count: number;
   running?: number;
+  tabId: string;
+  panelId: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      role="tab"
+      id={tabId}
+      aria-selected={active}
+      aria-controls={panelId}
       className={cn(
         'flex items-center gap-1.5 px-2.5 h-6 rounded-md text-[11px] font-medium transition-colors',
         active
