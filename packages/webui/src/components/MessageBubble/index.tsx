@@ -254,6 +254,7 @@ export const MessageBubble = memo(function MessageBubble({
           return (
           <button type="button" onClick={() => toggleTool(message.id)}
             className={cn('flex items-center gap-2 text-sm font-medium cursor-pointer select-none', 'hover:bg-muted/50 rounded-lg px-2 py-1 -mx-2 transition-colors', message.isError ? 'text-destructive' : 'text-foreground')}
+            aria-expanded={!!expandedTools[message.id]}
             title={tooltip}>
             <span className="text-muted-foreground/50">{expandedTools[message.id] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}</span>
             <ToolIcon className="h-3 w-3" style={{ color: toolColor }} />
@@ -348,6 +349,7 @@ export const MessageBubble = memo(function MessageBubble({
                   type="button"
                   onClick={() => setThinkingExpanded((v) => !v)}
                   className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-left text-sm font-medium text-primary"
+                  aria-expanded={thinkingExpanded}
                 >
                   <span className="text-muted-foreground/60">
                     {thinkingExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
