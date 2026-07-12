@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { playCompletionChime } from '@/lib/chime';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useUIStore } from '@/stores';
@@ -50,16 +51,19 @@ export function PreferenceToggle({
       }
     }
   };
+  const switchId = useId();
   return (
     <div className="flex items-start justify-between gap-3 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">{label}</div>
+        <label htmlFor={switchId} className="text-sm font-medium">{label}</label>
         {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
       </div>
       <button
         type="button"
+        id={switchId}
         role="switch"
         aria-checked={on}
+        aria-label={label}
         onClick={handleToggle}
         className={cn(
           'shrink-0 relative inline-flex h-5 w-9 rounded-full border transition-colors',
