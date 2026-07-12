@@ -33,6 +33,7 @@ import { ToolDiffView, diffFromToolInput } from '../DiffView';
 import { ToolResult } from '../ToolResult';
 import { NextStepsBar, fillInput, parseNextSteps } from '../NextStepsBar';
 import { toast } from '../Toaster';
+import { AttachmentGallery } from './AttachmentGallery.js';
 import { CopyButton } from './CopyButton.js';
 import { StreamingMarkdown } from './StreamingMarkdown.js';
 import { ErrorBodyWithStack } from './ErrorBody.js';
@@ -361,8 +362,15 @@ export const MessageBubble = memo(function MessageBubble({
             // through as literal text. The parsed steps render as a separate
             // <NextStepsBar> below the bubble.
             const renderedContent = nextStepsResult ? nextStepsResult.stripped : message.content;
+            const hasAttachments = !!message.attachments && message.attachments.length > 0;
             return (
               <div className={cn('text-sm leading-relaxed markdown-content', message.streaming && 'streaming-cursor')}>
+                {hasAttachments && (
+                  <AttachmentGallery
+                    attachments={message.attachments ?? []}
+                    notRetainedLabel={t('activity:message.imageNotRetained')}
+                  />
+                )}
                 {renderedContent ? (showRaw && message.role === 'assistant' ? (
                   <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90 max-h-[40rem] overflow-auto">{message.content}</pre>
                 ) : message.role === 'assistant' && message.isError ? (
@@ -376,7 +384,7 @@ export const MessageBubble = memo(function MessageBubble({
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins} components={markdownComponents}>{renderedContent}</ReactMarkdown>
                 )) : message.streaming ? (
                   <span className="inline-block animate-pulse text-muted-foreground">{t('activity:message.typing')}</span>
-                ) : (
+                ) : hasAttachments ? null : (
                   <span className="text-muted-foreground italic">{t('activity:message.noContent')}</span>
                 )}
               </div>

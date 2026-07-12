@@ -8,6 +8,40 @@ vi.mock('../../src/components/ChatInput/code-detect.js', () => ({
   autoFenceCode: vi.fn(),
 }));
 
+// Mock the image pipeline — jsdom has no real image decoding/canvas, so
+// processImageFile is replaced with a deterministic fake. Every export the
+// hook consumes must be present in the factory (missing ones throw at access).
+vi.mock('../../src/components/ChatInput/image-attachments.js', () => {
+  class ImageAttachmentError extends Error {
+    constructor(
+      message: string,
+      readonly reason: string,
+    ) {
+      super(message);
+    }
+  }
+  let seq = 0;
+  return {
+    ImageAttachmentError,
+    MAX_ATTACHED_IMAGES: 8,
+    processImageFile: vi.fn(async (file: File) => {
+      seq += 1;
+      return {
+        id: `img_${seq}`,
+        dataUrl: 'data:image/png;base64,AAAA',
+        mediaType: file.type || 'image/png',
+        bytes: 4,
+        name: file.name,
+      };
+    }),
+  };
+});
+
+// Mock toast so attachment errors don't need a mounted Toaster.
+vi.mock('../../src/components/Toaster.js', () => ({
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+}));
+
 function mockTextarea(selectionStart = 0, selectionEnd = 0): HTMLTextAreaElement {
   const ta = {
     selectionStart,
@@ -37,6 +71,11 @@ function makeHookOptions(overrides: { input?: string; selectionStart?: number } 
       input: overrides.input ?? '',
       textareaRef: textareaRef as React.RefObject<HTMLTextAreaElement | null>,
       setInput,
+      errorText: {
+        tooManyImages: (max: number) => `too many (${max})`,
+        imageProcessFailed: (name: string) => `failed ${name}`,
+        imageTooLarge: (name: string) => `too large ${name}`,
+      },
     },
   };
 }
@@ -49,14 +88,13 @@ describe('usePasteDrop', () => {
 
   describe('initial state', () => {
     it('returns null pasteHint and false draggingOver initially', () => {
-      const { textareaRef, setInput } = makeHookOptions();
-      const { result } = renderHook(() =>
-        usePasteDrop({ input: '', textareaRef, setInput }),
-      );
+      const { options } = makeHookOptions();
+      const { result } = renderHook(() => usePasteDrop(options));
 
       expect(result.current.pasteHint).toBeNull();
       expect(result.current.draggingOver).toBe(false);
-      expect(result.current.pendingImageRef).toBeDefined();
+      expect(result.current.pendingImagesRef.current).toEqual([]);
+      expect(result.current.pendingImages).toEqual([]);
     });
   });
 
@@ -161,28 +199,55 @@ describe('usePasteDrop', () => {
 
       // No @mention insertion for a pure-image drop (synchronous decision).
       expect(setInput).not.toHaveBeenCalled();
-      // FileReader resolves asynchronously — poll until the data URL lands.
+      // Image processing resolves asynchronously — poll until the chip lands.
       await waitFor(() => {
-        expect(typeof result.current.pendingImage).toBe('string');
-        expect(result.current.pendingImage).toMatch(/^data:image\/png/);
+        expect(result.current.pendingImages).toHaveLength(1);
+        expect(result.current.pendingImages[0]?.dataUrl).toMatch(/^data:image\/png/);
+        expect(result.current.pendingImages[0]?.name).toBe('shot.png');
       });
     });
 
-    it('clearPendingImage resets the pending image', async () => {
+    it('onDrop attaches multiple images in order', async () => {
       const { options } = makeHookOptions();
       const { result } = renderHook(() => usePasteDrop(options));
-      const imageFile = new File(['x'], 'a.png', { type: 'image/png' });
+      const files = [
+        new File(['a'], 'a.png', { type: 'image/png' }),
+        new File(['b'], 'b.jpg', { type: 'image/jpeg' }),
+      ];
 
       act(() => {
         result.current.onDrop({
-          dataTransfer: { files: [imageFile] },
+          dataTransfer: { files },
           preventDefault: vi.fn(),
         } as never as React.DragEvent<HTMLFormElement>);
       });
-      await waitFor(() => expect(result.current.pendingImage).toBeTruthy());
 
-      act(() => result.current.clearPendingImage());
-      expect(result.current.pendingImage).toBeNull();
+      await waitFor(() => {
+        expect(result.current.pendingImages.map((i) => i.name)).toEqual(['a.png', 'b.jpg']);
+      });
+    });
+
+    it('removeImage removes one chip; clearPendingImages resets all', async () => {
+      const { options } = makeHookOptions();
+      const { result } = renderHook(() => usePasteDrop(options));
+      const files = [
+        new File(['a'], 'a.png', { type: 'image/png' }),
+        new File(['b'], 'b.png', { type: 'image/png' }),
+      ];
+
+      await act(async () => {
+        await result.current.addImageFiles(files);
+      });
+      expect(result.current.pendingImages).toHaveLength(2);
+
+      const firstId = result.current.pendingImages[0]?.id as string;
+      act(() => result.current.removeImage(firstId));
+      expect(result.current.pendingImages).toHaveLength(1);
+      expect(result.current.pendingImages[0]?.name).toBe('b.png');
+
+      act(() => result.current.clearPendingImages());
+      expect(result.current.pendingImages).toEqual([]);
+      expect(result.current.pendingImagesRef.current).toEqual([]);
     });
 
     it('onDrop with empty files clears draggingOver and returns', () => {

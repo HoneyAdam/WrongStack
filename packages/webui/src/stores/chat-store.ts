@@ -55,6 +55,17 @@ export interface QueuedItem {
   text: string;
   mode: QueueMode;
   addedAt: number;
+  /** Image attachments riding with the queued message. Kept as full data
+   *  URLs so the drain path can rebuild the wire payload + local bubble. */
+  images?:
+    | Array<{
+        id: string;
+        dataUrl: string;
+        mediaType: string;
+        bytes: number;
+        name?: string | undefined;
+      }>
+    | undefined;
 }
 
 interface ChatState {
@@ -121,7 +132,7 @@ interface ChatState {
   truncateAfter: (id: string) => void;
   addExecution: (exec: ToolExecution) => void;
   updateExecution: (id: string, updates: Partial<ToolExecution>) => void;
-  enqueue: (text: string, mode?: QueueMode) => void;
+  enqueue: (text: string, mode?: QueueMode, images?: QueuedItem['images']) => void;
   dequeue: () => QueuedItem | null;
   removeQueued: (idx: number) => void;
   clearQueue: () => void;
@@ -323,9 +334,12 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
-      enqueue: (text, mode = 'queue') =>
+      enqueue: (text, mode = 'queue', images) =>
         set((state) => ({
-          queue: [...state.queue, { text, mode, addedAt: Date.now() }],
+          queue: [
+            ...state.queue,
+            { text, mode, addedAt: Date.now(), ...(images?.length ? { images } : {}) },
+          ],
         })),
       dequeue: () => {
         const { queue } = get();
@@ -383,9 +397,18 @@ export const useChatStore = create<ChatState>()(
       // toolMessageIdsByUseId which is rebuildable from messages via
       // indexToolMessages(). Re-fetching them from the server on resume is
       // cheaper and more correct than resurrecting them from localStorage.
+      // Attachment data-URLs are stripped before hitting localStorage — a
+      // handful of images would blow the ~5MB origin quota and kill persist
+      // for the whole transcript. Metadata (name/size/type) survives so the
+      // bubble can render a placeholder chip after refresh. Queued items
+      // lose their images entirely on refresh for the same reason.
       partialize: (s) => ({
-        messages: s.messages,
-        queue: s.queue,
+        messages: s.messages.map((m) =>
+          m.attachments?.some((a) => a.dataUrl)
+            ? { ...m, attachments: m.attachments.map((a) => ({ ...a, dataUrl: undefined })) }
+            : m,
+        ),
+        queue: s.queue.map((q) => (q.images ? { ...q, images: undefined } : q)),
         boundSessionId: s.boundSessionId,
         thinkingLogBuffer: s.thinkingLogBuffer,
       }),

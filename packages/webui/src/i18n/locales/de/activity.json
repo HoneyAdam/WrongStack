@@ -1077,6 +1077,7 @@
     "showFullLog": "Vollständiges Log zeigen",
     "typing": "Tippt…",
     "noContent": "Kein Inhalt",
+    "imageNotRetained": "Bildvorschau wird nach dem Neuladen nicht behalten",
     "failedToSend": "⚠ Senden fehlgeschlagen",
     "autoPaused": "⚠️ _Auto-Fortsetzen pausiert — maximale aufeinanderfolgende automatische Züge erreicht. Tippe etwas zum Fortfahren (Autonomie bleibt an)._",
     "rsIterations": "Iterationen: {{n}}",

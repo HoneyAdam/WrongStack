@@ -1,4 +1,9 @@
-import type { WSClientMessage, WSCompletionRequest, WSServerMessage } from '../types';
+import type {
+  WSClientMessage,
+  WSCompletionRequest,
+  WSServerMessage,
+  WSUserMessageImage,
+} from '../types';
 import { streamCoalescer } from './stream-coalescer';
 import {
   buildClearModelsMessage,
@@ -470,7 +475,7 @@ export class WrongStackWebSocketClient {
     this.handlers.get(eventType)?.delete(handler as EventHandler);
   }
 
-  sendMessage(content: string, imageBase64?: string): string {
+  sendMessage(content: string, images?: WSUserMessageImage[]): string {
     const id = `msg_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     this.send({
       type: 'user_message',
@@ -478,7 +483,7 @@ export class WrongStackWebSocketClient {
         id,
         content,
         timestamp: Date.now(),
-        ...(imageBase64 ? { imageBase64 } : {}),
+        ...(images && images.length > 0 ? { images } : {}),
       }),
     });
     return id;

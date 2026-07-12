@@ -1,7 +1,14 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { autoFenceCode } from './code-detect.js';
 import { useFileReferenceStore } from '@/stores/file-reference-store.js';
+import { toast } from '../Toaster.js';
+import { autoFenceCode } from './code-detect.js';
+import {
+  type ImageAttachment,
+  ImageAttachmentError,
+  MAX_ATTACHED_IMAGES,
+  processImageFile,
+} from './image-attachments.js';
 
 export interface PasteHintState {
   chars: number;
@@ -16,63 +23,88 @@ interface UsePasteDropOptions {
   input: string;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   setInput: (value: string) => void;
+  /** i18n error strings, resolved by the component so the hook stays free of
+   *  the translation context. */
+  errorText: {
+    tooManyImages: (max: number) => string;
+    imageProcessFailed: (name: string) => string;
+    imageTooLarge: (name: string) => string;
+  };
 }
 
-/** Read a File into a base64 data-URL. */
-function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
-export function usePasteDrop({ input, textareaRef, setInput }: UsePasteDropOptions) {
+export function usePasteDrop({ input, textareaRef, setInput, errorText }: UsePasteDropOptions) {
   const [pasteHint, setPasteHint] = useState<PasteHintState | null>(null);
   const [draggingOver, setDraggingOver] = useState(false);
 
-  /** Accumulates base64 image data pasted while the input is focused.
-   *  Cleared after each submit so images aren't re-sent accidentally. */
-  const pendingImageRef = useRef<string | null>(null);
-  /** State mirror of pendingImageRef so a thumbnail preview re-renders.
-   *  The ref stays the submit-time source of truth; this drives the pill. */
-  const [pendingImage, setPendingImageState] = useState<string | null>(null);
-  const setPendingImage = (data: string | null) => {
-    pendingImageRef.current = data;
-    setPendingImageState(data);
+  /** Images attached for the next message (pasted, dropped, or picked).
+   *  Cleared after each submit so they aren't re-sent accidentally. The ref
+   *  stays the submit-time source of truth; the state mirror drives the
+   *  attachment chips. */
+  const pendingImagesRef = useRef<ImageAttachment[]>([]);
+  const [pendingImages, setPendingImagesState] = useState<ImageAttachment[]>([]);
+  const setPendingImages = (next: ImageAttachment[]) => {
+    pendingImagesRef.current = next;
+    setPendingImagesState(next);
   };
+
+  /** Latest errorText without re-subscribing the paste listener on every
+   *  render (the object literal is recreated by the caller each render). */
+  const errorTextRef = useRef(errorText);
+  errorTextRef.current = errorText;
+
+  /** Process and append image files, enforcing the per-message count cap.
+   *  Failures surface as toasts per file; successes append in order. */
+  const addImageFiles = async (files: File[]): Promise<void> => {
+    const err = errorTextRef.current;
+    for (const file of files) {
+      if (pendingImagesRef.current.length >= MAX_ATTACHED_IMAGES) {
+        toast.error(err.tooManyImages(MAX_ATTACHED_IMAGES));
+        return;
+      }
+      try {
+        const attachment = await processImageFile(file);
+        setPendingImages([...pendingImagesRef.current, attachment]);
+      } catch (e) {
+        if (e instanceof ImageAttachmentError && e.reason === 'too_large') {
+          toast.error(err.imageTooLarge(file.name || 'image'));
+        } else {
+          toast.error(err.imageProcessFailed(file.name || 'image'));
+        }
+      }
+    }
+  };
+
+  const removeImage = (id: string) => {
+    setPendingImages(pendingImagesRef.current.filter((img) => img.id !== id));
+  };
+
+  const clearPendingImages = () => setPendingImages([]);
 
   /** Intercept native paste events to detect and accumulate clipboard images. */
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    const onPaste = async (event: ClipboardEvent) => {
+    const onPaste = (event: ClipboardEvent) => {
       const items = event.clipboardData?.items;
       if (!items) return;
 
+      const files: File[] = [];
       for (const item of items) {
         if (item.type.startsWith('image/')) {
-          event.preventDefault();
-          try {
-            const blob = item.getAsFile();
-            if (!blob) continue;
-            const reader = new FileReader();
-            reader.onload = () => {
-              setPendingImage(reader.result as string);
-            };
-            reader.readAsDataURL(blob);
-          } catch {
-            // Clipboard access requires permission in some browsers; silently skip.
-          }
-          return;
+          const blob = item.getAsFile();
+          if (blob) files.push(blob);
         }
       }
+      if (files.length === 0) return;
+      event.preventDefault();
+      void addImageFiles(files);
     };
 
     textarea.addEventListener('paste', onPaste);
     return () => textarea.removeEventListener('paste', onPaste);
+    // addImageFiles is stable in effect: it only reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textareaRef]);
 
   const onDragEnter = (event: React.DragEvent<HTMLFormElement>): void => {
@@ -108,13 +140,10 @@ export function usePasteDrop({ input, textareaRef, setInput }: UsePasteDropOptio
     event.preventDefault();
     setDraggingOver(false);
 
-    // Dropped image → attach inline (same channel as a pasted image). We keep
-    // a single pending image, so the first dropped image wins.
-    const imageFile = allFiles.find((f) => f.type?.startsWith('image/'));
-    if (imageFile) {
-      void readFileAsDataURL(imageFile)
-        .then((data) => setPendingImage(data))
-        .catch(() => {});
+    // Dropped images → attach (same channel as pasted images). All of them.
+    const imageFiles = allFiles.filter((f) => f.type?.startsWith('image/'));
+    if (imageFiles.length > 0) {
+      void addImageFiles(imageFiles);
     }
     const files = allFiles.filter((f) => !f.type?.startsWith('image/'));
     if (files.length === 0) {
@@ -188,9 +217,11 @@ export function usePasteDrop({ input, textareaRef, setInput }: UsePasteDropOptio
     onDrop,
     onTextPaste,
     pasteHint,
-    pendingImageRef,
-    pendingImage,
-    clearPendingImage: () => setPendingImage(null),
+    pendingImagesRef,
+    pendingImages,
+    addImageFiles,
+    removeImage,
+    clearPendingImages,
     setPasteHint,
   };
 }

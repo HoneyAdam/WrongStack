@@ -1081,6 +1081,7 @@
     "showFullLog": "Show full log",
     "typing": "Typing…",
     "noContent": "No content",
+    "imageNotRetained": "Image preview not kept after refresh",
     "failedToSend": "⚠ Failed to send",
     "autoPaused": "⚠️ _Auto-proceed paused — maximum consecutive automatic turns reached. Type anything to continue (autonomy stays on)._",
     "rsIterations": "Iterations: {{n}}",

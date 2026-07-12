@@ -1,5 +1,5 @@
 import { expectDefined, toErrorMessage } from '@wrongstack/core';
-import { Bell, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
+import { Bell, ImagePlus, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -11,6 +11,7 @@ import { useAutoSubmitStreak } from '@/stores/auto-submit-streak.js';
 import type { QueueMode } from '@/stores/chat-store';
 import { refsToMarkdown } from '@/stores/file-reference-store.js';
 import { FileMentionPicker, type FileMentionState } from './ChatInput/file-mention-picker.js';
+import { toWireImages } from './ChatInput/image-attachments.js';
 import { QueuedMessages } from './ChatInput/queued-messages.js';
 import {
   detectAtMention,
@@ -121,11 +122,24 @@ export function ChatInput({
     onDrop,
     onTextPaste,
     pasteHint,
-    pendingImageRef,
-    pendingImage,
-    clearPendingImage,
+    pendingImagesRef,
+    pendingImages,
+    addImageFiles,
+    removeImage,
+    clearPendingImages,
     setPasteHint,
-  } = usePasteDrop({ input, textareaRef, setInput });
+  } = usePasteDrop({
+    input,
+    textareaRef,
+    setInput,
+    errorText: {
+      tooManyImages: (max) => t('chat:input.tooManyImages', { max }),
+      imageProcessFailed: (name) => t('chat:input.imageProcessFailed', { name }),
+      imageTooLarge: (name) => t('chat:input.imageTooLarge', { name }),
+    },
+  });
+  /** Hidden file input driven by the attach button. */
+  const imagePickerRef = useRef<HTMLInputElement>(null);
 
   // Prompt library "Insert" pushes its rendered text here; fold it into the input.
   useEffect(() => {
@@ -358,11 +372,7 @@ export function ChatInput({
     async (mode: QueueMode) => {
       // Manual submit re-arms the auto-proceed consecutive cap.
       resetAutoSubmitStreak();
-      if (!input.trim() && !pendingImageRef.current && fileRefs.length === 0) return;
-
-      // Drain and clear the pending clipboard image (if any)
-      const pendingImage = pendingImageRef.current;
-      clearPendingImage();
+      if (!input.trim() && pendingImagesRef.current.length === 0 && fileRefs.length === 0) return;
 
       const content = input.trim();
       const refsMarkdown = refsToMarkdown(fileRefs);
@@ -371,6 +381,8 @@ export function ChatInput({
       // doesn't duplicate the references.
       clearRefs();
 
+      // Slash commands leave attached images pending — they apply to the
+      // NEXT real message, not to the command.
       if (content.startsWith('/') && runSlashCommand(content)) {
         pushPrompt(content);
         setInput('');
@@ -385,16 +397,24 @@ export function ChatInput({
       pushPrompt(content);
       _clearTextarea(); // ensure textarea is cleared even if batching delays state
 
-      // Build the full content: prepend the pasted image as a markdown
-      // image link so both the chat view and the agent receive it.
-      const fullContent = pendingImage
-        ? `![pasted image](${pendingImage})\n\n${combined}`
-        : combined;
+      // Snapshot attached images. They're only cleared at the point of
+      // consumption (enqueue/send) so a dead socket keeps them pending
+      // instead of silently dropping them.
+      const images = pendingImagesRef.current;
+      const attachments = images.map((img) => ({
+        id: img.id,
+        kind: 'image' as const,
+        dataUrl: img.dataUrl,
+        mediaType: img.mediaType,
+        bytes: img.bytes,
+        name: img.name,
+      }));
 
       // `queue` mode always enqueues, even when idle. The drain loop
       // picks it up after the next run.result.
       if (mode === 'queue') {
-        enqueue(fullContent, 'queue');
+        enqueue(combined, 'queue', images.length > 0 ? images : undefined);
+        clearPendingImages();
         return;
       }
 
@@ -405,7 +425,8 @@ export function ChatInput({
       const mustEnqueue = mode === 'btw' && isLoading;
 
       if (mustEnqueue) {
-        enqueue(fullContent, 'btw');
+        enqueue(combined, 'btw', images.length > 0 ? images : undefined);
+        clearPendingImages();
         return;
       }
 
@@ -417,8 +438,9 @@ export function ChatInput({
 
       try {
         if (client?.isConnected) {
-          // If refine is enabled, trigger the refinement flow instead of sending directly
-          if (refineEnabled && refineModel) {
+          // Refine only rewrites text — with images attached, send directly
+          // so the attachments can't be dropped by the refine round-trip.
+          if (refineEnabled && refineModel && images.length === 0) {
             setRefinePanel({
               original: combined,
               refined: combined, // Will be replaced when backend responds
@@ -429,9 +451,14 @@ export function ChatInput({
             });
             refineModel(combined);
           } else {
-            addMessage({ role: 'user', content: fullContent });
+            addMessage({
+              role: 'user',
+              content: combined,
+              ...(attachments.length > 0 ? { attachments } : {}),
+            });
             setLoading(true);
-            sendMessage(combined, pendingImage ?? undefined);
+            sendMessage(combined, images.length > 0 ? toWireImages(images) : undefined);
+            clearPendingImages();
           }
         } else {
           // Socket is down: the textarea was already cleared above, so
@@ -476,8 +503,8 @@ export function ChatInput({
       pushPrompt,
       _clearTextarea,
       resetAutoSubmitStreak,
-      clearPendingImage,
-      pendingImageRef,
+      clearPendingImages,
+      pendingImagesRef,
       t,
     ],
   );
@@ -712,24 +739,52 @@ export function ChatInput({
           </div>
         </div>
       )}
-      {/* Pending image preview — shown when an image is pasted or dropped.
-          Sent alongside the next message as a markdown image link. */}
-      {pendingImage && (
-        <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2 py-1.5">
-          <img
-            src={pendingImage}
-            alt={t('chat:input.pendingAttachmentAlt')}
-            className="h-12 w-12 rounded object-cover border border-border/50"
-          />
-          <span className="text-xs text-muted-foreground">{t('chat:input.imageAttached')}</span>
-          <button
-            type="button"
-            onClick={clearPendingImage}
-            title={t('chat:input.removeImageTitle')}
-            className="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            ×
-          </button>
+      {/* Pending image attachments — pasted, dropped, or picked. Shown as
+          thumbnail chips; sent as real image blocks with the next message. */}
+      {pendingImages.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <span className="text-[10px] uppercase text-muted-foreground shrink-0">
+            {t('chat:input.imagesLabel')}
+          </span>
+          {pendingImages.map((img) => (
+            <div
+              key={img.id}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-1.5 py-1"
+              title={img.name ?? t('chat:input.pendingAttachmentAlt')}
+            >
+              <img
+                src={img.dataUrl}
+                alt={img.name ?? t('chat:input.pendingAttachmentAlt')}
+                className="h-10 w-10 rounded object-cover border border-border/50"
+              />
+              <span className="flex flex-col leading-tight">
+                <span className="text-[11px] text-foreground/90 max-w-[120px] truncate">
+                  {img.name ?? t('chat:input.imageAttached')}
+                </span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {img.width && img.height ? `${img.width}×${img.height} · ` : ''}
+                  {Math.max(1, Math.round(img.bytes / 1024))} KB
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => removeImage(img.id)}
+                title={t('chat:input.removeImageTitle')}
+                className="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {pendingImages.length > 1 && (
+            <button
+              type="button"
+              onClick={clearPendingImages}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 shrink-0"
+            >
+              {t('chat:input.clearAll')}
+            </button>
+          )}
         </div>
       )}
 
@@ -805,7 +860,7 @@ export function ChatInput({
       >
         {draggingOver && (
           <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none rounded-lg bg-primary/10 text-primary text-sm font-medium">
-            Drop file{`(s)`} to attach as @-mention
+            {t('chat:input.dropOverlay')}
           </div>
         )}
         <div className="relative w-full flex-1">
@@ -959,6 +1014,33 @@ export function ChatInput({
         </div>
 
         <div className="flex w-full justify-end gap-1 overflow-x-auto no-scrollbar sm:w-auto sm:overflow-visible">
+          {/* Attach images — opens a file picker; paste and drag-drop feed
+              the same pending-attachment list. */}
+          <input
+            ref={imagePickerRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length > 0) void addImageFiles(files);
+              // Reset so picking the same file twice re-fires onChange.
+              e.target.value = '';
+            }}
+          />
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            disabled={!client?.isConnected}
+            onClick={() => imagePickerRef.current?.click()}
+            className="h-[44px] w-[44px] shrink-0 rounded-md"
+            title={t('chat:input.attachImagesTitle')}
+            data-testid="attach-images"
+          >
+            <ImagePlus className="h-4 w-4" />
+          </Button>
           {isLoading && chatStarted ? (
             <>
               {/* Stop controls stay beside the new send-mode buttons so
@@ -1014,7 +1096,7 @@ export function ChatInput({
             type="submit"
             size="icon"
             variant="default"
-            disabled={!input.trim() || !client?.isConnected}
+            disabled={(!input.trim() && pendingImages.length === 0) || !client?.isConnected}
             className="h-[44px] w-[44px] shrink-0 rounded-md"
             title={t('chat:sendTitle')}
             data-testid="send-submit"
@@ -1033,7 +1115,7 @@ export function ChatInput({
                 type="button"
                 size="icon"
                 variant="default"
-                disabled={!input.trim() || !client?.isConnected}
+                disabled={(!input.trim() && pendingImages.length === 0) || !client?.isConnected}
                 onClick={handleBtw}
                 className="h-[44px] w-[44px] shrink-0 rounded-md"
                 title={isLoading ? t('chat:input.btwRunningTitle') : t('chat:input.btwIdleTitle')}
@@ -1045,7 +1127,7 @@ export function ChatInput({
                 type="button"
                 size="icon"
                 variant="outline"
-                disabled={!input.trim() || !client?.isConnected}
+                disabled={(!input.trim() && pendingImages.length === 0) || !client?.isConnected}
                 onClick={handleSteer}
                 className="h-[44px] w-[44px] shrink-0 rounded-md border-warning/50 text-warning hover:bg-warning/10"
                 title={
@@ -1059,7 +1141,7 @@ export function ChatInput({
                 type="button"
                 size="icon"
                 variant="outline"
-                disabled={!input.trim() || !client?.isConnected}
+                disabled={(!input.trim() && pendingImages.length === 0) || !client?.isConnected}
                 onClick={handleAddQueue}
                 className="h-[44px] w-[44px] shrink-0 rounded-md border-info/50 text-info hover:bg-info/10"
                 title={t('chat:input.addQueueTitle')}

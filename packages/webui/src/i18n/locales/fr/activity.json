@@ -1077,6 +1077,7 @@
     "showFullLog": "Afficher le journal complet",
     "typing": "Écrit…",
     "noContent": "Aucun contenu",
+    "imageNotRetained": "L'aperçu de l'image n'est pas conservé après actualisation",
     "failedToSend": "⚠ Échec de l'envoi",
     "autoPaused": "⚠️ _Avance auto en pause — nombre maximum de tours automatiques consécutifs atteint. Saisissez quelque chose pour continuer (l'autonomie reste activée)._",
     "rsIterations": "Itérations : {{n}}",

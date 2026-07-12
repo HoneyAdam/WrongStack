@@ -1080,6 +1080,7 @@
     "showFullLog": "Tüm günlüğü göster",
     "typing": "Yazıyor…",
     "noContent": "İçerik yok",
+    "imageNotRetained": "Görsel önizlemesi yenilemeden sonra saklanmaz",
     "failedToSend": "⚠ Gönderilemedi",
     "autoPaused": "⚠️ _Otomatik ilerleme duraklatıldı — maksimum ardışık otomatik tur sayısına ulaşıldı. Devam etmek için bir şey yazın (otonomi açık kalır)._",
     "rsIterations": "Yineleme: {{n}}",

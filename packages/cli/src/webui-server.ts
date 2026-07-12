@@ -570,7 +570,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     publicUrl,
   });
 
-  const wss = new WebSocketServer({ port, host, maxPayload: 1 * 1024 * 1024 });
+  // 20 MiB to leave headroom for image attachments (base64-inflated) in
+  // user_message payloads. Keep in sync with webui-server's WS_MAX_PAYLOAD —
+  // both servers speak the same protocol and must accept the same messages.
+  const wss = new WebSocketServer({ port, host, maxPayload: 20 * 1024 * 1024 });
 
   console.log(`[WebUI] WebSocket server starting on ws://${host}:${port}`);
 

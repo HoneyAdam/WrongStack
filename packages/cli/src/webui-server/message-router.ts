@@ -315,13 +315,22 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
 
   const wsRoutes: Record<string, WsRouteHandler> = {
     // ── Core connection ──
-    user_message: (msg, ws) =>
-      handleUserMessage(
-        connectionCtx,
-        ws,
-        (msg as { payload: { content: string } }).payload.content,
-        (msg as { payload?: { sessionId?: string } }).payload?.sessionId,
-      ),
+    user_message: (msg, ws) => {
+      const payload = (
+        msg as {
+          payload: {
+            content: string;
+            sessionId?: string;
+            images?: Array<{ data: string; mediaType?: string; name?: string }>;
+            imageBase64?: string;
+          };
+        }
+      ).payload;
+      return handleUserMessage(connectionCtx, ws, payload.content, payload.sessionId, {
+        images: payload.images,
+        imageBase64: payload.imageBase64,
+      });
+    },
     abort: (msg, ws) =>
       handleAbort(
         connectionCtx,

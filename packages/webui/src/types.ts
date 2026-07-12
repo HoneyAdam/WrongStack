@@ -42,13 +42,26 @@ export interface SessionScopedPayload {
   sessionId?: string | undefined;
 }
 
+/** One image attached to a user message. `data` is bare base64 (no data-URL
+ *  prefix); `mediaType` travels separately. */
+export interface WSUserMessageImage {
+  data: string;
+  mediaType: string;
+  /** Original filename when the image came from a picker or drop. */
+  name?: string;
+}
+
 export interface WSUserMessage {
   type: 'user_message';
   payload: SessionScopedPayload & {
     id: string;
     content: string;
     timestamp: number;
-    /** Base64-encoded clipboard image, if the user pasted one. */
+    /** Images attached in the composer (paste / drop / file picker). The
+     *  server converts these to canonical ImageBlocks ahead of the text. */
+    images?: WSUserMessageImage[];
+    /** @deprecated Legacy single-image field (a full data-URL). Servers
+     *  still accept it; new clients send `images` instead. */
     imageBase64?: string;
   };
 }

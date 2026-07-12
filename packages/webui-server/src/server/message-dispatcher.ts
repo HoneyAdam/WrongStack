@@ -17,6 +17,13 @@
  * guard around `agent.run` are all unchanged.
  */
 import path from 'node:path';
+import type { ContentBlock } from '@wrongstack/core';
+import {
+  buildUserContentBlocks,
+  IncomingImageError,
+  type IncomingImagePayload,
+  parseIncomingImages,
+} from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import { handleAutoPhaseRoute } from './autophase-routes.js';
 import { handleBrainRoute } from './brain-routes.js';
@@ -226,7 +233,48 @@ export function createMessageDispatcher(
       }
       case 'user_message': {
         if (!ensureCurrentSession(ws, msg, 'user_message')) return;
-        const content = (msg as { payload: { content: string } }).payload.content;
+        const userPayload = (
+          msg as {
+            payload: {
+              content: string;
+              images?: IncomingImagePayload[];
+              imageBase64?: string;
+            };
+          }
+        ).payload;
+        const content = userPayload.content;
+
+        // Turn attached images into canonical ImageBlocks so the agent sees
+        // the same multimodal input shape the TUI produces. Validation
+        // failures and a non-vision model both reject before the run starts.
+        let input: string | ContentBlock[] = content;
+        try {
+          const imageBlocks = parseIncomingImages(userPayload.images, userPayload.imageBase64);
+          if (imageBlocks.length > 0) {
+            if (!deps.agent.ctx.provider.capabilities.vision) {
+              send(ws, {
+                type: 'error',
+                payload: sessionPayload({
+                  phase: 'user_message',
+                  code: 'vision_unsupported',
+                  message:
+                    'The current model does not support image input. Switch to a vision-capable model and resend.',
+                }),
+              });
+              break;
+            }
+            input = buildUserContentBlocks(content, imageBlocks);
+          }
+        } catch (err) {
+          if (err instanceof IncomingImageError) {
+            send(ws, {
+              type: 'error',
+              payload: sessionPayload({ phase: 'user_message', message: err.message }),
+            });
+            break;
+          }
+          throw err;
+        }
 
         // Guard against concurrent agent runs — a second user_message while
         // the agent is already processing would kick off two agent.run()
@@ -254,7 +302,7 @@ export function createMessageDispatcher(
             typeof deps.context.meta['maxIterations'] === 'number'
               ? deps.context.meta['maxIterations']
               : undefined;
-          const result = await deps.agent.run(content, {
+          const result = await deps.agent.run(input, {
             signal: thisRun.signal,
             maxIterations: maxIt,
           });

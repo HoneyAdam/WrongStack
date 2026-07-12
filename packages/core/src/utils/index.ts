@@ -30,6 +30,14 @@ export { toErrorMessage } from './error.js';
 export * from './expect-defined.js';
 export { expandGlob } from './glob-expand.js';
 export * from './glob-match.js';
+export {
+  buildUserContentBlocks,
+  type IncomingImagePayload,
+  IncomingImageError,
+  MAX_INCOMING_IMAGE_BYTES,
+  MAX_INCOMING_IMAGES,
+  parseIncomingImages,
+} from './incoming-images.js';
 export { assertNotPrivateHost, expandIPv6, isPrivateIPv4, isPrivateIPv6 } from './ip-guard.js';
 export { completePartialObject } from './json-repair.js';
 export {

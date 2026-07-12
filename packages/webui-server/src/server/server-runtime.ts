@@ -212,7 +212,10 @@ export function createWsServers(
       allowBrowserUrlToken: Boolean(ports.publicWsUrl),
     });
 
-  const WS_MAX_PAYLOAD = 8 * 1024 * 1024;
+  // 20 MiB to leave headroom for image attachments (base64-inflated) in
+  // user_message payloads. Keep in sync with the CLI webui-server's
+  // maxPayload — both servers speak the same protocol.
+  const WS_MAX_PAYLOAD = 20 * 1024 * 1024;
   const wssPrimary = new WebSocketServer({
     port: ports.wsPort, host: ports.wsHost, verifyClient, maxPayload: WS_MAX_PAYLOAD,
     // Send a ping every 15s to keep idle connections alive. Without this,

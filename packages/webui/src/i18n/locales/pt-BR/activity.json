@@ -1077,6 +1077,7 @@
     "showFullLog": "Mostrar registro completo",
     "typing": "Digitando…",
     "noContent": "Sem conteúdo",
+    "imageNotRetained": "A prévia da imagem não é mantida após recarregar",
     "failedToSend": "⚠ Falha ao enviar",
     "autoPaused": "⚠️ _Avanço automático pausado — máximo de turnos automáticos consecutivos atingido. Digite algo para continuar (a autonomia permanece ativa)._",
     "rsIterations": "Iterações: {{n}}",

@@ -1,7 +1,13 @@
-import type { Agent } from '@wrongstack/core';
+import type { Agent, ContentBlock } from '@wrongstack/core';
+import {
+  buildUserContentBlocks,
+  IncomingImageError,
+  type IncomingImagePayload,
+  parseIncomingImages,
+  toErrorMessage,
+} from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import type { WsCommon } from './index.js';
-import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**
  * PR 5k of Issue #30: the connection-level WebSocket handlers —
@@ -84,11 +90,19 @@ function sessionPayload<T extends Record<string, unknown>>(
   return resolved ? { ...payload, sessionId: resolved } : payload;
 }
 
+export interface UserMessageAttachments {
+  /** Images attached in the WebUI composer (paste / drop / file picker). */
+  images?: IncomingImagePayload[] | undefined;
+  /** Legacy single-image field older clients sent as a data-URL. */
+  imageBase64?: string | undefined;
+}
+
 export async function handleUserMessage(
   ctx: ConnectionContext,
   ws: WebSocket,
   content: string,
   requestedSessionId?: string | undefined,
+  attachments?: UserMessageAttachments | undefined,
 ): Promise<void> {
   const liveSessionId = currentSessionId(ctx);
   if (requestedSessionId && liveSessionId && requestedSessionId !== liveSessionId) {
@@ -117,6 +131,39 @@ export async function handleUserMessage(
     return;
   }
 
+  // Turn attached images into canonical ImageBlocks so the agent sees the
+  // same multimodal input shape the TUI produces. Validation failures and a
+  // non-vision model both reject before the run starts — silently dropping
+  // an image the user attached would be worse than an upfront error.
+  let input: string | ContentBlock[] = content;
+  try {
+    const imageBlocks = parseIncomingImages(attachments?.images, attachments?.imageBase64);
+    if (imageBlocks.length > 0) {
+      if (!ctx.opts.agent.ctx.provider.capabilities.vision) {
+        ctx.send(ws, {
+          type: 'error',
+          payload: sessionPayload(ctx, {
+            phase: 'user_message',
+            code: 'vision_unsupported',
+            message:
+              'The current model does not support image input. Switch to a vision-capable model and resend.',
+          }),
+        });
+        return;
+      }
+      input = buildUserContentBlocks(content, imageBlocks);
+    }
+  } catch (err) {
+    if (err instanceof IncomingImageError) {
+      ctx.send(ws, {
+        type: 'error',
+        payload: sessionPayload(ctx, { phase: 'user_message', message: err.message }),
+      });
+      return;
+    }
+    throw err;
+  }
+
   // Abort any existing run (safety net; the guard above makes this
   // unreachable in the overlapping case, but direct abort requests
   // from the client still need the controller reference).
@@ -124,7 +171,7 @@ export async function handleUserMessage(
   ctx.abortControllers.set(ws, wsAbort);
 
   try {
-    const result = await ctx.opts.agent.run(content, {
+    const result = await ctx.opts.agent.run(input, {
       signal: wsAbort.signal,
     });
 

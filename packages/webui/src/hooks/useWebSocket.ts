@@ -97,8 +97,8 @@ export function useWebSocket() {
   const client = getWSClient(wsUrl);
 
   const sendMessage = useCallback(
-    (content: string, imageBase64?: string) => {
-      if (client.isConnected) return client.sendMessage(content, imageBase64);
+    (content: string, images?: import('@/types').WSUserMessageImage[]) => {
+      if (client.isConnected) return client.sendMessage(content, images);
       return null;
     },
     [client],

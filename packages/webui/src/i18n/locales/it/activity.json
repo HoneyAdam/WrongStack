@@ -1077,6 +1077,7 @@
     "showFullLog": "Mostra log completo",
     "typing": "Scrive…",
     "noContent": "Nessun contenuto",
+    "imageNotRetained": "L'anteprima dell'immagine non viene conservata dopo il ricaricamento",
     "failedToSend": "⚠ Invio fallito",
     "autoPaused": "⚠️ _Avanzamento automatico in pausa — raggiunto il numero massimo di turni automatici consecutivi. Digita qualcosa per continuare (l'autonomia resta attiva)._",
     "rsIterations": "Iterazioni: {{n}}",

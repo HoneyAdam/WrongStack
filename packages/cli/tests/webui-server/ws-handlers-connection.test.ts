@@ -29,7 +29,10 @@ type RunResult = {
   error?: { code: string; message: string; recoverable: boolean };
 };
 
-function makeCtx(run?: (content: string, opts: { signal: AbortSignal }) => Promise<RunResult>): {
+function makeCtx(
+  run?: (content: unknown, opts: { signal: AbortSignal }) => Promise<RunResult>,
+  { vision = true }: { vision?: boolean } = {},
+): {
   ctx: ConnectionContext;
   sent: Array<{ ws: WebSocket; msg: WsServerMessage }>;
   abortControllers: Map<WebSocket, AbortController>;
@@ -42,6 +45,7 @@ function makeCtx(run?: (content: string, opts: { signal: AbortSignal }) => Promi
     opts: {
       agent: {
         run: run ?? (async () => ({ status: 'completed', iterations: 1, finalText: 'ok' })),
+        ctx: { provider: { capabilities: { vision } } },
       } as never,
     },
     abortControllers,
@@ -52,6 +56,10 @@ function makeCtx(run?: (content: string, opts: { signal: AbortSignal }) => Promi
   };
   return { ctx, sent, abortControllers, pendingConfirms };
 }
+
+// 1×1 transparent PNG.
+const PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const lastFor = (
   sent: Array<{ ws: WebSocket; msg: WsServerMessage }>,
@@ -120,6 +128,66 @@ describe('handleUserMessage', () => {
       message: 'kaboom',
     });
     expect(t.abortControllers.has(WS_A)).toBe(false);
+  });
+
+  it('converts attached images to ImageBlocks ahead of the text', async () => {
+    let seenInput: unknown;
+    const t = makeCtx(async (input) => {
+      seenInput = input;
+      return { status: 'completed', iterations: 1, finalText: 'ok' };
+    });
+    await handleUserMessage(t.ctx, WS_A, 'what is this?', undefined, {
+      images: [{ data: PNG_B64, mediaType: 'image/png' }],
+    });
+    expect(seenInput).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_B64 } },
+      { type: 'text', text: 'what is this?' },
+    ]);
+  });
+
+  it('rejects images on a non-vision model without running the agent', async () => {
+    let ran = false;
+    const t = makeCtx(
+      async () => {
+        ran = true;
+        return { status: 'completed', iterations: 1, finalText: 'ok' };
+      },
+      { vision: false },
+    );
+    await handleUserMessage(t.ctx, WS_A, 'see this', undefined, {
+      images: [{ data: PNG_B64, mediaType: 'image/png' }],
+    });
+    expect(ran).toBe(false);
+    expect(lastFor(t.sent, WS_A, 'error')?.payload).toMatchObject({
+      phase: 'user_message',
+      code: 'vision_unsupported',
+    });
+  });
+
+  it('rejects invalid image payloads with a user_message error', async () => {
+    let ran = false;
+    const t = makeCtx(async () => {
+      ran = true;
+      return { status: 'completed', iterations: 1, finalText: 'ok' };
+    });
+    await handleUserMessage(t.ctx, WS_A, 'bad', undefined, {
+      images: [{ data: '!!!not-base64!!!', mediaType: 'image/png' }],
+    });
+    expect(ran).toBe(false);
+    expect(lastFor(t.sent, WS_A, 'error')?.payload).toMatchObject({
+      phase: 'user_message',
+      message: expect.stringContaining('base64'),
+    });
+  });
+
+  it('passes plain text through unchanged when no images are attached', async () => {
+    let seenInput: unknown;
+    const t = makeCtx(async (input) => {
+      seenInput = input;
+      return { status: 'completed', iterations: 1, finalText: 'ok' };
+    });
+    await handleUserMessage(t.ctx, WS_A, 'just text', undefined, {});
+    expect(seenInput).toBe('just text');
   });
 
   it('lets a second socket start its own run concurrently', async () => {

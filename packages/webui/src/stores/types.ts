@@ -21,9 +21,24 @@ export interface ToolExecution {
   completedAt?: number | undefined;
 }
 
+/** An image attached to a user chat message, rendered as a thumbnail in the
+ *  bubble. `dataUrl` is dropped from localStorage persistence (quota) — after
+ *  a refresh the thumbnail degrades to a name/size placeholder chip. */
+export interface ChatMessageAttachment {
+  id: string;
+  kind: 'image';
+  /** Data URL for the thumbnail. Undefined once rehydrated from persistence. */
+  dataUrl?: string | undefined;
+  mediaType: string;
+  bytes: number;
+  name?: string | undefined;
+}
+
 export interface ChatMessage {
   id: string;
   content: string;
+  /** Images the user attached to this message (user role only). */
+  attachments?: ChatMessageAttachment[] | undefined;
   role: 'user' | 'assistant' | 'system' | 'tool';
   toolName?: string | undefined;
   toolInput?: unknown | undefined;

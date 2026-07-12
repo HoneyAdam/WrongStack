@@ -1,4 +1,5 @@
 import { expectDefined } from '@wrongstack/core';
+import { toWireImages } from '@/components/ChatInput/image-attachments';
 import { toast } from '@/components/Toaster';
 import { playCompletionChime, playPermissionChime } from '@/lib/chime';
 import { setFaviconStatus } from '@/lib/favicon';
@@ -244,8 +245,26 @@ export function handleRunResult(msg: WSServerMessage) {
   const next = useChatStore.getState().dequeue();
   if (next) {
     const client = getWSClient(useConfigStore.getState().wsUrl);
-    useChatStore.getState().addMessage({ role: 'user', content: next.text });
+    // Queued image attachments ride along: rebuild the local-bubble
+    // attachments and the bare-base64 wire payload from the stored data URLs.
+    const images = next.images ?? [];
+    useChatStore.getState().addMessage({
+      role: 'user',
+      content: next.text,
+      ...(images.length > 0
+        ? {
+            attachments: images.map((img) => ({
+              id: img.id,
+              kind: 'image' as const,
+              dataUrl: img.dataUrl,
+              mediaType: img.mediaType,
+              bytes: img.bytes,
+              name: img.name,
+            })),
+          }
+        : {}),
+    });
     useChatStore.getState().setLoading(true);
-    client.sendMessage(next.text);
+    client.sendMessage(next.text, images.length > 0 ? toWireImages(images) : undefined);
   }
 }
