@@ -381,7 +381,25 @@ export class BrainDecisionLedger {
   private record(entry: BrainLedgerEntry): void {
     this.entries.push(entry);
     if (this.entries.length > this.maxMemoryEntries) {
-      this.entries.splice(0, this.entries.length - this.maxMemoryEntries);
+      // Collect requestIds from the evicted entries so we can prune
+      // outcomeByRequest entries whose decision has been forgotten.
+      const evictedRequestIds = new Set<string>();
+      const evictCount = this.entries.length - this.maxMemoryEntries;
+      const evicted = this.entries.splice(0, evictCount);
+      for (const e of evicted) {
+        if (e.requestId) evictedRequestIds.add(e.requestId);
+      }
+      if (evictedRequestIds.size > 0) {
+        // Build a set of requestIds that still have entries in the ring.
+        // Only outcomes for those are still queryable via digestFor().
+        const remainingRequestIds = new Set<string>();
+        for (const e of this.entries) {
+          if (e.requestId) remainingRequestIds.add(e.requestId);
+        }
+        for (const id of evictedRequestIds) {
+          if (!remainingRequestIds.has(id)) this.outcomeByRequest.delete(id);
+        }
+      }
     }
     this.append(entry);
   }

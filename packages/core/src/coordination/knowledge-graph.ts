@@ -173,6 +173,9 @@ export interface NodeFilter {
 
 // ── KnowledgeGraph ────────────────────────────────────────────────────────
 
+/** Default cap on in-memory nodes. Oldest terminal-state nodes are evicted first. */
+const DEFAULT_MAX_NODES = 2_000;
+
 export class KnowledgeGraph {
   private readonly nodes = new Map<string, GraphNode>();
   private readonly index = new Map<string, Set<string>>(); // tag/field → node ids
@@ -180,6 +183,7 @@ export class KnowledgeGraph {
   private readonly pendingDeliveries = new Map<string, GraphNode[]>();
   private readonly filePath: string;
   private readonly graphFilePath: string;
+  private readonly maxNodes: number;
 
   /**
    * Stable per-node insertion sequence. `nodes` (a Map) preserves insertion
@@ -202,9 +206,10 @@ export class KnowledgeGraph {
     return this.index;
   }
 
-  constructor(sessionDir: string) {
+  constructor(sessionDir: string, maxNodes = DEFAULT_MAX_NODES) {
     this.filePath = path.join(sessionDir, '_knowledge_graph');
     this.graphFilePath = path.join(this.filePath, 'graph.jsonl');
+    this.maxNodes = maxNodes;
   }
 
   // ── Write ──────────────────────────────────────────────────────────────
@@ -218,6 +223,7 @@ export class KnowledgeGraph {
     this.nodes.set(full.id, full);
     this._trackSeq(full.id);
     this._addToIndex(full, this._indexKeys(full));
+    this._prune();
     await this._persist(full);
     this._deliver(full);
     return full;
@@ -235,9 +241,54 @@ export class KnowledgeGraph {
     const updated = { ...existing, ...patch } as GraphNode;
     this.nodes.set(id, updated);
     this._addToIndex(updated, this._indexKeys(updated));
+    this._prune();
     this._deliver(updated);
     await this._append(updated);
     return updated;
+  }
+
+  /**
+   * True when the node is in a terminal / settled state — no future mutations
+   * are expected. Such nodes are the first to be evicted when the in-memory
+   * cap is reached. The JSONL file on disk retains the full history.
+   */
+  private static _isTerminal(node: GraphNode): boolean {
+    if (node.type === 'goal') return (node as GoalNode).status === 'done' || (node as GoalNode).status === 'failed';
+    if (node.type === 'change') return (node as ChangeNode).status === 'rejected' || (node as ChangeNode).status === 'rolled_back';
+    if (node.type === 'vote') return true;
+    // Facts and decisions are always kept by default — they are reference
+    // material that grows slowly. Only evict when the cap is truly crowded.
+    return false;
+  }
+
+  /**
+   * Evict oldest terminal-state nodes when the in-memory cap is exceeded.
+   * The JSONL file is the authoritative record; eviction only affects memory.
+   */
+  private _prune(): void {
+    if (this.nodes.size <= this.maxNodes) return;
+    const toEvict = this.nodes.size - this.maxNodes;
+    // Collect terminal-state nodes with their insertion order.
+    const terminal: Array<{ id: string; seq: number }> = [];
+    for (const [id, node] of this.nodes) {
+      if (KnowledgeGraph._isTerminal(node)) terminal.push({ id, seq: this.seq.get(id) ?? 0 });
+    }
+    // Evict oldest terminal nodes first.
+    terminal.sort((a, b) => a.seq - b.seq);
+    const evicted = new Set(terminal.slice(0, toEvict).map((e) => e.id));
+    if (evicted.size === 0) return; // No terminal nodes to evict — cap stands.
+    for (const id of evicted) {
+      const node = this.nodes.get(id);
+      if (!node) continue;
+      this._removeFromIndex(node, this._indexKeys(node));
+      this.nodes.delete(id);
+      this.seq.delete(id);
+      // Drop any pending deliveries referencing this node.
+      for (const pending of this.pendingDeliveries.values()) {
+        const idx = pending.findIndex((n) => n.id === id);
+        if (idx >= 0) pending.splice(idx, 1);
+      }
+    }
   }
 
   // ── Read ───────────────────────────────────────────────────────────────

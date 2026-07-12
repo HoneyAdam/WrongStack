@@ -1660,6 +1660,10 @@ export class Director implements ICoordinator {
         .releaseLock()
         .catch((err) => this.logShutdownError('state_checkpoint_lock_release', err));
     }
+    // Free stored large answers so they don't accumulate across director
+    // runs within the same session. The store holds full subagent responses
+    // that were above 2K chars; keeping them past shutdown is pure waste.
+    this.largeAnswerStore.clear();
   }
 
   /**
