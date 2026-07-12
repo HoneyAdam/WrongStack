@@ -247,7 +247,14 @@ export interface PickerDeps {
     | (() => BrainLogEntry[])
     | undefined;
   brain?: BrainArbiter | undefined;
-  brainSettings?: { maxAutoRisk: BrainAutoRisk } | undefined;
+  brainSettings?:
+    | {
+        maxAutoRisk: BrainAutoRisk;
+        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        poolLabels?: string[] | undefined;
+        councilLabels?: string[] | undefined;
+      }
+    | undefined;
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
     | undefined;

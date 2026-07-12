@@ -10,6 +10,13 @@ import type { MemoryClearedPayload, MemoryConsolidatedPayload, MemoryForgottenPa
 import type { PermissionDecision } from '../types/permission.js';
 import type { Usage } from '../types/provider.js';
 import type { RiskTier, Tool, ToolErrorCategory, ToolProgressEvent } from '../types/tool.js';
+
+/** Distress signals the BrainMonitor watches. See `coordination/brain-monitor.ts`. */
+export type BrainInterventionKind =
+  | 'tool_failure_streak'
+  | 'error_storm'
+  | 'agent_stall'
+  | 'file_churn';
 import type { ToolOutputMetadata } from '../types/context-evidence.js';
 
 /**
@@ -69,17 +76,33 @@ export interface EventMap {
   };
   /**
    * Fired by the BrainMonitor when it PROACTIVELY engaged (self-activation):
-   * a watched signal (tool-failure streak, error storm) crossed its
-   * threshold, the Brain was consulted, and — when the decision called for
-   * it — a corrective steer was delivered to the working agent.
+   * a watched signal (tool-failure streak, error storm, agent stall,
+   * file-churn oscillation) crossed its threshold, the Brain was consulted,
+   * and — when the decision called for it — a corrective steer was
+   * delivered to the working agent.
    */
   'brain.intervention': {
     sessionId?: string | undefined;
-    kind: 'tool_failure_streak' | 'error_storm';
+    kind: BrainInterventionKind;
     request: BrainDecisionRequest;
     decision: BrainDecision;
     /** True when a steer was actually delivered to the agent. */
     intervened: boolean;
+    at: number;
+  };
+  /**
+   * Fired by the BrainDecisionLedger when the real-world outcome of an
+   * earlier Brain decision becomes observable (e.g. a budget-extended
+   * subagent's task later completed or failed, or a steered signal
+   * re-triggered). Closes the decide → observe → learn loop: outcome stats
+   * are fed back into the LLM/council decision prompts.
+   */
+  'brain.outcome': {
+    sessionId?: string | undefined;
+    /** The `BrainDecisionRequest.id` of the decision this outcome belongs to. */
+    requestId: string;
+    outcome: 'success' | 'failure';
+    detail?: string | undefined;
     at: number;
   };
   'session.started': { id: string; sessionId?: string | undefined };

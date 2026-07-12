@@ -1043,6 +1043,137 @@ export interface FleetSupervisorConfig {
   allowTerminate?: boolean | undefined;
 }
 
+/**
+ * One member of the Brain's LLM pool or council. String entries elsewhere
+ * (`Config.brain.models`, council voters) parse with the same `parseModelRef`
+ * grammar as `fallbackModels`: bare `model`, `provider/model`, or
+ * `provider model`.
+ */
+export interface BrainModelEntry {
+  /** Provider id (a key of `Config.providers` or a catalog id). Defaults to the session provider. */
+  provider?: string | undefined;
+  /** Model id, required. */
+  model: string;
+}
+
+/** One voting seat on the Brain council. */
+export interface BrainCouncilVoterConfig extends BrainModelEntry {
+  /**
+   * Decision lens for this seat. Built-ins: 'executor' (progress-biased),
+   * 'skeptic' (risk-hunting), 'auditor' (cost/waste-focused). Any other
+   * string is injected verbatim as the persona description.
+   */
+  persona?: string | undefined;
+  /** Vote weight in the tally. Default 1. */
+  weight?: number | undefined;
+  /** When true, this seat's explicit refusal denies the request outright. */
+  veto?: boolean | undefined;
+}
+
+/** Multi-LLM council configuration for high-stakes Brain decisions. */
+export interface BrainCouncilConfig {
+  /** Kill switch. Default: enabled when `voters` is non-empty or ≥2 pool models exist. */
+  enabled?: boolean | undefined;
+  /**
+   * Minimum request risk that convenes the council instead of the single-LLM
+   * tier. Default 'high'. 'critical' = council only for critical questions;
+   * 'medium' = council for most non-trivial questions (slow + expensive).
+   */
+  minRisk?: 'medium' | 'high' | 'critical' | undefined;
+  /**
+   * Voting seats. String entries use the `parseModelRef` grammar and get
+   * default personas (executor, skeptic w/ veto, auditor) assigned in order.
+   * When omitted, seats are derived from `brain.models` (up to 3).
+   */
+  voters?: Array<string | BrainCouncilVoterConfig> | undefined;
+  /** Fraction of seats that must return a valid vote. Default 0.5. */
+  quorum?: number | undefined;
+  /** Fraction of cast vote weight the winning option must exceed. Default 0.5. */
+  approval?: number | undefined;
+  /**
+   * Tie-breaker / synthesizer model (`parseModelRef` grammar or entry).
+   * Sees every vote's rationale and issues the final structured decision.
+   * Default: the first pool/voter model.
+   */
+  judge?: string | BrainModelEntry | undefined;
+}
+
+/**
+ * Brain decision-layer configuration. SECURITY: in the in-project config
+ * DENY list — a repo-committed config must not be able to raise the
+ * autonomy ceiling, remove the human tier, or point Brain decisions at an
+ * attacker-chosen provider. Only honoured from `~/.wrongstack/config.json`.
+ */
+export interface BrainConfig {
+  /**
+   * 'headless'    — the Brain NEVER blocks on a human. Escalations resolve
+   *                 via the terminal policy (recommended option for low/medium
+   *                 risk, request fallback semantics, otherwise deny).
+   * 'interactive' — escalations prompt the human in the TUI/WebUI (default).
+   * Switch live with `/brain mode <headless|interactive>`.
+   */
+  mode?: 'headless' | 'interactive' | undefined;
+  /** Initial autonomy ceiling for the LLM tier. Default 'medium'. Live-set via `/brain risk`. */
+  maxAutoRisk?: 'off' | 'low' | 'medium' | 'high' | 'all' | undefined;
+  /**
+   * Ordered LLM pool for Brain decisions (`parseModelRef` grammar or
+   * entries). With `strategy: 'fallback'` the first entry is primary and the
+   * rest are tried in order when it fails; with 'round-robin' calls rotate
+   * across the pool. When unset, the session provider/model is used.
+   */
+  models?: Array<string | BrainModelEntry> | undefined;
+  /** Pool selection strategy. Default 'fallback'. */
+  strategy?: 'fallback' | 'round-robin' | undefined;
+  /** Per-LLM-call decision timeout (ms). Default 15000. */
+  decisionTimeoutMs?: number | undefined;
+  /**
+   * Interactive mode only: how long an ask-human prompt may stay unanswered
+   * before it resolves through the terminal policy instead of blocking
+   * forever. Unset = wait indefinitely (legacy behavior).
+   */
+  humanTimeoutMs?: number | undefined;
+  /** Multi-LLM council for high-stakes decisions. */
+  council?: BrainCouncilConfig | undefined;
+  /**
+   * Persistent decision ledger (`<project>/.wrongstack/brain-ledger.jsonl`):
+   * every decision + observed outcome is appended, and outcome stats for
+   * similar past decisions are fed back into the LLM/council prompts.
+   * Default: enabled.
+   */
+  ledger?:
+    | {
+        enabled?: boolean | undefined;
+        /**
+         * Deterministic guard: once this many consecutive approvals of a
+         * decision group ended in observed failures, deny outright without
+         * consulting any LLM (a later success lifts the guard). Default 3.
+         * 0 disables.
+         */
+        autoDenyAfterFailures?: number | undefined;
+      }
+    | undefined;
+  /**
+   * BrainMonitor distress-signal thresholds (self-activation). All optional;
+   * defaults match `BrainMonitorOptions`.
+   */
+  monitor?:
+    | {
+        /** Consecutive failures of the same tool before engaging. Default 3. */
+        toolFailureStreak?: number | undefined;
+        /** Errors within 60s before engaging. Default 4. */
+        errorStormCount?: number | undefined;
+        /** Active run with no progress for this long → stall signal (ms). Default 300000. 0 disables. */
+        stallMs?: number | undefined;
+        /** Edits to the same file within the churn window before engaging. Default 5. */
+        fileChurnThreshold?: number | undefined;
+        /** Sliding window for the file-churn signal (ms). Default 600000. */
+        fileChurnWindowMs?: number | undefined;
+        /** Per-signal re-engagement cooldown (ms). Default 120000. */
+        cooldownMs?: number | undefined;
+      }
+    | undefined;
+}
+
 /** Git behavior overrides for agent-run git commands. See `Config.git`. */
 export interface GitBehaviorConfig {
   /**
@@ -1207,6 +1338,14 @@ export interface Config {
    * honoured from the user's `~/.wrongstack/config.json`.
    */
   fleet?: FleetConfig | undefined;
+  /**
+   * Brain decision-layer settings: escalation mode (headless = never block
+   * on a human), LLM pool with fallback/round-robin, autonomy ceiling, and
+   * the multi-LLM council. SECURITY: in the in-project config DENY list —
+   * a repo-committed config must not be able to raise the autonomy ceiling
+   * or reroute Brain decisions. Only honoured from `~/.wrongstack/config.json`.
+   */
+  brain?: BrainConfig | undefined;
   /**
    * Cloud sync configuration. Stored separately in sync.json to avoid
    * accidentally committing the GitHub token to project configs.

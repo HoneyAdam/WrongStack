@@ -1,22 +1,28 @@
+import { join } from 'node:path';
 import {
+  assembleBrainTiers,
   type BrainAutoRisk,
+  BrainDecisionLedger,
   BrainDecisionQueue,
+  type BrainEscalationMode,
   BrainMonitor,
   type Config,
-  createAutonomyBrain,
   createDelegateTool,
+  createLedgerGuardBrainArbiter,
   createMcpControlTool,
   createMcpUseTool,
   createTieredBrainArbiter,
   DefaultBrainArbiter,
+  EscalationRoutingBrainArbiter,
   FLEET_ROSTER,
-  HumanEscalatingBrainArbiter,
   ObservableBrainArbiter,
   type Provider,
   type SessionWriter,
+  terminalPolicyDecision,
   TOKENS,
   type ToolRegistry,
 } from '@wrongstack/core';
+import { buildProviderForId } from './provider-runtime.js';
 import { MultiAgentHost } from '../multi-agent.js';
 import { subscribeBrainDecisionLog } from '../boot/brain-decision-log.js';
 
@@ -26,6 +32,23 @@ import { subscribeBrainDecisionLog } from '../boot/brain-decision-log.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: large dep bag
 type AnyObj = any;
+
+/**
+ * Live-mutable Brain settings shared with `/brain` (risk + mode subcommands)
+ * and the TUI Brain panel. `describe` fields are static wiring facts surfaced
+ * in `/brain status`.
+ */
+export interface BrainRuntimeSettings {
+  maxAutoRisk: BrainAutoRisk;
+  /** 'headless' = never block on a human; terminal policy resolves escalations. */
+  mode: BrainEscalationMode;
+  /** Human-readable pool labels (e.g. "anthropic/claude-haiku"), empty = session model. */
+  poolLabels: string[];
+  /** Human-readable council seat labels, empty = council disabled. */
+  councilLabels: string[];
+  /** Absolute path of the persistent decision ledger (undefined = disabled). */
+  ledgerPath?: string | undefined;
+}
 
 export interface BrainOrchestrationDeps {
   events: AnyObj;
@@ -62,7 +85,7 @@ export interface BrainOrchestrationDeps {
 export interface BrainOrchestrationResult {
   brain: ObservableBrainArbiter;
   brainLog: AnyObj[];
-  brainSettings: { maxAutoRisk: BrainAutoRisk };
+  brainSettings: BrainRuntimeSettings;
   brainQueue: BrainDecisionQueue;
   multiAgentHost: MultiAgentHost;
   shadowController: AnyObj;
@@ -113,28 +136,70 @@ export function setupBrainAndOrchestration(
     sessResult,
   } = deps;
 
-  // ── Global Brain chain — policy → LLM → human ──────────────────────────
-  const brainSettings: { maxAutoRisk: BrainAutoRisk } = {
-    maxAutoRisk: 'medium',
+  // ── Global Brain chain — policy → LLM/council → escalation ─────────────
+  // Escalation routing is config-driven: 'interactive' prompts the human,
+  // 'headless' resolves through the terminal policy so the Brain NEVER
+  // blocks on a person. Switch live with `/brain mode <m>`. The LLM pool
+  // and council come from `config.brain` via the shared tier assembly.
+  const brainCfg = config.brain;
+
+  // Persistent decision ledger — records every decision + observed outcome
+  // (budget extensions vs. later task results, steer re-triggers) and feeds
+  // outcome stats of similar past decisions back into the LLM/council
+  // prompts. Lives OUTSIDE the repo, per project, across sessions.
+  const ledgerEnabled = brainCfg?.ledger?.enabled !== false;
+  const ledgerPath = join(wpaths.projectDir, 'brain-ledger.jsonl');
+  const brainLedger = ledgerEnabled
+    ? new BrainDecisionLedger({ events, filePath: ledgerPath })
+    : undefined;
+  if (brainLedger) {
+    void brainLedger.start();
+    teardownHandlers.push(() => {
+      void brainLedger.stop();
+    });
+  }
+
+  const tiers = assembleBrainTiers({
+    brainConfig: brainCfg,
+    defaultProviderId: config.provider,
+    sessionProvider: () => provider,
+    sessionModel: () => config.model,
+    resolveProvider: (providerId) => buildProviderForId({ config, providerRegistry }, providerId),
+    getDecisionDigest: brainLedger ? (request) => brainLedger.digestFor(request) : undefined,
+  });
+
+  const brainSettings: BrainRuntimeSettings = {
+    maxAutoRisk: brainCfg?.maxAutoRisk ?? 'medium',
+    mode: brainCfg?.mode ?? 'interactive',
+    poolLabels: tiers.poolLabels,
+    councilLabels: tiers.councilLabels,
+    ledgerPath: brainLedger ? ledgerPath : undefined,
   };
-  const brainQueue = new BrainDecisionQueue(events);
-  const autonomousBrain = {
-    decide: (request: AnyObj) =>
-      createAutonomyBrain({
-        provider,
-        model: config.model,
-        maxAutoRisk: 'all',
-      }).decide(request),
-  };
+  const brainQueue = new BrainDecisionQueue(events, {
+    // An unanswered interactive prompt degrades to the terminal policy
+    // instead of hanging the caller forever (when a timeout is configured).
+    timeoutMs: brainCfg?.humanTimeoutMs,
+    onTimeout: terminalPolicyDecision,
+  });
+
+  const tiered = createTieredBrainArbiter({
+    policy: new DefaultBrainArbiter(),
+    autonomous: tiers.autonomous,
+    getMaxAutoRisk: () => brainSettings.maxAutoRisk,
+    council: tiers.council,
+    getCouncilMinRisk: tiers.getCouncilMinRisk,
+  });
+  // Deterministic ledger guard OUTSIDE the tiered arbiter: K consecutive
+  // observed failures for a decision group → deny without any LLM call.
+  const guarded = brainLedger
+    ? createLedgerGuardBrainArbiter({
+        inner: tiered,
+        failureStreakFor: (request) => brainLedger.failureStreakFor(request),
+        denyAfter: brainCfg?.ledger?.autoDenyAfterFailures,
+      })
+    : tiered;
   const brain = new ObservableBrainArbiter(
-    new HumanEscalatingBrainArbiter(
-      createTieredBrainArbiter({
-        policy: new DefaultBrainArbiter(),
-        autonomous: autonomousBrain,
-        getMaxAutoRisk: () => brainSettings.maxAutoRisk,
-      }),
-      brainQueue,
-    ),
+    new EscalationRoutingBrainArbiter(guarded, brainQueue, () => brainSettings.mode),
     events,
   );
   container.bind(TOKENS.BrainArbiter, () => brain);
@@ -150,6 +215,12 @@ export function setupBrainAndOrchestration(
   const brainMonitor = new BrainMonitor({
     events,
     brain,
+    toolFailureStreak: brainCfg?.monitor?.toolFailureStreak,
+    errorStormCount: brainCfg?.monitor?.errorStormCount,
+    stallMs: brainCfg?.monitor?.stallMs,
+    fileChurnThreshold: brainCfg?.monitor?.fileChurnThreshold,
+    fileChurnWindowMs: brainCfg?.monitor?.fileChurnWindowMs,
+    cooldownMs: brainCfg?.monitor?.cooldownMs,
     sessionId: () => context.session?.id ?? session.id,
     intervene: async ({ subject, body }: { subject: string; body: string }) => {
       const leaderUniqueId = `leader@${mailboxSessionTag(session.id)}`;

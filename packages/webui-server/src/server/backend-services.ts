@@ -20,9 +20,9 @@
  * closure (which needs the live `context`, `autoCompactor`, and
  * `modelCapabilitiesRef` it just built).
  */
+import { join } from 'node:path';
 import type {
   AutoCompactionMiddleware,
-  BrainArbiter,
   BrainAutoRisk,
   CollaborationBus,
   Compactor,
@@ -60,9 +60,12 @@ import {
   installDesignStudioMiddleware,
   ObservableBrainArbiter as ObservableBrainArbiterCtor,
   resolveContextWindowPolicy,
-  createAutonomyBrain,
+  assembleBrainTiers,
+  BrainDecisionLedger,
+  createLedgerGuardBrainArbiter,
   createTieredBrainArbiter,
   DefaultBrainArbiter,
+  EscalationRoutingBrainArbiter,
   GlobalMailbox,
   mailboxSessionTag,
   SessionMemoryConsolidator,
@@ -136,6 +139,8 @@ export interface AgentServices {
   brainSettings: { maxAutoRisk: BrainAutoRisk };
   brainLog: Array<{ at: number; kind: string; question: string; outcome: string }>;
   brainMonitor: BrainMonitor;
+  /** Persistent decision ledger (undefined when disabled via config). */
+  brainLedger: BrainDecisionLedger | undefined;
   codebaseIndexing: { onFileWritten(filePath: string): void; dispose(): void };
   autoPhaseHandler: AutoPhaseWebSocketHandler;
   specsHandler: SpecsWebSocketHandler;
@@ -387,22 +392,57 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   }
   console.log('[WebUI] Agent initialized');
 
-  // ── Brain — policy → LLM tiered decision layer ─────────────────────────
-  const brainSettings: { maxAutoRisk: BrainAutoRisk } = { maxAutoRisk: 'medium' };
-  const autonomousBrain: BrainArbiter = {
-    decide: (request) =>
-      createAutonomyBrain({
-        provider,
-        model: context.model,
-        maxAutoRisk: 'all', // the tiered ceiling gates risk — keep inner permissive
-      }).decide(request),
+  // ── Brain — policy → LLM/council → terminal-policy decision layer ──────
+  // The standalone WebUI has no blocking human prompt surface, so the
+  // escalation tier always resolves through the terminal policy (safe
+  // default or deny) — the Brain never returns a dangling `ask_human`.
+  // The LLM pool + council come from `config.brain` (shared assembly).
+  const brainSettings: { maxAutoRisk: BrainAutoRisk } = {
+    maxAutoRisk: config.brain?.maxAutoRisk ?? 'medium',
   };
+  const brainLedger =
+    config.brain?.ledger?.enabled !== false
+      ? new BrainDecisionLedger({
+          events,
+          filePath: join(wpaths.projectDir, 'brain-ledger.jsonl'),
+        })
+      : undefined;
+  if (brainLedger) void brainLedger.start();
+  const brainTiers = assembleBrainTiers({
+    brainConfig: config.brain,
+    defaultProviderId: config.provider,
+    sessionProvider: () => provider,
+    sessionModel: () => context.model,
+    resolveProvider: (providerId) => {
+      const savedCfg: Partial<import('@wrongstack/core').ProviderConfig> =
+        config.providers?.[providerId] ?? {};
+      return providerRegistry.create({
+        ...savedCfg,
+        apiKey: savedCfg.apiKey ?? config.apiKey,
+        baseUrl: savedCfg.baseUrl ?? config.baseUrl,
+        type: providerId,
+      } as never);
+    },
+    getDecisionDigest: brainLedger ? (request) => brainLedger.digestFor(request) : undefined,
+  });
+  const tieredBrain = createTieredBrainArbiter({
+    policy: new DefaultBrainArbiter(),
+    autonomous: brainTiers.autonomous,
+    getMaxAutoRisk: () => brainSettings.maxAutoRisk,
+    council: brainTiers.council,
+    getCouncilMinRisk: brainTiers.getCouncilMinRisk,
+  });
+  // Deterministic ledger guard OUTSIDE the tiered arbiter: K consecutive
+  // observed failures for a decision group → deny without any LLM call.
+  const guardedBrain = brainLedger
+    ? createLedgerGuardBrainArbiter({
+        inner: tieredBrain,
+        failureStreakFor: (request) => brainLedger.failureStreakFor(request),
+        denyAfter: config.brain?.ledger?.autoDenyAfterFailures,
+      })
+    : tieredBrain;
   const brain = new ObservableBrainArbiterCtor(
-    createTieredBrainArbiter({
-      policy: new DefaultBrainArbiter(),
-      autonomous: autonomousBrain,
-      getMaxAutoRisk: () => brainSettings.maxAutoRisk,
-    }),
+    new EscalationRoutingBrainArbiter(guardedBrain, undefined, () => 'headless'),
     events,
   );
   container.bind(TOKENS.BrainArbiter, () => brain);
@@ -445,6 +485,12 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   const brainMonitor = new BrainMonitor({
     events,
     brain,
+    toolFailureStreak: config.brain?.monitor?.toolFailureStreak,
+    errorStormCount: config.brain?.monitor?.errorStormCount,
+    stallMs: config.brain?.monitor?.stallMs,
+    fileChurnThreshold: config.brain?.monitor?.fileChurnThreshold,
+    fileChurnWindowMs: config.brain?.monitor?.fileChurnWindowMs,
+    cooldownMs: config.brain?.monitor?.cooldownMs,
     sessionId: () => context.session?.id,
     intervene: async ({ subject, body }) => {
       const tag = mailboxSessionTag(input.sessionGetter().id);
@@ -526,6 +572,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     brainSettings,
     brainLog,
     brainMonitor,
+    brainLedger,
     codebaseIndexing,
     autoPhaseHandler,
     specsHandler,

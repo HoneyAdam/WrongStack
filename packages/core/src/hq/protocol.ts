@@ -253,7 +253,7 @@ export interface HqBrainEventPayload {
   /** Free-text rationale or answer payload, when present. */
   detail?: string;
   /** For `intervention`: the watched signal that engaged the brain. */
-  interventionKind?: 'tool_failure_streak' | 'error_storm';
+  interventionKind?: 'tool_failure_streak' | 'error_storm' | 'agent_stall' | 'file_churn';
   /** For `intervention`: true when a steer was actually delivered to the agent. */
   intervened?: boolean;
   /** Epoch milliseconds at which the event occurred. */

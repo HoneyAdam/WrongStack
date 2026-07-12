@@ -9,12 +9,19 @@
  * (steers are folded into the agent's conversation before its next step
  * via the mailbox loop, so no new plumbing is needed).
  *
- * Watched signals (v1):
+ * Watched signals:
  *   - tool-failure streak — the same tool failing N times consecutively
  *     (default 3). Classic stuck-loop: the agent keeps retrying an
  *     approach that does not work.
  *   - error storm — N `error` events within a sliding window (default
  *     4 in 60s). Something is systematically wrong.
+ *   - agent stall — a run is active (`agent.run.started` without its
+ *     matching completion) but no tool call or iteration progress has been
+ *     observed for `stallMs` (default 5 min). A wedged provider call or a
+ *     dead-loop that produces no work.
+ *   - file churn — the same file edited ≥ N times (default 5) within a
+ *     sliding window (default 10 min). Classic edit/revert oscillation:
+ *     the agent keeps rewriting the same file without converging.
  *
  * Decision contract: every consultation offers [steer | continue] with
  * fallback `continue`, at `medium` risk. Degradation is safe by design:
@@ -30,8 +37,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { EventBus } from '../kernel/events.js';
+import type { BrainInterventionKind, EventBus } from '../kernel/events.js';
 import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from './brain.js';
+
+export type { BrainInterventionKind };
 
 export interface BrainInterventionInput {
   subject: string;
@@ -55,32 +64,68 @@ export interface BrainMonitorOptions {
   errorStormCount?: number | undefined;
   /** Sliding window for the error storm signal (ms). Default 60_000. */
   errorStormWindowMs?: number | undefined;
+  /**
+   * Active run with no observable progress (tool call / iteration) for this
+   * long → agent-stall signal. Default 300_000 (5 min). 0 disables.
+   */
+  stallMs?: number | undefined;
+  /** How often the stall watchdog checks (ms). Default 30_000. */
+  stallCheckIntervalMs?: number | undefined;
+  /** Edits to the SAME file within the churn window before engaging. Default 5. */
+  fileChurnThreshold?: number | undefined;
+  /** Sliding window for the file-churn signal (ms). Default 600_000 (10 min). */
+  fileChurnWindowMs?: number | undefined;
   /** Minimum gap between engagements of the same signal kind (ms). Default 120_000. */
   cooldownMs?: number | undefined;
+}
+
+/** Tools whose successful execution mutates a file we can churn-track. */
+const FILE_EDIT_TOOLS = new Set(['edit', 'write', 'patch', 'multi_edit', 'multiedit', 'str_replace']);
+
+/** Best-effort path extraction from a file-editing tool's input. */
+function editedPath(input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const r = input as Record<string, unknown>;
+  const candidate = r['file_path'] ?? r['path'] ?? r['filePath'] ?? r['file'];
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined;
 }
 
 export class BrainMonitor {
   private readonly failStreaks = new Map<string, number>();
   private errorTimestamps: number[] = [];
+  private readonly editTimestamps = new Map<string, number[]>();
   private readonly lastEngagedAt = new Map<string, number>();
   private readonly unsubscribers: Array<() => void> = [];
   private engaging = false;
+  private activeRuns = 0;
+  private lastProgressAt = 0;
+  private stallTimer: ReturnType<typeof setInterval> | undefined;
 
   private readonly toolFailureStreak: number;
   private readonly errorStormCount: number;
   private readonly errorStormWindowMs: number;
+  private readonly stallMs: number;
+  private readonly stallCheckIntervalMs: number;
+  private readonly fileChurnThreshold: number;
+  private readonly fileChurnWindowMs: number;
   private readonly cooldownMs: number;
 
   constructor(private readonly opts: BrainMonitorOptions) {
     this.toolFailureStreak = opts.toolFailureStreak ?? 3;
     this.errorStormCount = opts.errorStormCount ?? 4;
     this.errorStormWindowMs = opts.errorStormWindowMs ?? 60_000;
+    this.stallMs = opts.stallMs ?? 300_000;
+    this.stallCheckIntervalMs = opts.stallCheckIntervalMs ?? 30_000;
+    this.fileChurnThreshold = opts.fileChurnThreshold ?? 5;
+    this.fileChurnWindowMs = opts.fileChurnWindowMs ?? 600_000;
     this.cooldownMs = opts.cooldownMs ?? 120_000;
   }
 
   start(): void {
     this.unsubscribers.push(
       this.opts.events.on('tool.executed', (e) => {
+        this.lastProgressAt = Date.now();
+        this.trackFileChurn(e.name, e.ok, e.input);
         if (e.ok) {
           this.failStreaks.delete(e.name);
           return;
@@ -102,6 +147,42 @@ export class BrainMonitor {
         }
       }),
     );
+
+    // ── Agent-stall watchdog ─────────────────────────────────────────────
+    if (this.stallMs > 0) {
+      this.unsubscribers.push(
+        this.opts.events.on('agent.run.started', () => {
+          this.activeRuns += 1;
+          this.lastProgressAt = Date.now();
+        }),
+        this.opts.events.on('agent.run.completed', () => {
+          this.activeRuns = Math.max(0, this.activeRuns - 1);
+        }),
+        this.opts.events.on('agent.run.error', () => {
+          this.activeRuns = Math.max(0, this.activeRuns - 1);
+        }),
+        this.opts.events.on('iteration.started', () => {
+          this.lastProgressAt = Date.now();
+        }),
+      );
+      this.stallTimer = setInterval(() => {
+        if (this.activeRuns === 0 || this.lastProgressAt === 0) return;
+        const idleMs = Date.now() - this.lastProgressAt;
+        if (idleMs < this.stallMs) return;
+        // Re-arm from now so a declined steer doesn't re-fire every tick
+        // (the per-kind cooldown also applies).
+        this.lastProgressAt = Date.now();
+        void this.engage('agent_stall', {
+          question: `An active run has made no observable progress (no tool call or iteration) for ${Math.round(idleMs / 60_000)} minute(s). Should the agent be steered before more time is wasted?`,
+          context: [
+            `Active runs: ${this.activeRuns}`,
+            `Idle for: ${Math.round(idleMs / 1000)}s`,
+            `Stall threshold: ${Math.round(this.stallMs / 1000)}s`,
+          ].join('\n'),
+        });
+      }, this.stallCheckIntervalMs);
+      this.stallTimer.unref?.();
+    }
 
     this.unsubscribers.push(
       this.opts.events.on('error', (e) => {
@@ -128,10 +209,42 @@ export class BrainMonitor {
     this.unsubscribers.length = 0;
     this.failStreaks.clear();
     this.errorTimestamps = [];
+    this.editTimestamps.clear();
+    if (this.stallTimer) {
+      clearInterval(this.stallTimer);
+      this.stallTimer = undefined;
+    }
+    this.activeRuns = 0;
+    this.lastProgressAt = 0;
+  }
+
+  /** Sliding-window count of successful edits per file → churn signal. */
+  private trackFileChurn(toolName: string, ok: boolean, input: unknown): void {
+    if (!ok || !FILE_EDIT_TOOLS.has(toolName.toLowerCase())) return;
+    const path = editedPath(input);
+    if (!path) return;
+    const now = Date.now();
+    const stamps = (this.editTimestamps.get(path) ?? []).filter(
+      (t) => now - t <= this.fileChurnWindowMs,
+    );
+    stamps.push(now);
+    if (stamps.length >= this.fileChurnThreshold) {
+      this.editTimestamps.delete(path);
+      void this.engage('file_churn', {
+        question: `The file "${path}" has been edited ${stamps.length} times within ${Math.round(this.fileChurnWindowMs / 60_000)} minutes — the agent may be oscillating (edit/revert loop) instead of converging. Should it be steered?`,
+        context: [
+          `File: ${path}`,
+          `Edits in window: ${stamps.length}`,
+          `Window: ${Math.round(this.fileChurnWindowMs / 1000)}s`,
+        ].join('\n'),
+      });
+      return;
+    }
+    this.editTimestamps.set(path, stamps);
   }
 
   private async engage(
-    kind: 'tool_failure_streak' | 'error_storm',
+    kind: BrainInterventionKind,
     input: { question: string; context: string },
   ): Promise<void> {
     // Rate limits: per-kind cooldown + never more than one engagement in

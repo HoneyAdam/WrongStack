@@ -32,11 +32,28 @@ import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from '../coord
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 import { safeParse } from '../utils/safe-json.js';
 
-export interface AutonomyBrainOptions {
-  /** LLM provider for decision-making. */
+/** One (provider, model) pair the Brain may call for a decision. */
+export interface BrainLlmTarget {
   provider: Provider;
-  /** Model to use for decisions (should be fast + cheap). */
   model: string;
+  /** Display label for logs/status (e.g. "anthropic/claude-haiku"). */
+  label?: string | undefined;
+}
+
+export interface AutonomyBrainOptions {
+  /** LLM provider for decision-making. Ignored when `targets` is non-empty. */
+  provider?: Provider | undefined;
+  /** Model to use for decisions (should be fast + cheap). Ignored when `targets` is non-empty. */
+  model?: string | undefined;
+  /**
+   * Ordered LLM pool. With `strategy: 'fallback'` (default) the first target
+   * is primary and later ones are tried in order when a call fails/times
+   * out; with 'round-robin' successive decisions rotate the starting target.
+   * At least one of `targets` / (`provider` + `model`) must be provided.
+   */
+  targets?: BrainLlmTarget[] | undefined;
+  /** Pool selection strategy. Default 'fallback'. */
+  strategy?: 'fallback' | 'round-robin' | undefined;
   /** Maximum risk level the brain will auto-decide. Default: 'high'.
    *  'low'    — only auto-decide low-risk questions
    *  'medium' — auto-decide low/medium
@@ -46,6 +63,12 @@ export interface AutonomyBrainOptions {
   maxAutoRisk?: 'low' | 'medium' | 'high' | 'all' | undefined;
   /** Timeout for each decision call (ms). Default: 15_000. */
   decisionTimeoutMs?: number | undefined;
+  /**
+   * Decision-history digest for the LLM prompt (typically
+   * `BrainDecisionLedger.digestFor`): how similar past decisions went and
+   * how they turned out. Appended to the user message when non-empty.
+   */
+  getDecisionDigest?: ((request: BrainDecisionRequest) => string | undefined) | undefined;
   /**
    * Called after every decision with a human-readable summary.
    * Use this to log decisions into chat history, journal, or status line.
@@ -77,35 +100,78 @@ export interface TieredBrainArbiterOptions {
    * entirely (everything the policy can't answer goes to the human).
    */
   getMaxAutoRisk?: (() => BrainAutoRisk) | undefined;
+  /**
+   * Multi-LLM council (createCouncilBrainArbiter). When present, requests at
+   * or above the council risk floor are decided by the council INSTEAD of
+   * the single-LLM layer. Council answers AND denies are terminal — a panel
+   * that considered the question and refused is a real decision, not a
+   * failure. Only `ask_human` (quorum not met / judge unavailable) falls
+   * through to the escalation tier.
+   */
+  council?: BrainArbiter | undefined;
+  /** Live council risk floor. Default 'high'. Read on every decision. */
+  getCouncilMinRisk?: (() => 'medium' | 'high' | 'critical') | undefined;
 }
 
 /**
- * The standard Brain positioning: policy first, LLM second, human last.
+ * The standard Brain positioning: policy first, LLM/council second,
+ * escalation last.
  *
  *   1. POLICY  — deterministic DefaultBrainArbiter (low-risk fast path,
- *      fallback semantics). Answers and denies pass through untouched.
- *   2. LLM     — when the policy says `ask_human` and the request's risk is
- *      within the live ceiling, the autonomous brain gets a chance to
- *      answer. Only a real `answer` short-circuits; LLM denials/failures
- *      fall through.
- *   3. HUMAN   — anything left escalates (callers wrap this in
- *      HumanEscalatingBrainArbiter so `ask_human` becomes a real prompt).
+ *      fallback semantics). Denies and option-backed answers pass through
+ *      untouched. A fallback-produced `continue` answer (no optionId, the
+ *      request declared `fallback: 'continue'`) is only PROVISIONAL: it
+ *      means "nobody could decide", not "this is the right call", so the
+ *      LLM tier still gets consulted within the ceiling. Historically it
+ *      short-circuited here, which meant e.g. goal-completion checks never
+ *      reached the LLM at all.
+ *   2. COUNCIL — requests at/above the council floor (default 'high') are
+ *      decided by the multi-LLM council when one is wired.
+ *   3. LLM     — everything else within the live ceiling goes to the
+ *      single-LLM autonomous brain. Only a real `answer` short-circuits;
+ *      denials/failures fall through.
+ *   4. ESCALATION — anything left escalates. Callers wrap this in
+ *      `EscalationRoutingBrainArbiter` (interactive prompt or headless
+ *      terminal policy) or the legacy `HumanEscalatingBrainArbiter`.
  */
 export function createTieredBrainArbiter(opts: TieredBrainArbiterOptions): BrainArbiter {
   return {
     async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
       const policyDecision = await opts.policy.decide(request);
-      if (policyDecision.type !== 'ask_human') return policyDecision;
+      // Provisional = the policy merely echoed the request's continue
+      // fallback (no optionId means it did not pick a concrete option).
+      const provisionalContinue =
+        policyDecision.type === 'answer' &&
+        policyDecision.optionId === undefined &&
+        request.fallback === 'continue';
+      if (policyDecision.type !== 'ask_human' && !provisionalContinue) return policyDecision;
+
       const ceiling = opts.getMaxAutoRisk?.() ?? 'medium';
-      if (!opts.autonomous || ceiling === 'off') return policyDecision;
+      if (ceiling === 'off') return policyDecision;
       const ceilingLevel = ceiling === 'all' ? 3 : (RISK_LEVELS[ceiling] ?? 1);
       const requestLevel = RISK_LEVELS[request.risk] ?? 2;
       if (requestLevel > ceilingLevel) return policyDecision;
+
+      // COUNCIL — high-stakes questions get the multi-LLM panel.
+      if (opts.council) {
+        const floor = opts.getCouncilMinRisk?.() ?? 'high';
+        const floorLevel = RISK_LEVELS[floor] ?? 2;
+        if (requestLevel >= floorLevel) {
+          try {
+            const councilDecision = await opts.council.decide(request);
+            if (councilDecision.type !== 'ask_human') return councilDecision;
+          } catch {
+            // Council failure degrades to the single-LLM tier below.
+          }
+        }
+      }
+
+      if (!opts.autonomous) return policyDecision;
       try {
         const llmDecision = await opts.autonomous.decide(request);
         if (llmDecision.type === 'answer') return llmDecision;
       } catch {
-        // LLM layer is best-effort — fall through to the human.
+        // LLM layer is best-effort — fall through to the escalation tier.
       }
       return policyDecision;
     },
@@ -120,6 +186,18 @@ export function createAutonomyBrain(opts: AutonomyBrainOptions): BrainArbiter {
   const maxRisk = opts.maxAutoRisk ?? 'high';
   const maxRiskLevel = RISK_LEVELS[maxRisk] ?? 2;
   const timeoutMs = opts.decisionTimeoutMs ?? 15_000;
+  const targets: BrainLlmTarget[] =
+    opts.targets && opts.targets.length > 0
+      ? opts.targets
+      : opts.provider && opts.model
+        ? [{ provider: opts.provider, model: opts.model }]
+        : [];
+  if (targets.length === 0) {
+    throw new Error('createAutonomyBrain: provide `targets` or `provider` + `model`.');
+  }
+  const strategy = opts.strategy ?? 'fallback';
+  // Round-robin rotation cursor — advances once per decision, not per attempt.
+  let rrCursor = 0;
 
   return {
     async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
@@ -144,8 +222,12 @@ export function createAutonomyBrain(opts: AutonomyBrainOptions): BrainArbiter {
         return heuristic;
       }
 
-      // LLM EVALUATION — complex decisions
-      const llmDecision = await llmDecide(request, opts.provider, opts.model, timeoutMs);
+      // LLM EVALUATION — complex decisions. Try the pool in order; the first
+      // target that produces a usable response wins.
+      const start = strategy === 'round-robin' ? rrCursor++ % targets.length : 0;
+      const ordered = [...targets.slice(start), ...targets.slice(0, start)];
+      const digest = opts.getDecisionDigest?.(request);
+      const llmDecision = await llmDecide(request, ordered, timeoutMs, digest);
       opts.onDecision?.(formatDecisionSummary(llmDecision, request), llmDecision, request);
       return llmDecision;
     },
@@ -223,16 +305,11 @@ function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
 }
 
 /**
- * Ask the LLM for a decision on complex questions.
- * Uses a carefully crafted system prompt that establishes the brain's
- * identity, purpose, and decision-making framework.
+ * Render a decision request as the user message for a Brain LLM call.
+ * Shared by the single-LLM tier and every council voter so all of them see
+ * the same question/context/options shape.
  */
-async function llmDecide(
-  request: BrainDecisionRequest,
-  provider: Provider,
-  model: string,
-  timeoutMs: number,
-): Promise<BrainDecision> {
+export function buildBrainUserMessage(request: BrainDecisionRequest): string {
   const optionsText = request.options?.length
     ? '\nOptions:\n' +
       request.options
@@ -243,53 +320,71 @@ async function llmDecide(
         .join('\n')
     : '';
 
-  const systemPrompt = readBundledInstructionText('llm/autonomy-brain.md');
-
-  const userMessage = [
+  return [
     `Question: ${request.question}`,
     request.context ? `\nContext:\n${request.context}` : '',
     optionsText,
   ].filter(Boolean).join('\n');
+}
 
-  try {
-    const signal = AbortSignal.timeout(timeoutMs);
-    const response = await provider.complete(
-      {
-        model,
-        system: [{ type: 'text', text: systemPrompt }],
-        messages: [{ role: 'user', content: userMessage || 'Decide.' }],
-        maxTokens: 200,
-      },
-      { signal },
-    );
+/** Append a decision-history digest to a Brain user message (shared shape). */
+export function withDecisionDigest(user: string, digest: string | undefined): string {
+  if (!digest?.trim()) return user;
+  return `${user}\n\nOutcome history of similar past decisions (learn from it):\n${digest}`;
+}
 
-    const text = extractText(response).trim();
+/**
+ * One Brain LLM call against a single target. Throws on transport failure,
+ * timeout, or abort — callers own the pool/fallback semantics.
+ */
+export async function completeBrainLlm(
+  target: BrainLlmTarget,
+  input: { system: string; user: string; timeoutMs: number; maxTokens?: number | undefined },
+): Promise<string> {
+  const signal = AbortSignal.timeout(input.timeoutMs);
+  const response = await target.provider.complete(
+    {
+      model: target.model,
+      system: [{ type: 'text', text: input.system }],
+      messages: [{ role: 'user', content: input.user || 'Decide.' }],
+      maxTokens: input.maxTokens ?? 200,
+    },
+    { signal },
+  );
+  return extractText(response).trim();
+}
 
-    // Option-bearing decisions are control-plane input, not prose. Accept the
-    // canonical JSON envelope and the historical leading `[id]` form, but
-    // never substring-match an id anywhere in free text: a response such as
-    // "do not spawn; wait" must not select the earlier `spawn` option.
-    if (request.options?.length) {
-      const parsed = parseOptionDecision(text, request.options);
-      if (parsed) {
-        return parsed;
-      }
-      return {
-        type: 'deny',
-        reason: 'Autonomy Brain returned no exact valid option id.',
-      };
+/**
+ * Ask the LLM pool for a decision on complex questions. Targets are tried
+ * in the given order; the first one that answers wins. Uses a carefully
+ * crafted system prompt that establishes the brain's identity, purpose,
+ * and decision-making framework.
+ */
+async function llmDecide(
+  request: BrainDecisionRequest,
+  targets: BrainLlmTarget[],
+  timeoutMs: number,
+  digest?: string | undefined,
+): Promise<BrainDecision> {
+  const systemPrompt = readBundledInstructionText('llm/autonomy-brain.md');
+  const userMessage = withDecisionDigest(buildBrainUserMessage(request), digest);
+
+  let text: string | null = null;
+  for (const target of targets) {
+    try {
+      text = await completeBrainLlm(target, {
+        system: systemPrompt,
+        user: userMessage,
+        timeoutMs,
+      });
+      break;
+    } catch {
+      // This target is unavailable/slow — fall through to the next one.
     }
+  }
 
-    // Free-text answer
-    return {
-      type: 'answer',
-      text: text || (request.fallback === 'continue'
-        ? 'Continue execution.'
-        : 'Denied by autonomy policy.'),
-      rationale: text || undefined,
-    };
-  } catch {
-    // LLM unavailable — use fallback
+  if (text === null) {
+    // Entire pool unavailable — use the request fallback.
     if (request.fallback === 'continue') {
       return {
         type: 'answer',
@@ -298,9 +393,33 @@ async function llmDecide(
     }
     return { type: 'deny', reason: 'Autonomy Brain LLM unavailable for decision.' };
   }
+
+  // Option-bearing decisions are control-plane input, not prose. Accept the
+  // canonical JSON envelope and the historical leading `[id]` form, but
+  // never substring-match an id anywhere in free text: a response such as
+  // "do not spawn; wait" must not select the earlier `spawn` option.
+  if (request.options?.length) {
+    const parsed = parseOptionDecision(text, request.options);
+    if (parsed) {
+      return parsed;
+    }
+    return {
+      type: 'deny',
+      reason: 'Autonomy Brain returned no exact valid option id.',
+    };
+  }
+
+  // Free-text answer
+  return {
+    type: 'answer',
+    text: text || (request.fallback === 'continue'
+      ? 'Continue execution.'
+      : 'Denied by autonomy policy.'),
+    rationale: text || undefined,
+  };
 }
 
-function parseOptionDecision(
+export function parseOptionDecision(
   rawText: string,
   options: NonNullable<BrainDecisionRequest['options']>,
 ): BrainDecision | null {

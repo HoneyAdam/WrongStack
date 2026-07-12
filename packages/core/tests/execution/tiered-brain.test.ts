@@ -25,11 +25,19 @@ function arbiter(decision: BrainDecision): BrainArbiter & { decide: ReturnType<t
 }
 
 const ASK_HUMAN: BrainDecision = { type: 'ask_human', prompt: 'Need a human.' };
-const POLICY_ANSWER: BrainDecision = { type: 'answer', text: 'Policy says continue.' };
+// A concrete policy decision carries the chosen option id. An optionId-less
+// `continue` on a `fallback: 'continue'` request is only PROVISIONAL and the
+// autonomous layer is still consulted (see the provisional-continue tests in
+// brain-pool-and-routing.test.ts).
+const POLICY_ANSWER: BrainDecision = {
+  type: 'answer',
+  optionId: 'continue',
+  text: 'Policy says continue.',
+};
 const LLM_ANSWER: BrainDecision = { type: 'answer', text: 'LLM says steer left.' };
 
 describe('createTieredBrainArbiter', () => {
-  it('returns policy answers without consulting the autonomous layer', async () => {
+  it('returns concrete policy answers without consulting the autonomous layer', async () => {
     const policy = arbiter(POLICY_ANSWER);
     const autonomous = arbiter(LLM_ANSWER);
     const brain = createTieredBrainArbiter({ policy, autonomous });

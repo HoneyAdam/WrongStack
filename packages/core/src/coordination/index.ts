@@ -49,12 +49,23 @@ export {
   type BrainDecisionSource,
   type BrainFallback,
   type BrainRisk,
+  type BrainEscalationMode,
   DefaultBrainArbiter,
   type DefaultBrainArbiterOptions,
+  EscalationRoutingBrainArbiter,
   formatHumanPrompt,
   HumanEscalatingBrainArbiter,
   ObservableBrainArbiter,
+  terminalPolicyDecision,
 } from './brain.js';
+export {
+  brainDecisionKey,
+  BrainDecisionLedger,
+  type BrainDecisionLedgerOptions,
+  type BrainLedgerEntry,
+  createLedgerGuardBrainArbiter,
+  type LedgerGuardBrainArbiterOptions,
+} from './brain-ledger.js';
 export {
   type BrainInterventionInput,
   BrainMonitor,
