@@ -467,6 +467,14 @@ export class GlobalMailbox implements Mailbox {
         action: message.completed ? 'message.completed' : 'message.read',
         message,
       });
+      // SSE push for external HTTP bridge clients.
+      this.eventEmitter?.emit({
+        type: 'message.acked' as const,
+        messageId: message.id,
+        from: message.from,
+        to: message.to,
+        timestamp: new Date().toISOString(),
+      });
     }
     if (updated.length > 0) this.publishHqMailboxSnapshot();
     return updated;
@@ -535,12 +543,21 @@ export class GlobalMailbox implements Mailbox {
       this._setMessageCache(all, mtimeMs, size);
     });
     if (updated !== null) {
+      const msg = updated as MailboxMessage;
       this.publishHqMailboxEvent({
         mailboxId: this.hqMailboxId,
         action: 'message.updated',
-        message: updated,
+        message: msg,
       });
       this.publishHqMailboxSnapshot();
+      // SSE push for external HTTP bridge clients.
+      this.eventEmitter?.emit({
+        type: 'message.deleted' as const,
+        messageId: msg.id,
+        from: msg.from,
+        to: msg.to,
+        timestamp: msg.deletedAt ?? new Date().toISOString(),
+      });
     }
     return updated;
   }
@@ -578,12 +595,21 @@ export class GlobalMailbox implements Mailbox {
       this._setMessageCache(all, mtimeMs, size);
     });
     if (updated !== null) {
+      const msg = updated as MailboxMessage;
       this.publishHqMailboxEvent({
         mailboxId: this.hqMailboxId,
         action: 'message.updated',
-        message: updated,
+        message: msg,
       });
       this.publishHqMailboxSnapshot();
+      // SSE push for external HTTP bridge clients.
+      this.eventEmitter?.emit({
+        type: 'message.restored' as const,
+        messageId: msg.id,
+        from: msg.from,
+        to: msg.to,
+        timestamp: new Date().toISOString(),
+      });
     }
     return updated;
   }
