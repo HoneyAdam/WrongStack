@@ -49,18 +49,31 @@ export interface MailboxAgent {
   toolCalls?: number;
 }
 
+export interface MailboxCompactionResult {
+  readByAllRemoved: number;
+  expiredRemoved: number;
+  stalePurged: number;
+  totalRemoved: number;
+  remaining: number;
+}
+
 interface MailboxState {
   messages: MailboxMessage[];
   agents: MailboxAgent[];
+  /** Result of the last auto-compact operation, if any. */
+  lastCompaction: MailboxCompactionResult | null;
   setMessages: (messages: MailboxMessage[]) => void;
   setAgents: (agents: MailboxAgent[]) => void;
+  setLastCompaction: (result: MailboxCompactionResult | null) => void;
 }
 
 export const useMailboxStore = create<MailboxState>()((set) => ({
   messages: [],
   agents: [],
+  lastCompaction: null,
   setMessages: (messages) => set({ messages }),
   setAgents: (agents) => set({ agents }),
+  setLastCompaction: (lastCompaction) => set({ lastCompaction }),
 }));
 
 /** Incomplete messages where no agent has acted yet (readByCount === 0).

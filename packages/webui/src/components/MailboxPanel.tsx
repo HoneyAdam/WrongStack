@@ -18,6 +18,7 @@ import {
   UserCheck,
   Trash2,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { confirmModal } from './ConfirmModal';
@@ -53,9 +54,11 @@ export function MailboxPanel({ className }: { className?: string }) {
   // only triggers an extra refresh when (re)mounted.
   const messages = useMailboxStore((s) => s.messages);
   const agents = useMailboxStore((s) => s.agents);
+  const lastCompaction = useMailboxStore((s) => s.lastCompaction);
   const [collapsed, setCollapsed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [purging, setPurging] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const { client } = useWebSocket();
   const { t } = useAppTranslation();
   // Track the socket lifecycle so the initial queries fire once the
@@ -129,6 +132,19 @@ export function MailboxPanel({ className }: { className?: string }) {
     }
   }, [purging]);
 
+  async function handleCompact() {
+    setCompacting(true);
+    client.send({ type: 'mailbox.compact' });
+  }
+
+  // Reset compacting state after server confirms.
+  useEffect(() => {
+    if (compacting) {
+      const t = setTimeout(() => setCompacting(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [compacting]);
+
   return (
     <div className={cn('rounded-lg border border-border bg-card/60 backdrop-blur-sm', className)}>
       {/* Header */}
@@ -180,7 +196,31 @@ export function MailboxPanel({ className }: { className?: string }) {
                   <Sparkles className="h-3 w-3" />
                   {purging ? t('activity:mailbox.purging') : t('activity:mailbox.purge')}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCompact}
+                  disabled={compacting}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary disabled:opacity-40 transition-colors"
+                  title="Auto-compact: remove expired, read-by-all, and stale messages"
+                >
+                  <Zap className="h-3 w-3" />
+                  {compacting ? 'Compacting…' : 'Compact'}
+                </button>
               </div>
+              {/* Compaction result badge */}
+              {lastCompaction && lastCompaction.totalRemoved > 0 && (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] bg-primary/5 text-primary/70 border border-primary/10">
+                  <Zap className="h-3 w-3 shrink-0" />
+                  <span>
+                    Removed {lastCompaction.totalRemoved}
+                    {lastCompaction.expiredRemoved > 0 && ` (${lastCompaction.expiredRemoved} expired)`}
+                    {lastCompaction.readByAllRemoved > 0 && ` (${lastCompaction.readByAllRemoved} read-by-all)`}
+                    {lastCompaction.stalePurged > 0 && ` (${lastCompaction.stalePurged} stale)`}
+                    {' — '}
+                    {lastCompaction.remaining} remaining
+                  </span>
+                </div>
+              )}
               {messages.slice(0, 8).map((m) => {
                 const Icon = TYPE_ICONS[m.type] ?? MessageSquare;
                 const isRead = m.readByCount > 0;

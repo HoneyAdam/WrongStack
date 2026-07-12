@@ -136,3 +136,29 @@ export async function handleMailboxPurge(
     send(ws, { type: 'mailbox.purged', payload: { error: errMessage(err) } });
   }
 }
+
+/**
+ * Auto-compact the mailbox: removes expired (TTL) messages, messages read
+ * by all online agents, and stale messages — all in one pass. Frontend sends:
+ *   { type: 'mailbox.compact', payload?: { readMaxAgeMs?, defaultTtlMs?, ... } }
+ * Server responds with 'mailbox.compacted' containing the result.
+ */
+export async function handleMailboxCompact(
+  ws: WebSocket,
+  deps: MailboxHandlerDeps,
+  opts?: {
+    readMaxAgeMs?: number;
+    defaultTtlMs?: number;
+    completedMaxAgeMs?: number;
+    incompleteMaxAgeMs?: number;
+  },
+): Promise<void> {
+  try {
+    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
+    const mb = new GlobalMailbox(dir);
+    const result = await mb.autoCompact(opts);
+    send(ws, { type: 'mailbox.compacted', payload: result });
+  } catch (err) {
+    send(ws, { type: 'mailbox.compacted', payload: { error: errMessage(err) } });
+  }
+}

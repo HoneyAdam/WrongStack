@@ -6,6 +6,7 @@ export interface MailboxRouteHandlers {
   agents: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   clear: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   purge: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
+  compact: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
 }
 
 export async function handleMailboxRoute(
@@ -25,6 +26,9 @@ export async function handleMailboxRoute(
       return true;
     case 'mailbox.purge':
       await handlers.purge(ws, msg);
+      return true;
+    case 'mailbox.compact':
+      await handlers.compact(ws, msg);
       return true;
     default:
       return false;

@@ -81,6 +81,20 @@ export function handleMailboxPurged(_msg: WSServerMessage) {
   queryMailbox();
 }
 
+export function handleMailboxCompacted(msg: WSServerMessage) {
+  const p = msg.payload as { readByAllRemoved?: number; expiredRemoved?: number; stalePurged?: number; totalRemoved?: number; remaining?: number } | undefined;
+  if (p && typeof p.totalRemoved === 'number') {
+    useMailboxStore.getState().setLastCompaction({
+      readByAllRemoved: p.readByAllRemoved ?? 0,
+      expiredRemoved: p.expiredRemoved ?? 0,
+      stalePurged: p.stalePurged ?? 0,
+      totalRemoved: p.totalRemoved,
+      remaining: p.remaining ?? 0,
+    });
+  }
+  queryMailbox();
+}
+
 export const filesMailboxHandlerMap: Partial<Record<string, (msg: WSServerMessage) => void>> = {
   'files.tree': handleFilesTree,
   'files.read': handleFilesRead,
@@ -92,4 +106,5 @@ export const filesMailboxHandlerMap: Partial<Record<string, (msg: WSServerMessag
   'mailbox.agent_registered': handleMailboxAgentRegistered,
   'mailbox.cleared': handleMailboxCleared,
   'mailbox.purged': handleMailboxPurged,
+  'mailbox.compacted': handleMailboxCompacted,
 };

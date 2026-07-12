@@ -66,6 +66,7 @@ import { handleShellOpen, type ShellOpenRequest, type ShellOpenResult } from './
 import {
   handleMailboxAgents,
   handleMailboxClear,
+  handleMailboxCompact,
   handleMailboxMessages,
   handleMailboxPurge,
 } from './mailbox-handlers.js';
@@ -750,6 +751,13 @@ export function buildRoutes(
         ws,
         { projectRoot: state.getProjectRoot(), globalRoot: path.dirname(deps.globalConfigPath) },
         parsed.value,
+      );
+    },
+    compact: (ws, msg) => {
+      return handleMailboxCompact(
+        ws,
+        { projectRoot: state.getProjectRoot(), globalRoot: path.dirname(deps.globalConfigPath) },
+        (msg.payload as { readMaxAgeMs?: number; defaultTtlMs?: number }) ?? {},
       );
     },
   };

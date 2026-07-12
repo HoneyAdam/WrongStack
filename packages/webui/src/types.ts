@@ -1355,6 +1355,10 @@ export type WSClientMessage =
       type: 'mailbox.purge';
       payload?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number } | undefined;
     }
+  | {
+      type: 'mailbox.compact';
+      payload?: { readMaxAgeMs?: number; defaultTtlMs?: number } | undefined;
+    }
   | { type: 'brain.status' }
   | { type: 'brain.risk'; payload: { level: string } }
   | { type: 'brain.ask'; payload: { question: string } }
