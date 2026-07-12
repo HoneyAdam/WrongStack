@@ -78,6 +78,37 @@ describe('createAutonomyBrain — heuristics (quickDecide)', () => {
     expect(provider.complete).toHaveBeenCalled();
     expect(d).toMatchObject({ type: 'answer' });
   });
+
+  it('never fires heuristics on option-bearing requests', async () => {
+    const provider = fakeProvider('{"optionId":"go","rationale":"fine"}');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    const d = await brain.decide(
+      req({
+        question: 'Continue with phase 3?',
+        options: [
+          { id: 'go', label: 'Continue' },
+          { id: 'wait', label: 'Wait' },
+        ],
+      }),
+    );
+    expect(provider.complete).toHaveBeenCalled();
+    expect(d).toMatchObject({ type: 'answer', optionId: 'go' });
+  });
+
+  it('sends "continue or stop" style questions to the LLM instead of auto-continuing', async () => {
+    const provider = fakeProvider('Stop: the budget is exhausted and progress is zero.');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    const d = await brain.decide(req({ question: 'Should we continue or stop the run?' }));
+    expect(provider.complete).toHaveBeenCalled();
+    if (d.type === 'answer') expect(d.text).toContain('Stop');
+  });
+
+  it('does not auto-continue when the caller did not declare continue as fallback', async () => {
+    const provider = fakeProvider('Evaluated: proceed carefully.');
+    const brain = createAutonomyBrain({ provider, model: 'm' });
+    await brain.decide(req({ question: 'Continue with phase 3?', fallback: 'deny' }));
+    expect(provider.complete).toHaveBeenCalled();
+  });
 });
 
 describe('createAutonomyBrain — LLM evaluation (llmDecide)', () => {

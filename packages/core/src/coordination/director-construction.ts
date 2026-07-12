@@ -327,7 +327,10 @@ export function wireBudgetHandler(d: DirectorInternals): void {
             payload.deny();
             return;
           }
-          if (decision.optionId === 'stop' || /\bstop\b/i.test(decision.text)) {
+          // Control-plane check: only the exact option id refuses. Free
+          // text is never sniffed — "extend; stopping would waste work"
+          // must not read as a stop.
+          if (decision.optionId === 'stop') {
             payload.deny();
             return;
           }

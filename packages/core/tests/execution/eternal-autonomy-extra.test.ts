@@ -292,11 +292,27 @@ describe('EternalAutonomyEngine — brainstorm DONE + brain consultation', () =>
     expect((engine as { consecutiveBrainstormDone: number }).consecutiveBrainstormDone).toBe(0);
   });
 
-  it('stops when the brain answers that the goal is complete', async () => {
+  it('stops when the brain picks the goal_complete option', async () => {
+    const { engine } = await runBrainstormDone({
+      brain: {
+        decide: async () => ({
+          type: 'answer',
+          optionId: 'goal_complete',
+          text: 'The goal is complete — stop the eternal run',
+        }),
+      },
+    });
+    expect((engine as never as { stopRequested: boolean }).stopRequested).toBe(true);
+  });
+
+  it('keeps going on a prose answer without the exact option id', async () => {
+    // "Yes, the goal is complete." as free text is NOT control-plane input —
+    // only optionId 'goal_complete' stops the run.
     const { engine } = await runBrainstormDone({
       brain: { decide: async () => ({ type: 'answer', text: 'Yes, the goal is complete.' }) },
     });
-    expect((engine as never as { stopRequested: boolean }).stopRequested).toBe(true);
+    expect((engine as never as { consecutiveBrainstormDone: number }).consecutiveBrainstormDone).toBe(0);
+    expect((engine as never as { stopRequested: boolean }).stopRequested).toBe(false);
   });
 
   it('stops (trusts the heuristic) when the brain asks the human, and journals prior work', async () => {

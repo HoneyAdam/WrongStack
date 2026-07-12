@@ -261,8 +261,18 @@ export function formatDecisionSummary(
   return `🧠 Brain: ASKED HUMAN — "${question}"`;
 }
 
-/** Fast heuristic decisions that don't need an LLM call. */
+/**
+ * Fast heuristic decisions that don't need an LLM call.
+ *
+ * Deliberately narrow: heuristics never fire on option-bearing requests
+ * (options are control-plane input demanding a structured choice, not a
+ * keyword guess) and the continue fast-path only fires when the caller
+ * itself declared continue the safe fallback AND the question offers no
+ * alternative — "Should we continue or stop?" must reach the LLM.
+ */
 function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
+  if (request.options?.length) return null;
+
   const q = request.question.toLowerCase();
   const ctx = request.context?.toLowerCase() ?? '';
 
@@ -275,10 +285,14 @@ function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
     };
   }
 
-  // Repeated failure with exhausted retries → move on
+  // Repeated failure with retries demonstrably exhausted → move on. Requires
+  // an explicit exhausted marker or a concrete ≥3 attempt/failure count —
+  // a bare "3" anywhere in the context is not evidence.
   if (
     (q.includes('failed') || q.includes('retry')) &&
-    (ctx.includes('3') || ctx.includes('exhausted'))
+    (/\bexhausted\b/.test(ctx) ||
+      /\b(?:[3-9]|\d{2,})\s+(?:consecutive\s+)?(?:times|attempts|retries|failures)\b/.test(ctx) ||
+      /\b(?:attempt|retr(?:y|ies)|failure)s?\W{0,3}(?:[3-9]|\d{2,})\b/.test(ctx))
   ) {
     return {
       type: 'answer',
@@ -292,8 +306,14 @@ function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
     return null;
   }
 
-  // Continue/proceed → always yes
-  if (q.includes('continue') || q.includes('proceed')) {
+  // Plain continue/proceed ping whose caller declared continue safe, with no
+  // competing alternative in the question → yes without burning an LLM call.
+  if (
+    request.fallback === 'continue' &&
+    /\b(?:continue|proceed)\b/.test(q) &&
+    !/\b(?:stop|abort|halt|cancel|pause|rollback)\b/.test(q) &&
+    !/\bor\b/.test(q)
+  ) {
     return {
       type: 'answer',
       text: 'Continue execution. Do not stop.',
