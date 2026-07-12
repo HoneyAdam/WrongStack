@@ -29,9 +29,22 @@ type RunResult = {
   error?: { code: string; message: string; recoverable: boolean };
 };
 
+/** Minimal tool shape that passes the runtime's isLikelyVisionTool heuristic
+ *  (auto permission, non-mutating, vision-ish name, image key in schema). */
+function makeVisionTool(describeResult: string) {
+  return {
+    name: 'zai-vision',
+    description: 'Analyze an image and describe it',
+    permission: 'auto',
+    mutating: false,
+    inputSchema: { type: 'object', properties: { image: {}, prompt: {} } },
+    execute: async () => describeResult,
+  };
+}
+
 function makeCtx(
   run?: (content: unknown, opts: { signal: AbortSignal }) => Promise<RunResult>,
-  { vision = true }: { vision?: boolean } = {},
+  { vision = true, visionTools = [] as ReturnType<typeof makeVisionTool>[] } = {},
 ): {
   ctx: ConnectionContext;
   sent: Array<{ ws: WebSocket; msg: WsServerMessage }>;
@@ -45,7 +58,11 @@ function makeCtx(
     opts: {
       agent: {
         run: run ?? (async () => ({ status: 'completed', iterations: 1, finalText: 'ok' })),
-        ctx: { provider: { capabilities: { vision } } },
+        ctx: { provider: { id: 'prov', capabilities: { vision } }, model: 'mod' },
+        tools: {
+          list: () => visionTools,
+          get: (name: string) => visionTools.find((t) => t.name === name),
+        },
       } as never,
     },
     abortControllers,
@@ -145,7 +162,7 @@ describe('handleUserMessage', () => {
     ]);
   });
 
-  it('rejects images on a non-vision model without running the agent', async () => {
+  it('rejects images on a non-vision model with no adapter, without running the agent', async () => {
     let ran = false;
     const t = makeCtx(
       async () => {
@@ -161,7 +178,29 @@ describe('handleUserMessage', () => {
     expect(lastFor(t.sent, WS_A, 'error')?.payload).toMatchObject({
       phase: 'user_message',
       code: 'vision_unsupported',
+      message: expect.stringContaining('does not support image input'),
     });
+    // Controller cleaned up so the next message isn't rejected as overlapping.
+    expect(t.abortControllers.has(WS_A)).toBe(false);
+  });
+
+  it('routes images through a vision adapter tool on a non-vision model', async () => {
+    let seenInput: unknown;
+    const t = makeCtx(
+      async (input) => {
+        seenInput = input;
+        return { status: 'completed', iterations: 1, finalText: 'ok' };
+      },
+      { vision: false, visionTools: [makeVisionTool('a solid red square')] },
+    );
+    await handleUserMessage(t.ctx, WS_A, 'what is this?', undefined, {
+      images: [{ data: PNG_B64, mediaType: 'image/png' }],
+    });
+    expect(lastFor(t.sent, WS_A, 'error')).toBeUndefined();
+    expect(seenInput).toEqual([
+      { type: 'text', text: '[Image 1 analyzed via zai-vision]\na solid red square' },
+      { type: 'text', text: 'what is this?' },
+    ]);
   });
 
   it('rejects invalid image payloads with a user_message error', async () => {

@@ -6,6 +6,12 @@ import {
   parseIncomingImages,
   toErrorMessage,
 } from '@wrongstack/core/utils';
+import {
+  createToolVisionAdapters,
+  ImageInputUnsupportedError,
+  routeImagesForModel,
+  VisionUrlBlockedError,
+} from '@wrongstack/runtime/vision';
 import type { WebSocket } from 'ws';
 import type { WsCommon } from './index.js';
 
@@ -131,39 +137,6 @@ export async function handleUserMessage(
     return;
   }
 
-  // Turn attached images into canonical ImageBlocks so the agent sees the
-  // same multimodal input shape the TUI produces. Validation failures and a
-  // non-vision model both reject before the run starts — silently dropping
-  // an image the user attached would be worse than an upfront error.
-  let input: string | ContentBlock[] = content;
-  try {
-    const imageBlocks = parseIncomingImages(attachments?.images, attachments?.imageBase64);
-    if (imageBlocks.length > 0) {
-      if (!ctx.opts.agent.ctx.provider.capabilities.vision) {
-        ctx.send(ws, {
-          type: 'error',
-          payload: sessionPayload(ctx, {
-            phase: 'user_message',
-            code: 'vision_unsupported',
-            message:
-              'The current model does not support image input. Switch to a vision-capable model and resend.',
-          }),
-        });
-        return;
-      }
-      input = buildUserContentBlocks(content, imageBlocks);
-    }
-  } catch (err) {
-    if (err instanceof IncomingImageError) {
-      ctx.send(ws, {
-        type: 'error',
-        payload: sessionPayload(ctx, { phase: 'user_message', message: err.message }),
-      });
-      return;
-    }
-    throw err;
-  }
-
   // Abort any existing run (safety net; the guard above makes this
   // unreachable in the overlapping case, but direct abort requests
   // from the client still need the controller reference).
@@ -171,7 +144,29 @@ export async function handleUserMessage(
   ctx.abortControllers.set(ws, wsAbort);
 
   try {
-    const result = await ctx.opts.agent.run(input, {
+    // Turn attached images into canonical ImageBlocks so the agent sees the
+    // same multimodal input shape the TUI produces, then route them exactly
+    // like the TUI does: native for vision models, otherwise through any
+    // registered image-understanding tool (zai-vision, minimax-vision, …)
+    // which replaces each image with a text description. Only when neither
+    // works does the message reject — silently dropping an image the user
+    // attached would be worse than an upfront error.
+    const agent = ctx.opts.agent;
+    let input: string | ContentBlock[] = content;
+    const imageBlocks = parseIncomingImages(attachments?.images, attachments?.imageBase64);
+    if (imageBlocks.length > 0) {
+      const routed = await routeImagesForModel(buildUserContentBlocks(content, imageBlocks), {
+        supportsVision: agent.ctx.provider.capabilities.vision,
+        adapters: () => createToolVisionAdapters(agent.tools),
+        ctx: agent.ctx,
+        signal: wsAbort.signal,
+        providerId: agent.ctx.provider.id,
+        model: agent.ctx.model,
+      });
+      input = routed.blocks;
+    }
+
+    const result = await agent.run(input, {
       signal: wsAbort.signal,
     });
 
@@ -191,13 +186,31 @@ export async function handleUserMessage(
       }),
     });
   } catch (err) {
-    ctx.send(ws, {
-      type: 'error',
-      payload: sessionPayload(ctx, {
-        phase: 'agent.run',
-        message: toErrorMessage(err),
-      }),
-    });
+    // Image-input failures are user_message-phase errors: the run never
+    // started, and the message tells the user how to fix it (resend without
+    // images, switch model, or enable a vision adapter).
+    if (
+      err instanceof IncomingImageError ||
+      err instanceof ImageInputUnsupportedError ||
+      err instanceof VisionUrlBlockedError
+    ) {
+      ctx.send(ws, {
+        type: 'error',
+        payload: sessionPayload(ctx, {
+          phase: 'user_message',
+          ...(err instanceof ImageInputUnsupportedError ? { code: 'vision_unsupported' } : {}),
+          message: err.message,
+        }),
+      });
+    } else {
+      ctx.send(ws, {
+        type: 'error',
+        payload: sessionPayload(ctx, {
+          phase: 'agent.run',
+          message: toErrorMessage(err),
+        }),
+      });
+    }
   } finally {
     ctx.abortControllers.delete(ws);
   }

@@ -24,6 +24,12 @@ import {
   type IncomingImagePayload,
   parseIncomingImages,
 } from '@wrongstack/core/utils';
+import {
+  createToolVisionAdapters,
+  ImageInputUnsupportedError,
+  routeImagesForModel,
+  VisionUrlBlockedError,
+} from '@wrongstack/runtime/vision';
 import type { WebSocket } from 'ws';
 import { handleAutoPhaseRoute } from './autophase-routes.js';
 import { handleBrainRoute } from './brain-routes.js';
@@ -244,38 +250,6 @@ export function createMessageDispatcher(
         ).payload;
         const content = userPayload.content;
 
-        // Turn attached images into canonical ImageBlocks so the agent sees
-        // the same multimodal input shape the TUI produces. Validation
-        // failures and a non-vision model both reject before the run starts.
-        let input: string | ContentBlock[] = content;
-        try {
-          const imageBlocks = parseIncomingImages(userPayload.images, userPayload.imageBase64);
-          if (imageBlocks.length > 0) {
-            if (!deps.agent.ctx.provider.capabilities.vision) {
-              send(ws, {
-                type: 'error',
-                payload: sessionPayload({
-                  phase: 'user_message',
-                  code: 'vision_unsupported',
-                  message:
-                    'The current model does not support image input. Switch to a vision-capable model and resend.',
-                }),
-              });
-              break;
-            }
-            input = buildUserContentBlocks(content, imageBlocks);
-          }
-        } catch (err) {
-          if (err instanceof IncomingImageError) {
-            send(ws, {
-              type: 'error',
-              payload: sessionPayload({ phase: 'user_message', message: err.message }),
-            });
-            break;
-          }
-          throw err;
-        }
-
         // Guard against concurrent agent runs — a second user_message while
         // the agent is already processing would kick off two agent.run()
         // calls on the same shared context/agent, leading to corrupted
@@ -296,6 +270,27 @@ export function createMessageDispatcher(
         runLock.set(thisRun);
 
         try {
+          // Turn attached images into canonical ImageBlocks and route them
+          // like the TUI: native for vision models, otherwise through any
+          // registered image-understanding tool that replaces each image
+          // with a text description. Neither available → reject upfront.
+          let input: string | ContentBlock[] = content;
+          const imageBlocks = parseIncomingImages(userPayload.images, userPayload.imageBase64);
+          if (imageBlocks.length > 0) {
+            const routed = await routeImagesForModel(
+              buildUserContentBlocks(content, imageBlocks),
+              {
+                supportsVision: deps.agent.ctx.provider.capabilities.vision,
+                adapters: () => createToolVisionAdapters(deps.agent.tools),
+                ctx: deps.agent.ctx,
+                signal: thisRun.signal,
+                providerId: deps.agent.ctx.provider.id,
+                model: deps.agent.ctx.model,
+              },
+            );
+            input = routed.blocks;
+          }
+
           // Read maxIterations from context.meta so the webui settings
           // panel can adjust the cap dynamically without restarting.
           const maxIt =
@@ -322,13 +317,32 @@ export function createMessageDispatcher(
             }),
           });
         } catch (err) {
-          send(ws, {
-            type: 'error',
-            payload: sessionPayload({
-              phase: 'agent.run',
-              message: errMessage(err),
-            }),
-          });
+          // Image-input failures are user_message-phase errors: the run
+          // never started, and the message tells the user how to fix it.
+          if (
+            err instanceof IncomingImageError ||
+            err instanceof ImageInputUnsupportedError ||
+            err instanceof VisionUrlBlockedError
+          ) {
+            send(ws, {
+              type: 'error',
+              payload: sessionPayload({
+                phase: 'user_message',
+                ...(err instanceof ImageInputUnsupportedError
+                  ? { code: 'vision_unsupported' }
+                  : {}),
+                message: err.message,
+              }),
+            });
+          } else {
+            send(ws, {
+              type: 'error',
+              payload: sessionPayload({
+                phase: 'agent.run',
+                message: errMessage(err),
+              }),
+            });
+          }
         } finally {
           // Only clear runLock if it's still ours — otherwise we'd wipe a
           // newer run's controller set after we returned.
