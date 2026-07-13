@@ -86,6 +86,21 @@ export class DefaultMemoryStore implements MemoryStore {
    */
   private _cachedLower: WeakMap<MemoryEntry, { textLower: string; tagsLower: string[] }> | null = null;
 
+  /**
+   * Inverted index for scoreRelevant(): maps a lowercase word to the set of
+   * entry array indices that contain it (in text or tags). Built lazily from
+   * the current `all` entry array and invalidated alongside the other caches
+   * on every mutation. This replaces the O(N*M) full scan of every entry ×
+   * every context word with O(K) lookups where K is the number of entries
+   * that actually match at least one context word.
+   */
+  private _invertedIndex: {
+    /** The entry array this index was built from (reference equality check). */
+    entries: MemoryEntry[];
+    /** word → set of indices into the entries array. */
+    index: Map<string, Set<number>>;
+  } | null = null;
+
   constructor(opts: MemoryStoreOptions) {
     this.files = {
       'project-agents': opts.paths.inProjectAgentsFile,
@@ -324,11 +339,17 @@ export class DefaultMemoryStore implements MemoryStore {
   private invalidateScoreCaches(): void {
     this._scoreCache.clear();
     this._cachedLower = null;
+    this._invertedIndex = null;
   }
 
   /**
    * Score and rank memories by relevance to the current context.
    * Returns entries with score >= MIN_RELEVANCE_SCORE, sorted highest first.
+   *
+   * Uses an inverted index (word → entry indices) to avoid the O(N*M) full
+   * scan where every entry is checked against every context word. Only entries
+   * whose inverted-index words overlap with at least one context word run the
+   * full text-scoring loop; the rest skip text-scoring entirely.
    */
   async scoreRelevant(
     ctx: MemoryRelevanceContext,
@@ -355,6 +376,28 @@ export class DefaultMemoryStore implements MemoryStore {
     const skillWords = (ctx.activeSkills ?? []).flatMap((s) => s.split('-'));
     const toolWords = (ctx.toolNames ?? []).flatMap((t) => t.toLowerCase().split('_'));
 
+    // ── Inverted index ─────────────────────────────────────────────────
+    // Build or reuse the inverted index for this entry array. Maps each
+    // lowercase word found in entry text or tags to the set of entry
+    // indices that contain it. Only entries with at least one word matching
+    // a context word will run the text-scoring inner loops.
+    let invertedIndex = this._invertedIndex?.index;
+    if (!invertedIndex || this._invertedIndex!.entries !== all) {
+      invertedIndex = this._buildInvertedIndex(all);
+      this._invertedIndex = { entries: all, index: invertedIndex };
+    }
+
+    // Collect candidate entry indices: entries whose inverted-index words
+    // overlap with at least one context word (task, skill, or tool).
+    const allContextWords = [...new Set([...taskWords, ...skillWords, ...toolWords])].filter(
+      (w) => w.length > 2,
+    );
+    const candidateEntryIndices = new Set<number>();
+    for (const w of allContextWords) {
+      const matches = invertedIndex.get(w);
+      if (matches !== undefined) for (const i of matches) candidateEntryIndices.add(i);
+    }
+
     // Per-entry lowercase caches. Lazily allocated once and reused across
     // scoring passes — the WeakMap is keyed by entry object identity, so its
     // entries stay valid as long as the same entry objects are scored, and
@@ -366,7 +409,8 @@ export class DefaultMemoryStore implements MemoryStore {
 
     const scored: ScoredEntry[] = [];
 
-    for (const entry of all) {
+    for (let ei = 0; ei < all.length; ei++) {
+      const entry = all[ei]!;
       let score = 0;
       const reasons: string[] = [];
 
@@ -381,32 +425,37 @@ export class DefaultMemoryStore implements MemoryStore {
       }
       const { textLower, tagsLower } = cachedLower;
 
-      // Word overlap with current task (primary signal)
-      let taskHits = 0;
-      for (const w of taskWords) {
-        if (textLower.includes(w)) { taskHits++; score += 2; }
-        if (tagsLower.some((t) => t.includes(w))) { taskHits++; score += 3; }
-      }
-      if (taskHits > 0) reasons.push(`task match (${taskHits})`);
+      // Text-scoring inner loops — only run for candidate entries that have
+      // at least one word overlapping with a context word (from the index).
+      // Non-candidate entries skip the O(M) includes checks entirely.
+      if (candidateEntryIndices.has(ei)) {
+        // Word overlap with current task (primary signal)
+        let taskHits = 0;
+        for (const w of taskWords) {
+          if (textLower.includes(w)) { taskHits++; score += 2; }
+          if (tagsLower.some((t) => t.includes(w))) { taskHits++; score += 3; }
+        }
+        if (taskHits > 0) reasons.push(`task match (${taskHits})`);
 
-      // Skill/tool relevance
-      let skillHits = 0;
-      for (const w of skillWords) {
-        if (w.length > 2 && (textLower.includes(w) || tagsLower.some((t) => t.includes(w)))) {
-          skillHits++;
+        // Skill/tool relevance
+        let skillHits = 0;
+        for (const w of skillWords) {
+          if (w.length > 2 && (textLower.includes(w) || tagsLower.some((t) => t.includes(w)))) {
+            skillHits++;
+          }
+        }
+        score += skillHits;
+        if (skillHits > 0) reasons.push(`skill match (${skillHits})`);
+
+        for (const w of toolWords) {
+          if (w.length > 2 && (textLower.includes(w) || tagsLower.some((t) => t.includes(w)))) {
+            score += 1;
+            reasons.push(`tool mention: ${w}`);
+          }
         }
       }
-      score += skillHits;
-      if (skillHits > 0) reasons.push(`skill match (${skillHits})`);
 
-      for (const w of toolWords) {
-        if (w.length > 2 && (textLower.includes(w) || tagsLower.some((t) => t.includes(w)))) {
-          score += 1;
-          reasons.push(`tool mention: ${w}`);
-        }
-      }
-
-      // Priority boost
+      // Priority boost (always applies, regardless of text matching)
       switch (entry.priority) {
         case 'critical': score += 5; reasons.push('critical'); break;
         case 'high':     score += 3; reasons.push('high priority'); break;
@@ -463,6 +512,33 @@ export class DefaultMemoryStore implements MemoryStore {
     this._scoreCache.set(ctxHash, { entries: all, scored: relevant, expiresAt: now + TTL_MS });
 
     return relevant.slice(0, Math.min(limit, 15));
+  }
+
+  /**
+   * Build an inverted index from a list of memory entries.
+   * Maps each lowercase word in entry text or tags to the set of entry indices
+   * that contain it.
+   */
+  private _buildInvertedIndex(entries: MemoryEntry[]): Map<string, Set<number>> {
+    const index = new Map<string, Set<number>>();
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      const words = entry.text.toLowerCase().split(/\s+/);
+      const tags = (entry.tags ?? []).map((t) => t.toLowerCase());
+      // Deduplicate within this entry before adding to the index.
+      const seen = new Set<string>();
+      for (const word of [...words, ...tags]) {
+        if (word.length <= 2 || seen.has(word)) continue;
+        seen.add(word);
+        let set = index.get(word);
+        if (set === undefined) {
+          set = new Set();
+          index.set(word, set);
+        }
+        set.add(i);
+      }
+    }
+    return index;
   }
 
   async forget(query: string, scope: MemoryScope = 'project-memory'): Promise<number> {
