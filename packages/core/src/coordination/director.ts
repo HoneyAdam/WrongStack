@@ -24,17 +24,14 @@ import { InMemoryAgentBridge } from './agent-bridge.js';
 import type { BrainArbiter } from './brain.js';
 import { formatSubagentStructuredReport } from './subagent-result-tool.js';
 import { resolveMaxSpawnDepth } from './spawn-budget.js';
-import {
-  type CollabDebugReport,
-  CollabSession,
-  type CollabSessionOptions,
-} from './collab-debug.js';
+import type { CollabDebugReport, CollabSessionOptions } from './collab-debug.js';
 import {
   FleetContextOverflowError,
   FleetCostCapError,
   FleetSpawnBudgetError,
   FleetTokenCapError,
 } from './director/director-errors.js';
+import { DirectorCollabController } from './director/director-collab.js';
 import {
   composeDirectorPrompt,
   composeSubagentPrompt,
@@ -605,14 +602,9 @@ export class Director implements ICoordinator {
   private workCompleteFlag = false;
   /** Pending /btw notes stashed by the leader agent (see setLeaderBtwNote). */
   private _leaderBtwNotes: string[] = [];
-  /** Active collab sessions tracked by sessionId (see spawnCollab).
-   *  The tuple holds the session and its Director-registered listener unsubs.
-   *  Calling the unsubs on cancel/premature-cleanup prevents listener accumulation
-   *  on CollabSession (EventEmitter) across many spawnCollab() calls. */
-  private readonly _activeCollabSessions = new Map<
-    string,
-    { session: import('./collab-debug.js').CollabSession; unsubs: (() => void)[] }
-  >();
+  /** Owns active collab-debug sessions (spawn/cancel/alert/list). Extracted
+   *  from Director in R4; the public collab methods below delegate to it. */
+  private readonly collab: DirectorCollabController;
   /** Prevents large `ask_subagent` answers from bloating the leader's context window. */
   readonly largeAnswerStore: LargeAnswerStore;
 
@@ -1020,6 +1012,12 @@ export class Director implements ICoordinator {
     // bloating the leader's context window. Responses above 2K chars
     // are stored out-of-band; only a summary goes into ctx.messages.
     this.largeAnswerStore = new LargeAnswerStore(2000);
+    this.collab = new DirectorCollabController({
+      director: this,
+      fleet: this.fleet,
+      coordinator: this.coordinator,
+      logger: this.logger,
+    });
   }
 
   /**
@@ -1134,27 +1132,7 @@ export class Director implements ICoordinator {
    * The CollabDebugReport will reflect 'cancelled' disposition when awaited.
    */
   cancelCollabSession(sessionId: string, reason = 'Director cancelled'): void {
-    const entry = this._activeCollabSessions.get(sessionId);
-    if (!entry || entry.session.isCancelled()) return;
-    // Unsubscribe Director listeners first so they don't fire after cancel.
-    for (const unsub of entry.unsubs) unsub();
-    entry.session.cancel(reason);
-    // Stop each collab agent via the coordinator so their run() aborts.
-    // This is the critical difference from a natural finish: we call
-    // abortController.abort() on each subagent's run signal, which
-    // propagates into agent.run() → tool executor and kills the run
-    // before the budget or natural iteration limit ends it.
-    // The abort is cooperative — the agent finishes its current iteration
-    // then sees the signal and exits with status 'aborted', so no context
-    // is silently lost.
-    for (const [_role, subagentId] of entry.session.getSubagentIds()) {
-      this.coordinator.stop(subagentId).catch((err) => {
-        this.logger?.debug(`stop subagent ${subagentId} failed (may have already completed)`, {
-          subagentId,
-          err: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
+    this.collab.cancel(sessionId, reason);
   }
 
   /**
@@ -1164,9 +1142,7 @@ export class Director implements ICoordinator {
    * Returns an unsubscribe function.
    */
   onCollabAlert(handler: (alert: import('./collab-debug.js').DirectorAlert) => void): () => void {
-    return this.fleet.filter('collab.warning', (e) => {
-      handler(e.payload as import('./collab-debug.js').DirectorAlert);
-    });
+    return this.collab.onAlert(handler);
   }
 
   /**
@@ -1175,7 +1151,7 @@ export class Director implements ICoordinator {
    * the host to know what can be cancelled.
    */
   activeCollabSessions(): string[] {
-    return Array.from(this._activeCollabSessions.keys());
+    return this.collab.activeSessionIds();
   }
 
   /** Best-effort session-writer append. Swallows failures — the director
@@ -2231,33 +2207,7 @@ export class Director implements ICoordinator {
    * three agents complete or the session times out.
    */
   async spawnCollab(options: CollabSessionOptions): Promise<CollabDebugReport> {
-    const session = new CollabSession(this, this.fleet, {
-      ...options,
-      onBudgetWarning: (alert) => {
-        // Delegate to the host-provided handler if set; 'ignore' by default.
-        // Collab agents are excluded from the Director's
-        // budget.threshold_reached handler, so the session's own wireFleetBus()
-        // budget handler (progress-based timeout logic, session.cancel()) runs
-        // instead of the Director's auto-extend/deny logic.
-        return options.onBudgetWarning?.(alert) ?? 'ignore';
-      },
-    });
-    // Track so cancelCollabSession(sessionId) works and Director knows what's active.
-    // Store explicit unsubscribe wrappers so we can detach these listeners on cancel —
-    // without cleanup, repeated spawnCollab() calls would accumulate listeners
-    // on CollabSession (EventEmitter) for the Director's lifetime.
-    // Note: EventEmitter.on() returns `this`, not an unsubscribe function,
-    // so we create explicit wrappers that call .off() with the same handler ref.
-    const doneHandler = () => this._activeCollabSessions.delete(session.sessionId);
-    const errorHandler = () => this._activeCollabSessions.delete(session.sessionId);
-    session.on('session.done', doneHandler);
-    session.on('session.error', errorHandler);
-    const unsubs: (() => void)[] = [
-      () => session.off('session.done', doneHandler),
-      () => session.off('session.error', errorHandler),
-    ];
-    this._activeCollabSessions.set(session.sessionId, { session, unsubs });
-    return session.start();
+    return this.collab.spawn(options);
   }
 
   /**
