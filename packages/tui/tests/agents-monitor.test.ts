@@ -349,4 +349,13 @@ describe('transcriptRowsForTerminal', () => {
     expect(a).toBe(b);
     expect(transcriptRowsForTerminal(undefined, 4)).toBeGreaterThanOrEqual(6);
   });
+
+  it('fullscreen lifts the 24-row cap but keeps the 6-row floor', () => {
+    // chrome for roster=3: 4 + 2 + 3 + 3 + 8 = 20 → 200 rows leaves 180.
+    expect(transcriptRowsForTerminal(200, 3, true)).toBe(180);
+    // Small terminals still clamp to the readable minimum.
+    expect(transcriptRowsForTerminal(10, 3, true)).toBe(6);
+    // Below the cap, fullscreen and inline agree.
+    expect(transcriptRowsForTerminal(40, 3, true)).toBe(transcriptRowsForTerminal(40, 3));
+  });
 });

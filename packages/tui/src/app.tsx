@@ -4841,6 +4841,17 @@ export function App({
     // If no picker is open the hook returns false immediately.
     if (tryPickerKey(input, key, isEnter)) return;
 
+    // F3 agents monitor: Esc closes the panel — it must NEVER double as the
+    // interrupt below. The monitor is fullscreen (chat history hidden), so an
+    // Esc here reads as "leave the monitor", exactly like pressing F3 again;
+    // once the panel is closed, the next Esc interrupts as usual. This must
+    // run BEFORE the busy-interrupt block, or Esc mid-run would abort the
+    // turn while the user is just trying to dismiss the panel.
+    if (key.escape && state.agentsMonitorOpen) {
+      dispatch({ type: 'toggleAgentsMonitor' });
+      return;
+    }
+
     // Esc when the agent is busy = "drop what you're doing, I want to
     // steer". Aborts the current iteration, terminates any running
     // subagents (otherwise they keep burning tokens on now-stale work),
@@ -6871,28 +6882,48 @@ export function App({
     state.processListOpen ||
     state.goalPanelOpen;
 
+  // F3 agents monitor is FULLSCREEN: the chat history leaves the screen and
+  // the live region is padded to the full terminal height, so the visible
+  // viewport is just input + statusline + monitor. Implementation per mode:
+  //   • non-mouse — <History> must STAY MOUNTED (remounting <Static> would
+  //     re-commit every entry into scrollback as duplicates); its only live
+  //     part is the streaming tail, which we suppress via streamingText=''.
+  //     The anchor <Box flexGrow> inside History absorbs the minHeight slack.
+  //   • mouse — ScrollableHistory is fully live (no <Static>), so it simply
+  //     unmounts and a flexGrow filler takes its place.
+  const agentsFullscreen = state.agentsMonitorOpen;
+
   return (
     <Box flexDirection="column">
-      <Box flexDirection="column" flexGrow={1} flexShrink={0}>
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        flexShrink={0}
+        {...(agentsFullscreen ? { minHeight: termRows } : {})}
+      >
         {mouseMode ? (
-          <ScrollableHistory
-            entries={state.entries}
-            streamingText={state.streamingText}
-            toolStream={state.toolStream}
-            scrollOffset={state.scrollOffset}
-            viewportRows={state.viewportRows}
-            totalLines={state.totalLines}
-            onMeasure={(totalLines) => dispatch({ type: 'setMeasuredLines', totalLines })}
-            setSuggestions={setSuggestions}
-            autonomyMode={autonomyLive}
-            multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
-            todos={agent.ctx.todos}
-          />
+          agentsFullscreen ? (
+            <Box flexGrow={1} />
+          ) : (
+            <ScrollableHistory
+              entries={state.entries}
+              streamingText={state.streamingText}
+              toolStream={state.toolStream}
+              scrollOffset={state.scrollOffset}
+              viewportRows={state.viewportRows}
+              totalLines={state.totalLines}
+              onMeasure={(totalLines) => dispatch({ type: 'setMeasuredLines', totalLines })}
+              setSuggestions={setSuggestions}
+              autonomyMode={autonomyLive}
+              multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
+              todos={agent.ctx.todos}
+            />
+          )
         ) : (
           <History
             entries={state.entries}
             generation={state.historyGen}
-            streamingText={state.streamingText}
+            streamingText={agentsFullscreen ? '' : state.streamingText}
             toolStream={state.toolStream}
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
@@ -7413,6 +7444,7 @@ export function App({
                 onClose={() => dispatch({ type: 'toggleAgentsMonitor' })}
                 transcripts={agentTranscripts}
                 leaderTranscript={getLeaderTranscript}
+                fullscreen
               />
             ) : state.autoPhase?.monitorOpen ? (
               <PhaseMonitor

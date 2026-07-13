@@ -48,6 +48,12 @@ export interface AgentsMonitorProps {
    * LEADER shows a clean per-agent view just like the subagents.
    */
   leaderTranscript?: (() => AgentTimelineEntry[]) | undefined;
+  /**
+   * Fullscreen mode: the App hides the chat history while this monitor is
+   * open, so the transcript pane may claim every row the chrome doesn't
+   * need (the usual 24-row cap is lifted).
+   */
+  fullscreen?: boolean | undefined;
 }
 
 const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
@@ -312,13 +318,20 @@ export const TRANSCRIPT_FETCH_LIMIT = 500;
  * Rows of transcript content for the current terminal. Constant for a
  * given terminal size and agent count, so agent switches never change
  * the panel height — only explicit resizes / fleet composition do.
+ * `fullscreen` lifts the 24-row cap: the F3 monitor owns the whole
+ * screen (chat history hidden), so the pane should fill every row the
+ * chrome doesn't need.
  */
-export function transcriptRowsForTerminal(termRows: number | undefined, rosterCount: number): number {
+export function transcriptRowsForTerminal(
+  termRows: number | undefined,
+  rosterCount: number,
+  fullscreen = false,
+): number {
   // Chrome above/below the pane: monitor header (4 rows) + roster lines +
   // detail chrome (3 rows) + pane border/header (3) + input/status margin (~8).
   const chrome = 4 + Math.max(0, rosterCount - 1) + 3 + 3 + 8;
   const available = (termRows ?? 30) - chrome;
-  return Math.max(6, Math.min(24, available));
+  return Math.max(6, fullscreen ? available : Math.min(24, available));
 }
 
 const TRANSCRIPT_GLYPHS: Record<AgentTimelineEntry['kind'], string> = {
@@ -699,6 +712,7 @@ export function AgentsMonitor({
   onClose,
   transcripts,
   leaderTranscript,
+  fullscreen = false,
 }: AgentsMonitorProps): React.ReactElement {
   const all = Object.values(entries);
   const grandCost = leaderCost + totalCost;
@@ -742,7 +756,7 @@ export function AgentsMonitor({
   // Pane height: constant for a given terminal size + roster size, so
   // ↑↓ agent switches never change the overall panel height.
   const { stdout } = useStdout();
-  const paneRows = transcriptRowsForTerminal(stdout?.rows, live.length);
+  const paneRows = transcriptRowsForTerminal(stdout?.rows, live.length, fullscreen);
 
   // Keyboard navigation. Arrow keys ONLY — the chat input stays live beneath
   // this panel, so j/k are left free to type into the message buffer rather
@@ -798,7 +812,7 @@ export function AgentsMonitor({
         <Text dimColor>·</Text>
         <Text dimColor>failed</Text>
         {totalFailed > 0 ? <Text color="red">✗{totalFailed}</Text> : null}
-        <Text dimColor>· ↑↓ nav{transcripts ? ' · PgUp/PgDn transcript' : ''} · Ctrl+G / F3 close</Text>
+        <Text dimColor>· ↑↓ nav{transcripts ? ' · PgUp/PgDn transcript' : ''} · Esc / Ctrl+G / F3 close</Text>
       </Box>
 
       {/* Mission-control pulse: pressure, hottest agent, total throughput. */}
