@@ -34,8 +34,16 @@ import {
   REGISTRY_CACHE_TTL_MS,
 } from './mailbox-constants.js';
 import type { MailboxEventEmitter } from './mailbox-events.js';
-import { normalizeMailboxMessageType, parseMailboxMessageLine } from './mailbox-message-codec.js';
+import {
+  applyAckToMessage,
+  isAckRecord,
+  normalizeMailboxMessageType,
+  parseMailboxLine,
+  parseMailboxMessageLine,
+  serializeAckRecord,
+} from './mailbox-message-codec.js';
 import type {
+  AckRecord,
   AgentHeartbeatInput,
   AgentRegistrationInput,
   AutoCompactOptions,
@@ -407,62 +415,98 @@ export class GlobalMailbox implements Mailbox {
   }
 
   async ackMany(input: MailboxAckBatchInput): Promise<MailboxMessage[]> {
-    // One lock acquisition + one file rewrite for the whole batch. The
-    // previous per-message ack() did a full read-modify-rewrite for every
-    // single ack — N fresh messages meant N full-file rewrites in a row.
+    // Append-only ack: instead of reading all messages, mutating them,
+    // and rewriting the entire file (O(N) read + O(N) write), we append
+    // small ack records (O(K) append where K = number of acks). At read
+    // time, ack records are folded into their target messages.
+    //
+    // This is the #1 performance fix: every agent iteration calls ackMany
+    // on the mailbox-loop hot path. Previously it was O(N) per iteration.
     if (input.acks.length === 0) return [];
 
+    const now = new Date().toISOString();
+    const ackRecords: AckRecord[] = [];
     const updated: MailboxMessage[] = [];
+    const targetIds = new Set<string>();
     const byId = new Map<string, MailboxAckInput>();
+
     for (const a of input.acks) {
-      // Last-write-wins within the batch for the same messageId — matches
-      // the prior sequential semantics where later acks overrode earlier.
       byId.set(a.messageId, a);
+      targetIds.add(a.messageId);
     }
 
+    // Build ack records and find target messages.
+    // We need to find messages to return them; use cached view for speed.
+    const all = await this._readMessagesCached();
+    for (const msg of all) {
+      const a = byId.get(msg.id);
+      if (!a) continue;
+
+      // Determine what this ack actually changes to avoid no-op appends.
+      const needsRead = a.read !== false && !(a.readerId in msg.readBy);
+      const needsComplete = a.completed && !msg.completed;
+      const needsOutcome = a.outcome !== undefined && msg.outcome !== a.outcome;
+
+      if (!needsRead && !needsComplete && !needsOutcome) {
+        // No-op ack — return the pre-ack state (defensive copy matches
+        // the original semantics: re-acking an already-read message
+        // returns the message as it was).
+        updated.push({ ...msg, readBy: { ...msg.readBy } });
+        continue;
+      }
+
+      // Apply changes to a defensive copy for the return value.
+      const copy = { ...msg, readBy: { ...msg.readBy } };
+      if (needsRead) copy.readBy[a.readerId] = now;
+      if (needsComplete) {
+        copy.completed = true;
+        copy.completedBy = a.readerId;
+        copy.completedAt = now;
+      }
+      if (needsOutcome) copy.outcome = a.outcome;
+      updated.push(copy);
+
+      ackRecords.push({
+        __ack: true,
+        messageId: msg.id,
+        readerId: a.readerId,
+        timestamp: now,
+        read: a.read !== false,
+        completed: a.completed,
+        completedBy: a.completed ? a.readerId : undefined,
+        outcome: a.outcome,
+      });
+    }
+
+    if (ackRecords.length === 0) {
+      // All requested acks were no-ops (already read/completed).
+      // Still return the messages that were found (updated may be empty if
+      // none matched, which preserves prior silent-skip semantics).
+      if (updated.length > 0) {
+        for (const message of updated) {
+          this.publishHqMailboxEvent({
+            mailboxId: this.hqMailboxId,
+            action: message.completed ? 'message.completed' : 'message.read',
+            message,
+          });
+        }
+      }
+      return updated;
+    }
+
+    // Append ack records to the file under the lock.
+    const serialized = ackRecords.map((a) => serializeAckRecord(a)).join('');
     await withFileLock(this.messagePath, async () => {
-      // Read fresh under the lock — the cache may be stale relative to
-      // other processes that wrote since our last read.
-      const all = await this._readMessagesFresh();
-      const now = new Date().toISOString();
-      let changed = false;
-
-      for (const msg of all) {
-        const a = byId.get(msg.id);
-        if (!a) continue;
-        // Preserve prior semantics: return the message as long as it was
-        // found, even if the ack was a no-op (e.g. already read).
-        updated.push(msg);
-        if (a.read !== false && !(a.readerId in msg.readBy)) {
-          msg.readBy[a.readerId] = now;
-          changed = true;
-        }
-        if (a.completed && !msg.completed) {
-          msg.completed = true;
-          msg.completedBy = a.readerId;
-          msg.completedAt = now;
-          changed = true;
-        }
-        if (a.outcome !== undefined && msg.outcome !== a.outcome) {
-          msg.outcome = a.outcome;
-          changed = true;
-        }
-      }
-
-      // Only rewrite the file if at least one ack actually mutated state —
-      // a re-ack of an already-read message is now a no-op on disk, where
-      // previously it was a full rewrite.
-      if (changed) {
-        const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
-        await fsp.writeFile(this.messagePath, serialized, 'utf8');
-      }
-      // Promote the cache INSIDE the lock with the post-write (or
-      // post-read when unchanged) stat so the mtime/size trackers are set
-      // synchronously with the content — no race window where a concurrent
-      // reader sees fresh content but stale trackers and misclassifies a
-      // rewrite as a "file only grew" append.
+      await fsp.appendFile(this.messagePath, serialized, 'utf8');
+      // Capture the post-append stat inside the lock.
       const { mtimeMs, size } = await this._statMessageFile();
-      this._setMessageCache(all, mtimeMs, size);
+      // Apply ack effects directly to the in-memory cache.
+      for (const ack of ackRecords) {
+        this._applyAckToCache(ack);
+      }
+      // Advance cache trackers so the next read sees current size.
+      this._messageCacheMtime = mtimeMs;
+      this._messageCacheSize = size;
     });
 
     for (const message of updated) {
@@ -471,7 +515,6 @@ export class GlobalMailbox implements Mailbox {
         action: message.completed ? 'message.completed' : 'message.read',
         message,
       });
-      // SSE push for external HTTP bridge clients.
       this.eventEmitter?.emit({
         type: 'message.acked' as const,
         messageId: message.id,
@@ -1195,13 +1238,23 @@ export class GlobalMailbox implements Mailbox {
     }
   }
 
-  /** Parse a JSONL string into MailboxMessage[], including migration. */
+  /** Parse a JSONL string into MailboxMessage[], applying ack records. */
   private _parseLines(raw: string): MailboxMessage[] {
     const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
     const messages: MailboxMessage[] = [];
+    const acks: AckRecord[] = [];
     for (const line of lines) {
-      const message = this._parseLine(line);
-      if (message !== null) messages.push(message);
+      const parsed = parseMailboxLine(line);
+      if (isAckRecord(parsed)) {
+        acks.push(parsed);
+      } else if (parsed !== null) {
+        messages.push(parsed);
+      }
+    }
+    // Apply ack records to messages (event-sourcing fold).
+    for (const ack of acks) {
+      const target = messages.find((m) => m.id === ack.messageId);
+      if (target) applyAckToMessage(target, ack);
     }
     return messages;
   }
@@ -1299,14 +1352,14 @@ export class GlobalMailbox implements Mailbox {
         return this._messageCache;
       }
 
-      // Fall through to full re-read: the cache is stale but we cannot
-      // safely distinguish "file grew by appends" from "file was rewritten
-      // larger" (ackMany/purgeStale/clearAll all rewrite the entire file
-      // and can increase its size by adding readBy/completedAt fields).
-      // A cross-process rewrite makes the old incremental-read assumption
-      // unsafe — reading from the old byte offset would consume bytes
-      // from the middle of a rewritten JSON record, silently dropping
-      // messages. Always re-read when the cache is stale.
+      // Full re-read when the cache is stale. With append-only acks, the
+      // file grows monotonously (no rewrites except compaction/purge/clear).
+      // A simple incremental tail-read optimization could apply here for
+      // cross-process scenarios, but the full re-read is correct and in the
+      // common case (same-process) the cache stays current via `_pushToCache`
+      // and `_applyAckToCache` which update the cache synchronously with
+      // every send/ack. The full re-read also correctly handles ack records
+      // via _parseLines which folds them into messages.
 
       // Full re-read: cache empty, file was rewritten (ack/purge), or
       // this is the first read.
@@ -1354,6 +1407,22 @@ export class GlobalMailbox implements Mailbox {
     this._messageCacheMtime = mtime;
     this._messageCacheSize = size;
     this._rebuildRecipientIndex();
+  }
+
+  /**
+   * Fold a single ack record into the in-memory cache, mutating the target
+   * message in place. Called from `ackMany` after appending the record to
+   * disk so the cache reflects the ack without a full re-read + re-parse.
+   *
+   * An ack only touches `readBy`/`completed*`/`outcome` — none of which
+   * affect the recipient/sender indexes — so no index rebuild is needed.
+   * No-op when the cache is empty or the target message isn't cached.
+   */
+  private _applyAckToCache(ack: AckRecord): void {
+    const cache = this._messageCache;
+    if (cache === null) return;
+    const target = cache.find((m) => m.id === ack.messageId);
+    if (target !== undefined) applyAckToMessage(target, ack);
   }
 
   /**

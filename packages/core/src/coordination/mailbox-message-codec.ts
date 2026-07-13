@@ -1,4 +1,5 @@
 import type {
+  AckRecord,
   MailboxMessage,
   MailboxMessageType,
   MailboxTaskContext,
@@ -162,4 +163,58 @@ export function parseMailboxMessage(value: unknown): MailboxMessage {
 /** Parse one JSONL line and validate the decoded mailbox message. */
 export function parseMailboxMessageLine(line: string): MailboxMessage {
   return parseMailboxMessage(JSON.parse(line) as unknown);
+}
+
+// ── Ack record helpers ─────────────────────────────────────────────────
+
+/**
+ * Check if a parsed JSONL value is an append-only ack record (not a message).
+ * Ack records carry a `__ack: true` discriminator.
+ */
+export function isAckRecord(value: unknown): value is AckRecord {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>)['__ack'] === true
+  );
+}
+
+/**
+ * Parse one JSONL line, returning either a MailboxMessage or an AckRecord.
+ * Returns null when the line is neither (corrupt/malformed).
+ */
+export function parseMailboxLine(line: string): MailboxMessage | AckRecord | null {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    if (isAckRecord(parsed)) return parsed;
+    return parseMailboxMessage(parsed);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Apply an ack record's effects to a MailboxMessage in-place.
+ * This mutates the message object (readBy, completed, completedBy, completedAt, outcome).
+ */
+export function applyAckToMessage(msg: MailboxMessage, ack: AckRecord): void {
+  if (ack.read && !(ack.readerId in msg.readBy)) {
+    msg.readBy[ack.readerId] = ack.timestamp;
+  }
+  if (ack.completed && !msg.completed) {
+    msg.completed = true;
+    msg.completedBy = ack.completedBy ?? ack.readerId;
+    msg.completedAt = ack.timestamp;
+  }
+  if (ack.outcome !== undefined && msg.outcome !== ack.outcome) {
+    msg.outcome = ack.outcome;
+  }
+}
+
+/**
+ * Serialize an ack record to a JSONL line.
+ */
+export function serializeAckRecord(ack: AckRecord): string {
+  return JSON.stringify(ack) + '\n';
 }

@@ -252,6 +252,36 @@ export interface MailboxSendInput {
   ttlMs?: number | undefined;
 }
 
+/**
+ * Append-only ack record stored in the JSONL alongside messages.
+ *
+ * Instead of rewriting the entire mailbox file to mark a message as read or
+ * completed, we append a small ack record. At read time, ack records are
+ * folded into their target messages. The `__ack` discriminator distinguishes
+ * ack records from regular messages.
+ *
+ * Compaction (autoCompact / purgeStale) folds these into the messages and
+ * removes the ack lines from the file, keeping the file bounded.
+ */
+export interface AckRecord {
+  /** Discriminator — always `true` to distinguish from MailboxMessage. */
+  __ack: true;
+  /** The message this ack applies to. */
+  messageId: string;
+  /** Agent acknowledging the message. */
+  readerId: string;
+  /** ISO8601 timestamp of the ack. */
+  timestamp: string;
+  /** Was the message read? */
+  read: boolean;
+  /** Was the message marked completed? */
+  completed?: boolean | undefined;
+  /** Who completed it (when completed === true). */
+  completedBy?: string | undefined;
+  /** Optional outcome summary. */
+  outcome?: string | undefined;
+}
+
 export interface MailboxAckInput {
   /** Message id to acknowledge. */
   messageId: string;
