@@ -24,17 +24,15 @@ import { InMemoryAgentBridge } from './agent-bridge.js';
 import type { BrainArbiter } from './brain.js';
 import { formatSubagentStructuredReport } from './subagent-result-tool.js';
 import { resolveMaxSpawnDepth } from './spawn-budget.js';
-import {
-  type CollabDebugReport,
-  CollabSession,
-  type CollabSessionOptions,
-} from './collab-debug.js';
+import type { CollabDebugReport, CollabSessionOptions } from './collab-debug.js';
 import {
   FleetContextOverflowError,
   FleetCostCapError,
   FleetSpawnBudgetError,
   FleetTokenCapError,
 } from './director/director-errors.js';
+import { DirectorCollabController } from './director/director-collab.js';
+import { DirectorBtwNotes } from './director/director-btw-notes.js';
 import {
   composeDirectorPrompt,
   composeSubagentPrompt,
@@ -603,16 +601,12 @@ export class Director implements ICoordinator {
    * coordinator from keeping workers alive for tasks that will never arrive.
    */
   private workCompleteFlag = false;
-  /** Pending /btw notes stashed by the leader agent (see setLeaderBtwNote). */
-  private _leaderBtwNotes: string[] = [];
-  /** Active collab sessions tracked by sessionId (see spawnCollab).
-   *  The tuple holds the session and its Director-registered listener unsubs.
-   *  Calling the unsubs on cancel/premature-cleanup prevents listener accumulation
-   *  on CollabSession (EventEmitter) across many spawnCollab() calls. */
-  private readonly _activeCollabSessions = new Map<
-    string,
-    { session: import('./collab-debug.js').CollabSession; unsubs: (() => void)[] }
-  >();
+  /** Pending /btw notes stashed by the leader agent (see setLeaderBtwNote).
+   *  Owned by DirectorBtwNotes (R4); the public btw methods delegate to it. */
+  private readonly btwNotes = new DirectorBtwNotes();
+  /** Owns active collab-debug sessions (spawn/cancel/alert/list). Extracted
+   *  from Director in R4; the public collab methods below delegate to it. */
+  private readonly collab: DirectorCollabController;
   /** Prevents large `ask_subagent` answers from bloating the leader's context window. */
   readonly largeAnswerStore: LargeAnswerStore;
 
@@ -718,127 +712,143 @@ export class Director implements ICoordinator {
     // repeated Director construction against a cached coordinator
     // (tests, hot reloads) leaks listeners and eventually trips
     // EventEmitter's max-listener warning.
-    this.taskCompletedListener = (payload: { task: TaskSpec; result: TaskResult }) => {
-      const r = payload.result;
-      const internalTask = this.internalTaskIds.delete(r.taskId);
-      if (!internalTask) {
-        this.completed.set(r.taskId, r);
-        // Trim oldest entries when the cap is exceeded — keep most recent results
-        // so rollUp() and completedResults() still have data to return.
-        if (this.completed.size > Director.MAX_COMPLETED) {
-          const toDelete = this.completed.size - Director.MAX_COMPLETED;
-          const keys = [...this.completed.keys()].slice(0, toDelete);
-          for (const k of keys) this.completed.delete(k);
-        }
-      }
-      const waiter = this.taskWaiters.get(r.taskId);
-      if (waiter) {
-        waiter.resolve(r);
-        this.taskWaiters.delete(r.taskId);
-      }
-      // Sweep first-completion waiters: every unresolved any-await whose id
-      // set contains this task consumes the result in-band (each caller
-      // wants "the first of MY set" — overlapping sets all wake). Later
-      // completions of the same batch (the "losers") match no waiter and
-      // fall through to the report-back below — that is the whole point of
-      // awaitTasksAny: early finishers return in-band, slow siblings arrive
-      // as mailbox results instead of going silent.
-      let anyConsumed = false;
-      for (const aw of [...this.anyWaiters]) {
-        if (!aw.ids.has(r.taskId)) continue;
-        if (aw.timer) clearTimeout(aw.timer);
-        this.anyWaiters.delete(aw);
-        aw.resolve(r);
-        anyConsumed = true;
-      }
-      const consumedInBand = !!waiter || anyConsumed;
-      if (internalTask) return;
-      // Mirror into the on-disk checkpoint + session event stream so a
-      // crashed director leaves a complete picture of which tasks landed.
-      const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
-      // Fire-and-forget report-back: this result is not being returned
-      // in-band (no batch waiter, not the winning result of an any-await),
-      // so it would otherwise sit in the cache until the leader polls.
-      // Hand it to the notifier (host wires this to the project mailbox,
-      // which injects it into the leader's conversation before its next
-      // step). In-band-consumed tasks skip this — their result returns
-      // directly from await_tasks.
-      if (!consumedInBand && this.taskResultNotifier) {
-        const resultText =
-          typeof r.result === 'string'
-            ? r.result
-            : r.result !== undefined
-              ? safeStringify(r.result)
-              : undefined;
-        try {
-          void Promise.resolve(
-            this.taskResultNotifier({
-              taskId: r.taskId,
-              title,
-              status: r.status,
-              subagentId: r.subagentId,
-              subagentName: this.manifestEntries.get(r.subagentId)?.name,
-              resultText,
-              errorText: r.error ? `${r.error.kind}: ${r.error.message}` : undefined,
-              partialText: r.partial?.text,
-              report: r.report,
-              iterations: r.iterations,
-              toolCalls: r.toolCalls,
-              durationMs: r.durationMs,
-            }),
-          ).catch(() => {});
-        } catch {
-          // Notifier failures must never disturb task-completion bookkeeping.
-        }
-      }
-      const failed = r.status !== 'success';
-      // Disk-side state-checkpoint and session JSONL both store `error`
-      // as a string for historical reasons. The structured SubagentError
-      // envelope carries `kind`, `message`, `retryable`, etc. — flatten
-      // to a `kind: message` string here so old readers stay valid and
-      // grep-friendly. The full envelope is still available live via
-      // the EventBus / TaskResult to in-process consumers.
-      const errorString = r.error ? `${r.error.kind}: ${r.error.message}` : undefined;
-      this.stateCheckpoint?.recordTaskStatus(r.taskId, {
-        status: failed ? (r.status as 'failed' | 'timeout' | 'stopped') : 'completed',
-        completedAt: new Date().toISOString(),
-        iterations: r.iterations,
-        toolCalls: r.toolCalls,
-        durationMs: r.durationMs,
-        error: errorString,
-      });
-      this.stateCheckpoint?.setUsage(this.usage.snapshot());
-      void this.appendSessionEvent(
-        failed
-          ? {
-              type: 'task_failed',
-              ts: new Date().toISOString(),
-              taskId: r.taskId,
-              title,
-              error: errorString ?? r.status,
-            }
-          : {
-              type: 'task_completed',
-              ts: new Date().toISOString(),
-              taskId: r.taskId,
-              title,
-            },
-      );
-      // Flush immediately on task completion — the result should be
-      // visible in the manifest without waiting for the debounce window.
-      // Use flushManifest() so any pending debounce timer is also cleared.
-      if (this.fleetManager) {
-        void this.fleetManager.flushManifest();
-      } else {
-        this.scheduleManifest();
-      }
-      this.armSubagentIdleRetirement(
-        r.subagentId,
-        this.retireSubagentOnTaskComplete ? 0 : this.subagentIdleTimeoutMs,
-      );
-    };
+    this.taskCompletedListener = (payload) => this.handleTaskCompleted(payload);
     this.coordinator.on('task.completed', this.taskCompletedListener);
 
+    this.wireBudgetPolicy();
+    // Large-answer store: prevents big `ask_subagent` responses from
+    // bloating the leader's context window. Responses above 2K chars
+    // are stored out-of-band; only a summary goes into ctx.messages.
+    this.largeAnswerStore = new LargeAnswerStore(2000);
+    this.collab = new DirectorCollabController({
+      director: this,
+      fleet: this.fleet,
+      coordinator: this.coordinator,
+      logger: this.logger,
+    });
+  }
+
+  private handleTaskCompleted(payload: { task: TaskSpec; result: TaskResult }): void {
+    const r = payload.result;
+    const internalTask = this.internalTaskIds.delete(r.taskId);
+    if (!internalTask) {
+      this.completed.set(r.taskId, r);
+      // Trim oldest entries when the cap is exceeded — keep most recent results
+      // so rollUp() and completedResults() still have data to return.
+      if (this.completed.size > Director.MAX_COMPLETED) {
+        const toDelete = this.completed.size - Director.MAX_COMPLETED;
+        const keys = [...this.completed.keys()].slice(0, toDelete);
+        for (const k of keys) this.completed.delete(k);
+      }
+    }
+    const waiter = this.taskWaiters.get(r.taskId);
+    if (waiter) {
+      waiter.resolve(r);
+      this.taskWaiters.delete(r.taskId);
+    }
+    // Sweep first-completion waiters: every unresolved any-await whose id
+    // set contains this task consumes the result in-band (each caller
+    // wants "the first of MY set" — overlapping sets all wake). Later
+    // completions of the same batch (the "losers") match no waiter and
+    // fall through to the report-back below — that is the whole point of
+    // awaitTasksAny: early finishers return in-band, slow siblings arrive
+    // as mailbox results instead of going silent.
+    let anyConsumed = false;
+    for (const aw of [...this.anyWaiters]) {
+      if (!aw.ids.has(r.taskId)) continue;
+      if (aw.timer) clearTimeout(aw.timer);
+      this.anyWaiters.delete(aw);
+      aw.resolve(r);
+      anyConsumed = true;
+    }
+    const consumedInBand = !!waiter || anyConsumed;
+    if (internalTask) return;
+    // Mirror into the on-disk checkpoint + session event stream so a
+    // crashed director leaves a complete picture of which tasks landed.
+    const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
+    // Fire-and-forget report-back: this result is not being returned
+    // in-band (no batch waiter, not the winning result of an any-await),
+    // so it would otherwise sit in the cache until the leader polls.
+    // Hand it to the notifier (host wires this to the project mailbox,
+    // which injects it into the leader's conversation before its next
+    // step). In-band-consumed tasks skip this — their result returns
+    // directly from await_tasks.
+    if (!consumedInBand && this.taskResultNotifier) {
+      const resultText =
+        typeof r.result === 'string'
+          ? r.result
+          : r.result !== undefined
+            ? safeStringify(r.result)
+            : undefined;
+      try {
+        void Promise.resolve(
+          this.taskResultNotifier({
+            taskId: r.taskId,
+            title,
+            status: r.status,
+            subagentId: r.subagentId,
+            subagentName: this.manifestEntries.get(r.subagentId)?.name,
+            resultText,
+            errorText: r.error ? `${r.error.kind}: ${r.error.message}` : undefined,
+            partialText: r.partial?.text,
+            report: r.report,
+            iterations: r.iterations,
+            toolCalls: r.toolCalls,
+            durationMs: r.durationMs,
+          }),
+        ).catch(() => {});
+      } catch {
+        // Notifier failures must never disturb task-completion bookkeeping.
+      }
+    }
+    const failed = r.status !== 'success';
+    // Disk-side state-checkpoint and session JSONL both store `error`
+    // as a string for historical reasons. The structured SubagentError
+    // envelope carries `kind`, `message`, `retryable`, etc. — flatten
+    // to a `kind: message` string here so old readers stay valid and
+    // grep-friendly. The full envelope is still available live via
+    // the EventBus / TaskResult to in-process consumers.
+    const errorString = r.error ? `${r.error.kind}: ${r.error.message}` : undefined;
+    this.stateCheckpoint?.recordTaskStatus(r.taskId, {
+      status: failed ? (r.status as 'failed' | 'timeout' | 'stopped') : 'completed',
+      completedAt: new Date().toISOString(),
+      iterations: r.iterations,
+      toolCalls: r.toolCalls,
+      durationMs: r.durationMs,
+      error: errorString,
+    });
+    this.stateCheckpoint?.setUsage(this.usage.snapshot());
+    void this.appendSessionEvent(
+      failed
+        ? {
+            type: 'task_failed',
+            ts: new Date().toISOString(),
+            taskId: r.taskId,
+            title,
+            error: errorString ?? r.status,
+          }
+        : {
+            type: 'task_completed',
+            ts: new Date().toISOString(),
+            taskId: r.taskId,
+            title,
+          },
+    );
+    // Flush immediately on task completion — the result should be
+    // visible in the manifest without waiting for the debounce window.
+    // Use flushManifest() so any pending debounce timer is also cleared.
+    if (this.fleetManager) {
+      void this.fleetManager.flushManifest();
+    } else {
+      this.scheduleManifest();
+    }
+    this.armSubagentIdleRetirement(
+      r.subagentId,
+      this.retireSubagentOnTaskComplete ? 0 : this.subagentIdleTimeoutMs,
+    );
+  }
+
+  private wireBudgetPolicy(): void {
     // Wire budget.threshold_reached events from the FleetBus into the
     // coordinator's task completion path. When a subagent hits a soft
     // limit, the runner emits this event; we intercept it here, resolve
@@ -1016,10 +1026,6 @@ export class Director implements ICoordinator {
       }
       grantExtension();
     });
-    // Large-answer store: prevents big `ask_subagent` responses from
-    // bloating the leader's context window. Responses above 2K chars
-    // are stored out-of-band; only a summary goes into ctx.messages.
-    this.largeAnswerStore = new LargeAnswerStore(2000);
   }
 
   /**
@@ -1087,10 +1093,7 @@ export class Director implements ICoordinator {
    * programmatically without going through the slash-command path.
    */
   setLeaderBtwNote(note: string): number {
-    const trimmed = note.trim();
-    if (!trimmed) return this._leaderBtwNotes.length;
-    this._leaderBtwNotes = [...this._leaderBtwNotes, trimmed].slice(-20);
-    return this._leaderBtwNotes.length;
+    return this.btwNotes.add(note);
   }
 
   /**
@@ -1102,9 +1105,7 @@ export class Director implements ICoordinator {
    * to cancel the collab session or let it continue.
    */
   getLeaderBtwNotes(): string[] {
-    const notes = this._leaderBtwNotes;
-    this._leaderBtwNotes = [];
-    return notes;
+    return this.btwNotes.drain();
   }
 
   /**
@@ -1112,7 +1113,7 @@ export class Director implements ICoordinator {
    * Useful for UI to show "N pending notes" without clearing them.
    */
   peekLeaderBtwNotes(): string[] {
-    return [...this._leaderBtwNotes];
+    return this.btwNotes.peek();
   }
 
   /**
@@ -1134,27 +1135,7 @@ export class Director implements ICoordinator {
    * The CollabDebugReport will reflect 'cancelled' disposition when awaited.
    */
   cancelCollabSession(sessionId: string, reason = 'Director cancelled'): void {
-    const entry = this._activeCollabSessions.get(sessionId);
-    if (!entry || entry.session.isCancelled()) return;
-    // Unsubscribe Director listeners first so they don't fire after cancel.
-    for (const unsub of entry.unsubs) unsub();
-    entry.session.cancel(reason);
-    // Stop each collab agent via the coordinator so their run() aborts.
-    // This is the critical difference from a natural finish: we call
-    // abortController.abort() on each subagent's run signal, which
-    // propagates into agent.run() → tool executor and kills the run
-    // before the budget or natural iteration limit ends it.
-    // The abort is cooperative — the agent finishes its current iteration
-    // then sees the signal and exits with status 'aborted', so no context
-    // is silently lost.
-    for (const [_role, subagentId] of entry.session.getSubagentIds()) {
-      this.coordinator.stop(subagentId).catch((err) => {
-        this.logger?.debug(`stop subagent ${subagentId} failed (may have already completed)`, {
-          subagentId,
-          err: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
+    this.collab.cancel(sessionId, reason);
   }
 
   /**
@@ -1164,9 +1145,7 @@ export class Director implements ICoordinator {
    * Returns an unsubscribe function.
    */
   onCollabAlert(handler: (alert: import('./collab-debug.js').DirectorAlert) => void): () => void {
-    return this.fleet.filter('collab.warning', (e) => {
-      handler(e.payload as import('./collab-debug.js').DirectorAlert);
-    });
+    return this.collab.onAlert(handler);
   }
 
   /**
@@ -1175,7 +1154,7 @@ export class Director implements ICoordinator {
    * the host to know what can be cancelled.
    */
   activeCollabSessions(): string[] {
-    return Array.from(this._activeCollabSessions.keys());
+    return this.collab.activeSessionIds();
   }
 
   /** Best-effort session-writer append. Swallows failures — the director
@@ -2231,33 +2210,7 @@ export class Director implements ICoordinator {
    * three agents complete or the session times out.
    */
   async spawnCollab(options: CollabSessionOptions): Promise<CollabDebugReport> {
-    const session = new CollabSession(this, this.fleet, {
-      ...options,
-      onBudgetWarning: (alert) => {
-        // Delegate to the host-provided handler if set; 'ignore' by default.
-        // Collab agents are excluded from the Director's
-        // budget.threshold_reached handler, so the session's own wireFleetBus()
-        // budget handler (progress-based timeout logic, session.cancel()) runs
-        // instead of the Director's auto-extend/deny logic.
-        return options.onBudgetWarning?.(alert) ?? 'ignore';
-      },
-    });
-    // Track so cancelCollabSession(sessionId) works and Director knows what's active.
-    // Store explicit unsubscribe wrappers so we can detach these listeners on cancel —
-    // without cleanup, repeated spawnCollab() calls would accumulate listeners
-    // on CollabSession (EventEmitter) for the Director's lifetime.
-    // Note: EventEmitter.on() returns `this`, not an unsubscribe function,
-    // so we create explicit wrappers that call .off() with the same handler ref.
-    const doneHandler = () => this._activeCollabSessions.delete(session.sessionId);
-    const errorHandler = () => this._activeCollabSessions.delete(session.sessionId);
-    session.on('session.done', doneHandler);
-    session.on('session.error', errorHandler);
-    const unsubs: (() => void)[] = [
-      () => session.off('session.done', doneHandler),
-      () => session.off('session.error', errorHandler),
-    ];
-    this._activeCollabSessions.set(session.sessionId, { session, unsubs });
-    return session.start();
+    return this.collab.spawn(options);
   }
 
   /**
