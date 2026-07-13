@@ -1621,8 +1621,8 @@ export function OfficeMapCanvas() {
         proOptions={{ hideAttribution: true }}
       >
         <Panel position="top-right" className="flex items-center gap-2">
-          <button
-            type="button"
+          <button type="button"
+            
             onClick={onArrange}
             title={t('activity:office.arrangeTitle')}
             className="flex items-center gap-1.5 rounded-md border border-border/70 bg-card/90 px-2.5 py-1.5 text-xs text-foreground shadow-sm transition-colors hover:bg-accent"
@@ -1630,8 +1630,8 @@ export function OfficeMapCanvas() {
             <LayoutGrid className="h-3.5 w-3.5" />
             {t('activity:office.arrange')}
           </button>
-          <button
-            type="button"
+          <button type="button"
+            
             onClick={() => setShowFeed(!showFeed)}
             title={t('activity:office.feedTitle')}
             className={cn(
@@ -1644,8 +1644,8 @@ export function OfficeMapCanvas() {
             <ScrollText className="h-3.5 w-3.5" />
             {t('activity:office.feed')}
           </button>
-          <button
-            type="button"
+          <button type="button"
+            
             onClick={() => setBroadcastOpen((v) => !v)}
             title={t('activity:office.broadcastTitle')}
             className={cn(
@@ -1714,8 +1714,8 @@ export function OfficeMapCanvas() {
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-warning">
               <Send className="h-3.5 w-3.5" /> {t('activity:office.broadcastToAll')}
             </div>
-            <button
-              type="button"
+            <button type="button"
+              
               onClick={() => setBroadcastOpen(false)}
               className="text-base leading-none text-muted-foreground hover:text-foreground"
             >
@@ -1737,8 +1737,8 @@ export function OfficeMapCanvas() {
           />
           <div className="mt-1.5 flex items-center justify-between">
             <span className="text-[9px] text-muted-foreground">{t('activity:office.broadcastSendHint')}</span>
-            <button
-              type="button"
+            <button type="button"
+              
               onClick={() => void sendBroadcast()}
               disabled={broadcasting || !broadcastDraft.trim()}
               className="rounded-md border border-warning/35 bg-warning/12 px-2.5 py-1 text-[11px] text-warning transition-colors hover:bg-warning/18 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1771,8 +1771,8 @@ export function OfficeMapCanvas() {
             </div>
             <div className="flex items-center gap-1.5">
               {selectedNode.data.sessionId && (
-                <button
-                  type="button"
+                <button type="button"
+                  
                   title={t('activity:office.openFullView')}
                   onClick={() =>
                     setWatch({
@@ -1785,7 +1785,7 @@ export function OfficeMapCanvas() {
                   <Maximize2 className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button
+              <button type="button"
                 onClick={onPaneClick}
                 className="text-muted-foreground hover:text-foreground text-lg leading-none"
               >
@@ -1923,7 +1923,7 @@ export function OfficeMapCanvas() {
                 </div>
               </div>
             </div>
-            <button
+            <button 
               type="button"
               onClick={() => setWatch(null)}
               title={t('activity:office.closeEsc')}

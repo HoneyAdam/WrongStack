@@ -149,7 +149,7 @@ export function RefinePanel({
             </span>
           )}
         </div>
-        <button
+        <button type="button"
           onClick={() => handleDecision('original')}
           className="text-muted-foreground hover:text-foreground transition-colors"
           title={t('activity:refine.cancelTitle')}

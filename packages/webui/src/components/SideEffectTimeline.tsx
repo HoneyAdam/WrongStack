@@ -160,7 +160,7 @@ export function SideEffectTimeline() {
           {t('activity:sideEffects.heading')} ({filtered.length}{riskFilter !== 'all' ? `/${sideEffects.length}` : ''})
         </h3>
         <div className="flex items-center gap-1">
-          <button
+          <button type="button"
             onClick={() => exportCSV(filtered)}
             disabled={filtered.length === 0}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
@@ -169,7 +169,7 @@ export function SideEffectTimeline() {
             <Download className="h-3 w-3" />
             CSV
           </button>
-          <button
+          <button type="button"
             onClick={refresh}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
           >
@@ -182,7 +182,7 @@ export function SideEffectTimeline() {
       {/* Filter bar */}
       <div className="flex items-center gap-1 border-b border-border/60 bg-muted/20 px-2 py-1">
         {RISK_FILTERS.map((risk) => (
-          <button
+          <button type="button"
             key={risk}
             onClick={() => setRiskFilter(risk)}
             className={cn(

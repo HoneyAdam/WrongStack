@@ -173,7 +173,7 @@ export function DebugDashboard() {
                 <option value={10000}>10s</option>
               </select>
             </label>
-            <button
+            <button type="button"
               onClick={handleRefresh}
               disabled={isLoading}
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/15 hover:bg-primary/90 disabled:opacity-50"

@@ -112,7 +112,7 @@ function ServerCard({
   return (
     <div className="rounded-md border border-border/70 bg-card/70 p-3 transition-colors hover:bg-card">
       <div className="flex items-center justify-between">
-        <button
+        <button type="button"
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
           onClick={() => setExpanded(!expanded)}
         >

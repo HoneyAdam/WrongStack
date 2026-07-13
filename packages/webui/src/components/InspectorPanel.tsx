@@ -104,8 +104,8 @@ export function InspectorPanel() {
   return (
     <div className="shrink-0 border-t bg-card flex flex-col">
       {/* ── Toggle handle — always visible, sits at the bottom edge ── */}
-      <button
-        type="button"
+      <button type="button"
+        
         onClick={toggleInspector}
         className={cn(
           'group w-full flex items-center justify-between gap-2 px-3 h-7 text-[11px]',
@@ -146,7 +146,7 @@ export function InspectorPanel() {
           {sideEffectCount > 0 && (
             <>
               <span className="opacity-40">·</span>
-              <button
+              <button type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setInspectorOpen(true);
@@ -207,7 +207,7 @@ export function InspectorPanel() {
               panelId="inspector-panel-sideEffects"
             />
             <div className="flex-1" />
-            <button
+            <button 
               type="button"
               onClick={() => setInspectorOpen(false)}
               className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
@@ -279,7 +279,7 @@ function TabButton({
   panelId: string;
 }) {
   return (
-    <button
+    <button 
       type="button"
       onClick={onClick}
       role="tab"
@@ -433,7 +433,7 @@ function AgentsTabContent({
       <div className="border-t px-2 py-1.5 shrink-0">
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
           {fleetList.map((agent, i) => (
-            <button
+            <button 
               key={agent.id}
               type="button"
               onClick={() => onSelectAgent(agent.id)}

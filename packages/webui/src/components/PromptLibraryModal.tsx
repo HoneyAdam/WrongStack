@@ -278,7 +278,7 @@ export function PromptLibraryModal() {
               placeholder={t('activity:promptLib.searchPlaceholder')}
               className="w-full rounded border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
             />
-            <button
+            <button type="button"
               onClick={() => {
                 setCreating(true);
                 setSelected(null);
@@ -290,7 +290,7 @@ export function PromptLibraryModal() {
               {t('activity:promptLib.newPrompt')}
             </button>
             <div className="mt-2 flex flex-wrap gap-1">
-              <button
+              <button type="button"
                 onClick={() => {
                   setActiveCat(null);
                   setFavoritesOnly(false);
@@ -300,7 +300,7 @@ export function PromptLibraryModal() {
               >
                 {t('activity:promptLib.all')}
               </button>
-              <button
+              <button type="button"
                 onClick={() => {
                   setRecentOnly((v) => !v);
                   setFavoritesOnly(false);
@@ -310,7 +310,7 @@ export function PromptLibraryModal() {
               >
                 {t('activity:promptLib.recent')}
               </button>
-              <button
+              <button type="button"
                 onClick={() => {
                   setFavoritesOnly((v) => !v);
                   setRecentOnly(false);
@@ -321,7 +321,7 @@ export function PromptLibraryModal() {
                 {t('activity:promptLib.favorites')}
               </button>
               {categories.map((c) => (
-                <button
+                <button type="button"
                   key={c.id}
                   onClick={() => {
                     setActiveCat(c.id);
@@ -337,7 +337,7 @@ export function PromptLibraryModal() {
           </div>
           <div className="min-h-0 min-w-0 flex-1 overflow-auto">
             {filtered.map((p) => (
-              <button
+              <button type="button"
                 key={p.slug}
                 onClick={() => setSelected(p)}
                 className={`flex w-full flex-col items-start gap-0.5 border-b border-border/50 px-3 py-2 text-left hover:bg-accent ${selected?.slug === p.slug ? 'bg-accent' : ''}`}
@@ -362,7 +362,7 @@ export function PromptLibraryModal() {
             <>
               <div className="flex items-center justify-between border-b border-border p-3">
                 <div className="text-sm font-semibold">{t('activity:promptLib.newPromptHeading')}</div>
-                <button
+                <button type="button"
                   onClick={() => {
                     setCreating(false);
                     setCreateError(null);
@@ -414,7 +414,7 @@ export function PromptLibraryModal() {
                 />
                 <div className="flex items-center justify-between pt-1">
                   <span className="font-semibold text-muted-foreground">{t('activity:promptLib.variables')}</span>
-                  <button
+                  <button type="button"
                     onClick={() =>
                       setDraft((d) => ({
                         ...d,
@@ -436,7 +436,7 @@ export function PromptLibraryModal() {
                   </button>
                 </div>
                 {draft.vars.map((v, i) => (
-                  <div key={i} className="space-y-1 rounded border border-border/60 p-1.5">
+                  <div key={v.name || `var-${i}`} className="space-y-1 rounded border border-border/60 p-1.5">
                     <div className="flex gap-1">
                       <input
                         value={v.name}
@@ -464,7 +464,7 @@ export function PromptLibraryModal() {
                         placeholder={t('activity:promptLib.varDescPlaceholder')}
                         className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-primary"
                       />
-                      <button
+                      <button type="button"
                         onClick={() =>
                           setDraft((d) => ({ ...d, vars: d.vars.filter((_, j) => j !== i) }))
                         }
@@ -524,7 +524,7 @@ export function PromptLibraryModal() {
               </div>
               <div className="border-t border-border p-3">
                 {createError && <div className="mb-2 text-xs text-destructive">{createError}</div>}
-                <button
+                <button type="button"
                   onClick={submitCreate}
                   disabled={!draft.title.trim() || !draft.content.trim()}
                   className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
@@ -542,7 +542,7 @@ export function PromptLibraryModal() {
                     {selected.category} · {selected.slug}
                   </div>
                 </div>
-                <button
+                <button type="button"
                   onClick={() => toggleFavorite(selected)}
                   className="text-lg"
                   title={t('activity:promptLib.toggleFavoriteTitle')}
@@ -616,7 +616,7 @@ export function PromptLibraryModal() {
                 )}
               </div>
               <div className="border-t border-border p-3">
-                <button
+                <button type="button"
                   onClick={doInsert}
                   disabled={!content || missing.length > 0}
                   className="w-full rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"

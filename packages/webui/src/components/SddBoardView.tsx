@@ -35,7 +35,7 @@ function ProgressRing({ pct }: { pct: number }): React.ReactElement {
   const off = c - (Math.max(0, Math.min(100, pct)) / 100) * c;
   return (
     <div className="relative h-16 w-16 shrink-0">
-      <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
+      <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90" role="img" aria-label="Progress">
         <circle cx="32" cy="32" r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth="6" />
         <circle
           cx="32"
