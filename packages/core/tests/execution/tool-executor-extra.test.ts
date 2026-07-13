@@ -369,14 +369,12 @@ describe('ToolExecutor — additional coverage', () => {
   });
 
   describe('PostToolUse hooks', () => {
-    it('appends additionalContext as separate message when contextAs is "separate"', async () => {
+    it('stores additionalContext on ctx.pendingPostToolContext when contextAs is "separate"', async () => {
       const tool = makeTool({
         name: 'read',
         execute: vi.fn().mockResolvedValue('file content'),
       });
       const ctx = makeCtx();
-      const appendMessage = vi.fn();
-      ctx.state = { replaceMessages: vi.fn(), appendMessage } as never;
       const hookRunner = {
         has: vi.fn((name: string) => name === 'PostToolUse'),
         postToolUse: vi.fn().mockResolvedValue({
@@ -386,10 +384,10 @@ describe('ToolExecutor — additional coverage', () => {
       };
       const executor = makeExecutor([tool], { hookRunner: hookRunner as never });
       await executor.executeBatch([makeUse('read', { path: 'a.ts' })], ctx, 'sequential');
-      expect(appendMessage).toHaveBeenCalledWith({
-        role: 'user',
-        content: [{ type: 'text', text: 'linter note' }],
-      });
+      // Instead of appending a separate user message (which would break
+      // tool-use/tool-result adjacency), the context is stored on ctx
+      // so agent-tools merges it into the same user message as tool results.
+      expect(ctx.pendingPostToolContext).toBe('linter note');
     });
 
     it('appends additionalContext inline when contextAs is not set', async () => {
