@@ -10,6 +10,14 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      # The website build validates these source-owned catalogs. Trigger the
+      # deploy workflow when they change so stale operator pages fail visibly.
+      - 'packages/tools/src/builtin.ts'
+      - 'packages/tools/src/browser/tools.ts'
+      - 'packages/cli/src/plugin-management.ts'
+      - 'packages/core/src/types/mode.ts'
+      - 'packages/core/src/coordination/fleet.ts'
+      - 'packages/core/src/coordination/agents/phase*.ts'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
