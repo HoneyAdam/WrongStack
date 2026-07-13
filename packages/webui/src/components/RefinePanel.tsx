@@ -209,24 +209,17 @@ export function RefinePanel({
               <div className="flex items-center gap-1 text-xs text-warning font-medium uppercase tracking-wider">
                 {t('activity:refine.refined')} <span className="text-muted-foreground font-normal">{t('activity:refine.yourLanguage')}</span>
               </div>
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className={cn(
-                  'text-sm bg-warning/10 border border-warning/20 rounded-md px-3 py-2 cursor-pointer',
+                  'text-sm bg-warning/10 border border-warning/20 rounded-md px-3 py-2 cursor-pointer text-left w-full',
                   'hover:bg-warning/20 transition-colors',
                 )}
                 onClick={() => handleDecision('refined')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleDecision('refined');
-                  }
-                }}
                 title={t('activity:refine.refinedTitle')}
               >
                 {refined.length > 300 ? refined.slice(0, 300) + '...' : refined}
-              </div>
+              </button>
             </div>
 
             {/* English */}
@@ -235,24 +228,17 @@ export function RefinePanel({
                 <Globe className="h-3 w-3" />
                 {t('activity:refine.english')}
               </div>
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 className={cn(
-                  'text-sm bg-info/10 border border-info/20 rounded-md px-3 py-2 cursor-pointer',
+                  'text-sm bg-info/10 border border-info/20 rounded-md px-3 py-2 cursor-pointer text-left w-full',
                   'hover:bg-info/20 transition-colors',
                 )}
                 onClick={() => handleDecision('english')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleDecision('english');
-                  }
-                }}
                 title={t('activity:refine.englishTitle')}
               >
                 {english.length > 300 ? english.slice(0, 300) + '...' : english}
-              </div>
+              </button>
             </div>
           </>
         )}

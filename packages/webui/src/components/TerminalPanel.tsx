@@ -238,12 +238,12 @@ export function TerminalPanel({
         desktopShell && 'ws-terminal-desktop',
       )}
     >
-      <div
-        role="separator"
+      <hr
         aria-orientation="horizontal"
+        tabIndex={0}
         title={t('activity:terminal.resize')}
         onPointerDown={startResize}
-        className="h-1.5 cursor-ns-resize bg-muted/70 transition-colors hover:bg-primary/35"
+        className="h-1.5 cursor-ns-resize bg-muted/70 transition-colors hover:bg-primary/35 border-0"
       />
       <div
         className={cn(
