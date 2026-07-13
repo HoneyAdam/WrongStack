@@ -278,7 +278,10 @@ export class DefaultMailbox implements Mailbox {
       // tool carry only from/subject. Synthesize a minimal entry from those
       // so fleet discovery still sees the agent.
       const existing = latest.get(m.from);
-      if (existing && m.timestamp <= existing.lastActivityAt) continue;
+      // Strictly-older statuses are skipped; on an equal timestamp the later
+      // file entry wins — the JSONL is append-ordered, and two sends can land
+      // in the same millisecond (ISO strings tie) on a fast runner.
+      if (existing && m.timestamp < existing.lastActivityAt) continue;
       latest.set(m.from, {
         agentId: m.from,
         name: m.taskContext?.agentName ?? m.from,

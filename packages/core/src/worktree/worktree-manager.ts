@@ -711,7 +711,7 @@ export class WorktreeManager {
     // Stage the resolver's edits, then refuse to commit if any conflict marker
     // survived (a half-resolved file is worse than a clean abort).
     await this.runGit(['add', '-A'], this.projectRoot);
-    if (await this.hasConflictMarkers()) return null;
+    if (await this.hasConflictMarkers(conflictFiles)) return null;
 
     const idArgs = await this.identityArgs(this.projectRoot);
     const msg = opts.message ?? `merge ${handle.branch} (squash, conflict resolved)`;
@@ -733,12 +733,28 @@ export class WorktreeManager {
   }
 
   /**
-   * True when staged content still carries conflict markers. `git diff --cached
-   * --check` exits nonzero and prints a "leftover conflict marker" line for each
-   * survivor; whitespace-only errors (also flagged by --check) are ignored so a
-   * clean resolution with unrelated whitespace is not rejected.
+   * True when staged content still carries conflict markers.
+   *
+   * Primary probe: `git grep --cached` scans the STAGED blobs directly for a
+   * full marker line (`<<<<<<< `, `=======`, `>>>>>>> `, `||||||| `) — exit 0
+   * means found. This is byte-level and independent of git version, locale,
+   * and human-output phrasing. When the caller knows which files conflicted,
+   * the scan is restricted to them so an unrelated `=======` underline in
+   * some document can't false-positive.
+   *
+   * Fallback probe: `git diff --cached --check` prints a "leftover conflict
+   * marker" line per survivor. Kept as belt-and-braces — it was the original
+   * sole probe, but CI runners were observed to miss markers through it
+   * (output parsing), which let a half-resolved merge commit.
    */
-  private async hasConflictMarkers(): Promise<boolean> {
+  private async hasConflictMarkers(files?: string[]): Promise<boolean> {
+    const pathspec = files && files.length > 0 ? ['--', ...files] : [];
+    const grep = await this.runGit(
+      ['grep', '--cached', '-q', '-E', '^(<{7} |={7}$|>{7} |\\|{7} )', ...pathspec],
+      this.projectRoot,
+    );
+    if (grep.code === 0) return true;
+
     const check = await this.runGit(['diff', '--cached', '--check'], this.projectRoot);
     if (check.code === 0) return false;
     return /conflict marker/i.test(`${check.stdout}\n${check.stderr}`);
