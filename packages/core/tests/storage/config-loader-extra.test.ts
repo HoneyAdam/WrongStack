@@ -148,10 +148,8 @@ describe('DefaultConfigLoader in-project config hardening (WS-06)', () => {
     expect(cfg.mcpServers).toEqual({});
     expect(cfg.hooks ?? {}).toEqual({});
     // yolo is deny-listed for in-project config, so the repo's `yolo: true` is
-    // stripped and cfg.yolo falls back to the global default (now true). The
-    // strip itself is verified by the `in_project_unsafe_fields_ignored` warning
-    // below, which lists `yolo` — this assertion only confirms the final value.
-    expect(cfg.yolo).toBe(true);
+    // stripped and cfg.yolo falls back to the global default (now false since S2).
+    expect(cfg.yolo).toBe(false);
     expect(cfg.extensions ?? {}).toEqual({});
     // hq is now denied (it was missing from the old deny-list — pre-existing bug).
     expect(cfg.hq ?? {}).toEqual({});
