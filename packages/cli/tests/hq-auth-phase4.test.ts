@@ -87,7 +87,16 @@ afterEach(async () => {
     await handle.close();
     handle = undefined;
   }
-  await fs.rm(dataDir, { recursive: true, force: true });
+  // Retry ENOTEMPTY/EBUSY (Windows temp-dir cleanup race).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await fs.rm(dataDir, { recursive: true, force: true });
+      return;
+    } catch (err: any) {
+      if (err.code !== 'ENOTEMPTY' && err.code !== 'EBUSY') throw err;
+      await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+    }
+  }
 });
 
 // ── tests ──────────────────────────────────────────────────────────────────
