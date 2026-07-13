@@ -91,7 +91,9 @@ async function saveLog(storageDir: string, log: PackageAuthorLog): Promise<void>
  * Detect the ecosystem from a manifest filename.
  */
 export function detectEcosystem(manifestPath: string): string {
-  const name = path.basename(manifestPath).toLowerCase();
+  // win32.basename handles BOTH separators — manifest paths recorded on a
+  // Windows agent must still classify on a POSIX host (and vice versa).
+  const name = path.win32.basename(manifestPath).toLowerCase();
   if (name === 'package.json') return 'npm';
   if (name === 'go.mod') return 'go';
   if (name === 'cargo.toml') return 'cargo';

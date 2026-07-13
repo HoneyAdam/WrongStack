@@ -37,6 +37,9 @@ describe('resolveWin32Command', () => {
     try {
       const full = path.join(dir, 'mytool.cmd');
       fs.writeFileSync(full, '@echo off');
+      // The resolver probes with X_OK; on a real POSIX runner (CI ubuntu)
+      // the mode bit matters even though the test mocks platform=win32.
+      fs.chmodSync(full, 0o755);
       process.env['PATHEXT'] = '.CMD';
       process.env['PATH'] = dir;
       expect(resolveWin32Command('mytool')).toBe(full);

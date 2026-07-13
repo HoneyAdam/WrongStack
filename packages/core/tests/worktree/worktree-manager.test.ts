@@ -22,6 +22,12 @@ function stubRunner(
   return { calls, run };
 }
 
+// Stub-git tests still hit the real filesystem for the worktrees-root mkdir,
+// so the fake project root must be writable on every platform — a literal
+// '/proj' EACCES-fails on POSIX CI (and silently "works" on Windows only
+// because D:\proj happens to be creatable).
+const PROJ = path.join(os.tmpdir(), `wm-proj-${process.pid}`);
+
 const gitAvailable = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
 const GIT_ENV = {
   ...process.env,
@@ -38,7 +44,7 @@ describe('WorktreeManager (stubbed git)', () => {
         ? { code: 0, stdout: 'main\n', stderr: '' }
         : { code: 0, stdout: '', stderr: '' },
     );
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const h = await wm.allocate('phase-1', { slugHint: 'Build API' });
 
     const add = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
@@ -54,7 +60,7 @@ describe('WorktreeManager (stubbed git)', () => {
         ? { code: 0, stdout: 'main\n', stderr: '' }
         : { code: 0, stdout: '', stderr: '' },
     );
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const h = await wm.allocate('p', { slugHint: 'Feature: Auth/API!!' });
     expect(h.branch.startsWith('wstack/ap/')).toBe(true);
     expect(h.slug).toMatch(/^feature-auth-api-[0-9a-f]{6}$/);
@@ -70,7 +76,7 @@ describe('WorktreeManager (stubbed git)', () => {
         : { code: 0, stdout: '', stderr: '' },
     );
     const wm = new WorktreeManager({
-      projectRoot: '/proj',
+      projectRoot: PROJ,
       events: fakeBus,
       sessionId: () => '2026-06-29/sess_worktree',
       run,
@@ -91,7 +97,7 @@ describe('WorktreeManager (stubbed git)', () => {
       if (args[1] === 'add') return { code: 1, stdout: '', stderr: 'fatal: branch exists' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', events: fakeBus, run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, events: fakeBus, run });
     const h = await wm.allocate('p1');
     expect(h.status).toBe('failed');
     expect(h.lastError).toMatch(/branch exists/);
@@ -108,7 +114,7 @@ describe('WorktreeManager (stubbed git)', () => {
       if (args[0] === 'show') return { code: 0, stdout: '2\t1\tnew.txt\n', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const h = await wm.allocate('p', { slugHint: 'x' });
     const res = await wm.commitAll(h, 'msg');
     expect(res.committed).toBe(true);
@@ -131,7 +137,7 @@ describe('WorktreeManager (stubbed git)', () => {
       if (args[0] === 'show') return { code: 0, stdout: '1\t0\tf\n', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const h = await wm.allocate('p', { slugHint: 'x' });
     await wm.commitAll(h, 'msg');
     const commit = calls.map((c) => c.args).find((a) => a.includes('commit'));
@@ -144,7 +150,7 @@ describe('WorktreeManager (stubbed git)', () => {
         ? { code: 0, stdout: 'main\n', stderr: '' }
         : { code: 0, stdout: '', stderr: '' },
     );
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     await wm.allocate('a', { slugHint: 'a' });
     await wm.allocate('b', { slugHint: 'b' });
     expect(wm.list()).toHaveLength(2);
@@ -161,19 +167,19 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     expect(await wm.currentBase()).toEqual({ branch: 'main', sha: 'abc123' });
   });
 
   it('cleanupAllManaged() removes worktrees under the root + wstack/ap branches, then prunes', async () => {
-    const root = path.join(path.resolve('/proj'), '.wrongstack', 'worktrees');
+    const root = path.join(path.resolve(PROJ), '.wrongstack', 'worktrees');
     const { calls, run } = stubRunner((args) => {
       if (args[0] === 'worktree' && args[1] === 'list') {
         return {
           code: 0,
           // The main checkout (kept) + two managed worktrees (removed).
           stdout: [
-            `worktree ${path.resolve('/proj')}`,
+            `worktree ${path.resolve(PROJ)}`,
             '',
             `worktree ${path.join(root, 'a-111111')}`,
             '',
@@ -188,26 +194,26 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.cleanupAllManaged();
 
     expect(res.removed).toBe(2);
     const removes = calls.filter((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
     expect(removes).toHaveLength(2);
     // The main checkout must NOT be removed.
-    expect(removes.some((c) => c.args.includes(path.resolve('/proj')))).toBe(false);
+    expect(removes.some((c) => c.args.includes(path.resolve(PROJ)))).toBe(false);
     expect(calls.filter((c) => c.args[0] === 'branch' && c.args[1] === '-D')).toHaveLength(2);
     expect(calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'prune')).toBe(true);
   });
 
   it('cleanupStale() sweeps when a worktree dir is detected', async () => {
-    const root = path.join(path.resolve('/proj'), '.wrongstack', 'worktrees');
+    const root = path.join(path.resolve(PROJ), '.wrongstack', 'worktrees');
     const { calls, run } = stubRunner((args) => {
       if (args[0] === 'worktree' && args[1] === 'list') {
         return {
           code: 0,
           stdout: [
-            `worktree ${path.resolve('/proj')}`,
+            `worktree ${path.resolve(PROJ)}`,
             '',
             `worktree ${path.join(root, 'a-111111')}`,
             '',
@@ -217,7 +223,7 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.cleanupStale();
     expect(res.detected).toBe(1);
     expect(calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
@@ -227,7 +233,7 @@ describe('WorktreeManager (stubbed git)', () => {
     const { calls, run } = stubRunner((args) => {
       // No managed worktree dirs (only the main checkout) …
       if (args[0] === 'worktree' && args[1] === 'list') {
-        return { code: 0, stdout: `worktree ${path.resolve('/proj')}\n`, stderr: '' };
+        return { code: 0, stdout: `worktree ${path.resolve(PROJ)}\n`, stderr: '' };
       }
       // … but a dangling wstack/ap branch remains.
       if (args[0] === 'branch' && args[1] === '--list') {
@@ -235,7 +241,7 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.cleanupStale();
     expect(res.detected).toBe(1);
     // The sweep deletes the dangling branch.
@@ -243,13 +249,13 @@ describe('WorktreeManager (stubbed git)', () => {
   });
 
   it('listManaged() returns managed worktrees (with branch) + wstack/ap branches, removes nothing', async () => {
-    const root = path.join(path.resolve('/proj'), '.wrongstack', 'worktrees');
+    const root = path.join(path.resolve(PROJ), '.wrongstack', 'worktrees');
     const { calls, run } = stubRunner((args) => {
       if (args[0] === 'worktree' && args[1] === 'list') {
         return {
           code: 0,
           stdout: [
-            `worktree ${path.resolve('/proj')}`,
+            `worktree ${path.resolve(PROJ)}`,
             'HEAD aaa',
             'branch refs/heads/main',
             '',
@@ -266,7 +272,7 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.listManaged();
 
     // Only the managed checkout (not the main one) is returned, with its branch.
@@ -281,9 +287,9 @@ describe('WorktreeManager (stubbed git)', () => {
   });
 
   it('removeOne() force-removes a managed worktree + its branch, refuses paths outside root', async () => {
-    const root = path.join(path.resolve('/proj'), '.wrongstack', 'worktrees');
+    const root = path.join(path.resolve(PROJ), '.wrongstack', 'worktrees');
     const { calls, run } = stubRunner(() => ({ code: 0, stdout: '', stderr: '' }));
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
 
     const ok = await wm.removeOne(path.join(root, 's1'), 'wstack/ap/s1');
     expect(ok.removed).toBe(true);
@@ -292,7 +298,7 @@ describe('WorktreeManager (stubbed git)', () => {
 
     // A path outside the worktrees root is refused without any git remove.
     calls.length = 0;
-    const bad = await wm.removeOne(path.resolve('/proj'), 'main');
+    const bad = await wm.removeOne(path.resolve(PROJ), 'main');
     expect(bad.removed).toBe(false);
     expect(calls.some((c) => c.args[1] === 'remove')).toBe(false);
   });
@@ -303,7 +309,7 @@ describe('WorktreeManager (stubbed git)', () => {
         ? { code: 0, stdout: 'main\n', stderr: '' }
         : { code: 0, stdout: '', stderr: '' },
     );
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.mergeBranch('wstack/ap/s1', 'main');
     expect(res.ok).toBe(true);
     expect(calls.some((c) => c.args[0] === 'merge' && c.args.includes('--squash'))).toBe(true);
@@ -316,7 +322,7 @@ describe('WorktreeManager (stubbed git)', () => {
         ? { code: 0, stdout: ' M f.ts\n', stderr: '' }
         : { code: 0, stdout: '', stderr: '' },
     );
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.mergeBranch('wstack/ap/s1', 'main');
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/uncommitted/i);
@@ -331,7 +337,7 @@ describe('WorktreeManager (stubbed git)', () => {
       if (args[0] === 'status') return { code: 0, stdout: ' M f.ts\n', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', events: fakeBus, run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, events: fakeBus, run });
     const h = await wm.allocate('p', { slugHint: 'dirty' });
     const res = await wm.merge(h, { squash: true });
 
@@ -350,7 +356,7 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.mergeBranch('wstack/ap/s1', 'main');
     expect(res.ok).toBe(false);
     expect(res.conflict).toBe(true);
@@ -368,7 +374,7 @@ describe('WorktreeManager (stubbed git)', () => {
       if (args[0] === 'rev-parse') return { code: 0, stdout: 'main\n', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const s = await wm.diffSummary('/proj/.wrongstack/worktrees/s1', 'main');
     expect(s.insertions).toBe(4);
     expect(s.deletions).toBe(1);
@@ -379,11 +385,11 @@ describe('WorktreeManager (stubbed git)', () => {
   it('cleanupStale() is a no-op when nothing is managed', async () => {
     const { calls, run } = stubRunner((args) => {
       if (args[0] === 'worktree' && args[1] === 'list') {
-        return { code: 0, stdout: `worktree ${path.resolve('/proj')}\n`, stderr: '' };
+        return { code: 0, stdout: `worktree ${path.resolve(PROJ)}\n`, stderr: '' };
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.cleanupStale();
     expect(res).toEqual({ removed: 0, detected: 0 });
     expect(calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(false);
@@ -391,7 +397,7 @@ describe('WorktreeManager (stubbed git)', () => {
 
   it('revertCommits() reverts each sha newest→oldest on the base branch', async () => {
     const { calls, run } = stubRunner(() => ({ code: 0, stdout: '', stderr: '' }));
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.revertCommits('main', ['old', 'mid', 'new']);
 
     expect(res).toEqual({ ok: true, reverted: 3 });
@@ -406,7 +412,7 @@ describe('WorktreeManager (stubbed git)', () => {
         ? { code: 0, stdout: ' M file.ts\n', stderr: '' }
         : { code: 0, stdout: '', stderr: '' },
     );
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.revertCommits('main', ['a']);
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/uncommitted/i);
@@ -420,7 +426,7 @@ describe('WorktreeManager (stubbed git)', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     const res = await wm.revertCommits('main', ['bad']);
     expect(res.ok).toBe(false);
     expect(res.reason).toMatch(/revert of bad/);
@@ -429,7 +435,7 @@ describe('WorktreeManager (stubbed git)', () => {
 
   it('revertCommits() with no shas is a no-op success', async () => {
     const { run } = stubRunner();
-    const wm = new WorktreeManager({ projectRoot: '/proj', run });
+    const wm = new WorktreeManager({ projectRoot: PROJ, run });
     expect(await wm.revertCommits('main', [])).toEqual({
       ok: true,
       reverted: 0,
@@ -676,9 +682,11 @@ describe('parseConflictPaths', () => {
 
 describe('assertSafePath', () => {
   it('allows paths inside the root', () => {
-    expect(() => assertSafePath('/proj/.wrongstack/worktrees/x', '/proj')).not.toThrow();
+    expect(() =>
+      assertSafePath(path.join(PROJ, '.wrongstack', 'worktrees', 'x'), PROJ),
+    ).not.toThrow();
   });
   it('rejects escapes', () => {
-    expect(() => assertSafePath('/etc/evil', '/proj')).toThrow(/escapes project root/);
+    expect(() => assertSafePath('/etc/evil', PROJ)).toThrow(/escapes project root/);
   });
 });

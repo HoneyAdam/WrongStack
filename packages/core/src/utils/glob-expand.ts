@@ -65,9 +65,20 @@ function globToRegex(pat: string): RegExp {
 }
 
 function baseDir(pat: string): string {
-  let i = pat.length - 1;
-  while (i >= 0 && !GLOB_CHARS.has(expectDefined(pat[i])) && pat[i] !== SEP && pat[i] !== '/') i--;
-  const cut = i >= 0 ? pat.lastIndexOf(SEP, i) : pat.lastIndexOf('/', i);
+  // Deepest literal directory prefix: cut at the last separator BEFORE the
+  // first glob char. Scanning from the end instead finds separators inside
+  // glob segments — '**/*.ts' would yield base '**' on POSIX (native sep '/').
+  let firstGlob = pat.length;
+  for (let i = 0; i < pat.length; i++) {
+    if (GLOB_CHARS.has(expectDefined(pat[i]))) {
+      firstGlob = i;
+      break;
+    }
+  }
+  const cut = Math.max(
+    pat.lastIndexOf(SEP, firstGlob - 1),
+    pat.lastIndexOf('/', firstGlob - 1),
+  );
   return cut < 0 ? '.' : pat.slice(0, cut);
 }
 

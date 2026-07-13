@@ -1,3 +1,5 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   resolveSubagentWorktreeDecision,
@@ -37,6 +39,11 @@ function makeCtx(over: Partial<SubagentRunContext> = {}): SubagentRunContext {
 
 const task: TaskSpec = { id: 't1', description: 'change the code' };
 
+// Stub-git tests still hit the real filesystem for the worktrees-root mkdir,
+// so the fake project root must be writable on every platform — a literal
+// '/repo' EACCES-fails on POSIX CI.
+const REPO = path.join(os.tmpdir(), `wtr-repo-${process.pid}`);
+
 describe('worktree task runner', () => {
   it('auto-selects worktrees for side-effectful agents but not read-only reviewers', () => {
     expect(subagentNeedsWorktree({ name: 'Executor', tools: ['read', 'write'] })).toBe(true);
@@ -62,7 +69,7 @@ describe('worktree task runner', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async (_task: TaskSpec, ctx: SubagentRunContext) => {
       expect(ctx.config.cwd).toBeUndefined();
       return { result: 'ok', iterations: 1, toolCalls: 1 } satisfies SubagentRunOutcome;
@@ -111,9 +118,11 @@ describe('worktree task runner', () => {
       if (args[0] === 'status') return { code: 0, stdout: '', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async (_task: TaskSpec, ctx: SubagentRunContext) => {
-      expect(ctx.config.cwd?.replace(/\\/g, '/')).toContain('/repo/.wrongstack/worktrees/');
+      expect(ctx.config.cwd?.replace(/\\/g, '/')).toContain(
+        `${REPO.replace(/\\/g, '/')}/.wrongstack/worktrees/`,
+      );
       return { result: 'done', iterations: 2, toolCalls: 3 };
     });
     const updates: string[] = [];
@@ -210,7 +219,7 @@ describe('worktree task runner', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async () => ({ result: 'done', iterations: 1, toolCalls: 1 }));
     const updates: string[] = [];
     const wrapped = wrapSubagentRunnerWithWorktrees({
@@ -227,7 +236,7 @@ describe('worktree task runner', () => {
 
   it('fails with WorktreeIntegrationError when worktree allocation fails in required mode', async () => {
     const { run } = stubRunner(() => ({ code: 1, stdout: '', stderr: 'not a git repo' }));
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async () => ({ iterations: 1, toolCalls: 1 }));
     const wrapped = wrapSubagentRunnerWithWorktrees({
       runner,
@@ -270,7 +279,7 @@ describe('worktree task runner', () => {
       }
       return { code: 0, stdout: '', stderr: '' };
     });
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async () => ({ result: 'done', iterations: 1, toolCalls: 1 }));
     const wrapped = wrapSubagentRunnerWithWorktrees({
       runner,
@@ -283,7 +292,7 @@ describe('worktree task runner', () => {
 
   it('runs onUpdate callback when provided', async () => {
     const { run } = stubRunner(() => ({ code: 0, stdout: '', stderr: '' }));
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async () => ({ result: 'done', iterations: 1, toolCalls: 1 }));
     const onUpdate = vi.fn();
     const ctx = makeCtx({ config: { name: 'Executor', tools: ['write'] } });
@@ -301,7 +310,7 @@ describe('worktree task runner', () => {
 
   it('throws when required worktree allocation fails with error info', async () => {
     const { run } = stubRunner(() => ({ code: 1, stdout: '', stderr: 'fatal: failed' }));
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async () => ({ iterations: 1, toolCalls: 1 }));
     const wrapped = wrapSubagentRunnerWithWorktrees({
       runner,
@@ -329,7 +338,7 @@ describe('worktree task runner', () => {
       if (args[0] === 'status') return { code: 0, stdout: '', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     });
-    const worktrees = new WorktreeManager({ projectRoot: '/repo', run });
+    const worktrees = new WorktreeManager({ projectRoot: REPO, run });
     const runner = vi.fn(async () => {
       throw new Error('runner crashed');
     });

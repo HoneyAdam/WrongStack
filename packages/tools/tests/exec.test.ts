@@ -542,9 +542,11 @@ describe('exec command policy (configurable allowlist)', () => {
     configureExecPolicy({ allow: ['rm'] });
     const sb = await mkRealSandbox();
     try {
-      const target = path.join(sb.ctx.cwd, 'build');
-      await fs.mkdir(target, { recursive: true });
-      const r2 = await execTool.execute({ command: 'rm', args: ['-rf', target] }, sb.ctx, makeOpts2());
+      // Relative target: absolute paths are BLOCKED by rm's security patterns
+      // (/^\// and the win32 drive-letter equivalent), so an absolute arg here
+      // would exercise the refusal path, not the danger banner.
+      await fs.mkdir(path.join(sb.ctx.cwd, 'build'), { recursive: true });
+      const r2 = await execTool.execute({ command: 'rm', args: ['-rf', 'build'] }, sb.ctx, makeOpts2());
       expect(r2.allowed).toBe(true);
       expect(r2.danger.level).toBe('destructive');
       expect(r2.danger.reasons).toContain('recursive force-delete');

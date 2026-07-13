@@ -7,9 +7,13 @@ export function formatWorkingDirChip(
   projectRoot: string,
 ): string | undefined {
   if (!workingDir || workingDir === projectRoot) return undefined;
-  const rel = path.relative(projectRoot, workingDir) || '.';
+  // Pick the path flavor from the DATA, not the host platform — the chip may
+  // be asked to render Windows-style paths (drive letter, backslashes) on a
+  // POSIX host.
+  const impl = workingDir.includes('\\') || projectRoot.includes('\\') ? path.win32 : path;
+  const rel = impl.relative(projectRoot, workingDir) || '.';
   if (rel === '.') return undefined;
-  return rel.replaceAll(path.sep, '/');
+  return rel.replaceAll(impl.sep, '/');
 }
 
 /**

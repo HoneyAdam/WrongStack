@@ -155,10 +155,16 @@ describe('decryptConfigSecrets', () => {
 
 describe('POSIX-platform branches (mocked)', () => {
   it('checks key-file permissions and chmods on a non-win32 platform', async () => {
+    // Seed a valid key, then loosen its mode so checkKeyFilePermissions MUST
+    // warn on every host. (On a real POSIX runner the vault creates the key
+    // with a correct 0600, so without this the warning never fires; on a
+    // Windows host stat reports 0666-ish either way.)
+    vault().encrypt('seed');
+    await fs.chmod(keyFile, 0o644);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await withPlatform('linux', async () => {
-      // loadOrCreateKey → checkKeyFilePermissions runs statSync + (likely) warns
-      // because the Windows-backed temp file does not report mode 0o600.
+      // loadOrCreateKey → checkKeyFilePermissions runs statSync and warns
+      // because the key file's mode is not 0o600.
       vault().encrypt('x');
       // migrate → restrictFilePermissions takes the POSIX chmod branch
       const cfgPath = path.join(tmp, 'posix.json');

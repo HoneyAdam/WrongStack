@@ -285,7 +285,7 @@ const BLOCKED_ARG_PATTERNS: Record<string, RegExp[]> = {
   // and glob patterns that could expand to dangerous targets.
   // `rm -rf ./src/*` expands to project files; `rm -rf ../../` escapes upward;
   // `rm -rf /*` targets the filesystem root. All are blocked.
-  rm: [/^\//, /^~\//, /^~$/, /^\.$/, /^\.\.$/, /\*$/, /\/$/, /\/\*$/, /\.\//],
+  rm: [/^\//, /^[A-Za-z]:[\\/]/, /^~\//, /^~$/, /^\.$/, /^\.\.$/, /\*$/, /\/$/, /\/\*$/, /\.\//],
   // npm/pnpm subcommands are checked separately below. Matching every arg here
   // over-blocked normal dev flows such as `pnpm vitest run ...`.
   npm: [],
