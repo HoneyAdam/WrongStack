@@ -49,7 +49,9 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       const lines: string[] = [];
-      lines.push(`Wrote ${file}`);
+      const wroteMsg = `Wrote ${file}`;
+      lines.push(wroteMsg);
+      opts.renderer.writeInfo(wroteMsg);
       if (backedUp) {
         const backupLine = `Backed up the previous AGENTS.md to ${file}.bak`;
         opts.renderer.writeInfo(backupLine);
@@ -57,12 +59,10 @@ export function buildInitCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       if (detected.hints.length > 0) {
-        opts.renderer.writeInfo(`Wrote ${file}`);
         const hintLine = `Pre-filled: ${detected.hints.join(', ')}. Edit the file with project context and instructions the system prompt should carry.`;
         opts.renderer.writeInfo(hintLine);
         lines.push(hintLine);
       } else {
-        opts.renderer.writeInfo(`Wrote ${file}`);
         lines.push(
           'No project type auto-detected. Edit the file with project context and instructions the system prompt should carry.',
         );

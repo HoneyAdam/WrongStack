@@ -359,9 +359,11 @@ export function renderAgentsTemplate(f: ProjectFacts): string {
   return `# AGENTS.md
 
 > **DO NOT DELETE THIS FILE.** It is loaded into WrongStack's system prompt as
-> persistent project context. Previous content here may contain decisions,
-> architecture notes, domain knowledge, or verification history that should be
-> preserved. Merge additions rather than replacing.
+> persistent project context. The \`/init\` command **regenerates** this file from
+> detected project facts and backs up any previous version to \`AGENTS.md.bak\`.
+> After \`/init\`, review the backup and merge any hand-written project context
+> back into this file — then add your conventions, architecture notes, and
+> domain knowledge below.
 
 ## Project brief
 
