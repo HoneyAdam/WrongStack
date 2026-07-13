@@ -46,18 +46,18 @@ function input(extra: Partial<HookInput> = {}): HookInput {
 
 describe('runShellHook', () => {
   it('treats exit code 2 as a block', async () => {
-    const r = await runShellHook({ command: `node "${scripts.block}"` }, input());
+    const r = await runShellHook({ command: `node ${scripts.block}` }, input());
     expect(r?.decision).toBe('block');
   });
 
   it('parses a JSON HookOutcome from stdout', async () => {
-    const r = await runShellHook({ command: `node "${scripts.json}"` }, input());
+    const r = await runShellHook({ command: `node ${scripts.json}` }, input());
     expect(r?.additionalContext).toBe('from-hook');
   });
 
   it('feeds the HookInput JSON to stdin', async () => {
     const r = await runShellHook(
-      { command: `node "${scripts.echo}"` },
+      { command: `node ${scripts.echo}` },
       input({ toolName: 'edit' }),
     );
     expect(r?.additionalContext).toBe('edit');

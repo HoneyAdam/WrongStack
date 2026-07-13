@@ -90,19 +90,25 @@ function isAbsoluteCommandPath(p: string): boolean {
   return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 }
 
-function isCommandAllowed(command: string): boolean {
-  // Extract the base command (first word) for allowlist check
-  const baseCommand = command.trim().split(/\s+/)[0] ?? '';
+function isCommandAllowed(command: string): string[] | null {
+  // Split the command into argv by whitespace. This also prevents shell
+  // chaining operators (&&, ||, |, ;) from being interpreted as such —
+  // they become literal arguments to the executable. Hooks that need
+  // pipes, redirects, or variable expansion should use `sh -c "..."`.
+  const argv = command.trim().split(/\s+/);
+  if (argv.length === 0 || argv[0]!.length === 0) return null;
+  const executable = argv[0]!;
   // Documented escape hatch #1: absolute paths reference operator-authored
   // trusted executables (incl. wrapper scripts under .wrongstack/hooks/) and
   // are allowed as-is — on both POSIX and Windows path syntax.
-  if (isAbsoluteCommandPath(baseCommand)) return true;
+  if (isAbsoluteCommandPath(executable)) return argv;
   // Relative path with separators (e.g. ./scripts/hook.sh) — judge by filename.
-  const commandName = /[\\/]/.test(baseCommand)
-    ? (baseCommand.split(/[\\/]/).pop() ?? baseCommand)
-    : baseCommand;
+  const commandName = /[\\/]/.test(executable)
+    ? (executable.split(/[\\/]/).pop() ?? executable)
+    : executable;
 
-  return ALLOWED_SHELL_COMMANDS.has(commandName);
+  if (ALLOWED_SHELL_COMMANDS.has(commandName)) return argv;
+  return null;
 }
 
 export interface ShellHookSpec {
@@ -201,7 +207,8 @@ export async function runShellHookDetailed(
   const timeoutMs = Math.max(1, Math.min(spec.timeoutMs ?? DEFAULT_TIMEOUT_MS, 10 * 60_000));
 
   // Security: reject commands not in the allowlist
-  if (!isCommandAllowed(spec.command)) {
+  const argv = isCommandAllowed(spec.command);
+  if (!argv) {
     logger?.warn?.(`hook rejected: command not in allowlist: ${spec.command}`);
     return {
       outcome: null,
@@ -222,14 +229,17 @@ export async function runShellHookDetailed(
 
     let child: ReturnType<typeof spawn>;
     try {
-      // `shell: true` runs the command line through the platform shell
-      // (cmd.exe on Windows, /bin/sh on POSIX) with correct quoting — the
-      // command is intentionally a user-authored shell string.
-      child = spawn(spec.command, {
+      // Security: spawn WITHOUT shell so the command string is never
+      // interpreted by a shell — shell chaining operators (&&, ||, |, ;)
+      // become literal arguments. The executable + args are split by
+      // isCommandAllowed above. Hooks that need pipes/redirects should
+      // use `sh -c "..."` which is allowlisted through sh/bash.
+      const cmd = argv[0]!;
+      const args = argv.slice(1);
+      child = spawn(cmd, args, {
         cwd: input.cwd,
         env: buildChildEnv(),
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
         windowsHide: true,
         detached: process.platform !== 'win32',
       });
