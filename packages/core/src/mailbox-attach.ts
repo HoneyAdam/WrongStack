@@ -48,7 +48,13 @@ function attachMailboxCheckerInner(
   a: AgentInternals,
   source?: 'cli' | 'webui',
 ): () => Promise<MailboxMessage[]> {
-  const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
+  // Lazy mailbox getter: re-derives projectRoot on every call so that
+  // an in-process project switch (which mutates a.ctx.projectRoot) is
+  // picked up automatically without re-creating the loop handler.
+  const getMailbox = (): Mailbox => {
+    const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
+    return getSharedMailbox(projectDir, a.events, hqPublisher);
+  };
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events
   // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
   // This socket only carries mailbox telemetry. Declaring the default
@@ -67,7 +73,6 @@ function attachMailboxCheckerInner(
     // Agent-level hook: the HQ publisher lives across runs, not per-run.
     a.ctx.registerAgentHook(() => hqPublisher.close());
   }
-  const mailbox: Mailbox = getSharedMailbox(projectDir, a.events, hqPublisher);
   const surface = source ?? ((a.ctx.meta['source'] as 'cli' | 'webui' | undefined) ?? 'cli');
   if (!a.ctx.meta['source']) a.ctx.meta['source'] = surface;
 
@@ -92,7 +97,7 @@ function attachMailboxCheckerInner(
     if (registeredAs !== derived) {
       registeredAs = derived;
       const identity = resolveMailboxIdentity(a.ctx);
-      mailbox
+      getMailbox()
         .registerAgent({
           agentId: derived,
           name: `${identity.name} [${surface}]`,
@@ -118,7 +123,7 @@ function attachMailboxCheckerInner(
   const HEARTBEAT_INTERVAL_MS = MAILBOX_HEARTBEAT_INTERVAL_MS;
   const heartbeatTimer = setInterval(() => {
     const id = ensureRegistered();
-    mailbox.heartbeat({ agentId: id }).catch(() => {
+    getMailbox().heartbeat({ agentId: id }).catch(() => {
       // Silently ignore - heartbeat failures are expected during shutdown
     });
   }, HEARTBEAT_INTERVAL_MS);
@@ -135,7 +140,7 @@ function attachMailboxCheckerInner(
   // "send to leader" reaches every live leader session on the project.
   // Getter form: each check re-derives identity from the CURRENT session.
   const mailboxCheckerOptions = {
-    mailbox,
+    mailbox: getMailbox,
     agentId: () => ensureRegistered(),
     aliases: [baseIdOf()],
   };
@@ -218,8 +223,9 @@ function attachMailboxCheckerInner(
   // have been read by all online agents, messages whose TTL expired, and
   // stale completed/incomplete messages. Best-effort — failures are
   // swallowed inside autoCompact().
-  if (mailbox instanceof GlobalMailbox) {
-    const stopAutoCompact = mailbox.startAutoCompactTimer();
+  const mbox = getMailbox();
+  if (mbox instanceof GlobalMailbox) {
+    const stopAutoCompact = mbox.startAutoCompactTimer();
     a.ctx.registerAgentHook(() => stopAutoCompact());
   }
 

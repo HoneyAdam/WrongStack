@@ -144,22 +144,20 @@ export async function switchProjectInPlace(
     );
   }
 
-  void (async () => {
-    try {
-      await oldWriter.append({ type: 'session_end', ts: new Date().toISOString(), usage: oldUsage });
-      await oldWriter.close();
-    } catch (err) {
-      console.error(
-        JSON.stringify({
-          level: 'warn',
-          event: 'execution.project_switch_old_session_close_failed',
-          message: err instanceof Error ? err.message : String(err),
-          timestamp: new Date().toISOString(),
-        }),
-      );
-    }
-    await oldRecoveryLock.clear().catch(() => undefined);
-  })();
+  try {
+    await oldWriter.append({ type: 'session_end', ts: new Date().toISOString(), usage: oldUsage });
+    await oldWriter.close();
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: 'warn',
+        event: 'execution.project_switch_old_session_close_failed',
+        message: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
+  await oldRecoveryLock.clear().catch(() => undefined);
 
   try {
     await state.activeRecoveryLock.write(nextWriter.id);

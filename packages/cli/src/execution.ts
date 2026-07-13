@@ -192,6 +192,8 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
   const projectRoot = initialProjectRoot;
   const activeSessionStore = sessionStore;
   const activeRecoveryLock = initialRecoveryLock;
+  /** Updated by the TUI branch on project switch so cleanup clears the correct lock. */
+  let currentRecoveryLock = activeRecoveryLock;
   const detachActiveTodosCheckpoint: (() => void | Promise<void>) | undefined =
     detachTodosCheckpoint;
 
@@ -494,8 +496,15 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         skillLoader,
         attachTodosCheckpoint,
       };
-      const switchProjectInPlace = (targetRoot: string, displayName: string) =>
-        switchProjectInPlaceExtracted(switchCtx, targetRoot, displayName);
+      const switchProjectInPlace = async (targetRoot: string, displayName: string) => {
+        const result = await switchProjectInPlaceExtracted(switchCtx, targetRoot, displayName);
+        if (result === null) {
+          // Update the function-scope recovery lock so cleanup clears the
+          // switched-to project's lock, not the original one.
+          currentRecoveryLock = state.activeRecoveryLock;
+        }
+        return result;
+      };
 
       const pickerCtx: ProjectPickerContext = {
         state,
@@ -1084,7 +1093,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         timestamp: new Date().toISOString(),
       }));
     });
-    await activeRecoveryLock
+    await currentRecoveryLock
       .clear()
       .catch(() => undefined); /* best-effort: stale lock will be recovered on next startup */
     await reader.close().catch((err) => {

@@ -16,7 +16,13 @@ import type { Mailbox, MailboxMessage } from '../coordination/mailbox-types.js';
 import { toErrorMessage } from '../utils/error.js';
 
 export interface MailboxLoopOptions {
-  mailbox: Mailbox;
+  /**
+   * The mailbox instance, or a getter that returns the current mailbox.
+   * A getter is used when the agent may switch projects at runtime —
+   * the mailbox resolves from the current `ctx.projectRoot` on each
+   * check rather than being captured at construction time.
+   */
+  mailbox: Mailbox | (() => Mailbox);
   /**
    * The agent's globally unique mailbox identity (e.g. `leader@a1b2c3d4`,
    * session-bound). Read receipts are recorded under this id, so two
@@ -40,13 +46,14 @@ export interface MailboxLoopOptions {
 export function createMailboxChecker(
   opts: MailboxLoopOptions,
 ): () => Promise<MailboxMessage[]> {
-  const { mailbox } = opts;
+  const getMailbox = typeof opts.mailbox === 'function' ? opts.mailbox : () => opts.mailbox as Mailbox;
   const currentId = typeof opts.agentId === 'function' ? opts.agentId : () => opts.agentId as string;
 
   const injectedIds = new Set<string>();
 
   return async (): Promise<MailboxMessage[]> => {
     try {
+      const mailbox = getMailbox();
       const agentId = currentId();
       const targets = [
         agentId,
