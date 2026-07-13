@@ -626,37 +626,22 @@ export function SkillsList({ className }: { className?: string }) {
       </Dialog>
 
       {/* ── Create skill modal ── */}
-      {createModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setCreateModalOpen(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setCreateModalOpen(false);
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('activity:skillsList.createHeading')}
-            className="flex max-h-[calc(100dvh-2rem)] w-[480px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl"
-          >
-            <div className="flex shrink-0 items-center justify-between border-b border-border/70 p-4">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-primary" />
-                <span className="font-semibold text-sm">{t('activity:skillsList.createHeading')}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCreateModalOpen(false)}
-                aria-label={t('common:action.close')}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
+      <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[480px] max-w-[90vw] flex-col gap-0 overflow-hidden p-0" showCloseButton={false}>
+          <DialogHeader className="flex shrink-0 items-center justify-between border-b border-border/70 p-4 sm:flex-row sm:justify-between sm:space-y-0">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" />
+              <DialogTitle className="font-semibold text-sm">{t('activity:skillsList.createHeading')}</DialogTitle>
             </div>
+            <button
+              type="button"
+              onClick={() => setCreateModalOpen(false)}
+              aria-label={t('common:action.close')}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
               <p className="text-xs text-muted-foreground">
@@ -758,9 +743,8 @@ export function SkillsList({ className }: { className?: string }) {
                 </button>
               )}
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
