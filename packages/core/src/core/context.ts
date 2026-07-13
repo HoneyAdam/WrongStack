@@ -237,6 +237,9 @@ export class Context implements RunEnv {
    * an individual tool call. For per-tool teardown of resources owned by
    * the tool author (child processes, handles), prefer `Tool.cleanup` —
    * see its JSDoc for the full rule.
+   *
+   * For hooks that must survive across run boundaries (mailbox heartbeat,
+   * awareness polling, HQ publisher), prefer `registerAgentHook` instead.
    */
   private abortHooks = new Set<() => void | Promise<void>>();
   registerAbortHook(fn: () => void | Promise<void>): () => void {
@@ -249,6 +252,33 @@ export class Context implements RunEnv {
     // fire on the next abort cycle (not the current one — hook chains
     // are intentionally not supported).
     this.abortHooks.clear();
+    for (const fn of snapshot) {
+      try {
+        await fn();
+      } catch {
+        // hooks must be best-effort; swallow so siblings still fire
+      }
+    }
+  }
+
+  /**
+   * Register a teardown hook that persists across individual run boundaries.
+   * These hooks are NOT drained by `drainAbortHooks()` (which fires on every
+   * run end). They are only released by `drainAgentHooks()`, intended to be
+   * called during Agent teardown / process shutdown.
+   *
+   * Used for long-lived resources such as the mailbox heartbeat timer,
+   * awareness polling interval, HQ publisher connection, and auto-compaction
+   * timer — resources that must survive from the first run to the last.
+   */
+  private agentHooks = new Set<() => void | Promise<void>>();
+  registerAgentHook(fn: () => void | Promise<void>): () => void {
+    this.agentHooks.add(fn);
+    return () => this.agentHooks.delete(fn);
+  }
+  async drainAgentHooks(): Promise<void> {
+    const snapshot = [...this.agentHooks].reverse();
+    this.agentHooks.clear();
     for (const fn of snapshot) {
       try {
         await fn();

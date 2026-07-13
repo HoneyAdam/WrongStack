@@ -142,6 +142,14 @@ export class Agent {
       }
     }
     this.plugins.length = 0;
+    // Drain agent-lifetime hooks (mailbox heartbeat, awareness, HQ publisher,
+    // auto-compaction) that persist across runs. Do this AFTER plugin teardown
+    // so plugins can still interact with mailbox/HQ during their own shutdown.
+    try {
+      await this.ctx.drainAgentHooks();
+    } catch {
+      // best-effort — individual hook errors already swallowed by drainAgentHooks
+    }
     if (errors.length > 0) {
       throw new AgentError({
         message: `Agent teardown failed: ${errors.map(String).join('; ')}`,

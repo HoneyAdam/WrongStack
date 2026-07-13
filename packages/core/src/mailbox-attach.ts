@@ -64,7 +64,8 @@ function attachMailboxCheckerInner(
   });
   hqPublisher?.connect();
   if (hqPublisher) {
-    a.ctx.registerAbortHook(() => hqPublisher.close());
+    // Agent-level hook: the HQ publisher lives across runs, not per-run.
+    a.ctx.registerAgentHook(() => hqPublisher.close());
   }
   const mailbox: Mailbox = getSharedMailbox(projectDir, a.events, hqPublisher);
   const surface = source ?? ((a.ctx.meta['source'] as 'cli' | 'webui' | undefined) ?? 'cli');
@@ -123,9 +124,10 @@ function attachMailboxCheckerInner(
   }, HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref?.();
 
-  // Register cleanup to stop heartbeat on abort. Note: there's no unregisterAgent
-  // method - agents are considered offline after their heartbeat expires (60s timeout).
-  a.ctx.registerAbortHook(() => {
+  // Register cleanup to stop heartbeat on agent teardown. Note: there's no
+  // unregisterAgent method — agents are considered offline after their heartbeat
+  // expires (60s timeout). Agent-level: the heartbeat runs across runs.
+  a.ctx.registerAgentHook(() => {
     clearInterval(heartbeatTimer);
   });
 
@@ -205,7 +207,7 @@ function attachMailboxCheckerInner(
     void pollMailboxAwareness();
   }, AWARENESS_FALLBACK_INTERVAL_MS);
   awarenessTimer.unref?.();
-  a.ctx.registerAbortHook(() => {
+  a.ctx.registerAgentHook(() => {
     awarenessDisposed = true;
     clearInterval(awarenessTimer);
     if (pushDebounceTimer !== null) clearTimeout(pushDebounceTimer);
@@ -218,7 +220,7 @@ function attachMailboxCheckerInner(
   // swallowed inside autoCompact().
   if (mailbox instanceof GlobalMailbox) {
     const stopAutoCompact = mailbox.startAutoCompactTimer();
-    a.ctx.registerAbortHook(() => stopAutoCompact());
+    a.ctx.registerAgentHook(() => stopAutoCompact());
   }
 
   return checkMailbox;
