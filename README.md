@@ -583,7 +583,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --no-models-refresh  Skip the boot-time models.dev catalog refresh (offline/CI)
 --skip-index         Skip codebase indexing and large-codebase prompt
 --token-saving-mode  Lean prompt: 10 Tier-1 tools, compact skills, lazy MCP (mcp_use)
---yolo               Auto-approve normal project work; destructive calls still prompt
+--yolo               Opt in to auto-approving non-denied tool calls (off by default; trust-file deny rules + `permission: 'deny'` tools still win)
 --director           Enable Director-based fleet orchestration (LLM-driven subagent planning)
 --goal "<task>"      Boot directly into goal mode — GOAL preamble injected, TUI auto-enabled
 --eternal "<task>"   Start an eternal-autonomy loop against a goal
