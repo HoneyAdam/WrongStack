@@ -6,6 +6,7 @@ explicit deny rules.
 
 Current behavior:
 
+- **YOLO is opt-in.** Default config (`BEHAVIOR_DEFAULTS.yolo`) is `false`; prompt injection in repository content, fetched content, or mailbox messages cannot induce arbitrary shell calls or writes without human confirmation unless the user explicitly enables YOLO.
 - `--yolo` enables broad auto-approval.
 - Explicit denies still win: session soft-deny, trust-file deny patterns, and
   tools declared with `permission: 'deny'`.
@@ -18,12 +19,12 @@ Current behavior:
 | Surface | How to use it |
 |---|---|
 | CLI flag | `wrongstack --yolo` |
-| Interactive prompt | Answer `Y` at the "YOLO mode?" prompt during boot; default is yes |
 | Slash command | `/yolo`, `/yolo on`, `/yolo off`, `/yolo toggle` |
 | Programmatic | `permissionPolicy.setYolo(true)` |
 
-YOLO is off only when the user explicitly declines it at boot, persisted config
-sets it off, or `/yolo off` is run.
+When YOLO is off (the default), mutating or sensitive calls fall through to
+confirm prompts. Trust-file deny rules and `permission: 'deny'` tools still
+win regardless.
 
 ## Permission Evaluation Order
 
@@ -99,7 +100,7 @@ cleared when the trust file is reloaded.
 | Concern | Mitigation |
 |---|---|
 | Accidental destructive commands | Keep YOLO off when you want per-call review; use explicit trust-file deny rules for hard blocks |
-| Project-boundary escape | Outside-project file mutations can be denied through trust rules or tool policy |
+| Project-boundary escape | Filesystem tools refuse reads/writes outside the active project root by default (`tools.restrictToProjectRoot: true`); explicit `features.allowOutsideProjectRoot` is the only way to opt out |
 | YOLO left on unintentionally | TUI status and `/yolo` show the current state |
 | Subagent privilege escalation | Subagents use `AutoApprovePermissionPolicy`, which denies dangerous capabilities, MCP tools, and legacy risky names by default |
 | Trust file poisoning | Trust is per project at `~/.wrongstack/projects/<hash>/trust.json`; encrypted secrets are separate |

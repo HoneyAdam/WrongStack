@@ -663,7 +663,7 @@ flowchart TD
 3. Subject matching based on explicit `subjectKey` or known input fields such as `path`, `url`, `name`, or `command`.
 4. Deny rules.
 5. Allow/auto rules.
-6. YOLO mode: auto for normal project work; destructive-gated calls still confirm unless `--yolo-destructive` is active.
+6. YOLO mode (opt-in via `--yolo` or `/yolo on`): when on, non-denied tool calls auto-approve; when off (the default), mutating/network-sensitive calls fall through to confirm prompts. Trust-file deny rules and `permission: 'deny'` tools still win.
 7. Tool default permission.
 8. User confirmation via delegate or event.
 
@@ -1280,7 +1280,8 @@ Important controls visible in the repository:
 | Plaintext migration | Config boot migrates plaintext secret-bearing fields to encrypted form. |
 | Config version migration | `config-migration.ts` provides a `{ from, to, migrate }` migration framework for evolving config schema across versions. |
 | Secret scrubbing | Tool outputs and errors are scrubbed before rendering/persisting. |
-| Permission prompts | `DefaultPermissionPolicy` supports deny/allow/auto/yolo/user confirmation; YOLO auto-approves normal project work while `--yolo-destructive` controls destructive-gated calls. |
+| Permission prompts | `DefaultPermissionPolicy` supports deny/allow/auto/yolo/user confirmation; YOLO is opt-in (off by default), and trust-file deny rules + `permission: 'deny'` tools still win. |
+| Project-root containment | `tools.restrictToProjectRoot` defaults to true; filesystem tools refuse to read or write outside the active project root unless `features.allowOutsideProjectRoot` is explicitly enabled. |
 | Trust file | Per-project trust policies are persisted and matched by tool/subject. |
 | Child env sanitization | Execution tools sanitize environment by default. |
 | SSRF hardening | `fetch` validates private CIDRs and redirects. |

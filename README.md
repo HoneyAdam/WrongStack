@@ -447,7 +447,8 @@ Five-layer observability:
 ### Security
 
 - **Permission policy** (`trust.json`): per-tool allow/deny, persisted to disk, applies to subagents
-- **YOLO mode** (`--yolo` or `/yolo`): auto-approves normal project work; clearly destructive calls still require explicit confirmation
+- **YOLO mode is opt-in** (`--yolo` or `/yolo on`): off by default so prompt-injection in repo, fetched, or mailbox content cannot induce arbitrary shell calls or writes without human confirmation; when on, non-denied tool calls auto-approve and trust-file deny rules + `permission: 'deny'` tools still win
+- **Project-root containment** (`tools.restrictToProjectRoot`): filesystem tools refuse to read or write outside the active project root unless `features.allowOutsideProjectRoot` is explicitly enabled
 - **Bash tool env allowlist**: `WRONGSTACK_BASH_ENV_PASSTHROUGH=1` disables the allowlist (legacy unsafe mode — see `SECURITY.md`)
 - **`WRONGSTACK_FETCH_ALLOW_PRIVATE=1`**: enables localhost/private IPs in the `fetch` tool
 - **AES-256-GCM** encryption for all secrets at rest
@@ -513,7 +514,7 @@ wrongstack          # provider list → model list → save prompt → REPL
 wrongstack --tui    # same, then enters TUI
 wrongstack --webui --open  # serve browser UI and open it
 
-# TUI + YOLO (auto-approve normal project work)
+# TUI + YOLO (off by default; opt in with --yolo)
 wrongstack --tui --yolo
 
 # Desktop shell
@@ -622,7 +623,7 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | `/queue` | _(TUI)_ Show, clear, or delete entries from the in-flight message queue. `/queue picker on\|off` toggles the mid-run send-mode picker (Queue / By the way / Steer) that pops when you submit a plain message while the agent is busy |
 | `/plan show\|add\|start\|done\|remove\|clear` | Per-session plan JSON. Mirrored to disk; surfaces `📋 ⌛N ☐N ✓N` chip in TUI status bar |
 | `/autonomy off\|suggest\|on\|eternal\|parallel\|stop\|toggle` | Self-driving mode. `suggest` shows next steps without executing; `on` auto-continues; `eternal` runs goal-driven loop; `parallel` fans out 4-8 subagents per tick. TUI shows `∞ AUTO` / `∞ SUGGEST` / `ETERNAL` / `⟳ PARALLEL` chip |
-| `/yolo on\|off\|toggle` | Flip YOLO mode (auto-approve normal project work; destructive calls still prompt). `/yolo` alone shows status. TUI shows `⚠ YOLO` chip |
+| `/yolo on\|off\|toggle` | Flip YOLO mode (off by default; `/yolo on` opts in to auto-approving non-denied tool calls; trust-file deny rules + `permission: 'deny'` tools still win). `/yolo` alone shows status. TUI shows `⚠ YOLO` chip when on |
 | `/interrupt` (aliases `/stop`, `/int`) | Stop the in-flight leader run **and** terminate the whole fleet — for when `Esc` is eaten by tmux or you're driving from the WebUI. REPL `Ctrl+C` now also stops subagents |
 | `/mode` | Switch persona: `default`, `code-reviewer`, `code-auditor`, `architect`, `debugger`, `tester`, `devops`, `refactorer`. Custom modes in `~/.wrongstack/modes/` |
 | `/model` | _(TUI)_ Two-step provider → model picker. In the plain REPL, relaunch with `--provider` / `--model` |
