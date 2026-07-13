@@ -43,7 +43,12 @@ export interface SlashCommandsDeps {
   provider: Provider;
   model: string;
   multiAgentHost: MultiAgentHost;
-  fleetStreamController: { enabled: boolean; setEnabled(enabled: boolean): void };
+  fleetStreamController: {
+    enabled: boolean;
+    setEnabled(enabled: boolean): void;
+    mode: import('@wrongstack/core').FleetChatVerbosity;
+    setMode(mode: import('@wrongstack/core').FleetChatVerbosity): void;
+  };
   /** Controller for the agents monitor overlay (optional). */
   agentsMonitorController?: {
     visible: boolean;

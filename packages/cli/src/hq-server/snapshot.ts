@@ -82,7 +82,17 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
     }
 
     for (const tracked of client.sessions.values()) {
-      sessionById.set(tracked.payload.sessionId, tracked.payload);
+      const cutoff = Date.now() - 5 * 60_000;
+      const agents = tracked.payload.agents.filter((agent) => {
+        if (agent.id === 'leader') return true;
+        const lastActivityAt = Date.parse(agent.lastActivityAt);
+        return Number.isFinite(lastActivityAt) && lastActivityAt >= cutoff;
+      });
+      sessionById.set(tracked.payload.sessionId, {
+        ...tracked.payload,
+        agents,
+        agentCount: agents.length,
+      });
     }
 
     for (const snapshot of client.mailboxes.values()) {
@@ -101,12 +111,27 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
 
     // Collect fleet snapshots — latest per runId wins.
     for (const fleet of client.fleets.values()) {
-      fleetByRunId.set(fleet.runId, { payload: fleet, clientId: client.clientId, projectId: client.projectId, lastActivityAt: now });
+      fleetByRunId.set(fleet.payload.runId, {
+        payload: fleet.payload,
+        clientId: client.clientId,
+        projectId: client.projectId,
+        lastActivityAt: new Date(fleet.receivedAt).toISOString(),
+      });
     }
   }
 
-  // Per-project active-client counts from deduped client records.
+  // One PROCESS = one client. A single wstack process legitimately holds
+  // several publisher sockets (session telemetry + mailbox + webui), so
+  // counting client records would inflate every client counter 2-3×.
+  const processKeyOf = (rec: HqClientRecord): string =>
+    rec.pid !== undefined ? `${rec.machineId}:${rec.pid}` : rec.clientId;
+
+  // Per-project active-client counts — distinct processes per project.
+  const countedProjectProcesses = new Set<string>();
   for (const rec of clientRecordById.values()) {
+    const key = `${rec.projectId}|${processKeyOf(rec)}`;
+    if (countedProjectProcesses.has(key)) continue;
+    countedProjectProcesses.add(key);
     const project = projectMap.get(rec.projectId);
     if (project) project.activeClients++;
   }
@@ -182,7 +207,9 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
   }
 
   // Attribute connected clients to machines too (so a machine with a client
-  // but no session yet still appears).
+  // but no session yet still appears). clientCount is per PROCESS, not per
+  // publisher socket — see processKeyOf above.
+  const countedMachineProcesses = new Set<string>();
   for (const rec of clientRecordById.values()) {
     if (!rec.machineId && !rec.hostname) continue;
     const rKey = hqMachineKey(rec.hostname, rec.machineId);
@@ -202,7 +229,11 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
       };
       machineMap.set(rKey, machine);
     }
-    machine.record.clientCount++;
+    const processKey = `${rKey}|${processKeyOf(rec)}`;
+    if (!countedMachineProcesses.has(processKey)) {
+      countedMachineProcesses.add(processKey);
+      machine.record.clientCount++;
+    }
     machine.projects.add(rec.projectId);
     if (rec.hostname && !machine.record.hostname) machine.record.hostname = rec.hostname;
   }
@@ -282,7 +313,7 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
     mcpServers,
     totals: {
       activeProjects: projects.length,
-      activeClients: clientRecords.length,
+      activeClients: new Set(clientRecords.map(processKeyOf)).size,
       activeSessions: liveSessions.length,
       activeSubagents: totalSubagents,
       unreadMailboxMessages: unread,
@@ -319,7 +350,8 @@ export function createSnapshotBroadcaster(
 
   const flush = (): void => {
     timer = null;
-    if (browsers.size === 0) return;
+    // Always serialize: this also overwrites the persisted checkpoint when the
+    // final client disappears, even if no browser is currently connected.
     const data = serialize();
     for (const ws of browsers) {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);

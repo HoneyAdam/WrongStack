@@ -1,10 +1,22 @@
-import { Box, Text, useInput } from '../ink.js';
+import { Box, Text, useInput, useStdout } from '../ink.js';
 import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
+import type { AgentTimelineEntry } from '@wrongstack/core/coordination';
 import type { FleetEntry } from '../app.js';
+import type { HistoryEntry } from './history/types.js';
 import { bucketActivity, fmtModelLabel, sparkline } from './fleet-monitor.js';
 import { fmtElapsed } from './status-bar.js';
 import { getToolVisual } from '../tool-glyph.js';
+
+/**
+ * Narrow read-only view of per-subagent transcripts. AgentMonitorService
+ * (created in the CLI host) satisfies this structurally; the TUI never
+ * imports from @wrongstack/cli. `getTranscript` returns entries NEWEST
+ * FIRST (mirroring AgentMonitorService.getTranscript).
+ */
+export interface AgentTranscriptReader {
+  getTranscript(subagentId: string, limit?: number): AgentTimelineEntry[];
+}
 
 export interface AgentsMonitorProps {
   entries: Record<string, FleetEntry>;
@@ -22,6 +34,20 @@ export interface AgentsMonitorProps {
   nowTick: number;
   /** Called when there are no active/detail-worthy agents left to show. */
   onClose?: (() => void) | undefined;
+  /**
+   * Optional transcript reader — when provided, the selected agent's
+   * detail card renders a scrollable full-transcript pane (PgUp/PgDn)
+   * with a CONSTANT-height layout, so switching agents never changes the
+   * panel height (no scrollback churn). Falls back to the streaming-tail
+   * snippet when absent.
+   */
+  transcripts?: AgentTranscriptReader | undefined;
+  /**
+   * Optional leader history source (oldest first) — the main chat's own
+   * entries mapped to timeline shape, WITHOUT subagent lines, so selecting
+   * LEADER shows a clean per-agent view just like the subagents.
+   */
+  leaderTranscript?: (() => AgentTimelineEntry[]) | undefined;
 }
 
 const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
@@ -274,6 +300,173 @@ function AgentRow({
   );
 }
 
+// ── Transcript pane (F3 detail) ──────────────────────────────────────
+
+/** Fallback rows of transcript content when terminal height is unknown. */
+export const TRANSCRIPT_ROWS = 10;
+
+/** Full in-memory transcript depth to fetch (AgentMonitorService ring size). */
+export const TRANSCRIPT_FETCH_LIMIT = 500;
+
+/**
+ * Rows of transcript content for the current terminal. Constant for a
+ * given terminal size and agent count, so agent switches never change
+ * the panel height — only explicit resizes / fleet composition do.
+ */
+export function transcriptRowsForTerminal(termRows: number | undefined, rosterCount: number): number {
+  // Chrome above/below the pane: monitor header (4 rows) + roster lines +
+  // detail chrome (3 rows) + pane border/header (3) + input/status margin (~8).
+  const chrome = 4 + Math.max(0, rosterCount - 1) + 3 + 3 + 8;
+  const available = (termRows ?? 30) - chrome;
+  return Math.max(6, Math.min(24, available));
+}
+
+const TRANSCRIPT_GLYPHS: Record<AgentTimelineEntry['kind'], string> = {
+  text: '💬',
+  thinking: '∴',
+  tool_use: '🔧',
+  tool_result: '📎',
+  status: '·',
+  error: '❌',
+  system: '·',
+};
+
+/** One transcript entry as a single display line: `HH:MM:SS L3 🔧 …`. */
+export function formatTranscriptLine(e: AgentTimelineEntry, maxWidth = 110): string {
+  // Leader entries synthesized from chat history carry no timestamp /
+  // iteration — omit those segments instead of printing placeholders.
+  const time = e.ts
+    ? (() => {
+        const d = new Date(e.ts);
+        return `${Number.isNaN(d.getTime()) ? '??:??:??' : d.toLocaleTimeString('en-US', { hour12: false })} `;
+      })()
+    : '';
+  const iter = e.iteration > 0 ? `L${e.iteration} ` : '';
+  const glyph = TRANSCRIPT_GLYPHS[e.kind] ?? '·';
+  // tool_result content can be huge (up to ~20KB) — first line only, then snippet.
+  const lines = e.content.split('\n');
+  const firstLine = (lines[0] ?? '').trim();
+  // The content's first line usually already names the tool ("glob({…})",
+  // "Completed read (2ms)") — repeating the bare toolName produced noise
+  // like "glob glob". Only prefix it when the content doesn't carry it.
+  const tool = e.toolName && !firstLine.includes(e.toolName)
+    ? `${e.toolName}${e.toolOk === false ? ' ✗' : ''} `
+    : e.toolName && e.toolOk === false && !firstLine.includes('✗') && !firstLine.startsWith('Failed')
+      ? '✗ '
+      : '';
+  const extraLines = lines.length - 1;
+  const tail = extraLines > 0 ? ` (+${extraLines})` : '';
+  const head = `${time}${iter}${glyph} ${tool}`;
+  return `${head}${snippet(firstLine, Math.max(16, maxWidth - head.length - tail.length))}${tail}`;
+}
+
+/**
+ * Map the main chat's history entries into the transcript timeline shape
+ * so LEADER gets its own clean per-agent view in the F3 monitor. Subagent
+ * lines are EXCLUDED — that separation (leader vs subagents, not
+ * interleaved) is the whole point of the per-agent view. Banners and
+ * confirm prompts are UI chrome, not history, and are skipped too.
+ */
+export function leaderTimelineFromEntries(entries: readonly HistoryEntry[]): AgentTimelineEntry[] {
+  const out: AgentTimelineEntry[] = [];
+  for (const e of entries) {
+    const base = { id: `h${e.id}`, subagentId: 'leader', agentName: 'LEADER', ts: '', iteration: 0 } as const;
+    switch (e.kind) {
+      case 'user':
+        out.push({ ...base, kind: 'status', content: `❯ ${e.text}` });
+        break;
+      case 'assistant':
+        out.push({ ...base, kind: 'text', content: e.text });
+        break;
+      case 'thinking':
+        out.push({ ...base, kind: 'thinking', content: e.text });
+        break;
+      case 'tool': {
+        const meta = [
+          e.durationMs > 0 ? `${e.durationMs}ms` : '',
+          typeof e.outputLines === 'number' && e.outputLines > 0 ? `${e.outputLines}L` : '',
+        ].filter(Boolean).join(' · ');
+        out.push({ ...base, kind: 'tool_use', toolName: e.name, toolOk: e.ok, content: meta });
+        break;
+      }
+      case 'error':
+        out.push({ ...base, kind: 'error', content: e.text });
+        break;
+      case 'warn':
+        out.push({ ...base, kind: 'system', content: `⚠ ${e.text}` });
+        break;
+      case 'info':
+      case 'turn-summary':
+        out.push({ ...base, kind: 'system', content: e.text });
+        break;
+      case 'brain':
+        out.push({ ...base, kind: 'system', content: `🧠 ${e.question}${e.decision ? ` → ${e.decision}` : ''}` });
+        break;
+      // banner / confirm / subagent: intentionally skipped.
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Slice a transcript (OLDEST first) into the fixed viewing window.
+ * `scrollOffset` counts lines scrolled UP from the tail (0 = pinned to
+ * newest). Returns the visible slice plus how many entries are hidden
+ * above/below the window.
+ */
+export function selectTranscriptWindow(
+  entries: readonly AgentTimelineEntry[],
+  scrollOffset: number,
+  rows: number = TRANSCRIPT_ROWS,
+): { slice: AgentTimelineEntry[]; above: number; below: number } {
+  const total = entries.length;
+  const maxOffset = Math.max(0, total - rows);
+  const offset = Math.max(0, Math.min(scrollOffset, maxOffset));
+  const end = total - offset;
+  const start = Math.max(0, end - rows);
+  return { slice: entries.slice(start, end), above: start, below: offset };
+}
+
+/**
+ * Fixed-height transcript pane. Constant row count in every state so the
+ * surrounding inline-Ink layout never grows/shrinks while streaming
+ * (growth at the bottom edge leaks rows into native scrollback).
+ */
+function TranscriptPane({
+  entries,
+  scrollOffset,
+  rows = TRANSCRIPT_ROWS,
+}: {
+  entries: readonly AgentTimelineEntry[];
+  scrollOffset: number;
+  rows?: number | undefined;
+}): React.ReactElement {
+  const { slice, above, below } = selectTranscriptWindow(entries, scrollOffset, rows);
+  const padding = Math.max(0, rows - slice.length);
+  return (
+    <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+      <Box flexDirection="row" gap={1}>
+        <Text dimColor bold>transcript</Text>
+        <Text dimColor>
+          {entries.length} entries · PgUp/PgDn scroll
+          {above > 0 ? ` · ↑ ${above} earlier` : ''}
+          {below > 0 ? ` · ↓ ${below} newer` : ''}
+        </Text>
+      </Box>
+      {slice.map((e) => (
+        <Text key={e.id} dimColor={e.kind === 'thinking' || e.kind === 'system'} color={e.kind === 'error' ? 'red' : undefined}>
+          {formatTranscriptLine(e)}
+        </Text>
+      ))}
+      {Array.from({ length: padding }, (_, i) => (
+        <Text key={`pad-${i}`}> </Text>
+      ))}
+    </Box>
+  );
+}
+
 /**
  * Expanded detail card for the selected agent — shows sparkline, last tool,
  * streaming text, budget warnings, and failure reason.
@@ -281,10 +474,73 @@ function AgentRow({
 function AgentDetail({
   entry,
   now,
+  transcript,
+  transcriptScroll = 0,
+  transcriptRows = TRANSCRIPT_ROWS,
 }: {
   entry: FleetEntry;
   now: number;
+  /** Full transcript, OLDEST first. Undefined = no reader wired (fallback UI). */
+  transcript?: AgentTimelineEntry[] | undefined;
+  transcriptScroll?: number | undefined;
+  transcriptRows?: number | undefined;
 }): React.ReactElement {
+  // Transcript mode: a CONSTANT-height card — exactly 3 chrome rows plus the
+  // fixed transcript pane, with no conditional rows. Switching agents (or an
+  // agent picking up budget warnings / costs mid-run) must never change the
+  // card height: in inline Ink a growing bottom region leaks rows into the
+  // native scrollback and yanks the user's scroll position.
+  if (transcript) {
+    const modelLbl = fmtModelLabel(entry.provider, entry.model) || [entry.provider, entry.model].filter(Boolean).join('/');
+    const statusMeta = STATUS[entry.status];
+    // Row 3 is a single always-present line: the most urgent of
+    // failure > budget pressure > live stream tail > current activity.
+    // The stream tail is the one place that updates in-place word by word —
+    // the transcript pane below shows whole segments, not a delta ticker.
+    const liveTail = entry.status === 'running' && entry.streamingText
+      ? snippet(entry.streamingText.slice(-160), 110)
+      : '';
+    const alert = entry.failureReason && entry.status !== 'success'
+      ? { color: 'red', text: `✗ ${snippet(entry.failureReason, 90)}` }
+      : entry.budgetWarning
+        ? { color: 'yellow', text: `⚡ ${entry.budgetWarning.kind} ${entry.budgetWarning.used}/${entry.budgetWarning.limit}${entry.extensions ? ` ×${entry.extensions}` : ''}` }
+        : liveTail
+          ? { color: 'gray', text: `∴ …${liveTail}` }
+          : { color: entry.currentTool ? 'cyan' : 'gray', text: currentAction(entry, now) };
+    return (
+      <Box alignSelf="stretch" flexDirection="column" width="100%" flexGrow={1}>
+        <Box
+          alignSelf="stretch"
+          flexDirection="column"
+          width="100%"
+          flexGrow={1}
+          paddingX={1}
+          borderStyle="single"
+          borderColor="magenta"
+        >
+          <Box flexDirection="row" gap={1}>
+            <Text color="magenta" bold>{formatAgentDetailHeader(entry)}</Text>
+            <Text dimColor>{entry.id}</Text>
+            {modelLbl ? <Text color="cyan">{modelLbl}</Text> : <Text dimColor>·</Text>}
+            <Text color={statusMeta.color}>{statusMeta.icon} {entry.status}</Text>
+          </Box>
+          <Box flexDirection="row" gap={1}>
+            <Text dimColor>runtime</Text>
+            <Text>{fmtElapsed(Math.max(0, now - entry.startedAt))}</Text>
+            <Text color="cyan">L{entry.iterations} {entry.toolCalls}t</Text>
+            <Text dimColor>ctx</Text>
+            <Text>{formatContextRunway(entry.ctxTokens, entry.ctxMaxTokens)}</Text>
+            <Text color="green">${entry.cost.toFixed(4)}</Text>
+          </Box>
+          <Box flexDirection="row" gap={1}>
+            <Text color={alert.color}>{alert.text}</Text>
+          </Box>
+          <TranscriptPane entries={transcript} scrollOffset={transcriptScroll} rows={transcriptRows} />
+        </Box>
+      </Box>
+    );
+  }
+
   const spark = sparkline(bucketActivity(entry.recentTools, now));
   const lastTool = entry.recentTools[entry.recentTools.length - 1];
   const lastMessage = entry.recentMessages[entry.recentMessages.length - 1];
@@ -441,6 +697,8 @@ export function AgentsMonitor({
   totalTokens,
   nowTick,
   onClose,
+  transcripts,
+  leaderTranscript,
 }: AgentsMonitorProps): React.ReactElement {
   const all = Object.values(entries);
   const grandCost = leaderCost + totalCost;
@@ -458,9 +716,38 @@ export function AgentsMonitor({
   const selected = selectAgentDetail(live, selectedId);
   const selectedIndex = selected ? live.findIndex((entry) => entry.id === selected.id) : -1;
 
+  // Selected agent's full transcript, refreshed on the 1s nowTick (poll —
+  // AgentMonitorService's per-delta events would re-render per token).
+  // Subagents: getTranscript returns newest-first, the pane wants oldest-
+  // first. LEADER: the main chat's own entries (already oldest-first),
+  // supplied by the App WITHOUT subagent lines, so every agent — leader
+  // included — gets its own clean, separate history.
+  const [transcriptScroll, setTranscriptScroll] = useState(0);
+  const selectedTranscriptId = selected?.id;
+  const transcript = useMemo(() => {
+    if (!selected) return undefined;
+    if (isLeaderEntry(selected)) {
+      return leaderTranscript ? leaderTranscript().slice(-TRANSCRIPT_FETCH_LIMIT) : undefined;
+    }
+    return transcripts
+      ? transcripts.getTranscript(selected.id, TRANSCRIPT_FETCH_LIMIT).slice().reverse()
+      : undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nowTick drives the 1 Hz refresh
+  }, [transcripts, leaderTranscript, selectedTranscriptId, nowTick]);
+  // Re-pin to the newest entries when the selection changes.
+  useEffect(() => {
+    setTranscriptScroll(0);
+  }, [selectedTranscriptId]);
+
+  // Pane height: constant for a given terminal size + roster size, so
+  // ↑↓ agent switches never change the overall panel height.
+  const { stdout } = useStdout();
+  const paneRows = transcriptRowsForTerminal(stdout?.rows, live.length);
+
   // Keyboard navigation. Arrow keys ONLY — the chat input stays live beneath
   // this panel, so j/k are left free to type into the message buffer rather
-  // than being captured here as navigation.
+  // than being captured here as navigation. PgUp/PgDn scroll the transcript
+  // pane (safe: the composer skips PgUp/PgDn while an overlay is open).
   useInput((_input, key) => {
     if (live.length === 0) return;
     if (key.upArrow) {
@@ -469,6 +756,11 @@ export function AgentsMonitor({
     } else if (key.downArrow) {
       const next = Math.min(live.length - 1, selectedIndex + 1);
       setSelectedId(live[next]?.id);
+    } else if (key.pageUp && transcript) {
+      const maxOffset = Math.max(0, transcript.length - paneRows);
+      setTranscriptScroll((s) => Math.min(maxOffset, s + paneRows));
+    } else if (key.pageDown && transcript) {
+      setTranscriptScroll((s) => Math.max(0, s - paneRows));
     }
   });
 
@@ -506,7 +798,7 @@ export function AgentsMonitor({
         <Text dimColor>·</Text>
         <Text dimColor>failed</Text>
         {totalFailed > 0 ? <Text color="red">✗{totalFailed}</Text> : null}
-        <Text dimColor>· ↑↓ nav · Ctrl+G / F3 close</Text>
+        <Text dimColor>· ↑↓ nav{transcripts ? ' · PgUp/PgDn transcript' : ''} · Ctrl+G / F3 close</Text>
       </Box>
 
       {/* Mission-control pulse: pressure, hottest agent, total throughput. */}
@@ -569,7 +861,14 @@ export function AgentsMonitor({
       {/* Agent rows: only the selected entry expands in-place. */}
       {live.map((e) => (
         e.id === selected?.id ? (
-          <AgentDetail key={e.id} entry={e} now={nowTick} />
+          <AgentDetail
+            key={e.id}
+            entry={e}
+            now={nowTick}
+            transcript={transcript}
+            transcriptScroll={transcriptScroll}
+            transcriptRows={paneRows}
+          />
         ) : (
           <AgentRow key={e.id} entry={e} now={nowTick} selected={false} />
         )

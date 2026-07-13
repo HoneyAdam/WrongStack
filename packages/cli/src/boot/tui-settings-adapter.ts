@@ -15,12 +15,14 @@ import * as path from 'node:path';
 import {
   type Config,
   type ConfigStore,
+  type FleetChatVerbosity,
   type WstackPaths,
   atomicWrite,
   decryptConfigSecrets,
   encryptConfigSecrets,
   noOpVault,
   normalizeTokenSavingTier,
+  resolveFleetChatVerbosity,
 } from '@wrongstack/core';
 import { getProcessRegistry } from '@wrongstack/tools';
 import { deriveFsAccessPair, filterSafeForProject } from '../settings-menu.js';
@@ -30,7 +32,9 @@ import type { LiveSettingsInput } from '../execution.js';
 export interface SettingsAdapterContext {
   configStore: ConfigStore;
   wpaths: WstackPaths;
-  fleetStreamController: { setEnabled: (enabled: boolean) => void } | undefined;
+  fleetStreamController:
+    | { setEnabled: (enabled: boolean) => void; setMode?: ((mode: FleetChatVerbosity) => void) | undefined }
+    | undefined;
   applyLiveSettings: ((s: LiveSettingsInput) => void) | undefined;
 }
 
@@ -108,7 +112,9 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       delayMs: (autonomy?.autoProceedDelayMs as number) ?? 45_000,
       titleAnimation: autonomy?.terminalTitleAnimation !== false,
       yolo: cfg.yolo ?? ((autonomy?.yolo as boolean | undefined) ?? false),
+      // Legacy boolean kept for readers that predate the enum (webui prefs).
       streamFleet: autonomy?.streamFleet !== false,
+      fleetChatVerbosity: resolveFleetChatVerbosity(cfg.autonomy),
       chime: (autonomy?.chime as boolean) ?? false,
       confirmExit: autonomy?.confirmExit !== false,
       nextPrediction: cfg.nextPrediction ?? false,
@@ -178,6 +184,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.titleAnimation !== undefined ||
         s.yolo !== undefined ||
         s.streamFleet !== undefined ||
+        s.fleetChatVerbosity !== undefined ||
         s.chime !== undefined ||
         s.confirmExit !== undefined ||
         s.mouseMode !== undefined ||
@@ -242,7 +249,16 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         if (s.delayMs !== undefined) autonomy.autoProceedDelayMs = s.delayMs;
         if (s.titleAnimation !== undefined) autonomy.terminalTitleAnimation = s.titleAnimation;
         if (s.yolo !== undefined) autonomy.yolo = s.yolo;
-        if (s.streamFleet !== undefined) autonomy.streamFleet = s.streamFleet;
+        // fleetChatVerbosity is the source of truth; streamFleet is written as
+        // a mirror (`!== 'off'`) so legacy boolean readers (webui prefs) keep
+        // working. A boolean-only write maps on→full / off→off.
+        if (s.fleetChatVerbosity !== undefined) {
+          autonomy.fleetChatVerbosity = s.fleetChatVerbosity;
+          autonomy.streamFleet = s.fleetChatVerbosity !== 'off';
+        } else if (s.streamFleet !== undefined) {
+          autonomy.fleetChatVerbosity = s.streamFleet ? 'full' : 'off';
+          autonomy.streamFleet = s.streamFleet;
+        }
         if (s.chime !== undefined) autonomy.chime = s.chime;
         if (s.confirmExit !== undefined) autonomy.confirmExit = s.confirmExit;
         if (s.mouseMode !== undefined) autonomy.mouseMode = s.mouseMode;
@@ -477,7 +493,12 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
             : {}),
         });
       }
-      if (s.streamFleet !== undefined) fleetStreamController?.setEnabled(s.streamFleet);
+      if (s.fleetChatVerbosity !== undefined) {
+        if (fleetStreamController?.setMode) fleetStreamController.setMode(s.fleetChatVerbosity);
+        else fleetStreamController?.setEnabled(s.fleetChatVerbosity !== 'off');
+      } else if (s.streamFleet !== undefined) {
+        fleetStreamController?.setEnabled(s.streamFleet);
+      }
       applyLiveSettings?.(s);
       return null;
     } catch (err) {

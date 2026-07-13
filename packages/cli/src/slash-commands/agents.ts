@@ -4,14 +4,18 @@
  * Commands:
  *   /agents               — Show legacy subagent status
  *   /agents help          — Show detailed help
+ *   /agents chat off|compact|full — Fleet-chat verbosity for the main chat
+ *   /agents chat status   — Show current fleet-chat verbosity
  *   /agents stream on     — Show agent conversations in the main chat timeline
  *   /agents stream off    — Hide agent conversations from the main chat
  *   /agents stream status — Show current stream state
  *   /agents list          — List all active subagents
  *   /agents show <id>     — Show transcript for a specific agent
  */
-import type { SlashCommand } from '@wrongstack/core';
+import type { FleetChatVerbosity, SlashCommand } from '@wrongstack/core';
+import { noOpVault } from '@wrongstack/core';
 import type { AgentMonitorService, AgentVirtualSession, AgentTimelineEntry } from '@wrongstack/core/coordination';
+import { persistAutonomySetting } from '../settings-menu.js';
 import { parseSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 
@@ -35,7 +39,7 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
     name: 'agents',
     category: 'Agent',
     description:
-      'Monitor subagent activity: /agents [stream on|off|status|list|show <id>]',
+      'Monitor subagent activity: /agents [chat off|compact|full | stream on|off|status | list | show <id>]',
     async run(args) {
       // TUI mode: bare /agents or /agents list opens the agents monitor.
       if ((!args.trim() || args.trim() === 'list') && opts.onPanelOpen?.current) {
@@ -59,6 +63,8 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
             message: [
               '**/agents \u{2014} Subagent Monitoring**',
               '',
+              '`/agents chat off|compact|full` \u{2014} Fleet-chat verbosity (compact = one summary line per agent turn)',
+              '`/agents chat status`   \u{2014} Show current fleet-chat verbosity',
               '`/agents stream on`     \u{2014} Show agent conversations inline in chat',
               '`/agents stream off`    \u{2014} Hide agent conversations from chat',
               '`/agents stream status` \u{2014} Show current stream state',
@@ -75,6 +81,52 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
           const agentsInfo = (opts as unknown as Record<string, unknown>).onAgents;
           const msg = typeof agentsInfo === 'function' ? agentsInfo() : 'No agent monitor active.';
           return { message: msg };
+        }
+
+        case 'chat': {
+          const ctl = opts.fleetStreamController;
+          const sub = (rest[0] ?? 'status').toLowerCase();
+          if (sub === 'status') {
+            const mode = ctl?.mode ?? 'compact';
+            return {
+              message: `Fleet chat is **${mode}**. ${
+                mode === 'full'
+                  ? 'Every subagent tool call and message appears in chat.'
+                  : mode === 'compact'
+                    ? 'One summary line per agent turn; F2/F3 monitors stay fully live.'
+                    : 'Subagent chat lines are hidden; failures still surface. F2/F3 stay live.'
+              }`,
+            };
+          }
+          if (sub !== 'off' && sub !== 'compact' && sub !== 'full') {
+            return { message: 'Usage: `/agents chat off|compact|full|status`' };
+          }
+          const mode = sub as FleetChatVerbosity;
+          ctl?.setMode(mode);
+          // Persist so the choice survives restarts (mirror streamFleet for
+          // legacy boolean readers). Best-effort: config paths can be absent
+          // in embedded surfaces.
+          if (opts.configStore && opts.paths) {
+            await persistAutonomySetting(
+              {
+                configStore: opts.configStore,
+                globalConfigPath: opts.paths.globalConfig,
+                inProjectConfigPath: opts.paths.inProjectConfig,
+                vault: noOpVault,
+              },
+              (autonomy) => {
+                (autonomy as Record<string, unknown>).fleetChatVerbosity = mode;
+                (autonomy as Record<string, unknown>).streamFleet = mode !== 'off';
+              },
+            );
+          }
+          const desc =
+            mode === 'full'
+              ? 'Every subagent tool call and message will appear in chat.'
+              : mode === 'compact'
+                ? 'One summary line per agent turn (spawn ▶ / 🔧 summary / ✓ done).'
+                : 'Subagent chat lines hidden — watch agents in F2/F3; failures still surface.';
+          return { message: `Fleet chat → **${mode}**. ${desc}` };
         }
 
         case 'stream': {
@@ -157,7 +209,7 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         default: {
-          return { message: `Unknown subcommand "${cmd}". Try: stream, list, show` };
+          return { message: `Unknown subcommand "${cmd}". Try: chat, stream, list, show` };
         }
       }
     },

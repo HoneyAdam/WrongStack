@@ -61,6 +61,7 @@ export function createWebuiClientRegistration(
   deps: WebuiClientRegistrationDeps,
 ): WebuiClientRegistration {
   let webuiClientId: string | null = null;
+  let webuiMailbox: GlobalMailbox | undefined;
   let webuiHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let stopWebuiHqBridge: (() => void) | undefined;
   let webuiHqConnection: CliHqConnection | undefined;
@@ -77,6 +78,7 @@ export function createWebuiClientRegistration(
       const mailbox = new GlobalMailbox(projectDir, deps.events, () =>
         webuiHqConnection?.getPublisher(),
       );
+      webuiMailbox = mailbox;
 
       // Two-way control: when the host supplied control hooks, advertise
       // `control.receive` and dispatch HQ commands through the same
@@ -173,6 +175,11 @@ export function createWebuiClientRegistration(
     }
     webuiHqConnection?.stop();
     webuiHqConnection = undefined;
+    const clientId = webuiClientId;
+    webuiClientId = null;
+    const mailbox = webuiMailbox;
+    webuiMailbox = undefined;
+    if (mailbox && clientId) void mailbox.deregisterClient(clientId).catch(() => undefined);
   };
 
   return { register, unregister };

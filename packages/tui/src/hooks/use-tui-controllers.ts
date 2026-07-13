@@ -1,9 +1,15 @@
 import { useEffect } from 'react';
+import type { FleetChatVerbosity } from '@wrongstack/core';
 import type { Action } from '../app-reducer.js';
 
 export interface FleetStreamController {
+  /** @deprecated Mirror of `mode !== 'off'` — kept for boolean-only callers. */
   enabled: boolean;
+  /** @deprecated Maps to `setMode(enabled ? 'full' : 'off')`. */
   setEnabled: (enabled: boolean) => void;
+  /** Fleet-chat verbosity: off | compact | full. */
+  mode: FleetChatVerbosity;
+  setMode: (mode: FleetChatVerbosity) => void;
 }
 
 export interface EnhanceController {
@@ -18,7 +24,7 @@ export interface AgentsMonitorController {
 
 export interface UseTuiControllersOptions {
   dispatch: React.Dispatch<Action>;
-  streamFleet: boolean;
+  fleetChat: FleetChatVerbosity;
   enhanceEnabled: boolean;
   agentsMonitorOpen: boolean;
   fleetStreamController?: FleetStreamController | undefined;
@@ -35,7 +41,7 @@ export interface UseTuiControllersOptions {
  */
 export function useTuiControllers({
   dispatch,
-  streamFleet,
+  fleetChat,
   enhanceEnabled,
   agentsMonitorOpen,
   fleetStreamController,
@@ -44,20 +50,31 @@ export function useTuiControllers({
 }: UseTuiControllersOptions): void {
   useEffect(() => {
     if (!fleetStreamController) return;
-    fleetStreamController.enabled = streamFleet;
+    fleetStreamController.mode = fleetChat;
+    fleetStreamController.enabled = fleetChat !== 'off';
+    fleetStreamController.setMode = (mode: FleetChatVerbosity) => {
+      dispatch({ type: 'setFleetChat', mode });
+    };
     fleetStreamController.setEnabled = (enabled: boolean) => {
-      dispatch({ type: 'setStreamFleet', enabled });
+      dispatch({ type: 'setFleetChat', mode: enabled ? 'full' : 'off' });
     };
     return () => {
+      fleetStreamController.setMode = (mode: FleetChatVerbosity) => {
+        fleetStreamController.mode = mode;
+        fleetStreamController.enabled = mode !== 'off';
+      };
       fleetStreamController.setEnabled = (enabled: boolean) => {
-        fleetStreamController.enabled = enabled;
+        fleetStreamController.setMode(enabled ? 'full' : 'off');
       };
     };
-  }, [dispatch, fleetStreamController, streamFleet]);
+  }, [dispatch, fleetStreamController, fleetChat]);
 
   useEffect(() => {
-    if (fleetStreamController) fleetStreamController.enabled = streamFleet;
-  }, [fleetStreamController, streamFleet]);
+    if (fleetStreamController) {
+      fleetStreamController.mode = fleetChat;
+      fleetStreamController.enabled = fleetChat !== 'off';
+    }
+  }, [fleetStreamController, fleetChat]);
 
   useEffect(() => {
     if (!enhanceController) return;

@@ -12,6 +12,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![tests](https://img.shields.io/badge/tests-passing-2f9e44?style=flat-square)](#status)
 [![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![open source](https://img.shields.io/badge/open%20source-yes-ff3154?style=flat-square)](https://github.com/WrongStack/WrongStack)
+[![price](https://img.shields.io/badge/runtime-free-ff9f0a?style=flat-square)](LICENSE)
 
 ```bash
 npm i -g wrongstack && wrongstack
@@ -21,11 +23,11 @@ npm i -g wrongstack && wrongstack
 
 ---
 
-WrongStack drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **38 built-in tools**, **23 skills**, **8 core first-party plugins** + **36 official plugins** in `@wrongstack/plugins`, and **~140 providers** pulled live from [models.dev](https://models.dev) — 138 with a built-in transport (8 `anthropic` / 3 `openai` / 126 `openai-compatible` / 1 `google`) plus 3 OAuth families (`anthropic-oauth`, `openai-codex`, `github-copilot`). No hardcoded model names, no hardcoded pricing, no hardcoded lists. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
+WrongStack is **free, open source, and MIT licensed**. It drives **autonomous goal loops**, **parallel subagent fan-out**, **multi-agent Director orchestration**, **Brain-governed policy decisions**, and **collaborative debugging** — and walks you through full **Spec-Driven Development** cycles. It ships with **58 built-in tools**, **23 skills**, and **73 managed first-party plugin rows** (8 core + 63 in `@wrongstack/plugins` + 2 bridges), plus **~140 providers** pulled live from [models.dev](https://models.dev). There is no paid WrongStack runtime tier; model providers and external services may charge for their own usage. Secrets are **AES-256-GCM** encrypted at rest with a per-machine key; every tool call clears a **per-tool permission policy**. Everything lives under `~/.wrongstack/` — the only thing you'd ever commit is `.wrongstack/AGENTS.md`.
 
 ### ✨ Why it slaps
 
-- 🧠 **Four surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), and **WrongStack Desktop** (`--desktop` / `wstack desktop`).
+- 🧠 **Five surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), **WrongStack Desktop** (`--desktop` / `wstack desktop`), and the cross-machine **HQ Command Center**.
 - 🤖 **A fleet, not a lone agent** — a 47-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
 - 🛰️ **HQ for the whole room** — `wstack --hq` aggregates live sessions, agents, fleets, mailbox state, cost, tools, Brain decisions, and worktrees across machines, then can steer, send BTW notes, queue prompts, or stop connected clients through their own guardrails.
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
@@ -121,7 +123,7 @@ wstack hq token create "browser"
 wstack hq token create --client "build-box"
 ```
 
-### 38 built-in tools
+### 58 built-in tools
 
 All tools are registered out of the box — no plugin required.
 
@@ -287,7 +289,7 @@ controllable on every surface:
 
 ### Plugin ecosystem — `@wrongstack/plugins`
 
-`@wrongstack/plugins` ships 36 official plugins in one package, each available via a subpath export (`@wrongstack/plugins/<name>`). The retired `web-search` and `json-path` plugin names are intentionally skipped at load time; use the built-in `search` / `fetch` and `json` tools instead.
+`@wrongstack/plugins` ships 63 suite plugins in one package, each available via a subpath export (`@wrongstack/plugins/<name>`). Together with 8 core host plugins and the LSP/Telegram bridges, the audit registry exposes 73 managed first-party rows. The table below highlights the established suite; the authoritative complete inventory lives in `packages/plugins/src/catalog.ts` and `packages/cli/src/plugin-management.ts`. The retired `web-search` and `json-path` names are intentionally skipped at load time; use the built-in `search` / `fetch` and `json` tools instead.
 
 | Plugin | Tools / hooks | Notes |
 |--------|---------------|-------|
@@ -483,7 +485,7 @@ saving indicator and the current registered-tool count.
 
 ### `--no-features` minimal kernel
 
-Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, ~1670 lines incl. events) + agent (525 lines) + 38 tools + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
+Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. What's left: kernel (`Container` + `Pipeline` + `EventBus` + `RunController`, ~1670 lines incl. events) + agent (525 lines) + 58 built-in tools (subject to the selected token-saving tier) + permission policy + curated system prompt. The minimal-viable WrongStack runs offline with no network calls at startup. Provider family must be declared explicitly in config when using this mode.
 
 ---
 
@@ -740,7 +742,7 @@ Commit this file to share project conventions with the agent across all develope
 
 **2. Zero non-overridable behavior.** 16 services bound through `Container` (Logger, TokenCounter, SessionStore, MemoryStore, PermissionPolicy, Compactor, PathResolver, ConfigLoader, Renderer, InputReader, ErrorHandler, RetryPolicy, SkillLoader, SystemPromptBuilder, SecretScrubber, ModelsRegistry). 6 pipelines as middleware chains. Tools, providers, MCP servers, and slash commands all live in registries.
 
-**3. Standalone sufficiency.** Works with 38 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
+**3. Standalone sufficiency.** Works with 58 built-in tools, 4 wire-family transports, permission policy, and a curated system prompt — no plugins required.
 
 **4. Layered, not monolithic.** `--no-features` flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. The minimal-viable WrongStack runs offline with no network calls at startup.
 
@@ -751,7 +753,7 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/core` | Kernel, agent, types, registries, plugin contract |
 | `@wrongstack/runtime` | Default runtime implementations, host composition helpers, extension pack contracts |
 | `@wrongstack/providers` | Anthropic/OpenAI/OpenAI-compatible/Google wire adapters + SSE |
-| `@wrongstack/tools` | 38 built-in tools (incl. SQLite codebase index) |
+| `@wrongstack/tools` | 58 built-in tools (incl. browser/E2E controls and SQLite codebase index) |
 | `@wrongstack/mcp` | MCP server registry + reconnection logic |
 | `@wrongstack/acp` | Agent Client Protocol client + agent support |
 | `@wrongstack/bench` | Model-independent benchmark harness (Aider polyglot + SWE-bench Verified) |

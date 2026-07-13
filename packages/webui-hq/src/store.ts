@@ -97,7 +97,26 @@ function wireClient(): void {
   });
   client.on((msg) => {
     if (msg.type === 'hq.snapshot') {
-      setState({ snapshot: msg.snapshot, connected: true });
+      const liveSessions = msg.snapshot.liveSessions ?? [];
+      const selectedSession = state.selectedSessionId === null
+        ? undefined
+        : liveSessions.find((session) => session.sessionId === state.selectedSessionId);
+      const selectedAgentStillExists =
+        state.selectedAgentId === null ||
+        selectedSession?.agents.some((agent) => agent.id === state.selectedAgentId) === true;
+      const selectedClientStillExists =
+        state.selectedClientId === null ||
+        msg.snapshot.clients.some((client) => client.clientId === state.selectedClientId);
+      setState({
+        snapshot: msg.snapshot,
+        connected: true,
+        ...(state.selectedSessionId !== null && selectedSession === undefined
+          ? { selectedSessionId: null, selectedAgentId: null }
+          : !selectedAgentStillExists
+            ? { selectedAgentId: null }
+            : {}),
+        ...(!selectedClientStillExists ? { selectedClientId: null } : {}),
+      });
     } else if (msg.type === 'hq.event') {
       setState({ events: [...state.events, msg.event].slice(-MAX_EVENTS) });
     } else if (msg.type === 'hq.alert') {

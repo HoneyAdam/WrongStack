@@ -27,6 +27,8 @@ export function normalizeSubagentStructuredReport(
   const filesExamined = stringArray(value['files_examined']);
   const nextSteps = stringArray(value['suggested_next_steps']);
   const confidence = value['confidence'];
+  const completion = value['completion'];
+  const remainingWork = optionalString(value['remaining_work']);
   if (
     !summary ||
     summary.length > MAX_SUMMARY_CHARS ||
@@ -42,7 +44,10 @@ export function normalizeSubagentStructuredReport(
     typeof confidence !== 'number' ||
     !Number.isFinite(confidence) ||
     confidence < 0 ||
-    confidence > 1
+    confidence > 1 ||
+    (completion !== undefined && completion !== 'complete' && completion !== 'partial') ||
+    (completion === 'partial' && !remainingWork) ||
+    (remainingWork !== undefined && remainingWork.length > MAX_SUMMARY_CHARS)
   ) {
     return undefined;
   }
@@ -52,6 +57,8 @@ export function normalizeSubagentStructuredReport(
     files_examined: filesExamined.map((item) => item.trim()).filter(Boolean),
     confidence,
     suggested_next_steps: nextSteps.map((item) => item.trim()).filter(Boolean),
+    ...(completion === 'complete' || completion === 'partial' ? { completion } : {}),
+    ...(remainingWork ? { remaining_work: remainingWork } : {}),
   };
   return JSON.stringify(report).length <= MAX_SUBAGENT_STRUCTURED_REPORT_CHARS
     ? report
@@ -75,11 +82,15 @@ export function formatSubagentStructuredReport(report: SubagentStructuredReport)
     : '- (none)';
   return [
     report.summary,
+    report.completion ? `Completion: ${report.completion}` : undefined,
+    report.remaining_work ? `Remaining work: ${report.remaining_work}` : undefined,
     `\nFindings:\n${findings}`,
     `\nFiles examined: ${files}`,
     `Confidence: ${report.confidence.toFixed(2)}`,
     `\nSuggested next steps:\n${next}`,
-  ].join('\n');
+  ]
+    .filter((line): line is string => typeof line === 'string')
+    .join('\n');
 }
 
 /** Safe, task-local handoff channel from a subagent to its Director. */
@@ -123,6 +134,18 @@ export function makeSubagentResultTool(): Tool {
           items: { type: 'string' },
           description: 'Concrete follow-ups; use an empty array when none remain.',
         },
+        completion: {
+          type: 'string',
+          enum: ['complete', 'partial'],
+          description:
+            'Use `partial` only when the task is intentionally stopping at a clean checkpoint and another worker should continue.',
+        },
+        remaining_work: {
+          type: 'string',
+          maxLength: MAX_SUMMARY_CHARS,
+          description:
+            'Concrete work left for a successor. Required by runtime validation when completion is `partial`.',
+        },
       },
       required: ['summary', 'findings', 'files_examined', 'confidence', 'suggested_next_steps'],
       additionalProperties: false,
@@ -153,6 +176,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return value === undefined ? undefined : nonEmptyString(value);
 }
 
 function stringArray(value: unknown): string[] | undefined {

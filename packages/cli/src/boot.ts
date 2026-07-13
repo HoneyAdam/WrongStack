@@ -218,7 +218,9 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   });
 
   // Quick path: subcommand dispatch — run BEFORE network I/O so
-  // `wstack help/version/init` etc. don't wait for models.dev.
+  // Lightweight subcommands such as `wstack help` and `wstack version` do not
+  // wait for models.dev. The deprecated `wstack init` compatibility handler is
+  // dispatched here too, but current setup flows use `wstack auth`.
   if (first && subcommands[first]) {
     // Create container to get the SAME skillLoader instance that the main
     // interactive CLI uses. This ensures cache invalidation after
@@ -393,7 +395,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       }
     } else if (!config.provider || !config.model) {
       writeErr(
-        'No provider or model configured. Run `wrongstack init` first, or pass --provider <id> --model <id>.\n',
+        'No provider or model configured. Run `wstack auth`, or pass --provider <id> --model <id>.\n',
       );
       await reader.close();
       return 2;

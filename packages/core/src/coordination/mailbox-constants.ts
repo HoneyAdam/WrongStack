@@ -9,11 +9,12 @@
  * @module mailbox-constants
  */
 
-/** Agents without a heartbeat for this long are considered offline. */
+/**
+ * Agents without a heartbeat for this long are no longer live and are removed
+ * from the registry. Presence registries are not history stores: retaining an
+ * offline row makes dead agents and shadow workers look actionable in HQ.
+ */
 export const AGENT_STALE_MS = 60_000;
-
-/** Agents without a heartbeat for this long are removed from the registry entirely. */
-export const AGENT_PURGE_MS = 86_400_000; // 24 hours
 
 /** Clients without a heartbeat for this long are considered offline. */
 export const CLIENT_STALE_MS = 60_000;

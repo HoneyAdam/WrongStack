@@ -4,6 +4,7 @@ import type {
   AutonomyStage,
   ContentBlock,
   DesignKitEntry,
+  FleetChatVerbosity,
   TokenSavingTier,
 } from '@wrongstack/core';
 import type { SddBoardSnapshot } from '@wrongstack/sdd';
@@ -342,7 +343,7 @@ export type State = {
     // UX
     titleAnimation: boolean;
     yolo: boolean;
-    streamFleet: boolean;
+    fleetChat: FleetChatVerbosity;
     chime: boolean;
     confirmExit: boolean;
     nextPrediction: boolean;
@@ -627,12 +628,14 @@ export type State = {
   /** Live concurrency ceiling — updated by /fleet concurrency and concurrency.changed event. */
   fleetConcurrency: number;
   /**
-   * When true, subagent text activity is
-   * streamed into the main history with an `AGENT#N` prefix. Toggled
-   * with `/fleet stream on|off`. Tool calls stay in the live fleet
-   * surfaces so chat history remains readable during multi-agent runs.
+   * How much subagent activity is streamed into the main history with an
+   * `AGENT#N` prefix. `full` = every tool call and interim message;
+   * `compact` = spawn / one summary per agent turn / completion;
+   * `off` = nothing but failures. Toggled with `/agents chat` and
+   * `/fleet stream on|off`. The live fleet surfaces (F2/F3) stay
+   * fully live in every mode.
    */
-  streamFleet: boolean;
+  fleetChat: FleetChatVerbosity;
   /** When true, the full graphical fleet monitor overlay is shown (Ctrl+F). */
   monitorOpen: boolean;
   /** When true, the agents monitor overlay is shown (Ctrl+G). */
@@ -825,7 +828,8 @@ export type Settings = {
   delayMs: number;
   titleAnimation: boolean;
   yolo: boolean;
-  streamFleet: boolean;
+  /** Fleet-chat verbosity; wire name matches the CLI LiveSettingsInput. */
+  fleetChatVerbosity: FleetChatVerbosity;
   chime: boolean;
   confirmExit: boolean;
   nextPrediction: boolean;
@@ -991,7 +995,7 @@ export type Action =
       delayMs: number;
       titleAnimation: boolean;
       yolo: boolean;
-      streamFleet: boolean;
+      fleetChat: FleetChatVerbosity;
       chime: boolean;
       confirmExit: boolean;
       nextPrediction: boolean;
@@ -1272,7 +1276,7 @@ export type Action =
       durationMs?: number | undefined;
     }
   | { type: 'leaderCtxPct'; load: number; tokens: number; maxContext: number }
-  | { type: 'setStreamFleet'; enabled: boolean }
+  | { type: 'setFleetChat'; mode: FleetChatVerbosity }
   | { type: 'toggleMonitor' }
   | { type: 'toggleAgentsMonitor' }
   | { type: 'toggleHelp' }

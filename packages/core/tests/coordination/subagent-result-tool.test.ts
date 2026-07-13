@@ -48,8 +48,37 @@ describe('submit_result tool', () => {
     expect(ctx.meta).toEqual({});
   });
 
+  it('accepts a clean partial checkpoint only with concrete remaining work', async () => {
+    const ctx = { meta: {} as Record<string, unknown> };
+    const partial = {
+      ...validReport,
+      completion: 'partial',
+      remaining_work: 'Implement the remaining parser cases and rerun focused tests.',
+    } as const;
+
+    expect(
+      await makeSubagentResultTool().execute(partial, ctx as never, {} as never),
+    ).toMatchObject({ ok: true });
+    expect(readSubagentStructuredReport(ctx)).toMatchObject(partial);
+
+    const invalidCtx = { meta: {} as Record<string, unknown> };
+    expect(
+      await makeSubagentResultTool().execute(
+        { ...validReport, completion: 'partial' },
+        invalidCtx as never,
+        {} as never,
+      ),
+    ).toMatchObject({ ok: false });
+  });
+
   it('renders a stable compact handoff for roll-up and mailbox surfaces', () => {
-    const text = formatSubagentStructuredReport(validReport);
+    const text = formatSubagentStructuredReport({
+      ...validReport,
+      completion: 'partial',
+      remaining_work: 'Finish verification.',
+    });
+    expect(text).toContain('Completion: partial');
+    expect(text).toContain('Remaining work: Finish verification.');
     expect(text).toContain('Findings:\n- The check and write were not atomic.');
     expect(text).toContain('Files examined: src/store.ts, tests/store.test.ts');
     expect(text).toContain('Confidence: 0.95');

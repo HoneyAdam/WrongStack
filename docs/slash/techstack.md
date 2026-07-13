@@ -75,7 +75,7 @@ The subagent inherits the leader's tool registry. A token-saving tier of **`mini
 
 ## Hook into /init
 
-The `/init` slash command and `wstack init` subcommand both use `detectProjectFacts()` from `helpers.ts`. The techstack scan is triggered after the AGENTS.md write when:
+The `/init` slash command uses `detectProjectFacts()` from `helpers.ts`. The techstack scan is triggered after the AGENTS.md write when:
 1. A `package.json` is detected (Node.js project)
 2. The AGENTS.md is being created for the first time (no existing file)
 

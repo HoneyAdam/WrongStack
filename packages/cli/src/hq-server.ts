@@ -117,6 +117,12 @@ interface TrackedSessionSnapshot {
   receivedAt: number;
 }
 
+interface TrackedFleetSnapshot {
+  payload: HqFleetSnapshotPayload;
+  sessionId?: string;
+  receivedAt: number;
+}
+
 interface ConnectedClient {
   ws: WebSocket;
   clientId: string;
@@ -153,7 +159,7 @@ interface ConnectedClient {
    * replaced on each `fleet.snapshot` envelope from this client. Feeds the
    * `fleets[]` rollup in {@link buildSnapshot}.
    */
-  fleets: Map<string, HqFleetSnapshotPayload>;
+  fleets: Map<string, TrackedFleetSnapshot>;
   /**
    * Latest MCP operational-health snapshot keyed by sessionId — replaced on
    * each `mcp.health.snapshot` envelope from this client. Feeds the
@@ -625,6 +631,26 @@ function startHqServerWithAuth(
     // the broadcaster checkpoints into the snapshot store on each serialize.
     const persistence = createHqPersistence(dataDir);
     const auditLog = new HqCommandAuditLog();
+
+    // Presence files predate HQ and may contain records from processes that
+    // died days ago. Sweep every project once at startup so this upgrade
+    // physically removes accumulated stale agents/clients, not merely hides
+    // them from the current dashboard snapshot.
+    void (async () => {
+      const projectsDir = path.join(path.dirname(dataDir), 'projects');
+      const entries = await fs.readdir(projectsDir, { withFileTypes: true }).catch(() => []);
+      const { GlobalMailbox } = await import('@wrongstack/core');
+      await Promise.all(
+        entries
+          .filter((entry) => entry.isDirectory())
+          .map(async (entry) => {
+            const mailbox = new GlobalMailbox(path.join(projectsDir, entry.name));
+            await Promise.all([mailbox.getAgentStatuses(), mailbox.purgeClients()]);
+          }),
+      );
+    })().catch(() => {
+      // Best-effort cleanup must never delay or fail HQ startup.
+    });
     // Stable mailbox identity for direct HQ writes (/api/mailbox-send). Lets
     // recipients attribute a zero-client HQ prompt to this server instance.
     const hqSessionTag = randomUUID().slice(0, 8);
@@ -656,6 +682,9 @@ function startHqServerWithAuth(
     timeseriesFlushTimer.unref?.();
 
     const snapshotBroadcaster = createSnapshotBroadcaster(clients, browsers, persistence);
+    // Replace any prior-run checkpoint immediately. Persisted snapshots are a
+    // cache, never a source of live presence.
+    snapshotBroadcaster.currentSerialized();
 
     // Start periodic alert evaluation against the latest snapshot. The engine
     // reads the snapshot fresh on each tick (15s, unref'd) so alerts reflect
@@ -680,16 +709,36 @@ function startHqServerWithAuth(
           changed = true;
           continue;
         }
-        // Session-snapshot freshness: a socket kept alive by heartbeats can
-        // outlive its telemetry bridge. Drop sessions the bridge stopped
-        // refreshing so dead terminals fall out of the fleet tree. Fleets and
-        // mailboxes are NOT pruned here — those snapshots are event-driven,
-        // not republished on an interval, so age proves nothing about them.
+        // Session snapshots are periodically refreshed. When one expires,
+        // remove every live-state rollup owned by it. Transcript rings remain
+        // available as history, but are no longer presented as live topology.
+        const expiredSessions = new Set<string>();
         for (const [sessionId, tracked] of client.sessions.entries()) {
           if (tracked.receivedAt < sessionCutoff) {
             client.sessions.delete(sessionId);
+            client.mcpSnapshots.delete(sessionId);
+            expiredSessions.add(sessionId);
             changed = true;
           }
+        }
+        for (const [runId, fleet] of client.fleets) {
+          if (fleet.sessionId !== undefined && expiredSessions.has(fleet.sessionId)) {
+            client.fleets.delete(runId);
+            changed = true;
+          }
+        }
+
+        // A session-summary publisher that has never produced (or no longer
+        // retains) a live session is an orphan heartbeat, not a terminal.
+        if (
+          client.capabilities.includes('session.summary') &&
+          client.sessions.size === 0 &&
+          Date.now() - Date.parse(client.connectedAt) >
+            (options.sessionSnapshotTtlMs ?? SESSION_SNAPSHOT_TTL_MS)
+        ) {
+          ws.terminate();
+          clients.delete(ws);
+          changed = true;
         }
       }
       if (changed) snapshotBroadcaster.broadcast();

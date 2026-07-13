@@ -1,152 +1,312 @@
-'use client';
-
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { META } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Menu, Moon, Sun, X } from 'lucide-react';
-import { GitHubIcon } from '@/components/ui/github-icon';
+import { ArrowUpRight, ChevronDown, Menu, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { BrandMark } from '@/components/site/BrandMark';
+import { SiteSearch } from '@/components/site/SiteSearch';
+import { Button } from '@/components/ui/button';
+import { GitHubIcon } from '@/components/ui/github-icon';
+import { moreNav, moreNavGroups, primaryNav, repoUrl } from '@/data/content';
+import { Link, useRouter } from '@/lib/router';
+import { cn } from '@/lib/utils';
 
-const navItems = [
-  { href: '#features', label: 'Features' },
-  { href: '#interfaces', label: 'Surfaces' },
-  { href: '#architecture', label: 'Architecture' },
-  { href: '#demo', label: 'Demo' },
-  { href: '#skills', label: 'Skills' },
-  { href: '#security', label: 'Security' },
-  { href: '#changelog', label: 'Changelog' },
-];
+function Brand() {
+  return (
+    <Link href="/" aria-label="WrongStack home" className="group flex items-center gap-2.5">
+      <BrandMark className="w-12 transition-transform duration-300 group-hover:-translate-y-0.5 sm:w-14" />
+      <span className="font-mono text-[16px] font-black tracking-[-0.06em] text-fg sm:text-[17px]">
+        WRONG<span className="text-brand">STACK</span>
+      </span>
+    </Link>
+  );
+}
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const isDark = resolvedTheme === 'dark';
+
   return (
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Toggle theme"
+      aria-label={isDark ? 'Use light theme' : 'Use dark theme'}
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
-      className="text-muted hover:text-fg"
+      className="rounded-full text-muted hover:bg-card hover:text-fg"
     >
-      {mounted ? (
-        isDark ? (
-          <Sun className="size-5" />
-        ) : (
-          <Moon className="size-5" />
-        )
-      ) : (
+      {!mounted ? (
         <span className="size-5" />
+      ) : isDark ? (
+        <Sun className="size-4.5" />
+      ) : (
+        <Moon className="size-4.5" />
       )}
     </Button>
   );
 }
 
 export function Header() {
+  const { path } = useRouter();
   const [open, setOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 16);
+    const onScroll = () => setScrolled(window.scrollY > 12);
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  useEffect(() => {
+    setOpen(false);
+    setMoreOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false);
+    };
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', closeWithEscape);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeWithEscape);
+    };
+  }, []);
+
   return (
     <header
       className={cn(
-        'fixed inset-x-0 top-0 z-50 transition-colors duration-300',
-        scrolled ? 'border-b border-line bg-bg/80 backdrop-blur-xl' : 'border-b border-transparent',
+        'fixed inset-x-0 top-0 z-50 transition-all duration-300',
+        scrolled ? 'border-b border-line bg-bg/88 backdrop-blur-xl' : 'border-b border-transparent',
       )}
     >
-      <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Brand */}
-        <a href="#main" className="group flex items-center gap-2.5">
-          <span className="grid size-9 place-items-center rounded-lg bg-gradient-to-br from-brand to-brand-2 font-mono text-sm font-bold text-white shadow-sm shadow-brand/30 transition-transform group-hover:-rotate-3">
-            ❯_
-          </span>
-          <span className="font-mono text-[17px] font-bold tracking-tight">
-            wrong<span className="text-brand">stack</span>
-          </span>
-        </a>
+      <div className="signal-line" aria-hidden="true" />
+      <nav className="mx-auto flex h-[70px] max-w-[1380px] items-center justify-between px-4 sm:px-6 lg:px-10">
+        <Brand />
 
-        {/* Desktop nav */}
-        <div className="hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
-            <a
+        <div className="hidden items-center gap-0.5 lg:flex">
+          {primaryNav.map((item) => (
+            <Link
               key={item.href}
               href={item.href}
-              data-nav
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted transition-colors hover:text-fg"
+              className={cn(
+                'rounded-full px-3.5 py-2 text-sm font-semibold transition-colors',
+                path === item.href ? 'bg-card text-fg' : 'text-muted hover:text-fg',
+              )}
             >
               {item.label}
-            </a>
+            </Link>
           ))}
+          <div ref={moreRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((value) => !value)}
+              aria-expanded={moreOpen}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-3.5 py-2 text-sm font-semibold transition-colors',
+                moreNav.some((item) => item.href === path)
+                  ? 'bg-card text-fg'
+                  : 'text-muted hover:text-fg',
+              )}
+            >
+              More{' '}
+              <ChevronDown
+                className={cn('size-3.5 transition-transform', moreOpen && 'rotate-180')}
+              />
+            </button>
+            <AnimatePresence>
+              {moreOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.16 }}
+                  className="fixed left-1/2 top-[82px] w-[min(1120px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl shadow-black/20"
+                >
+                  <div className="manual-grid absolute inset-0 opacity-35" aria-hidden="true" />
+                  <div className="relative grid grid-cols-4 gap-px bg-line">
+                    {moreNavGroups.map((group, groupIndex) => (
+                      <div key={group.id} className="bg-surface p-4">
+                        <div className="px-2 pb-3">
+                          <span
+                            className={cn(
+                              'font-mono text-[10px] font-black uppercase tracking-[0.18em]',
+                              groupIndex % 2 ? 'text-brand-2' : 'text-brand',
+                            )}
+                          >
+                            0{groupIndex + 1} / {group.label}
+                          </span>
+                          <p className="mt-1 text-[11px] leading-5 text-faint">
+                            {group.description}
+                          </p>
+                        </div>
+                        <div className="space-y-0.5">
+                          {moreNav
+                            .filter((item) => item.group === group.id)
+                            .map((item, itemIndex) => (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                className={cn(
+                                  'group flex gap-3 rounded-xl p-2.5 transition-all hover:bg-card',
+                                  path === item.href && 'bg-card',
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    'grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-bg',
+                                    (groupIndex + itemIndex) % 2 ? 'text-brand-2' : 'text-brand',
+                                  )}
+                                >
+                                  <item.icon className="size-3.5" />
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-[13px] font-black text-fg group-hover:text-brand">
+                                    {item.label}
+                                  </span>
+                                  <span className="mt-0.5 block text-[10px] leading-4 text-muted">
+                                    {item.description}
+                                  </span>
+                                </span>
+                              </Link>
+                            ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="relative flex items-center justify-between gap-6 border-t border-line bg-ink px-5 py-3.5 text-white">
+                    <div className="flex items-center gap-3">
+                      <span className="size-2 rounded-sm bg-brand-2 shadow-[13px_0_0_#ff3154]" />
+                      <span className="ml-3 font-mono text-[10px] font-black uppercase tracking-[0.16em]">
+                        Open source · Free · MIT licensed
+                      </span>
+                      <span className="hidden text-[11px] text-zinc-500 xl:inline">
+                        Bring a provider. Keep the source.
+                      </span>
+                    </div>
+                    <a
+                      href={repoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex shrink-0 items-center gap-1.5 text-xs font-black text-brand-2 hover:text-white"
+                    >
+                      View GitHub <ArrowUpRight className="size-3.5" />
+                    </a>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-1">
+          <SiteSearch />
           <ThemeToggle />
-          <Button variant="ghost" size="icon" asChild className="text-muted hover:text-fg">
-            <a
-              href={META.repo}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub repository"
-            >
-              <GitHubIcon className="size-5" />
-            </a>
-          </Button>
-          <Button size="sm" asChild className="ml-1 hidden sm:inline-flex">
-            <a href="#install">Get started</a>
-          </Button>
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Menu"
-            className="md:hidden"
-            onClick={() => setOpen((v) => !v)}
+            asChild
+            className="hidden rounded-full text-muted hover:bg-card hover:text-fg sm:inline-flex"
+          >
+            <a href={repoUrl} target="_blank" rel="noreferrer" aria-label="WrongStack on GitHub">
+              <GitHubIcon className="size-4.5" />
+            </a>
+          </Button>
+          <Link
+            href="/getting-started"
+            className="ml-1 hidden rounded-full bg-fg px-4 py-2 text-sm font-bold text-bg transition-transform hover:-translate-y-0.5 sm:inline-flex"
+          >
+            Start here
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-label="Open navigation"
+            aria-expanded={open}
+            className="ml-1 grid size-10 place-items-center rounded-full text-fg hover:bg-card lg:hidden"
           >
             {open ? <X className="size-5" /> : <Menu className="size-5" />}
-          </Button>
+          </button>
         </div>
       </nav>
 
-      {/* Mobile menu */}
       <AnimatePresence>
         {open && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.25 }}
-            className="overflow-hidden border-b border-line bg-bg/95 backdrop-blur-xl md:hidden"
+            className="max-h-[calc(100vh-70px)] overflow-y-auto border-t border-line bg-bg/98 backdrop-blur-xl lg:hidden"
           >
-            <div className="space-y-1 px-4 py-4">
-              {navItems.map((item) => (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-lg px-3 py-2.5 text-sm font-medium text-muted hover:bg-surface hover:text-fg"
-                >
-                  {item.label}
-                </a>
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  document.getElementById('install')?.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="mt-2 block w-full rounded-lg bg-gradient-to-r from-brand to-brand-strong px-3 py-2.5 text-center text-sm font-semibold text-white"
+            <div className="mx-auto max-w-[1380px] px-4 py-5 sm:px-6">
+              <div className="grid gap-1 sm:grid-cols-2">
+                {primaryNav.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'rounded-xl px-4 py-3 text-sm font-black',
+                      path === item.href
+                        ? 'bg-card text-brand'
+                        : 'text-muted hover:bg-card hover:text-fg',
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                {moreNavGroups.map((group, groupIndex) => (
+                  <div key={group.id}>
+                    <div className="mb-2 px-2">
+                      <span
+                        className={cn(
+                          'font-mono text-[10px] font-black uppercase tracking-[0.16em]',
+                          groupIndex % 2 ? 'text-brand-2' : 'text-brand',
+                        )}
+                      >
+                        {group.label}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {moreNav
+                        .filter((item) => item.group === group.id)
+                        .map((item) => (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            className={cn(
+                              'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold',
+                              path === item.href
+                                ? 'bg-card text-brand'
+                                : 'text-muted hover:bg-card hover:text-fg',
+                            )}
+                          >
+                            <item.icon className="size-4 shrink-0" /> {item.label}
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <a
+                href={repoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-5 flex items-center justify-between rounded-xl bg-ink px-4 py-3 text-sm font-black text-white"
               >
-                Get started
-              </button>
+                <span>
+                  <span className="text-brand-2">OPEN SOURCE</span> · FREE · MIT
+                </span>
+                <ArrowUpRight className="size-4" />
+              </a>
             </div>
           </motion.div>
         )}

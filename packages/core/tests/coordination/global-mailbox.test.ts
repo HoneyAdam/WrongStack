@@ -157,16 +157,25 @@ describe('GlobalMailbox agent registry', () => {
     await expect(mb.heartbeat({ agentId: 'ghost' } as never)).resolves.toBeUndefined();
   });
 
-  it('marks agents offline once their heartbeat goes stale', async () => {
-    // Write a registry file directly with an old lastSeenAt.
+  it('removes stale agents from memory and the persisted registry', async () => {
     const old = new Date(Date.now() - 120_000).toISOString();
     await fs.writeFile(
       mb.registryPath,
       JSON.stringify({ stale: { agentId: 'stale', sessionId: 's', name: 'Old', role: 'r', status: 'busy', iterations: 0, toolCalls: 0, registeredAt: old, lastSeenAt: old } }),
     );
-    const s = (await mb.getAgentStatuses())[0];
-    expect(s?.online).toBe(false);
-    expect(s?.status).toBe('idle'); // pruned in place
+
+    expect(await mb.getAgentStatuses()).toEqual([]);
+    expect(JSON.parse(await fs.readFile(mb.registryPath, 'utf8'))).toEqual({});
+  });
+
+  it('removes agents whose heartbeat timestamp is malformed', async () => {
+    await fs.writeFile(
+      mb.registryPath,
+      JSON.stringify({ ghost: { agentId: 'ghost', sessionId: 's', name: 'Ghost', status: 'busy', iterations: 0, toolCalls: 0, registeredAt: 'invalid', lastSeenAt: 'invalid' } }),
+    );
+
+    expect(await mb.getAgentStatuses()).toEqual([]);
+    expect(JSON.parse(await fs.readFile(mb.registryPath, 'utf8'))).toEqual({});
   });
 
   it('returns no agents when the registry file is absent', async () => {
@@ -214,6 +223,15 @@ describe('GlobalMailbox client registry', () => {
     await reg({ clientId: 'c1' });
     await reg({ clientId: 'c2' });
     expect((await mb.getClientStatuses()).length).toBe(2); // sort comparator invoked
+  });
+
+  it('deregisters a client immediately on clean shutdown', async () => {
+    await reg();
+    await mb.deregisterClient('c1');
+
+    expect(await mb.getClientStatuses()).toEqual([]);
+    expect(JSON.parse(await fs.readFile(mb.clientRegistryPath, 'utf8'))).toEqual({});
+    expect(events.emitCustom).toHaveBeenCalledWith('mailbox.client_deregistered', { clientId: 'c1' });
   });
 
   it('prunes stale clients from the registry', async () => {

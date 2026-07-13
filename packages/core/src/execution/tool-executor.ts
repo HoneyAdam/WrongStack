@@ -687,12 +687,19 @@ export class ToolExecutor {
       if (parentSignal.reason instanceof Error) throw parentSignal.reason;
       throw new Error(typeof parentSignal.reason === 'string' ? parentSignal.reason : 'aborted');
     }
-    const timeoutMs = clampTimeoutMs(
-      tool.timeoutMs ?? this.iterationTimeoutMs,
-      this.maxToolTimeoutMs,
-    );
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const combined = AbortSignal.any([parentSignal, timeoutSignal]);
+    // A small number of orchestration tools (notably `delegate`) implement
+    // their own heartbeat-aware timeout policy. Applying the executor's fixed
+    // max-tool ceiling on top would abort healthy multi-hour work after five
+    // minutes. They still run through the abort race below with parentSignal,
+    // so /interrupt and session cancellation remain immediate.
+    const combined = tool.managesOwnTimeout
+      ? parentSignal
+      : AbortSignal.any([
+          parentSignal,
+          AbortSignal.timeout(
+            clampTimeoutMs(tool.timeoutMs ?? this.iterationTimeoutMs, this.maxToolTimeoutMs),
+          ),
+        ]);
 
     let output: unknown;
     // Streaming variant takes precedence — yields progress events, then

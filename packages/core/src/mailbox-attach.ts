@@ -51,7 +51,17 @@ function attachMailboxCheckerInner(
   const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events
   // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
-  const hqPublisher = createHqPublisherFromEnv({ clientKind: source ?? 'cli', projectRoot: a.ctx.projectRoot, logger: a.logger });
+  // This socket only carries mailbox telemetry. Declaring the default
+  // capability set (which includes `session.summary`) would make HQ treat it
+  // as a terminal surface: it would render as a phantom "waiting for session
+  // telemetry" node and get orphan-evicted (terminate → reconnect churn)
+  // because it never publishes session snapshots.
+  const hqPublisher = createHqPublisherFromEnv({
+    clientKind: source ?? 'cli',
+    projectRoot: a.ctx.projectRoot,
+    logger: a.logger,
+    capabilities: ['telemetry.publish', 'mailbox.summary'],
+  });
   hqPublisher?.connect();
   if (hqPublisher) {
     a.ctx.registerAbortHook(() => hqPublisher.close());

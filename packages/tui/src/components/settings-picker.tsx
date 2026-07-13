@@ -95,6 +95,19 @@ export const TOKEN_SAVING_TIER_DESCS: Record<TokenSavingTierTui, string> = {
   aggressive: '~1k tokens — many tools, trimmed prompt',
 };
 
+/**
+ * Fleet-chat verbosity options — cyclable via ←/→ in the settings picker.
+ * Values MUST match core's `FleetChatVerbosity` union (config schema).
+ */
+export const FLEET_CHAT_MODES = ['off', 'compact', 'full'] as const;
+export type FleetChatVerbosityTui = (typeof FLEET_CHAT_MODES)[number];
+
+export const FLEET_CHAT_MODE_DESCS: Record<FleetChatVerbosityTui, string> = {
+  off: 'No subagent lines in chat (F2/F3 monitors stay live)',
+  compact: 'Spawn, one summary per agent turn, completion',
+  full: 'Every subagent tool call and message',
+};
+
 export function formatSettingsDelay(ms: number): string {
   if (ms === 0) return 'disabled';
   if (ms >= 60_000) return `${Math.round(ms / 60_000)}m`;
@@ -140,7 +153,7 @@ export interface SettingsPickerProps {
   // ── UX ──
   titleAnimation: boolean;
   yolo: boolean;
-  streamFleet: boolean;
+  fleetChat: FleetChatVerbosityTui;
   chime: boolean;
   confirmExit: boolean;
   nextPrediction: boolean;
@@ -466,7 +479,7 @@ export type SettingsPickerPatch = Partial<{
   delayMs: number;
   titleAnimation: boolean;
   yolo: boolean;
-  streamFleet: boolean;
+  fleetChat: FleetChatVerbosityTui;
   chime: boolean;
   confirmExit: boolean;
   nextPrediction: boolean;
@@ -513,7 +526,7 @@ export const SETTINGS_FIELD_LABELS: readonly string[] = [
   'Auto-proceed delay', // 1
   'Terminal title animation', // 2
   'YOLO mode', // 3
-  'Stream fleet', // 4
+  'Fleet chat', // 4
   'Completion chime', // 5
   'Confirm before exit', // 6
   'Next prediction', // 7
@@ -575,7 +588,7 @@ export function resolveSettingsFieldValue(
 
   // ── Boolean fields ──
   const BOOL_FIELDS = new Map<number, keyof SettingsPickerPatch>([
-    [2, 'titleAnimation'], [3, 'yolo'], [4, 'streamFleet'], [5, 'chime'],
+    [2, 'titleAnimation'], [3, 'yolo'], [5, 'chime'],
     [6, 'confirmExit'], [7, 'nextPrediction'], [8, 'featureMcp'],
     [9, 'featurePlugins'], [10, 'featureMemory'], [11, 'featureSkills'],
     [12, 'featureModelsRegistry'], [14, 'allowOutsideProjectRoot'],
@@ -595,6 +608,26 @@ export function resolveSettingsFieldValue(
 
   // ── Enum fields ──
   // Each entry: [field, stateKey, allowedValues]
+  // Field 4 (fleet chat) accepts the legacy boolean tokens too:
+  // "on"/"true" → 'full', "false"/"no" → 'off' — so old `/settings
+  // stream-fleet on|off` muscle memory keeps working.
+  if (field === 4) {
+    const legacy =
+      ['on', 'true', 'yes', '1'].includes(raw) ? 'full'
+      : ['false', 'no', '0'].includes(raw) ? 'off'
+      : undefined;
+    const match = (FLEET_CHAT_MODES as readonly string[]).includes(raw)
+      ? (raw as FleetChatVerbosityTui)
+      : legacy;
+    if (match) {
+      return { ok: true, patch: { fleetChat: match as FleetChatVerbosityTui }, label, displayValue: match };
+    }
+    return {
+      ok: false,
+      error: `Invalid value "${input}" for ${label}. Valid: ${FLEET_CHAT_MODES.join(', ')}.`,
+    };
+  }
+
   const ENUM_FIELDS: ReadonlyArray<readonly [number, keyof SettingsPickerPatch, readonly string[]]> = [
     [0, 'mode', SETTINGS_MODES],
     [13, 'tokenSavingTier', TOKEN_SAVING_TIERS],
@@ -700,7 +733,7 @@ export function getSettingsFieldValue(
 
   // Boolean fields — display as "on"/"off".
   const BOOL_KEYS: ReadonlyArray<readonly [number, keyof SettingsPickerPatch]> = [
-    [2, 'titleAnimation'], [3, 'yolo'], [4, 'streamFleet'], [5, 'chime'],
+    [2, 'titleAnimation'], [3, 'yolo'], [5, 'chime'],
     [6, 'confirmExit'], [7, 'nextPrediction'], [8, 'featureMcp'],
     [9, 'featurePlugins'], [10, 'featureMemory'], [11, 'featureSkills'],
     [12, 'featureModelsRegistry'], [14, 'allowOutsideProjectRoot'],
@@ -714,7 +747,7 @@ export function getSettingsFieldValue(
 
   // Enum fields — display the raw value.
   const ENUM_KEYS: ReadonlyArray<readonly [number, keyof SettingsPickerPatch]> = [
-    [0, 'mode'], [13, 'tokenSavingTier'], [19, 'enhanceLanguage'],
+    [0, 'mode'], [4, 'fleetChat'], [13, 'tokenSavingTier'], [19, 'enhanceLanguage'],
     [23, 'reasoningMode'], [24, 'reasoningEffort'], [26, 'cacheTtl'],
     [28, 'contextStrategy'], [29, 'contextMode'], [31, 'logLevel'],
     [32, 'auditLevel'], [34, 'statuslineMode'], [35, 'configScope'],
@@ -841,7 +874,7 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsPickerValues> = Object.freeze({
   delayMs: 0,
   titleAnimation: true,
   yolo: true,
-  streamFleet: true,
+  fleetChat: 'compact',
   chime: false,
   confirmExit: true,
   nextPrediction: false,
@@ -903,7 +936,7 @@ export function resetSettingsFieldValue(
 function buildResetPatch(field: number): SettingsPickerPatch | null {
   const KEY_MAP: ReadonlyArray<readonly [number, keyof SettingsPickerValues]> = [
     [0, 'mode'], [1, 'delayMs'], [2, 'titleAnimation'], [3, 'yolo'],
-    [4, 'streamFleet'], [5, 'chime'], [6, 'confirmExit'], [7, 'nextPrediction'],
+    [4, 'fleetChat'], [5, 'chime'], [6, 'confirmExit'], [7, 'nextPrediction'],
     [8, 'featureMcp'], [9, 'featurePlugins'], [10, 'featureMemory'], [11, 'featureSkills'],
     [12, 'featureModelsRegistry'], [13, 'tokenSavingTier'], [14, 'allowOutsideProjectRoot'],
     [15, 'maxIterations'], [16, 'autoProceedMaxIterations'], [17, 'enhanceDelayMs'],
@@ -930,7 +963,7 @@ export function SettingsPicker({
   delayMs,
   titleAnimation,
   yolo,
-  streamFleet,
+  fleetChat,
   chime,
   confirmExit,
   nextPrediction,
@@ -1000,9 +1033,9 @@ export function SettingsPicker({
       detail: 'Skip all confirmation prompts',
     },
     {
-      label: 'Stream fleet to chat',
-      value: boolVal(streamFleet),
-      detail: 'Show subagent messages in main chat',
+      label: 'Fleet chat',
+      value: fleetChat,
+      detail: FLEET_CHAT_MODE_DESCS[fleetChat],
     },
     {
       label: 'Completion chime',

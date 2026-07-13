@@ -42,7 +42,8 @@ export type ToolIconId =
 
 /**
  * Canonical mapping of WrongStack tool names to icon identifiers.
- * Coverage: all 37 built-in tools + common aliases.
+ * Coverage: shared core tool names + common aliases. Browser-specific tools
+ * use their surface-owned icon mappings.
  */
 export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   // File operations

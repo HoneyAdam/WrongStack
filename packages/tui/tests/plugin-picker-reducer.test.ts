@@ -64,7 +64,7 @@ function initial(over: Partial<State> = {}): State {
     fleet: {},
     fleetCost: 0,
     fleetTokens: { input: 0, output: 0 },
-    streamFleet: true,
+    fleetChat: 'compact',
     monitorOpen: false,
     agentsMonitorOpen: false,
     helpOpen: false,

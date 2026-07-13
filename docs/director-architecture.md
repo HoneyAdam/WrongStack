@@ -329,9 +329,8 @@ In `fleet-bus.ts` line 50-73, `FORWARDED_TYPES` is a const array listing every e
 
 | # | Action | Files | Rationale |
 |---|--------|-------|-----------|
-| N1 | Per-role budget presets in `FLEET_ROSTER_BUDGETS` for more roles | `fleet.ts` | Only 4 roles have budgets |
+| N1 | Calibrate per-role budget presets from production telemetry | `fleet.ts` | All 50 phase roles have profiles; tune thresholds from observed workloads |
 | N2 | Tighter preamble variants for small vs large director models | `director-prompts.ts` | Model-aware fleet protocol guidance |
-| N3 | `wrongstack --director` CLI flag | CLI arg parser | Start sessions in director mode from the outset |
 
 ---
 

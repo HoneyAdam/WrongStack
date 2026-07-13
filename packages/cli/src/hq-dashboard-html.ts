@@ -820,7 +820,19 @@ function buildTree(snap){
     ensureProject(mm, pid, s).terminals.push(s);
   });
   clients.forEach(function(c){
+    if(!c.connected) return;
+    // Only session-telemetry surfaces qualify as a terminal-in-waiting.
+    // Auxiliary sockets (mailbox/brain publishers) never publish session
+    // snapshots and would render as permanent phantom terminals.
+    if((c.capabilities||[]).indexOf('session.summary') === -1) return;
+    // Sessionless past the grace window = broken/legacy publisher, not a
+    // terminal that is still booting. 45s ≫ the ~2.5s first-snapshot time.
+    var connectedAt = Date.parse(c.connectedAt || c.lastSeenAt || '');
+    if(isFinite(connectedAt) && (Date.now() - connectedAt) > 45000) return;
     var alreadyRepresented = sessions.some(function(s){
+      // Any live session from the same process covers ALL of that
+      // process's sockets, regardless of publisher kind.
+      if(c.pid && s.pid && c.pid === s.pid && String(s.machineId||'') === String(c.machineId||'')) return true;
       return s.projectId === c.projectId &&
         String(s.clientKind||'') === String(c.kind||'') &&
         (!c.pid || !s.pid || c.pid === s.pid);

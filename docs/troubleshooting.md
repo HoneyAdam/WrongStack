@@ -28,13 +28,13 @@ This prints:
 
 ### "No provider configured"
 
-**Symptom**: `Error: No provider configured. Run 'wrongstack init' or pass --provider.`
+**Symptom**: `No provider or model configured. Run 'wstack auth', or pass --provider <id> --model <id>.`
 
 **Fix**:
 ```bash
-wrongstack init                    # interactive setup
+wstack auth                        # interactive provider, key, and model setup
 # or
-wrongstack --provider anthropic --model claude-opus-4-7
+wstack --provider anthropic --model <model-id>
 ```
 
 ### "API key not found"
@@ -222,12 +222,12 @@ Logs are written to `~/.wrongstack/logs/wrongstack.log` by default.
 
 | What to reset | How |
 |---|---|
-| Config | `rm ~/.wrongstack/config.json` then `wrongstack init` |
+| Config | `rm ~/.wrongstack/config.json` then `wstack auth` |
 | Trust rules | `rm ~/.wrongstack/projects/<hash>/trust.json` |
 | Sessions | `rm ~/.wrongstack/projects/<hash>/sessions/*.jsonl` |
 | Memory | `rm ~/.wrongstack/memory.md` and/or `<project>/.wrongstack/memory.md` |
 | MCP cache | `rm ~/.wrongstack/cache/models.dev.json` |
-| Everything | `rm -rf ~/.wrongstack` then `wrongstack init` |
+| Everything | `rm -rf ~/.wrongstack` then `wstack auth` |
 
 Use `wrongstack diag` to find the project hash and paths.
 

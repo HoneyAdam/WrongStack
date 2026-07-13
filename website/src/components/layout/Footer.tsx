@@ -1,126 +1,135 @@
-'use client';
+import { ArrowUpRight } from 'lucide-react';
+import { BrandMark } from '@/components/site/BrandMark';
+import { docsUrl, license, nodeVersion, repoUrl, version } from '@/data/content';
+import { Link } from '@/lib/router';
 
-import { Badge } from '@/components/ui/badge';
-import { META, packages } from '@/lib/utils';
-import { BookOpen } from 'lucide-react';
-import { GitHubIcon } from '@/components/ui/github-icon';
-
-const footerLinks: Record<string, { label: string; href: string }[]> = {
-  Product: [
-    { label: 'Features', href: '#features' },
-    { label: 'Surfaces', href: '#interfaces' },
-    { label: 'Architecture', href: '#architecture' },
-    { label: 'Changelog', href: '#changelog' },
-  ],
-  Resources: [
-    { label: 'README', href: `${META.repo}#readme` },
-    { label: 'Full changelog', href: `${META.repo}/blob/main/CHANGELOG.md` },
-    { label: 'Release process', href: `${META.repo}/blob/main/RELEASE.md` },
-    { label: 'Docs', href: `${META.repo}/tree/main/docs` },
-    { label: 'Security policy', href: `${META.repo}/blob/main/SECURITY.md` },
-  ],
-  Community: [
-    { label: 'GitHub', href: META.repo },
-    { label: 'Issues', href: `${META.repo}/issues` },
-    { label: 'Discussions', href: `${META.repo}/discussions` },
-    { label: 'Releases', href: `${META.repo}/releases` },
-  ],
-};
+const columns = [
+  {
+    title: 'Understand',
+    links: [
+      ['Features', '/features'],
+      ['How it works', '/how-it-works'],
+      ['Interfaces', '/interfaces'],
+      ['Architecture', '/architecture'],
+    ],
+  },
+  {
+    title: 'Operate',
+    links: [
+      ['Slash commands', '/commands'],
+      ['Settings', '/settings'],
+      ['Built-in tools', '/tools'],
+      ['Plugin catalog', '/plugins'],
+      ['Ecosystem', '/ecosystem'],
+      ['Security', '/security'],
+    ],
+  },
+  {
+    title: 'Deep dives',
+    links: [
+      ['Getting started', '/getting-started'],
+      ['Workflows', '/workflows'],
+      ['Fleet & Brain', '/fleet'],
+      ['Agent roster', '/agent-roster'],
+      ['Session modes', '/modes'],
+      ['Agent mailbox', '/mailbox'],
+      ['Kanban work queue', '/features/kanban-work-queue'],
+      ['Brain Council', '/features/brain-council'],
+      ['Customization', '/features/customization'],
+      ['Memory & sessions', '/memory'],
+      ['Providers & models', '/providers'],
+      ['MCP guide', '/mcp'],
+      ['Troubleshooting', '/troubleshooting'],
+    ],
+  },
+] as const;
 
 export function Footer() {
   return (
-    <footer className="relative border-t border-line bg-surface/40">
-      <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
-          {/* Brand */}
-          <div className="col-span-2 md:col-span-1">
-            <a href="#main" className="flex items-center gap-2.5">
-              <span className="grid size-9 place-items-center rounded-lg bg-gradient-to-br from-brand to-brand-2 font-mono text-sm font-bold text-white">
-                ❯_
+    <footer className="border-t border-line bg-ink text-white">
+      <div className="mx-auto max-w-[1380px] px-4 py-14 sm:px-6 lg:px-10 lg:py-20">
+        <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.45fr_1fr_1fr_1fr]">
+          <div>
+            <Link href="/" className="inline-flex items-center gap-3">
+              <BrandMark className="w-16" />
+              <span className="font-mono text-lg font-black tracking-[-0.06em]">
+                WRONG<span className="text-brand">STACK</span>
               </span>
-              <span className="font-mono text-[17px] font-bold tracking-tight">
-                wrong<span className="text-brand">stack</span>
-              </span>
-            </a>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted">
-              Built on the wrong stack. Shipped anyway. A CLI AI coding agent that runs in your
-              terminal.
+            </Link>
+            <p className="mt-5 max-w-md text-lg leading-relaxed text-zinc-400">
+              An AI coding agent for people who want powerful automation and a clear answer to “what
+              just happened?”
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Badge variant="outline" className="border-brand/30 text-brand">
-                {META.license} License
-              </Badge>
-              <Badge variant="outline" className="border-brand-2/30 text-brand-2">
-                Node.js {META.node}+
-              </Badge>
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-brand-2/30 bg-brand-2/10 px-3 py-1.5 font-mono text-[10px] font-black uppercase tracking-[0.14em] text-brand-2">
+              <span className="size-1.5 rounded-sm bg-brand" /> Open source · Free · MIT licensed
+            </div>
+            <Link
+              href="/created-by"
+              className="mt-5 inline-flex items-center gap-2 text-sm font-black text-white transition-colors hover:text-brand"
+            >
+              Created by Ersin KOÇ <ArrowUpRight className="size-3.5" />
+            </Link>
+            <div className="mt-7 flex flex-wrap gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+              <span className="rounded-full border border-white/10 px-3 py-1.5">v{version}</span>
+              <span className="rounded-full border border-white/10 px-3 py-1.5">
+                Node {nodeVersion}
+              </span>
+              <span className="rounded-full border border-white/10 px-3 py-1.5">{license}</span>
+              <span className="rounded-full border border-white/10 px-3 py-1.5">
+                $0 license fee
+              </span>
             </div>
           </div>
-
-          {/* Link columns */}
-          {Object.entries(footerLinks).map(([title, links]) => (
-            <div key={title}>
-              <h4 className="text-sm font-semibold text-fg">{title}</h4>
-              <ul className="mt-4 space-y-2.5">
-                {links.map((link) => (
-                  <li key={link.label}>
-                    <a
-                      href={link.href}
-                      target={link.href.startsWith('#') ? undefined : '_blank'}
-                      rel={link.href.startsWith('#') ? undefined : 'noopener noreferrer'}
-                      className="text-sm text-muted transition-colors hover:text-brand"
+          {columns.map((column) => (
+            <div key={column.title}>
+              <h2 className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">
+                {column.title}
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {column.links.map(([label, href]) => (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      className="text-sm font-semibold text-zinc-300 transition-colors hover:text-white"
                     >
-                      {link.label}
-                    </a>
+                      {label}
+                    </Link>
                   </li>
                 ))}
               </ul>
             </div>
           ))}
         </div>
-
-        {/* Packages */}
-        <div className="mt-12 border-t border-line pt-8">
-          <h4 className="font-mono text-xs uppercase tracking-widest text-faint">
-            Workspace packages
-          </h4>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {packages.map((pkg) => (
-              <span
-                key={pkg}
-                className="rounded-md border border-line bg-card px-2.5 py-1 font-mono text-xs text-muted"
-              >
-                {pkg}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom bar */}
-        <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-line pt-8 text-sm text-muted sm:flex-row">
-          <p>
-            &copy; {new Date().getFullYear()} WrongStack · {META.license}
+        <div className="mt-14 flex flex-col gap-5 border-t border-white/10 pt-7 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-mono font-bold uppercase tracking-[0.08em]">
+            <span className="text-brand-2">Built on the wrong stack.</span>{' '}
+            <span className="text-brand">Shipped anyway.</span>
           </p>
-          <div className="flex items-center gap-5">
+          <div className="flex gap-5">
             <a
-              href={META.repo}
+              href="https://x.com/ersinkoc"
               target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 transition-colors hover:text-brand"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 hover:text-white"
             >
-              <GitHubIcon className="size-4" /> GitHub
+              @ersinkoc <ArrowUpRight className="size-3.5" />
             </a>
             <a
-              href={`${META.repo}/tree/main/docs`}
+              href={docsUrl}
               target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 transition-colors hover:text-brand"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 hover:text-white"
             >
-              <BookOpen className="size-4" /> Docs
+              Source docs <ArrowUpRight className="size-3.5" />
             </a>
-            <span className="flex items-center gap-1.5 font-mono">
-              <span className="size-2 rounded-full bg-term-green shadow-[0_0_8px] shadow-emerald-500/60" />
-              v{META.version}
-            </span>
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 hover:text-white"
+            >
+              GitHub <ArrowUpRight className="size-3.5" />
+            </a>
           </div>
         </div>
       </div>

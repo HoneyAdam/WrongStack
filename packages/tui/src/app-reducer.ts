@@ -25,6 +25,7 @@ import {
   ENHANCE_DELAY_PRESETS,
   BREAKER_TIMEOUT_PRESETS,
   ENHANCE_LANGUAGES,
+  FLEET_CHAT_MODES,
   LOG_LEVELS,
   MAX_CONCURRENT_PRESETS,
   MAX_ITERATIONS_PRESETS,
@@ -679,7 +680,7 @@ export function reducer(state: State, action: Action): State {
           delayMs: action.delayMs,
           titleAnimation: action.titleAnimation,
           yolo: action.yolo,
-          streamFleet: action.streamFleet,
+          fleetChat: action.fleetChat,
           chime: action.chime,
           confirmExit: action.confirmExit,
           nextPrediction: action.nextPrediction,
@@ -810,11 +811,20 @@ export function reducer(state: State, action: Action): State {
           settingsPicker: { ...sp, titleAnimation: !sp.titleAnimation, hint: undefined },
         };
       if (f === 3) return { ...state, settingsPicker: { ...sp, yolo: !sp.yolo, hint: undefined } };
-      if (f === 4)
+      // Field 4: fleet-chat verbosity (off | compact | full) — enum cycle
+      if (f === 4) {
+        const i = FLEET_CHAT_MODES.indexOf(sp.fleetChat);
+        const base = i < 0 ? 0 : i;
+        const next = (base + action.delta + FLEET_CHAT_MODES.length) % FLEET_CHAT_MODES.length;
         return {
           ...state,
-          settingsPicker: { ...sp, streamFleet: !sp.streamFleet, hint: undefined },
+          settingsPicker: {
+            ...sp,
+            fleetChat: expectDefined(FLEET_CHAT_MODES[next]),
+            hint: undefined,
+          },
         };
+      }
       if (f === 5)
         return { ...state, settingsPicker: { ...sp, chime: !sp.chime, hint: undefined } };
       if (f === 6)
@@ -1841,7 +1851,7 @@ export function reducer(state: State, action: Action): State {
     case 'leaderToolStart':
     case 'leaderToolEnd':
     case 'leaderCtxPct':
-    case 'setStreamFleet': {
+    case 'setFleetChat': {
       const fleetResult = reduceFleetState(state, action);
       if (fleetResult) return fleetResult;
       return state;

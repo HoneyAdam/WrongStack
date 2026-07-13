@@ -23,7 +23,6 @@ import type { EventBus } from '../kernel/events.js';
 import { withFileLock } from '../utils/atomic-write.js';
 import { projectSlug } from '../utils/wstack-paths.js';
 import {
-  AGENT_PURGE_MS,
   AGENT_STALE_MS,
   AUTO_COMPACT_DEFAULT_TTL_MS,
   AUTO_COMPACT_INTERVAL_MS,
@@ -772,8 +771,23 @@ export class GlobalMailbox implements Mailbox {
 
   async getAgentStatuses(): Promise<MailboxAgentStatus[]> {
     await this._ensureRegistry();
-    const registry = await this._readRegistry();
+    let registry = await this._readRegistry();
+    const before = registry.size;
     this._pruneStaleInPlace(registry);
+
+    // A read can be the only activity after every process in a project exits.
+    // Persist expiry under the file lock so old agents do not survive forever
+    // in `_mailbox.registry.json` (or race a concurrent registration).
+    if (registry.size < before) {
+      await withFileLock(this.registryPath, async () => {
+        const fresh = await this._readRegistry({ fresh: true });
+        this._pruneStaleInPlace(fresh);
+        this._registryCache = fresh;
+        this._registryCacheAt = Date.now();
+        await this._writeRegistry(fresh);
+        registry = fresh;
+      });
+    }
 
     const now = Date.now();
     return Array.from(registry.values())
@@ -832,6 +846,21 @@ export class GlobalMailbox implements Mailbox {
       name: input.name,
       source: input.source,
     });
+    this.publishHqMailboxSnapshot();
+  }
+
+  async deregisterClient(clientId: string): Promise<void> {
+    await this._ensureClientRegistry();
+    await withFileLock(this.clientRegistryPath, async () => {
+      const registry = await this._readClientRegistry({ fresh: true });
+      this._pruneStaleClientsInPlace(registry);
+      registry.delete(clientId);
+      this._clientRegistryCache = registry;
+      this._clientRegistryCacheAt = Date.now();
+      await this._writeClientRegistry(registry);
+    });
+    this._lastClientHeartbeat.delete(clientId);
+    this._events?.emitCustom('mailbox.client_deregistered', { clientId });
     this.publishHqMailboxSnapshot();
   }
 
@@ -1531,25 +1560,15 @@ export class GlobalMailbox implements Mailbox {
   }
 
   private _pruneStaleInPlace(registry: Map<string, RegisteredAgent>): void {
-    const staleCutoff = Date.now() - AGENT_STALE_MS;
-    const purgeCutoff = Date.now() - AGENT_PURGE_MS;
-    const toDelete: string[] = [];
+    const cutoff = Date.now() - AGENT_STALE_MS;
     for (const [id, agent] of registry) {
-      const lastSeen = new Date(agent.lastSeenAt).getTime();
-      // Delete entries past the purge threshold entirely
-      if (lastSeen < purgeCutoff) {
-        toDelete.push(id);
-        continue;
+      const lastSeen = Date.parse(agent.lastSeenAt);
+      // Missing/invalid heartbeat timestamps cannot establish liveness. Remove
+      // them alongside expired entries instead of making malformed ghosts
+      // immortal through NaN comparisons.
+      if (!Number.isFinite(lastSeen) || lastSeen < cutoff) {
+        registry.delete(id);
       }
-      // Mark stale agents as idle. Online/offline is a derived view built in
-      // getAgentStatuses() from lastSeenAt freshness — RegisteredAgent has no
-      // `online` field, so we only normalize the persisted status here.
-      if (lastSeen < staleCutoff) {
-        agent.status = 'idle';
-      }
-    }
-    for (const id of toDelete) {
-      registry.delete(id);
     }
   }
 
@@ -1602,20 +1621,12 @@ export class GlobalMailbox implements Mailbox {
   }
 
   private _pruneStaleClientsInPlace(registry: Map<string, RegisteredClient>): void {
-    // Remove clients whose heartbeat expired past the stale threshold.
-    // This mirrors the agent registry's prune logic (delete past stale
-    // threshold). The previous implementation OVERWROTE lastSeenAt with
-    // the cutoff timestamp — destroying the real last-seen data and
-    // causing clients to appear fresher than they were.
     const cutoff = Date.now() - CLIENT_STALE_MS;
-    const toDelete: string[] = [];
     for (const [id, client] of registry) {
-      if (new Date(client.lastSeenAt).getTime() < cutoff) {
-        toDelete.push(id);
+      const lastSeen = Date.parse(client.lastSeenAt);
+      if (!Number.isFinite(lastSeen) || lastSeen < cutoff) {
+        registry.delete(id);
       }
-    }
-    for (const id of toDelete) {
-      registry.delete(id);
     }
   }
 

@@ -1,0 +1,229 @@
+import { ArrowRight, KeyRound, Laptop, Rocket, ShieldCheck, Terminal } from 'lucide-react';
+import {
+  CopyCommand,
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+} from '@/components/site/primitives';
+import { Link } from '@/lib/router';
+
+const setupSteps = [
+  [
+    '01',
+    'Install the CLI',
+    'Node.js 22.19 or newer is required. npm and pnpm installs expose both wrongstack and the wstack alias.',
+    'npm install -g wrongstack',
+  ],
+  [
+    '02',
+    'Choose authentication',
+    'Use a metered provider API key or sign in with a supported ChatGPT, Claude or GitHub Copilot subscription.',
+    'wstack auth',
+  ],
+  [
+    '03',
+    'Launch from the project root',
+    'Interactive startup detects the repository and offers to scaffold .wrongstack/AGENTS.md when it is missing.',
+    'wstack',
+  ],
+  [
+    '04',
+    'Start on the right surface',
+    'Use the plain REPL, TUI, browser workspace, Desktop shell or a one-shot prompt.',
+    'wstack --tui',
+  ],
+] as const;
+
+export function GettingStartedPage() {
+  return (
+    <>
+      <PageHero
+        index="09"
+        eyebrow="Getting started"
+        title={
+          <>
+            From install to
+            <br />
+            <span className="text-brand">first useful run.</span>
+          </>
+        }
+        description="Set up WrongStack without guessing which credential, interface or safety mode you need. This path starts local, keeps project instructions explicit and leaves room to grow into fleets later."
+        aside={<ExternalDoc path="README.md#quick-start">Open repository quick start</ExternalDoc>}
+      />
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <SectionIntro index="01" eyebrow="Setup path" title="Four steps. No hidden bootstrap." />
+        <div className="mt-14 space-y-4">
+          {setupSteps.map(([number, title, body, command]) => (
+            <article
+              key={number}
+              className="grid gap-5 rounded-2xl border border-line bg-card p-6 lg:grid-cols-[64px_230px_1fr_auto] lg:items-center"
+            >
+              <span className="font-mono text-xs font-black text-brand-2">{number}</span>
+              <h2 className="text-xl font-black tracking-[-0.035em] text-fg">{title}</h2>
+              <p className="text-sm leading-7 text-muted">{body}</p>
+              <CopyCommand command={command} />
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="border-y border-line bg-surface">
+        <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
+          <SectionIntro
+            index="02"
+            eyebrow="Authentication"
+            title="API key or subscription: both are first-class."
+            description="Authentication chooses how the provider bills and refreshes access. It does not change the agent kernel or tool system."
+          />
+          <div className="mt-12 grid gap-5 lg:grid-cols-2">
+            <article className="rounded-2xl border border-line bg-card p-7">
+              <KeyRound className="size-5 text-brand" />
+              <h2 className="mt-8 text-2xl font-black text-fg">Provider API keys</h2>
+              <p className="mt-3 text-sm leading-7 text-muted">
+                Run the auth manager, choose a provider and store the key in the per-machine
+                encrypted vault. Environment variables remain available for CI and ephemeral shells.
+              </p>
+              <div className="mt-6 space-y-2">
+                <code className="block rounded-lg bg-bg px-4 py-3 font-mono text-xs text-fg">
+                  wstack auth anthropic
+                </code>
+                <code className="block rounded-lg bg-bg px-4 py-3 font-mono text-xs text-fg">
+                  ANTHROPIC_API_KEY=… wstack
+                </code>
+              </div>
+            </article>
+            <article className="rounded-2xl border border-line bg-card p-7">
+              <ShieldCheck className="size-5 text-emerald-500" />
+              <h2 className="mt-8 text-2xl font-black text-fg">Subscription OAuth</h2>
+              <p className="mt-3 text-sm leading-7 text-muted">
+                Sign in through vendor-supported flows. Access and refresh tokens are encrypted at
+                rest and refreshed near expiry or after an authentication failure.
+              </p>
+              <div className="mt-6 space-y-2">
+                {[
+                  'wstack auth login chatgpt',
+                  'wstack auth login claude',
+                  'wstack auth login copilot',
+                ].map((command) => (
+                  <code
+                    key={command}
+                    className="block rounded-lg bg-bg px-4 py-3 font-mono text-xs text-fg"
+                  >
+                    {command}
+                  </code>
+                ))}
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <SectionIntro
+          index="03"
+          eyebrow="First run recipes"
+          title="Start at the complexity you actually need."
+        />
+        <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+          {[
+            [
+              Terminal,
+              'Plain interactive session',
+              'wstack',
+              'Best default when you want slash commands and streaming output without a full-screen UI.',
+            ],
+            [
+              Laptop,
+              'Instrumented terminal UI',
+              'wstack --tui',
+              'Adds model pickers, panels, cost/context status, permission overlays and fleet monitors.',
+            ],
+            [
+              Rocket,
+              'One-shot change',
+              'wstack "explain src/auth.ts"',
+              'Runs one prompt from the shell and returns without entering the interactive REPL.',
+            ],
+            [
+              Laptop,
+              'Browser workspace',
+              'wstack --webui --open',
+              'Shares the live CLI agent with a rich browser view, or use wstackui for a standalone agent.',
+            ],
+            [
+              ShieldCheck,
+              'Trusted project session',
+              'wstack --tui --yolo',
+              'Auto-approves permitted work while explicit deny rules and policy hooks remain active.',
+            ],
+            [
+              Rocket,
+              'Director task',
+              'wstack --director "audit src/"',
+              'Promotes the leader into fleet orchestration for independently verifiable parallel work.',
+            ],
+          ].map(([Icon, title, command, body]) => {
+            const ItemIcon = Icon as typeof Terminal;
+            return (
+              <article key={String(title)} className="bg-card p-6">
+                <ItemIcon className="size-5 text-brand" />
+                <h2 className="mt-7 font-black text-fg">{String(title)}</h2>
+                <code className="mt-3 block overflow-x-auto font-mono text-[10px] text-brand">
+                  {String(command)}
+                </code>
+                <p className="mt-4 text-sm leading-6 text-muted">{String(body)}</p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <section className="border-t border-line bg-ink text-white">
+        <div className="mx-auto grid max-w-[1380px] gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[.65fr_1fr] lg:px-10">
+          <div>
+            <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+              Before the first mutation
+            </span>
+            <h2 className="mt-5 text-4xl font-black tracking-[-0.025em]">
+              Give the agent a project contract.
+            </h2>
+          </div>
+          <div>
+            <p className="text-lg leading-8 text-zinc-400">
+              <code className="font-mono text-brand">.wrongstack/AGENTS.md</code> is where build
+              commands, package boundaries, testing expectations and repository-specific safety
+              rules belong. On the first interactive launch, WrongStack detects a project manifest
+              and offers to scaffold this file automatically. It travels with the project and
+              becomes persistent context.
+            </p>
+            <p className="mt-4 rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-zinc-500">
+              <code className="font-mono text-brand">/init</code> is an in-session slash command,
+              not the setup command for the shell. Use it later to regenerate the project contract;
+              the existing file is copied to <code className="font-mono">AGENTS.md.bak</code> first.
+              Provider and model setup belongs to <code className="font-mono">wstack auth</code>.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-4">
+              <Link
+                href="/commands/init"
+                className="group inline-flex items-center gap-2 text-sm font-bold text-white"
+              >
+                Learn /init <ArrowRight className="size-4 group-hover:translate-x-1" />
+              </Link>
+              <Link
+                href="/settings"
+                className="group inline-flex items-center gap-2 text-sm font-bold text-zinc-400"
+              >
+                Understand project config{' '}
+                <ArrowRight className="size-4 group-hover:translate-x-1" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+      <PageNext
+        label="Workflows"
+        title="Choose how the work should run"
+        body="Direct prompts are only the beginning. Compare goals, SDD, AutoPhase, reviews and collaboration."
+        href="/workflows"
+      />
+    </>
+  );
+}

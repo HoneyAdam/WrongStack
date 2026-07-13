@@ -158,18 +158,71 @@ describe('AgentMonitorService', () => {
       makeFleetEvent('a1', 'provider.text_delta', { text: 'Hello world', iteration: 0 }),
     );
 
-    // Timeline entry emitted via EventBus
-    expect(timelineEntries).toHaveLength(1);
-    expect(timelineEntries[0].content).toBe('Hello world');
-    expect(timelineEntries[0].kind).toBe('text');
-    expect(timelineEntries[0].subagentId).toBe('a1');
-
-    // Virtual session transcript
+    // The streaming segment is in the ring immediately (live views poll it)…
     const session = monitor.getSession('a1');
     expect(session).toBeDefined();
     expect(session!.transcript).toHaveLength(2); // spawn system entry + text entry
     expect(session!.transcript[1].kind).toBe('text');
     expect(session!.transcript[1].content).toBe('Hello world');
+
+    // …but the timeline announcement fires once, when the segment CLOSES
+    // (here: a tool boundary), with the complete content.
+    expect(timelineEntries).toHaveLength(0);
+    fleetBus.emit(makeFleetEvent('a1', 'tool.started', { name: 'read', iteration: 0 }));
+    const textEvents = timelineEntries.filter((e) => e.kind === 'text');
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].content).toBe('Hello world');
+    expect(textEvents[0].subagentId).toBe('a1');
+  });
+
+  it('coalesces consecutive same-iteration deltas into ONE transcript entry', async () => {
+    monitor.start();
+    monitor.trackSubagent('a1', 'Agent 1');
+    timelineEntries.length = 0; // clear spawn entry
+
+    // Word-by-word stream — the historical failure mode was one transcript
+    // entry (and one JSONL line) per word.
+    for (const word of ['package ', 'structure ', 'and ', 'entry ', 'point']) {
+      fleetBus.emit(makeFleetEvent('a1', 'provider.thinking_delta', { text: word, iteration: 1 }));
+    }
+    // A tool event is a segment boundary.
+    fleetBus.emit(makeFleetEvent('a1', 'tool.started', { name: 'glob', iteration: 1 }));
+
+    const session = monitor.getSession('a1');
+    const thinking = session!.transcript.filter((e) => e.kind === 'thinking');
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0].content).toBe('package structure and entry point');
+    // Announced once, on close (the tool boundary), with the full content.
+    const thinkingEvents = timelineEntries.filter((e) => e.kind === 'thinking');
+    expect(thinkingEvents).toHaveLength(1);
+    expect(thinkingEvents[0].content).toBe('package structure and entry point');
+
+    // JSONL: exactly one line for the whole segment (written on close).
+    await waitForEvents(100);
+    const filePath = path.join(transcriptsDir, 'a1', 'transcript.jsonl');
+    const lines = (await fsp.readFile(filePath, 'utf8')).trim().split('\n');
+    const thinkingLines = lines.filter((l) => (JSON.parse(l) as AgentTimelineEntry).kind === 'thinking');
+    expect(thinkingLines).toHaveLength(1);
+    expect((JSON.parse(thinkingLines[0]) as AgentTimelineEntry).content).toBe(
+      'package structure and entry point',
+    );
+  });
+
+  it('breaks streaming segments on kind and iteration changes', () => {
+    monitor.start();
+    monitor.trackSubagent('a1', 'Agent 1');
+
+    fleetBus.emit(makeFleetEvent('a1', 'provider.thinking_delta', { text: 'think1', iteration: 1 }));
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'answer', iteration: 1 }));
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: ' more', iteration: 1 }));
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'next iter', iteration: 2 }));
+
+    const t = monitor.getSession('a1')!.transcript.filter((e) => e.kind !== 'system');
+    expect(t.map((e) => [e.kind, e.content])).toEqual([
+      ['thinking', 'think1'],
+      ['text', 'answer more'],
+      ['text', 'next iter'],
+    ]);
   });
 
   it('skips empty text_delta events', () => {
@@ -306,6 +359,9 @@ describe('AgentMonitorService', () => {
       makeFleetEvent('a1', 'provider.text_delta', { text: 'persisted entry', iteration: 0 }),
     );
 
+    // Streaming segments are persisted when they CLOSE (segment-per-line,
+    // not delta-per-line) — stop() flushes any still-open segment.
+    monitor.stop();
     // Wait for async file write
     await waitForEvents(100);
 
@@ -335,6 +391,8 @@ describe('AgentMonitorService', () => {
       makeFleetEvent('agent-b', 'provider.text_delta', { text: 'from b', iteration: 0 }),
     );
 
+    // Flush open streaming segments to disk (segment-per-line persistence).
+    monitor.stop();
     await waitForEvents(50);
 
     const dirA = path.join(transcriptsDir, 'agent-a');
@@ -361,7 +419,7 @@ describe('AgentMonitorService', () => {
 
   // ── onEntry callback ─────────────────────────────────────────────
 
-  it('calls onEntry callback for each timeline entry', () => {
+  it('calls onEntry callback once per completed segment/entry', () => {
     const onEntry = vi.fn();
     monitor = createAgentMonitorService({
       fleetBus,
@@ -374,11 +432,16 @@ describe('AgentMonitorService', () => {
     monitor.trackSubagent('a1', 'Agent 1');
     onEntry.mockClear(); // clear spawn entry from mock
 
-    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'cb test', iteration: 0 }));
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'cb ', iteration: 0 }));
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'test', iteration: 0 }));
+    // Streaming segments announce on close — force the boundary.
+    monitor.completeSubagent('a1', 'completed');
 
-    expect(onEntry).toHaveBeenCalledTimes(1);
+    // First call = the closed text segment (full content), second = status.
+    expect(onEntry).toHaveBeenCalledTimes(2);
     const entry = onEntry.mock.calls[0][0] as AgentTimelineEntry;
     expect(entry.content).toBe('cb test');
+    expect(entry.kind).toBe('text');
     expect(entry.subagentId).toBe('a1');
   });
 
@@ -391,11 +454,13 @@ describe('AgentMonitorService', () => {
     monitor.start();
     monitor.trackSubagent('a1', 'Agent 1');
     fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'first cb', iteration: 0 }));
+    // Iteration change closes the first segment → cb1 fires with it.
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'second cb', iteration: 1 }));
 
     expect(cb1).toHaveBeenCalled();
 
     monitor.setOnEntry(cb2);
-    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'second cb', iteration: 1 }));
+    fleetBus.emit(makeFleetEvent('a1', 'provider.text_delta', { text: 'third cb', iteration: 2 }));
 
     expect(cb2).toHaveBeenCalled();
   });

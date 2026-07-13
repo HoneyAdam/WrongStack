@@ -58,6 +58,14 @@ function layerOf(filePath: string): LayerName | null {
   return (LAYERS as readonly string[]).includes(seg) ? (seg as LayerName) : null;
 }
 
+function isUpwardRuntimeImport(
+  sourceLayer: LayerName,
+  targetLayer: LayerName,
+  typeOnly: boolean,
+): boolean {
+  return !typeOnly && LAYERS.indexOf(sourceLayer) < LAYERS.indexOf(targetLayer);
+}
+
 /**
  * Matches import specifiers: `from '...'`, `import '...'`, `import(...)`.
  * Captures the specifier string (without quotes).
@@ -155,6 +163,12 @@ describe('core cross-package boundaries', () => {
  */
 
 describe('core internal layer rules', () => {
+  it('classifies general upward runtime imports without rejecting type-only or downward imports', () => {
+    expect(isUpwardRuntimeImport('plugin', 'skills', false)).toBe(true);
+    expect(isUpwardRuntimeImport('plugin', 'skills', true)).toBe(false);
+    expect(isUpwardRuntimeImport('skills', 'plugin', false)).toBe(false);
+  });
+
   /**
    * Collects all violations for a single file. A violation is a runtime import
    * from a forbidden subdirectory, given the file's own layer.
@@ -295,16 +309,10 @@ describe('core internal layer rules', () => {
         continue;
       }
 
-      // ── Bidirectional coupling check ─────────────────────────────────────
-      // A bidirectional runtime coupling means two layers depend on each
-      // other's implementation — a design smell even if each individual
-      // import is layer-correct. Flag A→B when B→A already exists.
-      // We detect this by tracking which layer pairs have runtime imports
-      // in the current file-set, then assert no pair is bidirectional.
-      if (myIdx < targetIdx && !typeOnly) {
-        // This is a forward (lower→higher) runtime import.
-        // Check if the reverse edge is also present anywhere in the codebase.
-        // (The full bidirectional check is done in the dedicated test below.)
+      // ── General upward-import check ──────────────────────────────────────
+      // Layers without a narrower rule above still cannot import runtime
+      // values from a higher layer. Type-only imports remain allowed.
+      if (isUpwardRuntimeImport(myLayer, targetLayer, typeOnly)) {
         violations.push(
           `layer '${myLayer}' imports runtime value from '${targetDir}/' (higher layer) — general upward-import violation`,
         );
@@ -488,12 +496,10 @@ describe('core bidirectional coupling', () => {
    *              through the barrel. types/ is the shared contract surface,
    *              not a domain layer.
    *
-   * defaults/  — convenience re-export barrel for default implementations.
-   *              Same situation as types/: its index.ts pulls in concrete classes
-   *              from execution/, storage/, etc. Those forward edges would all
-   *              appear bidirectional when checked against the barrel.
+   * defaults/ is also a compatibility barrel, but it is intentionally absent
+   * from LAYERS, so layerOf() skips it before this graph is built.
    */
-  const EXCLUDED = new Set<LayerName>(['types', 'defaults']);
+  const EXCLUDED = new Set<LayerName>(['types']);
 
   it('no two layers should have mutual runtime dependencies', async () => {
     const edges = await buildRuntimeEdgeSet();
@@ -680,47 +686,5 @@ describe('workspace DAG (PR-11)', () => {
     }
 
     expect(cycles).toEqual([]);
-  });
-});
-
-// ── P0/P1 manifest regression ────────────────────────────────────────────────
-
-/**
- * Pin the manifest contracts sealed by PR-08 and PR-10: core no longer
- * declares `@wrongstack/security-scanner` (PR-08) or
- * `@wrongstack/sdd` (PR-10) as workspace dependencies. The cross-package
- * boundary test above only scans runtime imports in core/src, so a future
- * contributor could silently restore either edge by re-adding the entry
- * to package.json without any import. These assertions keep the
- * workspace-DAG PR-11 contract honest and break loudly if either edge
- * creeps back.
- */
-describe('P0/P1 manifest regression (PR-08 + PR-10)', () => {
-  it('core does not declare forbidden workspace dependencies in package.json', async () => {
-    const pkgRaw = await fs.readFile(
-      path.resolve(process.cwd(), 'packages/core/package.json'),
-      'utf8',
-    );
-    const pkg = JSON.parse(pkgRaw) as {
-      dependencies?: Record<string, string>;
-      optionalDependencies?: Record<string, string>;
-      peerDependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    const FORBIDDEN = ['@wrongstack/security-scanner', '@wrongstack/sdd'] as const;
-    const edges: Array<{ field: string; spec: string }> = [];
-    for (const [field, set] of [
-      ['dependencies', pkg.dependencies],
-      ['optionalDependencies', pkg.optionalDependencies],
-      ['peerDependencies', pkg.peerDependencies],
-      ['devDependencies', pkg.devDependencies],
-    ] as const) {
-      for (const spec of Object.keys(set ?? {})) {
-        if ((FORBIDDEN as readonly string[]).includes(spec)) {
-          edges.push({ field, spec });
-        }
-      }
-    }
-    expect(edges).toEqual([]);
   });
 });

@@ -159,6 +159,10 @@ export interface SlashCommandContext {
         enabled: boolean;
         /** Replaced by the TUI on mount with a dispatch-backed setter. */
         setEnabled: (enabled: boolean) => void;
+        /** Fleet-chat verbosity (off | compact | full). */
+        mode: import('@wrongstack/core').FleetChatVerbosity;
+        /** Replaced by the TUI on mount with a dispatch-backed setter. */
+        setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
       }
     | undefined;
   /**

@@ -5,7 +5,7 @@ import type { EventBus } from '../kernel/events.js';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
 import type { Director } from './director.js';
-import { applyRosterBudget } from './fleet.js';
+import { applyRosterBudget, FLEET_ROSTER_BUDGETS } from './fleet.js';
 import { safeParse } from '../utils/safe-json.js';
 import { toErrorMessage } from '../utils/error.js';
 import { ToolCapabilities } from '../security/capabilities.js';
@@ -99,12 +99,10 @@ export interface CreateDelegateToolOptions {
  * when it wants fan-out it controls itself.
  */
 export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
-  // Conservative default for the LLM's mental model.
-  // The actual subagent budgets come from FLEET_ROSTER_BUDGETS (x10 higher)
-  // and are applied in instantiateRosterConfig. This value only appears
-  // in the schema to guide the LLM's delegation decisions — it does NOT
-  // override the roster budget unless the caller explicitly passes it.
-  const defaultTimeoutMs = opts.defaultTimeoutMs ?? 30 * 60 * 1000;
+  // Keep the host-side silence window generous by default. This value is also
+  // forwarded as the initial subagent wall-clock budget when the role does not
+  // provide one; the Director can extend it while the worker makes progress.
+  const defaultTimeoutMs = opts.defaultTimeoutMs ?? 4 * 60 * 60 * 1000;
   const rosterIds = opts.roster ? Object.keys(opts.roster) : [];
 
   const inputSchema: JSONSchema = {
@@ -176,6 +174,13 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         description:
           'Maximum estimated USD cost the subagent may incur. Unset = use the role/coordinator default.',
       },
+      maxHandoffs: {
+        type: 'number',
+        minimum: 0,
+        maximum: 8,
+        description:
+          'Maximum fresh-worker continuations after partial completion or budget exhaustion. Default 1; set 0 to disable. Each successor receives the prior structured/partial report and is told to continue only the remaining work.',
+      },
     },
     required: ['task'],
   };
@@ -183,11 +188,12 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   return {
     name: 'delegate',
     description:
-      "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and its own budget — use this when a task is self-contained, would otherwise blow up your context, or benefits from a specialized role (bug-hunter, security-scanner, refactor-planner, audit-log). For free-form coding tasks (not tied to a pre-defined role), pass `name` + `task` — the subagent runs as a general-purpose coding agent with a large default budget. YOU decide how big the budget is: pass `timeoutMs`, `maxIterations`, and `maxToolCalls` sized to the actual work. There is no hidden cap forcing a 3-minute / 80-iteration limit — if a monorepo audit needs 2 hours and 500 tool calls, ask for that. Call multiple delegates in parallel through the provider's parallel-tool-call surface to fan work out across roles.",
+      "Hand a discrete piece of work to a dedicated subagent and wait for its result. The subagent has its own context, its own LLM call, and a generous, auto-extending budget. If it reports explicit partial completion or still exhausts a recoverable budget, delegate can continue the remaining work with a fresh subagent (bounded by `maxHandoffs`, default 1). Workers may ask the leader to spawn a parallel helper through the mailbox, but cannot recursively spawn agents themselves. Use specialized roster roles when possible; otherwise pass `name` + `task`. Call multiple delegates in parallel through the provider's parallel-tool-call surface for independent work.",
     usageHint:
-      "Set `task` to a complete instruction. Either pick `role` from the roster (audit-log, bug-hunter, refactor-planner, security-scanner) or pass `name` to run a free-form coding agent. For non-trivial work, also pass `timeoutMs`, `maxIterations`, and `maxToolCalls`. Returns the subagent's `TaskResult` — including the textual `result`, iteration count, tool count, and duration. Requires Director mode to be active in normal CLI sessions.",
+      "Set `task` to a complete instruction. Either pick `role` from the roster or pass `name` for a free-form coding agent. Defaults are intentionally generous; override `timeoutMs`, `maxIterations`, `maxToolCalls`, or `maxHandoffs` only when the task warrants it. Returns the final TaskResult plus a `handoffs` history when fresh workers continued partial work. Requires Director mode in normal CLI sessions.",
     permission: 'auto',
     mutating: false,
+    managesOwnTimeout: true,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
     inputSchema,
     async execute(input: unknown, _ctx?: unknown, execOpts?: { signal?: AbortSignal }) {
@@ -209,6 +215,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         idleTimeoutMs?: number | undefined;
         maxTokens?: number | undefined;
         maxCostUsd?: number | undefined;
+        maxHandoffs?: number | undefined;
       };
 
       if (typeof i.task !== 'string' || !i.task.trim()) {
@@ -254,7 +261,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
               error: `Unknown role "${i.role}". Available: ${rosterIds.join(', ') || '(no roster configured)'}.`,
             };
           }
-          cfg = instantiateRosterConfig(i.role, base);
+          cfg = instantiateRosterConfig(i.role, base, i.timeoutMs, defaultTimeoutMs);
           if (i.systemPromptOverride) cfg.systemPromptOverride = i.systemPromptOverride;
           if (i.provider) cfg.provider = i.provider;
           if (i.model) cfg.model = i.model;
@@ -308,221 +315,205 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         // doesn't look idle.
         opts.events?.emit('delegate.started', { sessionId, target, task: i.task });
 
-        const subagentId = await director.spawn(cfg);
-        const taskId = await director.assign({
-          id: `${randomUUID()}`,
-          description: i.task,
-          subagentId,
-        });
-        // Heartbeat-aware host await: `timeoutMs` is treated as a SILENCE
-        // tolerance, not a hard wall-clock cap. The deadline resets every
-        // time the subagent emits a tool/iteration event, so a subagent
-        // that keeps making progress is never killed for being slow —
-        // only a genuinely stalled one (no events for `timeoutMs`) trips
-        // the host timeout. Mirrors the budget's heartbeat auto-extend.
         const dir = director;
-        const result = await new Promise<
-          TaskResult | { __timeout: true } | { __emptyResult: true } | { __aborted: true }
-        >((resolve) => {
-          let settled = false;
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          let offAbort = () => {};
-          const finish = (
-            value: TaskResult | { __timeout: true } | { __emptyResult: true } | { __aborted: true },
-          ) => {
-            /* v8 ignore next -- race-only: finish is only re-entered if the timer fires after awaitTasks settled */
-            if (settled) return;
-            settled = true;
-            if (timer) clearTimeout(timer);
-            offTool();
-            offIter();
-            offProgress();
-            offAbort();
-            resolve(value);
-          };
-          const arm = () => {
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(() => finish({ __timeout: true }), timeoutMs);
-          };
-          const bump = (e: { subagentId: string }) => {
-            if (e.subagentId === subagentId) arm();
-          };
-          const offTool = dir.fleet.filter('tool.executed', bump);
-          const offIter = dir.fleet.filter('iteration.started', bump);
-          // tool.progress fires for streamed bash output, fetch byte progress,
-          // and other long-duration tools — these are forward motion events
-          // that should reset the idle timer just like iteration.started does.
-          const offProgress = dir.fleet.filter('tool.progress', bump);
-          // Leader abort (/interrupt, Esc) must break this wait immediately.
-          // The heartbeat re-arm above would otherwise keep the wait alive for
-          // as long as the (un-aborted) subagent keeps emitting events.
-          if (abortSignal) {
-            const onAbortSignal = () => finish({ __aborted: true });
-            abortSignal.addEventListener('abort', onAbortSignal, { once: true });
-            offAbort = () => abortSignal.removeEventListener('abort', onAbortSignal);
-            if (abortSignal.aborted) onAbortSignal();
-          }
-          arm();
-          dir
-            .awaitTasks([taskId])
-            .then((r) => finish(r[0] ?? { __emptyResult: true }))
-            .catch(() => finish({ __timeout: true }));
-        });
+        const maxHandoffs = Math.min(8, Math.max(0, Math.floor(i.maxHandoffs ?? 1)));
+        const handoffs: DelegateHandoff[] = [];
+        let delegatedTask = i.task;
+        let handoffCount = 0;
 
-        if ('__aborted' in result) {
-          // Stop the spawned subagent so it doesn't keep burning budget after
-          // the leader was interrupted — terminate() aborts its in-flight run
-          // and the coordinator records a 'stopped' completion for the task.
+        for (;;) {
+          const attemptConfig =
+            handoffCount === 0 ? cfg : freshHandoffConfig(cfg, i.role, handoffCount);
+          const subagentId = await dir.spawn(attemptConfig);
+          const taskId = await dir.assign({
+            id: randomUUID(),
+            description: delegatedTask,
+            subagentId,
+          });
+          const result = await awaitDelegateAttempt(
+            dir,
+            subagentId,
+            taskId,
+            timeoutMs,
+            abortSignal,
+          );
+
+          if ('__aborted' in result) {
+            try {
+              await dir.terminate(subagentId);
+            } catch {
+              /* best-effort */
+            }
+            const partial = await readSubagentPartial(opts, subagentId);
+            opts.events?.emit('delegate.completed', {
+              sessionId,
+              target,
+              task: i.task,
+              ok: false,
+              status: 'aborted',
+              summary: `[${target}] aborted — the run was interrupted`,
+              durationMs: 0,
+              iterations: partial?.events ?? 0,
+              toolCalls: partial?.toolUsesObserved ?? 0,
+              subagentId,
+            });
+            return {
+              ok: false,
+              stopReason: 'aborted' as const,
+              error: 'Delegated task aborted — the run was interrupted.',
+              subagentId,
+              taskId,
+              partial,
+              ...(handoffs.length > 0 ? { handoffs } : {}),
+            };
+          }
+
+          if ('__timeout' in result) {
+            try {
+              await dir.terminate(subagentId);
+            } catch {
+              /* best-effort */
+            }
+            const partial = await readSubagentPartial(opts, subagentId);
+            opts.events?.emit('delegate.completed', {
+              sessionId,
+              target,
+              task: i.task,
+              ok: false,
+              status: 'host_timeout',
+              summary: `[${target}] timed out — no progress within ${Math.round(timeoutMs / 1000)}s`,
+              durationMs: timeoutMs,
+              iterations: partial?.events ?? 0,
+              toolCalls: partial?.toolUsesObserved ?? 0,
+              subagentId,
+            });
+            return {
+              ok: false,
+              stopReason: 'host_timeout' as const,
+              error: `Subagent timed out: it did not finish or report progress within ${timeoutMs}ms.`,
+              hint: 'Raise timeoutMs for unusually long single operations, or split the remaining work.',
+              subagentId,
+              taskId,
+              partial,
+              ...(handoffs.length > 0 ? { handoffs } : {}),
+            };
+          }
+
+          if ('__emptyResult' in result) {
+            const partial = await readSubagentPartial(opts, subagentId);
+            opts.events?.emit('delegate.completed', {
+              sessionId,
+              target,
+              task: i.task,
+              ok: false,
+              status: 'empty_result',
+              summary: `[${target}] completed without a task result`,
+              durationMs: 0,
+              iterations: partial?.events ?? 0,
+              toolCalls: partial?.toolUsesObserved ?? 0,
+              subagentId,
+            });
+            return {
+              ok: false,
+              stopReason: 'error' as const,
+              error: 'Director returned no task result for the delegated task.',
+              hint: 'Check fleet state, then retry or reassign the task.',
+              subagentId,
+              taskId,
+              partial,
+              ...(handoffs.length > 0 ? { handoffs } : {}),
+            };
+          }
+
+          const partial =
+            result.status === 'success'
+              ? undefined
+              : result.partial
+                ? {
+                    lastAssistantText: result.partial.text,
+                    toolUsesObserved: result.toolCalls,
+                    events: result.iterations,
+                  }
+                : await readSubagentPartial(opts, subagentId);
+          const continuation = continuationFor(result, partial, attemptConfig);
+          if (continuation && handoffCount < maxHandoffs) {
+            handoffs.push({
+              fromSubagentId: result.subagentId,
+              fromTaskId: result.taskId,
+              status: result.status,
+              errorKind: result.error?.kind,
+              summary: continuation.summary,
+              remainingWork: continuation.remainingWork,
+            });
+            handoffCount += 1;
+            delegatedTask = buildHandoffTask(i.task, continuation, handoffCount, maxHandoffs);
+            continue;
+          }
+
+          const incomplete = result.report?.completion === 'partial';
+          const baseStopReason: StopReason = incomplete
+            ? 'handoff_limit'
+            : result.status === 'success'
+              ? 'end_turn'
+              : result.status === 'timeout'
+                ? 'subagent_timeout'
+                : result.status === 'stopped'
+                  ? 'aborted'
+                  : 'budget_exhausted';
+          const errorKind = result.error?.kind;
+          const retryable = result.error?.retryable;
+          const backoffMs = result.error?.backoffMs;
+          const summary = incomplete
+            ? `[${target}] partial checkpoint — handoff limit reached after ${handoffCount} continuation(s)`
+            : buildDelegateSummary(i.role, result);
+          let costUsd: number | undefined;
           try {
-            await dir.terminate(subagentId);
+            costUsd = dir.snapshot().perSubagent[result.subagentId]?.cost;
           } catch {
-            /* best-effort */
+            costUsd = undefined;
           }
-          const partial = await readSubagentPartial(opts, subagentId);
           opts.events?.emit('delegate.completed', {
             sessionId,
             target,
             task: i.task,
-            ok: false,
-            status: 'aborted',
-            summary: `[${target}] aborted — the run was interrupted`,
-            durationMs: 0,
-            iterations: partial?.events ?? 0,
-            toolCalls: partial?.toolUsesObserved ?? 0,
-            subagentId,
+            ok: result.status === 'success' && !incomplete,
+            status: incomplete ? 'partial' : result.status,
+            summary,
+            durationMs: result.durationMs,
+            iterations: result.iterations,
+            toolCalls: result.toolCalls,
+            costUsd,
+            subagentId: result.subagentId,
           });
-          return {
-            ok: false,
-            stopReason: 'aborted' as const,
-            error: 'Delegated task aborted — the run was interrupted.',
-            subagentId,
-            taskId,
-            partial,
-          };
-        }
 
-        if ('__timeout' in result) {
-          const partial = await readSubagentPartial(opts, subagentId);
-          opts.events?.emit('delegate.completed', {
-            sessionId,
-            target,
-            task: i.task,
-            ok: false,
-            status: 'host_timeout',
-            summary: `[${target}] timed out — no result within ${Math.round(timeoutMs / 1000)}s`,
-            durationMs: timeoutMs,
-            iterations: partial?.events ?? 0,
-            toolCalls: partial?.toolUsesObserved ?? 0,
-            subagentId,
-          });
           return {
-            ok: false,
-            stopReason: 'host_timeout',
-            error: `Subagent did not finish within ${timeoutMs}ms.`,
-            hint: 'Reduce scope of the next delegate, raise timeoutMs, or use spawn_subagent + await_tasks for long-running work.',
-            subagentId,
-            taskId,
-            partial,
-          };
-        }
-
-        if ('__emptyResult' in result) {
-          const partial = await readSubagentPartial(opts, subagentId);
-          opts.events?.emit('delegate.completed', {
-            sessionId,
-            target,
-            task: i.task,
-            ok: false,
-            status: 'empty_result',
-            summary: `[${target}] completed without a task result`,
-            durationMs: 0,
-            iterations: partial?.events ?? 0,
-            toolCalls: partial?.toolUsesObserved ?? 0,
-            subagentId,
-          });
-          return {
-            ok: false,
-            stopReason: 'error' as const,
-            error: 'Director returned no task result for the delegated task.',
-            hint: 'Check fleet state with /fleet status, then retry or reassign the task.',
-            subagentId,
-            taskId,
-            partial,
-          };
-        }
-
-        const baseStopReason: StopReason =
-          result.status === 'success'
-            ? 'end_turn'
-            : result.status === 'timeout'
-              ? 'subagent_timeout'
-              : result.status === 'stopped'
-                ? 'aborted'
-                : 'budget_exhausted';
-        const partial =
-          result.status === 'success'
-            ? undefined
-            : result.partial
+            ok: result.status === 'success' && !incomplete,
+            status: incomplete ? 'partial' : result.status,
+            stopReason: baseStopReason,
+            errorKind,
+            retryable,
+            backoffMs,
+            subagentId: result.subagentId,
+            taskId: result.taskId,
+            result: result.result,
+            report: result.report,
+            error: result.error,
+            iterations: result.iterations,
+            toolCalls: result.toolCalls,
+            durationMs: result.durationMs,
+            ...(partial ? { partial } : {}),
+            ...(handoffs.length > 0 ? { handoffs } : {}),
+            ...(incomplete
               ? {
-                  lastAssistantText: result.partial.text,
-                  toolUsesObserved: result.toolCalls,
-                  events: result.iterations,
+                  hint:
+                    'A clean partial checkpoint remains. Reinvoke delegate with a larger maxHandoffs or assign report.remaining_work explicitly.',
                 }
-              : await readSubagentPartial(opts, subagentId);
-
-        const errorKind = result.error?.kind;
-        const retryable = result.error?.retryable;
-        const backoffMs = result.error?.backoffMs;
-
-        // Build a short summary for the chat history so the user sees
-        // what the subagent accomplished without digging into the full result.
-        const summary = buildDelegateSummary(i.role, result);
-
-        // Per-subagent cost from the director's usage aggregator, when it
-        // tracks one. Best-effort: undefined if pricing isn't wired.
-        let costUsd: number | undefined;
-        try {
-          costUsd = dir.snapshot().perSubagent[result.subagentId]?.cost;
-        } catch {
-          costUsd = undefined;
+              : hintForKind(errorKind, retryable, backoffMs, partial)
+                ? { hint: hintForKind(errorKind, retryable, backoffMs, partial) }
+                : {}),
+            summary,
+          };
         }
-        opts.events?.emit('delegate.completed', {
-          sessionId,
-          target,
-          task: i.task,
-          ok: result.status === 'success',
-          status: result.status,
-          summary,
-          durationMs: result.durationMs,
-          iterations: result.iterations,
-          toolCalls: result.toolCalls,
-          costUsd,
-          subagentId: result.subagentId,
-        });
-
-        return {
-          ok: result.status === 'success',
-          status: result.status,
-          stopReason: baseStopReason,
-          errorKind,
-          retryable,
-          backoffMs,
-          subagentId: result.subagentId,
-          taskId: result.taskId,
-          result: result.result,
-          report: result.report,
-          error: result.error,
-          iterations: result.iterations,
-          toolCalls: result.toolCalls,
-          durationMs: result.durationMs,
-          ...(partial ? { partial } : {}),
-          ...(hintForKind(errorKind, retryable, backoffMs, partial)
-            ? { hint: hintForKind(errorKind, retryable, backoffMs, partial) }
-            : {}),
-          // Summary is included so callers (TUI, CLI renderer) can surface
-          // it as a chat history line — the LLM also sees it for continuity.
-          summary,
-        };
       } catch (err) {
         const message = toErrorMessage(err);
         // Resolve any "started" line the UI is showing — without this a
@@ -549,14 +540,165 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   };
 }
 
-function instantiateRosterConfig(role: string, base: SubagentConfig): SubagentConfig {
-  // Apply the x10 roster budget so subagents get far more running time
-  // and iterations than the LLM is told about in the schema.
-  // The LLM sees a conservative 30-min default; the subagent actually
-  // gets 7.5–10 hours depending on role.
+type DelegateAttemptResult =
+  | TaskResult
+  | { __timeout: true }
+  | { __emptyResult: true }
+  | { __aborted: true };
+
+interface DelegateHandoff {
+  fromSubagentId: string;
+  fromTaskId: string;
+  status: TaskResult['status'];
+  errorKind?: string | undefined;
+  summary: string;
+  remainingWork: string;
+}
+
+interface DelegateContinuation {
+  summary: string;
+  remainingWork: string;
+  partialText?: string | undefined;
+}
+
+async function awaitDelegateAttempt(
+  director: Director,
+  subagentId: string,
+  taskId: string,
+  timeoutMs: number,
+  abortSignal?: AbortSignal,
+): Promise<DelegateAttemptResult> {
+  return new Promise<DelegateAttemptResult>((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let offAbort = () => {};
+    const finish = (value: DelegateAttemptResult) => {
+      /* v8 ignore next -- race-only: timer and awaitTasks can settle together */
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      offTool();
+      offIter();
+      offProgress();
+      offAbort();
+      resolve(value);
+    };
+    const arm = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => finish({ __timeout: true }), timeoutMs);
+    };
+    const bump = (event: { subagentId: string }) => {
+      if (event.subagentId === subagentId) arm();
+    };
+    const offTool = director.fleet.filter('tool.executed', bump);
+    const offIter = director.fleet.filter('iteration.started', bump);
+    const offProgress = director.fleet.filter('tool.progress', bump);
+    if (abortSignal) {
+      const onAbort = () => finish({ __aborted: true });
+      abortSignal.addEventListener('abort', onAbort, { once: true });
+      offAbort = () => abortSignal.removeEventListener('abort', onAbort);
+      if (abortSignal.aborted) onAbort();
+    }
+    arm();
+    director
+      .awaitTasks([taskId])
+      .then((results) => finish(results[0] ?? { __emptyResult: true }))
+      .catch(() => finish({ __timeout: true }));
+  });
+}
+
+function freshHandoffConfig(
+  cfg: SubagentConfig,
+  role: string | undefined,
+  handoffCount: number,
+): SubagentConfig {
+  return {
+    ...cfg,
+    id: role
+      ? `${role}-${randomUUID().slice(0, 8)}`
+      : `${cfg.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'subagent'}-handoff-${handoffCount}-${randomUUID().slice(0, 6)}`,
+  };
+}
+
+function continuationFor(
+  result: TaskResult,
+  partial: { lastAssistantText?: string | undefined } | undefined,
+  config: SubagentConfig,
+): DelegateContinuation | undefined {
+  if (result.report?.completion === 'partial' && result.report.remaining_work) {
+    return {
+      summary: result.report.summary,
+      remainingWork: result.report.remaining_work,
+      partialText: typeof result.result === 'string' ? result.result : partial?.lastAssistantText,
+    };
+  }
+  const budgetKinds = new Set([
+    'budget_iterations',
+    'budget_tool_calls',
+    'budget_tokens',
+    'budget_cost',
+    'budget_timeout',
+  ]);
+  const partialText = result.partial?.text ?? partial?.lastAssistantText;
+  const mayHaveIsolatedWrites =
+    config.worktree !== false &&
+    config.worktree !== 'off' &&
+    (!config.tools ||
+      config.tools.some((tool) =>
+        ['write', 'edit', 'replace', 'patch', 'bash', 'exec', 'install', 'format'].includes(tool),
+      ));
+  if (
+    !mayHaveIsolatedWrites &&
+    result.status !== 'success' &&
+    result.error?.kind &&
+    budgetKinds.has(result.error.kind) &&
+    partialText
+  ) {
+    return {
+      summary: `Prior worker stopped at ${result.error.kind} after ${result.iterations} iterations and ${result.toolCalls} tool calls.`,
+      remainingWork: 'Inspect the existing workspace and finish only the work that remains from the original task.',
+      partialText,
+    };
+  }
+  return undefined;
+}
+
+function buildHandoffTask(
+  originalTask: string,
+  continuation: DelegateContinuation,
+  handoffCount: number,
+  maxHandoffs: number,
+): string {
+  const partial = continuation.partialText?.trim().slice(-6_000);
+  return [
+    `Continue an oversized delegated task as fresh worker ${handoffCount} of ${maxHandoffs}.`,
+    'Do not blindly repeat completed actions. Inspect the current workspace, git diff, tests, and any files named below before changing anything.',
+    'If the remaining work is still too large, stop at a clean checkpoint and call submit_result with completion="partial" plus concrete remaining_work.',
+    'If parallel help would materially improve the outcome and mail_send is available, send the leader an `ask` that names the exact helper task; do not spawn agents yourself.',
+    `Original task:\n${originalTask}`,
+    `Prior checkpoint summary:\n${continuation.summary}`,
+    `Remaining work:\n${continuation.remainingWork}`,
+    partial ? `Prior worker's last useful output:\n${partial}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function instantiateRosterConfig(
+  role: string,
+  base: SubagentConfig,
+  requestedTimeoutMs: number | undefined,
+  defaultTimeoutMs: number,
+): SubagentConfig {
   const withBudget = applyRosterBudget({ ...base, role });
+  const rosterTimeoutMs = FLEET_ROSTER_BUDGETS[role]?.timeoutMs;
   return {
     ...withBudget,
+    // Without an explicit host wait, apply the role's tuned multi-hour
+    // wall-clock budget. With an explicit wait, leave this unset so the buffer
+    // logic above derives a slightly shorter child budget without clamping the
+    // role defaults used by ordinary calls.
+    timeoutMs: requestedTimeoutMs === undefined ? rosterTimeoutMs ?? defaultTimeoutMs : undefined,
     // Give each spawn a fresh id so parallel or repeated delegates
     // can use the same role safely.
     id: `${role}-${randomUUID().slice(0, 8)}`,
@@ -568,6 +710,7 @@ type StopReason =
   | 'budget_exhausted'
   | 'subagent_timeout'
   | 'host_timeout'
+  | 'handoff_limit'
   | 'aborted'
   | 'error';
 

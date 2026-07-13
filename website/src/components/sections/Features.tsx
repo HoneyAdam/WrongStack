@@ -36,7 +36,7 @@ const features = [
   },
   {
     icon: Wrench,
-    title: '38 built-in tools',
+    title: '58 built-in tools',
     tag: 'no plugin required',
     body: 'Files, shell, web, git, plans, kanban, design kits, lint/format/typecheck/test, package audits, a SQLite codebase index, and meta-tooling — all registered out of the box behind per-tool permissions.',
   },

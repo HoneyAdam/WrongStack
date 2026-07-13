@@ -44,7 +44,7 @@ core (zero internal dependencies)
  └── types/      — All type definitions
       ↓
 providers/  — Anthropic/OpenAI/Google/OpenAI-compatible adapters
-tools/      — 37 built-in tools (read, write, bash, grep, codebase-index, …)
+tools/      — 58 built-in tools (files, shell, browser, quality, codebase index, …)
 mcp/        — MCP client + registry + transports
 runtime/    — Default runtime implementations
 acp/        — ACP server/client for external agent protocols
@@ -66,7 +66,7 @@ apps/wrongstack/ — Binary entry point
 |---------|------|
 | `core` | Runtime kernel, types, agent loop, tool execution, compaction, coordination, security, persistence |
 | `providers` | LLM provider adapters: Anthropic, OpenAI, Google, OpenAI-compatible via WireFormatConfig |
-| `tools` | 37 built-in tools for filesystem, shell, search, git, dependencies, scaffolding |
+| `tools` | 58 built-in tools for filesystem, shell, browser/E2E, search, git, dependencies, language tooling and scaffolding |
 | `mcp` | MCP client with stdio/SSE/streamable-http transports, registry, tool wrapping |
 | `cli` | REPL, slash commands, subcommands, interactive pickers, plugin management |
 | `tui` | React/Ink terminal UI with live streaming, history, fleet monitoring, status bar |

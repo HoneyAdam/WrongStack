@@ -552,6 +552,9 @@ export interface Mailbox {
    */
   clientHeartbeat(input: ClientHeartbeatInput): Promise<void>;
 
+  /** Remove a client immediately on clean shutdown. */
+  deregisterClient(clientId: string): Promise<void>;
+
   /**
    * Get snapshot of online/offline clients and their last activity.
    */

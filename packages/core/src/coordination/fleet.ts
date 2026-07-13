@@ -61,10 +61,10 @@ export const SHADOW_AGENT = defineAgent('shadow-agent', 'Shadow');
 export const CRITIC_AGENT = defineAgent('critic', 'Critic');
 
 /**
- * All agents in a map for easy lookup by role. The four legacy pre-built
- * agents plus the phase 1-9 catalog (`ALL_AGENT_DEFINITIONS`). Catalog roles
- * are guaranteed collision-free by the catalog builder; none overlap the
- * legacy four.
+ * All agents in a map for easy lookup by role. The 50-role phase catalog
+ * (`ALL_AGENT_DEFINITIONS`) contains the historical audit/review specialists;
+ * `shadow-agent` remains the additional operational role. The resulting
+ * built-in roster has 51 unique role ids.
  */
 export const FLEET_ROSTER: Record<string, SubagentConfig> = {
   'audit-log': AUDIT_LOG_AGENT,

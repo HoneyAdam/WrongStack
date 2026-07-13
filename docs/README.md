@@ -84,7 +84,7 @@ Per-subcommand documentation. Each entry in `docs/subcommands/` documents one su
 
 | Subcommand | Document |
 |---|---|
-| `init` | [subcommands/init.md](subcommands/init.md) |
+| `init` (deprecated compatibility alias) | [subcommands/init.md](subcommands/init.md) |
 | `auth` | [subcommands/auth.md](subcommands/auth.md) |
 | `acp` | [subcommands/acp.md](subcommands/acp.md) |
 | `audit` | [subcommands/audit.md](subcommands/audit.md) |

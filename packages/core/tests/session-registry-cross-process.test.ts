@@ -603,24 +603,57 @@ describe('SessionRegistry lifecycle edges', () => {
     expect(list.find((s) => s.sessionId === 'sess-old')).toBeUndefined();
   });
 
-  it('marks a long-stale entry (kept under 5min) as stale without deleting', async () => {
+  it('removes a dead session based on heartbeat age, not session start time', async () => {
     const root = await freshRoot();
     const registryPath = path.join(root, 'session-registry.json');
-    const startedOld = new Date(Date.now() - 3 * 60_000).toISOString(); // 3 min ago (< 5 min keep)
-    const heartbeatOld = new Date(Date.now() - 120_000).toISOString(); // 2 min ago (> stale timeout)
+    const startedRecently = new Date(Date.now() - 3 * 60_000).toISOString();
+    const heartbeatOld = new Date(Date.now() - 120_000).toISOString();
     await fs.writeFile(
       registryPath,
       JSON.stringify({
-        'sess-stale-kept': {
-          sessionId: 'sess-stale-kept', projectSlug: 'ws', projectRoot: '/ws', projectName: 'WS',
-          workingDir: '/ws', pid: await deadPid(), status: 'active', startedAt: startedOld,
+        'sess-stale': {
+          sessionId: 'sess-stale', projectSlug: 'ws', projectRoot: '/ws', projectName: 'WS',
+          workingDir: '/ws', pid: await deadPid(), status: 'active', startedAt: startedRecently,
           lastHeartbeatAt: heartbeatOld, agentCount: 0, agents: [],
         },
       }, null, 2),
     );
+
     const reg = new SessionRegistry(root);
-    const entry = await reg.get('sess-stale-kept');
-    expect(entry?.status).toBe('stale'); // kept (started < 5 min ago), just marked stale
+    expect(await reg.get('sess-stale')).toBeUndefined();
+    expect(JSON.parse(await fs.readFile(registryPath, 'utf8'))).toEqual({});
+  });
+
+  it('removes malformed heartbeat entries and stale subagents from live sessions', async () => {
+    const root = await freshRoot();
+    const registryPath = path.join(root, 'session-registry.json');
+    const now = new Date().toISOString();
+    const staleActivity = new Date(Date.now() - 10 * 60_000).toISOString();
+    await fs.writeFile(
+      registryPath,
+      JSON.stringify({
+        malformed: {
+          sessionId: 'malformed', projectSlug: 'ws', projectRoot: '/ws', projectName: 'WS',
+          workingDir: '/ws', pid: process.pid, status: 'active', startedAt: now,
+          lastHeartbeatAt: 'invalid', agentCount: 0, agents: [],
+        },
+        live: {
+          sessionId: 'live', projectSlug: 'ws', projectRoot: '/ws', projectName: 'WS',
+          workingDir: '/ws', pid: process.pid, status: 'active', startedAt: now,
+          lastHeartbeatAt: now, agentCount: 2,
+          agents: [
+            makeAgent({ id: 'leader', lastActivityAt: staleActivity }),
+            makeAgent({ id: 'shadow-old', lastActivityAt: staleActivity, status: 'running' }),
+          ],
+        },
+      }, null, 2),
+    );
+
+    const reg = new SessionRegistry(root);
+    const entries = await reg.list();
+    expect(entries.map((entry) => entry.sessionId)).toEqual(['live']);
+    expect(entries[0]?.agents.map((agent) => agent.id)).toEqual(['leader']);
+    expect(entries[0]?.agentCount).toBe(1);
   });
 
   it('register prunes a prior dead+stale entry from a different session', async () => {

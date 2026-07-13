@@ -71,7 +71,7 @@ After 3 consecutive failures (or 3 consecutive `brainstorm` source iterations th
 In `eternal-parallel` mode each tick decomposes the goal into N slot tasks
 (pending todos → git-dirty files → leader-brainstormed) and fans them out. Each
 slot task is routed through the smart dispatcher (`dispatchAgent`) to the
-best-fit agent in the 46-agent catalog:
+best-fit agent in the 50-agent phase catalog:
 
 - the slot spawns **in-role** — the role's budget tier applies (via
   `applyRosterBudget`) and the role's tools/persona prompt are attached for any

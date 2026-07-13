@@ -38,7 +38,7 @@ describe('/settings slash command', () => {
   it('bare /settings shows the new UX toggles', async () => {
     const { ctx } = makeCtx();
     const text = stripAnsi((await buildSettingsCommand(ctx).run!('')).message!);
-    expect(text).toContain('stream fleet:               on');
+    expect(text).toContain('fleet chat:                 compact');
     expect(text).toContain('completion chime:           off');
     expect(text).toContain('confirm before exit:        on');
   });
@@ -120,26 +120,45 @@ describe('/settings slash command', () => {
     expect(cmd.help).toContain('refiner-clear');
   });
 
-  // ── Stream-fleet ──
+  // ── Stream-fleet (fleet-chat verbosity) ──
 
-  it('stream-fleet persists autonomy.streamFleet', async () => {
+  it('stream-fleet off persists the enum AND the mirrored boolean', async () => {
     const { ctx, globalConfig } = makeCtx();
     const res = await buildSettingsCommand(ctx).run!('stream-fleet off');
-    expect(stripAnsi(res!.message!)).toContain('stream fleet → off');
+    expect(stripAnsi(res!.message!)).toContain('fleet chat → off');
     const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.autonomy.fleetChatVerbosity).toBe('off');
     expect(written.autonomy.streamFleet).toBe(false);
+  });
+
+  it('stream-fleet compact persists the enum with streamFleet mirrored true', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('stream-fleet compact');
+    expect(stripAnsi(res!.message!)).toContain('fleet chat → compact');
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.autonomy.fleetChatVerbosity).toBe('compact');
+    expect(written.autonomy.streamFleet).toBe(true);
+  });
+
+  it('stream-fleet maps legacy "on" to full', async () => {
+    const { ctx, globalConfig } = makeCtx();
+    const res = await buildSettingsCommand(ctx).run!('stream-fleet on');
+    expect(stripAnsi(res!.message!)).toContain('fleet chat → full');
+    const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
+    expect(written.autonomy.fleetChatVerbosity).toBe('full');
+    expect(written.autonomy.streamFleet).toBe(true);
   });
 
   it('stream-fleet rejects invalid values without writing', async () => {
     const { ctx, globalConfig } = makeCtx();
     const res = await buildSettingsCommand(ctx).run!('stream-fleet maybe');
-    expect(stripAnsi(res!.message!)).toContain('stream-fleet on|off');
+    expect(stripAnsi(res!.message!)).toContain('stream-fleet off|compact|full');
     expect(existsSync(globalConfig)).toBe(false);
   });
 
   it('help lists the stream-fleet subcommand', () => {
     const { ctx } = makeCtx();
-    expect(buildSettingsCommand(ctx).help).toContain('stream-fleet on|off');
+    expect(buildSettingsCommand(ctx).help).toContain('stream-fleet off|compact|full');
   });
 
   // ── Chime ──

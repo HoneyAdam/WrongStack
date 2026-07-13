@@ -38,6 +38,7 @@ import {
   CHIMERA_REVIEW_PROMPT,
   type ChimeraReviewNeededPayload,
   type CoordinatorEvent,
+  type FleetChatVerbosity,
   mergeCustomModelDefs,
   normalizeTokenSavingTier,
   type SubagentConfig,
@@ -79,7 +80,10 @@ export interface LiveSettingsInput {
   delayMs?: number | undefined;
   titleAnimation?: boolean | undefined;
   yolo?: boolean | undefined;
+  /** @deprecated Use fleetChatVerbosity; kept for boolean-only writers. */
   streamFleet?: boolean | undefined;
+  /** Fleet-chat verbosity (off | compact | full); persists with a mirrored streamFleet boolean. */
+  fleetChatVerbosity?: FleetChatVerbosity | undefined;
   chime?: boolean | undefined;
   confirmExit?: boolean | undefined;
   nextPrediction?: boolean | undefined;
@@ -157,7 +161,8 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     },
     fleet: {
       director, getDirector, coordinatorController, fleetRoster,
-      fleetStreamController, agentsMonitorController, authHost, onPanelOpen,
+      fleetStreamController, agentsMonitorController, agentTranscripts,
+      authHost, onPanelOpen,
     },
     controllers: {
       interruptController, enhanceController, getEnhancerReasoning,
@@ -753,6 +758,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             dispatch({ type: 'toolStreamClear' });
           },
           fleetStreamController,
+          agentTranscripts,
           interruptController,
           enhanceController,
           getEnhancerReasoning,
@@ -781,6 +787,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           initialAsk: askFlag,
           projectRoot,
           appConfig: config,
+          hqTelemetryOwnedExternally: true,
           getSessionId: () => agent.ctx.session?.id ?? session.id,
           getSDDContext: () => getSDDContextExtracted(),
           onSDDOutput: (output: string) => onSDDOutputExtracted(output),

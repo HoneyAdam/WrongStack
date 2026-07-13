@@ -116,6 +116,33 @@ export function normalizeTokenSavingTier(val?: TokenSavingTier | boolean): Token
   return validTiers.has(val) ? val : 'off';
 }
 
+/**
+ * Verbosity of fleet/subagent activity streamed into the main TUI chat.
+ * See {@link AutonomyConfig.fleetChatVerbosity}.
+ */
+export type FleetChatVerbosity = 'off' | 'compact' | 'full';
+
+export const FLEET_CHAT_VERBOSITY_VALUES: readonly FleetChatVerbosity[] = ['off', 'compact', 'full'];
+
+/**
+ * Resolve the effective fleet-chat verbosity from autonomy config.
+ * An explicit `fleetChatVerbosity` wins; otherwise the legacy `streamFleet`
+ * boolean is honored (`false` → 'off'); absence of both means 'compact'.
+ * `fleetChatVerbosity` must never be given a merge-time default — the
+ * absence of the field is what lets legacy `streamFleet: false` configs
+ * keep their intent.
+ */
+export function resolveFleetChatVerbosity(
+  autonomy?: Pick<AutonomyConfig, 'fleetChatVerbosity' | 'streamFleet'>,
+): FleetChatVerbosity {
+  const explicit = autonomy?.fleetChatVerbosity;
+  if (explicit && (FLEET_CHAT_VERBOSITY_VALUES as readonly string[]).includes(explicit)) {
+    return explicit;
+  }
+  if (autonomy?.streamFleet === false) return 'off';
+  return 'compact';
+}
+
 export const DEFAULT_TUI_THINKING_WORD = 'thinking';
 export const MAX_TUI_THINKING_WORD_LENGTH = 16;
 
@@ -734,8 +761,19 @@ export interface AutonomyConfig {
   terminalTitleAnimation?: boolean | undefined;
   /** Persisted YOLO preference mirrored into top-level config.yolo at runtime. Default: false. */
   yolo?: boolean | undefined;
-  /** Stream fleet/subagent output into the main TUI chat. Default: true. */
+  /**
+   * @deprecated Mirror of `fleetChatVerbosity !== 'off'`, kept for readers that
+   * still expect a boolean (webui prefs). Writers must keep it in sync.
+   */
   streamFleet?: boolean | undefined;
+  /**
+   * How much fleet/subagent activity is streamed into the main TUI chat.
+   * - 'off': no subagent lines (failures/errors still surface); F2/F3 stay live.
+   * - 'compact': spawn, one tool/message summary per agent turn, completion.
+   * - 'full': every subagent tool call and interim message (legacy behavior).
+   * Resolved via {@link resolveFleetChatVerbosity}. Default: 'compact'.
+   */
+  fleetChatVerbosity?: FleetChatVerbosity | undefined;
   /** Ring terminal bell when an agent run completes. Default: false. */
   chime?: boolean | undefined;
   /** Ask for confirmation before interrupt/exit. Default: true. */

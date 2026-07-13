@@ -42,8 +42,10 @@
 
 ## Agent roster
 
-The roster is the 4 legacy pre-built agents plus a 44-agent catalog across 9
-phases (Discovery → Meta), defined in `packages/core/src/coordination/agents/`.
+The built-in roster contains 50 catalog agents across 9 phases (Discovery →
+Meta), plus the operational `shadow-agent` role. Five optional ACP runtimes
+extend the addressable set from 51 to 56. The phase catalog is defined in
+`packages/core/src/coordination/agents/`.
 Each agent has a scoped tool allowlist and budget tier. Spawn any of them by
 role: `/fleet spawn debugger`, `/fleet spawn e2e 2`, or let the dispatcher pick
 with `/fleet dispatch "fix the login crash"`. `spawn_subagent role:<role>` works
@@ -112,7 +114,7 @@ often never-die kept an agent alive:
 - `packages/cli/src/slash-commands/fleet.ts` — `/fleet` incl. `list` / `dispatch`
 - `packages/cli/src/fleet-statusline.ts` — plain-REPL live status line
 - `packages/tui/src/components/fleet-monitor.tsx` — graphical TUI dashboard (Ctrl+F)
-- `packages/core/src/coordination/agents/` — 44-agent catalog (phases 1-9)
+- `packages/core/src/coordination/agents/` — 50-agent catalog (phases 1-9)
 - `packages/core/src/coordination/dispatcher.ts` — heuristic + LLM routing
 - `packages/core/src/coordination/auto-extend.ts` — heartbeat auto-extend policy
 - `packages/core/src/coordination/director.ts` — director-side auto-extend

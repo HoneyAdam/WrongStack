@@ -48,8 +48,8 @@ All checks passed.
 
 | Check | Status | Fix if fail |
 |---|---|---|
-| `provider` | ok / fail | `wstack init` or `wstack auth` |
-| `model` | ok / fail | `wstack init` |
+| `provider` | ok / fail | `wstack auth` |
+| `model` | ok / fail | `wstack auth` |
 | `api key` | ok / fail | `wstack auth <provider>` |
 | `models cache` | ok / warn | `wstack models refresh` |
 | `secret vault` | ok / warn | Created lazily on first encrypt |

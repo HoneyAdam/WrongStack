@@ -244,6 +244,14 @@ export interface SubagentStructuredReport {
   /** 0.0 (uncertain) through 1.0 (fully verified). */
   confidence: number;
   suggested_next_steps: string[];
+  /**
+   * `complete` means this worker finished the assigned task. `partial` is an
+   * intentional checkpoint: the delegate tool may give `remaining_work` to a
+   * fresh worker when its bounded handoff policy allows it.
+   */
+  completion?: 'complete' | 'partial' | undefined;
+  /** Concrete remainder for a successor. Required when completion is `partial`. */
+  remaining_work?: string | undefined;
 }
 
 export interface TaskResult<T = unknown> {

@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { pluginCatalog } from '@/data/runtime-catalog';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -20,10 +21,10 @@ export const META = {
 } as const;
 
 export const heroStats = [
-  { value: '38', label: 'built-in tools' },
+  { value: '58', label: 'built-in tools' },
   { value: '23', label: 'bundled skills' },
   { value: '~140', label: 'model providers' },
-  { value: '36', label: 'official plugins' },
+  { value: '73', label: 'managed plugins' },
 ] as const;
 
 /** 23 bundled skills — README / bundled catalog canonical list. */
@@ -65,23 +66,53 @@ export const skills = [
   },
 ] as const;
 
-/** The 38 built-in tools from packages/tools/src/builtin.ts, grouped. */
+/** The 58 built-in tools from packages/tools/src/builtin.ts, grouped. */
 export const toolGroups = [
   {
-    label: 'Files',
-    tools: ['read', 'write', 'edit', 'replace', 'glob', 'grep', 'tree', 'patch', 'diff'],
+    label: 'Browser & E2E',
+    tools: [
+      'browser_open',
+      'browser_status',
+      'browser_list',
+      'browser_navigate',
+      'browser_snapshot',
+      'browser_screenshot',
+      'browser_click',
+      'browser_type',
+      'browser_select',
+      'browser_press',
+      'browser_hover',
+      'browser_drag',
+      'browser_wait',
+      'browser_evaluate',
+      'browser_upload',
+      'browser_close',
+      'e2e_plan',
+    ],
   },
-  { label: 'Shell', tools: ['bash', 'exec'] },
-  { label: 'Web', tools: ['fetch', 'search'] },
-  { label: 'Quality', tools: ['lint', 'format', 'typecheck', 'test'] },
-  { label: 'Packages', tools: ['install', 'audit', 'outdated'] },
-  { label: 'Codegen', tools: ['document', 'scaffold', 'design'] },
-  { label: 'Data', tools: ['json', 'logs'] },
-  { label: 'Project', tools: ['git', 'todo', 'plan', 'kanban', 'task', 'set_working_dir'] },
-  { label: 'Codebase index', tools: ['codebase-index', 'codebase-search', 'codebase-stats'] },
   {
-    label: 'Meta-tooling',
-    tools: ['tool_search', 'tool_use', 'batch_tool_use', 'tool_help'],
+    label: 'Files & search',
+    tools: ['read', 'write', 'edit', 'replace', 'glob', 'grep', 'patch', 'diff', 'tree', 'json'],
+  },
+  { label: 'Shell, Git & web', tools: ['bash', 'exec', 'git', 'fetch', 'search'] },
+  { label: 'Work & state', tools: ['todo', 'plan', 'kanban', 'task', 'set_working_dir'] },
+  {
+    label: 'Quality & language',
+    tools: ['lint', 'format', 'typecheck', 'test', 'language_info', 'language', 'language_package'],
+  },
+  { label: 'Dependencies', tools: ['install', 'audit', 'outdated', 'logs'] },
+  { label: 'Generation', tools: ['document', 'scaffold', 'design'] },
+  {
+    label: 'Discovery & index',
+    tools: [
+      'tool_search',
+      'tool_use',
+      'batch_tool_use',
+      'tool_help',
+      'codebase-index',
+      'codebase-search',
+      'codebase-stats',
+    ],
   },
 ] as const;
 
@@ -242,45 +273,8 @@ export const packages = [
   '@wrongstack/desktop',
 ] as const;
 
-/** 36 official plugins — README plugin table. */
-export const plugins = [
-  { name: 'auto-doc', note: 'JSDoc / TSDoc generation' },
-  { name: 'git-autocommit', note: 'Conventional-commit messages' },
-  { name: 'shell-check', note: 'ShellCheck wrapper' },
-  { name: 'cost-tracker', note: 'Token + cost per model' },
-  { name: 'file-watcher', note: 'Emits file-change events' },
-  { name: 'cron', note: 'Recurring actions via hooks' },
-  { name: 'template-engine', note: '{{var}} / {{#if}} / {{#each}}' },
-  { name: 'semver-bump', note: 'Commit-driven version bumps' },
-  { name: 'secret-scanner', note: 'Credential blocking, redaction, and warnings' },
-  { name: 'todo-tracker', note: 'Persistent project todo backlog' },
-  { name: 'token-budget', note: 'Warn or stop near token limits' },
-  { name: 'lint-gate', note: 'Runs linters before file edits land' },
-  { name: 'branch-guard', note: 'Blocks unsafe operations on protected branches' },
-  { name: 'diff-summary', note: 'Injects compact git diff context after edits' },
-  { name: 'commit-validator', note: 'Enforces conventional commit shape' },
-  { name: 'format-on-save', note: 'Runs formatter after write/edit' },
-  { name: 'test-runner-gate', note: 'Runs relevant tests after source edits' },
-  { name: 'import-organizer', note: 'Sorts imports and removes unused entries' },
-  { name: 'todo-listener', note: 'Broadcasts todo snapshots to the mailbox' },
-  { name: 'session-recap', note: 'Posts a session summary on stop' },
-  { name: 'spec-linker', note: 'Finds and fixes unlinked plugin references' },
-  { name: 'loop-breaker', note: 'Detects repeated tool-call loops' },
-  { name: 'path-guard', note: 'Blocks writes to protected paths' },
-  { name: 'context-pins', note: 'Pins facts across sessions and compaction' },
-  { name: 'checkpoint', note: 'Captures and restores file snapshots' },
-  { name: 'error-lens', note: 'Distills failed command output' },
-  { name: 'dep-guard', note: 'Supervises dependency installs' },
-  { name: 'config-validator', note: 'Validates JSON/YAML/TOML after edits' },
-  { name: 'notify-hub', note: 'Sends session and tool notifications' },
-  { name: 'changelog-writer', note: 'Writes Keep a Changelog entries' },
-  { name: 'injection-shield', note: 'Flags prompt-injection patterns' },
-  { name: 'llm-cache', note: 'Provider response cache' },
-  { name: 'model-router', note: 'Request-size and tool-aware routing' },
-  { name: 'prompt-firewall', note: 'Credential scanner on the provider wire' },
-  { name: 'auto-escalate', note: 'Retry ladder for transient failures' },
-  { name: 'token-throttle', note: 'Rolling tokens-per-minute throttle' },
-] as const;
+/** Managed first-party plugin catalog, shared with the dedicated plugin page. */
+export const plugins = pluginCatalog.map(({ name, summary }) => ({ name, note: summary }));
 
 /* =========================================================================
    Changelog — source: CHANGELOG.md. Each entry has version, date, tagline,
@@ -307,7 +301,7 @@ export const changelog: ChangelogEntry[] = [
     highlights: [
       'Workspace builds now run through one topologically ordered esbuild package driver instead of 19 per-package tsup configs',
       'Native TypeScript 7 declaration emit is used for package output while dependencies stay external and entry-point shims remain safe',
-      'Compiler API consumers are isolated on Microsoft\'s @typescript/typescript6 compatibility package while build/typecheck run on TypeScript 7.0.2',
+      "Compiler API consumers are isolated on Microsoft's @typescript/typescript6 compatibility package while build/typecheck run on TypeScript 7.0.2",
       'README and website release copy now describe the current 18-package + 2-app workspace shape',
       'Package tables include kanban, SDD, security scanner, WebUI server, HQ, desktop, and the published wrongstack app entry',
     ],

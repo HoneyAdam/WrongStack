@@ -4,7 +4,7 @@
 
 `/init` creates or overwrites `.wrongstack/AGENTS.md` — a file loaded into WrongStack's system prompt as persistent project context on every session start.
 
-Every invocation re-runs project auto-detection and writes the template fresh. If you have manually edited the file, run `/init` again to update the auto-detected parts while your custom notes stay (the template tells the agent "DO NOT DELETE").
+Every invocation re-runs project auto-detection and writes a fresh template. If the file already exists, `/init` first makes a best-effort copy at `.wrongstack/AGENTS.md.bak`; it does not merge hand-written sections into the generated template.
 
 ## Auto-detection
 
@@ -56,18 +56,21 @@ If **no command at all** was found, the source tree is walked (skipping `node_mo
 ## Useful pointers     — Docs, dashboards, related repos
 ```
 
-## REPL vs `wstack init` subcommand
+## First launch and the deprecated shell alias
 
 | Entry | Behavior |
 |---|---|
-| `/init` in REPL | Writes `.wrongstack/AGENTS.md` only |
-| `wstack init` subcommand | Interactive provider/model setup → `~/.wrongstack/config.json` + same AGENTS.md logic |
+| First interactive `wstack` launch | Detects a project manifest and offers to scaffold `.wrongstack/AGENTS.md` when missing |
+| `/init` in REPL/TUI | Regenerates `.wrongstack/AGENTS.md`; backs up an existing file to `AGENTS.md.bak` first |
+| `wstack auth` | Configures providers, credentials, and the default model |
+| `wstack init` | Deprecated compatibility alias; prints migration guidance only |
 
-Both use the same `detectProjectFacts()` + `renderAgentsTemplate()` from `helpers.ts`.
+The startup scaffold and `/init` both use project-fact detection and the same generated template shape.
 
 ## Code reference
 
 - `packages/cli/src/slash-commands/init.ts` — slash command
 - `packages/cli/src/slash-commands/helpers.ts` — `detectProjectFacts()` + `renderAgentsTemplate()`
-- `packages/cli/src/subcommands/handlers/init.ts` — `wstack init` subcommand
+- `packages/cli/src/pre-launch/project-check.ts` — first-launch project detection and scaffold prompt
+- `packages/cli/src/subcommands/handlers/init.ts` — deprecated compatibility handler
 - `packages/cli/tests/slash-init.test.ts` — tests

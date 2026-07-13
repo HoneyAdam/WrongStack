@@ -100,7 +100,7 @@ describe('buildFleetTopology', () => {
     ]);
   });
 
-  it('keeps connected CLI/TUI/WebUI clients visible while waiting for session telemetry', () => {
+  it('keeps connected session-telemetry clients visible while waiting for session telemetry', () => {
     const topology = buildFleetTopology(
       baseSnapshot({
         clients: [
@@ -113,7 +113,7 @@ describe('buildFleetTopology', () => {
             connectedAt: '2026-07-09T00:00:00.000Z',
             lastSeenAt: '2026-07-09T00:00:10.000Z',
             projectId: 'proj-1',
-            capabilities: ['control.receive'],
+            capabilities: ['session.summary', 'control.receive'],
           },
         ],
         projects: [
@@ -138,6 +138,101 @@ describe('buildFleetTopology', () => {
     expect(terminal?.clientKind).toBe('webui');
     expect(terminal?.sub).toBe('waiting for session telemetry');
     expect(topology.edges.map((e) => e.target)).toContain('terminal:client:client-1');
+  });
+
+  it('hides session-telemetry clients that stayed sessionless past the grace window', () => {
+    // A live bridge publishes its first snapshot within ~2.5s. A client that
+    // has been connected for minutes without one is broken/legacy — it must
+    // not linger as a phantom "waiting for session telemetry" terminal.
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        generatedAt: '2026-07-09T00:10:00.000Z',
+        clients: [
+          {
+            clientId: 'stale-1',
+            kind: 'tui',
+            machineId: 'machine-1',
+            hostname: 'devbox',
+            pid: 999,
+            connected: true,
+            connectedAt: '2026-07-09T00:00:00.000Z',
+            lastSeenAt: '2026-07-09T00:09:55.000Z',
+            projectId: 'proj-1',
+            capabilities: ['telemetry.publish', 'session.summary'],
+          },
+        ],
+      }),
+    );
+
+    expect(topology.nodes.some((n) => n.kind === 'terminal')).toBe(false);
+  });
+
+  it('hides auxiliary sockets that never publish session telemetry', () => {
+    // A mailbox/brain publisher declares no `session.summary` — it must not
+    // render as a phantom "waiting for session telemetry" terminal.
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        clients: [
+          {
+            clientId: 'aux-1',
+            kind: 'cli',
+            machineId: 'machine-1',
+            hostname: 'devbox',
+            pid: 4242,
+            connected: true,
+            connectedAt: '2026-07-09T00:00:00.000Z',
+            lastSeenAt: '2026-07-09T00:00:10.000Z',
+            projectId: 'proj-1',
+            capabilities: ['telemetry.publish', 'mailbox.summary'],
+          },
+        ],
+      }),
+    );
+
+    expect(topology.nodes.some((n) => n.kind === 'terminal')).toBe(false);
+  });
+
+  it('does not duplicate a process already represented by a live session', () => {
+    // One wstack process holds several publisher sockets. Once its session
+    // telemetry is live, the sibling sockets must not spawn extra terminals.
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        clients: [
+          {
+            clientId: 'sibling-socket',
+            kind: 'cli',
+            machineId: 'machine-1',
+            hostname: 'devbox',
+            pid: 4242,
+            connected: true,
+            connectedAt: '2026-07-09T00:00:00.000Z',
+            lastSeenAt: '2026-07-09T00:00:10.000Z',
+            projectId: 'proj-1',
+            capabilities: ['telemetry.publish', 'session.summary'],
+          },
+        ],
+        liveSessions: [
+          {
+            sessionId: 'sess-1',
+            clientKind: 'tui',
+            machineId: 'machine-1',
+            hostname: 'devbox',
+            pid: 4242,
+            projectId: 'proj-1',
+            projectName: 'WrongStack',
+            projectRoot: 'D:/Codebox/PROJECTS/WrongStack',
+            status: 'active',
+            startedAt: '2026-07-09T00:00:00.000Z',
+            lastActivityAt: '2026-07-09T00:01:00.000Z',
+            agentCount: 0,
+            agents: [],
+          },
+        ],
+      }),
+    );
+
+    const terminals = topology.nodes.filter((n) => n.kind === 'terminal');
+    expect(terminals.map((n) => n.sessionId)).toEqual(['sess-1']);
   });
 });
 

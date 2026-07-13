@@ -1,4 +1,4 @@
-import type { Message, TokenSavingTier } from '@wrongstack/core';
+import type { FleetChatVerbosity, Message, TokenSavingTier } from '@wrongstack/core';
 import { AUTH_PANEL_INITIAL } from './components/auth-panel-model.js';
 import type { ContextMode, StatuslineMode } from './components/settings-picker.js';
 import { rehydrateHistory } from './rehydrate-history.js';
@@ -35,6 +35,8 @@ export interface CreateInitialStateOptions {
   restoredEntries: State['entries'];
   enhanceEnabled: boolean;
   initialAgentsMonitorOpen?: boolean | undefined;
+  /** Boot-time fleet-chat verbosity (from persisted config). Default 'compact'. */
+  initialFleetChat?: FleetChatVerbosity | undefined;
 }
 
 export function createInitialState(options: CreateInitialStateOptions): State {
@@ -49,8 +51,10 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     restoredEntries,
     enhanceEnabled,
     initialAgentsMonitorOpen,
+    initialFleetChat,
   } = options;
   const initialNextId = 1 + restoredEntries.length;
+  const fleetChat: FleetChatVerbosity = initialFleetChat ?? 'compact';
 
   return {
     entries: [
@@ -129,7 +133,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
       delayMs: 0,
       titleAnimation: true,
       yolo: false,
-      streamFleet: true,
+      fleetChat,
       chime: false,
       confirmExit: true,
       nextPrediction: false,
@@ -212,7 +216,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     fleetCost: 0,
     fleetTokens: { input: 0, output: 0 },
     fleetConcurrency: 4,
-    streamFleet: true,
+    fleetChat,
     monitorOpen: false,
     agentsMonitorOpen: initialAgentsMonitorOpen ?? false,
     helpOpen: false,

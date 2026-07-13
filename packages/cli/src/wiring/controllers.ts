@@ -8,7 +8,7 @@
  *   docs/plans/cli-main-executiondeps-refactor.md
  */
 
-import type { Config } from '@wrongstack/core';
+import type { Config, FleetChatVerbosity } from '@wrongstack/core';
 import type { StatuslineConfigKey } from '../slash-commands/statusline.js';
 import {
   DEFAULTS,
@@ -22,15 +22,25 @@ import {
 // ─── Fleet stream controller ───────────────────────────────────────
 
 export interface FleetStreamController {
+  /** @deprecated Mirror of `mode !== 'off'` — kept for boolean-only callers. */
   enabled: boolean;
+  /** @deprecated Maps to `setMode(enabled ? 'full' : 'off')`. */
   setEnabled(enabled: boolean): void;
+  /** Fleet-chat verbosity streamed into the main chat: off | compact | full. */
+  mode: FleetChatVerbosity;
+  setMode(mode: FleetChatVerbosity): void;
 }
 
-export function createFleetStreamController(): FleetStreamController {
+export function createFleetStreamController(initialMode: FleetChatVerbosity = 'compact'): FleetStreamController {
   return {
-    enabled: true,
+    enabled: initialMode !== 'off',
+    mode: initialMode,
     setEnabled(this: FleetStreamController, enabled: boolean) {
-      this.enabled = enabled;
+      this.setMode(enabled ? 'full' : 'off');
+    },
+    setMode(this: FleetStreamController, mode: FleetChatVerbosity) {
+      this.mode = mode;
+      this.enabled = mode !== 'off';
     },
   };
 }

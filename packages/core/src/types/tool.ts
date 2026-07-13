@@ -130,6 +130,13 @@ export interface Tool<I = unknown, O = unknown> {
   maxOutputBytes?: number | undefined;
   timeoutMs?: number | undefined;
   /**
+   * The tool owns its timeout/idle policy and only needs the executor to
+   * propagate the parent abort signal. Use this sparingly for orchestration
+   * tools such as `delegate` that already enforce a heartbeat-aware timeout;
+   * otherwise the executor's fixed max-tool timeout can kill healthy work.
+   */
+  managesOwnTimeout?: boolean | undefined;
+  /**
    * Hint for the TUI spinner — does NOT affect actual timeout enforcement.
    * Use `timeoutMs` for hard limits. Leave undefined when duration varies
    * unpredictably.

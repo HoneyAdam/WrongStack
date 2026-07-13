@@ -1,7 +1,8 @@
-import type { Director, FleetEvent } from '@wrongstack/core';
+import type { Director, FleetChatVerbosity, FleetEvent } from '@wrongstack/core';
 import { useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { stripNextStepsBlock } from '@wrongstack/tools/next-steps';
+import { addTool, formatToolSummary, newToolAgg, type ToolAgg } from './fleet-chat-coalescer.js';
 
 const FLUSH_MS = 150;
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
@@ -26,7 +27,7 @@ export interface UseDirectorFleetBridgeOptions {
   director: Director | null;
   dispatch: React.Dispatch<Action>;
   stateRef: React.MutableRefObject<State>;
-  streamFleet: boolean;
+  chatMode: FleetChatVerbosity;
 }
 
 /**
@@ -35,18 +36,32 @@ export interface UseDirectorFleetBridgeOptions {
  * High-frequency text deltas are batched so subagent streams do not cause a
  * render per token. The hook keeps live refs for settings/state that should not
  * force FleetBus re-subscription.
+ *
+ * Chat-history gating (`chatMode`):
+ * - 'full'    — every tool call gets its own 🔧 line, interim 💬 text commits
+ *               at each tool boundary (legacy behavior).
+ * - 'compact' — tool calls fold into a per-agent {@link ToolAgg} and the
+ *               whole turn commits as ONE entry (💬 text with the tool
+ *               summary as `detail`, or a lone 🔧 summary) at session end /
+ *               task completion / teardown.
+ * - 'off'     — no subagent chat entries at all; provider errors/retries
+ *               still surface as warn/error entries.
+ * The fleet table (F2/F3) is fed in EVERY mode. The mode is read at commit
+ * time via a live ref; a mid-burst flip applies from the next boundary on.
+ * `/clear` mid-run is safe: buffers live inside the effect, and subagent
+ * entries are never rehydrated on resume.
  */
 export function useDirectorFleetBridge({
   director,
   dispatch,
   stateRef,
-  streamFleet,
+  chatMode,
 }: UseDirectorFleetBridgeOptions): void {
   const labelsRef = useRef<Map<string, { label: string; color: string }>>(new Map());
-  const streamFleetRef = useRef(streamFleet);
+  const chatModeRef = useRef(chatMode);
   useEffect(() => {
-    streamFleetRef.current = streamFleet;
-  }, [streamFleet]);
+    chatModeRef.current = chatMode;
+  }, [chatMode]);
 
   useEffect(() => {
     const d = director;
@@ -87,30 +102,50 @@ export function useDirectorFleetBridge({
       streamFlushTimer = null;
     };
 
-    // Chat-history buffer. Unlike streamBuf this accumulates the FULL assistant
-    // message per subagent across the whole turn and is NOT cleared on the
-    // periodic flush — it is committed to ONE chat entry only at a turn
-    // boundary (a tool call, session end, or task completion). This is what
-    // keeps a streamed subagent message as a single bubble instead of one
-    // fragmented entry per 600ms flush window.
+    // Chat-history buffers. Unlike streamBuf these accumulate across the whole
+    // turn and are NOT cleared on the periodic flush — they are committed to
+    // ONE chat entry only at a turn boundary (in full mode: a tool call,
+    // session end, or task completion; in compact mode: session end / task
+    // completion / teardown only, so the whole turn stays one bubble).
+    // historyBuf holds the assistant text; toolAgg holds the compact-mode
+    // per-agent tool aggregation.
     const historyBuf = new Map<string, string>();
-    const finalizeHistory = (id: string): void => {
+    const toolAgg = new Map<string, ToolAgg>();
+    const finalizeTurn = (id: string): void => {
       const text = historyBuf.get(id);
       historyBuf.delete(id);
-      if (!text || !streamFleetRef.current) return;
-      const cleaned = stripNextStepsBlock(text);
-      if (!cleaned.trim()) return;
+      const agg = toolAgg.get(id);
+      toolAgg.delete(id);
+      // Mode is read at COMMIT time: a mid-burst mode flip applies to the
+      // pending buffers (switching to 'off' drops the tail — intended).
+      const mode = chatModeRef.current;
+      if (mode === 'off') return;
+      const cleaned = text ? stripNextStepsBlock(text).trim() : '';
+      const summary = agg ? formatToolSummary(agg) : '';
+      if (!cleaned && !summary) return;
       const label = labelFor(labelsRef, id);
-      enq({
-        type: 'addEntry',
-        entry: {
-          kind: 'subagent',
-          agentLabel: label.label,
-          agentColor: label.color,
-          icon: '💬',
-          text: cleaned,
-        },
-      });
+      const base = {
+        kind: 'subagent' as const,
+        agentLabel: label.label,
+        agentColor: label.color,
+      };
+      if (cleaned) {
+        // Single-line text: tool summary rides the same line as dim `detail`.
+        // Multi-line text: `detail` renders after line 1 (mid-message), so
+        // append the summary as a trailing indented line instead.
+        const multiline = cleaned.includes('\n');
+        enq({
+          type: 'addEntry',
+          entry: !summary
+            ? { ...base, icon: '💬', text: cleaned }
+            : multiline
+              ? { ...base, icon: '💬', text: `${cleaned}\n🔧 ${summary}` }
+              : { ...base, icon: '💬', text: cleaned, detail: `🔧 ${summary}` },
+        });
+      } else {
+        // Tool-only turn (compact mode) — a lone 🔧 summary line.
+        enq({ type: 'addEntry', entry: { ...base, icon: '🔧', text: summary } });
+      }
     };
 
     const status = d.status();
@@ -158,7 +193,7 @@ export function useDirectorFleetBridge({
           model: meta?.model,
         });
         const label = labelFor(labelsRef, event.subagentId, meta?.name);
-        if (streamFleetRef.current) {
+        if (chatModeRef.current !== 'off') {
           const where =
             meta?.provider && meta?.model ? `${meta.provider}/${meta.model}` : 'spawned';
           enqueue({
@@ -244,9 +279,12 @@ export function useDirectorFleetBridge({
         case 'tool.started': {
           const payload = event.payload as { name?: string | undefined };
           if (payload?.name) {
-            // Commit any assistant text that preceded this tool call as one
-            // complete bubble, so the tool entry renders separately after it.
-            finalizeHistory(event.subagentId);
+            // Full mode: commit any assistant text that preceded this tool
+            // call as one complete bubble, so the tool entry renders
+            // separately after it. Compact mode keeps accumulating — the
+            // whole turn commits as ONE bubble at the next real boundary
+            // (flushing here would re-fragment the turn).
+            if (chatModeRef.current === 'full') finalizeTurn(event.subagentId);
             enqueue({ type: 'fleetToolStart', id: event.subagentId, name: payload.name });
           }
           break;
@@ -269,18 +307,28 @@ export function useDirectorFleetBridge({
             outputLines: payload?.outputLines,
           });
           enqueue({ type: 'fleetToolEnd', id: event.subagentId });
-          if (streamFleetRef.current && payload?.name) {
-            const label = labelFor(labelsRef, event.subagentId);
-            enqueue({
-              type: 'addEntry',
-              entry: {
-                kind: 'subagent',
-                agentLabel: label.label,
-                agentColor: label.color,
-                icon: '🔧',
-                text: `→ ${payload.name} ${payload.ok === false ? '✗' : '✓'}${payload.durationMs != null ? ` (${payload.durationMs}ms)` : ''}`,
-              },
-            });
+          if (payload?.name) {
+            const mode = chatModeRef.current;
+            if (mode === 'full') {
+              const label = labelFor(labelsRef, event.subagentId);
+              enqueue({
+                type: 'addEntry',
+                entry: {
+                  kind: 'subagent',
+                  agentLabel: label.label,
+                  agentColor: label.color,
+                  icon: '🔧',
+                  text: `→ ${payload.name} ${payload.ok === false ? '✗' : '✓'}${payload.durationMs != null ? ` (${payload.durationMs}ms)` : ''}`,
+                },
+              });
+            } else if (mode === 'compact') {
+              let agg = toolAgg.get(event.subagentId);
+              if (!agg) {
+                agg = newToolAgg();
+                toolAgg.set(event.subagentId, agg);
+              }
+              addTool(agg, payload.name, payload.ok, payload.durationMs);
+            }
           }
           break;
         }
@@ -294,26 +342,32 @@ export function useDirectorFleetBridge({
           });
           break;
         case 'session.ended':
-          // Commit the subagent's final assistant message (no trailing tool).
-          finalizeHistory(event.subagentId);
+          // Commit the subagent's final assistant message (and, in compact
+          // mode, the accumulated tool summary) as one entry.
+          finalizeTurn(event.subagentId);
           break;
         case 'compaction.fired':
-          enqueue({
-            type: 'addEntry',
-            entry: { kind: 'info', text: 'subagent compaction triggered' },
-          });
+          if (chatModeRef.current !== 'off') {
+            enqueue({
+              type: 'addEntry',
+              entry: { kind: 'info', text: 'subagent compaction triggered' },
+            });
+          }
           break;
         case 'compaction.failed':
+          // warn-level: failures surface in every mode, including 'off'.
           enqueue({
             type: 'addEntry',
             entry: { kind: 'warn', text: 'subagent compaction failed' },
           });
           break;
         case 'token.threshold':
-          enqueue({
-            type: 'addEntry',
-            entry: { kind: 'info', text: 'subagent token threshold reached' },
-          });
+          if (chatModeRef.current === 'full') {
+            enqueue({
+              type: 'addEntry',
+              entry: { kind: 'info', text: 'subagent token threshold reached' },
+            });
+          }
           break;
         case 'budget.threshold_reached': {
           const payload = event.payload as {
@@ -390,8 +444,10 @@ export function useDirectorFleetBridge({
         output: d.snapshot().total.output,
         perAgent: d.snapshot().perSubagent,
       });
-      // Commit any unflushed assistant text for this subagent before it's done.
-      finalizeHistory(payload.result.subagentId);
+      // Commit any unflushed assistant text / tool summary for this subagent
+      // before it's done. task.completed fires for failed and timed-out tasks
+      // too, so a crashed agent's pending burst still flushes here.
+      finalizeTurn(payload.result.subagentId);
       if (streamFlushTimer) {
         clearTimeout(streamFlushTimer);
         flushStreamBufs();
@@ -407,8 +463,10 @@ export function useDirectorFleetBridge({
       doFlush();
       if (streamFlushTimer) clearTimeout(streamFlushTimer);
       flushStreamBufs();
-      // Commit any assistant text still buffered for any subagent on teardown.
-      for (const id of [...historyBuf.keys()]) finalizeHistory(id);
+      // Commit anything still buffered for any subagent on teardown — union
+      // of both buffers, because a compact-mode agent may have tool calls
+      // but no text (tool-only turn).
+      for (const id of new Set([...historyBuf.keys(), ...toolAgg.keys()])) finalizeTurn(id);
       if (batchTimer) clearTimeout(batchTimer);
       flushBatch();
     };

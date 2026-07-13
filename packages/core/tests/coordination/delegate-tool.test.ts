@@ -244,6 +244,7 @@ describe('createDelegateTool', () => {
     // from a subagent-internal timeout, budget exhaustion, abort, etc.
     expect(out.stopReason).toBe('host_timeout');
     expect(out.error).toMatch(/did not finish/);
+    expect(director.status().subagents.every((subagent) => subagent.status !== 'running')).toBe(true);
     await director.shutdown();
   });
 
@@ -914,6 +915,178 @@ describe('createDelegateTool — edge coverage', () => {
     expect(out.ok).toBe(false);
     expect(out.summary).toMatch(/failed/);
     expect(out.hint).toMatch(/ok:false|tool inside/i);
+  });
+
+  it('uses generous role defaults and declares self-managed timeout ownership', async () => {
+    const spawned: Array<Record<string, unknown>> = [];
+    const d = fakeDirector({
+      spawn: vi.fn(async (cfg: Record<string, unknown>) => {
+        spawned.push(cfg);
+        return 'sub-1';
+      }) as never,
+    });
+    const tool = createDelegateTool({ host: buildHost(d), roster: FLEET_ROSTER });
+
+    expect(tool.managesOwnTimeout).toBe(true);
+    expect(tool.inputSchema.properties?.['maxHandoffs']?.maximum).toBe(8);
+    await tool.execute(
+      { role: 'bug-hunter', task: 'audit the monorepo' },
+      null as never,
+      { signal: new AbortController().signal },
+    );
+
+    expect(spawned[0]?.['timeoutMs']).toBeGreaterThanOrEqual(4 * 60 * 60 * 1000);
+    expect(spawned[0]?.['maxIterations']).toBeGreaterThanOrEqual(5_000);
+    expect(spawned[0]?.['maxToolCalls']).toBeGreaterThanOrEqual(15_000);
+  });
+
+  it('continues an explicit partial checkpoint with a fresh worker', async () => {
+    const spawned: string[] = [];
+    const assigned: string[] = [];
+    let attempt = 0;
+    const d = fakeDirector({
+      spawn: vi.fn(async (cfg: { id?: string }) => {
+        const id = cfg.id ?? `sub-${spawned.length + 1}`;
+        spawned.push(id);
+        return id;
+      }) as never,
+      assign: vi.fn(async (task: { id: string; description: string }) => {
+        assigned.push(task.description);
+        return task.id;
+      }) as never,
+      awaitTasks: vi.fn(async ([taskId]: string[]) => {
+        attempt += 1;
+        if (attempt === 1) {
+          return [{
+            status: 'success',
+            result: 'Scanned packages A through M.',
+            report: {
+              summary: 'First half complete.',
+              findings: ['A-M scanned.'],
+              files_examined: ['packages/a'],
+              confidence: 0.9,
+              suggested_next_steps: [],
+              completion: 'partial',
+              remaining_work: 'Scan packages N through Z and produce the final report.',
+            },
+            iterations: 20,
+            toolCalls: 40,
+            durationMs: 100,
+            subagentId: spawned[0],
+            taskId,
+          }];
+        }
+        return [{
+          status: 'success',
+          result: 'All packages scanned.',
+          iterations: 10,
+          toolCalls: 15,
+          durationMs: 50,
+          subagentId: spawned[1],
+          taskId,
+        }];
+      }) as never,
+    });
+    const tool = createDelegateTool({ host: buildHost(d), roster: FLEET_ROSTER });
+    const out = (await tool.execute(
+      { role: 'bug-hunter', task: 'Scan every package', maxHandoffs: 1 },
+      null as never,
+      { signal: new AbortController().signal },
+    )) as { ok: boolean; result?: string; handoffs?: Array<{ remainingWork: string }> };
+
+    expect(out.ok).toBe(true);
+    expect(out.result).toBe('All packages scanned.');
+    expect(spawned).toHaveLength(2);
+    expect(new Set(spawned).size).toBe(2);
+    expect(assigned[1]).toContain('Scan packages N through Z');
+    expect(assigned[1]).toContain('mail_send');
+    expect(out.handoffs).toHaveLength(1);
+  });
+
+  it('continues recoverable read-only budget exhaustion from captured partial output', async () => {
+    let attempt = 0;
+    const assigned: string[] = [];
+    const d = fakeDirector({
+      assign: vi.fn(async (task: { id: string; description: string }) => {
+        assigned.push(task.description);
+        return task.id;
+      }) as never,
+      awaitTasks: vi.fn(async ([taskId]: string[]) => {
+        attempt += 1;
+        return attempt === 1
+          ? [
+              {
+                status: 'failed',
+                partial: { text: 'Reviewed packages A-M.', source: 'runner', capturedAt: 1 },
+                error: {
+                  kind: 'budget_tool_calls',
+                  message: 'tool budget exhausted',
+                  retryable: false,
+                },
+                iterations: 50,
+                toolCalls: 100,
+                durationMs: 500,
+                subagentId: 'architect-first',
+                taskId,
+              },
+            ]
+          : [
+              {
+                status: 'success',
+                result: 'Review complete.',
+                iterations: 10,
+                toolCalls: 20,
+                durationMs: 100,
+                subagentId: 'architect-second',
+                taskId,
+              },
+            ];
+      }) as never,
+    });
+    const tool = createDelegateTool({ host: buildHost(d), roster: FLEET_ROSTER });
+    const out = (await tool.execute(
+      { role: 'architect', task: 'Review every package', maxHandoffs: 1 },
+      null as never,
+      { signal: new AbortController().signal },
+    )) as { ok: boolean; handoffs?: unknown[] };
+
+    expect(out.ok).toBe(true);
+    expect(out.handoffs).toHaveLength(1);
+    expect(assigned[1]).toContain('Reviewed packages A-M');
+    expect(assigned[1]).toContain('finish only the work that remains');
+  });
+
+  it('does not continue a partial checkpoint when maxHandoffs is zero', async () => {
+    const partialResult = {
+      status: 'success',
+      result: 'checkpoint',
+      report: {
+        summary: 'Checkpoint only.',
+        findings: [],
+        files_examined: [],
+        confidence: 0.8,
+        suggested_next_steps: [],
+        completion: 'partial',
+        remaining_work: 'Finish the second half.',
+      },
+      iterations: 5,
+      toolCalls: 5,
+      durationMs: 20,
+      subagentId: 'sub-1',
+      taskId: 'task-1',
+    };
+    const d = fakeDirector({ awaitTasks: vi.fn(async () => [partialResult]) });
+    const tool = createDelegateTool({ host: buildHost(d), roster: FLEET_ROSTER });
+    const out = (await tool.execute(
+      { role: 'bug-hunter', task: 'large scan', maxHandoffs: 0 },
+      null as never,
+      { signal: new AbortController().signal },
+    )) as { ok: boolean; status?: string; stopReason?: string; hint?: string };
+
+    expect(out.ok).toBe(false);
+    expect(out.status).toBe('partial');
+    expect(out.stopReason).toBe('handoff_limit');
+    expect(out.hint).toContain('maxHandoffs');
   });
 });
 

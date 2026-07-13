@@ -160,11 +160,30 @@ export function handleClient(
       );
       const declaredRedactionPolicy = resolveHqRedactionPolicy(payload.redactionPolicy);
 
-      // A reconnect may overlap the old socket's close handshake. Keep one
-      // authoritative connection per clientId so control commands never land
-      // on a superseded process/socket.
+      // A reconnect reuses the SAME clientId (the publisher identity is fixed
+      // at construction), so an exact clientId match always supersedes the old
+      // zombie socket. Same-process/same-kind duplicates with a DIFFERENT
+      // clientId are distinct publisher instances (one process legitimately
+      // holds a telemetry socket plus auxiliary mailbox sockets) — those are
+      // only superseded while they hold no live session telemetry. Killing a
+      // socket that is actively refreshing session snapshots would drop the
+      // terminal from the fleet tree and ping-pong forever (both sides
+      // auto-reconnect and re-hello), which showed up as agents/terminals
+      // flapping in the HQ map.
       for (const [otherWs, otherClient] of clients) {
-        if (otherWs !== ws && otherClient.clientId === payload.client.clientId) {
+        const samePublisher =
+          otherClient.projectId === payload.project.projectId &&
+          otherClient.kind === payload.client.kind &&
+          otherClient.pid !== undefined &&
+          payload.client.pid !== undefined &&
+          otherClient.pid === payload.client.pid &&
+          (otherClient.machineId || otherClient.project.machineId) ===
+            (payload.client.machineId || payload.project.machineId);
+        if (
+          otherWs !== ws &&
+          (otherClient.clientId === payload.client.clientId ||
+            (samePublisher && otherClient.sessions.size === 0))
+        ) {
           clients.delete(otherWs);
           otherWs.close(4001, 'superseded by a newer HQ connection');
         }
@@ -392,6 +411,10 @@ export function handleClient(
         if (result.ok) {
           const payload = result.payload as HqSessionEndedPayload;
           client.sessions.delete(payload.sessionId);
+          client.mcpSnapshots.delete(payload.sessionId);
+          for (const [runId, fleet] of client.fleets) {
+            if (fleet.sessionId === payload.sessionId) client.fleets.delete(runId);
+          }
           snapshotBroadcaster.broadcast();
         }
         return;
@@ -405,7 +428,11 @@ export function handleClient(
         const result = parseHqEventPayload(event.type, event.payload);
         if (result.ok) {
           const payload = result.payload as HqFleetSnapshotPayload;
-          client.fleets.set(payload.runId, payload);
+          client.fleets.set(payload.runId, {
+            payload,
+            ...(event.sessionId !== undefined ? { sessionId: event.sessionId } : {}),
+            receivedAt: Date.now(),
+          });
           snapshotBroadcaster.broadcast();
         }
         return;

@@ -5,6 +5,7 @@ import type {
   CoordinatorEvent,
   Director,
   EventBus,
+  FleetChatVerbosity,
   Message,
   QueueStore,
   SlashCommandRegistry,
@@ -16,6 +17,7 @@ import {
   type AutonomyStage,
   GlobalMailbox,
   createHqPublisherFromEnv,
+  startSessionTelemetryBridge,
   startFleetTelemetryBridge,
   startBrainTelemetryBridge,
   startWorktreeTelemetryBridge,
@@ -32,6 +34,7 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import React from 'react';
 import { App } from './app.js';
+import type { AgentTranscriptReader } from './components/agents-monitor.js';
 import type { McpPickerItem } from './components/mcp-picker.js';
 import type { PluginPickerItem } from './components/plugin-picker.js';
 import type { ToolPickerItem } from './components/tools-picker.js';
@@ -143,6 +146,11 @@ export interface RunTuiOptions {
   projectRoot?: string | undefined;
   /** Full app config, used for HQ client publishing settings. */
   appConfig?: import('@wrongstack/core').Config | undefined;
+  /**
+   * The embedding host already owns the HQ publisher and telemetry bridges.
+   * Prevents this UI surface from opening a duplicate heartbeat-only client.
+   */
+  hqTelemetryOwnedExternally?: boolean | undefined;
 
   /**
    * Terminal title animation on/off. Defaults to true. When false, the
@@ -248,8 +256,15 @@ export interface RunTuiOptions {
     | {
         enabled: boolean;
         setEnabled: (enabled: boolean) => void;
+        mode: FleetChatVerbosity;
+        setMode: (mode: FleetChatVerbosity) => void;
       }
     | undefined;
+  /**
+   * Read-only per-subagent transcript access for the F3 agents monitor
+   * (AgentMonitorService satisfies this structurally).
+   */
+  agentTranscripts?: AgentTranscriptReader | undefined;
   /**
    * Controller for the `/interrupt` slash command. The App installs the real
    * `abortLeader` on mount so the command can abort the in-flight leader run.
@@ -918,6 +933,11 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // have no other activity to drive the registration.
   let clientHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let clientSyncTimer: ReturnType<typeof setInterval> | null = null;
+  let initialClientSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  let registeredMailbox: GlobalMailbox | null = null;
+  let registeredClientId: string | null = null;
+  let tuiHqPublisher: ReturnType<typeof createHqPublisherFromEnv>;
+  let registrationGeneration = 0;
   const stopHqAuxBridges: Array<() => void> = [];
   const CLIENT_HEARTBEAT_MS = 15_000;
   /** Sync client counts from the shared registry every 30s so closed clients disappear promptly. */
@@ -925,46 +945,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
 
   const registerTuiClient = async (): Promise<string | null> => {
     if (!opts.projectRoot) return null;
+    const generation = ++registrationGeneration;
     try {
       const projectDir = resolveProjectDir(opts.projectRoot, wstackGlobalRoot());
-      const hqPublisher = createHqPublisherFromEnv({
-        clientKind: 'tui',
-        projectRoot: opts.projectRoot,
-        projectName: path.basename(opts.projectRoot),
-        appConfig: opts.appConfig,
-      } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
-      hqPublisher?.connect();
-      // Auxiliary telemetry bridges — forward fleet/brain/worktree/tool/cost
-      // signals to HQ so the command center dashboard is fully populated.
-      // All best-effort; never break the TUI on failure.
-      const tuiSessionId = opts.getSessionId?.() ?? opts.projectRoot;
-      try {
-        stopHqAuxBridges.push(
-          startFleetTelemetryBridge({ events: opts.events, publisher: hqPublisher!, runId: tuiSessionId, sessionId: tuiSessionId }),
-        );
-      } catch { /* optional */ }
-      try {
-        stopHqAuxBridges.push(
-          startBrainTelemetryBridge({ events: opts.events, publisher: hqPublisher!, sessionId: tuiSessionId }),
-        );
-      } catch { /* optional */ }
-      try {
-        stopHqAuxBridges.push(
-          startWorktreeTelemetryBridge({ events: opts.events, publisher: hqPublisher!, sessionId: tuiSessionId }),
-        );
-      } catch { /* optional */ }
-      try {
-        stopHqAuxBridges.push(
-          startToolTelemetryBridge({ events: opts.events, publisher: hqPublisher!, projectRoot: opts.projectRoot, sessionId: tuiSessionId }),
-        );
-      } catch { /* optional */ }
-      try {
-        stopHqAuxBridges.push(
-          startCostTelemetryBridge({ events: opts.events, publisher: hqPublisher!, sessionId: tuiSessionId }),
-        );
-      } catch { /* optional */ }
-      const mailbox = new GlobalMailbox(projectDir, opts.events, hqPublisher);
-      // Unique per-process: tui@<uuid>
+      const mailbox = new GlobalMailbox(projectDir, opts.events);
       const clientId = `tui@${randomUUID().slice(0, 8)}`;
       await mailbox.registerClient({
         clientId,
@@ -973,8 +957,64 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
         source: 'tui',
         pid: process.pid,
       });
+      if (cleaned || generation !== registrationGeneration) {
+        await mailbox.deregisterClient(clientId);
+        return null;
+      }
+      registeredMailbox = mailbox;
+      registeredClientId = clientId;
 
-      // Heartbeat to keep registration alive
+      // The CLI host already owns the single session/fleet publisher. Standalone
+      // TUI consumers still get a local publisher, which cleanup closes below.
+      if (!opts.hqTelemetryOwnedExternally) {
+        tuiHqPublisher = createHqPublisherFromEnv({
+          clientKind: 'tui',
+          projectRoot: opts.projectRoot,
+          projectName: path.basename(opts.projectRoot),
+          appConfig: opts.appConfig,
+        } as never as Parameters<typeof createHqPublisherFromEnv>[0]);
+        tuiHqPublisher?.connect();
+        const tuiSessionId = opts.getSessionId?.() ?? opts.projectRoot;
+        if (tuiHqPublisher) {
+          try {
+            stopHqAuxBridges.push(
+              startSessionTelemetryBridge({
+                publisher: tuiHqPublisher,
+                events: opts.events,
+                sessionId: tuiSessionId,
+                projectRoot: opts.projectRoot,
+                projectName: path.basename(opts.projectRoot),
+              }),
+            );
+          } catch { /* optional */ }
+          try {
+            stopHqAuxBridges.push(
+              startFleetTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, runId: tuiSessionId, sessionId: tuiSessionId }),
+            );
+          } catch { /* optional */ }
+          try {
+            stopHqAuxBridges.push(
+              startBrainTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, sessionId: tuiSessionId }),
+            );
+          } catch { /* optional */ }
+          try {
+            stopHqAuxBridges.push(
+              startWorktreeTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, sessionId: tuiSessionId }),
+            );
+          } catch { /* optional */ }
+          try {
+            stopHqAuxBridges.push(
+              startToolTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, projectRoot: opts.projectRoot, sessionId: tuiSessionId }),
+            );
+          } catch { /* optional */ }
+          try {
+            stopHqAuxBridges.push(
+              startCostTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, sessionId: tuiSessionId }),
+            );
+          } catch { /* optional */ }
+        }
+      }
+
       clientHeartbeatTimer = setInterval(() => {
         mailbox
           .clientHeartbeat({ clientId, sessionId: opts.getSessionId?.() ?? opts.projectRoot })
@@ -984,30 +1024,24 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       }, CLIENT_HEARTBEAT_MS);
       clientHeartbeatTimer.unref();
 
-      // Periodically sync authoritative client counts from the shared registry.
-      // This corrects the count when other clients disconnect (their registrations
-      // expire after 60s without a heartbeat) and when this TUI restarts.
       const syncClients = async (): Promise<void> => {
         try {
           const statuses = await mailbox.getClientStatuses();
           const counts = { tui: 0, webui: 0, repl: 0 };
           for (const s of statuses) {
-            if (s.online && s.source in counts) {
-              counts[s.source as keyof typeof counts]++;
-            }
+            if (s.online && s.source in counts) counts[s.source as keyof typeof counts]++;
           }
           opts.events.emitCustom('mailbox.sync_clients', counts);
         } catch {
           // best-effort — sync failures should not affect TUI operation
         }
       };
-      // First sync after 5s (give other clients time to register), then every CLIENT_SYNC_MS
-      setTimeout(() => {
+      initialClientSyncTimer = setTimeout(() => {
+        initialClientSyncTimer = null;
         void syncClients();
       }, 5_000);
-      clientSyncTimer = setInterval(() => {
-        void syncClients();
-      }, CLIENT_SYNC_MS);
+      initialClientSyncTimer.unref?.();
+      clientSyncTimer = setInterval(() => void syncClients(), CLIENT_SYNC_MS);
       clientSyncTimer.unref();
 
       return clientId;
@@ -1018,6 +1052,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   };
 
   const unregisterTuiClient = (): void => {
+    registrationGeneration++;
     if (clientHeartbeatTimer) {
       clearInterval(clientHeartbeatTimer);
       clientHeartbeatTimer = null;
@@ -1026,10 +1061,21 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       clearInterval(clientSyncTimer);
       clientSyncTimer = null;
     }
+    if (initialClientSyncTimer) {
+      clearTimeout(initialClientSyncTimer);
+      initialClientSyncTimer = null;
+    }
     for (const stop of stopHqAuxBridges) {
       try { stop(); } catch { /* ignore */ }
     }
     stopHqAuxBridges.length = 0;
+    tuiHqPublisher?.close();
+    tuiHqPublisher = undefined;
+    const mailbox = registeredMailbox;
+    const clientId = registeredClientId;
+    registeredMailbox = null;
+    registeredClientId = null;
+    if (mailbox && clientId) void mailbox.deregisterClient(clientId).catch(() => undefined);
   };
 
   // Register immediately (fire-and-forget)
@@ -1135,6 +1181,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
             : undefined,
           clearTerminal,
           fleetStreamController: opts.fleetStreamController,
+          agentTranscripts: opts.agentTranscripts,
           interruptController: opts.interruptController,
           enhanceController: opts.enhanceController,
           enhanceEnabled: opts.enhanceController?.enabled ?? true,

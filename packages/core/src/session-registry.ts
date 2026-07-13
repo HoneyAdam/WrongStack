@@ -100,10 +100,13 @@ const STALE_TIMEOUT_MS = 30_000; // entry considered stale after 30s without hea
 // A session that announced `closing` (heartbeat stopped) is dropped this long
 // after its last heartbeat, so the fleet view doesn't keep a dead client around.
 const CLOSING_GRACE_MS = 15_000;
-// A session marked 'lost' (heartbeat timeout but process still alive or
-// recently dead) stays visible in the fleet view for this long so the user
-// can see "what went down" instead of a silent disappearance.
-const LOST_GRACE_MS = 300_000; // 5 minutes
+// A live PID can outlast its terminal (for example, an orphaned WebSocket or
+// plugin handle keeps Node alive). Give a missed heartbeat one additional
+// timeout window, then remove it: the presence registry must reflect a live
+// surface, not merely an extant process id.
+const LOST_GRACE_MS = 30_000;
+/** Subagents without any activity this long are not live, even if the owning session still heartbeats. */
+const AGENT_STALE_MS = 5 * 60_000;
 // A held lock is released within milliseconds; anything older is a crashed
 // owner's leftover and is safe to break so writes never wedge permanently.
 const STALE_LOCK_MS = 10_000;
@@ -360,40 +363,47 @@ export class SessionRegistry {
       let pruned = false;
 
       for (const [id, entry] of Object.entries(registry)) {
-        const heartbeatAge = now - new Date(entry.lastHeartbeatAt).getTime();
-        // Cleanly-closed session: drop after a short grace (handles both a fully
-        // exited process and one still alive but done) so no dead client lingers.
+        const heartbeatAt = Date.parse(entry.lastHeartbeatAt);
+        if (!Number.isFinite(heartbeatAt)) {
+          delete registry[id];
+          pruned = true;
+          continue;
+        }
+        const heartbeatAge = now - heartbeatAt;
+
+        // A live session heartbeat does not prove every cached subagent still
+        // exists. Keep the leader as the surface itself, but reap workers whose
+        // activity stopped several minutes ago (the common shadow-agent ghost).
+        const agents = Array.isArray(entry.agents) ? entry.agents : [];
+        const liveAgents = agents.filter((agent) => {
+          if (agent.id === 'leader') return true;
+          const lastActivityAt = Date.parse(agent.lastActivityAt);
+          return Number.isFinite(lastActivityAt) && now - lastActivityAt <= AGENT_STALE_MS;
+        });
+        if (liveAgents.length !== agents.length || entry.agentCount !== liveAgents.length) {
+          entry.agents = liveAgents;
+          entry.agentCount = liveAgents.length;
+          pruned = true;
+        }
+
+        // Cleanly-closed session: drop after a short grace so no dead client lingers.
         if (entry.status === 'closing' && heartbeatAge > CLOSING_GRACE_MS) {
           delete registry[id];
           pruned = true;
           continue;
         }
-        // Lost session: heartbeat timed out but process may still be alive.
-        // Instead of disappearing instantly (which makes fleet views flicker),
-        // mark as 'lost' and keep visible for LOST_GRACE_MS so the user can
-        // see what went down.
-        if (heartbeatAge > STALE_TIMEOUT_MS) {
-          const alive = pidAlive(entry.pid);
-          if (alive) {
-            // Process alive but not heartbeating → mark lost (stays visible)
-            if (entry.status !== 'lost' && entry.status !== 'closing' && entry.status !== 'stale') {
-              entry.status = 'lost';
-              pruned = true;
-            }
-            // Keep lost entries around for the grace period
-            if (entry.status === 'lost' && heartbeatAge > STALE_TIMEOUT_MS + LOST_GRACE_MS) {
-              delete registry[id];
-              pruned = true;
-            }
-          } else {
-            // Process dead → stale, then prune after 5 min (existing behavior)
-            entry.status = 'stale';
-            const startedAge = now - new Date(entry.startedAt).getTime();
-            if (startedAge > 5 * 60_000) {
-              delete registry[id];
-              pruned = true;
-            }
-          }
+        if (heartbeatAge <= STALE_TIMEOUT_MS) continue;
+
+        // A dead PID is definitive. A live PID can still be an orphaned Node
+        // host, so it receives only a short lost grace before expiry.
+        if (!pidAlive(entry.pid) || heartbeatAge > STALE_TIMEOUT_MS + LOST_GRACE_MS) {
+          delete registry[id];
+          pruned = true;
+          continue;
+        }
+        if (entry.status !== 'lost') {
+          entry.status = 'lost';
+          pruned = true;
         }
       }
 

@@ -16,7 +16,7 @@ function settingsBase(overrides: Record<string, unknown> = {}) {
       delayMs: 0,
       titleAnimation: true,
       yolo: false,
-      streamFleet: true,
+      fleetChat: 'compact',
       chime: false,
       confirmExit: true,
       nextPrediction: false,

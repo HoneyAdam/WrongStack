@@ -6,15 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="WrongStack — a CLI AI coding agent for your terminal. Autonomous goal loops, multi-agent fleet (47 roles), 38 built-in tools, 23 bundled skills, 70+ slash commands, ~140 providers from models.dev, AES-256-GCM encrypted secrets. Lockstep versioned monorepo. Version 0.284.0."
+      content="A free and open-source terminal AI coding agent with 58 built-in tools, multi-agent fleets, memory, plugins and explicit permission control."
     />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#070910" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f8f6f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1c1a" media="(prefers-color-scheme: dark)" />
 
-    <meta property="og:title" content="WrongStack — Terminal AI Coding Agent" />
+    <meta property="og:title" content="WrongStack — AI coding, under your control" />
     <meta
       property="og:description"
-      content="Built on the wrong stack. Shipped anyway. v0.284.0."
+      content="Free and open-source AI coding automation with 58 tools, 73 managed plugins, durable memory and visible boundaries."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://wrongstack.com" />
@@ -22,13 +22,13 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="WrongStack — Terminal AI Coding Agent" />
-    <meta name="twitter:description" content="Built on the wrong stack. Shipped anyway. v0.284.0." />
+    <meta name="twitter:title" content="WrongStack — AI coding, under your control" />
+    <meta name="twitter:description" content="Free and open-source AI coding automation with visible boundaries and durable memory." />
     <meta name="twitter:image" content="https://wrongstack.com/og.png" />
 
     <link rel="canonical" href="https://wrongstack.com" />
 
-    <title>WrongStack — Terminal AI Coding Agent</title>
+    <title>WrongStack — AI coding, under your control</title>
 
     <script type="application/ld+json">
       {
@@ -37,71 +37,22 @@
         "name": "WrongStack",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "macOS, Linux, Windows",
-        "description": "A CLI AI coding agent for the terminal — autonomous goal loops, multi-agent fleet (47 roles), 38 built-in tools, 23 bundled skills, 70+ slash commands, ~140 providers, AES-256-GCM encrypted secrets. 18-package + 2-app pnpm workspace with lockstep versioning.",
+        "description": "A free and open-source terminal-native AI coding agent with autonomous goals, multi-agent fleets, 58 built-in tools, 73 managed plugins, 23 bundled skills, 92 documented slash commands, five interfaces and explicit permission control.",
         "url": "https://wrongstack.com",
         "softwareVersion": "0.286.0",
-        "dateModified": "2026-07-10",
+        "dateModified": "2026-07-13",
         "license": "https://opensource.org/licenses/MIT",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "codeRepository": "https://github.com/WrongStack/WrongStack"
       }
     </script>
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": "Which models and providers can it use?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Around 140 providers across four wire families, sourced live from the models.dev catalog with no hardcoded model names or pricing. Switch at runtime with the TUI /model picker, or inspect models with wstack models."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Are my API keys safe?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "API keys and MCP tokens are encrypted at rest with AES-256-GCM using a per-machine key. Plaintext keys are re-encrypted automatically on boot."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Can it run offline?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Yes. The --no-features flag boots a minimal kernel with no MCP, plugins, memory, models.dev fetch, or skill discovery, and makes no network calls at startup."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "What does it cost?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "WrongStack is open source under the MIT license. You bring your own provider API key and pay your model provider directly."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "How often is it released?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "WrongStack ships continuously — push a git tag matching v* and GitHub Actions typechecks, builds, and tests on 3 platforms before publishing all 20 package/app workspace manifests to npm. Full changelog and release process are documented on the site."
-            }
-          }
-        ]
-      }
-    </script>
-
     <!-- Apply persisted theme before paint to avoid a flash -->
     <script>
       (() => {
         try {
           var t = localStorage.getItem("theme");
           var sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-          var dark = t === "dark" || t === null || (t === "system" && sysDark);
+          var dark = t === "dark" || ((t === null || t === "system") && sysDark);
           document.documentElement.classList.toggle("dark", dark);
         } catch (e) {
           document.documentElement.classList.add("dark");
@@ -112,7 +63,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
   </head>

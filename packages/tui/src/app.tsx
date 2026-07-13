@@ -7,6 +7,7 @@ import type {
   CoordinatorEvent,
   Director,
   EventBus,
+  FleetChatVerbosity,
   Message,
   QueueStore,
   SlashCommandRegistry,
@@ -65,7 +66,7 @@ import {
   type SlashCommandMatch,
   type State,
 } from './app-reducer.js';
-import { AgentsMonitor } from './components/agents-monitor.js';
+import { AgentsMonitor, leaderTimelineFromEntries, type AgentTranscriptReader } from './components/agents-monitor.js';
 import { AuditPanel } from './components/audit-panel.js';
 import { AuthPanel } from './components/auth-panel.js';
 import type { AuthPanelHost } from './components/auth-panel-model.js';
@@ -175,6 +176,7 @@ import { shouldPushSubmittedHistory } from './submit-history.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
+import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from './thinking-word.js';
 
@@ -657,16 +659,27 @@ export interface AppProps {
   /** Optional roster for human-readable subagent names. */
   fleetRoster?: Record<string, { name: string }> | undefined;
   /**
-   * Shared controller for the `/fleet stream on|off` slash command. The
-   * App installs a dispatch-backed setter on mount so the slash command
-   * can flip the reducer's `streamFleet` flag from the CLI surface.
+   * Shared controller for the `/fleet stream on|off` and `/agents chat`
+   * slash commands. The App installs dispatch-backed setters on mount so
+   * the commands can flip the reducer's `fleetChat` mode from the CLI
+   * surface. Also seeds the boot value of `state.fleetChat` (cli-main
+   * creates it from the persisted config).
    */
   fleetStreamController?:
     | {
         enabled: boolean;
         setEnabled: (enabled: boolean) => void;
+        mode: FleetChatVerbosity;
+        setMode: (mode: FleetChatVerbosity) => void;
       }
     | undefined;
+  /**
+   * Read-only per-subagent transcript access for the F3 agents monitor.
+   * The CLI passes AgentMonitorService (structurally compatible); absent
+   * in embedded/test surfaces, where the detail card falls back to the
+   * streaming-tail snippet.
+   */
+  agentTranscripts?: AgentTranscriptReader | undefined;
   /**
    * Shared controller for the `/interrupt` slash command. The App installs the
    * real `abortLeader` on mount so the command can abort the in-flight leader
@@ -828,72 +841,6 @@ export { buildGoalPreamble } from '@wrongstack/core';
 // Actual implementation lives in ./steering-preamble.ts.
 export { buildSteeringPreamble } from './steering-preamble.js';
 
-/**
- * Normalize an SDD lifecycle outcome into a chat entry. Accepts the live
- * `SddRunControl` return shapes (a bare worktree count from `cleanupWorktrees`,
- * the `{ ok, reverted, reason }` from `rollback`) and the host's uniform
- * `SddLifecycleResult` so the c / z / x keys read identically either way.
- */
-function sddLifecycleEntry(
-  op: 'cleanup_worktrees' | 'rollback' | 'destroy',
-  r:
-    | number
-    | { ok: boolean; reverted: number; reason?: string | undefined }
-    | SddLifecycleResult,
-): { kind: 'info' | 'warn'; text: string } {
-  // Live cleanupWorktrees() → bare count.
-  if (typeof r === 'number') {
-    return {
-      kind: r > 0 ? 'info' : 'warn',
-      text:
-        r > 0
-          ? `Cleaned ${r} SDD worktree${r === 1 ? '' : 's'}.`
-          : 'No SDD worktrees to clean (stop the run first if it is live).',
-    };
-  }
-  // Live rollback() → { ok, reverted, reason } (no `op` field).
-  if (!('op' in r)) {
-    return {
-      kind: r.ok ? 'info' : 'warn',
-      text: r.ok
-        ? r.reverted > 0
-          ? `Rolled back ${r.reverted} run commit${r.reverted === 1 ? '' : 's'} (revert commits added).`
-          : 'Nothing to roll back.'
-        : `Rollback failed: ${r.reason ?? 'unknown error'}`,
-    };
-  }
-  // Host SddLifecycleResult.
-  if (!r.ok) {
-    const label = op === 'cleanup_worktrees' ? 'Clean' : op === 'rollback' ? 'Rollback' : 'Destroy';
-    return { kind: 'warn', text: `${label} failed: ${r.reason ?? 'unknown error'}` };
-  }
-  if (op === 'cleanup_worktrees') {
-    const n = r.removed ?? 0;
-    return {
-      kind: n > 0 ? 'info' : 'warn',
-      text:
-        n > 0 ? `Cleaned ${n} SDD worktree${n === 1 ? '' : 's'}.` : 'No SDD worktrees to clean.',
-    };
-  }
-  if (op === 'rollback') {
-    const n = r.reverted ?? 0;
-    return {
-      kind: 'info',
-      text: n > 0 ? `Rolled back ${n} run commit${n === 1 ? '' : 's'}.` : 'Nothing to roll back.',
-    };
-  }
-  // destroy
-  const parts = [
-    `${r.removed ?? 0} worktree${(r.removed ?? 0) === 1 ? '' : 's'} removed`,
-    r.deleted?.length ? `deleted ${r.deleted.join(', ')}` : '',
-    (r.reverted ?? 0) > 0 ? `${r.reverted} commit${r.reverted === 1 ? '' : 's'} reverted` : '',
-  ].filter(Boolean);
-  return {
-    kind: 'info',
-    text: `SDD project destroyed — ${parts.join(' · ')}.${r.reason ? ` (${r.reason})` : ''}`,
-  };
-}
-
 export function App({
   agent,
   slashRegistry,
@@ -969,6 +916,7 @@ export function App({
   listSessions,
   onResumeSession,
   fleetStreamController,
+  agentTranscripts,
   interruptController,
   statuslineHiddenItems,
   setStatuslineHiddenItems,
@@ -1187,6 +1135,7 @@ export function App({
       restoredEntries,
       enhanceEnabled,
       initialAgentsMonitorOpen,
+      initialFleetChat: fleetStreamController?.mode,
     }),
   );
 
@@ -2378,7 +2327,7 @@ export function App({
             delayMs: sp.delayMs,
             titleAnimation: sp.titleAnimation,
             yolo: sp.yolo,
-            streamFleet: sp.streamFleet,
+            fleetChat: sp.fleetChat,
             chime: sp.chime,
             confirmExit: sp.confirmExit,
             nextPrediction: sp.nextPrediction,
@@ -2765,7 +2714,7 @@ export function App({
       delayMs: s.delayMs,
       titleAnimation: s.titleAnimation ?? true,
       yolo: s.yolo ?? false,
-      streamFleet: s.streamFleet ?? true,
+      fleetChat: s.fleetChatVerbosity ?? 'compact',
       chime: s.chime ?? false,
       confirmExit: s.confirmExit ?? true,
       nextPrediction: s.nextPrediction ?? false,
@@ -3122,7 +3071,7 @@ export function App({
         delayMs: sp.delayMs,
         titleAnimation: sp.titleAnimation,
         yolo: sp.yolo,
-        streamFleet: sp.streamFleet,
+        fleetChatVerbosity: sp.fleetChat,
         chime: sp.chime,
         confirmExit: sp.confirmExit,
         nextPrediction: sp.nextPrediction,
@@ -3168,7 +3117,7 @@ export function App({
     state.settingsPicker.delayMs,
     state.settingsPicker.titleAnimation,
     state.settingsPicker.yolo,
-    state.settingsPicker.streamFleet,
+    state.settingsPicker.fleetChat,
     state.settingsPicker.chime,
     state.settingsPicker.confirmExit,
     state.settingsPicker.nextPrediction,
@@ -4120,6 +4069,14 @@ export function App({
   }, []);
   const getActiveSessionId = useCallback(() => agent.ctx.session.id, [agent]);
 
+  // LEADER's own history for the F3 per-agent transcript view: the main
+  // chat entries WITHOUT subagent lines. Read through stateRef at call
+  // time (the monitor polls on its 1s tick) so this callback stays stable.
+  const getLeaderTranscript = useCallback(
+    () => leaderTimelineFromEntries(stateRef.current.entries),
+    [stateRef],
+  );
+
   useTuiEventBridge({
     events,
     dispatch,
@@ -4132,7 +4089,7 @@ export function App({
 
   useTuiControllers({
     dispatch,
-    streamFleet: state.streamFleet,
+    fleetChat: state.fleetChat,
     enhanceEnabled: state.enhanceEnabled,
     agentsMonitorOpen: state.agentsMonitorOpen,
     fleetStreamController,
@@ -4204,7 +4161,7 @@ export function App({
     director,
     dispatch,
     stateRef,
-    streamFleet: state.streamFleet,
+    chatMode: state.fleetChat,
   });
 
   // ── File search (@-token detection + picker selection) ───────────
@@ -5282,7 +5239,7 @@ export function App({
           delayMs: cfg.delayMs,
           titleAnimation: cfg.titleAnimation ?? true,
           yolo: cfg.yolo ?? false,
-          streamFleet: cfg.streamFleet ?? true,
+          fleetChat: cfg.fleetChatVerbosity ?? 'compact',
           chime: cfg.chime ?? false,
           confirmExit: cfg.confirmExit ?? true,
           nextPrediction: cfg.nextPrediction ?? false,
@@ -7055,7 +7012,7 @@ export function App({
               delayMs={state.settingsPicker.delayMs}
               titleAnimation={state.settingsPicker.titleAnimation}
               yolo={state.settingsPicker.yolo}
-              streamFleet={state.settingsPicker.streamFleet}
+              fleetChat={state.settingsPicker.fleetChat}
               chime={state.settingsPicker.chime}
               confirmExit={state.settingsPicker.confirmExit}
               nextPrediction={state.settingsPicker.nextPrediction}
@@ -7454,6 +7411,8 @@ export function App({
                 totalTokens={state.fleetTokens}
                 nowTick={nowTick}
                 onClose={() => dispatch({ type: 'toggleAgentsMonitor' })}
+                transcripts={agentTranscripts}
+                leaderTranscript={getLeaderTranscript}
               />
             ) : state.autoPhase?.monitorOpen ? (
               <PhaseMonitor

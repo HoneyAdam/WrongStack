@@ -195,6 +195,14 @@ function terminalLabel(session: HqSessionSnapshotPayload): string {
   return `${session.clientKind.toUpperCase()} · ${session.sessionId.length > 18 ? `…${session.sessionId.slice(-14)}` : session.sessionId}`;
 }
 
+/**
+ * How long a freshly connected session-telemetry client may appear as a
+ * "waiting for session telemetry" terminal. A live bridge publishes its first
+ * snapshot within ~2.5s of connecting; a client that stays sessionless past
+ * this window is a broken/legacy publisher and must not linger as a phantom.
+ */
+export const SYNTHETIC_TERMINAL_GRACE_MS = 45_000;
+
 function syntheticSessionFromClient(client: HqClientRecord, project: HqProjectRecord | undefined): HqSessionSnapshotPayload {
   const sessionId = client.sessionId ?? `client:${client.clientId}`;
   return {
@@ -248,8 +256,37 @@ export function buildFleetTopology(snapshot: HqSnapshot | null): FleetTopology {
   const liveSessions = [...(snapshot.liveSessions ?? [])];
   const liveSessionIds = new Set(liveSessions.map((s) => s.sessionId));
 
+  // Processes already represented by a live session — their auxiliary
+  // sockets (mailbox/brain publishers) must not spawn duplicate terminals.
+  const liveSessionProcesses = new Set(
+    liveSessions
+      .filter((s) => s.pid !== undefined)
+      .map((s) => `${s.machineId}:${s.pid}`),
+  );
+  const generatedAt = Date.parse(snapshot.generatedAt);
+
   for (const client of snapshot.clients ?? []) {
     if (!client.connected) continue;
+    // Only session-telemetry surfaces qualify as a terminal-in-waiting.
+    // Auxiliary sockets never publish session snapshots, so rendering them
+    // would leave permanent phantom "waiting for session telemetry" nodes.
+    if (!client.capabilities?.includes('session.summary')) continue;
+    if (
+      client.pid !== undefined &&
+      liveSessionProcesses.has(`${client.machineId}:${client.pid}`)
+    ) {
+      continue;
+    }
+    // A client that stayed sessionless past the grace window is a broken or
+    // legacy publisher, not a terminal that is still booting.
+    const connectedAt = Date.parse(client.connectedAt ?? client.lastSeenAt);
+    if (
+      Number.isFinite(generatedAt) &&
+      Number.isFinite(connectedAt) &&
+      generatedAt - connectedAt > SYNTHETIC_TERMINAL_GRACE_MS
+    ) {
+      continue;
+    }
     const sessionId = client.sessionId ?? `client:${client.clientId}`;
     if (liveSessionIds.has(sessionId)) continue;
     liveSessions.push(syntheticSessionFromClient(client, projects.get(client.projectId)));

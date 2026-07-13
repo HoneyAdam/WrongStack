@@ -1,5 +1,5 @@
-import type { SlashCommand } from '@wrongstack/core';
-import { color, noOpVault } from '@wrongstack/core';
+import type { FleetChatVerbosity, SlashCommand } from '@wrongstack/core';
+import { color, noOpVault, resolveFleetChatVerbosity } from '@wrongstack/core';
 import { getProcessRegistry } from '@wrongstack/tools';
 import { deriveFsAccessPair, persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import { formatDelay } from '../utils/delay-format.js';
@@ -21,7 +21,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings                     Show current settings',
     '  /settings delay <seconds>     Auto-proceed delay in auto mode (0 disables)',
     '  /settings mode <off|suggest|auto>   Default autonomy mode at startup',
-    '  /settings stream-fleet on|off   Stream subagent output to the main chat',
+    '  /settings stream-fleet off|compact|full   Fleet-chat verbosity (on = full)',
     '  /settings chime on|off          Ring terminal bell when a run completes',
     '  /settings confirm-exit on|off   Ask for confirmation before interrupt/exit',
     '  /settings hints on|off        Show or suppress rotating launch hints',
@@ -134,7 +134,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       '',
       `  auto-proceed delay:          ${color.cyan(formatDelay(delay))}   ${color.dim('change: /settings delay <seconds>')}`,
       `  default autonomy mode:       ${color.cyan(mode)}   ${color.dim('change: /settings mode off|suggest|auto')}`,
-      `  stream fleet:               ${au?.streamFleet !== false ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings stream-fleet on|off')}`,
+      `  fleet chat:                 ${color.cyan(resolveFleetChatVerbosity(au as { fleetChatVerbosity?: FleetChatVerbosity; streamFleet?: boolean } | undefined))}   ${color.dim('change: /settings stream-fleet off|compact|full')}`,
       `  completion chime:           ${au?.chime === true ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings chime on|off')}`,
       `  confirm before exit:        ${au?.confirmExit !== false ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings confirm-exit on|off')}`,
       `  launch hints:               ${hints ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings hints on|off')}`,
@@ -799,12 +799,23 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         // ── UX & behavior toggles (autonomy.*) ──
         if (sub === 'stream-fleet') {
           const raw = (rest[0] ?? '').toLowerCase();
-          if (!['on', 'off'].includes(raw)) return { message: `${color.amber('Usage:')} /settings stream-fleet on|off` };
-          const on = raw === 'on';
+          // Legacy boolean tokens keep working: on → full, off → off.
+          const mode: FleetChatVerbosity | undefined =
+            raw === 'on' ? 'full'
+            : raw === 'off' || raw === 'compact' || raw === 'full' ? (raw as FleetChatVerbosity)
+            : undefined;
+          if (!mode) return { message: `${color.amber('Usage:')} /settings stream-fleet off|compact|full (on = full)` };
           await persistAutonomySetting(persistDeps, (autonomy) => {
-            (autonomy as Record<string, unknown>).streamFleet = on;
+            (autonomy as Record<string, unknown>).fleetChatVerbosity = mode;
+            // Mirror for legacy boolean readers (webui prefs).
+            (autonomy as Record<string, unknown>).streamFleet = mode !== 'off';
           });
-          return { message: `${color.green('✓')} stream fleet → ${on ? color.cyan('on') : color.dim('off')}   ${color.dim(on ? 'subagent output goes to main chat' : 'subagent output is hidden')}` };
+          opts.fleetStreamController?.setMode(mode);
+          const desc =
+            mode === 'full' ? 'every subagent tool call and message in chat'
+            : mode === 'compact' ? 'spawn / per-turn summary / completion lines only'
+            : 'subagent chat lines hidden (F2/F3 stay live)';
+          return { message: `${color.green('✓')} fleet chat → ${color.cyan(mode)}   ${color.dim(desc)}` };
         }
 
         if (sub === 'chime') {

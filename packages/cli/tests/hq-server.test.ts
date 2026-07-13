@@ -321,6 +321,44 @@ describe('HQ server', () => {
     client.close();
   });
 
+  it('supersedes duplicate publishers from the same process and surface', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const first = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(first);
+    const firstClosed = new Promise<number>((resolve) => first.once('close', (code) => resolve(code)));
+    first.send(JSON.stringify({
+      type: 'client.hello',
+      payload: {
+        protocolVersion: HQ_PROTOCOL_VERSION,
+        client: { clientId: 'first', kind: 'tui', machineId: 'machine', pid: 4242, startedAt: new Date().toISOString() },
+        project: { projectId: 'project', projectRoot: '/project', projectName: 'Project', machineId: 'machine', workspaceKind: 'git' },
+        capabilities: ['telemetry.publish'],
+      },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const second = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(second);
+    second.send(JSON.stringify({
+      type: 'client.hello',
+      payload: {
+        protocolVersion: HQ_PROTOCOL_VERSION,
+        client: { clientId: 'second', kind: 'tui', machineId: 'machine', pid: 4242, startedAt: new Date().toISOString() },
+        project: { projectId: 'project', projectRoot: '/project', projectName: 'Project', machineId: 'machine', workspaceKind: 'git' },
+        capabilities: ['telemetry.publish'],
+      },
+    }));
+
+    expect(await firstClosed).toBe(4001);
+    await expect.poll(async () => {
+      const snapshot = (await (await fetch(`http://127.0.0.1:${handle!.port}/api/snapshot`)).json()) as { clients: { clientId: string }[] };
+      return snapshot.clients.map((client) => client.clientId);
+    }).toEqual(['second']);
+    second.close();
+  });
+
   it('survives an oversized inbound frame instead of crashing the process', async () => {
     // Regression: a frame larger than the server's 1 MiB `maxPayload` makes the
     // per-connection `ws` receiver throw (`RangeError: Max payload size
@@ -1249,6 +1287,45 @@ describe('HQ server fleet telemetry', () => {
     });
   }
 
+  it('never supersedes a live telemetry owner from a same-process sibling socket', async () => {
+    // One process holds several publisher sockets (session telemetry +
+    // mailbox). A sibling hello with the same pid/kind but a different
+    // clientId must NOT kill the socket that owns live session snapshots —
+    // that ping-pong showed up as terminals/agents flapping in the HQ map.
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const owner = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(owner);
+    let ownerClosed = false;
+    owner.once('close', () => {
+      ownerClosed = true;
+    });
+    owner.send(helloFrame('owner', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 20));
+    owner.send(sessionSnapshotFrame('owner', 'mach-A', 'projX', 's-live'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    const sibling = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(sibling);
+    sibling.send(helloFrame('sibling', 'mach-A', 'projX'));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(ownerClosed).toBe(false);
+    const snapshot = (await (await fetch(`http://127.0.0.1:${handle.port}/api/snapshot`)).json()) as {
+      clients: { clientId: string }[];
+      liveSessions: { sessionId: string }[];
+      totals: { activeClients: number };
+    };
+    expect(snapshot.clients.map((c) => c.clientId).sort()).toEqual(['owner', 'sibling']);
+    expect(snapshot.liveSessions.map((s) => s.sessionId)).toEqual(['s-live']);
+    // Same machine + pid → the two sockets count as ONE client process.
+    expect(snapshot.totals.activeClients).toBe(1);
+
+    owner.close();
+    sibling.close();
+  });
+
   it('aggregates session.snapshot into the machine → project → terminal → agent tree via /api/fleet', async () => {
     const port = getPort();
     handle = await startOpenHqServer({ port });
@@ -1298,7 +1375,27 @@ describe('HQ server fleet telemetry', () => {
     // s-dead is published once and never refreshed — a bridge that died
     // without session.ended. s-live keeps republishing like a healthy bridge.
     client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-dead', 1));
-    let seq = 1;
+    client.send(
+      JSON.stringify({
+        type: 'client.event',
+        event: {
+          id: 'dead-fleet', type: 'fleet.snapshot', schemaVersion: HQ_PROTOCOL_VERSION,
+          timestamp: new Date().toISOString(), clientId: 'c1', projectId: 'projX', sessionId: 's-dead', runId: 'run-dead', seq: 2,
+          payload: { runId: 'run-dead', activeSubagents: 1, queuedTasks: 0, completedTasks: 0, failedTasks: 0, subagents: [{ subagentId: 'shadow-dead', status: 'running' }] },
+        },
+      }),
+    );
+    client.send(
+      JSON.stringify({
+        type: 'client.event',
+        event: {
+          id: 'dead-mcp', type: 'mcp.health.snapshot', schemaVersion: HQ_PROTOCOL_VERSION,
+          timestamp: new Date().toISOString(), clientId: 'c1', projectId: 'projX', sessionId: 's-dead', seq: 3,
+          payload: { servers: [] },
+        },
+      }),
+    );
+    let seq = 3;
     const refresher = setInterval(() => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(sessionSnapshotFrame('c1', 'mach-A', 'projX', 's-live', ++seq));
@@ -1318,8 +1415,12 @@ describe('HQ server fleet telemetry', () => {
       await expect.poll(liveSessionIds, { timeout: 5_000 }).toEqual(['s-live']);
       const snap = (await (await fetch(`http://127.0.0.1:${handle.port}/api/snapshot`)).json()) as {
         clients: { clientId: string; connected: boolean }[];
+        fleets: { runId: string }[];
+        mcpServers: { projectId: string }[];
       };
       expect(snap.clients.some((c) => c.clientId === 'c1' && c.connected)).toBe(true);
+      expect(snap.fleets.some((fleet) => fleet.runId === 'run-dead')).toBe(false);
+      expect(snap.mcpServers).toEqual([]);
     } finally {
       clearInterval(refresher);
       client.close();

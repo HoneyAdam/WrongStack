@@ -41,7 +41,7 @@ export function Skills() {
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
                 <h3 className="text-lg font-bold tracking-tight">Built-in tools</h3>
-                <span className="font-mono text-xs text-faint">38</span>
+                <span className="font-mono text-xs text-faint">58</span>
               </header>
               <div className="mt-5 space-y-3.5">
                 {toolGroups.map((g) => (
@@ -103,8 +103,8 @@ export function Skills() {
           <Reveal delay={0.06}>
             <div className="h-full rounded-2xl border border-line bg-card p-6 sm:p-7">
               <header className="flex items-baseline justify-between">
-                <h3 className="text-lg font-bold tracking-tight">Official plugins</h3>
-                <span className="font-mono text-xs text-faint">36</span>
+                <h3 className="text-lg font-bold tracking-tight">Managed plugins</h3>
+                <span className="font-mono text-xs text-faint">73</span>
               </header>
               <ul className="mt-5 divide-y divide-line">
                 {plugins.map((p) => (

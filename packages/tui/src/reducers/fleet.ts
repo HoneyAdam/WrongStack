@@ -6,7 +6,7 @@
  * fleetBudgetWarning / fleetBudgetExtended / fleetCtxPct / fleetCost /
  * fleetConcurrency / fleetSeed / fleetBatch / leaderIterStart /
  * leaderIterEnd / leaderToolStart / leaderToolEnd / leaderCtxPct /
- * setStreamFleet actions.
+ * setFleetChat actions.
  *
  * Returns the new state when the action is fleet/leader-related, or
  * null when the action should fall through to the main reducer.
@@ -386,8 +386,8 @@ export function reduceFleetState(state: State, action: Action): State | null {
       };
     }
 
-    case 'setStreamFleet':
-      return { ...state, streamFleet: action.enabled };
+    case 'setFleetChat':
+      return { ...state, fleetChat: action.mode };
 
     default:
       return null; // not a fleet/leader action

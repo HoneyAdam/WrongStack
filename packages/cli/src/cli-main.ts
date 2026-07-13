@@ -42,6 +42,7 @@ import {
   loadDirectorState,
   mailboxSessionTag,
   ParallelEternalEngine,
+  resolveFleetChatVerbosity,
   type LogLevel,
   type SystemPromptBuilder,
   TOKENS,
@@ -61,7 +62,6 @@ import { promptRecovery } from './cli-recovery-prompt.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
 import { refreshRuntimeModelCatalog } from './context-limit.js';
 import { execute } from './execution.js';
-import { createCliHqPublisher } from './hq-publisher.js';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from './plugin-management.js';
 import { buildPickableProviders } from './provider-helpers.js';
 import { SessionStats } from './session-stats.js';
@@ -285,19 +285,12 @@ export async function main(argv: string[]): Promise<number> {
   // Build system prompt
   const promptBuilder = container.resolve(TOKENS.SystemPromptBuilder) as SystemPromptBuilder;
 
-  // Fetch online agents from the shared mailbox to include in system prompt
+  // Fetch online agents from the shared mailbox to include in system prompt.
+  // HQ telemetry is owned by setupHqTelemetry below; opening a publisher here
+  // created a second client for the same process with no live session bridge.
   let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
   try {
-    const hqPublisher = createCliHqPublisher({
-      clientKind: tuiOwnsScreen ? 'tui' : 'cli',
-      projectRoot,
-      projectName: path.basename(projectRoot),
-      appConfig: config,
-      logger,
-    });
-    hqPublisher?.connect();
-    if (hqPublisher) teardownHandlers.push(() => hqPublisher.close());
-    const systemMailbox = new GlobalMailbox(wpaths.projectDir, undefined, hqPublisher);
+    const systemMailbox = new GlobalMailbox(wpaths.projectDir);
     onlineAgents = await systemMailbox.getAgentStatuses();
   } catch {
     // Non-fatal — mailbox errors should not block prompt building
@@ -708,7 +701,9 @@ export async function main(argv: string[]): Promise<number> {
   // replaces `setEnabled` with a dispatch-backed setter on mount; before
   // that the no-op setter just keeps `enabled` in sync so callers see a
   // stable view even when invoked from a non-TUI surface.
-  const fleetStreamController = createFleetStreamController();
+  const fleetStreamController = createFleetStreamController(
+    resolveFleetChatVerbosity(config.autonomy),
+  );
 
   // Shared controller for the `/interrupt` slash command. The surface (TUI)
   // rebinds `abortLeader` on mount to abort its in-flight RunController; the
@@ -2093,6 +2088,7 @@ export async function main(argv: string[]): Promise<number> {
     coordinatorController,
     fleetRoster: FLEET_ROSTER as Record<string, { name: string }>,
     fleetStreamController,
+    agentTranscripts: agentMonitor,
     authHost: createAuthPanelHost({
       vault,
       modelsRegistry,

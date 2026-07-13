@@ -256,7 +256,7 @@ export interface DirectorOptions {
    * director denies further extensions. A subagent hitting the same
    * soft limit repeatedly (e.g. 3× budget.threshold_reached for
    * tool_calls) is likely looping on a prompt/config issue, not
-   * making legitimate progress. Default: 5. Set to Infinity to
+   * making legitimate progress. Default: 12. Set to Infinity to
    * disable the cap (use with caution — a misconfigured subagent
    * could burn unlimited budget).
    */
@@ -641,7 +641,7 @@ export class Director implements ICoordinator {
     this.dispatchClassifier = opts.dispatchClassifier;
     this.maxFleetCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
     this.maxFleetTokens = opts.directorBudget?.maxTokens ?? Number.POSITIVE_INFINITY;
-    this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 5;
+    this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 12;
     this.maxLeaderContextLoad = opts.maxLeaderContextLoad ?? 0.85;
     this.maxContext = opts.maxContext ?? 128_000;
     this.modelMatrix = opts.modelMatrix;

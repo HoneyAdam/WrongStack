@@ -2,16 +2,17 @@
 
 /* =========================================================================
    WrongStack — design system
-   One confident accent, terminal-native type, genuine light + dark.
+   Two brand signals, editorial display type, terminal-native mono, genuine light + dark.
    Semantic tokens flip with the `.dark` class; utilities (bg-surface,
    text-muted, border-line, text-brand …) resolve through them.
    ========================================================================= */
 
 @theme inline {
-  /* Brand — constant across themes */
-  --color-brand: #f93951;
-  --color-brand-strong: #e02440;
-  --color-brand-2: #fe9a02;
+  /* Brand — accessible UI shades; the logo keeps the exact source colors. */
+  --color-brand: var(--brand-pink);
+  --color-brand-strong: var(--brand-pink-strong);
+  --color-brand-2: var(--brand-orange);
+  --color-ink: var(--ink);
 
   /* Semantic surfaces / text — resolved from runtime vars below */
   --color-bg: var(--bg);
@@ -31,35 +32,44 @@
   --color-term-blue: #38bdf8;
   --color-term-purple: #c084fc;
 
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-sans: "Manrope", system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", "Manrope", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
 }
 
 /* ---- Light (default) ---- */
 :root {
-  --bg: #fbfbfd;
-  --surface: #ffffff;
-  --card: #ffffff;
-  --line: #e7e9f0;
-  --line-strong: #d4d8e3;
-  --fg: #0c0f17;
-  --muted: #545b6e;
-  --faint: #8b93a7;
-  --grid: rgba(12, 15, 23, 0.045);
+  --brand-pink: #d51f4d;
+  --brand-pink-strong: #b91640;
+  --brand-orange: #9a5700;
+  --bg: #f8f6f0;
+  --surface: #f0ede5;
+  --card: #fffdf8;
+  --line: #dfdbd1;
+  --line-strong: #c9c3b7;
+  --fg: #171714;
+  --muted: #646159;
+  --faint: #969188;
+  --ink: #121210;
+  --grid: rgba(18, 18, 16, 0.045);
   color-scheme: light;
 }
 
 /* ---- Dark ---- */
 .dark {
-  --bg: #070910;
-  --surface: #0c0f18;
-  --card: #11141f;
-  --line: #1e2230;
-  --line-strong: #2a2f40;
-  --fg: #e9ebf2;
-  --muted: #99a1b3;
-  --faint: #626b7e;
-  --grid: rgba(249, 57, 81, 0.05);
+  --brand-pink: #fe2e5f;
+  --brand-pink-strong: #ff5c82;
+  --brand-orange: #fd9f02;
+  --bg: #1b1c1a;
+  --surface: #22231f;
+  --card: #292a26;
+  --line: #3b3c36;
+  --line-strong: #515249;
+  --fg: #f5f2e9;
+  --muted: #b6b2a8;
+  --faint: #858178;
+  --ink: #121210;
+  --grid: rgba(253, 159, 2, 0.045);
   color-scheme: dark;
 }
 
@@ -78,9 +88,32 @@
     background-color: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
+    font-synthesis: none;
+    letter-spacing: -0.012em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    min-width: 320px;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-kerning: normal;
+    font-feature-settings:
+      "kern" 1,
+      "liga" 1,
+      "ss01" 1;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  code,
+  pre,
+  kbd {
+    letter-spacing: -0.018em;
   }
   ::selection {
     background-color: color-mix(in oklab, var(--color-brand) 28%, transparent);
@@ -98,6 +131,95 @@
   .no-scrollbar {
     scrollbar-width: none;
   }
+}
+
+/* =========================================================================
+   Website identity — an operator manual, not a generic SaaS landing page.
+   ========================================================================= */
+
+.signal-line {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--color-brand) 0 16%,
+    var(--color-brand-2) 16% 21%,
+    transparent 21%
+  );
+}
+
+.manual-grid {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 38px 38px;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000, transparent 92%);
+}
+
+.hero-noise {
+  background-image:
+    radial-gradient(
+      circle at 72% 8%,
+      color-mix(in oklab, var(--color-brand) 13%, transparent),
+      transparent 27%
+    ),
+    radial-gradient(
+      circle at 11% 62%,
+      color-mix(in oklab, var(--color-brand-2) 9%, transparent),
+      transparent 24%
+    ),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:
+    auto,
+    auto,
+    62px 62px,
+    62px 62px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+}
+
+.hero-orbit::before,
+.hero-orbit::after {
+  content: "";
+  position: absolute;
+  border: 1px solid var(--line);
+  border-radius: inherit;
+}
+.hero-orbit::before {
+  inset: 12%;
+}
+.hero-orbit::after {
+  inset: 29%;
+  border-color: color-mix(in oklab, var(--color-brand) 35%, var(--line));
+}
+
+.hero-console {
+  position: relative;
+}
+.hero-console::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.04), transparent 30%);
+}
+
+.journey-row {
+  position: relative;
+}
+.journey-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 0;
+  height: 2px;
+  background: var(--color-brand);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.journey-row:hover::before {
+  width: 100%;
 }
 
 /* ---- Scrollbar ---- */
@@ -140,7 +262,8 @@
 
 /* Faint engineering grid backdrop */
 .grid-bg {
-  background-image: linear-gradient(var(--grid) 1px, transparent 1px),
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   background-size: 56px 56px;
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 78%);
@@ -177,8 +300,10 @@
 
 /* Hover lift card */
 .lift {
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease, border-color
-    0.25s ease;
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
 }
 .lift:hover {
   transform: translateY(-4px);
@@ -192,8 +317,10 @@
   border: 1px solid #1b1e2b;
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-brand) 12%, transparent), 0 30px 60px -30px
-    rgba(0, 0, 0, 0.7), 0 0 90px -50px color-mix(in oklab, var(--color-brand) 50%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-brand) 12%, transparent),
+    0 30px 60px -30px rgba(0, 0, 0, 0.7),
+    0 0 90px -50px color-mix(in oklab, var(--color-brand) 50%, transparent);
 }
 
 /* Hairline divider that fades to the edges */
@@ -204,7 +331,8 @@
 
 /* Soft accent halo behind hero / headings */
 .halo {
-  background: radial-gradient(
+  background:
+    radial-gradient(
       ellipse 60% 60% at 30% 20%,
       color-mix(in oklab, var(--color-brand) 22%, transparent),
       transparent 60%
@@ -315,6 +443,91 @@
   contain: paint;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+/* Code-native fleet map adapted from the WebUI/HQ topology language. */
+.topology-preview {
+  isolation: isolate;
+}
+
+.topology-canvas {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 48% 42%, rgba(34, 211, 238, 0.055), transparent 37%),
+    radial-gradient(circle at 76% 28%, rgba(251, 191, 36, 0.045), transparent 27%);
+  background-size:
+    24px 24px,
+    24px 24px,
+    100% 100%,
+    100% 100%;
+}
+
+.topology-canvas::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 72%, rgba(10, 12, 18, 0.58));
+  content: "";
+  pointer-events: none;
+}
+
+.topology-node,
+.topology-agent {
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.035),
+    0 20px 60px -42px rgba(0, 0, 0, 0.95);
+}
+
+.topology-wire,
+.topology-wire-live {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.topology-wire {
+  stroke: rgba(148, 163, 184, 0.2);
+  stroke-width: 1.15;
+}
+
+.topology-wire-live {
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-dasharray: 7 8;
+  animation: topology-flow 1.7s linear infinite;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.topology-wire-mail {
+  color: rgba(251, 191, 36, 0.52);
+  stroke: currentColor;
+}
+
+.topology-wire-task {
+  color: rgba(34, 211, 238, 0.62);
+  stroke: currentColor;
+}
+
+.topology-pulse {
+  animation: topology-pulse 2.1s ease-in-out infinite;
+}
+
+@keyframes topology-flow {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+
+@keyframes topology-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Accordion (radix) */

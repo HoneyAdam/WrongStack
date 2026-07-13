@@ -7,7 +7,7 @@ WrongStack exposes top-level subcommands via `wstack <subcommand>` (also availab
 | Subcommand | Handler | What it does |
 |---|---|---|
 | `wstack acp` | `acp.ts` | ACP integration entry point |
-| `wstack init` | `init.ts` | Interactive provider/model setup, writes `~/.wrongstack/config.json` and `.wrongstack/AGENTS.md` |
+| `wstack init` | `init.ts` | Deprecated compatibility alias; points to `wstack auth` |
 | `wstack auth` | `auth.ts` | Interactive API key management |
 | `wstack update` | `update.ts` | Check for WrongStack updates |
 | `wstack sessions` | `sessions-config.ts` | List saved sessions; resume or delete one |

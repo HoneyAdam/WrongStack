@@ -62,7 +62,7 @@ function initial(over: Partial<State> = {}): State {
     fleet: {},
     fleetCost: 0,
     fleetTokens: { input: 0, output: 0 },
-    streamFleet: true,
+    fleetChat: 'compact',
     monitorOpen: false,
     agentsMonitorOpen: false,
     helpOpen: false,
@@ -107,7 +107,7 @@ function initial(over: Partial<State> = {}): State {
     settingsPicker: {
       open: false, field: 0, lastSettingsField: 0,
       mode: 'off', delayMs: 0, titleAnimation: true, yolo: false,
-      streamFleet: false, chime: false, confirmExit: true,
+      fleetChat: 'off', chime: false, confirmExit: true,
       nextPrediction: false, featureMcp: true, featurePlugins: true,
       featureMemory: true, featureSkills: true, featureModelsRegistry: true,
       tokenSavingTier: 'off', allowOutsideProjectRoot: true,

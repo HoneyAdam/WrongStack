@@ -1,6 +1,6 @@
 import type { EventBus } from '@wrongstack/core';
 import type { SddBoardSnapshot } from '@wrongstack/sdd';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { useBrainEvents } from './use-brain-events.js';
 import { useSubagentEvents } from './use-subagent-events.js';
@@ -39,7 +39,11 @@ export function useTuiEventBridge({
   subscribeAutoPhase,
   onClearHistory,
 }: UseTuiEventBridgeOptions): void {
-  useSubagentEvents(events, dispatch, setActiveMaxContext, getSessionId);
+  // The chat-mode getter reads through stateRef so a live `/agents chat`
+  // flip is honored without re-subscribing the event bridge; memoized so
+  // it doesn't churn the subscription effect on every render.
+  const getChatMode = useCallback(() => stateRef.current.fleetChat, [stateRef]);
+  useSubagentEvents(events, dispatch, setActiveMaxContext, getSessionId, getChatMode);
   useSessionEvents(events, dispatch, onClearHistory, getSessionId);
   useBrainEvents(events, dispatch, getSessionId);
   useAutoPhaseEvents(subscribeAutoPhase, dispatch, stateRef, getSessionId);

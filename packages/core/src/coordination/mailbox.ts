@@ -434,6 +434,10 @@ export class DefaultMailbox implements Mailbox {
     // no-op: per-session mailbox doesn't track client heartbeats
   }
 
+  async deregisterClient(_clientId: string): Promise<void> {
+    // no-op: per-session mailbox doesn't track clients globally
+  }
+
   async getClientStatuses(): Promise<ClientStatus[]> {
     // no-op: per-session mailbox doesn't track clients globally
     return [];

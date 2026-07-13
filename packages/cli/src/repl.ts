@@ -214,6 +214,8 @@ export interface ReplOptions {
     | {
         enabled: boolean;
         setEnabled: (enabled: boolean) => void;
+        mode: import('@wrongstack/core').FleetChatVerbosity;
+        setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
       }
     | undefined;
   /**
@@ -347,7 +349,16 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   const replProjectRoot = opts.projectRoot ?? process.cwd();
   const projectDir = resolveProjectDir(replProjectRoot, wstackGlobalRoot());
   const clientId = `repl@${crypto.randomUUID().slice(0, 8)}`;
-  const hqConnection = startCliHqConnection({ clientKind: 'repl', projectRoot: replProjectRoot, projectName: path.basename(replProjectRoot), appConfig: opts.appConfig });
+  // The REPL never runs a session telemetry bridge, so it must not advertise
+  // `session.summary` — HQ would render it as a permanent "waiting for
+  // session telemetry" terminal and orphan-evict the socket every 30s.
+  const hqConnection = startCliHqConnection({
+    clientKind: 'repl',
+    projectRoot: replProjectRoot,
+    projectName: path.basename(replProjectRoot),
+    appConfig: opts.appConfig,
+    capabilities: ['telemetry.publish', 'mailbox.summary'],
+  });
   const clientMailbox = new GlobalMailbox(projectDir, undefined, () => hqConnection.getPublisher());
   let clientHeartbeat: ReturnType<typeof setInterval> | undefined;
   clientMailbox
@@ -1114,8 +1125,10 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
     await opts.reader.close().catch(() => {
       /* best-effort */
     });
-    // Stop the client heartbeat so this REPL is marked offline.
     clearInterval(clientHeartbeat);
+    await clientMailbox.deregisterClient(clientId).catch(() => {
+      /* best-effort */
+    });
     hqConnection.stop();
     // Run user-provided cleanup (e.g., SessionStats event listener removal).
     opts.onDestroy?.();

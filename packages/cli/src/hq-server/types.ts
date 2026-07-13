@@ -49,6 +49,13 @@ export interface TrackedSessionSnapshot {
   receivedAt: number;
 }
 
+export interface TrackedFleetSnapshot {
+  payload: HqFleetSnapshotPayload;
+  /** Owning session, when the publisher supplied one. */
+  sessionId?: string;
+  receivedAt: number;
+}
+
 export interface ConnectedClient {
   ws: WebSocket;
   clientId: string;
@@ -73,8 +80,8 @@ export interface ConnectedClient {
   machineId?: string;
   /** Per-client session snapshots (the spine of the fleet tree). */
   sessions: Map<string, TrackedSessionSnapshot>;
-  /** Per-client coordinator fleet snapshots, keyed by runId. */
-  fleets: Map<string, HqFleetSnapshotPayload>;
+  /** Per-client coordinator fleet snapshots, keyed by runId and owned by a session when known. */
+  fleets: Map<string, TrackedFleetSnapshot>;
   /** Per-session MCP health snapshots, keyed by sessionId. */
   mcpSnapshots: Map<string, HqMcpServerHealth[]>;
   /** Pending outbound commands (Phase 3 — control plane). */

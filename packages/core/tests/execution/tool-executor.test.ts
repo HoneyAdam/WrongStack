@@ -785,6 +785,41 @@ describe('ToolExecutor', () => {
     });
   });
 
+  describe('executeTool — self-managed timeout', () => {
+    it('bypasses the executor deadline but still honors parent abort', async () => {
+      const tool = makeTool({
+        name: 'delegate-like',
+        managesOwnTimeout: true,
+        execute: vi.fn(async (_input, _ctx, { signal }) => {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 30);
+            signal.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(signal.reason);
+              },
+              { once: true },
+            );
+          });
+          return { ok: true };
+        }),
+      });
+      const executor = makeExecutor([tool], { iterationTimeoutMs: 5, maxToolTimeoutMs: 5 });
+      const success = await executor.executeBatch([makeUse('delegate-like')], makeCtx(), 'sequential');
+      expect((success.outputs[0]!.result as ToolResultBlock).is_error).not.toBe(true);
+
+      const controller = new AbortController();
+      const ctx = makeCtx();
+      ctx.signal = controller.signal;
+      const pending = executor.executeBatch([makeUse('delegate-like')], ctx, 'sequential');
+      setTimeout(() => controller.abort('leader interrupted'), 5);
+      const aborted = await pending;
+      expect((aborted.outputs[0]!.result as ToolResultBlock).is_error).toBe(true);
+      expect((aborted.outputs[0]!.result as ToolResultBlock).content).toContain('leader interrupted');
+    });
+  });
+
   describe('executeTool — pre-aborted signal', () => {
     it('throws immediately if signal is already aborted', async () => {
       const tool = makeTool({ name: 'slow', execute: vi.fn() });

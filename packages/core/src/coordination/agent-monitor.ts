@@ -81,6 +81,15 @@ export class AgentMonitorService {
 
   /** Per-subagent virtual sessions. */
   private readonly _sessions = new Map<string, AgentVirtualSession>();
+  /**
+   * Per-subagent OPEN streaming segment. Provider text/thinking deltas
+   * arrive word-by-word; writing one transcript entry per delta fragments
+   * every surface (ring, JSONL, HQ) into unreadable single-word lines.
+   * Instead, consecutive same-kind/same-iteration deltas append into ONE
+   * entry that is already in the ring (live views see it grow in place);
+   * the JSONL line is written once, when the segment closes.
+   */
+  private readonly _openStreams = new Map<string, { entry: AgentTimelineEntry }>();
   /** Disposers for FleetBus subscriptions, keyed by subagentId. */
   private readonly _subscriptions = new Map<string, () => void>();
   /** Generic fleet-wide subscription disposer. */
@@ -159,6 +168,11 @@ export class AgentMonitorService {
   stop(): void {
     if (!this._started) return;
     this._started = false;
+
+    // Flush any still-open streaming segments to JSONL before detaching.
+    for (const subagentId of [...this._openStreams.keys()]) {
+      this._closeStream(subagentId);
+    }
 
     if (this._fleetDisposer) {
       this._fleetDisposer();
@@ -243,6 +257,7 @@ export class AgentMonitorService {
 
   /** Drop a retired subagent from every live in-memory monitor surface. */
   removeSubagent(subagentId: string): void {
+    this._closeStream(subagentId);
     this._sessions.delete(subagentId);
     const dispose = this._subscriptions.get(subagentId);
     if (dispose) dispose();
@@ -260,31 +275,13 @@ export class AgentMonitorService {
       case 'provider.text_delta': {
         const text = payload.text as string | undefined;
         if (!text || text.length === 0) return;
-        const iteration = (payload.iteration as number) ?? 0;
-        this._addEntry(subagentId, {
-          id: this._uid(),
-          subagentId,
-          agentName: session.agentName,
-          ts: new Date().toISOString(),
-          kind: 'text',
-          content: text,
-          iteration,
-        });
+        this._appendStreamDelta(subagentId, session, 'text', text, (payload.iteration as number) ?? 0);
         break;
       }
       case 'provider.thinking_delta': {
         const text = payload.text as string | undefined;
         if (!text || text.length === 0) return;
-        const iteration = (payload.iteration as number) ?? 0;
-        this._addEntry(subagentId, {
-          id: this._uid(),
-          subagentId,
-          agentName: session.agentName,
-          ts: new Date().toISOString(),
-          kind: 'thinking',
-          content: text,
-          iteration,
-        });
+        this._appendStreamDelta(subagentId, session, 'thinking', text, (payload.iteration as number) ?? 0);
         break;
       }
       case 'tool.started': {
@@ -343,9 +340,78 @@ export class AgentMonitorService {
     }
   }
 
+  /** Max characters accumulated into one streaming segment before rolling over. */
+  private static readonly _MAX_SEGMENT_CHARS = 20_000;
+
+  /**
+   * Fold a provider text/thinking delta into the subagent's open streaming
+   * segment, or open a new one. A segment breaks on kind change, iteration
+   * change, size cap, or any non-delta entry (see `_addEntry`). The entry
+   * is pushed to the ring when the segment OPENS (live views poll the ring
+   * and watch it grow in place); the JSONL line AND the timeline/HQ
+   * announcement happen once, on close, with the COMPLETE segment — so
+   * downstream consumers get one whole message instead of a word-per-event
+   * firehose (or, worse, only the first word).
+   */
+  private _appendStreamDelta(
+    subagentId: string,
+    session: AgentVirtualSession,
+    kind: 'text' | 'thinking',
+    text: string,
+    iteration: number,
+  ): void {
+    const open = this._openStreams.get(subagentId);
+    if (
+      open &&
+      open.entry.kind === kind &&
+      open.entry.iteration === iteration &&
+      open.entry.content.length + text.length <= AgentMonitorService._MAX_SEGMENT_CHARS
+    ) {
+      open.entry.content += text;
+      return;
+    }
+    this._closeStream(subagentId);
+
+    const entry: AgentTimelineEntry = {
+      id: this._uid(),
+      subagentId,
+      agentName: session.agentName,
+      ts: new Date().toISOString(),
+      kind,
+      content: text,
+      iteration,
+    };
+    this._openStreams.set(subagentId, { entry });
+
+    // Ring only for now — JSONL + announcement wait for the close so both
+    // carry the complete segment exactly once.
+    session.transcript.push(entry);
+    if (session.transcript.length > this._maxEntries) {
+      session.transcript.splice(0, session.transcript.length - this._maxEntries);
+    }
+  }
+
+  /**
+   * Close the subagent's open streaming segment: persist it to JSONL and
+   * announce the completed entry on the local bus + HQ callback.
+   */
+  private _closeStream(subagentId: string): void {
+    const open = this._openStreams.get(subagentId);
+    if (!open) return;
+    this._openStreams.delete(subagentId);
+    this._appendToFile(subagentId, open.entry).catch(() => {
+      // Best-effort file write — failures must never crash the agent.
+    });
+    this._emitEntry(open.entry);
+  }
+
   private _addEntry(subagentId: string, entry: AgentTimelineEntry): void {
     const session = this._sessions.get(subagentId);
     if (!session) return;
+
+    // Any non-delta entry is a natural segment boundary: flush the open
+    // streaming segment first so the JSONL keeps chronological order.
+    this._closeStream(subagentId);
 
     // Add to in-memory ring buffer.
     session.transcript.push(entry);
@@ -358,6 +424,11 @@ export class AgentMonitorService {
       // Best-effort file write — failures must never crash the agent.
     });
 
+    this._emitEntry(entry);
+  }
+
+  /** Announce a transcript entry on the local bus + HQ callback. */
+  private _emitEntry(entry: AgentTimelineEntry): void {
     // Emit local timeline event (for TUI/WebUI).
     this._events.emit('agent.timeline.message', {
       sessionId: this._sessionId,
@@ -390,7 +461,13 @@ export class AgentMonitorService {
   private _formatToolUse(name: string, input: unknown): string {
     if (input === undefined) return `${name}()`;
     const body = this._stringifyForTimeline(input);
-    return body ? `${name}\n${body}` : `${name}()`;
+    if (!body) return `${name}()`;
+    // First line is a compact single-line call preview — one-line transcript
+    // views (F3 pane, HQ list) show only the first line, and `name` alone
+    // told the reader nothing about WHAT the tool ran on.
+    const inline = body.replace(/\s+/g, ' ').trim();
+    const head = inline.length <= 160 ? `${name}(${inline})` : `${name}(${inline.slice(0, 159)}…)`;
+    return `${head}\n${body}`;
   }
 
   private _formatToolResult(summary: string, output: string, outputBytes: number | undefined): string {

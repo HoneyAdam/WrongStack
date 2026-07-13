@@ -173,10 +173,20 @@ export interface FleetDeps {
   fleetStreamController?: {
     enabled: boolean;
     setEnabled: (enabled: boolean) => void;
+    mode: import('@wrongstack/core').FleetChatVerbosity;
+    setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
   } | undefined;
   agentsMonitorController?: {
     visible: boolean;
     setVisible: (visible: boolean) => void;
+  } | undefined;
+  /**
+   * Read-only view of per-subagent transcripts (AgentMonitorService
+   * satisfies this structurally). Threaded into the TUI so the F3 agents
+   * monitor can render the selected agent's full transcript.
+   */
+  agentTranscripts?: {
+    getTranscript(subagentId: string, limit?: number): import('@wrongstack/core/coordination').AgentTimelineEntry[];
   } | undefined;
   authHost?: import('@wrongstack/tui').AuthPanelHost | undefined;
   onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;

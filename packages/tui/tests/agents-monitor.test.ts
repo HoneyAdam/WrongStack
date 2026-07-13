@@ -8,10 +8,14 @@ import {
   formatAgentDetailHeader,
   formatContextRunway,
   formatRecentToolChip,
+  formatTranscriptLine,
+  leaderTimelineFromEntries,
   nextEmptyAgentsCloseStartedAt,
   selectAgentDetail,
   selectLiveAgents,
+  selectTranscriptWindow,
   shouldCloseEmptyAgentsMonitor,
+  transcriptRowsForTerminal,
 } from '../src/components/agents-monitor.js';
 import { bucketActivity, sparkline } from '../src/components/fleet-monitor.js';
 
@@ -210,5 +214,139 @@ describe('sparkline (via fleet-monitor re-export)', () => {
     const flat = sparkline([3, 3, 3]);
     // all equal to max → all full bars
     expect(flat).toBe('███');
+  });
+});
+
+describe('transcript pane helpers', () => {
+  const tEntry = (
+    over: Partial<import('@wrongstack/core/coordination').AgentTimelineEntry> & { id: string },
+  ): import('@wrongstack/core/coordination').AgentTimelineEntry => ({
+    subagentId: 'sa-1',
+    agentName: 'Worker',
+    ts: '2026-07-13T10:20:30.000Z',
+    kind: 'text',
+    content: 'hello world',
+    iteration: 3,
+    ...over,
+  });
+
+  describe('formatTranscriptLine', () => {
+    it('renders time, iteration, glyph, and content snippet', () => {
+      // Content already names the tool ("grep(pattern)") — the bare toolName
+      // prefix is suppressed so the line doesn't read "grep grep(pattern)".
+      const line = formatTranscriptLine(tEntry({ id: 'a', kind: 'tool_use', toolName: 'grep', content: 'grep(pattern)' }));
+      expect(line).toMatch(/^\d{2}:\d{2}:\d{2} L3 🔧 grep\(pattern\)/);
+      expect(line).not.toContain('grep grep');
+    });
+
+    it('prefixes the toolName only when the content does not carry it', () => {
+      const line = formatTranscriptLine(tEntry({ id: 'a', kind: 'tool_use', toolName: 'grep', content: 'pattern-only args' }));
+      expect(line).toContain('🔧 grep pattern-only args');
+    });
+
+    it('coalesced multi-line segments show a (+N) line counter', () => {
+      const line = formatTranscriptLine(tEntry({ id: 'a', kind: 'thinking', content: 'first line\nsecond\nthird' }));
+      expect(line).toContain('first line');
+      expect(line).toContain('(+2)');
+      expect(line).not.toContain('second');
+    });
+
+    it('marks failed tools with ✗', () => {
+      const line = formatTranscriptLine(tEntry({ id: 'a', kind: 'tool_result', toolName: 'edit', toolOk: false }));
+      expect(line).toContain('edit ✗');
+    });
+
+    it('takes only the first line of multi-line content and truncates to width', () => {
+      const long = `${'x'.repeat(500)}\nsecond line`;
+      const line = formatTranscriptLine(tEntry({ id: 'a', content: long }), 80);
+      expect(line).not.toContain('second');
+      expect(line.length).toBeLessThanOrEqual(90);
+      expect(line).toContain('…');
+    });
+
+    it('survives an invalid timestamp', () => {
+      const line = formatTranscriptLine(tEntry({ id: 'a', ts: 'not-a-date' }));
+      expect(line).toContain('??:??:??');
+    });
+  });
+
+  describe('selectTranscriptWindow', () => {
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => tEntry({ id: `e${i}`, content: `entry ${i}` }));
+
+    it('empty transcript yields an empty window', () => {
+      expect(selectTranscriptWindow([], 0, 10)).toEqual({ slice: [], above: 0, below: 0 });
+    });
+
+    it('short transcript fits entirely with no hidden entries', () => {
+      const win = selectTranscriptWindow(mk(4), 0, 10);
+      expect(win.slice.map((e) => e.id)).toEqual(['e0', 'e1', 'e2', 'e3']);
+      expect(win.above).toBe(0);
+      expect(win.below).toBe(0);
+    });
+
+    it('offset 0 pins to the newest entries', () => {
+      const win = selectTranscriptWindow(mk(25), 0, 10);
+      expect(win.slice[0]!.id).toBe('e15');
+      expect(win.slice[9]!.id).toBe('e24');
+      expect(win.above).toBe(15);
+      expect(win.below).toBe(0);
+    });
+
+    it('scrolling up reveals earlier entries and reports hidden counts', () => {
+      const win = selectTranscriptWindow(mk(25), 10, 10);
+      expect(win.slice[0]!.id).toBe('e5');
+      expect(win.slice[9]!.id).toBe('e14');
+      expect(win.above).toBe(5);
+      expect(win.below).toBe(10);
+    });
+
+    it('clamps over-scroll to the oldest window', () => {
+      const win = selectTranscriptWindow(mk(25), 999, 10);
+      expect(win.slice[0]!.id).toBe('e0');
+      expect(win.above).toBe(0);
+      expect(win.below).toBe(15);
+    });
+  });
+});
+
+describe('leaderTimelineFromEntries', () => {
+  it('maps chat entries and EXCLUDES subagent lines, banners, and confirms', () => {
+    const entries = [
+      { id: 1, kind: 'user', text: 'do the thing' },
+      { id: 2, kind: 'assistant', text: 'on it' },
+      { id: 3, kind: 'subagent', agentLabel: 'AGENT#1', agentColor: 'cyan', icon: '🔧', text: '14 tools' },
+      { id: 4, kind: 'tool', name: 'grep', durationMs: 42, ok: true, outputLines: 7 },
+      { id: 5, kind: 'error', text: 'boom' },
+      { id: 6, kind: 'banner', version: '1', provider: 'p', model: 'm', cwd: '/' },
+      { id: 7, kind: 'warn', text: 'careful' },
+    ] as never[];
+    const out = leaderTimelineFromEntries(entries as never);
+    expect(out.map((e) => e.kind)).toEqual(['status', 'text', 'tool_use', 'error', 'system']);
+    expect(out[0]!.content).toBe('❯ do the thing');
+    expect(out[2]!.toolName).toBe('grep');
+    expect(out[2]!.content).toBe('42ms · 7L');
+    expect(out[4]!.content).toBe('⚠ careful');
+    expect(out.every((e) => e.subagentId === 'leader')).toBe(true);
+  });
+
+  it('leader lines render without time/iteration placeholders', () => {
+    const [line] = leaderTimelineFromEntries([{ id: 1, kind: 'assistant', text: 'hello' }] as never).map(
+      (e) => formatTranscriptLine(e),
+    );
+    expect(line).toBe('💬 hello');
+  });
+});
+
+describe('transcriptRowsForTerminal', () => {
+  it('clamps between 6 and 24 rows', () => {
+    expect(transcriptRowsForTerminal(10, 3)).toBe(6); // tiny terminal
+    expect(transcriptRowsForTerminal(200, 3)).toBe(24); // huge terminal
+  });
+
+  it('is constant across agent SELECTION (only terminal/roster size matter)', () => {
+    const a = transcriptRowsForTerminal(40, 4);
+    const b = transcriptRowsForTerminal(40, 4);
+    expect(a).toBe(b);
+    expect(transcriptRowsForTerminal(undefined, 4)).toBeGreaterThanOrEqual(6);
   });
 });
