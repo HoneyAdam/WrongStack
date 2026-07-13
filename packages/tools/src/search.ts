@@ -35,6 +35,7 @@ const DEFAULT_NUM = 10;
 const MAX_RESULTS = 50;
 const TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 300_000; // 5 minutes — matches the former web-search plugin default
+const CACHE_MAX_ENTRIES = 200;
 
 // Module-level cache shared across calls within a single agent run. Keyed by
 // `<source>:<query>`. This is intentionally process-local (not persisted) —
@@ -178,7 +179,7 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
 
     // --- Store in cache ---
     cache.set(cacheKey, { results: ranked, source: effectiveSource, timestamp: Date.now() });
-    pruneStaleCacheEntries();
+    pruneCacheEntries();
 
     yield {
       type: 'partial_output',
@@ -206,11 +207,16 @@ export const searchTool: Tool<SearchInput, SearchOutput> = {
 // Cache helpers
 // ---------------------------------------------------------------------------
 
-/** Drop entries older than 2× the TTL — bounded growth, cheap to run per write. */
-function pruneStaleCacheEntries(): void {
+/** Drop stale entries, then evict oldest insertions to cap retained result data. */
+function pruneCacheEntries(): void {
   const cutoff = Date.now() - CACHE_TTL_MS * 2;
   for (const [key, entry] of cache.entries()) {
     if (entry.timestamp < cutoff) cache.delete(key);
+  }
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
   }
 }
 

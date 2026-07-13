@@ -68,9 +68,6 @@ describe('plugin-stack-observer extra coverage', () => {
       kind: 'wrapProviderRunner',
       wraps: ['cache', 'dedup'],
     });
-
-    // Verify via health
-    const h = pluginStackObserver.health!() as unknown as Promise<{ wraps: unknown[] }>;
   });
 
   it('onPattern handler filters invalid entries', () => {
@@ -101,18 +98,13 @@ describe('plugin-stack-observer extra coverage', () => {
 
   it('readConfig handles null config', () => {
     const api = makeApi({ 'plugin-stack-observer': null });
-    pluginStackObserver.setup(api as never);
-    const statusTool = api.tools.register.mock.calls.find(
-      (c: unknown[]) => (c[0] as { name: string }).name === 'plugin_stack_status',
-    )?.[0] as { execute: () => Promise<unknown> };
+    expect(() => pluginStackObserver.setup(api as never)).not.toThrow();
   });
 
   it('teardown zeros state and logs', () => {
     const api = makeApi();
     pluginStackObserver.setup(api as never);
     pluginStackObserver.teardown!(api as never);
-    // After teardown, health should have empty wraps
-    const h = pluginStackObserver.health!() as unknown as Promise<{ wrapCount: number }>;
     expect(api.log.info).toHaveBeenCalledWith('plugin-stack-observer: teardown complete', expect.any(Object));
   });
 

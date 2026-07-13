@@ -54,7 +54,7 @@ async function rust(): Promise<void> { await fs.writeFile(path.join(root, 'Cargo
 async function php(): Promise<void> { await fs.writeFile(path.join(root, 'composer.json'), '{}'); }
 async function csharp(): Promise<void> { await fs.writeFile(path.join(root, 'App.csproj'), '<Project/>'); }
 
-const NPM_AUDIT = JSON.stringify({
+const _NPM_AUDIT = JSON.stringify({
   vulnerabilities: { 'lodash@4.17.20': { name: 'lodash', severity: 'high', title: 'T', url: 'https://t.test', range: '<4.17.21', patched_versions: '>=4.17.21' } },
 });
 const CARGO_AUDIT = JSON.stringify({

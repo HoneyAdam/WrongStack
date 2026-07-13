@@ -1,6 +1,5 @@
 import { ChevronDown, Loader2, Power, PowerOff, Search, Wrench } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
-import { useAppTranslation } from '@/i18n';
 import { toast } from '@/components/Toaster';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import type { WSServerMessage } from '@/types';
@@ -102,7 +101,6 @@ function ToolRow({
 }
 
 export function ToolsSection(): ReactElement {
-  const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,20 +202,20 @@ export function ToolsSection(): ReactElement {
         </p>
       ) : (
         <div className="relative overflow-hidden rounded-lg border border-border/70 bg-background/35 shadow-inner">
-          <div
+          <ul
             className="max-h-[min(58dvh,660px)] space-y-2 overflow-y-scroll p-2 pr-3 [scrollbar-gutter:stable]"
-            role="list"
             aria-label="Tools list"
           >
             {filtered.map((tool) => (
-              <ToolRow
-                key={tool.name}
-                tool={tool}
-                onToggle={() => handleToggle(tool.name, tool.disabled)}
-                busy={busyMap.has(tool.name)}
-              />
+              <li key={tool.name}>
+                <ToolRow
+                  tool={tool}
+                  onToggle={() => handleToggle(tool.name, tool.disabled)}
+                  busy={busyMap.has(tool.name)}
+                />
+              </li>
             ))}
-          </div>
+          </ul>
           <div className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-background/90 to-transparent" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/95 to-transparent" />
         </div>

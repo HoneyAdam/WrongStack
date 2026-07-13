@@ -5,7 +5,7 @@
  * path normalization, and utility functions. Full integration tests require
  * actual child process spawning.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { normalizeProjectManifest } from '../src/main/runtime-manager.js';
 import type {
   DesktopRuntimeRecord,
@@ -16,10 +16,6 @@ import type {
 // ============================================================================
 // Mock Types and Helpers
 // ============================================================================
-
-interface RuntimeInternal extends DesktopRuntimeRecord {
-  child: unknown | null;
-}
 
 interface DesktopStateFile {
   openProjects: string[];
@@ -422,7 +418,7 @@ describe('Session management', () => {
   function nextRuntimeName(
     runtimes: Map<string, DesktopRuntimeRecord>,
     root: string,
-    kind: DesktopRuntimeKind,
+    _kind: DesktopRuntimeKind,
   ): string {
     const basename = root.split(/[\\/]/).filter(Boolean).pop() ?? 'Runtime';
     const existing = Array.from(runtimes.values()).filter((r) => r.root === root);

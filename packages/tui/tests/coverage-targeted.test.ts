@@ -9,12 +9,10 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { detectLang, highlightLine, langFromPath } from '../src/highlight.js';
-import { parseInline } from '../src/markdown.js';
 import { Text } from '../src/ink.js';
 import { colorForFamily, dimColorForFamily } from '../src/components/provider-colors.js';
 import {
   actionForFKeyPanel,
-  F_KEY_PANEL_ENTRIES,
 } from '../src/f-key-panels.js';
 import { createPanelOpenDispatcher, type PanelOpenDeps } from '../src/on-panel-open.js';
 import { handleQueueCommand, type QueueSlashDeps } from '../src/queue-slash.js';

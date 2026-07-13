@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createShutdown, registerShutdownHandlers } from '../src/server/lifecycle.js';
 
 describe('lifecycle', () => {

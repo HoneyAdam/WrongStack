@@ -25,7 +25,7 @@ describe('flushAnalytics — large re-queue overflow cap (line 51)', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(fetchPromise));
 
     // Import fresh so the module sees our fetch mock
-    const { trackEvent, getAnalyticsQueue, clearAnalyticsQueue, flushAnalytics } =
+    const { trackEvent, getAnalyticsQueue, clearAnalyticsQueue } =
       await import('../../src/lib/analytics');
     clearAnalyticsQueue();
 

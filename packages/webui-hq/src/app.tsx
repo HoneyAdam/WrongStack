@@ -81,6 +81,7 @@ export function HqApp(): React.ReactElement {
         {VIEWS.map((v) => (
           <button
             key={v.id}
+            type="button"
             className={'hq-tab' + (state.activeView === v.id ? ' active' : '')}
             onClick={() => setActiveView(v.id)}
           >

@@ -168,7 +168,6 @@ describe('HQ PromptDock subject derivation (#235 regression)', () => {
     }
     const expr = match[1];
     // Evaluate the extracted RHS with `effectiveType` bound as the sole input.
-    // biome-ignore lint/security/noGlobalEval: executing an expression we just extracted from our own served asset, in-test only.
     return new Function('effectiveType', `return (${expr});`) as (t: string) => string;
   }
 

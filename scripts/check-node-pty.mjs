@@ -25,7 +25,6 @@
  * matrix). Does NOT require a TTY; spawns cmd.exe on Windows, /bin/sh
  * on Linux/macOS, and writes a synthetic command, expecting echo back.
  */
-import { spawn } from 'node:child_process';
 
 const PLATFORM = process.platform;
 const NODE = process.version;
@@ -135,7 +134,7 @@ if (pty && typeof pty.spawn === 'function') {
     proc.onData((data) => {
       output += data;
     });
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(() => {
       exited = true;
     });
     // Drive the shell. On Windows cmd.exe needs a newline to flush;

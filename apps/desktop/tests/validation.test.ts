@@ -8,13 +8,11 @@ import {
   validateOrThrow,
   validateOrDefault,
   validateOptional,
-  validateMany,
   createValidationLogger,
 } from '../src/main/validation/index.js';
 import {
   runtimeIdSchema,
   pathSchema,
-  nonEmptyStringSchema,
   booleanSchema,
   numberSchema,
   openProjectSchema,

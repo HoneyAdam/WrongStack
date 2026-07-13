@@ -302,7 +302,7 @@ export function runRunnerCommand(
       });
       return;
     }
-    let timedOut = false;
+    const timedOut = false;
     let spawnErrored = false;
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];

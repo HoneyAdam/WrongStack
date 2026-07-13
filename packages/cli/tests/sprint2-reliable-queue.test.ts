@@ -559,7 +559,7 @@ describe('Sprint 2 reliable queue (consolidated)', () => {
   }
 
   it('router: explicit retry mode (default back-compat)', async () => {
-    const { board, task } = await setupStale();
+    const { board } = await setupStale();
     const result = await recoverStaleTaskAssignments(tmpDir, board.id, {
       mode: 'retry',
       now: '2030-01-01T00:00:00.000Z',

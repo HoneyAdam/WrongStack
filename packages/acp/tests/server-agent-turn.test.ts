@@ -211,7 +211,7 @@ describe('makeACPServerAgentTurn', () => {
   it('emits plan and usage updates from the agent result', async () => {
     const planEntries = [{ content: 'Step 1', priority: 'high' as const, status: 'in_progress' as const }];
     const usage = { used: 100, size: 1000, cost: { amount: 0.05, currency: 'USD' } };
-    let emitted: unknown[] = [];
+    const _emitted: unknown[] = [];
     const { handler, transport } = makeHandlerWithFactory(() => ({
       run: vi.fn(async () => ({ text: 'planned', stopReason: 'end_turn', plan: planEntries, usage })),
       teardown: vi.fn(async () => {}),
@@ -240,7 +240,7 @@ describe('makeACPServerAgentTurn', () => {
   });
 
   it('handles agent results that have plan and usage in run result', async () => {
-    let emitted: unknown[] = [];
+    const _emitted: unknown[] = [];
     const fakeAgent = {
       run: vi.fn(async () => ({
         text: 'with details',
@@ -280,7 +280,7 @@ describe('makeACPServerAgentTurn', () => {
   });
 
   it('extractPlan returns empty array for non-array plan field', async () => {
-    let emitted: unknown[] = [];
+    const _emitted: unknown[] = [];
     const fakeAgent = {
       run: vi.fn(async () => ({ text: 'done', stopReason: 'end_turn' as const, plan: 'not-an-array' })),
       teardown: vi.fn(async () => {}),
@@ -305,7 +305,7 @@ describe('makeACPServerAgentTurn', () => {
   });
 
   it('handles agent result with usage but no cost', async () => {
-    let emitted: unknown[] = [];
+    const _emitted: unknown[] = [];
     const fakeAgent = {
       run: vi.fn(async () => ({
         text: 'usage without cost',

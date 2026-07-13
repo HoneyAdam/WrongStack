@@ -167,9 +167,8 @@ const INTERFACE_RE = /(?:export\s+)?interface\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
 
 function extractInterfaceNames(content: string): Array<{ name: string; line: number }> {
   const names: Array<{ name: string; line: number }> = [];
-  let m: RegExpExecArray | null;
   INTERFACE_RE.lastIndex = 0;
-  while ((m = INTERFACE_RE.exec(content)) !== null) {
+  for (const m of content.matchAll(INTERFACE_RE)) {
     names.push({ name: m[1]!, line: content.slice(0, m.index).split(/\r?\n/).length });
   }
   return names;

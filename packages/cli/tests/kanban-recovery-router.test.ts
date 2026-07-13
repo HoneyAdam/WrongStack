@@ -41,7 +41,7 @@ async function setupReady() {
 
 describe('Kanban recovery router (Sprint 2 auto mode)', () => {
   it('honors explicit retry mode (default back-compat)', async () => {
-    const { board, task } = await setupReady();
+    const { board } = await setupReady();
 
     const result = await recoverStaleTaskAssignments(tmpDir, board.id, {
       mode: 'retry',
@@ -128,7 +128,7 @@ describe('Kanban recovery router (Sprint 2 auto mode)', () => {
   });
 
   it('keeps per-task notes with the resolved mode and original reason', async () => {
-    const { board, task } = await setupReady();
+    const { board } = await setupReady();
 
     await recoverStaleTaskAssignments(tmpDir, board.id, {
       mode: 'release',

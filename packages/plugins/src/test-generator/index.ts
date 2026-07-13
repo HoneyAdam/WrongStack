@@ -113,35 +113,33 @@ function detectExports(content: string): DetectedExport[] {
   const classRe = /export\s+(?:abstract\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
   const namedRe = /export\s*\{([^}]+)\}/g;
 
-  let m: RegExpExecArray | null;
-
   functionRe.lastIndex = 0;
-  while ((m = functionRe.exec(content)) !== null) {
-    if (!seen.has(m[1]!)) {
-      seen.add(m[1]!);
-      exports.push({ name: m[1]!, kind: 'function' });
+  for (const match of content.matchAll(functionRe)) {
+    if (!seen.has(match[1]!)) {
+      seen.add(match[1]!);
+      exports.push({ name: match[1]!, kind: 'function' });
     }
   }
 
   arrowRe.lastIndex = 0;
-  while ((m = arrowRe.exec(content)) !== null) {
-    if (!seen.has(m[1]!)) {
-      seen.add(m[1]!);
-      exports.push({ name: m[1]!, kind: 'arrow' });
+  for (const match of content.matchAll(arrowRe)) {
+    if (!seen.has(match[1]!)) {
+      seen.add(match[1]!);
+      exports.push({ name: match[1]!, kind: 'arrow' });
     }
   }
 
   classRe.lastIndex = 0;
-  while ((m = classRe.exec(content)) !== null) {
-    if (!seen.has(m[1]!)) {
-      seen.add(m[1]!);
-      exports.push({ name: m[1]!, kind: 'class' });
+  for (const match of content.matchAll(classRe)) {
+    if (!seen.has(match[1]!)) {
+      seen.add(match[1]!);
+      exports.push({ name: match[1]!, kind: 'class' });
     }
   }
 
   namedRe.lastIndex = 0;
-  while ((m = namedRe.exec(content)) !== null) {
-    const names = m[1]!
+  for (const match of content.matchAll(namedRe)) {
+    const names = match[1]!
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);

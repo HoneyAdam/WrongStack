@@ -2,10 +2,7 @@
  * Supplementary tests for api-compatibility-gate — targeting uncovered branches.
  * Tests: readConfig, isEntryPoint, withinProject, extractExports, etc.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { writeFileSync, mkdtempSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiCompatPlugin = (await import('../src/api-compatibility-gate')).default;
 

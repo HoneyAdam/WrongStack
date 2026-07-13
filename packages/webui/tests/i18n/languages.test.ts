@@ -3,7 +3,7 @@
  * Pure module with no i18next/react dependencies.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   detectLocale,
   normalizeLocale,

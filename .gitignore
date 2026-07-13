@@ -166,3 +166,5 @@ before-release.md
 
 .temp_files/
 .worktrees/
+
+.coverage*.*

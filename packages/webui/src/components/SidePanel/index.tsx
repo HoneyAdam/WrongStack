@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import {
   SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   useConfigStore,
   useFileStore,
   useSessionStore,
@@ -101,17 +103,17 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
         )}
       >
       {/* Drag handle */}
-      <div
-        role="separator"
+      <hr
         aria-orientation="vertical"
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuenow={sidebarWidth}
         tabIndex={0}
         onMouseDown={startDrag}
         onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
-        className="group/handle absolute top-0 right-0 h-full w-2 cursor-col-resize z-10 flex items-center justify-end"
+        className="group/handle absolute top-0 right-0 z-10 m-0 h-full w-2 cursor-col-resize border-0 border-r border-border/70 hover:border-primary/70"
         title={t('activity:sidePanel.dragHint')}
-      >
-        <div className="h-full w-px bg-border/70 group-hover/handle:bg-primary/70 group-hover/handle:w-0.5 transition-all" />
-      </div>
+      />
 
       {/* Panel header — names the active panel */}
       <div

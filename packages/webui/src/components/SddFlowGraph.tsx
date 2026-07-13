@@ -99,19 +99,18 @@ function TaskNode({ data }: { data: TaskNodeData }) {
         running && 'sdd-node-running',
         t.displayStatus === 'completed' && 'sdd-node-complete',
         t.displayStatus === 'failed' && 'sdd-node-failed',
-        data.onTaskClick && 'cursor-pointer hover:brightness-125',
+        data.onTaskClick && 'hover:brightness-125',
       )}
       style={{ width: NODE_W, animationDelay: `${Math.min(data.index * 45, 600)}ms` }}
-      onClick={() => data.onTaskClick?.(t.id)}
-      role="button"
-      tabIndex={data.onTaskClick ? 0 : undefined}
-      onKeyDown={(e) => {
-        if (data.onTaskClick && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          data.onTaskClick(t.id);
-        }
-      }}
     >
+      {data.onTaskClick && (
+        <button
+          type="button"
+          aria-label={tt('activity:sdd.openTask', { title: t.title, defaultValue: `Open task: ${t.title}` })}
+          className="absolute inset-0 z-10 cursor-pointer rounded-lg"
+          onClick={() => data.onTaskClick?.(t.id)}
+        />
+      )}
       {/* Columns flow left→right (a task's deps sit in earlier/left columns),
           so edges enter on the Left and leave on the Right. */}
       <Handle type="target" position={Position.Left} isConnectable={false} className="!h-1.5 !w-1.5 !border-0 !bg-border" />

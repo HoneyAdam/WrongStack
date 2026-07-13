@@ -176,10 +176,8 @@ const NAMED_EXPORT_RE = /export\s*\{([^}]+)\}/g;
 function extractExports(content: string, filePath: string): SuspiciousSymbol[] {
   const exports: SuspiciousSymbol[] = [];
 
-  let match: RegExpExecArray | null;
-
   DECLARATION_EXPORT_RE.lastIndex = 0;
-  while ((match = DECLARATION_EXPORT_RE.exec(content)) !== null) {
+  for (const match of content.matchAll(DECLARATION_EXPORT_RE)) {
     exports.push({
       identifier: match[1]!,
       file: filePath,
@@ -189,7 +187,7 @@ function extractExports(content: string, filePath: string): SuspiciousSymbol[] {
   }
 
   NAMED_EXPORT_RE.lastIndex = 0;
-  while ((match = NAMED_EXPORT_RE.exec(content)) !== null) {
+  for (const match of content.matchAll(NAMED_EXPORT_RE)) {
     const line = lineNumber(content, match.index);
     const names = match[1]!
       .split(',')
@@ -381,7 +379,7 @@ const plugin: Plugin = {
       let result: ScanResult;
       try {
         result = scan(scanRoot, 1, cfg);
-      } catch (err) {
+      } catch {
         state.errorCount += 1;
         return;
       }

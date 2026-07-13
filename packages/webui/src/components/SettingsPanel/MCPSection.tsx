@@ -126,7 +126,7 @@ function ServerCard({
             </Badge>
           )}
         </button>
-        <div className="flex items-center gap-1" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1">
           {server.status === 'sleeping' && (
             <Button variant="ghost" size="sm" onClick={onWake} title={t('settings:mcp.wakeTitle')}>
               <Sun className="w-4 h-4" />

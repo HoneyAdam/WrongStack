@@ -245,7 +245,7 @@ describe('createLocalManifestSuite — validation errors', () => {
       const transcript = path.join(dir, 'corpus', 'source.jsonl');
       await fs.mkdir(path.dirname(transcript), { recursive: true });
       await fs.writeFile(transcript, JSON.stringify({ type: 'session_start', id: 's' }) + '\n', 'utf8');
-      const sha256 = createHash('sha256').update(JSON.stringify({ type: 'session_start', id: 's' }) + '\n').digest('hex');
+      const _sha256 = createHash('sha256').update(JSON.stringify({ type: 'session_start', id: 's' }) + '\n').digest('hex');
       await fs.writeFile(
         path.join(dir, 'bench.local.json'),
         JSON.stringify({

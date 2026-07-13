@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DefaultSkillLoader, resolveWstackPaths } from '../../src/index.js';
 
 // ---------------------------------------------------------------------------
@@ -93,13 +93,13 @@ describe('DefaultSkillLoader — extra', () => {
   let tmp: string;
   let projectRoot: string;
   let globalRoot: string;
-  let bundled: string;
+  let _bundled: string;
 
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-skills-extra-'));
     projectRoot = path.join(tmp, 'proj');
     globalRoot = path.join(tmp, 'global');
-    bundled = path.join(tmp, 'bundled');
+    _bundled = path.join(tmp, 'bundled');
   });
 
   afterEach(async () => {

@@ -3,6 +3,7 @@ import {
   type Config,
   type EventBus,
   type GlobalMailbox,
+  type HqPublisher,
   type SessionWriter,
   startCostTelemetryBridge,
   startSessionTelemetryBridge,
@@ -22,8 +23,7 @@ import { createHqCommandDispatcher, type HqCommandController } from '../hq-comma
  * populated by `setupHqTelemetry` once the HQ connection establishes.
  */
 export interface HqPublisherRef {
-  // biome-ignore lint/suspicious/noExplicitAny: publisher shape from hq-publisher.ts
-  current: any | undefined;
+  current: HqPublisher | undefined;
 }
 
 export interface SetupHqTelemetryDeps {
@@ -223,10 +223,10 @@ export function setupHqTelemetry(deps: SetupHqTelemetryDeps): HqTelemetryResult 
   if (agentMonitor) {
     const offMsg = events.on('agent.timeline.message', (payload) => {
       try {
-        (hqPublisherRef.current as any)?.publishEvent?.({
+        hqPublisherRef.current?.publishEvent({
           type: 'agent.message',
           payload,
-          timestamp: (payload as any).ts,
+          timestamp: payload.ts,
         });
       } catch {
         /* best-effort */
@@ -234,10 +234,10 @@ export function setupHqTelemetry(deps: SetupHqTelemetryDeps): HqTelemetryResult 
     });
     const offStatus = events.on('agent.status_changed', (payload) => {
       try {
-        (hqPublisherRef.current as any)?.publishEvent?.({
+        hqPublisherRef.current?.publishEvent({
           type: 'agent.status',
           payload,
-          timestamp: (payload as any).ts,
+          timestamp: payload.ts,
         });
       } catch {
         /* best-effort */

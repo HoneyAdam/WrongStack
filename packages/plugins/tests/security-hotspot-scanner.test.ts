@@ -139,7 +139,7 @@ describe('security-hotspot-scanner plugin', () => {
     mockFile(
       'const url = "http://example.com/api";\n' +
         'console.log("password", user.password);\n' +
-        'exec(`rm -rf ${dir}`);',
+        'exec(`rm -rf ' + String.fromCharCode(36) + '{dir}`);',
     );
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);

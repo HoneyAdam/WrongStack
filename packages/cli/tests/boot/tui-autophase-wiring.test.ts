@@ -10,7 +10,7 @@ function createEventBusMock() {
     on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       handlers.set(event, handler as (payload: unknown) => void);
     }),
-    off: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+    off: vi.fn((event: string, _handler: (...args: unknown[]) => void) => {
       handlers.delete(event);
     }),
     // simulate an event being emitted

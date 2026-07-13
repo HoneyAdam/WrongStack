@@ -1,4 +1,4 @@
-import { readHqAuthFile, writeHqAuthFile, type HqAuthFile } from '@wrongstack/core';
+import { readHqAuthFile, writeHqAuthFile } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -25,7 +25,7 @@ function httpUrl(handle: HqServerHandle, pathname: string): string {
   return `http://${handle.host}:${handle.port}${pathname}`;
 }
 
-function wsUrl(handle: HqServerHandle, pathname: string, cookie?: string): string {
+function wsUrl(handle: HqServerHandle, pathname: string, _cookie?: string): string {
   const base = `ws://${handle.host}:${handle.port}${pathname}`;
   return base; // cookie is supplied via headers in the WebSocket constructor below.
 }
@@ -44,7 +44,7 @@ function waitForOpen(ws: WebSocket, timeout = 3_000): Promise<void> {
   });
 }
 
-function waitForClose(ws: WebSocket, timeout = 3_000): Promise<number | undefined> {
+function _waitForClose(ws: WebSocket, timeout = 3_000): Promise<number | undefined> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(undefined), timeout);
     ws.once('close', (code) => {

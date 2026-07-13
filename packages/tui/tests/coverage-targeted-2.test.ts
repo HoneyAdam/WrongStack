@@ -4,7 +4,7 @@
  * paste-accumulator, rehydrate-history, terminal-title, theme, app-initial-state.
  */
 
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Message } from '@wrongstack/core';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ describe('input-tokens.ts — branch gaps', () => {
 
 describe('mouse.ts — horizontal scroll branch', () => {
   it('decodeMouse handles horizontal wheel (low=2, low=3) — zero wheel dir', async () => {
-    const { parseMouseEvent, parseMouseEvents } = await import('../src/mouse.js');
+    const { parseMouseEvent } = await import('../src/mouse.js');
     // Cb = 64 + 2 = 66 (wheel + button bits 2 = horizontal right)
     const ev1 = parseMouseEvent('\x1b[<66;10;5M');
     expect(ev1?.kind).toBe('wheel');

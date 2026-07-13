@@ -1,7 +1,7 @@
 /**
  * Additional tests for context-pins plugin - covering persist error path.
  */
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Use module-level mock to intercept writeFileSync
 const mockWriteFileSync = vi.fn();

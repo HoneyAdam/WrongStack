@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { IRuntimeManager, IAgentBridge } from '../src/main/state/types.js';
-import type { DesktopRuntimeRecord, DesktopWebuiCommand } from '../src/shared/types.js';
+import type { DesktopRuntimeRecord } from '../src/shared/types.js';
 
 // Mock Electron to prevent dynamic import errors
 vi.mock('electron', () => ({

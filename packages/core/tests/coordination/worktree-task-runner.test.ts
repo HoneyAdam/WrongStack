@@ -207,7 +207,7 @@ describe('worktree task runner', () => {
   });
 
   it('keeps worktree on success when autoMerge is false', async () => {
-    const { calls, run } = stubRunner((args) => {
+    const { run } = stubRunner((args) => {
       if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
         return { code: 0, stdout: 'main\n', stderr: '' };
       }

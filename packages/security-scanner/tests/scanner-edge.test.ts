@@ -12,15 +12,15 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { SecurityScanner } from '../src/scanner.js';
 import type { GeneratedSkill, TechStackInfo, SecurityPattern } from '../src/types.js';
 
 describe('SecurityScanner - edge coverage', () => {
-  let scanner: SecurityScanner;
+  let _scanner: SecurityScanner;
 
   beforeEach(() => {
-    scanner = new SecurityScanner();
+    _scanner = new SecurityScanner();
   });
 
   const createMockSkill = (patterns: SecurityPattern[]): GeneratedSkill => ({

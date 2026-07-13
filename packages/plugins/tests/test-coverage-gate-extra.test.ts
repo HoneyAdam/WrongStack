@@ -2,9 +2,8 @@
  * Supplementary tests for test-coverage-gate — targeting uncovered branches.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { writeFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
 
 const coverageGatePlugin = (await import('../src/test-coverage-gate')).default;
 

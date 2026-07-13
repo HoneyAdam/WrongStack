@@ -34,7 +34,7 @@ function mockReaddirSync(p: string, options?: { withFileTimes?: boolean }) {
 function mockReadFileSync(p: string, encoding?: string) {
   const normalized = normalizePath(p);
   const entry = mockFs[normalized];
-  if (!entry || entry.type !== 'file') {
+  if (entry?.type !== 'file') {
     const err = new Error(`ENOENT: ${normalized}`) as NodeJS.ErrnoException;
     err.code = 'ENOENT';
     throw err;

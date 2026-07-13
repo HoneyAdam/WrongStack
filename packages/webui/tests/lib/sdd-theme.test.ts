@@ -23,7 +23,7 @@ describe('SDD_STATUS', () => {
   });
 
   it('each entry has the required fields', () => {
-    for (const [key, style] of Object.entries(SDD_STATUS)) {
+    for (const style of Object.values(SDD_STATUS)) {
       expect(style).toHaveProperty('label');
       expect(style).toHaveProperty('icon');
       expect(style).toHaveProperty('text');

@@ -74,7 +74,14 @@ export function TimeseriesChart({
         viewBox={`0 0 ${W} ${H}`}
         className="hq-chart-svg"
         role="img"
+        aria-label={`Time series chart with ${points.length} data points`}
         onMouseLeave={() => setHover(null)}
+        onMouseMove={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const chartX = ((event.clientX - bounds.left) / bounds.width) * W;
+          const index = Math.floor((chartX - PAD_L) / slot);
+          setHover(index >= 0 && index < points.length ? index : null);
+        }}
       >
         <clipPath id={clipId}>
           <rect x={PAD_L} y={PAD_T} width={plotW} height={plotH} />
@@ -129,18 +136,8 @@ export function TimeseriesChart({
             </text>
           ) : null,
         )}
-        {/* hover hit targets (wider than the mark) */}
-        {points.map((_, i) => (
-          <rect
-            key={i}
-            x={PAD_L + i * slot}
-            y={PAD_T}
-            width={slot}
-            height={plotH}
-            fill="transparent"
-            onMouseEnter={() => setHover(i)}
-          />
-        ))}
+        {/* Transparent plot surface keeps pointer targeting wider than each mark. */}
+        <rect x={PAD_L} y={PAD_T} width={plotW} height={plotH} fill="transparent" />
       </svg>
       {hovered !== undefined && (
         <div className="hq-chart-tooltip">

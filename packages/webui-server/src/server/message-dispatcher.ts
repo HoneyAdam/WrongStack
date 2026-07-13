@@ -399,7 +399,7 @@ export function createMessageDispatcher(
         break;
       }
       case 'tool.disable': {
-        const name = ((msg as { payload?: { name?: string } }).payload ?? {}).name;
+        const name = (msg as { payload?: { name?: string } }).payload?.name;
         if (!name) {
           send(ws, { type: 'error', payload: { message: 'tool.disable requires a name' } });
           break;
@@ -415,7 +415,7 @@ export function createMessageDispatcher(
         break;
       }
       case 'tool.enable': {
-        const name = ((msg as { payload?: { name?: string } }).payload ?? {}).name;
+        const name = (msg as { payload?: { name?: string } }).payload?.name;
         if (!name) {
           send(ws, { type: 'error', payload: { message: 'tool.enable requires a name' } });
           break;

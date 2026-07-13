@@ -1,7 +1,7 @@
 /**
  * Unit tests for the menu module.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DesktopRuntimeRecord } from '../src/shared/types.js';
 import type { MenuBuilderContext, ProjectMenuActions } from '../src/main/menu/types.js';
 import {

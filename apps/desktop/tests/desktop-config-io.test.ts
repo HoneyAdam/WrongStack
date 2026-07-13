@@ -37,14 +37,11 @@ vi.mock('@wrongstack/core/utils', () => ({
 }));
 
 vi.mock('@wrongstack/core', () => ({
-  DefaultSecretVault: vi.fn().mockImplementation(
-    function() {
-      return {
-        encrypt: vi.fn((val: string) => val),
-        decrypt: vi.fn((val: string) => val),
-        hasKey: vi.fn(() => true),
-      };
-    }),
+  DefaultSecretVault: class MockSecretVault {
+    encrypt = vi.fn((value: string) => value);
+    decrypt = vi.fn((value: string) => value);
+    hasKey = vi.fn(() => true);
+  },
 }));
 
 vi.mock('node:fs/promises', () => ({

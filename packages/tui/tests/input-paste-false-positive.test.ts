@@ -4,7 +4,7 @@ import React from 'react';
 import { Input, type KeyEvent } from '../src/components/input.js';
 import { feedPaste } from '../src/paste-accumulator.js';
 
-function emptyKey(): KeyEvent {
+function _emptyKey(): KeyEvent {
   return {
     upArrow: false,
     downArrow: false,

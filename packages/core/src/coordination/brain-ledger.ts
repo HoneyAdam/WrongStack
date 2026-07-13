@@ -319,8 +319,7 @@ export class BrainDecisionLedger {
     for (let i = this.entries.length - 1; i >= 0; i--) {
       const e = this.entries[i];
       if (
-        !e ||
-        e.kind !== 'answered' ||
+        e?.kind !== 'answered' ||
         e.requestId === request.id ||
         e.question === undefined ||
         brainDecisionKey(e.source, e.question) !== key

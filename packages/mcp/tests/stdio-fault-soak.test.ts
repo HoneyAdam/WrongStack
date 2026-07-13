@@ -108,7 +108,7 @@ describe('MCP stdio fault-injection soak', () => {
         .toBe('connected');
 
       let successes = 0;
-      let failures = 0;
+      let _failures = 0;
       const start = Date.now();
       while (Date.now() - start < 25_000) {
         const client = getClient(reg, 'soak');
@@ -123,7 +123,7 @@ describe('MCP stdio fault-injection soak', () => {
             successes++;
           }
         } catch {
-          failures++;
+          _failures++;
         }
         // Pace calls so the child reliably reaches its 2-call crash limit.
         await new Promise((r) => setTimeout(r, 250));

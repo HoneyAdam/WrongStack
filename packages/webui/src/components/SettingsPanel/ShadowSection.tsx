@@ -1,13 +1,9 @@
 import { Eye, Loader2, PowerOff } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
-import { useAppTranslation } from '@/i18n';
-import { useWebSocket } from '@/hooks/useWebSocket';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 
 export function ShadowSection(): ReactElement {
-  const { t } = useAppTranslation();
-  const { client } = useWebSocket();
   const [shadowId, setShadowId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);

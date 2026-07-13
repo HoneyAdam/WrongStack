@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   createHqEventEnvelope,
-  DEFAULT_HQ_REDACTION_POLICY,
 } from '../../src/hq/protocol.js';
 import {
   redactHqEvent,

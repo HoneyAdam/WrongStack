@@ -10,7 +10,7 @@
  * The registerAgent/heartbeat calls inside the tool are best-effort (catch
  * swallows errors), so the DefaultMailbox stubs for those (no-ops) are fine.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -187,14 +187,14 @@ describe('makeMailSendTool', () => {
 describe('makeMailInboxTool', () => {
   let mailbox: Mailbox;
   let dir: string;
-  let sendTool: ReturnType<typeof makeMailSendTool>;
+  let _sendTool: ReturnType<typeof makeMailSendTool>;
   let inboxTool: ReturnType<typeof makeMailInboxTool>;
 
   beforeEach(async () => {
     dir = tmpDir();
     await fs.mkdir(dir, { recursive: true });
     mailbox = new DefaultMailbox(dir);
-    sendTool = makeMailSendTool({
+    _sendTool = makeMailSendTool({
       resolveMailbox: () => mailbox,
     });
     inboxTool = makeMailInboxTool({

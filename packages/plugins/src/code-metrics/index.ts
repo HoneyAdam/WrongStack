@@ -170,20 +170,19 @@ function countFunctions(content: string): number {
   const methodRe = /\b[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]*\)\s*\{/g;
   const arrowRe = /=>\s*(?:\{|\(|[^\s;{}])/g;
 
-  let m: RegExpExecArray | null;
   declRe.lastIndex = 0;
-  while ((m = declRe.exec(content)) !== null) count++;
+  for (const _match of content.matchAll(declRe)) count++;
 
   methodRe.lastIndex = 0;
-  while ((m = methodRe.exec(content)) !== null) {
+  for (const match of content.matchAll(methodRe)) {
     // Avoid double-counting function declarations already matched above.
-    const prefix = content.slice(0, m.index).trimEnd();
+    const prefix = content.slice(0, match.index).trimEnd();
     if (/\bfunction\s*$/.test(prefix)) continue;
     count++;
   }
 
   arrowRe.lastIndex = 0;
-  while ((m = arrowRe.exec(content)) !== null) count++;
+  for (const _match of content.matchAll(arrowRe)) count++;
 
   return count;
 }
@@ -192,20 +191,19 @@ function countComplexity(content: string): number {
   const controlRe = /\b(if|else\s+if|for|while|switch|catch)\b/g;
   const operatorRe = /[?&|]/g;
   let complexity = 0;
-  let m: RegExpExecArray | null;
 
   controlRe.lastIndex = 0;
-  while ((m = controlRe.exec(content)) !== null) complexity++;
+  for (const _match of content.matchAll(controlRe)) complexity++;
 
   // Count ternary ? and && / || operators as decision points.
   operatorRe.lastIndex = 0;
-  while ((m = operatorRe.exec(content)) !== null) {
-    const ch = m[0];
+  for (const match of content.matchAll(operatorRe)) {
+    const ch = match[0];
     if (ch === '?') {
       complexity++;
     } else {
       // Only count when two identical operators form && or ||.
-      const next = content[m.index + 1];
+      const next = content[match.index + 1];
       if (next === ch) complexity++;
     }
   }

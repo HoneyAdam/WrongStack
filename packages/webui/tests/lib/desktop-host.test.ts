@@ -3,7 +3,7 @@
  * These helpers are no-ops when window.wrongstackDesktopHost is absent.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DESKTOP_COMMAND_VIEWS,
   DESKTOP_COMMAND_DOCKS,

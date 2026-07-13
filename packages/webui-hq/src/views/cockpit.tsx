@@ -265,7 +265,11 @@ export function CockpitView(): React.ReactElement {
                 </div>
                 <div
                   className="hq-cockpit-cost-bar"
-                  aria-label={`${pct.toFixed(1)}% of fleet cost`}
+                  role="progressbar"
+                  aria-label={`${project.projectName} share of fleet cost`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Number(pct.toFixed(1))}
                 >
                   <span style={{ width: `${Math.max(2, pct)}%` }} />
                 </div>
@@ -304,7 +308,7 @@ export function CockpitView(): React.ReactElement {
             Open Fleet
           </button>
         </div>
-        <div className="hq-cockpit-actions" aria-label="Cockpit quick actions">
+        <section className="hq-cockpit-actions" aria-label="Cockpit quick actions">
           <div className="hq-cockpit-actions-copy">
             <span className="hq-card-title" style={{ margin: 0 }}>
               Quick Actions
@@ -342,7 +346,7 @@ export function CockpitView(): React.ReactElement {
           </div>
           {quickActionStatus !== null && <span className="hq-pill info">{quickActionStatus}</span>}
           {quickActionError !== null && <span className="hq-pill error">{quickActionError}</span>}
-        </div>
+        </section>
       </div>
 
       {[...fleetSections, alertSection, costSection].map((section) => (

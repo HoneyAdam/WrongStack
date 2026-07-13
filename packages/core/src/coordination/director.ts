@@ -1966,7 +1966,7 @@ export class Director implements ICoordinator {
     const timer = setTimeout(() => {
       this.subagentIdleTimers.delete(subagentId);
       const entry = this.coordinator.getStatus().subagents.find((a) => a.id === subagentId);
-      if (!entry || entry.status !== 'idle') return;
+      if (entry?.status !== 'idle') return;
       if (this.coordinator.listPendingTasks().some((task) => task.subagentId === subagentId)) {
         this.armSubagentIdleRetirement(subagentId, this.subagentIdleTimeoutMs);
         return;

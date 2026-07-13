@@ -86,27 +86,25 @@ export function TodosPanel(): React.ReactElement | null {
     return (
       <div
         key={todo.id}
-        onClick={() => isToggleable && handleToggle(todo)}
         className={cn(
-          'px-3 py-1.5 flex items-start gap-2 text-[13px] group transition-colors',
-          isToggleable && 'cursor-pointer hover:bg-accent/40',
+          'relative px-3 py-1.5 flex items-start gap-2 text-[13px] group transition-colors',
+          isToggleable && 'hover:bg-accent/40',
           isInProgress
             ? 'bg-warning/8'
             : isCompleted
               ? 'bg-success/5'
               : 'bg-background',
         )}
-        role="button"
-        aria-label={isToggleable ? t('activity:todos.toggleAria', { content: todo.content }) : undefined}
-        tabIndex={isToggleable ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (isToggleable && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            handleToggle(todo);
-          }
-        }}
       >
-        <span className="mt-0.5 shrink-0">
+        {isToggleable && (
+          <button
+            type="button"
+            className="absolute inset-0 cursor-pointer"
+            aria-label={t('activity:todos.toggleAria', { content: todo.content })}
+            onClick={() => handleToggle(todo)}
+          />
+        )}
+        <span className="pointer-events-none relative mt-0.5 shrink-0">
           {isCompleted ? (
             <CheckCircle2 className="w-3.5 h-3.5 text-success" />
           ) : isInProgress ? (
@@ -122,7 +120,7 @@ export function TodosPanel(): React.ReactElement | null {
         </span>
         <span
           className={cn(
-            'leading-snug flex-1 min-w-0',
+            'pointer-events-none relative leading-snug flex-1 min-w-0',
             isInProgress
               ? 'text-warning font-medium'
               : isCompleted
@@ -134,8 +132,8 @@ export function TodosPanel(): React.ReactElement | null {
         </span>
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); handleRemove(todo.id); }}
-          className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-50 hover:opacity-100 hover:bg-destructive/10 transition-all"
+          onClick={() => handleRemove(todo.id)}
+          className="relative shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-50 hover:opacity-100 hover:bg-destructive/10 transition-all"
           title={t('activity:todos.removeTitle')}
           aria-label={t('activity:todos.removeAria', { content: todo.content })}
         >

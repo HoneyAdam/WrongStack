@@ -128,6 +128,21 @@ describe('searchTool', () => {
     expect(Array.isArray(result.results)).toBe(true);
   });
 
+  it('evicts the oldest search after the cache reaches its capacity', async () => {
+    const ctx = {} as any;
+    await searchTool.execute({ query: 'oldest' }, ctx, makeOpts());
+    for (let i = 0; i < 200; i++) {
+      await searchTool.execute({ query: `unique-${i}` }, ctx, makeOpts());
+    }
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const callsBefore = fetchMock.mock.calls.length;
+    const result = await searchTool.execute({ query: 'oldest' }, ctx, makeOpts());
+
+    expect(result.cached).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(callsBefore + 1);
+  });
+
   it('throws when executeStream is unavailable', async () => {
     const original = searchTool.executeStream;
     searchTool.executeStream = undefined;

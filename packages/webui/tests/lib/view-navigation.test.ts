@@ -15,8 +15,6 @@ import {
   VIEW_ACTIVITY,
   ACTIVITY_SHORTCUT_BY_KEY,
   ACTIVITY_SHORTCUT_LABEL_BY_ACTIVITY,
-  type PanelMainView,
-  type MainView,
 } from '../../src/lib/view-navigation';
 import { useUIStore, SIDEBAR_DEFAULT_WIDTH } from '../../src/stores/ui-store';
 

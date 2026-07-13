@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { reduceFleetState } from '../src/reducers/fleet.js';
-import type { State, Action } from '../src/app-state.js';
+import type { State } from '../src/app-state.js';
 
 function stubState(over: Partial<State> = {}): State {
   return {
@@ -141,7 +141,7 @@ function stubState(over: Partial<State> = {}): State {
   };
 }
 
-const notFleet = (): null => null;
+const _notFleet = (): null => null;
 
 describe('reduceFleetState', () => {
   // ── Default / passthrough ──────────────────────────────────────────────

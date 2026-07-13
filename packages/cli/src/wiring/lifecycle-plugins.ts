@@ -5,6 +5,7 @@ import {
   countShellHooks,
   GlobalMailbox,
   type HealthRegistry,
+  type HqPublisher,
   HookRegistry,
   HookRunner,
   type Logger,
@@ -14,8 +15,10 @@ import {
   type Provider,
   type ProviderConfig,
   type ProviderRegistry,
+  type PromptLoader,
   type SecretVault,
   type SessionWriter,
+  type SkillLoader,
   SlashCommandRegistry,
   shellHooksEqual,
   TOKENS,
@@ -28,6 +31,7 @@ import {
   MCPVaultTokenStore,
   createVaultBackedMcpAuthorizationProviderFactory,
 } from '@wrongstack/mcp';
+import type { EventWiring } from '../boot/event-wiring.js';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import {
   createLifecycleHooksExtension,
@@ -55,14 +59,13 @@ export interface LifecyclePluginsDeps {
   pipelines: any;
   logger: Logger;
   session: SessionWriter;
-  sessionBridge: any;
+  sessionBridge: Parameters<typeof setupCompaction>[0]['sessionBridge'];
   // biome-ignore lint/suspicious/noExplicitAny: event bus
   events: any;
   modelsRegistry: ModelsRegistry;
   // biome-ignore lint/suspicious/noExplicitAny: context shape
   context: any;
   provider: Provider;
-  // biome-ignore lint/suspicious/noExplicitAny: ref
   modelCapabilitiesRef: AnyRecord;
   // biome-ignore lint/suspicious/noExplicitAny: reader
   reader: any;
@@ -71,11 +74,10 @@ export interface LifecyclePluginsDeps {
   providerRegistry: ProviderRegistry;
   // biome-ignore lint/suspicious/noExplicitAny: config store
   configStore: any;
-  eventWiring: any;
-  healthRegistry: HealthRegistry;
-  // biome-ignore lint/suspicious/noExplicitAny: optional loaders
-  skillLoader: any;
-  promptLoader: any;
+  eventWiring: EventWiring;
+  healthRegistry: HealthRegistry | undefined;
+  skillLoader: SkillLoader;
+  promptLoader: PromptLoader;
   vault: SecretVault;
   // biome-ignore lint/suspicious/noExplicitAny: metrics sink
   metricsSink: any;
@@ -102,7 +104,7 @@ export interface LifecyclePluginsResult {
   agent: any;
   mcpRegistry: MCPRegistry;
   slashRegistry: SlashCommandRegistry;
-  hqPublisherRef: { current: any };
+  hqPublisherRef: { current: HqPublisher | undefined };
   brainMailbox: GlobalMailbox;
 }
 
@@ -233,7 +235,6 @@ export async function setupLifecycleAndPlugins(
       autoCompactor?.setMaxContext(effectiveMaxContextRef.current);
       autoCompactor?.setEnabled(config.context.autoCompact !== false);
     } else {
-      // biome-ignore lint/performance/noDelete: intentional property removal
       delete context.meta['effectiveMaxContext'];
       autoCompactor?.setEnabled(false);
     }
@@ -310,12 +311,12 @@ export async function setupLifecycleAndPlugins(
   if (config.features.mcp) {
     const presets = allServers();
     for (const cfg of Object.values(config.mcpServers ?? {})) {
-      const preset = (presets as any)[(cfg as any).name];
-      const merged = preset ? { ...preset, ...(cfg as any) } : cfg;
+      const preset = presets[cfg.name];
+      const merged = preset ? { ...preset, ...cfg } : cfg;
       try {
-        await (mcpRegistry as any).start(merged);
+        await mcpRegistry.start(merged);
       } catch (err) {
-        logger.warn(`MCP server "${(cfg as any).name}" failed to start`, err);
+        logger.warn(`MCP server "${cfg.name}" failed to start`, err);
       }
     }
   }
@@ -323,7 +324,7 @@ export async function setupLifecycleAndPlugins(
 
   // ── Slash registry + mailbox + plugins ───────────────────────────────────
   const slashRegistry = new SlashCommandRegistry();
-  const hqPublisherRef: { current: any } = { current: undefined };
+  const hqPublisherRef: { current: HqPublisher | undefined } = { current: undefined };
   const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, () => hqPublisherRef.current);
 
   await setupPlugins({

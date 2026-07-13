@@ -132,8 +132,7 @@ const INSTALL_RE = /(?:^|[;&|]\s*)(npm|pnpm|yarn|bun)\s+(?:install|i|add)\s+([^;
 function parsePackageNames(command: string): string[] {
   const names: string[] = [];
   INSTALL_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = INSTALL_RE.exec(command)) !== null) {
+  for (const m of command.matchAll(INSTALL_RE)) {
     const argString = m[2] ?? '';
     for (const token of argString.split(/\s+/)) {
       if (!token || token.startsWith('-')) continue;

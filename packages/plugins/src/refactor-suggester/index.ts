@@ -211,11 +211,10 @@ function detectSmells(filePath: string, content: string, rules: RefactorRules): 
   // Long functions and many parameters.
   const functionLikeRe =
     /(?:export\s+)?(?:async\s+)?(?:function\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*\{/g;
-  let m: RegExpExecArray | null;
   functionLikeRe.lastIndex = 0;
-  while ((m = functionLikeRe.exec(stripped)) !== null) {
-    const name = m[1]!;
-    const paramsRaw = m[2]!;
+  for (const match of stripped.matchAll(functionLikeRe)) {
+    const name = match[1]!;
+    const paramsRaw = match[2]!;
     const params = paramsRaw
       .split(',')
       .map((s) => s.trim())
@@ -223,13 +222,13 @@ function detectSmells(filePath: string, content: string, rules: RefactorRules): 
     if (params.length > rules.maxParams) {
       suggestions.push({
         file: relativePath(filePath),
-        line: content.slice(0, m.index).split(/\r?\n/).length,
+        line: content.slice(0, match.index).split(/\r?\n/).length,
         type: 'many-parameters',
         message: `${name} has ${params.length} parameters (limit ${rules.maxParams})`,
       });
     }
 
-    const bodyStart = m.index + m[0].length;
+    const bodyStart = match.index + match[0].length;
     let depth = 1;
     let lineEnd = bodyStart;
     for (let i = bodyStart; i < stripped.length && depth > 0; i++) {
@@ -242,7 +241,7 @@ function detectSmells(filePath: string, content: string, rules: RefactorRules): 
     if (bodyLines > rules.longFunctionLines) {
       suggestions.push({
         file: relativePath(filePath),
-        line: content.slice(0, m.index).split(/\r?\n/).length,
+        line: content.slice(0, match.index).split(/\r?\n/).length,
         type: 'long-function',
         message: `${name} spans ~${bodyLines} lines (limit ${rules.longFunctionLines})`,
       });
@@ -279,16 +278,16 @@ function detectSmells(filePath: string, content: string, rules: RefactorRules): 
   const magicRe = /\b-?\d+(?:\.\d+)?\b/g;
   const allowed = new Set(['0', '1', '-1', '2']);
   magicRe.lastIndex = 0;
-  while ((m = magicRe.exec(content)) !== null) {
-    const match = m[0]!;
+  for (const magicNumberMatch of content.matchAll(magicRe)) {
+    const match = magicNumberMatch[0]!;
     if (allowed.has(match)) continue;
     // Skip array indices like [42].
-    const before = content[m.index - 1];
-    const after = content[m.index + match.length];
+    const before = content[magicNumberMatch.index - 1];
+    const after = content[magicNumberMatch.index + match.length];
     if (before === '[' && after === ']') continue;
     suggestions.push({
       file: relativePath(filePath),
-      line: content.slice(0, m.index).split(/\r?\n/).length,
+      line: content.slice(0, magicNumberMatch.index).split(/\r?\n/).length,
       type: 'magic-number',
       message: `magic number ${match} should be a named constant`,
     });

@@ -224,8 +224,7 @@ function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
     const lineNo = i + 1;
 
     // Duplicate ids.
-    let idMatch: RegExpExecArray | null;
-    while ((idMatch = ATTR_ID.exec(line)) !== null) {
+    for (const idMatch of line.matchAll(ATTR_ID)) {
       const id = idMatch[1]!;
       const list = idsByValue.get(id) ?? [];
       list.push(lineNo);
@@ -234,8 +233,7 @@ function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
     ATTR_ID.lastIndex = 0;
 
     // Missing alt on images.
-    let imgMatch: RegExpExecArray | null;
-    while ((imgMatch = TAG_IMG.exec(line)) !== null) {
+    for (const imgMatch of line.matchAll(TAG_IMG)) {
       const tag = imgMatch[0]!;
       if (!hasMeaningfulAlt(tag)) {
         add(lineNo, 'missing-alt', 'error', '<img> is missing meaningful alt text');
@@ -244,8 +242,7 @@ function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
     TAG_IMG.lastIndex = 0;
 
     // Inputs.
-    let inputMatch: RegExpExecArray | null;
-    while ((inputMatch = TAG_INPUT.exec(line)) !== null) {
+    for (const inputMatch of line.matchAll(TAG_INPUT)) {
       const tag = inputMatch[0]!;
       const typeMatch = tag.match(/\btype\s*=\s*["']?([^"'\s>]*)["']?/i);
       const type = typeMatch ? typeMatch[1]!.toLowerCase() : 'text';
@@ -279,8 +276,7 @@ function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
     TAG_INPUT.lastIndex = 0;
 
     // Buttons.
-    let buttonMatch: RegExpExecArray | null;
-    while ((buttonMatch = TAG_BUTTON.exec(line)) !== null) {
+    for (const buttonMatch of line.matchAll(TAG_BUTTON)) {
       const tag = buttonMatch[0]!;
       const inner = buttonMatch[1] ?? '';
       const hasText = inner.replace(/\s+/g, '').length > 0;
@@ -293,8 +289,7 @@ function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
     TAG_BUTTON.lastIndex = 0;
 
     // input[type=submit|button|reset] without value.
-    let inputButtonMatch: RegExpExecArray | null;
-    while ((inputButtonMatch = INPUT_BUTTON.exec(line)) !== null) {
+    for (const inputButtonMatch of line.matchAll(INPUT_BUTTON)) {
       const tag = inputButtonMatch[0]!;
       if (!ATTR_VALUE.test(tag) && !ATTR_ARIA_LABEL.test(tag) && !ATTR_TITLE.test(tag)) {
         add(lineNo, 'missing-button-text', 'error', `<input type="${inputButtonMatch[1]}"> is missing value/aria-label/title`);

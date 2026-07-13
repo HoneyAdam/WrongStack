@@ -5,7 +5,7 @@
  * highlight, kill-slash, ink, thinking-word.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Message } from '@wrongstack/core';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -194,7 +194,7 @@ describe('kill-slash.ts — 1-process edge cases (needs mock)', () => {
 
 describe('thinking-word.ts — pickRandomTuiThinkingWord edge cases', () => {
   it('returns default when pool somehow has no entries (safety fallback)', async () => {
-    const { pickRandomTuiThinkingWord, DEFAULT_TUI_THINKING_WORD } = await import('../src/thinking-word.js');
+    const { pickRandomTuiThinkingWord } = await import('../src/thinking-word.js');
     // When candidates is empty (previous filters out everything from a 1-item pool)
     // but the pool has 24 items, so this scenario is unlikely.
     // The function falls back to pool, then to list[0], then to DEFAULT.
@@ -220,7 +220,7 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with "del" alias works', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let deletedPositions: number[] = [];
-    const result = handleQueueCommand('del 1', {
+    const _result = handleQueueCommand('del 1', {
       getQueue: () => [{ id: 'q1', displayText: 'msg', text: 'msg', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: (positions: number[]) => { deletedPositions = positions; },
@@ -231,7 +231,7 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with uniqueValid set removes duplicates', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let deletedPositions: number[] = [];
-    const result = handleQueueCommand('delete 1 1 2', {
+    const _result = handleQueueCommand('delete 1 1 2', {
       getQueue: () => [
         { id: 'q1', displayText: 'a', text: 'a', priority: 'normal', sendMode: 'queue' },
         { id: 'q2', displayText: 'b', text: 'b', priority: 'normal', sendMode: 'queue' },
@@ -246,7 +246,7 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with rm alias works', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let called = false;
-    const result = handleQueueCommand('rm 1', {
+    const _result = handleQueueCommand('rm 1', {
       getQueue: () => [{ id: 'q1', displayText: 'm', text: 'm', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: () => { called = true; },
@@ -260,7 +260,7 @@ describe('queue-slash.ts — delete edge cases', () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('highlight.ts — remaining branch gaps', () => {
-  it('tokenizeBash handles inline $VAR and ${VAR} syntax', async () => {
+  it(`tokenizeBash handles inline $VAR and \${VAR} syntax`, async () => {
     const { highlightLine } = await import('../src/highlight.js');
     // BASH_VAR matches $VAR and ${VAR}
     const r1 = highlightLine('echo $HOME $USER', 'bash');
@@ -367,11 +367,11 @@ describe('provider-colors.ts — badgeForKind', () => {
 describe('terminal-title.ts — write error handling', () => {
   it('handles stdout.write throwing during title write', async () => {
     const { startTerminalTitle } = await import('../src/terminal-title.js');
-    let calls = 0;
+    let _calls = 0;
     const stop = startTerminalTitle({
       stdout: {
         isTTY: true,
-        write: () => { calls++; throw new Error('write error'); },
+        write: () => { _calls++; throw new Error('write error'); },
       } as never,
       events: {
         on: () => () => {},

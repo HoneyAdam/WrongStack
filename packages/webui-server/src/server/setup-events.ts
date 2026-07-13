@@ -1,4 +1,4 @@
-import type { EventBus, Context, SessionEventBridge, WstackPaths } from '@wrongstack/core';
+import type { Context, EventBus, EventName, Listener, SessionEventBridge, WstackPaths } from '@wrongstack/core';
 import type { WebSocket } from 'ws';
 import type { ConnectedClient, WSServerMessage } from './types.js';
 import type { PendingConfirm } from './pending-confirms.js';
@@ -85,6 +85,10 @@ function shouldLogWatcherStats(): boolean {
 export function setupEvents(deps: SetupEventsDeps): () => void {
   const { events, broadcast, clients, config, context, pendingConfirms, globalConfigPath, sessionBridge, wpaths, watcherMetrics, onFleetBroadcaster } = deps;
   const disposers: Array<() => void> = [];
+  let disposed = false;
+  const on = <E extends EventName>(event: E, listener: Listener<E>): void => {
+    disposers.push(events.on(event, listener));
+  };
   const currentSessionId = (): string => context.session?.id ?? '';
   const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => {
     const provided = payload['sessionId'];
@@ -105,7 +109,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       .catch(() => { /* best-effort */ });
   };
 
-  events.on('iteration.started', (e) => {
+  on('iteration.started', (e) => {
     // Read maxIterations from context.meta so the UI reflects the
     // webui setting, falling back to the startup config default.
     const maxIt = typeof context.meta['maxIterations'] === 'number'
@@ -117,14 +121,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('iteration.completed', (e) => {
+  on('iteration.completed', (e) => {
     broadcast(clients, {
       type: 'iteration.completed',
       payload: sessionPayload({ sessionId: e.sessionId, index: e.index, totalIterations: e.index + 1 }),
     });
   });
 
-  events.on('iteration.limit_reached', (e) => {
+  on('iteration.limit_reached', (e) => {
     broadcast(clients, {
       type: 'iteration.limit_reached',
       payload: sessionPayload({
@@ -135,22 +139,22 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('provider.text_delta', (e) => {
+  on('provider.text_delta', (e) => {
     broadcast(clients, { type: 'provider.text_delta', payload: sessionPayload({ sessionId: e.sessionId, text: e.text, messageId: 'current' }) });
   });
 
-  events.on('provider.thinking_delta', (e) => {
+  on('provider.thinking_delta', (e) => {
     broadcast(clients, { type: 'provider.thinking_delta', payload: sessionPayload({ sessionId: e.sessionId, text: e.text }) });
   });
 
-  events.on('provider.stream_error', (e) => {
+  on('provider.stream_error', (e) => {
     broadcast(clients, {
       type: 'provider.stream_error',
       payload: sessionPayload({ sessionId: e.sessionId, eventType: e.eventType, message: e.msg }),
     });
   });
 
-  events.on('tool.started', (e) => {
+  on('tool.started', (e) => {
     broadcast(clients, {
       type: 'tool.started',
       payload: sessionPayload({ sessionId: e.sessionId, id: e.id, name: e.name, input: e.input, messageId: `tool_${e.id}` }),
@@ -165,7 +169,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('tool.progress', (e) => {
+  on('tool.progress', (e) => {
     broadcast(clients, {
       type: 'tool.progress',
       // Nested `event` shape — the client handler reads `payload.event?.text`
@@ -187,7 +191,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('tool.executed', (e) => {
+  on('tool.executed', (e) => {
     broadcast(clients, {
       type: 'tool.executed',
       payload: sessionPayload({ sessionId: e.sessionId, id: e.id, name: e.name, durationMs: e.durationMs, ok: e.ok, input: e.input, output: e.output }),
@@ -249,7 +253,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     }
   });
 
-  events.on('tool.loop_detected', (e) => {
+  on('tool.loop_detected', (e) => {
     broadcast(clients, {
       type: 'tool.loop_detected',
       payload: sessionPayload({
@@ -262,21 +266,21 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('trust.persisted', (e) => {
+  on('trust.persisted', (e) => {
     broadcast(clients, {
       type: 'trust.persisted',
       payload: sessionPayload({ sessionId: e.sessionId, tool: e.tool, pattern: e.pattern, decision: e.decision }),
     });
   });
 
-  events.on('delegate.started', (e) => {
+  on('delegate.started', (e) => {
     broadcast(clients, {
       type: 'delegate.started',
       payload: sessionPayload({ sessionId: e.sessionId, target: e.target, task: e.task }),
     });
   });
 
-  events.on('delegate.completed', (e) => {
+  on('delegate.completed', (e) => {
     broadcast(clients, {
       type: 'delegate.completed',
       payload: sessionPayload({
@@ -295,7 +299,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('provider.response', (e) => {
+  on('provider.response', (e) => {
     broadcast(clients, {
       type: 'provider.response',
       payload: sessionPayload({
@@ -308,7 +312,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('ctx.pct', (e) => {
+  on('ctx.pct', (e) => {
     broadcast(clients, {
       type: 'ctx.pct',
       payload: sessionPayload({ sessionId: e.sessionId, load: e.load, tokens: e.tokens, maxContext: e.maxContext }),
@@ -326,32 +330,32 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('ctx.max_context', (e) => {
+  on('ctx.max_context', (e) => {
     broadcast(clients, {
       type: 'ctx.max_context',
       payload: sessionPayload({ sessionId: e.sessionId, providerId: e.providerId, modelId: e.modelId, maxContext: e.maxContext }),
     });
   });
 
-  events.on('token.threshold', (e) => {
+  on('token.threshold', (e) => {
     broadcast(clients, {
       type: 'token.threshold',
       payload: sessionPayload({ sessionId: e.sessionId, used: e.used, limit: e.limit }),
     });
   });
 
-  events.on('token.cost_estimate_unavailable', (e) => {
+  on('token.cost_estimate_unavailable', (e) => {
     broadcast(clients, {
       type: 'token.cost_estimate_unavailable',
       payload: sessionPayload({ sessionId: e.sessionId, model: e.model }),
     });
   });
 
-  events.on('context.repaired', (e) => {
+  on('context.repaired', (e) => {
     broadcast(clients, { type: 'context.repaired', payload: sessionPayload({ sessionId: e.sessionId, removedToolUses: e.removedToolUses, removedToolResults: e.removedToolResults, removedMessages: e.removedMessages }) });
   });
 
-  events.on('tool.confirm_needed', (e) => {
+  on('tool.confirm_needed', (e) => {
     const id = e.toolUseId ?? `confirm_${Date.now()}`;
     const payload = sessionPayload({ sessionId: e.sessionId, id, toolName: e.tool?.name ?? 'unknown', input: e.input, suggestedPattern: e.suggestedPattern, decisionSource: e.decisionSource, riskTier: e.riskTier });
     pendingConfirms.set(id, {
@@ -363,7 +367,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     broadcast(clients, { type: 'tool.confirm_needed', payload });
   });
 
-  events.on('error', (e) => {
+  on('error', (e) => {
     broadcast(clients, { type: 'error', payload: sessionPayload({ sessionId: e.sessionId, phase: e.phase, message: e.err instanceof Error ? e.err.message : String(e.err) }) });
     appendForCurrentSession(e.sessionId, {
       type: 'error',
@@ -373,14 +377,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('session.damaged', (e) => {
+  on('session.damaged', (e) => {
     broadcast(clients, {
       type: 'session.damaged',
       payload: { sessionId: e.sessionId, detail: e.detail },
     });
   });
 
-  events.on('session.rewound', (e) => {
+  on('session.rewound', (e) => {
     broadcast(clients, {
       type: 'session.rewound',
       payload: sessionPayload({
@@ -392,7 +396,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('checkpoint.written', (e) => {
+  on('checkpoint.written', (e) => {
     broadcast(clients, {
       type: 'checkpoint.written',
       payload: sessionPayload({
@@ -405,14 +409,14 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('in_flight.started', (e) => {
+  on('in_flight.started', (e) => {
     broadcast(clients, {
       type: 'in_flight.started',
       payload: sessionPayload({ sessionId: e.sessionId, context: e.context, ts: e.ts }),
     });
   });
 
-  events.on('in_flight.ended', (e) => {
+  on('in_flight.ended', (e) => {
     broadcast(clients, {
       type: 'in_flight.ended',
       payload: sessionPayload({ sessionId: e.sessionId, reason: e.reason, ts: e.ts }),
@@ -421,7 +425,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
   // Provider visibility — retry storms and provider failures in the JSONL
   // for forensics, mirroring the CLI's bridge wiring.
-  events.on('provider.retry', (e) => {
+  on('provider.retry', (e) => {
     broadcast(clients, {
       type: 'provider.retry',
       payload: sessionPayload({
@@ -444,7 +448,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('provider.error', (e) => {
+  on('provider.error', (e) => {
     broadcast(clients, {
       type: 'provider.error',
       payload: sessionPayload({
@@ -465,7 +469,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('provider.fallback', (e) => {
+  on('provider.fallback', (e) => {
     broadcast(clients, {
       type: 'provider.fallback',
       payload: sessionPayload({
@@ -478,7 +482,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('compaction.fired', (e) => {
+  on('compaction.fired', (e) => {
     broadcast(clients, {
       type: 'context.compacted',
       payload: sessionPayload({
@@ -491,7 +495,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('compaction.failed', (e) => {
+  on('compaction.failed', (e) => {
     broadcast(clients, {
       type: 'compaction.failed',
       payload: sessionPayload({
@@ -507,28 +511,28 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
-  events.on('mcp.server.connected', (e) => {
+  on('mcp.server.connected', (e) => {
     broadcast(clients, {
       type: 'mcp.server.connected',
       payload: { name: e.name, toolCount: e.toolCount },
     });
   });
 
-  events.on('mcp.server.reconnected', (e) => {
+  on('mcp.server.reconnected', (e) => {
     broadcast(clients, {
       type: 'mcp.server.reconnected',
       payload: { name: e.name, toolCount: e.toolCount },
     });
   });
 
-  events.on('mcp.server.disconnected', (e) => {
+  on('mcp.server.disconnected', (e) => {
     broadcast(clients, {
       type: 'mcp.server.disconnected',
       payload: { name: e.name, reason: e.reason },
     });
   });
 
-  events.on('coordinator.stats', (e) => {
+  on('coordinator.stats', (e) => {
     broadcast(clients, {
       type: 'coordinator.stats',
       payload: sessionPayload({
@@ -567,17 +571,17 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
     broadcast(clients, { type: 'subagent.event', payload: sessionPayload({ kind, ...payload }) });
 
-  events.on('subagent.spawned', (e) => forwardSubagent('spawned', { sessionId: e.sessionId, subagentId: e.subagentId, taskId: e.taskId, name: e.name, provider: e.provider, model: e.model, description: e.description }));
-  events.on('subagent.task_started', (e) => forwardSubagent('task_started', { sessionId: e.sessionId, subagentId: e.subagentId, taskId: e.taskId, description: e.description }));
-  events.on('subagent.tool_executed', (e) => forwardSubagent('tool_executed', { sessionId: e.sessionId, subagentId: e.subagentId, toolName: e.name, durationMs: e.durationMs, ok: e.ok }));
-  events.on('subagent.iteration_summary', (e) => forwardSubagent('iteration_summary', { sessionId: e.sessionId, subagentId: e.subagentId, iteration: e.iteration, toolCalls: e.toolCalls, costUsd: e.costUsd, currentTool: e.currentTool, partialText: e.partialText }));
-  events.on('subagent.budget_warning', (e) => forwardSubagent('budget_warning', { sessionId: e.sessionId, subagentId: e.subagentId, budgetKind: e.kind, used: e.used, limit: e.limit }));
-  events.on('subagent.budget_extended', (e) => forwardSubagent('budget_extended', { sessionId: e.sessionId, subagentId: e.subagentId, budgetKind: e.kind, newLimit: e.newLimit, totalExtensions: e.totalExtensions }));
-  events.on('subagent.ctx_pct', (e) => forwardSubagent('ctx_pct', { sessionId: e.sessionId, subagentId: e.subagentId, load: e.load, tokens: e.tokens, maxContext: e.maxContext }));
-  events.on('subagent.task_completed', (e) => forwardSubagent('task_completed', { sessionId: e.sessionId, subagentId: e.subagentId, status: e.status, iterations: e.iterations, toolCalls: e.toolCalls, finalText: (e as Record<string, unknown>).finalText as string | undefined, failureReason: e.error?.kind, error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined }));
-  events.on('subagent.removed', (e) => forwardSubagent('removed', { sessionId: e.sessionId, subagentId: e.subagentId, reason: e.reason }));
+  on('subagent.spawned', (e) => forwardSubagent('spawned', { sessionId: e.sessionId, subagentId: e.subagentId, taskId: e.taskId, name: e.name, provider: e.provider, model: e.model, description: e.description }));
+  on('subagent.task_started', (e) => forwardSubagent('task_started', { sessionId: e.sessionId, subagentId: e.subagentId, taskId: e.taskId, description: e.description }));
+  on('subagent.tool_executed', (e) => forwardSubagent('tool_executed', { sessionId: e.sessionId, subagentId: e.subagentId, toolName: e.name, durationMs: e.durationMs, ok: e.ok }));
+  on('subagent.iteration_summary', (e) => forwardSubagent('iteration_summary', { sessionId: e.sessionId, subagentId: e.subagentId, iteration: e.iteration, toolCalls: e.toolCalls, costUsd: e.costUsd, currentTool: e.currentTool, partialText: e.partialText }));
+  on('subagent.budget_warning', (e) => forwardSubagent('budget_warning', { sessionId: e.sessionId, subagentId: e.subagentId, budgetKind: e.kind, used: e.used, limit: e.limit }));
+  on('subagent.budget_extended', (e) => forwardSubagent('budget_extended', { sessionId: e.sessionId, subagentId: e.subagentId, budgetKind: e.kind, newLimit: e.newLimit, totalExtensions: e.totalExtensions }));
+  on('subagent.ctx_pct', (e) => forwardSubagent('ctx_pct', { sessionId: e.sessionId, subagentId: e.subagentId, load: e.load, tokens: e.tokens, maxContext: e.maxContext }));
+  on('subagent.task_completed', (e) => forwardSubagent('task_completed', { sessionId: e.sessionId, subagentId: e.subagentId, status: e.status, iterations: e.iterations, toolCalls: e.toolCalls, finalText: (e as Record<string, unknown>).finalText as string | undefined, failureReason: e.error?.kind, error: e.error ? { kind: e.error.kind, message: e.error.message } : undefined }));
+  on('subagent.removed', (e) => forwardSubagent('removed', { sessionId: e.sessionId, subagentId: e.subagentId, reason: e.reason }));
 
-  events.on('agent.timeline.message', (e) => {
+  on('agent.timeline.message', (e) => {
     broadcast(clients, {
       type: 'agent.timeline.message',
       payload: sessionPayload({
@@ -593,7 +597,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       }),
     });
   });
-  events.on('agent.status_changed', (e) => {
+  on('agent.status_changed', (e) => {
     broadcast(clients, {
       type: 'agent.status_changed',
       payload: sessionPayload({
@@ -615,7 +619,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
   // Leader spawned: sent on first iteration so the frontend creates the leader row.
   let leaderSpawned = false;
-  events.on('iteration.started', (e) => {
+  on('iteration.started', (e) => {
     if (!leaderSpawned) {
       leaderSpawned = true;
       const provider = (context.provider as { id?: string } | undefined)?.id ?? 'unknown';
@@ -631,7 +635,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   // Leader tool execution: emitted on every tool.executed in the main session.
-  events.on('tool.executed', (e) => {
+  on('tool.executed', (e) => {
     forwardSubagent('tool_executed', {
       sessionId: e.sessionId,
       subagentId: 'leader',
@@ -642,7 +646,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   // Leader context pressure + cost: emitted on every provider response.
-  events.on('provider.response', (e) => {
+  on('provider.response', (e) => {
     if (e.usage?.input != null) {
       const maxCtx = context.provider.capabilities.maxContext;
       const rawLoad = maxCtx > 0 ? e.usage.input / maxCtx : 0;
@@ -664,7 +668,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   // The frontend uses sessionStore for accurate cost/iteration counts.
   // When the run completes, the frontend's run.result handler resets isLoading,
   // making the leader go idle. We reset leader state on iteration.started.
-  events.on('iteration.completed', (e) => {
+  on('iteration.completed', (e) => {
     // Respawn leader if it was cleared (e.g., on session resume).
     if (!leaderSpawned) {
       leaderSpawned = true;
@@ -706,7 +710,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
   // ── Client status events — immediate broadcast to WebUI + write to status.json ──
   // Emitted by TUI/CLI/WebUI when significant status changes occur (tool calls, tokens, etc.)
-  events.on('client.status', async (e) => {
+  on('client.status', async (e) => {
     // Immediately broadcast to all connected WebUI clients
     broadcast(clients, { type: 'client.status_update', payload: e });
 
@@ -834,8 +838,10 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
     const startWatcher = async () => {
       try {
-        // Ensure directory exists before watching
+        // Ensure directory exists before watching. Teardown may happen while
+        // mkdir is pending, so do not create a persistent watcher afterwards.
         await fs.mkdir(projectsDir, { recursive: true });
+        if (disposed) return;
 
         // Use fs.watch for efficient file change detection
         // Watch the projects directory for changes to status.json files
@@ -886,7 +892,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
 
     // Register incoming client.status events to build known project hashes
     // This ensures we only watch directories that have emitted status before
-    events.on('client.status', (e) => {
+    on('client.status', (e) => {
       if (e.projectHash) {
         const hash = String(e.projectHash);
         if (!knownProjectHashes.has(hash)) {
@@ -1028,6 +1034,8 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   }
 
   return () => {
+    if (disposed) return;
+    disposed = true;
     for (const dispose of disposers) {
       try {
         dispose();

@@ -49,7 +49,7 @@ console.log(`Project dir: ${projectDir}`);
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function isoNow() {
+function _isoNow() {
   return new Date().toISOString();
 }
 

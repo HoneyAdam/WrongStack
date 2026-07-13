@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { BenchTask, ModelCell } from '../src/types.js';
+import type { ModelCell } from '../src/types.js';
 
 // We import the grader and the dependencies directly so we can test
 // the externalGrade returning undefined path.

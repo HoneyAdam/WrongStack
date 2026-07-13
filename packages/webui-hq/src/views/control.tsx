@@ -311,8 +311,11 @@ export function ControlView(): React.ReactElement {
       <div className="hq-control-composer">
         <div className="hq-card-title">Command Target</div>
         <div className="hq-card hq-control-target">
-          <label className="hq-label">Client</label>
+          <label className="hq-label" htmlFor="hq-control-client">
+            Client
+          </label>
           <select
+            id="hq-control-client"
             className="hq-select"
             value={selected ?? ''}
             onChange={(e) => {
@@ -345,11 +348,11 @@ export function ControlView(): React.ReactElement {
         </div>
 
         <div className="hq-card-title">Command Type</div>
-        <div className="hq-control-steps" aria-label="Control command stages">
+        <fieldset className="hq-control-steps" aria-label="Control command stages">
           <span className="hq-step active">1 compose</span>
           <span className={'hq-step' + (stage === 'preview' ? ' active' : '')}>2 preview</span>
           <span className={'hq-step' + (status !== null ? ' active' : '')}>3 queued</span>
-        </div>
+        </fieldset>
         <div className="hq-control-types">
           {(Object.keys(CMD_META) as CmdType[]).map((t) => {
             const meta = CMD_META[t];
@@ -379,11 +382,12 @@ export function ControlView(): React.ReactElement {
         <div style={{ marginTop: 12 }}>
           {(cmdType === 'steer' || cmdType === 'btw' || cmdType === 'queue') && (
             <div className="hq-card">
-              <label className="hq-label">
+              <label className="hq-label" htmlFor="hq-control-recipient">
                 To (agent address — e.g. <code>leader</code>, <code>leader@sessionTag</code>, or a
                 subagent id)
               </label>
               <input
+                id="hq-control-recipient"
                 className="hq-input"
                 value={steerTo}
                 onChange={(e) => {
@@ -392,10 +396,11 @@ export function ControlView(): React.ReactElement {
                 }}
                 placeholder="leader"
               />
-              <label className="hq-label" style={{ marginTop: 8 }}>
+              <label className="hq-label" htmlFor="hq-control-subject" style={{ marginTop: 8 }}>
                 Subject
               </label>
               <input
+                id="hq-control-subject"
                 className="hq-input"
                 value={steerSubject}
                 onChange={(e) => {
@@ -403,10 +408,11 @@ export function ControlView(): React.ReactElement {
                   setHqControlPrefs({ steerSubject: e.target.value });
                 }}
               />
-              <label className="hq-label" style={{ marginTop: 8 }}>
+              <label className="hq-label" htmlFor="hq-control-body" style={{ marginTop: 8 }}>
                 Body
               </label>
               <textarea
+                id="hq-control-body"
                 className="hq-textarea"
                 value={steerBody}
                 onChange={(e) => {
@@ -419,8 +425,11 @@ export function ControlView(): React.ReactElement {
 
           {cmdType === 'abort' && (
             <div className="hq-card hq-card-danger">
-              <label className="hq-label">Target</label>
+              <label className="hq-label" htmlFor="hq-control-abort-target">
+                Target
+              </label>
               <select
+                id="hq-control-abort-target"
                 className="hq-select"
                 value={abortTarget}
                 onChange={(e) => {
@@ -440,8 +449,11 @@ export function ControlView(): React.ReactElement {
 
           {cmdType === 'spawn' && (
             <div className="hq-card">
-              <label className="hq-label">Role</label>
+              <label className="hq-label" htmlFor="hq-control-spawn-role">
+                Role
+              </label>
               <select
+                id="hq-control-spawn-role"
                 className="hq-select"
                 value={spawnRole}
                 onChange={(e) => {
@@ -455,10 +467,11 @@ export function ControlView(): React.ReactElement {
                 <option value="security-scanner">security-scanner</option>
                 <option value="code-reviewer">code-reviewer</option>
               </select>
-              <label className="hq-label" style={{ marginTop: 8 }}>
+              <label className="hq-label" htmlFor="hq-control-spawn-task" style={{ marginTop: 8 }}>
                 Task (optional)
               </label>
               <textarea
+                id="hq-control-spawn-task"
                 className="hq-textarea"
                 value={spawnTask}
                 onChange={(e) => {
@@ -472,17 +485,21 @@ export function ControlView(): React.ReactElement {
 
           {cmdType === 'run-command' && (
             <div className="hq-card hq-card-danger">
-              <label className="hq-label">Shell command</label>
+              <label className="hq-label" htmlFor="hq-control-run-command">
+                Shell command
+              </label>
               <textarea
+                id="hq-control-run-command"
                 className="hq-textarea"
                 value={runCommand}
                 onChange={(e) => setRunCommand(e.target.value)}
                 placeholder="pnpm test"
               />
-              <label className="hq-label" style={{ marginTop: 8 }}>
+              <label className="hq-label" htmlFor="hq-control-run-cwd" style={{ marginTop: 8 }}>
                 Working directory (optional — defaults to the agent's project root)
               </label>
               <input
+                id="hq-control-run-cwd"
                 className="hq-input"
                 value={runCwd}
                 onChange={(e) => setRunCwd(e.target.value)}
@@ -498,8 +515,11 @@ export function ControlView(): React.ReactElement {
 
           {cmdType === 'broadcast' && (
             <div className="hq-card">
-              <label className="hq-label">Subject</label>
+              <label className="hq-label" htmlFor="hq-control-broadcast-subject">
+                Subject
+              </label>
               <input
+                id="hq-control-broadcast-subject"
                 className="hq-input"
                 value={broadcastSubject}
                 onChange={(e) => {
@@ -507,10 +527,15 @@ export function ControlView(): React.ReactElement {
                   setHqControlPrefs({ broadcastSubject: e.target.value });
                 }}
               />
-              <label className="hq-label" style={{ marginTop: 8 }}>
+              <label
+                className="hq-label"
+                htmlFor="hq-control-broadcast-body"
+                style={{ marginTop: 8 }}
+              >
                 Body
               </label>
               <textarea
+                id="hq-control-broadcast-body"
                 className="hq-textarea"
                 value={broadcastBody}
                 onChange={(e) => {
@@ -549,10 +574,15 @@ export function ControlView(): React.ReactElement {
               </pre>
               {confirmRequired && (
                 <>
-                  <label className="hq-label" style={{ marginTop: 12 }}>
+                  <label
+                    className="hq-label"
+                    htmlFor="hq-control-confirm"
+                    style={{ marginTop: 12 }}
+                  >
                     Confirm destructive dispatch
                   </label>
                   <input
+                    id="hq-control-confirm"
                     className="hq-input"
                     value={confirmText}
                     onChange={(e) => setConfirmText(e.target.value)}
@@ -562,6 +592,7 @@ export function ControlView(): React.ReactElement {
               )}
               <div className="hq-row" style={{ marginTop: 12 }}>
                 <button
+                  type="button"
                   className="hq-btn"
                   disabled={busy || !canDispatch}
                   onClick={() => void dispatch()}
@@ -569,13 +600,19 @@ export function ControlView(): React.ReactElement {
                 >
                   {busy ? 'Dispatching…' : 'Dispatch Command'}
                 </button>
-                <button className="hq-btn secondary" disabled={busy} onClick={resetPreview}>
+                <button
+                  type="button"
+                  className="hq-btn secondary"
+                  disabled={busy}
+                  onClick={resetPreview}
+                >
                   Back to Compose
                 </button>
               </div>
             </>
           ) : (
             <button
+              type="button"
               className="hq-btn"
               disabled={!canPreview}
               onClick={() => {
@@ -610,6 +647,7 @@ export function ControlView(): React.ReactElement {
             {auditLoading && <span className="hq-pill idle">refreshing</span>}
             {auditError !== null && <span className="hq-pill error">{auditError}</span>}
             <button
+              type="button"
               className="hq-btn secondary"
               style={{ marginLeft: 'auto' }}
               onClick={() => void loadAudit()}

@@ -56,8 +56,8 @@ describe('DefaultRetryPolicy — extra', () => {
       for (let i = 0; i < 10; i++) {
         const d = p.delayMs(i);
         // Exponential backoff: 1000 * 2^i + jitter, capped at 30_000
-        const expectedMin = 1000 * Math.pow(2, i);
-        const expectedMax = Math.min(30000, expectedMin + 999);
+        const expectedMin = 1000 * 2 ** i;
+        const _expectedMax = Math.min(30000, expectedMin + 999);
         if (expectedMin <= 30000) {
           expect(d).toBeGreaterThanOrEqual(expectedMin);
           expect(d).toBeLessThanOrEqual(expectedMin + 999);

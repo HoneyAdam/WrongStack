@@ -4,7 +4,7 @@
  * Note: These tests focus on the non-WebSocket functionality of the bridge.
  * WebSocket mocking is done through dependency injection patterns.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type {
   DesktopConversationMessage,
   DesktopConversationSnapshot,

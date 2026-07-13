@@ -599,7 +599,6 @@ describe('import-organizer plugin', () => {
     it('does not emit when the linter failed (neither primary nor fallback ran)', async () => {
       const api = createMockAPI();
       importOrganizerPlugin.setup(api as never);
-      const hook = getHook(api);
 
       const filePath = path.join(tmpDir, 'no-linter.ts');
       await fs.writeFile(filePath, 'const x = 1;', 'utf8');

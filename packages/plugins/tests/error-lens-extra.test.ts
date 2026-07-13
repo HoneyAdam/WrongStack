@@ -1,7 +1,7 @@
 /**
  * Tests for error-lens history trimming.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi } from 'vitest';
 
 const errorLensPlugin = (await import('../src/error-lens')).default;
 
@@ -35,11 +35,6 @@ function getHook(api: MockApi): (input: unknown) => Promise<unknown> {
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('error-lens history trimming', () => {
-  const ERROR_OUTPUT = `TypeError: Cannot read properties of undefined
-    at compute (src/lib/compute.ts:42:15)
-    at run (src/main.ts:10:3)
-    at node:internal/modules/run_main:1:1`;
-
   it('trims history when it exceeds historySize', async () => {
     const api = makeApi({ extensions: { 'error-lens': { historySize: 3, minOutputChars: 10 } } });
     errorLensPlugin.setup(api as never);

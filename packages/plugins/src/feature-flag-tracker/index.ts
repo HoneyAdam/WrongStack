@@ -187,8 +187,7 @@ function scanFile(filePath: string, content: string, patterns: RegExp[], maxFind
 
   for (const re of patterns) {
     re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(content)) !== null) {
+    for (const m of content.matchAll(re)) {
       const flag = m[1] ?? m[0]!;
       const lineNo = content.slice(0, m.index).split(/\r?\n/).length;
       const context = (lines[lineNo - 1] ?? '').trim();

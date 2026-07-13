@@ -171,9 +171,6 @@ export class AutonomousBrain implements BrainArbiter {
   private readonly consensusRiskThreshold: BrainRisk;
   private readonly selfImprove: boolean;
 
-  /** Decision history for self-improvement and audit. */
-  private decisionHistory: DecisionNode[] = [];
-
   /** Tracks failure patterns for self-improvement. */
   private failurePatterns = new Map<string, { failures: number; lastFailure: string }>();
 
@@ -549,7 +546,6 @@ export class AutonomousBrain implements BrainArbiter {
       madeAt: new Date().toISOString(),
       context: input.context,
     } as Omit<DecisionNode, 'id'>) as DecisionNode;
-    this.decisionHistory.push(node);
     return node;
   }
 

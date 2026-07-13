@@ -70,12 +70,14 @@ export function TokenGate({ hadToken }: { hadToken: boolean }): React.ReactEleme
         {showToken && showPassword ? (
           <div className="hq-token-tabs">
             <button
+              type="button"
               className={'hq-token-tab' + (tab === 'token' ? ' active' : '')}
               onClick={() => setTab('token')}
             >
               Browser token
             </button>
             <button
+              type="button"
               className={'hq-token-tab' + (tab === 'password' ? ' active' : '')}
               onClick={() => setTab('password')}
             >
@@ -83,11 +85,7 @@ export function TokenGate({ hadToken }: { hadToken: boolean }): React.ReactEleme
             </button>
           </div>
         ) : null}
-        {tab === 'token' || !showPassword ? (
-          <TokenForm hadToken={hadToken} />
-        ) : (
-          <PasswordForm />
-        )}
+        {tab === 'token' || !showPassword ? <TokenForm hadToken={hadToken} /> : <PasswordForm />}
       </div>
     </div>
   );
@@ -95,7 +93,6 @@ export function TokenGate({ hadToken }: { hadToken: boolean }): React.ReactEleme
 
 function TokenForm({ hadToken }: { hadToken: boolean }): React.ReactElement {
   const [value, setValue] = useState('');
-  const [error, setError] = useState<string | null>(null);
 
   const submit = (): void => {
     const token = value.trim();
@@ -112,7 +109,6 @@ function TokenForm({ hadToken }: { hadToken: boolean }): React.ReactElement {
           ? 'The saved token was rejected — it may have been revoked or the server was reset. Paste a current browser token.'
           : 'This HQ server runs in token mode. Paste the browser token printed at startup (the ?token= value in the URL wstack --hq shows).'}
       </p>
-      {error ? <p className="hq-token-error">{error}</p> : null}
       <input
         className="hq-token-input"
         type="password"
@@ -123,12 +119,17 @@ function TokenForm({ hadToken }: { hadToken: boolean }): React.ReactElement {
           if (ev.key === 'Enter') submit();
         }}
       />
-      <button className="hq-token-submit" onClick={submit} disabled={value.trim().length === 0}>
+      <button
+        type="button"
+        className="hq-token-submit"
+        onClick={submit}
+        disabled={value.trim().length === 0}
+      >
         Connect
       </button>
       <p className="hq-token-hint">
-        Manage tokens with <code>wstack hq token list</code> / <code>wstack hq token create</code>{' '}
-        — they live in <code>~/.wrongstack/hq/auth.json</code>.
+        Manage tokens with <code>wstack hq token list</code> / <code>wstack hq token create</code> —
+        they live in <code>~/.wrongstack/hq/auth.json</code>.
       </p>
     </>
   );
@@ -191,6 +192,7 @@ function PasswordForm(): React.ReactElement {
         }}
       />
       <button
+        type="button"
         className="hq-token-submit"
         onClick={() => void submit()}
         disabled={value.length === 0 || busy}
@@ -198,7 +200,8 @@ function PasswordForm(): React.ReactElement {
         {busy ? 'Logging in…' : 'Log in'}
       </button>
       <p className="hq-token-hint">
-        Set or change the password with <code>wstack --hq --password &lt;secret&gt;</code> on first run.
+        Set or change the password with <code>wstack --hq --password &lt;secret&gt;</code> on first
+        run.
       </p>
     </>
   );

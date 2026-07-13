@@ -167,7 +167,6 @@ describe('referral tracking', () => {
 
     it('handles sessionStorage errors gracefully', () => {
       // Mock sessionStorage.setItem to throw
-      const origSet = sessionStorage.setItem.bind(sessionStorage);
       vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => {
         throw new Error('sessionStorage unavailable');
       });

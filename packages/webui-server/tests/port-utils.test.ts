@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // We'll test with a real net.Server since mocking it is fragile
 // The module is simple enough that real port-binding tests are more reliable

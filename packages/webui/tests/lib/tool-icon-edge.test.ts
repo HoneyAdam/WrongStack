@@ -1,7 +1,7 @@
 /**
  * Edge-case tests for src/lib/tool-icon.ts — unknown color fallback (line 143).
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 describe('getToolTooltip — unknown color fallback (line 143)', () => {
   it('returns "colored" for hex not in the colors map', async () => {

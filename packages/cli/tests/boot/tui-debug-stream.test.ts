@@ -1,7 +1,7 @@
 /**
  * Tests for boot/tui-debug-stream.ts — debug stream callback registration.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 describe('tui-debug-stream', () => {
   it('registerDebugStreamCallback works end-to-end', async () => {

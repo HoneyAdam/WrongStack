@@ -88,8 +88,10 @@ export function ContextBar({
       ? ` ${fmtTok(tokens)}/${fmtTok(maxTokens)}`
       : '';
 
+  const Element = onClick ? 'button' : 'span';
+
   return (
-    <span
+    <Element
       className={cn(
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-mono font-medium shrink-0',
         onClick && 'cursor-pointer hover:ring-1 hover:ring-ring transition-shadow',
@@ -108,9 +110,7 @@ export function ContextBar({
         (onClick ? t('activity:context.barClick') : '')
       }
       onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick(); } } : undefined}
-      role="button"
-      tabIndex={onClick ? 0 : undefined}
+      type={onClick ? 'button' : undefined}
     >
       {/* Use tabular-nums font for reliable Unicode block alignment. */}
       <span className="inline-flex font-mono text-[10px] leading-none tracking-tight">
@@ -128,7 +128,7 @@ export function ContextBar({
       </span>
       <span>{pctText}</span>
       {tokenText && <span className="tabular-nums">{tokenText}</span>}
-    </span>
+    </Element>
   );
 }
 
@@ -152,8 +152,10 @@ export function ContextFillBar({
       ? ` ${fmtTok(tokens)}/${fmtTok(maxTokens)}`
       : '';
 
+  const Element = onClick ? 'button' : 'span';
+
   return (
-    <span
+    <Element
       className={cn(
         'inline-flex items-center gap-1.5',
         onClick && 'cursor-pointer hover:opacity-80 transition-opacity',
@@ -166,9 +168,7 @@ export function ContextFillBar({
         (onClick ? t('activity:context.barClick') : '')
       }
       onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick(); } } : undefined}
-      role="button"
-      tabIndex={onClick ? 0 : undefined}
+      type={onClick ? 'button' : undefined}
     >
       <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted shrink-0">
         <span
@@ -184,6 +184,6 @@ export function ContextFillBar({
       {tokenText && (
         <span className="text-[10px] text-muted-foreground tabular-nums">{tokenText}</span>
       )}
-    </span>
+    </Element>
   );
 }

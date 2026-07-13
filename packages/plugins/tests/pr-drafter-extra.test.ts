@@ -1,7 +1,7 @@
 /**
  * Supplementary tests for pr-drafter — targeting uncovered branches.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prDrafterPlugin = (await import('../src/pr-drafter')).default;
 

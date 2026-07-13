@@ -43,7 +43,7 @@ import {
   updateTask,
   updateTaskAssignment,
 } from '../src/manager.js';
-import type { KanbanBoard, KanbanTask } from '../src/types.js';
+import type { KanbanBoard } from '../src/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -683,7 +683,7 @@ describe('setTaskChain', () => {
       tasks: [{ title: 'Step 1' }, { title: 'Step 2' }],
     });
     const ids = board.tasks.map((t) => t.id);
-    const result = await setTaskChain(tmpDir, board.id, {
+    const _result = await setTaskChain(tmpDir, board.id, {
       taskIds: ids,
       chainId: 'chain-1',
     });

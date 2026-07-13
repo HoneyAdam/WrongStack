@@ -69,4 +69,4 @@ export function configureApplicationMenu(ctx: MenuBuilderContext): void {
 }
 
 // Re-export for backwards compatibility
-export { type MenuBuilderContext, type ProjectMenuActions, type ProjectMenuGroup } from './types.js';
+export type { MenuBuilderContext, ProjectMenuActions, ProjectMenuGroup } from './types.js';

@@ -302,7 +302,7 @@ export function createBrainRuntime(opts: BrainRuntimeOptions): BrainRuntime {
   // so a ledger toggle takes effect without re-plumbing.
   const getDecisionDigest = (request: BrainDecisionRequest): string | undefined => {
     const ledger = opts.ledger;
-    if (!ledger || !ledger.isEnabled()) return undefined;
+    if (!ledger?.isEnabled()) return undefined;
     return ledger.getDecisionDigest?.(request);
   };
 

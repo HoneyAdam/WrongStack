@@ -1,7 +1,7 @@
 /**
  * Supplementary tests for runtime helper — targeting uncovered branches.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   type LanguageRuntime,
   resolveRunnerCommand,

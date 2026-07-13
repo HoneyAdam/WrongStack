@@ -118,7 +118,7 @@ describe('instance-registry', () => {
       await unregisterInstance(99999, '/tmp/base');
 
       expect(mockAtomicWrite).toHaveBeenCalled();
-      const [filePath, content] = mockAtomicWrite.mock.calls[0];
+      const [, content] = mockAtomicWrite.mock.calls[0];
       const parsed = JSON.parse(content);
       expect(parsed.instances).toHaveLength(0);
     });

@@ -90,6 +90,7 @@ export function MailboxView(): React.ReactElement {
       <div className="hq-mailbox-modebar" role="tablist" aria-label="Mailbox view mode">
         <button
           type="button"
+          role="tab"
           className={'hq-btn secondary' + (mode === 'live' ? ' hq-btn-selected' : '')}
           aria-selected={mode === 'live'}
           onClick={() => setMode('live')}
@@ -98,6 +99,7 @@ export function MailboxView(): React.ReactElement {
         </button>
         <button
           type="button"
+          role="tab"
           className={'hq-btn secondary' + (mode === 'grouped' ? ' hq-btn-selected' : '')}
           aria-selected={mode === 'grouped'}
           onClick={() => setMode('grouped')}

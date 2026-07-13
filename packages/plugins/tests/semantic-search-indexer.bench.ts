@@ -94,7 +94,7 @@ function makeSyntheticTree(fileCount: number): Tree {
 function mockTree(tree: Tree): void {
   vi.mocked(readdir).mockImplementation(async (path) => {
     const entry = tree[path as string];
-    if (!entry || entry.type !== 'dir') {
+    if (entry?.type !== 'dir') {
       const err = new Error(`ENOTDIR ${path}`) as Error & { code: string };
       err.code = 'ENOTDIR';
       throw err;
@@ -123,7 +123,7 @@ function mockTree(tree: Tree): void {
 
   vi.mocked(readFile).mockImplementation(async (path) => {
     const entry = tree[path as string];
-    if (!entry || entry.type !== 'file') {
+    if (entry?.type !== 'file') {
       const err = new Error(`EISDIR ${path}`) as Error & { code: string };
       err.code = 'EISDIR';
       throw err;

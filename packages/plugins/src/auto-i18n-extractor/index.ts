@@ -183,8 +183,7 @@ function extractStrings(content: string, cfg: AutoI18nConfig): ExtractedString[]
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
     stringRegex.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = stringRegex.exec(line)) !== null) {
+    for (const match of line.matchAll(stringRegex)) {
       const value = match[2] ?? '';
       const quoteIndex = match.index + (match[1]?.length ?? 1);
       if (!looksLikeUserText(value, cfg.minLength)) continue;

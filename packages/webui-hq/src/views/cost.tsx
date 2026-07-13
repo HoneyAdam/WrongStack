@@ -84,8 +84,9 @@ export function CostView(): React.ReactElement {
           <div className="hq-card-title">By Session</div>
           <div className="hq-card">
             {sessionRows.map(({ s, cost, tokens, models }) => (
-              <div
+              <button
                 key={s.sessionId}
+                type="button"
                 className="hq-row hq-row-click"
                 onClick={() => {
                   selectSession(s.sessionId);
@@ -102,7 +103,7 @@ export function CostView(): React.ReactElement {
                 ))}
                 <span className="hq-mono hq-row-subtle">{fmtTokens(tokens)} tok</span>
                 <span className="hq-cost-amount">${cost.toFixed(4)}</span>
-              </div>
+              </button>
             ))}
           </div>
         </>

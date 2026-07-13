@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseToolInput } from '../src/_tool-input.js';
 
-function dedent(s: string): string {
+function _dedent(s: string): string {
   return s.replace(/^[ \t]+/gm, '');
 }
 

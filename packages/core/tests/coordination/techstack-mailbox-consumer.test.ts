@@ -2,12 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { randomUUID } from 'node:crypto';
 import {
   startTechStackConsumer,
 } from '../../src/coordination/techstack-mailbox-consumer.js';
 import { DefaultMailbox } from '../../src/coordination/mailbox.js';
-import { GlobalMailbox } from '../../src/coordination/global-mailbox.js';
 
 describe('techstack-mailbox-consumer', () => {
   let tmpDir: string;
@@ -222,7 +220,7 @@ describe('techstack-mailbox-consumer', () => {
       pollIntervalMs: 100,
     });
 
-    const msg = await mailbox.send({
+    const _msg = await mailbox.send({
       from: 'dep-watcher',
       to: 'tech-stack',
       type: 'assign',

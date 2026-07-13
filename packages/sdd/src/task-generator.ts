@@ -68,4 +68,4 @@ export class TaskGenerator {
   }
 }
 
-export { TaskStore };
+export type { TaskStore };

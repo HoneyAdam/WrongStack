@@ -4,7 +4,6 @@ import { ToolErrorCategory } from '../../src/types/tool.js';
 import {
   WrongStackError,
   FetchError,
-  ToolError,
   ToolValidationError,
 } from '../../src/types/errors.js';
 

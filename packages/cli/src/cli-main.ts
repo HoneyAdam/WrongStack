@@ -504,7 +504,7 @@ export async function main(argv: string[]): Promise<number> {
     configStore,
     sessionBridge,
     eventWiring,
-    healthRegistry: healthRegistry as any,
+    healthRegistry,
     skillLoader,
     promptLoader,
     vault,

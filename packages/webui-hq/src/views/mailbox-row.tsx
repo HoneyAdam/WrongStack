@@ -28,7 +28,7 @@ export function MessageRow({ flat, defaultExpanded }: MessageRowProps): React.Re
 
   return (
     <div className={'hq-msg' + (m.completed ? ' done' : '')}>
-      <div className="hq-msg-head" onClick={() => hasBody && setOpen((v) => !v)}>
+      <div className="hq-msg-head">
         <span className="hq-msg-icon" title={m.type}>
           {typeMeta.icon}
         </span>
@@ -52,10 +52,8 @@ export function MessageRow({ flat, defaultExpanded }: MessageRowProps): React.Re
           <button
             type="button"
             className="hq-toggle hq-msg-toggle"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen((v) => !v);
-            }}
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
             aria-label={open ? 'Collapse body' : 'Expand body'}
           >
             {open ? '▾' : '▸'}

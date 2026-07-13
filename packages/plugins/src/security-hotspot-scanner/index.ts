@@ -123,7 +123,7 @@ const PATTERNS: { type: string; severity: 'high' | 'medium' | 'low'; regex: RegE
   {
     type: 'hardcoded_http',
     severity: 'medium',
-    regex: /http:\/\/[a-zA-Z0-9][^\s'"\)\\]*/i,
+    regex: /http:\/\/[a-zA-Z0-9][^\s'")\\]*/i,
   },
   {
     type: 'console_log_credentials',

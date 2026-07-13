@@ -12,7 +12,7 @@
  * Exit 0 = all contracts satisfied, exit 1 = one or more broken.
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(import.meta.url), '..', '..');

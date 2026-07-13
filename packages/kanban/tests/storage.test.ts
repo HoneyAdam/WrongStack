@@ -7,7 +7,6 @@ import {
   createBoardObject,
   deleteBoard,
   getKanbanPath,
-  getKanbanEventsPath,
   isValidBoardId,
   listBoardIds,
   listBoardSummaries,
@@ -263,8 +262,8 @@ describe('resolveBoardRef', () => {
 
   it('throws on ambiguous prefix', async () => {
     // Create two boards with a shared prefix
-    const b1 = await createBoard(tmpDir, { title: 'Board AA' });
-    const b2 = await createBoard(tmpDir, { title: 'Board AB' });
+    const _b1 = await createBoard(tmpDir, { title: 'Board AA' });
+    const _b2 = await createBoard(tmpDir, { title: 'Board AB' });
     // Both have unique ids but we can test ambiguity by using a prefix
     // that matches both. Since UUIDs are random, we need a different approach:
     // directly create board files with predictable ids
