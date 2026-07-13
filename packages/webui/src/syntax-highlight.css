@@ -12,7 +12,7 @@
 /* ── Comments ── */
 .hljs-comment,
 .hljs-quote {
-  color: hsl(var(--muted-foreground) / 0.6);
+  color: hsl(var(--muted-foreground) / 0.75);
   font-style: italic;
 }
 
