@@ -177,17 +177,20 @@ export function readHqRuntimeFileSync(dataDir: string): HqRuntimeFile | undefine
 }
 
 /**
- * Read `auth.json` from disk. Returns `emptyHqAuthFile()` when:
- *   - the file does not exist (ENOENT), or
- *   - the file cannot be parsed (the `warn` callback surfaces the error).
+ * Read `auth.json` from disk. Returns `emptyHqAuthFile()` when the file does
+ * NOT exist (ENOENT) — the only case treated as intentional open mode.
  *
- * Never throws for routine I/O — a missing or corrupt auth file should not
- * prevent the HQ server from starting. The operator can recover by editing
- * or deleting the file.
+ * Throws for all other read failures (EACCES, EIO, etc.), malformed JSON,
+ * and unsupported schema versions. A corrupt or unreadable auth file must
+ * never silently open the server.
+ *
+ * Callers that want to handle errors gracefully (e.g. the live-reload
+ * watcher which should preserve the last-known-good state) should catch
+ * the thrown error.
  */
 export async function readHqAuthFile(
   dataDir: string,
-  opts: { warn?: (msg: string) => void } = {},
+  _opts: { warn?: (msg: string) => void } = {},
 ): Promise<HqAuthFile> {
   const file = hqAuthFilePath(dataDir);
   let raw: string;
@@ -195,23 +198,29 @@ export async function readHqAuthFile(
     raw = await fs.readFile(file, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return emptyHqAuthFile();
-    // Non-ENOENT (EACCES, EIO, …) — surface but don't crash startup.
-    opts.warn?.(`HQ auth file read failed at ${file}: ${(err as Error).message}`);
-    return emptyHqAuthFile();
+    // Non-ENOENT (EACCES, EIO, …) — fail closed.
+    throw new Error(
+      `HQ auth file at ${file} cannot be read: ${(err as Error).message}. ` +
+      'Fix the file permissions or delete it to start with an empty auth state.',
+    );
   }
+  let parsed: HqAuthFile;
   try {
-    const parsed = JSON.parse(raw) as HqAuthFile;
-    if (parsed.version !== HQ_AUTH_FILE_VERSION) {
-      opts.warn?.(
-        `HQ auth file at ${file} has unsupported version ${String(parsed.version)} (expected ${String(HQ_AUTH_FILE_VERSION)}); ignoring stored policy/tokens.`,
-      );
-      return emptyHqAuthFile();
-    }
-    return parsed;
+    parsed = JSON.parse(raw) as HqAuthFile;
   } catch (err) {
-    opts.warn?.(`HQ auth file at ${file} is not valid JSON; ignoring stored policy/tokens: ${(err as Error).message}`);
-    return emptyHqAuthFile();
+    throw new Error(
+      `HQ auth file at ${file} is not valid JSON: ${(err as Error).message}. ` +
+      'Fix the file or delete it to start with an empty auth state.',
+    );
   }
+  if (parsed.version !== HQ_AUTH_FILE_VERSION) {
+    throw new Error(
+      `HQ auth file at ${file} has unsupported version ${String(parsed.version)} ` +
+      `(expected ${String(HQ_AUTH_FILE_VERSION)}). ` +
+      'Remove or update the file to match the current schema version.',
+    );
+  }
+  return parsed;
 }
 
 /**

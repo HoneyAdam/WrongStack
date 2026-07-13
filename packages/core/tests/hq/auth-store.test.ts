@@ -101,29 +101,20 @@ describe('HQ auth-store — readHqAuthFile', () => {
     });
   });
 
-  it('returns empty file + warns on corrupt JSON', async () => {
+  it('throws on corrupt JSON (fail closed)', async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(hqAuthFilePath(dir), '{ not valid json');
-      const warn = vi.fn();
-      const f = await readHqAuthFile(dir, { warn });
-      expect(f.version).toBe(HQ_AUTH_FILE_VERSION);
-      expect(f.redactionPolicy).toBeUndefined();
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]?.[0]).toContain('not valid JSON');
+      await expect(readHqAuthFile(dir)).rejects.toThrow('not valid JSON');
     });
   });
 
-  it('returns empty file + warns on wrong schema version', async () => {
+  it('throws on wrong schema version (fail closed)', async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(
         hqAuthFilePath(dir),
         JSON.stringify({ version: 99, updatedAt: 'x' }),
       );
-      const warn = vi.fn();
-      const f = await readHqAuthFile(dir, { warn });
-      expect(f.version).toBe(HQ_AUTH_FILE_VERSION);
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]?.[0]).toContain('unsupported version');
+      await expect(readHqAuthFile(dir)).rejects.toThrow('unsupported version');
     });
   });
 
