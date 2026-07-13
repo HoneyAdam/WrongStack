@@ -901,7 +901,7 @@ export class GlobalMailbox implements Mailbox {
 
   async getClientStatuses(): Promise<ClientStatus[]> {
     await this._ensureClientRegistry();
-    const registry = await this._readClientRegistry();
+    let registry = await this._readClientRegistry();
     const before = registry.size;
     this._pruneStaleClientsInPlace(registry);
 
@@ -910,8 +910,21 @@ export class GlobalMailbox implements Mailbox {
     // memory only — the stale JSON records survive on disk until another
     // write happens (registerClient / clientHeartbeat), which may never
     // occur if all bridge clients are dead.
+    //
+    // Lock around the read-prune-write to prevent racing concurrent
+    // registerClient / clientHeartbeat / deregisterClient calls, all of
+    // which also acquire this lock.
     if (registry.size < before) {
-      await this._writeClientRegistry(registry);
+      await withFileLock(this.clientRegistryPath, async () => {
+        // Re-read under the lock so a concurrent write since our
+        // initial read is not overwritten.
+        registry = await this._readClientRegistry({ fresh: true });
+        const postLockBefore = registry.size;
+        this._pruneStaleClientsInPlace(registry);
+        if (registry.size < postLockBefore) {
+          await this._writeClientRegistry(registry);
+        }
+      });
     }
 
     const now = Date.now();
