@@ -1242,135 +1242,11 @@ export class Director implements ICoordinator {
     // first spawn's resolved model/nickname. A shallow copy is enough — only
     // top-level scalar fields are mutated here.
     const config: SubagentConfig = { ...callerConfig };
-    // Per-task model matrix: when the caller didn't pin a model, resolve one
-    // from the matrix by role (→ phase → `*`). Done here, before the spawned
-    // event + manifest + coordinator handoff, so the fleet UI and the agent
-    // itself all reflect the matched model. Explicit per-spawn models win.
-    if (!config.model && this.modelMatrix) {
-      const matrix = typeof this.modelMatrix === 'function' ? this.modelMatrix() : this.modelMatrix;
-      const resolution = resolveModelMatrixResolution(matrix, config.role);
-      const entry =
-        resolution?.source === 'default' && roleNeedsIndependentReviewModel(config.role)
-          ? undefined
-          : resolution?.entry;
-      if (entry?.model) {
-        config.model = entry.model;
-        if (entry.provider) config.provider = entry.provider;
-        if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
-      }
-    }
-    // Enforce safety caps BEFORE touching the coordinator — a refused
-    // spawn must not leak partial state into the manifest or fleet bus.
-    // Delegate to FleetManager when available; use inline checks otherwise.
-    if (this.fleetManager) {
-      const rejection = this.fleetManager.canSpawn(config);
-      if (rejection) {
-        if (rejection.kind === 'max_spawn_depth')
-          throw new FleetSpawnBudgetError('max_spawn_depth', rejection.limit, rejection.observed);
-        if (rejection.kind === 'max_spawns')
-          throw new FleetSpawnBudgetError('max_spawns', rejection.limit, rejection.observed);
-        if (rejection.kind === 'max_cost_usd')
-          throw new FleetCostCapError(rejection.limit, rejection.observed);
-        if (rejection.kind === 'max_tokens')
-          throw new FleetTokenCapError(rejection.limit, rejection.observed);
-        if (rejection.kind === 'max_context_load')
-          throw new FleetContextOverflowError(rejection.limit, rejection.observed);
-      }
-    } else {
-      if (this.spawnDepth >= this.maxSpawnDepth) {
-        throw new FleetSpawnBudgetError('max_spawn_depth', this.maxSpawnDepth, this.spawnDepth);
-      }
-      if (this.spawnCount >= this.maxSpawns) {
-        throw new FleetSpawnBudgetError('max_spawns', this.maxSpawns, this.spawnCount + 1);
-      }
-      if (this.maxFleetCostUsd < Number.POSITIVE_INFINITY) {
-        const totalCost = this.usage.snapshot().total?.cost ?? 0;
-        if (totalCost >= this.maxFleetCostUsd) {
-          throw new FleetCostCapError(this.maxFleetCostUsd, totalCost);
-        }
-      }
-      if (this.maxFleetTokens < Number.POSITIVE_INFINITY) {
-        const total = this.usage.snapshot().total;
-        const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
-        if (usedTokens >= this.maxFleetTokens) {
-          throw new FleetTokenCapError(this.maxFleetTokens, usedTokens);
-        }
-      }
-      // Context pressure check: reject spawn if leader context is too full.
-      // maxLeaderContextLoad === 1.0 disables this check.
-      if (this.maxLeaderContextLoad < 1.0) {
-        const maxContext = this.resolveMaxContext();
-        const threshold = maxContext * this.maxLeaderContextLoad;
-        if (this.leaderContextPressure >= threshold) {
-          throw new FleetContextOverflowError(threshold, this.leaderContextPressure);
-        }
-      }
-    }
+    this.resolveSpawnModel(config);
+    this.enforceSpawnCaps(config);
     let result: { subagentId: string };
-    // If the config came from the roster with the default "role-as-name" pattern,
-    // OR the name is one of the synthetic defaults used by ad-hoc spawn paths,
-    // upgrade to a memorable nickname before the coordinator sees it. This ensures
-    // the manifest, fleet UI, and session logs all display human names like
-    // "Einstein (Bug Hunter)" instead of "adhoc" or "general".
-    const needsNickname =
-      config.name === config.role ||
-      !config.name ||
-      config.name === 'subagent' ||
-      config.name === 'adhoc';
-    if (needsNickname) {
-      const role = config.role ?? 'subagent';
-      if (this.fleetManager) {
-        // FleetManager owns the used-nicknames set — just assign the nickname.
-        // recordSpawn is called after spawn regardless of needsNickname to ensure
-        // the manifest is keyed by the real subagentId.
-        this.fleetManager.assignNicknameAndRecord(config);
-      } else {
-        const { key, display } = assignNickname(role, this._usedNicknames);
-        config.name = display;
-        this._usedNicknames.add(key);
-      }
-    }
-    // Authoritative inheritance for any child later promoted to Director.
-    // Caller-supplied lineage is overwritten so a model cannot forge depth 0
-    // or restore fleet budget already consumed by siblings.
-    const budget = this.fleetManager
-      ? this.fleetManager.budgetSnapshot()
-      : (() => {
-          const total = this.usage.snapshot().total;
-          const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
-          const usedCostUsd = total?.cost ?? 0;
-          return {
-            maxSpawns: this.maxSpawns,
-            remainingSpawns: Math.max(0, this.maxSpawns - this.spawnCount - 1),
-            maxTokens: this.maxFleetTokens,
-            remainingTokens: Math.max(0, this.maxFleetTokens - usedTokens),
-            maxCostUsd: this.maxFleetCostUsd,
-            remainingCostUsd: Math.max(0, this.maxFleetCostUsd - usedCostUsd),
-          };
-        })();
-    config.spawnLineage = {
-      parentDirectorId: this.id,
-      spawnDepth: this.spawnDepth + 1,
-      maxSpawnDepth: this.maxSpawnDepth,
-      fleetBudget: {
-        ...(Number.isFinite(budget.maxSpawns) ? { maxSpawns: budget.maxSpawns } : {}),
-        ...(Number.isFinite(budget.remainingSpawns)
-          ? {
-              remainingSpawns: this.fleetManager
-                ? Math.max(0, budget.remainingSpawns - 1)
-                : budget.remainingSpawns,
-            }
-          : {}),
-        ...(Number.isFinite(budget.maxTokens) ? { maxTokens: budget.maxTokens } : {}),
-        ...(Number.isFinite(budget.remainingTokens)
-          ? { remainingTokens: budget.remainingTokens }
-          : {}),
-        ...(Number.isFinite(budget.maxCostUsd) ? { maxCostUsd: budget.maxCostUsd } : {}),
-        ...(Number.isFinite(budget.remainingCostUsd)
-          ? { remainingCostUsd: budget.remainingCostUsd }
-          : {}),
-      },
-    };
+    this.assignSpawnNickname(config);
+    this.applySpawnLineage(config);
     result = await this.coordinator.spawn(config);
     // Record with FleetManager when available; otherwise manage inline.
     if (this.fleetManager) {
@@ -1444,6 +1320,146 @@ export class Director implements ICoordinator {
     }
     this.armSubagentIdleRetirement(result.subagentId, this.subagentIdleTimeoutMs);
     return result.subagentId;
+  }
+
+  private resolveSpawnModel(config: SubagentConfig): void {
+    // Per-task model matrix: when the caller didn't pin a model, resolve one
+    // from the matrix by role (→ phase → `*`). Done here, before the spawned
+    // event + manifest + coordinator handoff, so the fleet UI and the agent
+    // itself all reflect the matched model. Explicit per-spawn models win.
+    if (!config.model && this.modelMatrix) {
+      const matrix = typeof this.modelMatrix === 'function' ? this.modelMatrix() : this.modelMatrix;
+      const resolution = resolveModelMatrixResolution(matrix, config.role);
+      const entry =
+        resolution?.source === 'default' && roleNeedsIndependentReviewModel(config.role)
+          ? undefined
+          : resolution?.entry;
+      if (entry?.model) {
+        config.model = entry.model;
+        if (entry.provider) config.provider = entry.provider;
+        if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
+      }
+    }
+  }
+
+  private enforceSpawnCaps(config: SubagentConfig): void {
+    // Enforce safety caps BEFORE touching the coordinator — a refused
+    // spawn must not leak partial state into the manifest or fleet bus.
+    // Delegate to FleetManager when available; use inline checks otherwise.
+    if (this.fleetManager) {
+      const rejection = this.fleetManager.canSpawn(config);
+      if (rejection) {
+        if (rejection.kind === 'max_spawn_depth')
+          throw new FleetSpawnBudgetError('max_spawn_depth', rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_spawns')
+          throw new FleetSpawnBudgetError('max_spawns', rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_cost_usd')
+          throw new FleetCostCapError(rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_tokens')
+          throw new FleetTokenCapError(rejection.limit, rejection.observed);
+        if (rejection.kind === 'max_context_load')
+          throw new FleetContextOverflowError(rejection.limit, rejection.observed);
+      }
+    } else {
+      if (this.spawnDepth >= this.maxSpawnDepth) {
+        throw new FleetSpawnBudgetError('max_spawn_depth', this.maxSpawnDepth, this.spawnDepth);
+      }
+      if (this.spawnCount >= this.maxSpawns) {
+        throw new FleetSpawnBudgetError('max_spawns', this.maxSpawns, this.spawnCount + 1);
+      }
+      if (this.maxFleetCostUsd < Number.POSITIVE_INFINITY) {
+        const totalCost = this.usage.snapshot().total?.cost ?? 0;
+        if (totalCost >= this.maxFleetCostUsd) {
+          throw new FleetCostCapError(this.maxFleetCostUsd, totalCost);
+        }
+      }
+      if (this.maxFleetTokens < Number.POSITIVE_INFINITY) {
+        const total = this.usage.snapshot().total;
+        const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+        if (usedTokens >= this.maxFleetTokens) {
+          throw new FleetTokenCapError(this.maxFleetTokens, usedTokens);
+        }
+      }
+      // Context pressure check: reject spawn if leader context is too full.
+      // maxLeaderContextLoad === 1.0 disables this check.
+      if (this.maxLeaderContextLoad < 1.0) {
+        const maxContext = this.resolveMaxContext();
+        const threshold = maxContext * this.maxLeaderContextLoad;
+        if (this.leaderContextPressure >= threshold) {
+          throw new FleetContextOverflowError(threshold, this.leaderContextPressure);
+        }
+      }
+    }
+  }
+
+  private assignSpawnNickname(config: SubagentConfig): void {
+    // If the config came from the roster with the default "role-as-name" pattern,
+    // OR the name is one of the synthetic defaults used by ad-hoc spawn paths,
+    // upgrade to a memorable nickname before the coordinator sees it. This ensures
+    // the manifest, fleet UI, and session logs all display human names like
+    // "Einstein (Bug Hunter)" instead of "adhoc" or "general".
+    const needsNickname =
+      config.name === config.role ||
+      !config.name ||
+      config.name === 'subagent' ||
+      config.name === 'adhoc';
+    if (needsNickname) {
+      const role = config.role ?? 'subagent';
+      if (this.fleetManager) {
+        // FleetManager owns the used-nicknames set — just assign the nickname.
+        // recordSpawn is called after spawn regardless of needsNickname to ensure
+        // the manifest is keyed by the real subagentId.
+        this.fleetManager.assignNicknameAndRecord(config);
+      } else {
+        const { key, display } = assignNickname(role, this._usedNicknames);
+        config.name = display;
+        this._usedNicknames.add(key);
+      }
+    }
+  }
+
+  private applySpawnLineage(config: SubagentConfig): void {
+    // Authoritative inheritance for any child later promoted to Director.
+    // Caller-supplied lineage is overwritten so a model cannot forge depth 0
+    // or restore fleet budget already consumed by siblings.
+    const budget = this.fleetManager
+      ? this.fleetManager.budgetSnapshot()
+      : (() => {
+          const total = this.usage.snapshot().total;
+          const usedTokens = (total?.input ?? 0) + (total?.output ?? 0);
+          const usedCostUsd = total?.cost ?? 0;
+          return {
+            maxSpawns: this.maxSpawns,
+            remainingSpawns: Math.max(0, this.maxSpawns - this.spawnCount - 1),
+            maxTokens: this.maxFleetTokens,
+            remainingTokens: Math.max(0, this.maxFleetTokens - usedTokens),
+            maxCostUsd: this.maxFleetCostUsd,
+            remainingCostUsd: Math.max(0, this.maxFleetCostUsd - usedCostUsd),
+          };
+        })();
+    config.spawnLineage = {
+      parentDirectorId: this.id,
+      spawnDepth: this.spawnDepth + 1,
+      maxSpawnDepth: this.maxSpawnDepth,
+      fleetBudget: {
+        ...(Number.isFinite(budget.maxSpawns) ? { maxSpawns: budget.maxSpawns } : {}),
+        ...(Number.isFinite(budget.remainingSpawns)
+          ? {
+              remainingSpawns: this.fleetManager
+                ? Math.max(0, budget.remainingSpawns - 1)
+                : budget.remainingSpawns,
+            }
+          : {}),
+        ...(Number.isFinite(budget.maxTokens) ? { maxTokens: budget.maxTokens } : {}),
+        ...(Number.isFinite(budget.remainingTokens)
+          ? { remainingTokens: budget.remainingTokens }
+          : {}),
+        ...(Number.isFinite(budget.maxCostUsd) ? { maxCostUsd: budget.maxCostUsd } : {}),
+        ...(Number.isFinite(budget.remainingCostUsd)
+          ? { remainingCostUsd: budget.remainingCostUsd }
+          : {}),
+      },
+    };
   }
 
   /**
