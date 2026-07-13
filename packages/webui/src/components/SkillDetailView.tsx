@@ -22,8 +22,7 @@ import {
   PanelRight,
   BookOpen,
 } from 'lucide-react';
-import TextareaCodeEditor from '@uiw/react-textarea-code-editor';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
 import rehypeHighlight from 'rehype-highlight';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -38,6 +37,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+
+/** Lazy-loaded code editor — only needed when the user enters edit mode. */
+const TextareaCodeEditor = lazy(() => import('@uiw/react-textarea-code-editor'));
 
 /**
  * WrongStack-managed (writable) skill sources: project + user. Bundled and
@@ -809,14 +811,16 @@ export function SkillDetailView({ className }: { className?: string }) {
             {splitPreview ? (
               <div className="flex flex-1 min-h-0 gap-0.5">
                 <div className="flex-1 min-w-0 flex flex-col min-h-0">
-                  <TextareaCodeEditor
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value ?? '')}
-                    language="markdown"
-                    className="flex-1"
-                    style={{ fontSize: 12, backgroundColor: 'transparent', minHeight: 0 }}
-                    placeholder={t('activity:skillDetail.contentPlaceholder')}
-                  />
+                  <Suspense fallback={null}>
+                    <TextareaCodeEditor
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value ?? '')}
+                      language="markdown"
+                      className="flex-1"
+                      style={{ fontSize: 12, backgroundColor: 'transparent', minHeight: 0 }}
+                      placeholder={t('activity:skillDetail.contentPlaceholder')}
+                    />
+                  </Suspense>
                 </div>
                 <div className="w-px bg-border flex-shrink-0" />
                 <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background/45 p-4 prose prose-sm dark:prose-invert max-w-none">
@@ -826,14 +830,16 @@ export function SkillDetailView({ className }: { className?: string }) {
                 </div>
               </div>
             ) : (
-              <TextareaCodeEditor
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value ?? '')}
-                language="markdown"
-                className="flex-1"
-                style={{ fontSize: 12, backgroundColor: 'transparent', minHeight: 0 }}
-                placeholder={t('activity:skillDetail.contentPlaceholder')}
-              />
+              <Suspense fallback={null}>
+                <TextareaCodeEditor
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value ?? '')}
+                  language="markdown"
+                  className="flex-1"
+                  style={{ fontSize: 12, backgroundColor: 'transparent', minHeight: 0 }}
+                  placeholder={t('activity:skillDetail.contentPlaceholder')}
+                />
+              </Suspense>
             )}
           </div>
         ) : skillContent ? (
