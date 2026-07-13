@@ -28,6 +28,13 @@ export class RunController {
   private disposed = false;
   private hooksDrained = false;
   private readonly errorSink: (err: unknown, where: string) => void;
+  /**
+   * Shared promise for the in-flight `runHooks()` call. Set by the abort
+   * signal handler or by `dispose()`, whichever fires first. Both callers
+   * await the same promise so abort-triggered async cleanup (session flush,
+   * socket close) completes before `dispose()` resolves.
+   */
+  private _hooksPromise: Promise<void> | null = null;
 
   constructor(opts: RunControllerOptions = {}) {
     this.errorSink =
@@ -66,7 +73,7 @@ export class RunController {
     this.ctrl.signal.addEventListener(
       'abort',
       () => {
-        void this.runHooks();
+        this.ensureHooksRun();
       },
       { once: true },
     );
@@ -124,7 +131,21 @@ export class RunController {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    await this.runHooks();
+    await this.ensureHooksRun();
+  }
+
+  /**
+   * Start running hooks (or wait for an already-in-flight run) and return
+   * a promise that settles when all hooks complete. Both the abort signal
+   * handler and `dispose()` call this so they share the same underlying
+   * promise — abort-triggered async cleanup (session flush, socket close)
+   * is guaranteed to finish before `dispose()` resolves.
+   */
+  private ensureHooksRun(): Promise<void> {
+    if (!this._hooksPromise) {
+      this._hooksPromise = this.runHooks();
+    }
+    return this._hooksPromise;
   }
 
   private async runHooks(): Promise<void> {
