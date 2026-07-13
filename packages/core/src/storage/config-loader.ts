@@ -116,12 +116,11 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
   mcpServers: {},
   fallbackAuto: true,
   maxConcurrent: 4,
-  // YOLO on by default: auto-approve non-denied tool calls without a per-call
-  // prompt. Users
-  // who want the per-call prompts set `yolo: false`. Existing installs whose
-  // config lacks this key pick it up via fillMissingDefaults; an explicit
-  // `false` is preserved by the deep-merge (opt-out respected).
-  yolo: true,
+  // YOLO opt-in: users who want auto-approve behaviour set `yolo: true`.
+  // Off by default so prompt injection in repository content, fetched
+  // content, or mailbox messages cannot induce arbitrary shell calls or
+  // write operations without human confirmation.
+  yolo: false,
   nextPrediction: false,
   hints: true,
   debugStream: false,
@@ -146,7 +145,7 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     terminalTitleAnimation: true,
     // Mirrored from the top-level yolo default so the autonomy subsystem
     // (which reads autonomy.yolo) stays consistent with config.yolo.
-    yolo: true,
+    yolo: false,
     streamFleet: true,
     chime: false,
     confirmExit: true,

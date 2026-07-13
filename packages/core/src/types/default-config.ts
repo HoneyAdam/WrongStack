@@ -14,7 +14,7 @@ export const DEFAULT_TOOLS_CONFIG = Object.freeze({
   descriptionMode: Object.freeze({}) as Record<string, 'extend' | 'simple' | undefined>,
   disabledTools: Object.freeze([]) as readonly string[],
   autoExtendLimit: true,
-  restrictToProjectRoot: false,
+  restrictToProjectRoot: true,
   loopDetection: Object.freeze({
     mode: 'steer-then-cut',
     steerThreshold: 3,
