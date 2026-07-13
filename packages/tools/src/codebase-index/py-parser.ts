@@ -257,15 +257,15 @@ function resolvePython(): string | null {
 		: ['python3', 'python'];
 	for (const name of candidates) {
 		const resolved = resolveWin32Command(name);
-		// On Windows: if resolution changed the name, a real .exe was found.
-		// On Unix: resolved === name always; verify with spawnSync.
-		if (process.platform === 'win32' && resolved !== name) return resolved;
+		// On Windows: verify with spawnSync even if resolveWin32Command found a
+		// file — the WindowsApps redirector stub (python3.exe) passes the
+		// accessSync check but exits with code 9009 (app not found).
 		const result = spawnSync(resolved, ['--version'], {
 			stdio: 'pipe',
 			timeout: 5_000,
 		});
 		if (result.error) continue; // ENOENT or similar — try next
-		if (result.status !== 0) continue; // binary exists but broken
+		if (result.status !== 0) continue; // binary exists but broken (e.g. Windows Store stub)
 		return resolved;
 	}
 	return null;
