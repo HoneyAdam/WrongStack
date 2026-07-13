@@ -491,11 +491,11 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current package line: 0.285.0.** Highlights include the TypeScript 7 build
-pipeline, one topologically ordered esbuild package driver replacing the old
-per-package `tsup` configs, isolated compiler-API compatibility through
-Microsoft's `@typescript/typescript6` package, and refreshed README/website
-release copy for the current 18-package + 2-app workspace shape.
+**Current package line: 0.286.0.** Highlights include the autonomous Brain
+control plane, live/persistable Brain settings across CLI/TUI/WebUI, realtime
+mailbox SSE + indexing work, WebUI image attachments and accessibility cleanup,
+the fullscreen TUI agents monitor, governed MCP OAuth, and refreshed release
+copy for the current 18-package + 2-app workspace shape.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 

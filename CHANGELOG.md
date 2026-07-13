@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.286.0] — 2026-07-13
+
+> The **autonomous Brain, realtime mailbox, and accessibility hardening**
+> release. The Brain grows a headless autonomous decision layer with live
+> settings across CLI/TUI/WebUI and exact option-id enforcement; the mailbox
+> bridge adds SSE push, indexing, compaction, and HTTP hardening; WebUI and HQ
+> get a broad accessibility/performance pass; the TUI gains a fullscreen F3
+> agents monitor; MCP OAuth becomes governed; and the workspace manifests,
+> website, README, and changelog are aligned to `0.286.0`.
+
+### Added — Brain, mailbox & media
+- **Autonomous Brain control plane** — added headless autonomy, an LLM pool,
+  multi-LLM council support, and a decision ledger, with live/persistable Brain
+  settings shared across CLI, TUI, WebUI, and the reusable model picker.
+- **Exact Brain option selection** — Brain decisions with options now require an
+  exact option id, preventing prose such as "do not spawn" from accidentally
+  selecting a `spawn` option.
+- **Realtime mailbox bridge** — added SSE delivery for external agents,
+  ack/delete/restore events, sender/recipient indexes for fast queries, HTTP
+  bridge rate limiting/from-validation/TTL coverage, and mailbox auto-compaction
+  UI with localized badges.
+- **WebUI image input** — chat now carries pasted, dropped, picked, regenerated,
+  and edit-resend image attachments as real `ImageBlock`s, with a vision-adapter
+  fallback for non-vision models.
+- **Governed MCP OAuth** — MCP authorization now routes through the governed
+  OAuth path instead of ad-hoc approval flow glue.
+
+### Changed — WebUI, TUI & docs
+- **Accessibility sweep** — enabled the Biome accessibility preset and resolved
+  label, role, aria-expanded, icon-button, autofocus, contrast, semantic-list,
+  keyboard, and Radix Dialog modal warnings across WebUI, HQ, and website
+  components.
+- **TUI agents monitor** — F3 now opens a fullscreen agents monitor and Esc
+  priority handling closes overlays reliably.
+- **WebUI performance polish** — lazily loads `react-markdown`,
+  `@uiw/react-textarea-code-editor`, and SetupScreen paths, debounces mailbox
+  refresh bursts, fixes analytics timer cleanup, and replaces unsafe
+  `crypto.randomUUID` / index-key patterns.
+- **Welcome, Kanban, and settings UX** — refreshed the WelcomeScreen with
+  gradient prompt cards, improved Kanban live polling and task-card semantics,
+  and added display toggles for thinking logs and tool-call grouping.
+- **Release and project docs** — updated tool counts, licensing badges, fleet
+  roster numbers, release checklist state, roadmap status, and the `wstack init`
+  deprecation wording.
+
+### Fixed — runtime correctness
+- **Subagent and HQ cleanup** — retired completed subagents more reliably,
+  filtered dead sessions from HQ views, and fixed memory leaks found during the
+  audit pass.
+- **Core status and logging fixes** — conflict-marker detection is deterministic,
+  mailbox status tie-breaks are stable, missing permission-policy schema exports
+  are restored, and plan/task-store save failures use structured JSON logging.
+- **Goal lifecycle repairs** — fixed three goal lifecycle bugs and refreshed the
+  TUI goal summary every tick so status lines update after goal clearing.
+- **Test-suite portability** — repaired POSIX runner failures and kept the tool,
+  core, TUI, and security-scanner regressions passing across platforms.
+
+### Changed — tests & versions
+- **Coverage and regression net** — expanded targeted tests across kanban,
+  tools, TUI, WebUI Server, ACP, MCP, telegram, super-memory, SDD, providers,
+  mailbox SSE, Brain decisions, and release/workflow cleanup paths while raising
+  coverage thresholds.
+- **Version alignment** — all workspace packages, the apps, the HQ dashboard,
+  and `website/` are aligned to `0.286.0`; README and CHANGELOG release copy now
+  match that package line.
+
 ## [0.285.0] — 2026-07-11
 
 > The **TypeScript 7 build-system and release-docs alignment** release. The
