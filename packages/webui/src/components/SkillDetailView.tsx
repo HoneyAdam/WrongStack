@@ -32,6 +32,12 @@ import { i18n, useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
 import { markdownComponents } from './MessageBubble/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * WrongStack-managed (writable) skill sources: project + user. Bundled and
@@ -115,16 +121,6 @@ export function SkillDetailView({ className }: { className?: string }) {
   // Uninstall state
   const [uninstallConfirmSkill, setUninstallConfirmSkill] = useState<typeof selectedSkill>(null);
   const [uninstalling, setUninstalling] = useState(false);
-
-  // Hand-rolled confirm overlay: dismiss on Escape like a real dialog.
-  useEffect(() => {
-    if (!uninstallConfirmSkill) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setUninstallConfirmSkill(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [uninstallConfirmSkill]);
 
   // Skills list (for finding related skills)
   const [skills, setSkills] = useState<Array<{ name: string; description: string; version: string; source: string; sourceUrl: string; ref: string; path: string; trigger: string; scope: string[] }>>([]);
@@ -872,62 +868,46 @@ export function SkillDetailView({ className }: { className?: string }) {
       </div>
 
       {/* Uninstall confirmation modal */}
-      {uninstallConfirmSkill && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setUninstallConfirmSkill(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setUninstallConfirmSkill(null);
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('activity:skillDetail.uninstallSkillHeading')}
-            className="flex max-h-[calc(100dvh-2rem)] w-[380px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl"
-          >
-            <div className="flex shrink-0 items-center justify-between border-b border-border/70 p-4">
-              <div className="flex items-center gap-2">
-                <Trash2 className="h-4 w-4 text-destructive" />
-                <span className="font-semibold text-sm">{t('activity:skillDetail.uninstallSkillHeading')}</span>
-              </div>
-              <button type="button" onClick={() => setUninstallConfirmSkill(null)} aria-label={t('common:action.close')} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
-                <X className="h-4 w-4" />
-              </button>
+      <Dialog open={!!uninstallConfirmSkill} onOpenChange={(v) => { if (!v) setUninstallConfirmSkill(null); }}>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[380px] max-w-[90vw] flex-col gap-0 overflow-hidden p-0" showCloseButton={false}>
+          <DialogHeader className="flex shrink-0 items-center justify-between border-b border-border/70 p-4 sm:flex-row sm:justify-between sm:space-y-0">
+            <div className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-destructive" />
+              <DialogTitle className="font-semibold text-sm">{t('activity:skillDetail.uninstallSkillHeading')}</DialogTitle>
             </div>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
-              <p className="text-sm">{t('activity:skillDetail.uninstallConfirm', { name: uninstallConfirmSkill.name })}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('activity:skillDetail.uninstallRemovePath', {
-                  path: uninstallConfirmSkill.source === 'user' ? '~/.wrongstack/skills' : '.wrongstack/skills',
-                })}
-              </p>
-            </div>
-            <div className="flex shrink-0 justify-end gap-2 border-t border-border/70 bg-muted/20 p-4">
-              <button
-                type="button"
-                onClick={() => setUninstallConfirmSkill(null)}
-                disabled={uninstalling}
-                className="rounded-md border border-border/70 px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-50"
-              >
-                {t('common:action.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUninstallSkill(uninstallConfirmSkill)}
-                disabled={uninstalling}
-                className="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {uninstalling && <Loader2 className="h-3 w-3 animate-spin" />}
-                {t('activity:skillDetail.uninstallAction')}
-              </button>
-            </div>
+            <button type="button" onClick={() => setUninstallConfirmSkill(null)} aria-label={t('common:action.close')} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+            <p className="text-sm">{uninstallConfirmSkill && t('activity:skillDetail.uninstallConfirm', { name: uninstallConfirmSkill.name })}</p>
+            <p className="text-xs text-muted-foreground">
+              {uninstallConfirmSkill && t('activity:skillDetail.uninstallRemovePath', {
+                path: uninstallConfirmSkill.source === 'user' ? '~/.wrongstack/skills' : '.wrongstack/skills',
+              })}
+            </p>
           </div>
-        </div>
-      )}
+          <div className="flex shrink-0 justify-end gap-2 border-t border-border/70 bg-muted/20 p-4">
+            <button
+              type="button"
+              onClick={() => setUninstallConfirmSkill(null)}
+              disabled={uninstalling}
+              className="rounded-md border border-border/70 px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              {t('common:action.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => uninstallConfirmSkill && handleUninstallSkill(uninstallConfirmSkill)}
+              disabled={uninstalling}
+              className="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {uninstalling && <Loader2 className="h-3 w-3 animate-spin" />}
+              {t('activity:skillDetail.uninstallAction')}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
