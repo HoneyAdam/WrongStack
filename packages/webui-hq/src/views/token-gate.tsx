@@ -116,7 +116,6 @@ function TokenForm({ hadToken }: { hadToken: boolean }): React.ReactElement {
       <input
         className="hq-token-input"
         type="password"
-        autoFocus
         placeholder="browser token"
         value={value}
         onChange={(ev) => setValue(ev.target.value)}
@@ -184,7 +183,6 @@ function PasswordForm(): React.ReactElement {
       <input
         className="hq-token-input"
         type="password"
-        autoFocus
         placeholder="password"
         value={value}
         onChange={(ev) => setValue(ev.target.value)}
