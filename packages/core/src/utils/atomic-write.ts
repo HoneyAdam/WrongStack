@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import { watch as watchDir } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
 import * as path from 'node:path';
 import { FsError } from '../types/errors.js';
 
@@ -109,7 +111,7 @@ export async function withFileLock<T>(
         await fs.mkdir(dir, { recursive: true });
         continue;
       }
-      if (code !== 'EEXIST') throw err;
+      if (code !== 'EEXIST' && code !== 'EPERM') throw err;
       try {
         const stat = await fs.stat(lockPath);
         if (Date.now() - stat.mtimeMs > staleMs) {
@@ -119,7 +121,8 @@ export async function withFileLock<T>(
       } catch {
         continue;
       }
-      if (Date.now() - started >= timeoutMs) {
+      const elapsed = Date.now() - started;
+      if (elapsed >= timeoutMs) {
         throw new FsError({
           message: `Timed out waiting for file lock: ${targetPath}`,
           code: 'FS_ATOMIC_WRITE_FAILED',
@@ -127,7 +130,10 @@ export async function withFileLock<T>(
           context: { timeoutMs },
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      // Wait for the lock to be released, using a filesystem watcher for
+      // nearly-instant wake-up instead of polling. The watcher is best-effort:
+      // a safety timeout fires at most every 100ms so we don't busy-wait.
+      await waitForLockRelease(lockPath, timeoutMs - elapsed);
     }
   }
 
@@ -145,6 +151,73 @@ export async function withFileLock<T>(
       // ignore
     }
   }
+}
+
+/**
+ * Watch a lock file's parent directory for the file being removed (unlinked),
+ * which signals that the lock holder has released it. A safety timeout caps
+ * the wait so the overall `withFileLock` timeout is always respected.
+ *
+ * Uses a bounded safety interval (up to 100ms) so even if `fs.watch` is
+ * unavailable or misses the event, we never busy-wait at 25ms fixed polling.
+ */
+async function waitForLockRelease(lockPath: string, remainingMs: number): Promise<void> {
+  const parentDir = path.dirname(lockPath);
+  const lockName = path.basename(lockPath);
+  const intervalMs = Math.min(remainingMs, 100);
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let watcher: FSWatcher | null = null;
+
+    // Safety timer — always fires, even if fs.watch is unavailable.
+    const timer = setTimeout(() => {
+      settled = true;
+      watcher?.close();
+      resolve();
+    }, intervalMs);
+
+    try {
+      watcher = watchDir(parentDir, (eventType, filename) => {
+        if (settled) return;
+        // 'rename' fires on unlink on most platforms; 'change' is a
+        // conservative fallback for environments that only emit 'change'.
+        if (filename === lockName && (eventType === 'rename' || eventType === 'change')) {
+          settled = true;
+          clearTimeout(timer);
+          watcher?.close();
+          resolve();
+        }
+      });
+    } catch {
+      // fs.watch not supported (e.g. some container environments, network
+      // filesystems). Clear the safety timer and fall back to a single
+      // short delay — the caller's loop will retry on the next iteration.
+      clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        setTimeout(resolve, Math.min(remainingMs, 25));
+      }
+      return;
+    }
+
+    // Re-check lock existence after setting up the watch to close the race
+    // where the lock was released between our last EEXIST check and now.
+    fs.access(lockPath).then(
+      () => {
+        // Lock still exists — the watch (or safety timer) will resolve.
+      },
+      () => {
+        // Lock was already released — respond immediately.
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          watcher?.close();
+          resolve();
+        }
+      },
+    );
+  });
 }
 
 // On Windows, fs.rename over an existing file can fail with EPERM/EBUSY/EACCES

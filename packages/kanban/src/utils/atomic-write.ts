@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import { watch as watchDir } from 'node:fs';
+import type { FSWatcher } from 'node:fs';
 import * as path from 'node:path';
 
 export interface AtomicWriteOptions {
@@ -116,7 +118,7 @@ export async function withFileLock<T>(
         await fs.mkdir(dir, { recursive: true });
         continue;
       }
-      if (code !== 'EEXIST') throw err;
+      if (code !== 'EEXIST' && code !== 'EPERM') throw err;
       try {
         const stat = await fs.stat(lockPath);
         if (Date.now() - stat.mtimeMs > staleMs) {
@@ -126,7 +128,8 @@ export async function withFileLock<T>(
       } catch {
         continue;
       }
-      if (Date.now() - started >= timeoutMs) {
+      const elapsed = Date.now() - started;
+      if (elapsed >= timeoutMs) {
         throw new FsError({
           message: `Timed out waiting for file lock: ${targetPath}`,
           code: 'FS_ATOMIC_WRITE_FAILED',
@@ -134,7 +137,7 @@ export async function withFileLock<T>(
           context: { timeoutMs },
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await waitForLockRelease(lockPath, timeoutMs - elapsed);
     }
   }
 
@@ -152,6 +155,62 @@ export async function withFileLock<T>(
       // ignore
     }
   }
+}
+
+/**
+ * Watch a lock file's parent directory for the file being removed (unlinked),
+ * which signals that the lock holder has released it. A safety timeout caps
+ * the wait so the overall `withFileLock` timeout is always respected.
+ *
+ * Uses a bounded safety interval (up to 100ms), so even if `fs.watch` is
+ * unavailable or misses the event, we never busy-wait at 25ms fixed polling.
+ */
+async function waitForLockRelease(lockPath: string, remainingMs: number): Promise<void> {
+  const parentDir = path.dirname(lockPath);
+  const lockName = path.basename(lockPath);
+  const intervalMs = Math.min(remainingMs, 100);
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let watcher: FSWatcher | null = null;
+
+    const timer = setTimeout(() => {
+      settled = true;
+      watcher?.close();
+      resolve();
+    }, intervalMs);
+
+    try {
+      watcher = watchDir(parentDir, (eventType, filename) => {
+        if (settled) return;
+        if (filename === lockName && (eventType === 'rename' || eventType === 'change')) {
+          settled = true;
+          clearTimeout(timer);
+          watcher?.close();
+          resolve();
+        }
+      });
+    } catch {
+      clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        setTimeout(resolve, Math.min(remainingMs, 25));
+      }
+      return;
+    }
+
+    fs.access(lockPath).then(
+      () => {},
+      () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          watcher?.close();
+          resolve();
+        }
+      },
+    );
+  });
 }
 
 const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY']);
