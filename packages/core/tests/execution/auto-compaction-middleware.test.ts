@@ -266,7 +266,7 @@ describe('AutoCompactionMiddleware', () => {
 
     expect(ran).toBe(false);
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatchObject({ fatal: true, tokens: 9500, load: 0.95 });
+    expect(failures[0]).toMatchObject({ fatal: true, tokens: 9500, load: 9500 / 9000 });
   });
 
   it('can continue when hard compaction remains above the hard threshold if configured', async () => {

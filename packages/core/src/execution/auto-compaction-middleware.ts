@@ -374,7 +374,8 @@ export class AutoCompactionMiddleware {
       ctx.clearFileTracking();
 
       const afterTokens = report.fullRequestTokensAfter ?? report.after;
-      const afterLoad = this._maxContext > 0 ? afterTokens / this._maxContext : 0;
+      const afterBudget = computeContextWindowBudget(ctx, afterTokens, this._maxContext);
+      const afterLoad = afterBudget.load;
       const stillHard = afterLoad >= pressure.hardThreshold;
       const fatal =
         stillHard &&
