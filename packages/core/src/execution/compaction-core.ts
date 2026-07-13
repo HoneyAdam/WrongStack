@@ -344,7 +344,13 @@ export function eliseOldToolResults(
     }
     if (newContent) {
       next ??= messages.slice() as Message[];
-      next[i] = { ...msg, content: newContent };
+      // Clear the cached token estimate — content was replaced with
+      // shorter elision markers but the spread preserves the original
+      // `_estTokens` (set by ConversationState.appendMessage). Without
+      // this, token estimates report the pre-elision size, making
+      // compaction appear ineffective and risking false
+      // AGENT_CONTEXT_OVERFLOW.
+      next[i] = { ...msg, content: newContent, _estTokens: undefined };
       changed = true;
     }
 
