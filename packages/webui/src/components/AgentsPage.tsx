@@ -368,7 +368,7 @@ function AgentDetailPanel({
           </div>
         ) : active ? (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
-            <Loader2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50 animate-spin" />
+            <Loader2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground/70 animate-spin" />
             <span className="text-xs text-muted-foreground">{t('activity:fleet.waitingOutput')}</span>
           </div>
         ) : null}
@@ -501,7 +501,7 @@ function AgentRow({
       )}
     >
       {/* Selection indicator */}
-      <span className={cn('shrink-0', selected ? 'text-primary' : 'text-muted-foreground/30')}>
+      <span className={cn('shrink-0', selected ? 'text-primary' : 'text-muted-foreground/60')}>
         {selected ? <ChevronRight className="h-4 w-4" /> : <span className="w-4 inline-block" />}
       </span>
 
@@ -516,7 +516,7 @@ function AgentRow({
       {/* Session badge — shows which session/project the agent belongs to */}
       {'sessionId' in agent && agent.sessionId && (
         <span
-          className="shrink-0 text-[9px] font-mono text-muted-foreground/50 bg-muted/40 px-1 py-0.5 rounded select-none"
+          className="shrink-0 text-[9px] font-mono text-muted-foreground/70 bg-muted/40 px-1 py-0.5 rounded select-none"
           title={`${t('activity:agents.sessionTitle', { sid: agent.sessionId })}${projectName ? t('activity:agents.projectSuffix', { name: projectName }) : ''}`}
         >
           {shortSessionId(agent.sessionId)}
@@ -780,7 +780,7 @@ export function AgentsPage({
                 <Bot className="h-4 w-4 text-primary" />
                 {t('activity:agents.agentsLive')}
               </h2>
-              <span className="text-muted-foreground/40">│</span>
+              <span className="text-muted-foreground/65">│</span>
               {counts.running > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-success font-medium">
                   <span className="led led-pulse text-success" />
@@ -824,14 +824,14 @@ export function AgentsPage({
 
             {/* Navigation hint */}
             <div className="flex items-center gap-2">
-              <span className="text-[9px] text-muted-foreground/60">
+              <span className="text-[9px] text-muted-foreground/75">
                 {t('activity:agents.navHintJk')}
               </span>
               {selected && (
                 <button
                   type="button"
                   onClick={() => setSelectedId(null)}
-                  className="text-[9px] text-muted-foreground/60 hover:text-foreground transition-colors"
+                  className="text-[9px] text-muted-foreground/75 hover:text-foreground transition-colors"
                 >
                   {t('activity:agents.escCloseDetail')}
                 </button>
@@ -845,11 +845,11 @@ export function AgentsPage({
           {sorted.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center space-y-2">
-                <Bot className="h-8 w-8 text-muted-foreground/40 mx-auto" />
+                <Bot className="h-8 w-8 text-muted-foreground/65 mx-auto" />
                 <p className="text-sm text-muted-foreground">
                   {t('activity:agents.noAgentsRunning')}
                 </p>
-                <p className="text-xs text-muted-foreground/60">
+                <p className="text-xs text-muted-foreground/75">
                   {t('activity:fleet.agentsAppear')}
                 </p>
               </div>
@@ -877,7 +877,7 @@ export function AgentsPage({
                       <button
                         type="button"
                         key={`grp-${sid}`}
-                        className="text-[9px] text-muted-foreground/50 font-mono px-2 pt-3 pb-1 uppercase tracking-wider hover:text-muted-foreground hover:bg-muted/30 rounded transition-colors cursor-pointer w-full text-left"
+                        className="text-[9px] text-muted-foreground/70 font-mono px-2 pt-3 pb-1 uppercase tracking-wider hover:text-muted-foreground hover:bg-muted/30 rounded transition-colors cursor-pointer w-full text-left"
                         title={t('activity:agents.sessionCopyTitle', { sid })}
                         onClick={async () => {
                           try {
@@ -946,11 +946,11 @@ export function AgentsPage({
       {!selected && sorted.length > 0 && (
         <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-muted/20">
           <div className="text-center space-y-3 max-w-sm">
-            <Bot className="h-12 w-12 text-muted-foreground/30 mx-auto" />
+            <Bot className="h-12 w-12 text-muted-foreground/60 mx-auto" />
             <p className="text-sm text-muted-foreground">
               {t('activity:fleet.selectAgentDetail')}
             </p>
-            <p className="text-xs text-muted-foreground/60">
+            <p className="text-xs text-muted-foreground/75">
               {t('activity:fleet.selectAgentBody')}
             </p>
             <div className="flex items-center justify-center gap-4 pt-2">

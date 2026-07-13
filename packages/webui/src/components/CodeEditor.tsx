@@ -417,7 +417,7 @@ export function CodeEditor() {
           <p className="text-sm text-muted-foreground">
             {t('activity:codeEditor.noFilesOpen')}
           </p>
-          <p className="text-[11px] text-muted-foreground/60">
+          <p className="text-[11px] text-muted-foreground/75">
             {t('activity:codeEditor.selectToEdit')}
           </p>
         </div>

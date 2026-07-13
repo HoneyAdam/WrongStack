@@ -299,7 +299,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                   {done && <Check className="mr-0.5 inline h-3 w-3" />}
                   {t(`activity:sddWizard.${PHASE_LABEL[p]}`)}
                 </span>
-                {i < PHASE_ORDER.length - 1 && <span className="text-muted-foreground/40">→</span>}
+                {i < PHASE_ORDER.length - 1 && <span className="text-muted-foreground/65">→</span>}
               </span>
             );
           })}

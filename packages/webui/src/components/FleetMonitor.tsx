@@ -287,7 +287,7 @@ function FleetAgentDetailPanel({
           </div>
         ) : active ? (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
-            <Loader2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50 animate-spin" />
+            <Loader2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground/70 animate-spin" />
             <span className="text-xs text-muted-foreground">{t('activity:fleet.waitingOutput')}</span>
           </div>
         ) : null}
@@ -739,11 +739,11 @@ export function FleetMonitor({
         {!selectedAgent && fleetList.length > 0 && (
           <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-muted/20">
             <div className="text-center space-y-3 max-w-sm">
-              <Users className="h-12 w-12 text-muted-foreground/30 mx-auto" />
+              <Users className="h-12 w-12 text-muted-foreground/60 mx-auto" />
               <p className="text-sm text-muted-foreground">
                 {t('activity:fleet.selectAgentDetail')}
               </p>
-              <p className="text-xs text-muted-foreground/60">
+              <p className="text-xs text-muted-foreground/75">
                 {t('activity:fleet.selectAgentBody')}
               </p>
               <div className="flex items-center justify-center gap-4 pt-2">

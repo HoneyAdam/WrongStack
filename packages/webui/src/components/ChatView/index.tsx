@@ -56,7 +56,7 @@ function ToggleSwitch({
       role="switch"
       aria-checked={value}
       onClick={onChange}
-      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-foreground/80 transition-colors select-none"
+      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/75 hover:text-foreground/80 transition-colors select-none"
     >
       <span
         className={cn(
@@ -546,7 +546,7 @@ export function ChatView() {
               <Cpu className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0" />
               <span className="font-mono truncate max-w-[9rem] xl:max-w-[16rem]">
                 <span className="text-muted-foreground">{provider || t('chat:header.noProvider')}</span>
-                <span className="text-muted-foreground/40 mx-0.5">/</span>
+                <span className="text-muted-foreground/65 mx-0.5">/</span>
                 <span className="font-medium">{model || t('chat:header.noModel')}</span>
               </span>
             </button>
@@ -773,7 +773,7 @@ export function ChatView() {
         {/* Display toggles — replaces the old keyboard-shortcut hints row,
             giving the user quick control over thinking-log visibility and
             tool-call grouping without diving into Settings. */}
-        <div className="ws-display-toggles hidden max-w-6xl mx-auto px-2 pb-1.5 sm:flex items-center gap-4 text-[11px] text-muted-foreground/60 select-none overflow-x-auto">
+        <div className="ws-display-toggles hidden max-w-6xl mx-auto px-2 pb-1.5 sm:flex items-center gap-4 text-[11px] text-muted-foreground/75 select-none overflow-x-auto">
           {/* Show Thinking toggle */}
           <ToggleSwitch
             label="🧠 Thinking"

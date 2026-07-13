@@ -134,7 +134,7 @@ export const markdownComponents = {
             <FileCode2 className="h-3 w-3 text-muted-foreground" />
             <span className="font-mono text-muted-foreground font-medium">{match[1]}</span>
             {lines.length > 0 && (
-              <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+              <span className="text-[10px] text-muted-foreground/75 tabular-nums">
                 {lines.length} line{lines.length === 1 ? '' : 's'}
               </span>
             )}
@@ -147,7 +147,7 @@ export const markdownComponents = {
             {/* Line number gutter */}
             <pre
               aria-hidden
-              className="text-xs font-mono leading-[1.55] py-3 pl-3 pr-2 text-muted-foreground/40 select-none border-r border-border/30 tabular-nums text-right shrink-0"
+              className="text-xs font-mono leading-[1.55] py-3 pl-3 pr-2 text-muted-foreground/65 select-none border-r border-border/30 tabular-nums text-right shrink-0"
             >
               {lines.map((_, i) => (
                 <div key={i}>{i + 1}</div>

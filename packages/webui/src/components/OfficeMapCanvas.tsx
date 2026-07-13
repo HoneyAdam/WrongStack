@@ -1817,7 +1817,7 @@ export function OfficeMapCanvas() {
                     d.status === 'streaming' && 'text-primary',
                     d.status === 'error' && 'text-destructive',
                     d.status === 'idle' && 'text-muted-foreground',
-                    d.status === 'offline' && 'text-muted-foreground/50',
+                    d.status === 'offline' && 'text-muted-foreground/70',
                   )}
                 />
 

@@ -119,7 +119,7 @@ export function ContextBar({
             key={i}
             className={cn(
               'tabular-nums w-[0.55em] text-center',
-              b.fill > 0 ? getTextColor(clamped) : 'text-muted-foreground/30',
+              b.fill > 0 ? getTextColor(clamped) : 'text-muted-foreground/60',
             )}
           >
             {SEGMENT_FILL[b.fill] ?? ' '}

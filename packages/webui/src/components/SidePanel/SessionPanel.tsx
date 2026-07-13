@@ -297,7 +297,7 @@ export function SessionPanel() {
         </div>
         <div className="font-mono text-xs truncate">
           <span className="text-muted-foreground">{provider || '—'}</span>
-          <span className="text-muted-foreground/40 mx-1">/</span>
+          <span className="text-muted-foreground/65 mx-1">/</span>
           <span className="font-medium">{model || '—'}</span>
         </div>
       </button>

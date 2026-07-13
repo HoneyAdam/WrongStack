@@ -12,7 +12,7 @@ interface PlanItem {
 }
 
 const STATUS_CONFIG: Record<PlanItem['status'], { icon: React.ReactNode; labelKey: string; color: string }> = {
-  open: { icon: <Circle className="w-3.5 h-3.5" />, labelKey: 'statusOpen', color: 'text-muted-foreground/50' },
+  open: { icon: <Circle className="w-3.5 h-3.5" />, labelKey: 'statusOpen', color: 'text-muted-foreground/70' },
   in_progress: { icon: <Clock className="w-3.5 h-3.5 animate-spin" />, labelKey: 'statusInProgress', color: 'text-warning' },
   done: { icon: <CheckCircle2 className="w-3.5 h-3.5" />, labelKey: 'statusDone', color: 'text-success' },
 };

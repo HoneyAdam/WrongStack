@@ -401,7 +401,7 @@ export function SessionsDashboard() {
                               {a.currentTool ? (
                                 <span className="block truncate" title={a.currentTool}>{a.currentTool}</span>
                               ) : (
-                                <span className="text-muted-foreground/60">{a.status}</span>
+                                <span className="text-muted-foreground/75">{a.status}</span>
                               )}
                             </div>
                             <span className="hidden font-mono text-[10px] text-muted-foreground sm:block">

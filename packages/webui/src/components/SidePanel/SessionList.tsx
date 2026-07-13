@@ -188,16 +188,16 @@ export function SessionList({
       {historyEntries.length > 3 && (
         <div className="px-3 py-2 border-b">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/75" />
             <input
               type="text"
               value={historyQuery}
               onChange={(e) => setHistoryQuery(e.target.value)}
               placeholder={t('activity:sessions.filterPlaceholder')}
-              className="w-full pl-7 pr-7 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:bg-background focus:border-input focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+              className="w-full pl-7 pr-7 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:bg-background focus:border-input focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/70"
             />
             {historyQuery && (
-              <button type="button" onClick={() => setHistoryQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground p-0.5" title={t('activity:sessions.clearFilter')}>
+              <button type="button" onClick={() => setHistoryQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground/75 hover:text-foreground p-0.5" title={t('activity:sessions.clearFilter')}>
                 <X className="h-3 w-3" />
               </button>
             )}
@@ -226,7 +226,7 @@ export function SessionList({
               <div key={group.label} className="space-y-1">
                 <div className={cn('sticky top-0 z-[1] px-1 pb-1 text-[10px] uppercase tracking-wider font-semibold bg-card/90 backdrop-blur-sm flex items-center gap-1', group.star ? 'text-warning' : 'text-muted-foreground/80')}>
                   {group.star && <Star className="h-3 w-3 fill-current" />}
-                  {t(`activity:sessions.group.${group.label}`)} <span className="text-muted-foreground/50 font-normal normal-case ml-1">({group.rows.length})</span>
+                  {t(`activity:sessions.group.${group.label}`)} <span className="text-muted-foreground/70 font-normal normal-case ml-1">({group.rows.length})</span>
                 </div>
                 {group.rows.map((entry) => (
                   <div key={entry.id} className={cn('group relative rounded-md border text-sm transition-colors', entry.isCurrent ? 'bg-primary/5 border-primary/40' : 'bg-card border-border/60 hover:bg-muted/40 hover:border-primary/40')}>

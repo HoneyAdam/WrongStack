@@ -52,7 +52,7 @@ export function ToolInputView({ input }: { input: unknown }) {
               className="flex items-baseline gap-2 hover:bg-muted/30 rounded px-1 -mx-1"
               aria-expanded={open}
             >
-              <span className="text-muted-foreground/60 text-[10px]">{open ? '▾' : '▸'}</span>
+              <span className="text-muted-foreground/75 text-[10px]">{open ? '▾' : '▸'}</span>
               <span className="text-muted-foreground">{k}:</span>
               <span className="text-primary">{summary}</span>
             </button>

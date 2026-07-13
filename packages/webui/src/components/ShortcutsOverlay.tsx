@@ -133,7 +133,7 @@ export function ShortcutsOverlay() {
                     <span className="flex items-center gap-1 shrink-0">
                       {s.keys.map((k, ki) => (
                         <span key={k} className="flex items-center gap-1">
-                          {ki > 0 && <span className="text-muted-foreground/40 text-xs">+</span>}
+                          {ki > 0 && <span className="text-muted-foreground/65 text-xs">+</span>}
                           <kbd className="font-mono text-[10px] border rounded px-1.5 py-0.5 bg-background">
                             {k}
                           </kbd>

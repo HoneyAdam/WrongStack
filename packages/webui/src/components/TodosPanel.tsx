@@ -115,7 +115,7 @@ export function TodosPanel(): React.ReactElement | null {
             <Circle
               className={cn(
                 'w-3.5 h-3.5 transition-colors',
-                'text-muted-foreground/40 group-hover:text-success',
+                'text-muted-foreground/65 group-hover:text-success',
               )}
             />
           )}

@@ -146,7 +146,7 @@ export function NextStepsBar({
                 className={`h-3.5 w-3.5 shrink-0 transition-all ${
                   isAutoSelected
                     ? 'text-primary'
-                    : 'text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5'
+                    : 'text-muted-foreground/75 group-hover:text-primary group-hover:translate-x-0.5'
                 }`}
               />
               {/* Text */}

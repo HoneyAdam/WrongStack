@@ -589,7 +589,7 @@ export function FileExplorer() {
             <Minimize2 className="h-3 w-3" />
             <span>{t('activity:fileExplorer.collapse')}</span>
           </button>
-          <span className="ml-auto text-[9px] text-muted-foreground/50 tabular-nums">
+          <span className="ml-auto text-[9px] text-muted-foreground/70 tabular-nums">
             {t('activity:fileExplorer.folders', { count: dirCount })}
           </span>
         </div>
@@ -636,7 +636,7 @@ export function FileExplorer() {
               return (
               <span key={crumb.path} className="flex items-center gap-0.5 shrink-0">
                 {i > 0 && (
-                  <span className="text-[9px] text-muted-foreground/40 select-none">{pathSep}</span>
+                  <span className="text-[9px] text-muted-foreground/65 select-none">{pathSep}</span>
                 )}
                 <button
                   type="button"
@@ -657,7 +657,7 @@ export function FileExplorer() {
             })}
             {/* ── File/folder counter badge ── */}
             {tree.length > 0 && (
-              <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/50 tabular-nums pl-2">
+              <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/70 tabular-nums pl-2">
                 {cwdStats.files > 0 && t('activity:fileExplorer.filesSuffix', { count: cwdStats.files })}
                 {cwdStats.files > 0 && cwdStats.dirs > 0 && ', '}
                 {cwdStats.dirs > 0 && t('activity:fileExplorer.folders', { count: cwdStats.dirs })}
@@ -680,7 +680,7 @@ export function FileExplorer() {
                 return segments[segments.length - 1] ?? activeFilePath;
               })()}
             </span>
-            <span className="ml-auto text-[8px] text-muted-foreground/40 shrink-0">
+            <span className="ml-auto text-[8px] text-muted-foreground/65 shrink-0">
               {t('activity:fileExplorer.goToDir')}
             </span>
           </button>
@@ -698,7 +698,7 @@ export function FileExplorer() {
           >
             <CornerLeftUp className="h-3.5 w-3.5 shrink-0" />
             <span>..</span>
-            <span className="text-[9px] text-muted-foreground/50 ml-auto">
+            <span className="text-[9px] text-muted-foreground/70 ml-auto">
               {t('activity:fileExplorer.parentDirectory')}
             </span>
           </button>
@@ -774,7 +774,7 @@ export function FileExplorer() {
             {t('activity:fileExplorer.openInFileManager')}
           </button>
           <div className="border-t border-border/50 mt-0.5 pt-0.5">
-            <div className="px-3 py-1 text-[9px] text-muted-foreground/50 truncate max-w-[200px]">
+            <div className="px-3 py-1 text-[9px] text-muted-foreground/70 truncate max-w-[200px]">
               {contextMenu.crumb.absPath}
             </div>
           </div>
@@ -810,7 +810,7 @@ export function FileExplorer() {
             {t('activity:fileExplorer.copyPath')}
           </button>
           <div className="border-t border-border/50 mt-0.5 pt-0.5">
-            <div className="px-3 py-1 text-[9px] text-muted-foreground/50 truncate max-w-[200px]">
+            <div className="px-3 py-1 text-[9px] text-muted-foreground/70 truncate max-w-[200px]">
               {nodeMenu.node.path}
             </div>
           </div>

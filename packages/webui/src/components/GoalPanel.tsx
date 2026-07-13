@@ -193,7 +193,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
                     {d.status === 'done' ? (
                       <CheckCircle2 className="h-3 w-3 text-success mt-0.5 shrink-0" />
                     ) : (
-                      <Circle className="h-3 w-3 text-muted-foreground/50 mt-0.5 shrink-0" />
+                      <Circle className="h-3 w-3 text-muted-foreground/70 mt-0.5 shrink-0" />
                     )}
                     <span
                       className={cn(

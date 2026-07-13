@@ -203,7 +203,7 @@ export function QuickModelSwitcher() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate">
                     <span className="text-muted-foreground">{c.provider}</span>
-                    <span className="mx-1 text-muted-foreground/40">·</span>
+                    <span className="mx-1 text-muted-foreground/65">·</span>
                     <span>{c.modelName}</span>
                   </div>
                   {c.contextWindow && (

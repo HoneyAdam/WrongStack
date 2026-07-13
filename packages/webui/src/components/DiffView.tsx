@@ -101,7 +101,7 @@ const DiffRows = memo(function DiffRows({
                 'select-none w-4 shrink-0 text-center',
                 r.kind === 'add' && 'text-success',
                 r.kind === 'del' && 'text-destructive',
-                (r.kind === 'ctx' || r.kind === 'meta') && 'text-muted-foreground/50',
+                (r.kind === 'ctx' || r.kind === 'meta') && 'text-muted-foreground/70',
               )}
             >
               {r.kind === 'add' ? '+' : r.kind === 'del' ? '-' : r.kind === 'meta' ? '@' : ' '}

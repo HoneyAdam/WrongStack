@@ -94,7 +94,7 @@ export function fileIconColor(
     if (lower === 'tests' || lower === 'test' || lower === '__tests__')
       return 'text-emerald-500/70 dark:text-emerald-400/70';
     if (lower === 'dist' || lower === 'build' || lower === '.next')
-      return 'text-muted-foreground/50';
+      return 'text-muted-foreground/70';
     return 'text-amber-500/70 dark:text-amber-400/70';
   }
 
@@ -143,7 +143,7 @@ export function fileIconColor(
 
   // ── Config files ──
   if (/^(gitignore|editorconfig|prettierrc|eslintrc)$/.test(ext))
-    return 'text-muted-foreground/60';
+    return 'text-muted-foreground/75';
 
   return 'text-muted-foreground';
 }

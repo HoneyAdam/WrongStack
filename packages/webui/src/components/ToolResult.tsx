@@ -65,7 +65,7 @@ function CollapsibleText({
         <div className="flex max-h-96 overflow-auto">
           <pre
             aria-hidden
-            className="text-xs font-mono leading-[1.4] py-2 pl-2 pr-2 text-muted-foreground/50 select-none border-r border-border/40 bg-muted/20 tabular-nums text-right whitespace-pre shrink-0"
+            className="text-xs font-mono leading-[1.4] py-2 pl-2 pr-2 text-muted-foreground/70 select-none border-r border-border/40 bg-muted/20 tabular-nums text-right whitespace-pre shrink-0"
           >
             {lines.map((_, i) => `${i + 1}`).join('\n')}
           </pre>

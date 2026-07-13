@@ -287,7 +287,7 @@ export function MailboxPanel({ className }: { className?: string }) {
                 </div>
               ))}
               {agents.filter((a) => !a.online).length > 0 && (
-                <div className="text-[10px] text-muted-foreground/50 mt-0.5">
+                <div className="text-[10px] text-muted-foreground/70 mt-0.5">
                   {t('activity:mailbox.offlineCount', { count: agents.filter((a) => !a.online).length })}
                 </div>
               )}

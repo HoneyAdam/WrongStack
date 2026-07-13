@@ -284,7 +284,7 @@ export function AgentDetail({
               <span className="text-xs text-muted-foreground">
                 {t('activity:fleet.waitingOutput')}
               </span>
-              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+              <p className="text-[10px] text-muted-foreground/75 mt-0.5">
                 {t('activity:fleet.outputHint')}
               </p>
             </div>

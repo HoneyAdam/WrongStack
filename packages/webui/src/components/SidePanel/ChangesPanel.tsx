@@ -59,7 +59,7 @@ function FileRow({
         <span className={cn('min-w-0 truncate', file.status === 'D' && 'line-through opacity-70')}>
           {name}
         </span>
-        {dir && <span className="min-w-0 flex-1 truncate text-muted-foreground/60">{dir}</span>}
+        {dir && <span className="min-w-0 flex-1 truncate text-muted-foreground/75">{dir}</span>}
       </span>
       <span className="shrink-0 font-mono text-[10px] tabular-nums">
         {file.added > 0 && <span className="text-success">+{file.added}</span>}

@@ -256,7 +256,7 @@ export const MessageBubble = memo(function MessageBubble({
             className={cn('flex items-center gap-2 text-sm font-medium cursor-pointer select-none', 'hover:bg-muted/50 rounded-lg px-2 py-1 -mx-2 transition-colors', message.isError ? 'text-destructive' : 'text-foreground')}
             aria-expanded={!!expandedTools[message.id]}
             title={tooltip}>
-            <span className="text-muted-foreground/50">{expandedTools[message.id] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}</span>
+            <span className="text-muted-foreground/70">{expandedTools[message.id] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}</span>
             <ToolIcon className="h-3 w-3" style={{ color: toolColor }} />
             <span className="font-mono" style={{ color: toolColor }}>{message.toolName}</span>
             {message.toolResult === undefined ? <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" aria-hidden /> : message.isError ? <XCircle className="h-3 w-3 text-destructive" /> : <CheckCircle2 className="h-3 w-3 text-success" />}
@@ -351,7 +351,7 @@ export const MessageBubble = memo(function MessageBubble({
                   className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-left text-sm font-medium text-primary"
                   aria-expanded={thinkingExpanded}
                 >
-                  <span className="text-muted-foreground/60">
+                  <span className="text-muted-foreground/75">
                     {thinkingExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </span>
                   <Brain className="h-3.5 w-3.5" />
@@ -436,11 +436,11 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         <div className={cn('flex max-w-full flex-wrap items-center gap-2 px-1', isUser ? 'flex-row-reverse' : 'flex-row')}>
-          <span className="text-xs text-muted-foreground/50">{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <span className="text-xs text-muted-foreground/70">{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           {/* ── Separator ── */}
           <span className="w-px h-3 bg-border/60 shrink-0" aria-hidden />
           {message.runSummary && (
-            <span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums"
+            <span className="text-[10px] text-muted-foreground/75 font-mono tabular-nums"
               title={[t('activity:message.rsIterations', { n: message.runSummary.iterations }), t('activity:message.rsTools', { n: message.runSummary.tools }), t('activity:message.rsElapsed', { s: `${(message.runSummary.durationMs / 1000).toFixed(2)}s` }), message.runSummary.costDelta > 0 ? t('activity:message.rsCost', { c: message.runSummary.costDelta.toFixed(4) }) : ''].filter(Boolean).join('  ·  ')}>
               {message.runSummary.iterations} iter{message.runSummary.tools > 0 ? ` · ${message.runSummary.tools} tool${message.runSummary.tools === 1 ? '' : 's'}` : ''} · {message.runSummary.durationMs < 60_000 ? `${(message.runSummary.durationMs / 1000).toFixed(1)}s` : `${Math.floor(message.runSummary.durationMs / 60_000)}m ${Math.floor((message.runSummary.durationMs % 60_000) / 1000)}s`}{message.runSummary.costDelta > 0 ? ` · ${message.runSummary.costDelta >= 0.01 ? message.runSummary.costDelta.toFixed(4) : message.runSummary.costDelta.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}` : ''}
             </span>
@@ -450,7 +450,7 @@ export const MessageBubble = memo(function MessageBubble({
             const dollars = (u.input * inputCost + u.output * outputCost + (u.cacheRead ?? 0) * cacheReadCost) / 1_000_000;
             const haveCost = inputCost > 0 || outputCost > 0;
             const dollarStr = dollars >= 0.01 ? `${dollars.toFixed(4)}` : dollars > 0 ? `${dollars.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}` : '';
-            return (<span className="text-[10px] text-muted-foreground/60 font-mono tabular-nums" title={[t('activity:message.useInput', { n: u.input.toLocaleString() }), t('activity:message.useOutput', { n: u.output.toLocaleString() }), u.cacheRead ? t('activity:message.useCacheRead', { n: u.cacheRead.toLocaleString() }) : '', haveCost ? t('activity:message.useCost', { c: dollarStr }) : ''].filter(Boolean).join('  ·  ')}>
+            return (<span className="text-[10px] text-muted-foreground/75 font-mono tabular-nums" title={[t('activity:message.useInput', { n: u.input.toLocaleString() }), t('activity:message.useOutput', { n: u.output.toLocaleString() }), u.cacheRead ? t('activity:message.useCacheRead', { n: u.cacheRead.toLocaleString() }) : '', haveCost ? t('activity:message.useCost', { c: dollarStr }) : ''].filter(Boolean).join('  ·  ')}>
               {u.input.toLocaleString()}→{u.output.toLocaleString()}{u.cacheRead ? ` · ${u.cacheRead.toLocaleString()} ↺` : ''}{haveCost && dollarStr ? ` · ${dollarStr}` : ''}
             </span>);
           })()}

@@ -18,7 +18,7 @@ interface TaskItem {
 }
 
 const STATUS_CONFIG: Record<TaskItem['status'], { icon: React.ReactNode; labelKey: string; color: string }> = {
-  pending: { icon: <Circle className="w-3.5 h-3.5" />, labelKey: 'statusPending', color: 'text-muted-foreground/50' },
+  pending: { icon: <Circle className="w-3.5 h-3.5" />, labelKey: 'statusPending', color: 'text-muted-foreground/70' },
   in_progress: { icon: <Clock className="w-3.5 h-3.5 animate-spin" />, labelKey: 'statusInProgress', color: 'text-warning' },
   blocked: { icon: <Pause className="w-3.5 h-3.5" />, labelKey: 'statusBlocked', color: 'text-warning' },
   failed: { icon: <XCircle className="w-3.5 h-3.5" />, labelKey: 'statusFailed', color: 'text-destructive' },

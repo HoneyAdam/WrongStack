@@ -141,7 +141,7 @@ export function WelcomeScreen({ promptCards = DEFAULT_PROMPT_CARDS }: WelcomeScr
               </p>
             )}
             {cwd && (
-              <p className="truncate text-[11px] text-muted-foreground/60 font-mono" title={cwd}>
+              <p className="truncate text-[11px] text-muted-foreground/75 font-mono" title={cwd}>
                 {t('setup:welcome.workingDirectory', { cwd })}
               </p>
             )}
@@ -318,7 +318,7 @@ export function WelcomeScreen({ promptCards = DEFAULT_PROMPT_CARDS }: WelcomeScr
                           {entry.provider}/{entry.model}
                         </span>
                         {entry.tokenTotal > 0 && (
-                          <span className="text-[10px] font-mono text-muted-foreground/50 tabular-nums">
+                          <span className="text-[10px] font-mono text-muted-foreground/70 tabular-nums">
                             {entry.tokenTotal.toLocaleString()} tok
                           </span>
                         )}
@@ -326,7 +326,7 @@ export function WelcomeScreen({ promptCards = DEFAULT_PROMPT_CARDS }: WelcomeScr
                     </div>
                     <ArrowRight
                       className={cn(
-                        'h-3 w-3 shrink-0 text-muted-foreground/30',
+                        'h-3 w-3 shrink-0 text-muted-foreground/60',
                         'group-hover/sess:text-primary/50 group-hover/sess:translate-x-0.5',
                         'transition-all duration-200',
                       )}

@@ -335,7 +335,7 @@ export function AutoPhaseView({ onClose }: { onClose: () => void }): React.React
               onChange={(e) => setGoal(e.target.value)}
               placeholder={t('activity:autoPhase.startPlaceholder')}
               rows={5}
-              className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/50"
+              className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/70"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();

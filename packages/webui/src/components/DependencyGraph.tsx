@@ -87,7 +87,7 @@ export function DependencyGraph({ columns, onTaskClick }: DependencyGraphProps):
               </div>
             </div>
             {ci < columns.length - 1 && (
-              <div className="flex h-full items-center pt-8 text-muted-foreground/60">
+              <div className="flex h-full items-center pt-8 text-muted-foreground/75">
                 <ChevronRight className="h-5 w-5" />
               </div>
             )}

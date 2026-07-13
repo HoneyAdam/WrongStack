@@ -627,7 +627,7 @@ export function SkillDetailView({ className }: { className?: string }) {
               className={cn(
                 'rounded p-1 transition-colors',
                 historyIndex <= 0
-                  ? 'text-muted-foreground/40 cursor-not-allowed'
+                  ? 'text-muted-foreground/65 cursor-not-allowed'
                   : 'hover:bg-accent text-muted-foreground cursor-pointer',
               )}
               title={t('activity:skillDetail.backTitle')}
@@ -641,7 +641,7 @@ export function SkillDetailView({ className }: { className?: string }) {
               className={cn(
                 'rounded p-1 transition-colors',
                 historyIndex >= navHistory.length - 1
-                  ? 'text-muted-foreground/40 cursor-not-allowed'
+                  ? 'text-muted-foreground/65 cursor-not-allowed'
                   : 'hover:bg-accent text-muted-foreground cursor-pointer',
               )}
               title={t('activity:skillDetail.forwardTitle')}
@@ -651,7 +651,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             <div className="flex items-center gap-0.5 overflow-x-auto text-xs">
               {navHistory.map((skill, idx) => (
                 <span key={skill.name + idx} className="flex items-center shrink-0">
-                  {idx > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/40 mx-0.5 shrink-0" />}
+                  {idx > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/65 mx-0.5 shrink-0" />}
                   <button
                     type="button"
                     onClick={() => {
