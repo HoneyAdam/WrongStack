@@ -139,7 +139,7 @@ export function PhasePanel({
             >
               {/* Phase Header */}
               <div className="flex items-start gap-2">
-                <span className={cn('mt-0.5', status.color)} aria-label={phase.status === 'running' ? t('common:status.running') : undefined}>{status.icon}</span>
+                <span className={cn('mt-0.5', status.color)} role="img" aria-label={phase.status === 'running' ? t('common:status.running') : undefined}>{status.icon}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <div className={cn('w-1.5 h-1.5 rounded-full', PRIORITY_DOT[phase.priority])} />

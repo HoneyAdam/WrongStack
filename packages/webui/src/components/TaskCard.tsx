@@ -107,7 +107,7 @@ export function TaskCard({
     >
       {/* Header */}
       <div className="flex items-start gap-2">
-        <span className={cn('mt-0.5', status.color)} aria-label={running ? t('common:status.inProgress') : undefined}>{status.icon}</span>
+        <span className={cn('mt-0.5', status.color)} role="img" aria-label={running ? t('common:status.inProgress') : undefined}>{status.icon}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium">{task.title}</span>

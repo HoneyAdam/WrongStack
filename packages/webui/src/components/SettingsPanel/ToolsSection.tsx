@@ -206,6 +206,7 @@ export function ToolsSection(): ReactElement {
         <div className="relative overflow-hidden rounded-lg border border-border/70 bg-background/35 shadow-inner">
           <div
             className="max-h-[min(58dvh,660px)] space-y-2 overflow-y-scroll p-2 pr-3 [scrollbar-gutter:stable]"
+            role="list"
             aria-label="Tools list"
           >
             {filtered.map((tool) => (

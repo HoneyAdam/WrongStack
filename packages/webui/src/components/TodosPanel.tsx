@@ -96,7 +96,7 @@ export function TodosPanel(): React.ReactElement | null {
               ? 'bg-success/5'
               : 'bg-background',
         )}
-        role={isToggleable ? 'button' : undefined}
+        role="button"
         aria-label={isToggleable ? t('activity:todos.toggleAria', { content: todo.content }) : undefined}
         tabIndex={isToggleable ? 0 : undefined}
         onKeyDown={(e) => {

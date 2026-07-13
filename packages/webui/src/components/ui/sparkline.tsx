@@ -35,7 +35,7 @@ export function SparklineChart({ bins, className }: SparklineChartProps) {
   // Don't render anything for a truly idle agent — avoids "▁▁▁" sparkles
   if (isEmpty) {
     return (
-      <span className={className} aria-label={t('common:sparkline.noActivity')} title={t('common:sparkline.noActivityYet')}>
+      <span role="img" className={className} aria-label={t('common:sparkline.noActivity')} title={t('common:sparkline.noActivityYet')}>
         {'—'}
       </span>
     );
@@ -43,6 +43,7 @@ export function SparklineChart({ bins, className }: SparklineChartProps) {
 
   return (
     <span
+      role="img"
       className={className}
       aria-label={t('common:sparkline.activityMax', { count: maxCount })}
       title={t('common:sparkline.activityPeak', { count: maxCount })}
