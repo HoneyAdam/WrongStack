@@ -62,7 +62,9 @@ const REQUIRED_SOURCE_LITERALS = [
   // file or moving the literal elsewhere trips the guard.
   { file: 'packages/core/src/coordination/mailbox-types.ts', literal: "'http'" },
   { file: 'packages/core/src/coordination/mailbox-types.ts', literal: "'cli' | 'webui' | 'mcp' | 'acp' | 'http'" },
-  { file: 'packages/core/src/hq/protocol.ts', literal: "'cli' | 'webui' | 'mcp' | 'acp' | 'http'" },
+  // Moved from hq/protocol.ts into the hq/protocol/ domain split (R12): the
+  // HQ mailbox source union now lives with the HqMailbox* types in mailbox.ts.
+  { file: 'packages/core/src/hq/protocol/mailbox.ts', literal: "'cli' | 'webui' | 'mcp' | 'acp' | 'http'" },
 ];
 
 const REQUIRED_HEALTHZ_BEFORE_AUTH = {

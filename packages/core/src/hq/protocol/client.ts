@@ -1,0 +1,88 @@
+import type { HqEventEnvelope, HqProtocolVersion } from './core.js';
+import type { HqProjectIdentity, HqProjectStatus } from './project.js';
+import type { HqRedactionPolicy } from './tool.js';
+
+export type HqClientKind = 'tui' | 'repl' | 'webui' | 'cli' | 'unknown';
+
+export type HqClientCapability =
+  | 'telemetry.publish'
+  | 'session.summary'
+  | 'fleet.summary'
+  | 'mailbox.summary'
+  | 'control.receive';
+
+export interface HqClientIdentity {
+  clientId: string;
+  kind: HqClientKind;
+  version?: string;
+  machineId: string;
+  hostname?: string;
+  pid?: number;
+  startedAt: string;
+}
+
+export interface HqClientHelloPayload {
+  protocolVersion: HqProtocolVersion;
+  client: HqClientIdentity;
+  project: HqProjectIdentity;
+  capabilities: readonly HqClientCapability[];
+  /** Publisher-side policy already applied before telemetry leaves the client. */
+  redactionPolicy?: HqRedactionPolicy;
+}
+
+export interface HqClientHeartbeatPayload {
+  uptimeMs: number;
+  activeSessionId?: string;
+  activeRunId?: string;
+  status: HqProjectStatus;
+  activeSubagents?: number;
+  queuedTasks?: number;
+}
+
+export interface HqClientRecord {
+  clientId: string;
+  kind: HqClientKind;
+  machineId: string;
+  hostname?: string;
+  pid?: number;
+  version?: string;
+  connected: boolean;
+  connectedAt?: string;
+  lastSeenAt: string;
+  projectId: string;
+  sessionId?: string;
+  capabilities: readonly HqClientCapability[];
+}
+
+export interface HqClientHelloMessage {
+  type: 'client.hello';
+  payload: HqClientHelloPayload;
+}
+
+export interface HqClientEventMessage<TPayload = unknown> {
+  type: 'client.event';
+  event: HqEventEnvelope<TPayload>;
+}
+
+export interface HqClientCommandPollMessage {
+  type: 'client.command_poll';
+  clientId: string;
+  projectId: string;
+  afterCommandId?: string;
+  limit?: number;
+}
+
+export interface HqClientCommandAckMessage {
+  type: 'client.command_ack';
+  clientId: string;
+  projectId: string;
+  commandId: string;
+  status: 'accepted' | 'completed' | 'failed' | 'rejected';
+  message?: string;
+}
+
+export type HqClientMessage =
+  | HqClientHelloMessage
+  | HqClientEventMessage
+  | HqClientCommandPollMessage
+  | HqClientCommandAckMessage;
