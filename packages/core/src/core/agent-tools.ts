@@ -3,7 +3,7 @@
  * Handles batch tool execution, confirmation flow, and post-execution
  * pipeline/session/event emission.
  */
-import type { ToolUseBlock, ToolResultBlock } from '../types/blocks.js';
+import type { ContentBlock, ToolUseBlock, ToolResultBlock } from '../types/blocks.js';
 import type { Tool } from '../types/tool.js';
 import type { SessionEvent } from '../types/session.js';
 import { sizeSignals, truncateForEvent } from '../utils/tool-output-serializer.js';
@@ -294,10 +294,19 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
       }
     }
 
-    a.ctx.state.appendMessage({ role: 'user', content: resultsForMessage });
+    // Merge any pending PostToolUse separate context as a leading text block
+    // in the same user message as the tool results — this keeps tool-use/
+    // tool-result adjacency intact. The context text was stored on ctx by
+    // the tool executor when a PostToolUse hook returned contextAs='separate'.
+    const pendingContext = a.ctx.pendingPostToolContext;
+    a.ctx.pendingPostToolContext = undefined;
+    const contentBlocks: ContentBlock[] = pendingContext
+      ? [{ type: 'text', text: pendingContext }, ...resultsForMessage]
+      : resultsForMessage;
+    a.ctx.state.appendMessage({ role: 'user', content: contentBlocks });
     // Tool results were added — mark adjacency as potentially needing repair
     // before the next provider request.
-    if (resultsForMessage.length > 0) {
+    if (contentBlocks.length > 0) {
       a.ctx.toolAdjacencyDirty = true;
     }
     await a.extensions.runAfterToolExecution(a.ctx, outputs);

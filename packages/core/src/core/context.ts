@@ -170,6 +170,16 @@ export class Context implements RunEnv {
   toolAdjacencyDirty = false;
 
   /**
+   * Pending PostToolUse hook context text accumulated during tool execution
+   * when `contextAs === 'separate'`. Instead of appending a standalone user
+   * message (which would break tool-use/tool-result adjacency), the tool
+   * executor stores the text here and agent-tools merges it as a leading
+   * text block in the same user message that carries the tool_results.
+   * Cleared after being consumed by agent-tools.
+   */
+  pendingPostToolContext: string | undefined = undefined;
+
+  /**
    * H1: pre-computed total-request token estimate from the most recent
    * `estimateRequestTokens()` call in the agent loop's pre-flight step.
    * The middleware that decides when to compact, the `emitContextPct`

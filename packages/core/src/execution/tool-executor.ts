@@ -7,7 +7,7 @@ import {
   getDangerousCapabilities,
   hasDangerousCapabilityForSubagents,
 } from '../security/capabilities.js';
-import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
+import type { ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Tool, ToolProgressEvent, ToolErrorCategory } from '../types/tool.js';
 import { ToolErrorCategory as ToolErrorCategoryEnum } from '../types/tool.js';
 import type {
@@ -458,9 +458,13 @@ export class ToolExecutor {
           if (post.additionalContext) {
             if (post.contextAs === 'separate') {
               // Keep plugin notices visually separated from the actual tool
-              // output by appending them as a distinct user message.
-              const block: ContentBlock = { type: 'text', text: post.additionalContext };
-              ctx.state.appendMessage({ role: 'user', content: [block] });
+              // output by storing the context on ctx so agent-tools merges
+              // it into the same user message as the tool_results — this
+              // preserves tool-use/tool-result adjacency. Accumulate across
+              // multiple parallel PostToolUse hooks.
+              ctx.pendingPostToolContext = ctx.pendingPostToolContext
+                ? `${ctx.pendingPostToolContext}\n\n${post.additionalContext}`
+                : post.additionalContext;
             } else {
               const appended = `\n\n${post.additionalContext}`;
               result = { ...result, content: `${result.content}${appended}` };
