@@ -51,7 +51,7 @@ export function buildRecoveryStrategies(opts?: {
     },
     {
       label: 'rate_limit_backoff',
-      async attempt(err) {
+      async attempt(err, ctx) {
         if (!(err instanceof ProviderError) || err.kind !== 'rate_limit') return null;
 
         // Prefer the parsed Retry-After hint the provider extracted into
@@ -59,7 +59,22 @@ export function buildRecoveryStrategies(opts?: {
         const delayMs = err.body?.retryAfterMs ?? 5_000;
         // Clamp between 1s and 60s.
         const delay = Math.min(60_000, Math.max(1_000, delayMs));
-        await new Promise((r) => setTimeout(r, delay));
+        // Race the backoff sleep against the abort signal so a Ctrl+C /
+        // cancellation doesn't hang for the full delay window.
+        // Guard: ctx may be undefined in test calls that construct the
+        // strategy directly without a context.
+        if (ctx?.signal) {
+          await new Promise<void>((resolve) => {
+            if (ctx.signal.aborted) { resolve(); return; }
+            const timer = setTimeout(resolve, delay);
+            ctx.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              resolve();
+            }, { once: true });
+          });
+        } else {
+          await new Promise((r) => setTimeout(r, delay));
+        }
         return { action: 'retry', reason: 'rate_limit_backoff' };
       },
     },

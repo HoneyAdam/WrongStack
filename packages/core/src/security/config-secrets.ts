@@ -73,7 +73,7 @@ function walk<T>(node: T, vault: SecretVault, transform: (s: string, key: string
  * see `NON_SECRET_OVERRIDES` below.
  */
 const SECRET_KEY_PATTERN =
-  /(?:apikey|api_key|authtoken|auth_token|bearer|secret|password|passwd|pwd|refreshtoken|refresh_token|sessionkey|session_key|access[_-]?token|private[_-]?key)/i;
+  /(?:apikey|api_key|authtoken|auth_token|bearer|secret|password|passwd|pwd|refreshtoken|refresh_token|sessionkey|session_key|access[_-]?token|private[_-]?key|token\b)/i;
 
 // Field names that contain the literal substring "key" but are not secrets.
 // Keep this list short; the substring rule itself is intentionally narrow.

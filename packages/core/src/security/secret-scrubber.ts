@@ -182,7 +182,23 @@ function hasCredentialAnchors(text: string): boolean {
     text.includes('postgres://') ||
     text.includes('postgresql://') ||
     text.includes('mysql://') ||
-    text.includes('redis://')
+    text.includes('redis://') ||
+    // JSON-style credential keys: tool outputs often serialise objects as
+    // raw JSON strings rather than parsed objects. The value may not start
+    // with a recognisable prefix (sk-, ghp_, etc.), so we anchor on common
+    // key names. The `"` prefix avoids matching prose that happens to mention
+    // these words — JSON serialisation always quotes string keys.
+    text.includes('"apiKey"') ||
+    text.includes('"api_key"') ||
+    text.includes('"token"') ||
+    text.includes('"secret"') ||
+    text.includes('"password"') ||
+    text.includes('"authorization"') ||
+    text.includes('"bearer"') ||
+    text.includes('"private_key"') ||
+    text.includes('"access_token"') ||
+    text.includes('"refresh_token"') ||
+    text.includes('"client_secret"')
   );
 }
 
