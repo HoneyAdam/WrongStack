@@ -90,10 +90,10 @@
  *                               count, and approximate cyclomatic complexity
  * 39. refactor-suggester     — Flags long functions, deep nesting, many
  *                               parameters, magic numbers, and console.log usage
- * 40. test-generator         — Generates a unit-test skeleton from exported
- *                               functions/classes in a source file
- * 41. release-notes-generator — Groups conventional commits into a release
- *                               notes markdown draft
+ * 40. test-generator         — Generates framework-correct test files with an
+ *                               optional behavior-focused api.llm pass
+ * 41. release-notes-generator — Produces traceable notes with optional,
+ *                               hash-preserving api.llm polish
  * 42. smart-rename           — Whole-word symbol rename with preview and
  *                               optional apply
  * 43. feature-flag-tracker   — Scans source files for feature-flag usage and

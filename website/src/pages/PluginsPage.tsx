@@ -11,21 +11,55 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
+import { pluginDetails } from '@/data/plugin-details';
+import { pluginLlmProfile, pluginSearchTerms } from '@/data/plugin-operational';
 import { pluginCatalog, pluginSlug, pluginSources } from '@/data/runtime-catalog';
 import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 
-type PluginFilter = 'all' | 'active' | 'inactive' | 'low' | 'medium' | 'high';
+type PluginFilter =
+  | 'all'
+  | 'active'
+  | 'inactive'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'llm'
+  | 'mutating'
+  | 'hooks';
 
 const filterOptions: Array<{ value: PluginFilter; label: string }> = [
-  { value: 'all', label: 'All 73' },
+  { value: 'all', label: `All ${pluginCatalog.length}` },
   { value: 'active', label: 'Active by default' },
   { value: 'inactive', label: 'Opt-in' },
   { value: 'low', label: 'Low risk' },
   { value: 'medium', label: 'Medium risk' },
   { value: 'high', label: 'High risk' },
+  { value: 'llm', label: 'LLM / provider aware' },
+  { value: 'mutating', label: 'Mutating tools' },
+  { value: 'hooks', label: 'Lifecycle hooks' },
 ];
+
+const catalogStats = {
+  total: pluginCatalog.length,
+  suite: pluginCatalog.filter((plugin) => plugin.source === 'Suite').length,
+  core: pluginCatalog.filter((plugin) => plugin.source === 'Core').length,
+  bridges: pluginCatalog.filter((plugin) => plugin.source === 'Bridge').length,
+  active: pluginCatalog.filter((plugin) => plugin.defaultState === 'active').length,
+  inactive: pluginCatalog.filter((plugin) => plugin.defaultState === 'inactive').length,
+  llmAware: pluginCatalog.filter((plugin) => pluginLlmProfile(plugin.name).mode !== 'deterministic')
+    .length,
+  mutating: pluginCatalog.filter((plugin) =>
+    pluginDetails[plugin.name]?.tools.some((tool) => tool.mutating),
+  ).length,
+};
 
 const sourceDetails = {
   Core: {
@@ -49,13 +83,31 @@ export function PluginsPage() {
   const filtered = useMemo(
     () =>
       pluginCatalog.filter((plugin) => {
+        const detail = pluginDetails[plugin.name];
+        const llm = pluginLlmProfile(plugin.name);
+        const searchableDetail = [
+          detail?.longDescription,
+          ...(detail?.tools.map((tool) => `${tool.name} ${tool.summary ?? ''}`) ?? []),
+          ...(detail?.hooks ?? []),
+          ...(detail?.configOptions.map((option) => option.name) ?? []),
+          pluginSearchTerms(plugin.name),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
         const matchesQuery =
           !normalizedQuery ||
           plugin.name.toLowerCase().includes(normalizedQuery) ||
           plugin.summary.toLowerCase().includes(normalizedQuery) ||
-          plugin.source.toLowerCase().includes(normalizedQuery);
+          plugin.source.toLowerCase().includes(normalizedQuery) ||
+          searchableDetail.includes(normalizedQuery);
         const matchesFilter =
-          filter === 'all' || plugin.defaultState === filter || plugin.risk === filter;
+          filter === 'all' ||
+          plugin.defaultState === filter ||
+          plugin.risk === filter ||
+          (filter === 'llm' && llm.mode !== 'deterministic') ||
+          (filter === 'mutating' && detail?.tools.some((tool) => tool.mutating) === true) ||
+          (filter === 'hooks' && (detail?.hooks.length ?? 0) > 0);
         return matchesQuery && matchesFilter;
       }),
     [filter, normalizedQuery],
@@ -66,6 +118,7 @@ export function PluginsPage() {
       <PageHero
         index="21"
         eyebrow="Plugin field guide"
+        titleFontSize={heroTitleFontSize('Seventy-three plugins.')}
         title={
           <>
             Seventy-three plugins.
@@ -85,14 +138,16 @@ export function PluginsPage() {
       />
 
       <section className="border-b border-line bg-surface">
-        <div className="mx-auto grid max-w-[1380px] grid-cols-2 gap-px bg-line px-4 sm:grid-cols-3 sm:px-6 lg:grid-cols-6 lg:px-10">
+        <div className="mx-auto grid max-w-[1380px] grid-cols-2 gap-px bg-line px-4 sm:grid-cols-4 sm:px-6 lg:grid-cols-8 lg:px-10">
           {[
-            ['73', 'managed plugins'],
-            ['63', 'suite plugins'],
-            ['8', 'core plugins'],
-            ['2', 'bridges'],
-            ['19', 'active defaults'],
-            ['54', 'explicit opt-in'],
+            [String(catalogStats.total), 'managed plugins'],
+            [String(catalogStats.suite), 'suite plugins'],
+            [String(catalogStats.core), 'core plugins'],
+            [String(catalogStats.bridges), 'bridges'],
+            [String(catalogStats.active), 'active defaults'],
+            [String(catalogStats.inactive), 'explicit opt-in'],
+            [String(catalogStats.llmAware), 'LLM / provider aware'],
+            [String(catalogStats.mutating), 'mutating plugins'],
           ].map(([value, label], index) => (
             <div key={label} className="bg-surface px-4 py-7 text-center">
               <strong
@@ -240,44 +295,67 @@ export function PluginsPage() {
                     <p className="max-w-3xl text-sm leading-6 text-muted">{details.body}</p>
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {plugins.map((plugin) => (
-                      <Link
-                        key={plugin.name}
-                        href={`/plugins/${pluginSlug(plugin.name)}`}
-                        className="group block rounded-xl border border-line bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <code className="break-all font-mono text-sm font-black text-fg group-hover:text-brand-2">
-                            {plugin.name}
-                          </code>
-                          <span
-                            className={cn(
-                              'shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-black uppercase tracking-[0.08em]',
-                              plugin.risk === 'high'
-                                ? 'bg-red-500/10 text-red-500'
-                                : plugin.risk === 'medium'
-                                  ? 'bg-amber-500/10 text-amber-500'
-                                  : 'bg-emerald-500/10 text-emerald-500',
+                    {plugins.map((plugin) => {
+                      const detail = pluginDetails[plugin.name];
+                      const llm = pluginLlmProfile(plugin.name);
+                      const mutating = detail?.tools.filter((tool) => tool.mutating).length ?? 0;
+                      return (
+                        <Link
+                          key={plugin.name}
+                          href={`/plugins/${pluginSlug(plugin.name)}`}
+                          className="group block rounded-xl border border-line bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <code className="break-all font-mono text-sm font-black text-fg group-hover:text-brand-2">
+                              {plugin.name}
+                            </code>
+                            <span
+                              className={cn(
+                                'shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-black uppercase tracking-[0.08em]',
+                                plugin.risk === 'high'
+                                  ? 'bg-red-500/10 text-red-500'
+                                  : plugin.risk === 'medium'
+                                    ? 'bg-amber-500/10 text-amber-500'
+                                    : 'bg-emerald-500/10 text-emerald-500',
+                              )}
+                            >
+                              {plugin.risk} risk
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-muted">{plugin.summary}</p>
+                          <div className="mt-4 flex flex-wrap gap-2 font-mono text-[9px] font-black uppercase tracking-[0.08em] text-faint">
+                            <span className="rounded-full border border-line bg-bg px-2.5 py-1">
+                              {detail?.tools.length ?? 0} tools
+                            </span>
+                            <span className="rounded-full border border-line bg-bg px-2.5 py-1">
+                              {detail?.hooks.length ?? 0} hooks
+                            </span>
+                            {mutating > 0 && (
+                              <span className="rounded-full border border-brand-2/20 bg-brand-2/10 px-2.5 py-1 text-brand-2">
+                                {mutating} mutating
+                              </span>
                             )}
-                          >
-                            {plugin.risk} risk
-                          </span>
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-muted">{plugin.summary}</p>
-                        <div className="mt-5 flex items-center justify-between border-t border-line pt-4 font-mono text-[9px] font-black uppercase tracking-[0.1em]">
-                          <span
-                            className={
-                              plugin.defaultState === 'active' ? 'text-emerald-500' : 'text-faint'
-                            }
-                          >
-                            {plugin.defaultState === 'active'
-                              ? 'active default'
-                              : 'explicit opt-in'}
-                          </span>
-                          <span className="text-faint">{plugin.source}</span>
-                        </div>
-                      </Link>
-                    ))}
+                            {llm.mode !== 'deterministic' && (
+                              <span className="rounded-full border border-brand/20 bg-brand/10 px-2.5 py-1 text-brand">
+                                {llm.label}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-5 flex items-center justify-between border-t border-line pt-4 font-mono text-[9px] font-black uppercase tracking-[0.1em]">
+                            <span
+                              className={
+                                plugin.defaultState === 'active' ? 'text-emerald-500' : 'text-faint'
+                              }
+                            >
+                              {plugin.defaultState === 'active'
+                                ? 'active default'
+                                : 'explicit opt-in'}
+                            </span>
+                            <span className="text-faint">{plugin.source}</span>
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
                 </div>
               );

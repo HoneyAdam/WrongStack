@@ -12,6 +12,7 @@ const columns = [
       ['Compare products', '/compare'],
       ['Interfaces', '/interfaces'],
       ['Architecture', '/architecture'],
+      ['Brand guidelines', '/brand'],
     ],
   },
   {

@@ -253,7 +253,7 @@ const plugin: Plugin = {
   description:
     'Collects session work (commits, edits, manual notes) and writes Keep-a-Changelog entries under [Unreleased] on demand',
   apiVersion: '^0.1.10',
-  capabilities: { tools: true },
+  capabilities: { tools: true, llm: true },
   defaultConfig: { ...DEFAULTS },
   configSchema: {
     type: 'object',

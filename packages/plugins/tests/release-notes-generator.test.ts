@@ -31,15 +31,22 @@ interface MockApi {
   log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   metrics: { counter: ReturnType<typeof vi.fn> };
   registerHook: ReturnType<typeof vi.fn>;
+  llm?: { complete: ReturnType<typeof vi.fn> };
 }
 
-function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): MockApi {
+function makeApi(
+  overrides: {
+    extensions?: Record<string, unknown>;
+    llm?: { complete: ReturnType<typeof vi.fn> };
+  } = {},
+): MockApi {
   return {
     tools: { register: vi.fn() },
     config: { extensions: overrides.extensions ?? {} },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn() },
     registerHook: vi.fn(() => vi.fn()),
+    llm: overrides.llm,
   };
 }
 
@@ -70,7 +77,7 @@ describe('release-notes-generator plugin shape', () => {
   it('has name, apiVersion, setup function', () => {
     expect(plugin.name).toBe('release-notes-generator');
     expect(plugin.apiVersion).toBe('^0.1.10');
-    expect(plugin.version).toBe('0.1.0');
+    expect(plugin.version).toBe('0.2.0');
     expect(typeof plugin.setup).toBe('function');
   });
 
@@ -246,6 +253,62 @@ describe('generate_release_notes tool', () => {
     };
     expect(result.ok).toBe(false);
     expect(result.error).toContain('git exploded');
+  });
+
+  it('optionally polishes notes through api.llm while preserving traceable hashes', async () => {
+    mockGitOutput = ['aaa111\tfeat(auth): add login', 'bbb222\tfix(api): handle null'].join('\n');
+    const complete = vi.fn().mockResolvedValue({
+      text: [
+        '## Highlights',
+        '',
+        '- aaa111 Add login support for users.',
+        '- bbb222 Make null API responses safe.',
+      ].join('\n'),
+    });
+    const api = makeApi({ llm: { complete } });
+    plugin.setup(api as never);
+
+    const result = (await getTool(api, 'generate_release_notes')({
+      from: 'v1.0.0',
+      to: 'HEAD',
+      use_llm: true,
+      audience: 'developers',
+    })) as {
+      notes: string;
+      audience: string;
+      llm: { requested: boolean; used: boolean; fallbackReason: string | null };
+    };
+
+    expect(result.audience).toBe('developers');
+    expect(result.llm).toEqual({ requested: true, used: true, fallbackReason: null });
+    expect(result.notes).toContain('## Highlights');
+    expect(result.notes).toContain('aaa111');
+    expect(result.notes).toContain('bbb222');
+    expect(complete).toHaveBeenCalledWith(
+      expect.stringContaining('<commit-facts>'),
+      expect.objectContaining({ maxTokens: 3_072, temperature: 0.2 }),
+    );
+  });
+
+  it('rejects LLM notes that drop a commit hash and keeps deterministic notes', async () => {
+    mockGitOutput = ['aaa111\tfeat: add one', 'bbb222\tfix: fix two'].join('\n');
+    const api = makeApi({
+      llm: { complete: vi.fn().mockResolvedValue({ text: '## Notes\n\n- aaa111 Add one.' }) },
+    });
+    plugin.setup(api as never);
+
+    const result = (await getTool(api, 'generate_release_notes')({
+      from: 'v1.0.0',
+      use_llm: true,
+    })) as { notes: string; llm: { used: boolean; fallbackReason: string } };
+
+    expect(result.llm).toEqual({
+      requested: true,
+      used: false,
+      fallbackReason: 'invalid-response',
+    });
+    expect(result.notes).toContain('### feat');
+    expect(result.notes).toContain('### fix');
   });
 });
 

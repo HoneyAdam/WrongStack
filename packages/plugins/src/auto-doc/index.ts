@@ -383,7 +383,7 @@ const plugin: Plugin = {
   version: '0.2.0',
   description: 'Auto-generates JSDoc/TSDoc comments for functions, classes, types, and interfaces',
   apiVersion: AUTO_DOC_API_VERSION,
-  capabilities: { tools: true, pipelines: ['toolCall'] },
+  capabilities: { tools: true, pipelines: ['toolCall'], llm: true },
   defaultConfig: {
     style: 'tsdoc',
     includeTypes: false,

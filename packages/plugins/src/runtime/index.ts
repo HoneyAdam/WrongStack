@@ -33,6 +33,14 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 
+export {
+  parseLlmJsonObject,
+  runOptionalPluginLlm,
+  stripOuterMarkdownFence,
+  type OptionalLlmRequest,
+  type OptionalLlmResult,
+} from './llm.js';
+
 export type LanguageId =
   | 'typescript'
   | 'javascript'

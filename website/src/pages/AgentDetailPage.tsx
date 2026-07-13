@@ -1,5 +1,5 @@
 import { ArrowRight, Bot, Cable, Network, Wrench } from 'lucide-react';
-import { PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import { PageHero, PageNext, SectionIntro, heroTitleFontSize } from '@/components/site/primitives';
 import {
   agentFromSlug,
   rosterBudgetGuidance,
@@ -35,6 +35,7 @@ export function AgentDetailPage() {
         index={`18.${String(position).padStart(2, '0')}`}
         eyebrow={agent.phaseLabel ? `${agent.phaseLabel} phase` : kindEyebrow[agent.kind]}
         title={<span className="text-brand">{agent.name}</span>}
+        titleFontSize={heroTitleFontSize(agent.name)}
         description={agent.summary}
         aside={
           <div className="flex flex-wrap gap-2">

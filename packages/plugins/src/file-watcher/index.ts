@@ -407,6 +407,7 @@ const plugin: Plugin = {
     // during a hot-reload loop or a long-lived REPL session (H1
     // audit, 2026-06-03). With module-level Maps we can finally
     // reach the resources and free them.
+    const closed = watches.size;
     for (const handle of watches.values()) {
       for (const w of handle.watchers) {
         try {
@@ -420,8 +421,22 @@ const plugin: Plugin = {
     for (const t of debounceTimers.values()) clearTimeout(t);
     debounceTimers.clear();
     api.log.info('file-watcher: teardown complete', {
-      closed: 0, // recorded for log symmetry; actual count cleared above
+      closed,
     });
+  },
+
+  async health() {
+    const watcherCount = Array.from(watches.values()).reduce(
+      (sum, handle) => sum + handle.watchers.length,
+      0,
+    );
+    return {
+      ok: true,
+      message: `file-watcher: ${watches.size} active watch group(s), ${watcherCount} filesystem watcher(s)`,
+      activeWatchGroups: watches.size,
+      filesystemWatchers: watcherCount,
+      pendingDebounces: debounceTimers.size,
+    };
   },
 };
 

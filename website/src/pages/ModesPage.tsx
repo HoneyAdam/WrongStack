@@ -1,6 +1,12 @@
 import { ArrowDown, Check, CircleGauge, Layers3, Sparkles, Wrench } from 'lucide-react';
 import { useState } from 'react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
 import { type ModeFamily, modeCatalog } from '@/data/product-catalog';
 import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
@@ -32,6 +38,7 @@ export function ModesPage() {
       <PageHero
         index="17"
         eyebrow="Session modes"
+        titleFontSize={heroTitleFontSize('Nineteen working styles.')}
         title={
           <>
             One agent.

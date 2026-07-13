@@ -1,5 +1,5 @@
 import { ArrowRight, CircleGauge, Sparkles, Wrench } from 'lucide-react';
-import { PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import { PageHero, PageNext, SectionIntro, heroTitleFontSize } from '@/components/site/primitives';
 import { modeCatalog, modeFamilyGuidance, modeFromSlug } from '@/data/product-catalog';
 import { Link, useRouter } from '@/lib/router';
 
@@ -21,6 +21,7 @@ export function ModeDetailPage() {
         index={`17.${String(position).padStart(2, '0')}`}
         eyebrow={`${family.label} mode`}
         title={<span className="text-brand">{mode.name}</span>}
+        titleFontSize={heroTitleFontSize(mode.name)}
         description={mode.description}
         aside={
           <div className="flex flex-wrap gap-2">

@@ -12,7 +12,13 @@ import {
   Terminal,
   Users,
 } from 'lucide-react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
 import { Link } from '@/lib/router';
 
 const messageTypes = [
@@ -44,6 +50,7 @@ export function MailboxPage() {
       <PageHero
         index="12"
         eyebrow="Global Mailbox"
+        titleFontSize={heroTitleFontSize('Agents need a channel.')}
         title={
           <>
             Agents need a channel.

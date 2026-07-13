@@ -760,7 +760,7 @@ export const pluginCatalog = [
   {
     name: 'migration-planner',
     risk: 'low',
-    summary: 'Builds dependency or framework migration checklists.',
+    summary: 'Builds evidence-backed migration checklists with optional LLM risk analysis.',
     defaultState: 'inactive',
     source: 'Suite',
   },
@@ -926,7 +926,7 @@ export const pluginCatalog = [
   {
     name: 'release-notes-generator',
     risk: 'low',
-    summary: 'Groups conventional commits into a release-notes markdown draft.',
+    summary: 'Builds traceable release notes with optional hash-preserving LLM polish.',
     defaultState: 'inactive',
     source: 'Suite',
   },
@@ -940,7 +940,7 @@ export const pluginCatalog = [
   {
     name: 'test-generator',
     risk: 'low',
-    summary: 'Generates a unit-test skeleton from exported functions/classes.',
+    summary: 'Generates framework-correct test files with optional behavior-focused LLM authoring.',
     defaultState: 'inactive',
     source: 'Suite',
   },

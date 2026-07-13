@@ -113,6 +113,22 @@ describe('cron plugin', () => {
     expect(cronPlugin.teardown).toBeDefined();
   });
 
+  it('reports health with active job and run counters', async () => {
+    const api = createMockApi();
+    cronPlugin.setup(api as any);
+    const schedule = api.tools.register.mock.calls.find(
+      ([tool]: any[]) => tool.name === 'cron_schedule',
+    )?.[0];
+    await schedule.execute({ name: 'health', intervalMs: 60_000, action: 'check' });
+
+    const health = await cronPlugin.health?.();
+    expect(health).toEqual(
+      expect.objectContaining({ ok: true, activeJobs: 1, overdueJobs: 0, totalRuns: 0 }),
+    );
+
+    cronPlugin.teardown?.(api as any);
+  });
+
   it('teardown unregisters the iteration extension', () => {
     const api = createMockApi();
     const unregister = vi.fn();

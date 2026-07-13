@@ -6,6 +6,21 @@ import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { BrandMark } from './BrandMark';
 
+export function SiteDecor() {
+  return (
+    <div className="site-decor" aria-hidden="true">
+      <span className="site-decor__rail site-decor__rail--left" />
+      <span className="site-decor__rail site-decor__rail--right" />
+      <span className="site-decor__orbit site-decor__orbit--primary" />
+      <span className="site-decor__orbit site-decor__orbit--secondary" />
+      <span className="site-decor__object site-decor__object--signal" />
+      <span className="site-decor__object site-decor__object--node" />
+      <span className="site-decor__object site-decor__object--diamond" />
+      <span className="site-decor__object site-decor__object--packet" />
+    </div>
+  );
+}
+
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <div className="mb-5 flex items-center gap-3 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-brand-2">
@@ -15,18 +30,61 @@ export function Eyebrow({ children }: { children: ReactNode }) {
   );
 }
 
+// Default hero title scale: short hand-crafted titles (widest line ≤ ~18 chars)
+// render large and still hold their intended two lines. Longer titles pass an
+// exact `heroTitleFontSize(widestLine)` so they fill as much as fits on one line
+// without spilling to a 3rd/4th line.
+const HERO_TITLE_DEFAULT = 'clamp(2.75rem, 5.6vw, 4.75rem)';
+
+/**
+ * Compute an exact `font-size: clamp(...)` for a hero title from the visible
+ * length of its widest single line. Applied inline (Tailwind can't JIT a
+ * computed arbitrary value), so any length yields a real, size.
+ *
+ * Calibration is empirical: the hero's `lg` left column is ~635px at the 1024px
+ * breakpoint and ~885px past 1380px, i.e. `col(vp) ≈ (min(vp,1380) − 120) × 0.70`.
+ * We size so the widest line fits that column at every width — the 1024px point
+ * is the tightest and sets the `vw` term; the wide cap sets the `max`. Pass the
+ * longest line (for a two-line title, the longer half; for a single dynamic name
+ * like a plugin slug, the name itself).
+ */
+export function heroTitleFontSize(
+  text: string,
+  { mono = false, lines = 1 }: { mono?: boolean; lines?: number } = {},
+): string {
+  const n = Math.max(text.trim().length, 1);
+  // Advance width per char (em): Space Grotesk display ≈ 0.51, IBM Plex Mono ≈ 0.62.
+  const K = mono ? 0.62 : 0.51;
+  const CAP_PX = 76; // aesthetic ceiling so short/medium titles stay uniform
+  const VW_CEIL = 5.6; // matches the default cap's vw term
+  // `lines` = how many rendered lines the text is allowed to fill. Pass 1 with a
+  // single line (a two-line title passes its longer half); pass 2 with the full
+  // text for a long sentence that should wrap into two balanced lines.
+  const tightUsable = 600 * lines; // ~col(1024px breakpoint) × lines
+  const wideUsable = 850 * lines; // ~col(≥1380px) × lines
+  const vw = Math.min(VW_CEIL, (tightUsable / (K * n * 1024)) * 100);
+  const capPx = Math.min(CAP_PX, wideUsable / (K * n));
+  // Mobile floor, but low enough that long titles can still shrink to fit the
+  // narrow lg column instead of being pinned large and spilling to an extra line.
+  const minPx = Math.min(capPx, 30);
+  return `clamp(${(minPx / 16).toFixed(3)}rem, ${vw.toFixed(2)}vw, ${(capPx / 16).toFixed(3)}rem)`;
+}
+
 export function PageHero({
   index,
   eyebrow,
   title,
   description,
   aside,
+  titleFontSize,
 }: {
   index: string;
   eyebrow: string;
   title: ReactNode;
   description: string;
   aside?: ReactNode;
+  /** Exact title font-size, e.g. `heroTitleFontSize(widestLine)`. Overrides the default scale. */
+  titleFontSize?: string;
 }) {
   return (
     <section className="relative overflow-hidden border-b border-line pt-28 sm:pt-32 lg:pt-40">
@@ -35,18 +93,21 @@ export function PageHero({
       <div className="relative mx-auto max-w-[1380px] px-4 pb-16 sm:px-6 sm:pb-20 lg:px-10 lg:pb-24">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,.55fr)] lg:items-end">
           <div>
-            <div className="flex items-center gap-4">
+            <div className="page-hero-enter flex items-center gap-4">
               <span className="font-mono text-xs font-black text-faint">{index}</span>
               <span className="h-px w-12 bg-line-strong" />
               <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                 {eyebrow}
               </span>
             </div>
-            <h1 className="mt-8 max-w-5xl font-display text-[clamp(3.25rem,7.4vw,7.15rem)] font-bold leading-[0.92] tracking-[-0.028em] text-fg">
+            <h1
+              className="page-hero-enter page-hero-enter--title mt-8 max-w-5xl font-display font-bold leading-[0.9] tracking-[-0.028em] text-balance [overflow-wrap:anywhere] text-fg"
+              style={{ fontSize: titleFontSize ?? HERO_TITLE_DEFAULT }}
+            >
               {title}
             </h1>
           </div>
-          <div className="border-l-2 border-brand pl-5 lg:mb-1">
+          <div className="page-hero-enter page-hero-enter--aside border-l-2 border-brand pl-5 lg:mb-1">
             <p className="text-base leading-7 text-muted sm:text-lg">{description}</p>
             {aside && <div className="mt-6">{aside}</div>}
           </div>

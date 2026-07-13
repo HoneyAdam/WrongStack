@@ -1,7 +1,8 @@
-import { motion, useScroll, useSpring } from 'framer-motion';
+import { motion, useReducedMotion, useScroll, useSpring } from 'framer-motion';
 import { lazy, Suspense, useEffect } from 'react';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
+import { SiteDecor } from '@/components/site/primitives';
 import { commandFromSlug, featureFromSlug, pageMeta, type SiteRoute } from '@/data/content';
 import { agentFromSlug, modeFromSlug } from '@/data/product-catalog';
 import { pluginFromSlug, toolFromSlug } from '@/data/runtime-catalog';
@@ -67,6 +68,7 @@ const TroubleshootingPage = lazy(async () => ({
 const CreatedByPage = lazy(async () => ({
   default: (await import('@/pages/CreatedByPage')).CreatedByPage,
 }));
+const BrandPage = lazy(async () => ({ default: (await import('@/pages/BrandPage')).BrandPage }));
 const CommandDetailPage = lazy(async () => ({
   default: (await import('@/pages/CommandDetailPage')).CommandDetailPage,
 }));
@@ -116,12 +118,15 @@ const pages = {
   '/tools': ToolsPage,
   '/plugins': PluginsPage,
   '/troubleshooting': TroubleshootingPage,
+  '/brand': BrandPage,
   '/created-by': CreatedByPage,
 } satisfies Record<SiteRoute, typeof HomePage>;
 
 function ScrollProgress() {
+  const reducedMotion = useReducedMotion();
   const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, { stiffness: 140, damping: 32, mass: 0.22 });
+  if (reducedMotion) return null;
   return (
     <motion.div
       style={{ scaleX }}
@@ -261,7 +266,7 @@ export default function App() {
   }, [path]);
 
   return (
-    <div className="min-h-screen bg-bg text-fg antialiased">
+    <div className="relative isolate min-h-screen overflow-x-clip bg-bg text-fg antialiased">
       <a
         href="#main"
         className="sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-brand focus:px-4 focus:py-2 focus:text-white"
@@ -269,21 +274,24 @@ export default function App() {
         Skip to content
       </a>
       <ScrollProgress />
-      <Header />
-      <main id="main">
-        <Suspense
-          fallback={
-            <div className="grid min-h-[75vh] place-items-center pt-24">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
-                Loading manual…
-              </span>
-            </div>
-          }
-        >
-          {Page ? <Page /> : <NotFound />}
-        </Suspense>
-      </main>
-      <Footer />
+      <SiteDecor />
+      <div className="relative z-10">
+        <Header />
+        <main id="main">
+          <Suspense
+            fallback={
+              <div className="grid min-h-[75vh] place-items-center pt-24">
+                <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+                  Loading manual…
+                </span>
+              </div>
+            }
+          >
+            {Page ? <Page /> : <NotFound />}
+          </Suspense>
+        </main>
+        <Footer />
+      </div>
     </div>
   );
 }

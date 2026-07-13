@@ -40,15 +40,22 @@ interface MockApi {
   log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
   metrics: { counter: ReturnType<typeof vi.fn> };
   registerHook: ReturnType<typeof vi.fn>;
+  llm?: { complete: ReturnType<typeof vi.fn> };
 }
 
-function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): MockApi {
+function makeApi(
+  overrides: {
+    extensions?: Record<string, unknown>;
+    llm?: { complete: ReturnType<typeof vi.fn> };
+  } = {},
+): MockApi {
   return {
     tools: { register: vi.fn() },
     config: { extensions: overrides.extensions ?? {} },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn() },
     registerHook: vi.fn(() => vi.fn()),
+    llm: overrides.llm,
   };
 }
 
@@ -94,7 +101,7 @@ describe('test-generator plugin shape', () => {
   it('has name, apiVersion, setup function', () => {
     expect(plugin.name).toBe('test-generator');
     expect(plugin.apiVersion).toBe('^0.1.10');
-    expect(plugin.version).toBe('0.1.0');
+    expect(plugin.version).toBe('0.2.0');
     expect(typeof plugin.setup).toBe('function');
   });
 
@@ -114,6 +121,7 @@ describe('generate_unit_tests tool', () => {
       '/project/src/math.ts':
         'export function add(a: number, b: number) { return a + b; }\n' +
         'export const sub = (a: number, b: number) => a - b;\n' +
+        'export const PI = 3.14;\n' +
         'export class Calculator {}\n' +
         'export { add as addAlias };\n',
     });
@@ -128,11 +136,13 @@ describe('generate_unit_tests tool', () => {
       content: string;
     };
     expect(result.ok).toBe(true);
-    expect(result.testFile).toBe('math.test.ts');
+    expect(result.testFile).toBe('src/math.test.ts');
     expect(result.exports.map((e) => e.name)).toContain('add');
     expect(result.exports.map((e) => e.name)).toContain('sub');
+    expect(result.exports.map((e) => e.name)).toContain('PI');
     expect(result.exports.map((e) => e.name)).toContain('Calculator');
     expect(result.content).toContain("import { describe, it, expect } from 'vitest';");
+    expect(result.content).toContain("import { add, sub, PI, Calculator, addAlias } from './math';");
     expect(result.content).toContain("it('add behaves as expected'");
     expect(result.content).toContain("new Calculator()");
   });
@@ -170,8 +180,10 @@ describe('generate_unit_tests tool', () => {
       testFile: string;
       content: string;
     };
-    expect(result.testFile).toBe('util.spec.ts');
-    expect(result.content).toContain("require('node:test')");
+    expect(result.testFile).toBe('src/util.spec.ts');
+    expect(result.content).toContain("import { describe, it } from 'node:test';");
+    expect(result.content).toContain("import assert from 'node:assert/strict';");
+    expect(result.content).toContain('assert.ok(foo)');
   });
 
   it('omits imports when includeImports is false', async () => {
@@ -186,6 +198,20 @@ describe('generate_unit_tests tool', () => {
     const generate = getTool(api, 'generate_unit_tests');
     const result = (await generate({ path: 'src/util.ts' })) as { ok: boolean; content: string };
     expect(result.content).not.toContain("import { foo } from './util';");
+  });
+
+  it('preserves the source extension for JavaScript test files', async () => {
+    setFilesystem({ '/project/src/value.js': 'export const value = 1;\n' });
+    const api = makeApi();
+    plugin.setup(api as never);
+
+    const result = (await getTool(api, 'generate_unit_tests')({ path: 'src/value.js' })) as {
+      testFile: string;
+      content: string;
+    };
+
+    expect(result.testFile).toBe('src/value.test.js');
+    expect(result.content).toContain("import { value } from './value';");
   });
 
   it('rejects paths outside the project root', async () => {
@@ -205,6 +231,49 @@ describe('generate_unit_tests tool', () => {
     const result = (await generate({ path: 'src/x.ts' })) as { ok: boolean; error: string };
     expect(result.ok).toBe(false);
     expect(result.error).toContain('disabled');
+  });
+
+  it('uses api.llm for behavior-focused tests and strips an outer code fence', async () => {
+    setFilesystem({
+      '/project/src/math.ts': 'export function add(a: number, b: number) { return a + b; }\n',
+    });
+    const complete = vi.fn().mockResolvedValue({
+      text: "```ts\nimport { describe, expect, it } from 'vitest';\nimport { add } from './math';\ndescribe('add', () => { it('adds', () => expect(add(1, 2)).toBe(3)); });\n```",
+    });
+    const api = makeApi({
+      extensions: { 'test-generator': { useLlm: true } },
+      llm: { complete },
+    });
+    plugin.setup(api as never);
+
+    const generate = getTool(api, 'generate_unit_tests');
+    const result = (await generate({ path: 'src/math.ts' })) as {
+      content: string;
+      llm: { used: boolean; fallbackReason: string | null };
+    };
+
+    expect(result.llm).toEqual({ used: true, fallbackReason: null, requested: true });
+    expect(result.content).toContain("expect(add(1, 2)).toBe(3)");
+    expect(result.content).not.toContain('```');
+    expect(complete).toHaveBeenCalledWith(
+      expect.stringContaining('<source>'),
+      expect.objectContaining({ maxTokens: 4_096, temperature: 0.1 }),
+    );
+  });
+
+  it('falls back to the deterministic skeleton when the LLM response is invalid', async () => {
+    setFilesystem({ '/project/src/x.ts': 'export function x() { return 1; }\n' });
+    const api = makeApi({ llm: { complete: vi.fn().mockResolvedValue({ text: 'not a test' }) } });
+    plugin.setup(api as never);
+
+    const result = (await getTool(api, 'generate_unit_tests')({
+      path: 'src/x.ts',
+      use_llm: true,
+    })) as { content: string; llm: { used: boolean; fallbackReason: string } };
+
+    expect(result.llm.used).toBe(false);
+    expect(result.llm.fallbackReason).toBe('invalid-response');
+    expect(result.content).toContain('TODO: replace with a real assertion for x');
   });
 });
 
@@ -237,7 +306,7 @@ describe('config parsing', () => {
     setFilesystem({ '/project/src/x.ts': 'export function x() {}\n' });
     const generate = getTool(api, 'generate_unit_tests');
     const result = (await generate({ path: 'src/x.ts' })) as { ok: boolean; testFile: string; content: string };
-    expect(result.testFile).toBe('x.integration.ts');
-    expect(result.content).toContain("require('jest')");
+    expect(result.testFile).toBe('src/x.integration.ts');
+    expect(result.content).toContain("from '@jest/globals'");
   });
 });

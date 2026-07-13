@@ -439,6 +439,24 @@ function wrapApiForCapabilityCheck(
             return Reflect.get(target, prop, receiver);
           },
         });
+  // Wrap api.llm.complete. The facade is optional on minimal hosts; when it
+  // exists, an explicit `llm: false` declaration is treated like the other
+  // capability contradictions while still preserving warn-only compatibility.
+  const wrappedLlm =
+    caps.llm !== false || !api.llm
+      ? api.llm
+      : new Proxy(api.llm, {
+          get(target, prop, receiver) {
+            if (prop === 'complete') {
+              return (prompt: string, options?: unknown) => {
+                violate('llm', `complete(${prompt.length} chars)`);
+                const complete = target.complete as (p: string, o?: unknown) => unknown;
+                return options === undefined ? complete(prompt) : complete(prompt, options);
+              };
+            }
+            return Reflect.get(target, prop, receiver);
+          },
+        });
   // Wrap registerHook — same pattern as the other subsystems. A plugin that
   // declared `hooks: false` (or one that never declared any capabilities
   // at all and is therefore non-official) gets warned/throws on registerHook.
@@ -479,6 +497,8 @@ function wrapApiForCapabilityCheck(
           return wrappedSlash;
         case 'mcp':
           return wrappedMcp;
+        case 'llm':
+          return wrappedLlm;
         case 'registerHook':
           // The hooks gate wraps the API itself (because registerHook is on
           // the API, not on a sub-registry). Forward to wrappedHooks so the

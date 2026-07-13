@@ -10,7 +10,13 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
 import { toolCatalog, toolCategories, toolSlug } from '@/data/runtime-catalog';
 import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
@@ -63,6 +69,7 @@ export function ToolsPage() {
       <PageHero
         index="20"
         eyebrow="Built-in tool atlas"
+        titleFontSize={heroTitleFontSize('One safety contract.')}
         title={
           <>
             Fifty-eight tools.

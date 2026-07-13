@@ -233,14 +233,6 @@ export function CodingPlansPage() {
               </div>
               <div className="mt-7 flex flex-wrap gap-3">
                 <PlanLink connection={chatGptConnection} label="Check ChatGPT plans" />
-                <a
-                  href={chatGptConnection.docsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2.5 text-sm font-black text-white"
-                >
-                  Official auth guide <ArrowUpRight className="size-4" />
-                </a>
               </div>
             </div>
           </div>
@@ -352,14 +344,6 @@ export function CodingPlansPage() {
                           connection.affiliateUrl ? 'Open plan with referral' : 'Open official plan'
                         }
                       />
-                      <a
-                        href={connection.docsUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm font-black text-brand"
-                      >
-                        Setup docs <ArrowUpRight className="size-4" />
-                      </a>
                     </div>
                   </div>
                 </div>

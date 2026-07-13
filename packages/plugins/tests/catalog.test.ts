@@ -13,6 +13,27 @@ import {
 import * as pluginExports from '../src/index.js';
 
 describe('plugin catalog', () => {
+  const exportedPlugins = Object.values(pluginExports).filter(
+    (value): value is {
+      name: string;
+      version?: string;
+      description?: string;
+      apiVersion?: string;
+      capabilities?: Record<string, unknown>;
+      configSchema?: unknown;
+      defaultConfig?: unknown;
+      setup?: unknown;
+      teardown?: unknown;
+      health?: unknown;
+    } =>
+      Boolean(
+        value &&
+          typeof value === 'object' &&
+          'name' in value &&
+          typeof (value as { name?: unknown }).name === 'string',
+      ),
+  );
+
   it('contains an entry for every plugin exported from index.ts', () => {
     // Map plugin export variable (e.g. `autoDocPlugin`) to its
     // kebab-case name. Convention: each export ends in `Plugin`.
@@ -70,5 +91,22 @@ describe('plugin catalog', () => {
     // suggest linking to them.
     expect(PLUGIN_CATALOG.has('web-search')).toBe(false);
     expect(PLUGIN_CATALOG.has('json-path')).toBe(false);
+  });
+
+  it('keeps every first-party plugin at the same minimum operational maturity', () => {
+    expect(exportedPlugins).toHaveLength(PLUGIN_CATALOG_ENTRIES.length);
+    for (const plugin of exportedPlugins) {
+      expect(plugin.version, `${plugin.name} has no version`).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(plugin.description?.trim().length, `${plugin.name} has no description`).toBeGreaterThan(
+        20,
+      );
+      expect(plugin.apiVersion, `${plugin.name} has no apiVersion`).toMatch(/^\^\d+\.\d+/);
+      expect(plugin.capabilities, `${plugin.name} has no capabilities`).toBeTruthy();
+      expect(plugin.configSchema, `${plugin.name} has no config schema`).toBeTruthy();
+      expect(plugin.defaultConfig, `${plugin.name} has no defaults`).toBeTruthy();
+      expect(typeof plugin.setup, `${plugin.name} has no setup`).toBe('function');
+      expect(typeof plugin.teardown, `${plugin.name} has no teardown`).toBe('function');
+      expect(typeof plugin.health, `${plugin.name} has no health check`).toBe('function');
+    }
   });
 });

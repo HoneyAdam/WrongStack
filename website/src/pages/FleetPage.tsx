@@ -8,7 +8,13 @@ import {
   PanelTop,
   Scale,
 } from 'lucide-react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
 import { Link } from '@/lib/router';
 
 const directorTools = [
@@ -30,6 +36,7 @@ export function FleetPage() {
       <PageHero
         index="11"
         eyebrow="Fleet & Brain"
+        titleFontSize={heroTitleFontSize('Single accountability.')}
         title={
           <>
             Parallel work.

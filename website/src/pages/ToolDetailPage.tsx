@@ -1,5 +1,5 @@
 import { ArrowRight, OctagonX, ShieldCheck, Wrench } from 'lucide-react';
-import { PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import { PageHero, PageNext, SectionIntro, heroTitleFontSize } from '@/components/site/primitives';
 import { toolCatalog, toolFromSlug, toolSlug } from '@/data/runtime-catalog';
 import { toolDetails } from '@/data/tool-details';
 import { Link, useRouter } from '@/lib/router';
@@ -25,6 +25,7 @@ export function ToolDetailPage() {
         index={`20.${String(position).padStart(2, '0')}`}
         eyebrow={tool.category}
         title={<span className="font-mono text-brand">{tool.name}</span>}
+        titleFontSize={heroTitleFontSize(tool.name, { mono: true })}
         description={tool.summary}
         aside={
           <div className="flex flex-wrap gap-2">

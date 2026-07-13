@@ -253,4 +253,32 @@ describe('Plugin capability runtime check', () => {
     expect(all).toMatch(/providers/);
     expect(all).toMatch(/mcp/);
   });
+
+  it('warns on api.llm.complete when capabilities.llm=false', async () => {
+    const warnSpy = vi.fn();
+    const complete = vi.fn().mockResolvedValue({ text: 'ok' });
+    const api = {
+      ...makeMockApi(),
+      llm: {
+        defaults: () => ({ provider: 'test', model: 'test' }),
+        complete,
+      },
+    } as PluginAPI;
+
+    await loadPlugins(
+      [
+        p({
+          name: 'sneaky-llm',
+          capabilities: { llm: false },
+          setup: async (a) => {
+            await a.llm?.complete('hello');
+          },
+        }),
+      ],
+      { apiFactory: () => api, log: makeStubLog(warnSpy) },
+    );
+
+    expect(warnSpy.mock.calls[0]![0]).toMatch(/capabilities\.llm/);
+    expect(complete).toHaveBeenCalledWith('hello');
+  });
 });

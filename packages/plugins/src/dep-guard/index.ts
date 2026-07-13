@@ -261,7 +261,7 @@ const plugin: Plugin = {
   description:
     'Supervises dependency installs: blocks deny-listed packages, flags typosquat lookalikes, and optionally warns on unpinned versions',
   apiVersion: '^0.1.10',
-  capabilities: { tools: true, hooks: true },
+  capabilities: { tools: true, hooks: true, llm: true },
   defaultConfig: { ...DEFAULTS },
   configSchema: {
     type: 'object',

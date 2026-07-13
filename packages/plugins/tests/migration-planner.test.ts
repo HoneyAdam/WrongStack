@@ -20,15 +20,22 @@ interface MockApi {
     counter: ReturnType<typeof vi.fn>;
   };
   registerHook: ReturnType<typeof vi.fn>;
+  llm?: { complete: ReturnType<typeof vi.fn> };
 }
 
-function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): MockApi {
+function makeApi(
+  overrides: {
+    extensions?: Record<string, unknown>;
+    llm?: { complete: ReturnType<typeof vi.fn> };
+  } = {},
+): MockApi {
   return {
     tools: { register: vi.fn() },
     config: { extensions: overrides.extensions ?? {} },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn() },
     registerHook: vi.fn(() => vi.fn()),
+    llm: overrides.llm,
   };
 }
 
@@ -56,6 +63,11 @@ afterEach(async () => {
 });
 
 describe('migration-planner plugin', () => {
+  it('declares optional LLM support in its plugin contract', () => {
+    expect(migrationPlannerPlugin.version).toBe('0.2.0');
+    expect(migrationPlannerPlugin.capabilities?.llm).toBe(true);
+  });
+
   it('registers migration_plan, migration_status, and a PostToolUse hook', () => {
     const api = makeApi();
     migrationPlannerPlugin.setup(api as never);
@@ -143,6 +155,74 @@ describe('migration-planner plugin', () => {
     expect(result.changelogSource).toBeNull();
     expect(result.breakingChanges.some((b) => b.includes('No changelog found'))).toBe(true);
     expect(result.recommendedSteps.length).toBeGreaterThan(0);
+  });
+
+  it('adds a separate evidence-bounded LLM analysis without replacing deterministic facts', async () => {
+    vi.mocked(existsSync).mockImplementation(
+      (p) => String(p) === 'node_modules/my-pkg/CHANGELOG.md',
+    );
+    vi.mocked(readFileSync).mockReturnValue(`
+## 2.0.0
+### BREAKING CHANGES
+- Removed foo()
+### Migration
+- Replace foo() with bar()
+## 1.0.0
+`);
+    const complete = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        summary: 'The local changelog documents one breaking API removal.',
+        riskLevel: 'high',
+        risks: ['Call sites may still use foo().'],
+        additionalSteps: ['Search the scoped package for foo().'],
+        verificationSteps: ['Run the focused test suite.'],
+      }),
+    });
+    const api = makeApi({ llm: { complete } });
+    migrationPlannerPlugin.setup(api as never);
+
+    const result = (await getTool(api, 'migration_plan')({
+      packageName: 'my-pkg',
+      fromVersion: '1.0.0',
+      toVersion: '2.0.0',
+      use_llm: true,
+    })) as {
+      breakingChanges: string[];
+      aiAnalysis: { summary: string; riskLevel: string; verificationSteps: string[] };
+      llm: { requested: boolean; used: boolean; fallbackReason: string | null };
+    };
+
+    expect(result.breakingChanges).toContain('Removed foo()');
+    expect(result.aiAnalysis.riskLevel).toBe('high');
+    expect(result.aiAnalysis.verificationSteps).toEqual(['Run the focused test suite.']);
+    expect(result.llm).toEqual({ requested: true, used: true, fallbackReason: null });
+    expect(complete).toHaveBeenCalledWith(
+      expect.stringContaining('<evidence>'),
+      expect.objectContaining({ responseFormat: 'json', temperature: 0.1 }),
+    );
+  });
+
+  it('keeps the deterministic plan when optional LLM JSON is invalid', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    const api = makeApi({
+      llm: { complete: vi.fn().mockResolvedValue({ text: '{"riskLevel":"high"}' }) },
+    });
+    migrationPlannerPlugin.setup(api as never);
+
+    const result = (await getTool(api, 'migration_plan')({
+      packageName: 'unknown',
+      fromVersion: '1.0.0',
+      toVersion: '2.0.0',
+      use_llm: true,
+    })) as {
+      recommendedSteps: string[];
+      aiAnalysis: null;
+      llm: { used: boolean; fallbackReason: string };
+    };
+
+    expect(result.aiAnalysis).toBeNull();
+    expect(result.recommendedSteps.length).toBeGreaterThan(0);
+    expect(result.llm.fallbackReason).toBe('invalid-response');
   });
 
   it('migration_status reports counters', async () => {

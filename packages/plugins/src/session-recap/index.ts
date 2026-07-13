@@ -252,7 +252,7 @@ const plugin: Plugin = {
   description:
     'Stop hook that posts a one-page session summary (tokens, tools, commits, last activity) to the project mailbox',
   apiVersion: '^0.1.10',
-  capabilities: { tools: true, hooks: true },
+  capabilities: { tools: true, hooks: true, llm: true },
   defaultConfig: { ...DEFAULTS },
   configSchema: {
     type: 'object',

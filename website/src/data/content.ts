@@ -22,6 +22,7 @@ import {
   MessageSquareMore,
   Network,
   PackageOpen,
+  Palette,
   PanelTop,
   PlugZap,
   Radar,
@@ -59,6 +60,7 @@ export const siteRoutes = [
   '/tools',
   '/plugins',
   '/troubleshooting',
+  '/brand',
   '/created-by',
 ] as const;
 
@@ -178,6 +180,11 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
     description:
       'Diagnose provider, context, tool, MCP, session, plugin and terminal issues methodically.',
   },
+  '/brand': {
+    title: 'Brand guidelines — WrongStack',
+    description:
+      'Download the WrongStack logo and use the canonical colors, typography, naming and voice guidelines.',
+  },
   '/created-by': {
     title: 'Created by Ersin KOÇ — WrongStack',
     description:
@@ -216,6 +223,7 @@ export const moreNavGroups = [
 ] as const;
 
 export const moreNav = [
+  // learn: onboarding → the system itself → deeper reference → meta pages last
   {
     href: '/getting-started',
     label: 'Getting started',
@@ -238,13 +246,6 @@ export const moreNav = [
     group: 'learn',
   },
   {
-    href: '/compare',
-    label: 'Compare products',
-    description: 'Claude Code, Codex, OpenCode, Cursor and Pi',
-    icon: GitCompareArrows,
-    group: 'learn',
-  },
-  {
     href: '/workflows',
     label: 'Workflows',
     description: 'Goals, SDD, AutoPhase and reviews',
@@ -252,10 +253,39 @@ export const moreNav = [
     group: 'learn',
   },
   {
+    href: '/compare',
+    label: 'Compare products',
+    description: 'Claude Code, Codex, OpenCode, Cursor and Pi',
+    icon: GitCompareArrows,
+    group: 'learn',
+  },
+  {
+    href: '/brand',
+    label: 'Brand guidelines',
+    description: 'Logo, colors, typography and voice',
+    icon: Palette,
+    group: 'learn',
+  },
+  {
+    href: '/created-by',
+    label: 'Created by',
+    description: 'Ersin KOÇ and the open-source workshop',
+    icon: Fingerprint,
+    group: 'learn',
+  },
+  // coordinate: fleet & brain overview → agents & personas → work dispatch → comms → memory
+  {
     href: '/fleet',
     label: 'Fleet & Brain',
     description: 'Director, agents, budgets and policy',
     icon: Network,
+    group: 'coordinate',
+  },
+  {
+    href: '/features/brain-council',
+    label: 'Brain Council',
+    description: 'Quorum, veto, weighted votes and judge',
+    icon: BrainCircuit,
     group: 'coordinate',
   },
   {
@@ -273,6 +303,13 @@ export const moreNav = [
     group: 'coordinate',
   },
   {
+    href: '/features/kanban-work-queue',
+    label: 'Kanban work queue',
+    description: 'Durable tasks, dependencies and dispatch',
+    icon: PanelTop,
+    group: 'coordinate',
+  },
+  {
     href: '/mailbox',
     label: 'Global Mailbox',
     description: 'Agent messages, presence and routing',
@@ -286,6 +323,7 @@ export const moreNav = [
     icon: MemoryStick,
     group: 'coordinate',
   },
+  // extend: internal building blocks → external connections → customization
   {
     href: '/tools',
     label: 'Built-in tools',
@@ -298,6 +336,20 @@ export const moreNav = [
     label: 'Plugin catalog',
     description: 'All 73 plugins, risk and lifecycle',
     icon: PackageOpen,
+    group: 'extend',
+  },
+  {
+    href: '/mcp',
+    label: 'MCP guide',
+    description: 'Connect and operate external tools',
+    icon: PlugZap,
+    group: 'extend',
+  },
+  {
+    href: '/ecosystem',
+    label: 'Ecosystem',
+    description: 'MCP, skills, plugins and hooks',
+    icon: Blocks,
     group: 'extend',
   },
   {
@@ -315,19 +367,13 @@ export const moreNav = [
     group: 'extend',
   },
   {
-    href: '/mcp',
-    label: 'MCP guide',
-    description: 'Connect and operate external tools',
-    icon: PlugZap,
+    href: '/features/customization',
+    label: 'Customization',
+    description: 'Models, prompts, tools, themes and policy',
+    icon: Settings2,
     group: 'extend',
   },
-  {
-    href: '/ecosystem',
-    label: 'Ecosystem',
-    description: 'MCP, skills, plugins and hooks',
-    icon: Blocks,
-    group: 'extend',
-  },
+  // operate: secure first, then diagnose
   {
     href: '/security',
     label: 'Security',

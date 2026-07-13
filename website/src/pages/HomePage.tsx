@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ConnectWithPreview } from '@/components/site/ConnectWithPreview';
+import { CoordinationLitePreviews } from '@/components/site/CoordinationLitePreviews';
 import { FleetTopologyPreview } from '@/components/site/FleetTopologyPreview';
 import { CopyCommand, Eyebrow, Reveal, SectionIntro } from '@/components/site/primitives';
 import {
@@ -235,6 +236,8 @@ export function HomePage() {
 
       <FleetTopologyPreview />
 
+      <CoordinationLitePreviews />
+
       <ConnectWithPreview />
 
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
@@ -301,6 +304,29 @@ export function HomePage() {
                   </code>
                 </Reveal>
               ))}
+              <Reveal delay={surfaces.length * 0.04} className="bg-[#0c0d12]">
+                <Link
+                  href="/interfaces"
+                  className="group flex h-full min-h-[210px] flex-col justify-between bg-white/[0.04] p-6 transition-colors duration-300 hover:bg-brand focus-visible:bg-brand"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand transition-colors group-hover:text-white/70 group-focus-visible:text-white/70">
+                      Surface guide
+                    </span>
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-brand transition-all group-hover:border-white group-hover:bg-white group-focus-visible:border-white group-focus-visible:bg-white">
+                      <ArrowUpRight className="size-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:translate-x-0.5" />
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black tracking-[-0.035em] text-white">
+                      Find your surface.
+                    </h3>
+                    <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-400 transition-colors group-hover:text-white/75 group-focus-visible:text-white/75">
+                      Compare all five interfaces and choose the one that fits the work.
+                    </p>
+                  </div>
+                </Link>
+              </Reveal>
             </div>
           </div>
         </div>

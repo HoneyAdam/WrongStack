@@ -1,6 +1,12 @@
 import { ArrowRight, Check, Command, Copy, Layers3, Terminal } from 'lucide-react';
 import { useState } from 'react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
 import { commandFromSlug, commandSlug, commands } from '@/data/content';
 import { commandGuidance } from '@/data/deep-dives';
 import { Link, useRouter } from '@/lib/router';
@@ -47,6 +53,7 @@ export function CommandDetailPage() {
         index={`04.${String(position).padStart(2, '0')}`}
         eyebrow={`${command.category} command`}
         title={<span className="font-mono text-brand">{command.name}</span>}
+        titleFontSize={heroTitleFontSize(command.name, { mono: true })}
         description={command.summary}
         aside={
           <div className="flex flex-wrap gap-2">

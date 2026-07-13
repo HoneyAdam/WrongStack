@@ -241,7 +241,7 @@ const plugin: Plugin = {
   description:
     'Collects session work (commits, edited files, diff) and drafts a pull-request description',
   apiVersion: API_VERSION,
-  capabilities: { tools: true, hooks: true },
+  capabilities: { tools: true, hooks: true, llm: true },
   defaultConfig: { ...DEFAULTS },
   configSchema: {
     type: 'object',

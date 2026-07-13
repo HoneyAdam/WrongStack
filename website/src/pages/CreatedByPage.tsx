@@ -1,5 +1,5 @@
 import { ArrowUpRight, Globe2, Layers3, Terminal, UserRound } from 'lucide-react';
-import { PageHero, SectionIntro } from '@/components/site/primitives';
+import { PageHero, SectionIntro, heroTitleFontSize } from '@/components/site/primitives';
 import { GitHubIcon } from '@/components/ui/github-icon';
 import {
   creatorFeaturedProjects as featuredProjects,
@@ -42,6 +42,7 @@ export function CreatedByPage() {
       <PageHero
         index="19"
         eyebrow="Created by"
+        titleFontSize={heroTitleFontSize('Independent builder.')}
         title={
           <>
             Ersin KOÇ.

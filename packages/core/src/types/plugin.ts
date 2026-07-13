@@ -260,6 +260,12 @@ export interface PluginCapabilities {
   /** Will start MCP servers via `api.mcp.start()`. */
   mcp?: boolean | undefined;
   /**
+   * May call the host-scoped `api.llm` facade. This is an audit/UX hint,
+   * not a declaration that the plugin requires a provider: first-party
+   * plugins must still guard `api.llm` and retain a deterministic fallback.
+   */
+  llm?: boolean | undefined;
+  /**
    * Capabilities required to mutate (wrap, unregister, override) tools
    * the plugin does not own. If empty or omitted, the plugin may only
    * mutate its own tools. Official plugins bypass this check.

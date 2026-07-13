@@ -325,6 +325,23 @@ const plugin: Plugin = {
     clearCronResources();
     api.log.info('cron plugin unloaded');
   },
+
+  async health() {
+    const jobs = Array.from(state.jobs.values());
+    const overdue = jobs.filter(
+      (job) => job.enabled && new Date(job.nextRun).getTime() < Date.now(),
+    ).length;
+    return {
+      ok: overdue === 0,
+      message:
+        overdue > 0
+          ? `cron: ${overdue} overdue job(s) out of ${jobs.length}`
+          : `cron: ${jobs.length} active job(s)`,
+      activeJobs: jobs.length,
+      overdueJobs: overdue,
+      totalRuns: jobs.reduce((sum, job) => sum + job.runCount, 0),
+    };
+  },
 };
 
 export default plugin;

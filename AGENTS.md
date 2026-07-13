@@ -152,7 +152,7 @@ Automatic memory injection is host-parity behavior: CLI and standalone WebUI ins
 
 ## Plugins
 
-Declare `capabilities: { tools, providers, slashCommands, mcp, pipelines }`, receive a scoped `api`; `setup(api)` registers, `teardown()` runs on SIGINT and natural exit. See `docs/plugin-author-guide.md`.
+Declare `capabilities: { tools, providers, slashCommands, mcp, pipelines, llm }`, receive a scoped `api`; `llm: true` means the plugin may call host-routed `api.llm` but must retain a deterministic fallback; `setup(api)` registers, `teardown()` runs on SIGINT and natural exit. See `docs/plugin-author-guide.md`.
 
 ## Session storage
 

@@ -277,7 +277,7 @@ const plugin: Plugin = {
   description:
     'PreToolUse hook that validates conventional-commit format before git_autocommit or bash git commit runs',
   apiVersion: API_VERSION,
-  capabilities: { tools: true, hooks: true },
+  capabilities: { tools: true, hooks: true, llm: true },
   defaultConfig: { ...DEFAULTS },
   configSchema: {
     type: 'object',

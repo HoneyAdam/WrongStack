@@ -154,9 +154,18 @@ failure):
 | `session-recap` | `aiSummary` | Prepends a natural-language session summary to the recap |
 | `error-lens` | `aiHints` | One-line fix hint on each new failure digest |
 | `changelog-writer` | `polish` | Rewrites entries into user-facing release-notes wording |
+| `commit-validator` | `suggestFix` | Suggests a corrected conventional-commit subject after deterministic validation |
+| `dep-guard` | `confirmTyposquatsWithLlm` | Reviews a package name already flagged by deterministic similarity checks |
+| `migration-planner` | `useLlm` / `use_llm` | Adds separate evidence-bounded risk and verification analysis |
+| `pr-drafter` | `aiSummary` | Writes a PR title and narrative from session facts |
+| `release-notes-generator` | `useLlm` / `use_llm` | Polishes wording only when every short commit hash is preserved |
+| `test-generator` | `useLlm` / `use_llm` | Authors behavior-focused tests from bounded source context |
 
 Every consumer is guarded on `api.llm` and honors the per-plugin
-`extensions[<name>].llm` provider/model override.
+`extensions[<name>].llm` provider/model override. Plugins that expose
+optional generation declare `capabilities.llm: true`; this is an audit/UX
+signal, not permission to require an LLM. The deterministic path must stay
+usable when `api.llm` is absent, cancelled, fails, or returns invalid output.
 
 ---
 
@@ -168,6 +177,7 @@ capabilities: {
   providers: false,
   slashCommands: true,
   mcp: false,
+  llm: true, // this plugin may call api.llm, but still has a non-LLM fallback
   pipelines: ['request', 'toolCall'],
 }
 ```

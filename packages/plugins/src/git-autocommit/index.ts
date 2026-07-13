@@ -304,7 +304,7 @@ const plugin: Plugin = {
   version: '0.2.0',
   description: 'AI-powered git staging and conventional commit message generation',
   apiVersion: API_VERSION,
-  capabilities: { tools: true },
+  capabilities: { tools: true, llm: true },
   defaultConfig: {
     conventionalCommits: true,
     autoStage: false,

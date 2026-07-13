@@ -1,5 +1,7 @@
 import { ArrowDown, ArrowRight, Check, Gauge } from 'lucide-react';
-import { PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import { BrainCouncilDemo } from '@/components/site/BrainCouncilDemo';
+import { KanbanLiveDemo } from '@/components/site/KanbanLiveDemo';
+import { PageHero, PageNext, SectionIntro, heroTitleFontSize } from '@/components/site/primitives';
 import { featureFromSlug, featureStories } from '@/data/content';
 import { featureDeepDives } from '@/data/deep-dives';
 import { Link, useRouter } from '@/lib/router';
@@ -22,10 +24,10 @@ export function FeatureDetailPage() {
       <PageHero
         index={`01.${String(position).padStart(2, '0')}`}
         eyebrow={feature.eyebrow}
+        titleFontSize={heroTitleFontSize(feature.title, { lines: 2 })}
         title={
           <>
-            {leadingTitle}
-            <br />
+            {leadingTitle}{' '}
             <span className="text-brand">{lastTitleWord}</span>
           </>
         }
@@ -36,6 +38,8 @@ export function FeatureDetailPage() {
           </div>
         }
       />
+      {slug === 'kanban-work-queue' && <KanbanLiveDemo />}
+      {slug === 'brain-council' && <BrainCouncilDemo />}
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
         <SectionIntro index="01" eyebrow="System promise" title={detail.promise} />
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-3">

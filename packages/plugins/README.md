@@ -68,7 +68,7 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. The canonical default is
 | 41 | [`knowledge-graph`](./src/knowledge-graph) | `kg_add_fact`, `kg_query`, `kg_remove_fact`, `kg_status` | System prompt contributor | Persistent structured (subject, relation, object) project facts |
 | 42 | [`dead-code-detector`](./src/dead-code-detector) | `dead_code_scan` | `PostToolUse` | Regex-based scan for exported identifiers that appear unused |
 | 43 | [`dependency-vulnerability-gate`](./src/dependency-vulnerability-gate) | `dependency_audit_status` | `PostToolUse` | Opt-in blocking `npm/pnpm audit` after installs |
-| 44 | [`migration-planner`](./src/migration-planner) | `migration_plan`, `migration_status` | `PostToolUse` | Reads changelogs and produces version-migration checklists |
+| 44 | [`migration-planner`](./src/migration-planner) | `migration_plan`, `migration_status` | `PostToolUse` | Evidence-backed checklists + optional `api.llm` risk/verification analysis |
 | 45 | [`semantic-search-indexer`](./src/semantic-search-indexer) | `semantic_search`, `semantic_index_status` | — | Lightweight keyword index over project source files |
 | 46 | [`auto-i18n-extractor`](./src/auto-i18n-extractor) | `i18n_extract`, `i18n_status` | `PostToolUse` | Detects hardcoded user-facing strings and suggests i18n keys |
 | 47 | [`doc-sync-guard`](./src/doc-sync-guard) | `doc_sync_status` | `PostToolUse` | Warns when README/docs edits omit recently changed source files |
@@ -82,8 +82,8 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. The canonical default is
 | 55 | [`duplicate-code-detector`](./src/duplicate-code-detector) | `detect_duplicate_code`, `duplicate_code_status` | `PostToolUse` | Detects duplicate/similar code blocks using normalized-line fingerprints |
 | 56 | [`code-metrics`](./src/code-metrics) | `measure_code_metrics`, `metrics_status` | `PostToolUse` | Computes LOC, comment ratio, function count, and approximate cyclomatic complexity |
 | 57 | [`refactor-suggester`](./src/refactor-suggester) | `suggest_refactors`, `refactor_status` | `PostToolUse` | Flags long functions, deep nesting, many parameters, magic numbers, console.log |
-| 58 | [`test-generator`](./src/test-generator) | `generate_unit_tests` | — | Generates a unit-test skeleton from exported functions/classes |
-| 59 | [`release-notes-generator`](./src/release-notes-generator) | `generate_release_notes` | — | Groups conventional commits into a release-notes markdown draft |
+| 58 | [`test-generator`](./src/test-generator) | `generate_unit_tests` | — | Framework-correct skeletons + optional behavior-focused `api.llm` tests |
+| 59 | [`release-notes-generator`](./src/release-notes-generator) | `generate_release_notes` | — | Traceable notes + optional hash-preserving `api.llm` polish |
 | 60 | [`smart-rename`](./src/smart-rename) | `smart_rename` | — | Whole-word symbol rename with preview and optional apply |
 | 61 | [`feature-flag-tracker`](./src/feature-flag-tracker) | `scan_feature_flags`, `feature_flag_status` | `PostToolUse` | Scans source files for feature-flag usage and reports flag inventory |
 | 62 | [`interface-contract-guard`](./src/interface-contract-guard) | `check_interface_contracts`, `interface_contract_status` | `PostToolUse` | Warns when TypeScript interfaces change or lack implementers |

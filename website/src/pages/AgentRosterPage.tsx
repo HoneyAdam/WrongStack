@@ -1,6 +1,12 @@
 import { ArrowDown, Bot, Check, Gauge, Search, Sparkles, Workflow } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  ExternalDoc,
+  PageHero,
+  PageNext,
+  SectionIntro,
+  heroTitleFontSize,
+} from '@/components/site/primitives';
 import {
   builtInRosterCount,
   extendedRosterCount,
@@ -37,6 +43,7 @@ export function AgentRosterPage() {
       <PageHero
         index="18"
         eyebrow="Agent roster"
+        titleFontSize={heroTitleFontSize('One accountable fleet.')}
         title={
           <>
             Fifty-one roles.

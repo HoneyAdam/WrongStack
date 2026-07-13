@@ -202,7 +202,7 @@ const plugin: Plugin = {
   description:
     'Distills failed command output into a compact digest (error line + project stack frames) and flags repeated failures',
   apiVersion: '^0.1.10',
-  capabilities: { tools: true, hooks: true },
+  capabilities: { tools: true, hooks: true, llm: true },
   defaultConfig: { ...DEFAULTS },
   configSchema: {
     type: 'object',

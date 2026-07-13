@@ -58,4 +58,17 @@ describe('file-watcher plugin', () => {
   it('teardown is a function', () => {
     expect(typeof fileWatcherPlugin.teardown).toBe('function');
   });
+
+  it('reports watcher resource health', async () => {
+    fileWatcherPlugin.setup(mockApi as any);
+    const health = await fileWatcherPlugin.health?.();
+    expect(health).toEqual(
+      expect.objectContaining({
+        ok: true,
+        activeWatchGroups: 0,
+        filesystemWatchers: 0,
+        pendingDebounces: 0,
+      }),
+    );
+  });
 });

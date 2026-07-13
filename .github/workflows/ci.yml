@@ -1,0 +1,154 @@
+name: CI
+
+# Monorepo gate: lint → typecheck → build → test.
+# Runs on every push and PR to main; also dispatchable manually.
+# Permissions are kept minimal — read-only repo access is sufficient
+# because this workflow does not publish or deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only one CI run per ref at a time. Cancel the older one so a rapid
+# push sequence doesn't queue a backlog of stale runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (Biome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # pnpm/action-setup v4 — resolves the correct pnpm version from
+      # packageManager in root package.json. Tagged version is used here
+      # because the SHA rotates with every patch; verify after first run.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm biome lint .
+
+  typecheck:
+    name: TypeCheck (tsc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Workspace typecheck, serially to avoid tsc buildinfo contention.
+      # Matches the root package.json script exactly.
+      - name: TypeCheck
+        run: pnpm typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  build:
+    name: Build (esbuild + tsc declarations)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Topological build via the centralized driver.
+      # ESBuild for JS bundles, native tsc --emitDeclarationOnly for types.
+      - name: Build
+        run: pnpm build
+
+  test:
+    name: Test (Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The root vitest run excludes webui (jsdom/globals environment)
+      # and hq-dashboard (jsdom via forks pool) — those have their own
+      # vitest configs and are tested separately below.
+      #
+      # NODE_OPTIONS mirrors vitest.config.ts env so child processes
+      # spawned by tests also get the 4 GB heap.
+      - name: Test (root suite)
+        run: pnpm vitest run
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Test (webui)
+        run: pnpm --filter webui test
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      # hq-dashboard needs jsdom which the root forks pool can't resolve.
+      # Run it from its package context so its own vitest config applies.
+      - name: Test (hq-dashboard)
+        run: pnpm --filter @wrongstack/cli exec vitest run tests/hq-dashboard.test.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  # Composite gate so branch-protection rules can require a single
+  # status check rather than listing every job individually.
+  gate:
+    name: CI Gate
+    needs: [lint, typecheck, build, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    if: always()
+    steps:
+      - name: All required jobs passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One or more required jobs failed or were cancelled."
+          echo "  lint:      ${{ needs.lint.result }}"
+          echo "  typecheck: ${{ needs.typecheck.result }}"
+          echo "  build:     ${{ needs.build.result }}"
+          echo "  test:      ${{ needs.test.result }}"
+          exit 1
+      - name: Gate passed
+        if: "!(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))"
+        run: echo "All gates passed."

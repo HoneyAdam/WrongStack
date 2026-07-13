@@ -2075,8 +2075,8 @@ export const pluginDetails: Record<string, PluginDetail> = {
     apiVersion: "^0.1.10",
   },
   "migration-planner": {
-    version: "0.1.0",
-    longDescription: "Builds dependency or framework migration checklists: migration_plan reads the package's CHANGELOG (project root or node_modules), extracts breaking changes between two versions, and produces a step-by-step checklist, falling back to a generic migration guide when no changelog is found.",
+    version: "0.2.0",
+    longDescription: "Builds evidence-backed dependency or framework migration checklists. migration_plan reads a local package CHANGELOG, extracts breaking changes between two versions, and keeps that deterministic result authoritative. Optional api.llm analysis is returned separately as bounded JSON with risk, additional-step, and verification guidance; invalid or unavailable model output never replaces changelog facts.",
     tools: [
       {
         name: "migration_plan",
@@ -2089,6 +2089,7 @@ export const pluginDetails: Record<string, PluginDetail> = {
           { name: "fromVersion", type: "string", description: "Current version, e.g. \"1.2.3\"." },
           { name: "toVersion", type: "string", description: "Target version, e.g. \"2.0.0\"." },
           { name: "scope", type: "string", description: "Optional scope describing which parts of the project use the package." },
+          { name: "use_llm", type: "boolean", description: "Add evidence-bounded LLM risk analysis for this call." },
         ],
       },
       {
@@ -2118,9 +2119,22 @@ export const pluginDetails: Record<string, PluginDetail> = {
         defaultValue: "100000",
         description: "Maximum changelog characters to scan.",
       },
+      {
+        name: "useLlm",
+        type: "boolean",
+        defaultValue: "false",
+        description: "Add a separate api.llm risk analysis while preserving deterministic changelog extraction.",
+      },
+      {
+        name: "maxLlmChars",
+        type: "number",
+        defaultValue: "20000",
+        description: "Maximum changelog evidence characters included in an optional LLM request.",
+      },
     ],
     hooks: ["PostToolUse (write|edit)"],
     apiVersion: "^0.1.10",
+    example: "{\n  \"extensions\": {\n    \"migration-planner\": {\n      \"useLlm\": true,\n      \"maxLlmChars\": 20000\n    }\n  }\n}\n\nmigration_plan({ packageName: \"react\", fromVersion: \"18.3.1\", toVersion: \"19.0.0\", use_llm: true })",
   },
   "schema-evolution-guard": {
     version: "0.1.0",
@@ -3207,8 +3221,8 @@ export const pluginDetails: Record<string, PluginDetail> = {
     apiVersion: "^0.1.10",
   },
   "release-notes-generator": {
-    version: "0.1.0",
-    longDescription: "Generates grouped release-notes markdown from conventional commits between two git refs (generate_release_notes), grouping entries by commit type, optionally including scopes, and defaulting the starting ref to the latest tag. Registers no hooks.",
+    version: "0.2.0",
+    longDescription: "Generates traceable release-notes Markdown from conventional commits between two resolved Git refs. The deterministic path groups commits by type and scope. Optional api.llm polishing targets users, developers, or operators, but is accepted only when every short commit hash survives exactly once; otherwise the original grouped notes are returned.",
     tools: [
       {
         name: "generate_release_notes",
@@ -3219,6 +3233,8 @@ export const pluginDetails: Record<string, PluginDetail> = {
         params: [
           { name: "from", type: "string", description: "Starting git ref (tag, commit, branch). Defaults to the configured defaultFrom." },
           { name: "to", type: "string", description: "Ending git ref." },
+          { name: "use_llm", type: "boolean", description: "Polish deterministic notes through api.llm for this call." },
+          { name: "audience", type: "\"users\" | \"developers\" | \"operators\"", description: "Audience for optional LLM wording." },
         ],
       },
     ],
@@ -3241,9 +3257,22 @@ export const pluginDetails: Record<string, PluginDetail> = {
         defaultValue: "\"latest-tag\"",
         description: "Default starting ref when `from` is omitted. Use \"latest-tag\" to discover the most recent tag.",
       },
+      {
+        name: "useLlm",
+        type: "boolean",
+        defaultValue: "false",
+        description: "Rewrite deterministic notes through api.llm while preserving every commit hash.",
+      },
+      {
+        name: "audience",
+        type: "\"users\" | \"developers\" | \"operators\"",
+        defaultValue: "\"users\"",
+        description: "Default audience for optional LLM wording.",
+      },
     ],
     hooks: [],
     apiVersion: "^0.1.10",
+    example: "{\n  \"extensions\": {\n    \"release-notes-generator\": {\n      \"useLlm\": true,\n      \"audience\": \"users\"\n    }\n  }\n}\n\ngenerate_release_notes({ from: \"v1.4.0\", to: \"HEAD\", use_llm: true })",
   },
   "smart-rename": {
     version: "0.1.0",
@@ -3281,8 +3310,8 @@ export const pluginDetails: Record<string, PluginDetail> = {
     apiVersion: "^0.1.10",
   },
   "test-generator": {
-    version: "0.1.0",
-    longDescription: "Generates a Vitest test skeleton from a source file by detecting exported functions, classes, and arrow functions with regex (generate_unit_tests). The skeleton imports the exports by default; the framework label and test-file suffix are configurable.",
+    version: "0.2.0",
+    longDescription: "Generates a framework-correct test file beside the source by detecting exported functions, classes, arrow functions, values, and named exports while preserving the source extension. Deterministic templates support Vitest, Jest, and node:test with the right imports and assertion style. Optional api.llm authoring receives bounded source context and falls back to the skeleton on cancellation, provider failure, or invalid output.",
     tools: [
       {
         name: "generate_unit_tests",
@@ -3292,6 +3321,7 @@ export const pluginDetails: Record<string, PluginDetail> = {
         summary: "Generate a test skeleton for a source file. Detects exported functions, arrow functions, classes, and named exports. Returns the test content as a string; it does not write to disk.",
         params: [
           { name: "path", type: "string", description: "Source file path (relative to project root)." },
+          { name: "use_llm", type: "boolean", description: "Generate behavior-focused tests through api.llm for this call." },
         ],
       },
     ],
@@ -3304,7 +3334,7 @@ export const pluginDetails: Record<string, PluginDetail> = {
       },
       {
         name: "framework",
-        type: "string",
+        type: "\"vitest\" | \"jest\" | \"node:test\"",
         defaultValue: "\"vitest\"",
         description: "Test framework to target.",
       },
@@ -3320,9 +3350,22 @@ export const pluginDetails: Record<string, PluginDetail> = {
         defaultValue: "true",
         description: "Emit import statements for detected exports.",
       },
+      {
+        name: "useLlm",
+        type: "boolean",
+        defaultValue: "false",
+        description: "Ask api.llm for behavior-focused tests; the deterministic skeleton remains the fallback.",
+      },
+      {
+        name: "maxSourceChars",
+        type: "number",
+        defaultValue: "20000",
+        description: "Maximum source characters included in an optional LLM request.",
+      },
     ],
     hooks: [],
     apiVersion: "^0.1.10",
+    example: "{\n  \"extensions\": {\n    \"test-generator\": {\n      \"framework\": \"vitest\",\n      \"useLlm\": true,\n      \"maxSourceChars\": 20000\n    }\n  }\n}\n\ngenerate_unit_tests({ path: \"src/math.ts\", use_llm: true })",
   },
   "@wrongstack/plug-lsp": {
     version: "0.1.0",
