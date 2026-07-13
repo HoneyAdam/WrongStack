@@ -749,7 +749,7 @@ function startHqServerWithAuth(
       const url = new URL(req.url ?? '/', `http://${host}:${port}`);
       setHqSecurityHeaders(res);
 
-      if (req.method !== 'GET' && req.method !== 'HEAD' && !hasTrustedBrowserOrigin(req)) {
+      if (req.method !== 'GET' && req.method !== 'HEAD' && !hasTrustedBrowserOrigin(req, host, port)) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'forbidden: cross-origin request' }));
         return;
@@ -1392,7 +1392,7 @@ function startHqServerWithAuth(
         return;
       }
 
-      if (!hasTrustedBrowserOrigin(req)) {
+      if (!hasTrustedBrowserOrigin(req, host, port)) {
         socket.write(
           'HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n' +
             JSON.stringify({ error: { code: 'INVALID_ORIGIN', message: 'Cross-origin WebSocket upgrade rejected.' } }),

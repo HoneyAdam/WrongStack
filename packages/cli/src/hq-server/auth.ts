@@ -38,13 +38,25 @@ export function setHqSecurityHeaders(res: http.ServerResponse): void {
 
 // ── CORS / origin guard ────────────────────────────────────────────────────
 
-export function hasTrustedBrowserOrigin(req: http.IncomingMessage): boolean {
+export function hasTrustedBrowserOrigin(
+  req: http.IncomingMessage,
+  _boundHost?: string,
+  boundPort?: number,
+): boolean {
   const origin = req.headers.origin;
   if (origin === undefined || origin === 'null') return true;
   try {
     const parsed = new URL(origin);
-    // Loopback and local origins are trusted unconditionally.
-    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1') return true;
+    // Loopback and local origins are trusted only when the port matches the
+    // bound port. A malicious app on localhost:8888 must not be able to reuse
+    // a password cookie set for HQ on localhost:34827.
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1') {
+      if (boundPort !== undefined) {
+        return parsed.port === String(boundPort);
+      }
+      // No bound port provided (legacy callers) — accept any port.
+      return true;
+    }
     // File:// origins (the HQ dashboard served from a local file for
     // air-gapped use) are also trusted.
     if (parsed.protocol === 'file:') return true;
