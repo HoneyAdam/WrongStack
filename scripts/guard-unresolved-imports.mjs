@@ -16,8 +16,15 @@
  * from the STAGED blob (git show :path), not the working tree. Bare and
  * aliased specifiers (@wrongstack/*, node:*, npm packages) are ignored —
  * those are the package manager's problem, not the index's.
+ *
+ * A specifier is flagged ONLY when it resolves to a file that exists on
+ * DISK but is missing from the index — the silent case local builds hide.
+ * Specifiers that resolve nowhere at all (test-fixture strings, template
+ * placeholders, type-only imports in untypechecked tests) are ignored:
+ * they either aren't real imports or already fail loudly in local builds.
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const VERBOSE = process.argv.includes('--verbose') || process.argv.includes('-v');
@@ -68,7 +75,7 @@ function relativeSpecifiers(source) {
  */
 function candidatesFor(resolved) {
   const out = [resolved];
-  const swap = { '.js': ['.ts', '.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
+  const swap = { '.js': ['.ts', '.tsx', '.d.ts'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
   const ext = path.posix.extname(resolved);
   if (swap[ext]) {
     const stem = resolved.slice(0, -ext.length);
@@ -100,9 +107,10 @@ function main() {
     const dir = path.posix.dirname(file);
     for (const spec of relativeSpecifiers(source)) {
       const resolved = path.posix.normalize(path.posix.join(dir, spec));
-      if (!candidatesFor(resolved).some((c) => index.has(c))) {
-        findings.push({ file, spec, resolved });
-      }
+      const candidates = candidatesFor(resolved);
+      if (candidates.some((c) => index.has(c))) continue; // will be in the commit
+      const onDisk = candidates.find((c) => existsSync(c));
+      if (onDisk) findings.push({ file, spec, onDisk });
     }
   }
 
@@ -111,13 +119,13 @@ function main() {
     console.error('============================================================');
     console.error('  BLOCKED  --  UNRESOLVED RELATIVE IMPORT IN STAGED FILE');
     console.error('============================================================');
-    console.error('  These imports point at files that are NOT in the git index.');
-    console.error('  The commit would build locally but break CI (esbuild');
-    console.error('  "Could not resolve"). Stage the missing file, or fix the path.');
+    console.error('  These imports resolve to files that exist on disk but are');
+    console.error('  NOT tracked/staged. The commit builds locally but breaks CI');
+    console.error('  (esbuild "Could not resolve"). Stage the missing file too:');
     console.error('');
-    for (const { file, spec, resolved } of findings.slice(0, 20)) {
+    for (const { file, spec, onDisk } of findings.slice(0, 20)) {
       console.error('  ' + file);
-      console.error("    -> imports '" + spec + "' (" + resolved + ' not tracked/staged)');
+      console.error("    -> imports '" + spec + "'  (git add " + onDisk + ')');
     }
     if (findings.length > 20) console.error('  ... and ' + (findings.length - 20) + ' more.');
     console.error('');

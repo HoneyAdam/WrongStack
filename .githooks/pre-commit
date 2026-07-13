@@ -1,8 +1,19 @@
 #!/bin/sh
 # .githooks/pre-commit
-# Guards against known corruption patterns and suspicious mass-changes
+# Guards against known corruption patterns and suspicious mass-changes.
+#
+# `set -e` is load-bearing: without it (and with the trailing `exit 0`)
+# every guard below is advisory-only — failures print but never block
+# the commit, which is how broken commits kept reaching main/CI.
+set -e
 node scripts/guard-against-corruption.mjs --verbose
 node scripts/lint-console-logging.mjs --verbose
+
+# Block commits whose staged TS files import a module that exists on
+# disk but is not tracked/staged ("import committed, file forgotten").
+# Local builds pass, CI's Build step fails with esbuild "Could not
+# resolve" — this exact class broke every CI run after 9290b3b14.
+node scripts/guard-unresolved-imports.mjs --verbose
 
 # ── Mailbox-bridge integrity ─────────────────────────────────────
 # If any mailbox-bridge source file is staged, run the route-table +
