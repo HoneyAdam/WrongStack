@@ -162,9 +162,9 @@ export function RefinePanel({
       <div className="p-4 space-y-3">
         {isEditing ? (
           <div className="space-y-2">
-            <label className="text-xs text-muted-foreground font-medium">
+            <span className="text-xs text-muted-foreground font-medium">
               {t('activity:refine.editLabel')}
-            </label>
+            </span>
             <textarea
               value={editText}
               onChange={(e) => setEditText(e.target.value)}

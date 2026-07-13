@@ -559,11 +559,11 @@ export function PromptLibraryModal() {
                     <div className="text-xs font-semibold text-muted-foreground">{t('activity:promptLib.variables')}</div>
                     {selected.variables.map((v) => {
                       const label = (
-                        <label className="text-xs text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {v.name}
                           {v.required ? ' *' : ''}
                           {v.description ? ` — ${v.description}` : ''}
-                        </label>
+                        </span>
                       );
                       const set = (val: string) =>
                         setVarValues((prev) => ({ ...prev, [v.name]: val }));
