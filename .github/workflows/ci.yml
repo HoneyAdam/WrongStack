@@ -12,6 +12,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Dependency audit runs as its own job so an unrelated new advisory (or a
+  # registry hiccup) fails with a clear, separate signal instead of masking
+  # the build/typecheck/test result of the change under review. `pnpm audit`
+  # only reads the lockfile, so no install/build is needed here.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (resolved 2026-05-29)
+        with:
+          node-version: 22
+
+      # Security: fail CI on known dependency vulnerabilities (moderate+).
+      # Low/informational findings pass through.
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=moderate
+
   ci:
     # Matrix: ubuntu-latest (existing) + windows-latest (J-area coverage).
     # The project claims Windows support in its lockstep-release story
@@ -32,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (resolved 2026-05-29)
         with:
@@ -40,14 +61,35 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        timeout-minutes: 10
         run: pnpm install --frozen-lockfile
+
+      # Cache the Playwright Chromium download (~150 MB per OS). Keyed on the
+      # resolved @playwright/test version, so the cache survives unrelated
+      # lockfile churn and invalidates exactly when the browser revision can
+      # change. On a hit, `--install` sees the executable and exits fast;
+      # `--with-deps` still runs on Linux because apt packages are not cached.
+      - name: Resolve Playwright version
+        id: playwright-version
+        shell: bash
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browser
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
       - name: Install first-party browser (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: node scripts/check-browser-runtime.mjs --install --with-deps
 
       - name: Install first-party browser (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 10
         run: node scripts/check-browser-runtime.mjs --install
 
       - name: Smoke test first-party browser
@@ -62,12 +104,6 @@ jobs:
       # See scripts/check-node-pty.mjs for the rationale.
       - name: Smoke test node-pty prebuilt
         run: pnpm check:node-pty
-
-      # Security: fail CI on known dependency vulnerabilities (moderate+).
-      # --audit-level=moderate catches anything that pnpm audit considers
-      # moderate severity or above.  Low/informational findings pass through.
-      - name: Audit dependencies
-        run: pnpm audit --audit-level=moderate
 
       # Build all workspace packages in dependency (topological) order before
       # typechecking. Each package resolves its `@wrongstack/*` imports from a
@@ -104,5 +140,13 @@ jobs:
       - name: Lint console logging
         run: pnpm lint:console
 
+      - name: Check translation completeness
+        run: pnpm lint:i18n
+
+      # Step-level timeout below the 30-minute job cap: vitest on POSIX
+      # runners has a known failure mode where a leaked handle keeps the
+      # process alive after the suite finishes. A hung test run should be
+      # reported as "Test timed out", not as an opaque job-level kill.
       - name: Test
+        timeout-minutes: 20
         run: pnpm test

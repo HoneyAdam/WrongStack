@@ -1,17 +1,12 @@
 name: Release
 
-# Triggers on version tags (e.g. v0.278.0). Manual dispatch is also
-# allowed for dry-runs against main without bumping a tag.
+# Triggers on version tags (e.g. v0.278.0). Manual dispatch is limited
+# to dry-runs against main; npm publication always requires a tag.
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Run the release gates without publishing (uses pnpm release:dry).'
-        type: boolean
-        default: true
+  workflow_dispatch: {}
 
 # Cancel in-flight runs for the same tag — no point releasing stale
 # code. workflow_dispatch runs are not cancelled.
@@ -21,14 +16,13 @@ concurrency:
 
 jobs:
   release:
-    # Tag pushes run on the runner; manual dispatches also run here.
-    # `github.event_name == 'workflow_dispatch'` is checked in the
-    # `publish` step to decide between `pnpm release` and `pnpm release:dry`.
+    # Tag pushes publish after validation; manual dispatches only run
+    # the same gates and a package dry-run.
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Tag-push runs only fire on tag refs, but workflow_dispatch can
-    # target any branch. Restrict tag-push to the main branch's tags
-    # by checking the ref explicitly below.
+    # target any branch. The validation step constrains manual runs to
+    # main and verifies that a release tag's commit belongs to main.
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -44,6 +38,36 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Validate release ref and version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$REF" != "refs/heads/main" ]; then
+              echo "::error::Manual release validation must run from main (got $REF)."
+              exit 1
+            fi
+            echo "::notice::Manual run on main will perform a dry-run only."
+            exit 0
+          fi
+
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          if [ "$REF_NAME" != "$EXPECTED_TAG" ]; then
+            echo "::error::Tag $REF_NAME does not match package.json version $EXPECTED_TAG."
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release commit $GITHUB_SHA is not contained in origin/main."
+            exit 1
+          fi
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -58,7 +82,7 @@ jobs:
       # Without this step, `pnpm -r typecheck` fails on packages
       # that import another workspace package.
       - name: Build workspace packages
-        run: pnpm -r build
+        run: pnpm build
 
       # Layer 1 — broad correctness sweep. Mirrors the local
       # `pnpm release:check` script: audit + typecheck + build + test.
@@ -79,21 +103,12 @@ jobs:
       # braces: the explicit step is documented and visible in the
       # GitHub Actions UI; the automatic one is the standard npm
       # safety net.
+      - name: Package dry-run
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm release:dry
+
       - name: Publish to npm
+        if: github.event_name == 'push'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual run: respect the dry_run input.
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "::notice::Manual dispatch with dry_run=true — running pnpm release:dry"
-              pnpm release:dry
-            else
-              echo "::notice::Manual dispatch with dry_run=false — running pnpm release"
-              pnpm release
-            fi
-          else
-            # Tag push: full release.
-            echo "::notice::Tag ${{ github.ref_name }} — running pnpm release"
-            pnpm release
-          fi
+        run: pnpm release
