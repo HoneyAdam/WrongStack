@@ -337,7 +337,7 @@ export default function App() {
           <Suspense
             fallback={
               <div className="grid min-h-[75vh] place-items-center pt-24">
-                <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+                <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                   Loading manual…
                 </span>
               </div>

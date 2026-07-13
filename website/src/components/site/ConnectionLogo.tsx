@@ -19,7 +19,7 @@ export function ConnectionLogo({
       )}
     >
       {failed ? (
-        <span className="font-mono text-[10px] font-black uppercase tracking-[-0.08em] text-ink">
+        <span className="font-mono text-xs font-black uppercase tracking-[-0.08em] text-ink">
           {connection.vendor.slice(0, 2)}
         </span>
       ) : (

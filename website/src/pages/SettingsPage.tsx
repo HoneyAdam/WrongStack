@@ -82,12 +82,12 @@ export function SettingsPage() {
           </div>
           <div className="rounded-2xl border border-line bg-ink p-5 text-zinc-300 sm:p-7">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
                 ~/.wrongstack/config.json
               </span>
               <span className="size-2 rounded-full bg-emerald-400" />
             </div>
-            <pre className="mt-5 overflow-x-auto font-mono text-[11px] leading-6 text-zinc-400">
+            <pre className="mt-5 overflow-x-auto font-mono text-xs leading-6 text-zinc-400">
               <code>{sample}</code>
             </pre>
           </div>
@@ -124,12 +124,12 @@ export function SettingsPage() {
                       className="grid gap-2 border-b border-line px-5 py-4 last:border-b-0 sm:grid-cols-[1fr_110px] sm:px-6"
                     >
                       <div>
-                        <code className="font-mono text-[11px] font-bold text-brand">
+                        <code className="font-mono text-xs font-bold text-brand">
                           {field.key}
                         </code>
                         <p className="mt-1 text-xs leading-5 text-muted">{field.explanation}</p>
                       </div>
-                      <code className="h-fit w-fit rounded-md bg-bg px-2 py-1 font-mono text-[10px] text-faint sm:justify-self-end">
+                      <code className="h-fit w-fit rounded-md bg-bg px-2 py-1 font-mono text-xs text-faint sm:justify-self-end">
                         {field.defaultValue}
                       </code>
                     </div>
@@ -207,7 +207,7 @@ export function SettingsPage() {
               {['context', 'features', 'indexing', 'session', 'log', 'launch'].map((key) => (
                 <code
                   key={key}
-                  className="rounded-full border border-emerald-500/15 bg-card px-3 py-1.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-400"
+                  className="rounded-full border border-emerald-500/15 bg-card px-3 py-1.5 font-mono text-xs text-emerald-600 dark:text-emerald-400"
                 >
                   {key}
                 </code>
@@ -229,7 +229,7 @@ export function SettingsPage() {
                 (key) => (
                   <code
                     key={key}
-                    className="rounded-full border border-brand/15 bg-card px-3 py-1.5 font-mono text-[10px] text-brand"
+                    className="rounded-full border border-brand/15 bg-card px-3 py-1.5 font-mono text-xs text-brand"
                   >
                     {key}
                   </code>

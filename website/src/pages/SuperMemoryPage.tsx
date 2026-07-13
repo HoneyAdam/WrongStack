@@ -70,12 +70,12 @@ export function SuperMemoryPage() {
               <Icon className="size-5 text-brand" />
               <div className="mt-8 flex items-center gap-2">
                 <h2 className="text-lg font-black text-fg">{label}</h2>
-                <span className="rounded-full border border-line bg-bg px-2 py-0.5 font-mono text-[9px] font-black uppercase text-faint">
+                <span className="rounded-full border border-line bg-bg px-2 py-0.5 font-mono text-xs font-black uppercase text-faint">
                   {tag}
                 </span>
               </div>
               <p className="mt-4 text-sm leading-7 text-muted">{body}</p>
-              <code className="mt-6 block font-mono text-[10px] text-faint break-all">
+              <code className="mt-6 block font-mono text-xs text-faint break-all">
                 {path}
               </code>
             </article>
@@ -94,7 +94,7 @@ export function SuperMemoryPage() {
           />
           <div className="mt-12 overflow-hidden rounded-2xl border border-line bg-ink">
             <div className="border-b border-white/10 px-6 py-4">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
                 Memory entry format
               </span>
             </div>
@@ -122,7 +122,7 @@ export function SuperMemoryPage() {
                 </div>
               </div>
               <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.03] p-5">
-                <span className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-600">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-zinc-600">
                   Serialized on disk
                 </span>
                 <code className="mt-3 block text-xs leading-6 text-zinc-400">
@@ -199,7 +199,7 @@ export function SuperMemoryPage() {
             ))}
           </div>
           <aside className="rounded-2xl border border-line bg-ink p-7 text-zinc-300">
-            <div className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-600">
+            <div className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-600">
               Injection example
             </div>
             <div className="mt-6 space-y-4 font-mono text-xs">
@@ -207,7 +207,7 @@ export function SuperMemoryPage() {
                 You type: <span className="text-zinc-300">"fix the login timeout bug"</span>
               </p>
               <div className="rounded-lg border border-white/10 p-3">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-600">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-zinc-600">
                   Injected into system prompt
                 </p>
                 <div className="mt-3 space-y-2">
@@ -279,7 +279,7 @@ export function SuperMemoryPage() {
                 <div className="flex items-center gap-3">
                   <Icon className="size-5 text-brand" />
                   <h2 className="text-xl font-black text-fg">{title}</h2>
-                  <span className="rounded-full border border-line bg-bg px-2 py-0.5 font-mono text-[9px] font-black uppercase text-faint">
+                  <span className="rounded-full border border-line bg-bg px-2 py-0.5 font-mono text-xs font-black uppercase text-faint">
                     {badge}
                   </span>
                 </div>
@@ -359,7 +359,7 @@ export function SuperMemoryPage() {
               <article key={title} className="bg-card p-7">
                 <h2 className="text-xl font-black text-fg">{title}</h2>
                 <p className="mt-3 text-sm leading-7 text-muted">{body}</p>
-                <code className="mt-5 block font-mono text-[10px] text-faint">{detail}</code>
+                <code className="mt-5 block font-mono text-xs text-faint">{detail}</code>
               </article>
             ))}
           </div>
@@ -444,7 +444,7 @@ export function SuperMemoryPage() {
           />
           <div className="mt-12 overflow-hidden rounded-2xl border border-white/10">
             <div className="border-b border-white/10 px-6 py-4">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
                 .wrongstack/config.json → superMemory
               </span>
             </div>

@@ -46,7 +46,7 @@ export function PromptsPage() {
         <SectionIntro index="03" eyebrow="Prompts in practice" title="From template to agent steering in one command." description="A prompt is more than static text. Variables let you customize each insertion. Favorites keep your most-used templates one keystroke away." />
         <div className="mt-12 overflow-hidden rounded-2xl border border-line bg-ink">
           <div className="border-b border-white/10 px-6 py-4">
-            <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">Example: security review prompt</span>
+            <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Example: security review prompt</span>
           </div>
           <div className="p-6 font-mono text-sm leading-7 text-zinc-300">
             <span className="text-zinc-600">---</span><br />

@@ -54,7 +54,7 @@ export function InterfacesPage() {
                   </span>
                 </div>
                 <div>
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-faint">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-faint">
                     {surface.tagline}
                   </span>
                   <h2 className="mt-3 text-3xl font-black tracking-[-0.045em] text-fg">
@@ -96,7 +96,7 @@ export function InterfacesPage() {
           <div className="mt-12 overflow-x-auto rounded-2xl border border-line bg-card">
             <table className="w-full min-w-[780px] border-collapse text-left">
               <thead>
-                <tr className="border-b border-line bg-bg font-mono text-[10px] font-black uppercase tracking-[0.14em] text-faint">
+                <tr className="border-b border-line bg-bg font-mono text-xs font-black uppercase tracking-[0.14em] text-faint">
                   <th className="p-4 sm:p-5">Capability</th>
                   {['CLI', 'TUI', 'WebUI', 'Desktop', 'HQ'].map((name) => (
                     <th key={name} className="p-4 text-center sm:p-5">

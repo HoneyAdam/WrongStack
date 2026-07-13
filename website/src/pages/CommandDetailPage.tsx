@@ -128,10 +128,10 @@ export function CommandDetailPage() {
         description={command.summary}
         aside={
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               {command.origin}
             </span>
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               REPL + TUI
             </span>
           </div>
@@ -174,7 +174,7 @@ export function CommandDetailPage() {
           </article>
           <aside className="overflow-hidden rounded-2xl border border-line bg-ink text-zinc-300">
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
                 Quick reference
               </span>
               <Terminal className="size-4 text-brand" />
@@ -227,7 +227,7 @@ export function CommandDetailPage() {
                     <Copy className="size-3.5" />
                   )}
                 </button>
-                <span className="hidden font-mono text-[9px] text-zinc-700 sm:block">
+                <span className="hidden font-mono text-xs text-zinc-700 sm:block">
                   0{index + 1}
                 </span>
               </div>

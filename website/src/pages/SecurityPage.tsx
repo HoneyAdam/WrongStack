@@ -70,7 +70,7 @@ export function SecurityPage() {
                 >
                   <span className="font-mono text-xs font-black text-brand-2">0{index + 1}</span>
                   <strong className="text-sm text-fg">{step}</strong>
-                  <code className="hidden font-mono text-[10px] text-faint sm:block">{detail}</code>
+                  <code className="hidden font-mono text-xs text-faint sm:block">{detail}</code>
                 </div>
               ))}
             </div>
@@ -83,7 +83,7 @@ export function SecurityPage() {
                 YOLO auto-approves calls that the active policy permits. A hook denial, explicit
                 deny rule or unavailable capability still blocks the call.
               </p>
-              <code className="mt-6 block rounded-lg border border-brand/15 bg-card px-4 py-3 font-mono text-[11px] text-brand">
+              <code className="mt-6 block rounded-lg border border-brand/15 bg-card px-4 py-3 font-mono text-xs text-brand">
                 --yolo ≠ bypass security policy
               </code>
             </div>
@@ -137,7 +137,7 @@ export function SecurityPage() {
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
           <div className="grid gap-8 lg:grid-cols-[.65fr_1fr]">
             <div>
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                 Repository config
               </span>
               <h2 className="mt-5 text-4xl font-black tracking-[-0.025em]">Clone safely.</h2>

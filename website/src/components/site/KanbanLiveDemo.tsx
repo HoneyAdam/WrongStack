@@ -349,7 +349,7 @@ function TaskCard({ task, reducedMotion }: { task: DemoTask; reducedMotion: bool
       <h4 className="mt-3 text-[13px] font-black leading-5 tracking-[-0.02em] text-zinc-100">
         {task.title}
       </h4>
-      <p className="mt-1.5 line-clamp-2 text-[10px] leading-[1.55] text-zinc-500">{task.summary}</p>
+      <p className="mt-1.5 line-clamp-2 text-xs leading-[1.55] text-zinc-500">{task.summary}</p>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {task.labels.map((label) => (
           <span
@@ -388,7 +388,7 @@ function TaskCard({ task, reducedMotion }: { task: DemoTask; reducedMotion: bool
           <>
             <AgentAvatar agent={primaryAgent} compact />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[9px] font-black text-zinc-300">
+              <div className="truncate text-xs font-black text-zinc-300">
                 {primaryAgent.name} · {primaryAgent.role}
               </div>
               <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[7px] uppercase tracking-wider text-zinc-600">
@@ -525,7 +525,7 @@ export function KanbanLiveDemo() {
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-9 grid gap-5 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
           <div>
-            <div className="flex items-center gap-2 font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+            <div className="flex items-center gap-2 font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
               <Activity className="size-3.5" /> Animated Web UI demo
             </div>
             <h2 className="mt-4 max-w-3xl text-3xl font-black leading-[1.04] tracking-[-0.03em] sm:text-5xl">
@@ -547,7 +547,7 @@ export function KanbanLiveDemo() {
                 </span>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-200">
+                    <h3 className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-200">
                       Product launch / Sprint {cycle}
                     </h3>
                     {!paused && !reducedMotion && (
@@ -620,7 +620,7 @@ export function KanbanLiveDemo() {
                     <AgentAvatar agent={agent} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <strong className="text-[10px] text-zinc-300">{agent.name}</strong>
+                        <strong className="text-xs text-zinc-300">{agent.name}</strong>
                         <span className={cn('font-mono text-[7px] uppercase', stateStyle.text)}>
                           {stateStyle.label}
                         </span>
@@ -699,7 +699,7 @@ export function KanbanLiveDemo() {
                     <div className="flex items-start gap-2">
                       <span className={cn('mt-1 size-1.5 shrink-0 rounded-full', eventToneStyles[event.tone])} />
                       <div>
-                        <p className="text-[9px] font-bold leading-4 text-zinc-300">{event.text}</p>
+                        <p className="text-xs font-bold leading-4 text-zinc-300">{event.text}</p>
                         <p className="mt-1 font-mono text-[7px] leading-3 text-zinc-600">{event.meta}</p>
                       </div>
                     </div>
@@ -711,7 +711,7 @@ export function KanbanLiveDemo() {
               <div className="flex items-center gap-2 font-mono text-[8px] font-black uppercase tracking-[0.15em] text-brand-2">
                 <Sparkles className="size-3.5" /> Director queue
               </div>
-              <p className="mt-2 text-[10px] leading-5 text-zinc-500">
+              <p className="mt-2 text-xs leading-5 text-zinc-500">
                 Dependency-ready cards are claimed atomically, then routed by role, model, tools and capability policy.
               </p>
               <code className="mt-3 rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2 font-mono text-[8px] text-cyan-300">
@@ -721,7 +721,7 @@ export function KanbanLiveDemo() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col gap-2 text-[10px] leading-5 text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-4 flex flex-col gap-2 text-xs leading-5 text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
           <p>Illustrative local simulation. No project data is read or mutated.</p>
           <p className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">
             task status ≠ assignment status · sample agents and metrics

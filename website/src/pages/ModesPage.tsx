@@ -94,7 +94,7 @@ export function ModesPage() {
                 </span>
                 <h2 className="font-black text-fg">{title}</h2>
                 <p className="text-sm leading-7 text-muted">{body}</p>
-                <code className="font-mono text-[10px] text-brand">{code}</code>
+                <code className="font-mono text-xs text-brand">{code}</code>
               </article>
               {index < 4 && <ArrowDown className="mx-auto my-1 size-4 text-faint" />}
             </div>
@@ -117,7 +117,7 @@ export function ModesPage() {
                 type="button"
                 onClick={() => setFamily(id)}
                 className={cn(
-                  'rounded-full border px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.12em] transition-colors',
+                  'rounded-full border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.12em] transition-colors',
                   family === id
                     ? 'border-brand-2 bg-brand-2 text-ink'
                     : 'border-line bg-card text-muted hover:text-fg',
@@ -136,12 +136,12 @@ export function ModesPage() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <span className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-faint">
+                    <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                       {mode.family}
                     </span>
                     <h2 className="mt-2 text-xl font-black text-fg">{mode.name}</h2>
                   </div>
-                  <span className="font-mono text-[10px] font-black text-brand-2">
+                  <span className="font-mono text-xs font-black text-brand-2">
                     {String(index + 1).padStart(2, '0')}
                   </span>
                 </div>
@@ -152,7 +152,7 @@ export function ModesPage() {
                 <div className="mt-5 border-t border-line pt-5">
                   <div className="flex items-start gap-3">
                     <Wrench className="mt-0.5 size-3.5 shrink-0 text-faint" />
-                    <p className="font-mono text-[9px] leading-5 text-muted">
+                    <p className="font-mono text-xs leading-5 text-muted">
                       {mode.toolPreferences.length > 0
                         ? mode.toolPreferences.join(' · ')
                         : 'No tool preference; use the balanced registry'}
@@ -160,7 +160,7 @@ export function ModesPage() {
                   </div>
                   <div className="mt-3 flex items-start gap-3">
                     <Sparkles className="mt-0.5 size-3.5 shrink-0 text-faint" />
-                    <p className="font-mono text-[9px] leading-5 text-muted">
+                    <p className="font-mono text-xs leading-5 text-muted">
                       {mode.suggestedSkills.length > 0
                         ? mode.suggestedSkills.join(' · ')
                         : 'No additional skill bias'}

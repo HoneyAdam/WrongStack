@@ -45,7 +45,7 @@ export function FeaturesPage() {
             <Reveal key={feature.title}>
               <article className="grid gap-8 lg:grid-cols-[.38fr_1fr]">
                 <div className="flex items-start justify-between border-t border-line pt-5 lg:block">
-                  <span className="font-mono text-[11px] font-black text-faint">
+                  <span className="font-mono text-xs font-black text-faint">
                     {String(index + 1).padStart(2, '0')} / 06
                   </span>
                   <span
@@ -58,7 +58,7 @@ export function FeaturesPage() {
                   </span>
                 </div>
                 <div className="border-t border-line pt-5">
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                     {feature.eyebrow}
                   </span>
                   <h2 className="mt-5 max-w-4xl text-4xl font-black leading-[1.03] tracking-[-0.025em] text-fg sm:text-5xl lg:text-6xl">
@@ -132,7 +132,7 @@ export function FeaturesPage() {
               className="group rounded-2xl border border-line bg-card p-6 transition-all hover:-translate-y-1 hover:border-brand/40 sm:p-8"
             >
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand-2">
+                <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand-2">
                   {String(index + 1).padStart(2, '0')} · {feature.eyebrow}
                 </span>
                 <feature.icon className="size-5 text-faint transition-colors group-hover:text-brand" />

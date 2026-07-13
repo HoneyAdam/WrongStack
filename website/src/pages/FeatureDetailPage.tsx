@@ -45,7 +45,7 @@ export function FeatureDetailPage() {
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-3">
           {detail.signals.map((signal) => (
             <div key={signal.label} className="bg-card p-6">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                 {signal.label}
               </span>
               <strong className="mt-3 block font-mono text-sm text-brand">{signal.value}</strong>
@@ -71,7 +71,7 @@ export function FeatureDetailPage() {
                   <h2 className="font-black text-fg">{step.title}</h2>
                   <div>
                     <p className="text-sm leading-7 text-muted">{step.body}</p>
-                    <code className="mt-3 block font-mono text-[10px] text-brand">{step.code}</code>
+                    <code className="mt-3 block font-mono text-xs text-brand">{step.code}</code>
                   </div>
                 </article>
                 {index < detail.mechanism.length - 1 && (

@@ -24,7 +24,7 @@ function CommandRow({ command }: { command: (typeof commands)[number] }) {
         <Link href={`/commands/${commandSlug(command.name)}`}>
           <code className="font-mono text-sm font-black text-brand">{command.name}</code>
         </Link>
-        <span className="w-fit rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-[9px] font-black uppercase tracking-wider text-faint">
+        <span className="w-fit rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-xs font-black uppercase tracking-wider text-faint">
           {command.category}
         </span>
         <span className="text-sm leading-6 text-muted">{command.summary}</span>
@@ -59,7 +59,7 @@ function CommandRow({ command }: { command: (typeof commands)[number] }) {
             className="overflow-hidden"
           >
             <div className="border-t border-line bg-ink px-5 py-5 text-zinc-300 sm:ml-[190px] sm:px-6">
-              <div className="font-mono text-[9px] font-black uppercase tracking-[0.18em] text-zinc-600">
+              <div className="font-mono text-xs font-black uppercase tracking-[0.18em] text-zinc-600">
                 Examples
               </div>
               <div className="mt-3 space-y-1.5">
@@ -156,7 +156,7 @@ export function CommandsPage() {
           </div>
         </div>
         <div className="mt-8 flex items-center justify-between">
-          <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-faint">
+          <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-faint">
             {filtered.length} of {commands.length} commands
           </span>
           <span className="hidden text-xs text-faint sm:block">

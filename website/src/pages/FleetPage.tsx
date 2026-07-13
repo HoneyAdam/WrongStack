@@ -57,7 +57,7 @@ export function FleetPage() {
         />
         <Link
           href="/agent-roster"
-          className="mt-8 inline-flex rounded-full border border-brand/25 bg-brand/5 px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-brand"
+          className="mt-8 inline-flex rounded-full border border-brand/25 bg-brand/5 px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.12em] text-brand"
         >
           Browse 50 phase roles + Shadow →
         </Link>
@@ -96,7 +96,7 @@ export function FleetPage() {
                 </span>
                 <h2 className="font-black text-fg">{title}</h2>
                 <p className="text-sm leading-7 text-muted">{body}</p>
-                <code className="font-mono text-[10px] text-brand">{code}</code>
+                <code className="font-mono text-xs text-brand">{code}</code>
               </article>
               {index < 4 && <ArrowDown className="mx-auto my-1 size-4 text-faint" />}
             </div>
@@ -113,10 +113,10 @@ export function FleetPage() {
           <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2">
             {directorTools.map(([name, body], index) => (
               <article key={name} className="grid grid-cols-[36px_150px_1fr] gap-3 bg-card p-5">
-                <span className="font-mono text-[10px] font-black text-brand-2">
+                <span className="font-mono text-xs font-black text-brand-2">
                   {String(index + 1).padStart(2, '0')}
                 </span>
-                <code className="font-mono text-[10px] font-bold text-fg">{name}</code>
+                <code className="font-mono text-xs font-bold text-fg">{name}</code>
                 <p className="text-xs leading-5 text-muted">{body}</p>
               </article>
             ))}
@@ -164,7 +164,7 @@ export function FleetPage() {
                 >
                   <div className="flex items-center justify-between">
                     <ItemIcon className="size-5 text-brand" />
-                    <span className="font-mono text-[9px] font-black uppercase tracking-wider text-faint">
+                    <span className="font-mono text-xs font-black uppercase tracking-wider text-faint">
                       {String(mode)}
                     </span>
                   </div>
@@ -226,7 +226,7 @@ export function FleetPage() {
                     key={label}
                     className="flex items-center gap-4 rounded-lg border border-white/10 px-4 py-3"
                   >
-                    <span className="font-mono text-[10px] font-black text-brand-2">{number}</span>
+                    <span className="font-mono text-xs font-black text-brand-2">{number}</span>
                     <span className="text-sm text-zinc-300">{label}</span>
                   </div>
                 ))}

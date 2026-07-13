@@ -57,11 +57,11 @@ function LiveRun() {
   return (
     <div className="hero-console overflow-hidden rounded-[22px] border border-white/10 bg-[#08090d] text-zinc-200 shadow-2xl shadow-black/30">
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5">
-        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500">
+        <div className="flex items-center gap-2 font-mono text-xs text-zinc-500">
           <span className="size-2 rounded-full bg-brand" />
           LIVE / SESSION 7D2A
         </div>
-        <div className="flex items-center gap-3 font-mono text-[10px] text-zinc-600">
+        <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">
           <span>CTX 18%</span>
           <span className="hidden sm:inline">$0.014</span>
         </div>
@@ -124,7 +124,7 @@ function LiveRun() {
           </AnimatePresence>
         </div>
         <div className="hidden border-l border-white/10 bg-white/[0.02] p-4 sm:block">
-          <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-600">
+          <div className="font-mono text-xs uppercase tracking-[0.16em] text-zinc-600">
             Run state
           </div>
           <div className="mt-5 space-y-5">
@@ -138,8 +138,8 @@ function LiveRun() {
               return (
                 <div key={String(label)}>
                   <ItemIcon className="size-3.5 text-zinc-600" />
-                  <div className="mt-1.5 text-[10px] text-zinc-600">{String(label)}</div>
-                  <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-300">
+                  <div className="mt-1.5 text-xs text-zinc-600">{String(label)}</div>
+                  <div className="mt-0.5 truncate font-mono text-xs text-zinc-300">
                     {String(value)}
                   </div>
                 </div>
@@ -163,7 +163,7 @@ export function HomePage() {
         />
         <div className="relative mx-auto grid max-w-[1380px] gap-12 px-4 pb-16 pt-10 sm:px-6 sm:pt-16 lg:grid-cols-[1.03fr_.82fr] lg:items-center lg:px-10 lg:pb-20 lg:pt-20">
           <div>
-            <div className="mb-8 flex flex-wrap items-center gap-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted">
+            <div className="mb-8 flex flex-wrap items-center gap-3 font-mono text-xs font-bold uppercase tracking-[0.16em] text-muted">
               <span className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5">
                 <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" /> v
                 {version}
@@ -209,7 +209,7 @@ export function HomePage() {
             </p>
           </div>
           <div className="relative lg:mt-12">
-            <div className="absolute -left-4 -top-5 z-10 hidden rotate-[-4deg] rounded-full bg-brand px-4 py-2 font-mono text-[10px] font-black uppercase tracking-widest text-white sm:block">
+            <div className="absolute -left-4 -top-5 z-10 hidden rotate-[-4deg] rounded-full bg-brand px-4 py-2 font-mono text-xs font-black uppercase tracking-widest text-white sm:block">
               Actual agent loop
             </div>
             <LiveRun />
@@ -225,7 +225,7 @@ export function HomePage() {
             ].map(([value, label]) => (
               <div key={label} className="py-5 text-center sm:py-6">
                 <strong className="font-mono text-xl text-fg sm:text-2xl">{value}</strong>
-                <span className="ml-2 text-[11px] font-bold uppercase tracking-wider text-faint">
+                <span className="ml-2 text-xs font-bold uppercase tracking-wider text-faint">
                   {label}
                 </span>
               </div>
@@ -299,7 +299,7 @@ export function HomePage() {
                   <p className="mt-2 text-sm leading-6 text-zinc-500">
                     {surface.tagline}. {surface.best}.
                   </p>
-                  <code className="mt-5 block truncate font-mono text-[10px] text-zinc-600">
+                  <code className="mt-5 block truncate font-mono text-xs text-zinc-600">
                     $ {surface.launch}
                   </code>
                 </Reveal>
@@ -310,7 +310,7 @@ export function HomePage() {
                   className="group flex h-full min-h-[210px] flex-col justify-between bg-white/[0.04] p-6 transition-colors duration-300 hover:bg-brand focus-visible:bg-brand"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand transition-colors group-hover:text-white/70 group-focus-visible:text-white/70">
+                    <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand transition-colors group-hover:text-white/70 group-focus-visible:text-white/70">
                       Surface guide
                     </span>
                     <span className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-brand transition-all group-hover:border-white group-hover:bg-white group-focus-visible:border-white group-focus-visible:bg-white">
@@ -346,12 +346,12 @@ export function HomePage() {
                 href={`/features/${slug}`}
                 className="group block min-h-44 p-6 transition-colors hover:bg-surface"
               >
-                <span className="font-mono text-[10px] font-black text-brand-2">
+                <span className="font-mono text-xs font-black text-brand-2">
                   {String(index + 1).padStart(2, '0')}
                 </span>
                 <h3 className="mt-8 text-base font-black tracking-[-0.025em] text-fg">{title}</h3>
                 <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
-                <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-faint transition-colors group-hover:text-brand">
+                <span className="mt-4 inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider text-faint transition-colors group-hover:text-brand">
                   Deep dive <ArrowRight className="size-3" />
                 </span>
               </Link>
@@ -403,10 +403,10 @@ export function HomePage() {
           <div className="relative">
             <div className="rounded-[28px] border border-line bg-bg p-5 shadow-xl shadow-black/5 sm:p-7">
               <div className="flex items-center justify-between border-b border-line pb-4">
-                <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+                <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                   PreToolUse / bash
                 </span>
-                <span className="rounded-full bg-brand-2/10 px-2.5 py-1 font-mono text-[10px] font-bold text-brand-2">
+                <span className="rounded-full bg-brand-2/10 px-2.5 py-1 font-mono text-xs font-bold text-brand-2">
                   CONFIRM
                 </span>
               </div>
@@ -443,7 +443,7 @@ export function HomePage() {
                 </span>
               </div>
             </div>
-            <div className="absolute -bottom-5 -right-2 hidden items-center gap-2 rounded-full bg-brand px-4 py-2 font-mono text-[10px] font-black uppercase tracking-widest text-white sm:flex">
+            <div className="absolute -bottom-5 -right-2 hidden items-center gap-2 rounded-full bg-brand px-4 py-2 font-mono text-xs font-black uppercase tracking-widest text-white sm:flex">
               <Layers3 className="size-3.5" /> 5 defense layers
             </div>
           </div>
@@ -454,7 +454,7 @@ export function HomePage() {
         <Reveal>
           <div className="grid overflow-hidden rounded-2xl border border-line bg-card lg:grid-cols-2">
             <div className="flex flex-col p-7 sm:p-10">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                 Created by
               </span>
               <div className="mt-7 flex items-start gap-5">
@@ -491,7 +491,7 @@ export function HomePage() {
                     className="inline-flex items-center gap-2 rounded-full border border-line bg-bg px-3 py-2 text-xs font-bold text-fg transition-colors hover:border-brand hover:text-brand"
                   >
                     {profile.label}
-                    <span className="font-mono text-[10px] font-normal text-faint">
+                    <span className="font-mono text-xs font-normal text-faint">
                       {profile.handle}
                     </span>
                     <ArrowUpRight className="size-3" />
@@ -507,7 +507,7 @@ export function HomePage() {
               </Link>
             </div>
             <div className="border-t border-line bg-surface p-7 sm:p-10 lg:border-l lg:border-t-0">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand-2">
                 More from the workshop
               </span>
               <div className="mt-6 space-y-4">
@@ -521,7 +521,7 @@ export function HomePage() {
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+                        <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                           {project.eyebrow}
                         </span>
                         <h3 className="mt-1 text-xl font-black tracking-[-0.03em] text-fg">

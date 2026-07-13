@@ -109,7 +109,7 @@ export function ToolsPage() {
               >
                 {value}
               </strong>
-              <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+              <span className="mt-1 block text-xs font-black uppercase tracking-[0.16em] text-faint">
                 {label}
               </span>
             </div>
@@ -175,7 +175,7 @@ export function ToolsPage() {
                 placeholder="Search tools, capabilities or families…"
                 className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-faint"
               />
-              <span className="font-mono text-[10px] font-black text-faint">
+              <span className="font-mono text-xs font-black text-faint">
                 {filtered.length} / 58
               </span>
             </label>
@@ -227,7 +227,7 @@ export function ToolsPage() {
                           </code>
                           <span
                             className={cn(
-                              'shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-black uppercase tracking-[0.08em]',
+                              'shrink-0 rounded-full px-2 py-1 font-mono text-xs font-black uppercase tracking-[0.08em]',
                               tool.permission === 'auto'
                                 ? 'bg-emerald-500/10 text-emerald-500'
                                 : 'bg-amber-500/10 text-amber-500',
@@ -237,7 +237,7 @@ export function ToolsPage() {
                           </span>
                         </div>
                         <p className="mt-3 text-sm leading-6 text-muted">{tool.summary}</p>
-                        <div className="mt-5 flex items-center gap-2 font-mono text-[9px] font-black uppercase tracking-[0.1em] text-faint">
+                        <div className="mt-5 flex items-center gap-2 font-mono text-xs font-black uppercase tracking-[0.1em] text-faint">
                           <span className={tool.mutating ? 'text-brand' : 'text-brand-2'}>
                             {tool.mutating ? 'mutating' : 'read-only'}
                           </span>

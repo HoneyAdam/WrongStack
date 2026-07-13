@@ -54,7 +54,7 @@ export function ShadowAgentPage() {
           ].map(({ label, cmd, body }) => (
             <div key={label} className="rounded-xl border border-line bg-card p-5">
               <h3 className="font-black text-sm text-fg">{label}</h3>
-              <code className="mt-2 block font-mono text-[10px] text-brand">{cmd}</code>
+              <code className="mt-2 block font-mono text-xs text-brand">{cmd}</code>
               <p className="mt-2 text-xs leading-5 text-muted">{body}</p>
             </div>
           ))}

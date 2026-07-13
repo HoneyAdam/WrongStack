@@ -25,10 +25,10 @@ export function ModeDetailPage() {
         description={mode.description}
         aside={
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               {mode.family}
             </span>
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               /mode {mode.id}
             </span>
           </div>

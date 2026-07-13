@@ -84,13 +84,13 @@ export function CreatedByPage() {
                 loading="eager"
               />
             </div>
-            <div className="absolute -bottom-7 left-6 bg-brand px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-xl">
+            <div className="absolute -bottom-7 left-6 bg-brand px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.16em] text-white shadow-xl">
               Creator / maintainer
             </div>
           </div>
 
           <div className="lg:pl-10">
-            <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+            <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
               Person behind the stack
             </span>
             <blockquote className="mt-7 max-w-3xl text-4xl font-black leading-[1.06] tracking-[-0.025em] text-fg sm:text-5xl lg:text-6xl">
@@ -112,7 +112,7 @@ export function CreatedByPage() {
                   className="group inline-flex items-center gap-3 border-b border-line pb-2 text-sm font-black text-fg transition-colors hover:border-brand hover:text-brand"
                 >
                   {profile.label}
-                  <span className="font-mono text-[10px] font-normal text-faint">
+                  <span className="font-mono text-xs font-normal text-faint">
                     {profile.handle}
                   </span>
                   <ArrowUpRight className="size-3.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
@@ -169,14 +169,14 @@ export function CreatedByPage() {
                 <ArrowUpRight className="size-5 text-faint transition-transform group-hover:-translate-y-1 group-hover:translate-x-1 group-hover:text-brand" />
               </div>
               <div className="mt-auto pt-16">
-                <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand">
+                <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand">
                   {project.eyebrow}
                 </span>
                 <h2 className="mt-3 text-4xl font-black tracking-[-0.025em] text-fg">
                   {project.name}
                 </h2>
                 <p className="mt-5 text-sm leading-7 text-muted">{project.description}</p>
-                <span className="mt-7 inline-flex rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-[10px] font-bold text-faint">
+                <span className="mt-7 inline-flex rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-xs font-bold text-faint">
                   {project.language}
                 </span>
               </div>

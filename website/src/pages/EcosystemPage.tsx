@@ -43,14 +43,14 @@ export function EcosystemPage() {
               </div>
               <div className="mt-8 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand">
                     {pillar.name}
                   </span>
                   <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-fg">
                     {pillar.headline}
                   </h2>
                 </div>
-                <code className="rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-[10px] font-bold text-faint">
+                <code className="rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-xs font-bold text-faint">
                   {pillar.command}
                 </code>
               </div>
@@ -72,7 +72,7 @@ export function EcosystemPage() {
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-32">
           <div className="grid gap-12 lg:grid-cols-[.48fr_1fr]">
             <div>
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                 Decision guide
               </span>
               <h2 className="mt-6 text-4xl font-black leading-[1.03] tracking-[-0.025em] sm:text-5xl">
@@ -94,12 +94,12 @@ export function EcosystemPage() {
                   key={need}
                   className="grid gap-3 rounded-xl border border-white/10 bg-white/[0.035] p-4 sm:grid-cols-[32px_1fr_110px_110px] sm:items-center"
                 >
-                  <span className="font-mono text-[10px] font-black text-brand-2">
+                  <span className="font-mono text-xs font-black text-brand-2">
                     0{index + 1}
                   </span>
                   <span className="text-sm text-zinc-300">{need}</span>
                   <strong className="text-sm">{choice}</strong>
-                  <code className="font-mono text-[10px] text-zinc-500">{command}</code>
+                  <code className="font-mono text-xs text-zinc-500">{command}</code>
                 </div>
               ))}
             </div>
@@ -132,8 +132,8 @@ export function EcosystemPage() {
                   key={path}
                   className="flex items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3"
                 >
-                  <span className="font-mono text-[10px] font-black text-brand-2">{index + 1}</span>
-                  <code className="font-mono text-[11px] text-muted">{path}</code>
+                  <span className="font-mono text-xs font-black text-brand-2">{index + 1}</span>
+                  <code className="font-mono text-xs text-muted">{path}</code>
                 </div>
               ))}
             </div>
@@ -155,8 +155,8 @@ export function EcosystemPage() {
                   key={path}
                   className="flex items-center gap-3 rounded-lg border border-line bg-bg px-4 py-3"
                 >
-                  <span className="font-mono text-[10px] font-black text-brand-2">{index + 1}</span>
-                  <code className="font-mono text-[11px] text-muted">{path}</code>
+                  <span className="font-mono text-xs font-black text-brand-2">{index + 1}</span>
+                  <code className="font-mono text-xs text-muted">{path}</code>
                 </div>
               ))}
             </div>

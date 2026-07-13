@@ -158,7 +158,7 @@ export function PluginsPage() {
               >
                 {value}
               </strong>
-              <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+              <span className="mt-1 block text-xs font-black uppercase tracking-[0.16em] text-faint">
                 {label}
               </span>
             </div>
@@ -224,7 +224,7 @@ export function PluginsPage() {
             <div key={title} className="rounded-xl border border-line bg-surface p-5">
               <span
                 className={cn(
-                  'font-mono text-[10px] font-black',
+                  'font-mono text-xs font-black',
                   index % 2 ? 'text-brand-2' : 'text-brand',
                 )}
               >
@@ -255,7 +255,7 @@ export function PluginsPage() {
                 placeholder="Search plugins, behavior or source…"
                 className="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-faint"
               />
-              <span className="font-mono text-[10px] font-black text-faint">
+              <span className="font-mono text-xs font-black text-faint">
                 {filtered.length} / 73
               </span>
             </label>
@@ -287,7 +287,7 @@ export function PluginsPage() {
                 <div key={source}>
                   <div className="mb-6 grid gap-4 border-b border-line pb-5 lg:grid-cols-[.45fr_1fr] lg:items-end">
                     <div>
-                      <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand-2">
+                      <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand-2">
                         {source} / {plugins.length}
                       </span>
                       <h2 className="mt-2 text-2xl font-black text-fg">{details.title}</h2>
@@ -311,7 +311,7 @@ export function PluginsPage() {
                             </code>
                             <span
                               className={cn(
-                                'shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-black uppercase tracking-[0.08em]',
+                                'shrink-0 rounded-full px-2 py-1 font-mono text-xs font-black uppercase tracking-[0.08em]',
                                 plugin.risk === 'high'
                                   ? 'bg-red-500/10 text-red-500'
                                   : plugin.risk === 'medium'
@@ -323,7 +323,7 @@ export function PluginsPage() {
                             </span>
                           </div>
                           <p className="mt-3 text-sm leading-6 text-muted">{plugin.summary}</p>
-                          <div className="mt-4 flex flex-wrap gap-2 font-mono text-[9px] font-black uppercase tracking-[0.08em] text-faint">
+                          <div className="mt-4 flex flex-wrap gap-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-faint">
                             <span className="rounded-full border border-line bg-bg px-2.5 py-1">
                               {detail?.tools.length ?? 0} tools
                             </span>
@@ -341,7 +341,7 @@ export function PluginsPage() {
                               </span>
                             )}
                           </div>
-                          <div className="mt-5 flex items-center justify-between border-t border-line pt-4 font-mono text-[9px] font-black uppercase tracking-[0.1em]">
+                          <div className="mt-5 flex items-center justify-between border-t border-line pt-4 font-mono text-xs font-black uppercase tracking-[0.1em]">
                             <span
                               className={
                                 plugin.defaultState === 'active' ? 'text-emerald-500' : 'text-faint'
@@ -379,7 +379,7 @@ export function PluginsPage() {
         />
         <div className="mt-12 grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
           <div className="overflow-hidden rounded-2xl border border-line bg-ink p-6 text-white sm:p-8">
-            <div className="flex items-center gap-2 border-b border-white/10 pb-5 font-mono text-[10px] font-black uppercase tracking-[0.15em] text-zinc-500">
+            <div className="flex items-center gap-2 border-b border-white/10 pb-5 font-mono text-xs font-black uppercase tracking-[0.15em] text-zinc-500">
               <GitBranch className="size-4 text-brand-2" /> Provider wrapper order
             </div>
             {[

@@ -23,7 +23,7 @@ export function SiteDecor() {
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-5 flex items-center gap-3 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-brand-2">
+    <div className="mb-5 flex items-center gap-3 font-mono text-xs font-bold uppercase tracking-[0.2em] text-brand-2">
       <span className="h-px w-8 bg-brand-2" />
       {children}
     </div>
@@ -133,7 +133,7 @@ export function SectionIntro({
 }) {
   return (
     <div className={cn('grid gap-6 border-t border-line pt-7 lg:grid-cols-[.38fr_1fr]', className)}>
-      <div className="flex gap-3 font-mono text-[11px] font-black uppercase tracking-[0.18em] text-faint">
+      <div className="flex gap-3 font-mono text-xs font-black uppercase tracking-[0.18em] text-faint">
         {index && <span className="text-brand-2">{index}</span>}
         {eyebrow}
       </div>
@@ -252,7 +252,7 @@ export function PageNext({
         href={href}
         className="group mx-auto grid max-w-[1380px] gap-6 px-4 py-14 sm:px-6 lg:grid-cols-[.4fr_1fr_auto] lg:items-center lg:px-10 lg:py-20"
       >
-        <span className="font-mono text-[11px] font-black uppercase tracking-[0.2em] text-brand-2">
+        <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand-2">
           Next / {label}
         </span>
         <div>

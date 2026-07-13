@@ -84,7 +84,7 @@ export function MailboxPage() {
                   >
                     <div className="flex items-center gap-3">
                       <ItemIcon className="size-4 text-cyan-300" />
-                      <code className="font-mono text-[11px] font-bold">{String(title)}</code>
+                      <code className="font-mono text-xs font-bold">{String(title)}</code>
                       <span className="ml-auto size-2 rounded-full bg-emerald-300 shadow-[0_0_10px_#6ee7b7]" />
                     </div>
                     <p className="mt-3 text-xs text-zinc-500">{String(body)}</p>
@@ -114,7 +114,7 @@ export function MailboxPage() {
                   >
                     <div className="flex items-center gap-3">
                       <ItemIcon className="size-4 text-emerald-300" />
-                      <code className="font-mono text-[11px] font-bold">{String(title)}</code>
+                      <code className="font-mono text-xs font-bold">{String(title)}</code>
                       <span className="ml-auto size-2 rounded-full bg-emerald-300 shadow-[0_0_10px_#6ee7b7]" />
                     </div>
                     <p className="mt-3 text-xs text-zinc-500">{String(body)}</p>
@@ -123,7 +123,7 @@ export function MailboxPage() {
               })}
             </div>
           </div>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-7 gap-y-3 border-t border-white/[.08] pt-5 font-mono text-[9px] uppercase tracking-wider text-zinc-600">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-7 gap-y-3 border-t border-white/[.08] pt-5 font-mono text-xs uppercase tracking-wider text-zinc-600">
             <span>typed intent</span>
             <span className="text-brand-2">durable delivery</span>
             <span>isolated context</span>
@@ -189,7 +189,7 @@ export function MailboxPage() {
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
           {messageTypes.map(([type, description], index) => (
             <article key={type} className="min-h-40 bg-card p-5">
-              <span className="font-mono text-[9px] font-black text-faint">
+              <span className="font-mono text-xs font-black text-faint">
                 {String(index + 1).padStart(2, '0')}
               </span>
               <code className="mt-7 block font-mono text-sm font-black text-brand">{type}</code>
@@ -248,7 +248,7 @@ export function MailboxPage() {
                     </span>
                     <h2 className="font-black">{String(title)}</h2>
                     <p className="text-sm leading-6 text-zinc-500">{String(body)}</p>
-                    <code className="font-mono text-[9px] text-brand-2">{String(code)}</code>
+                    <code className="font-mono text-xs text-brand-2">{String(code)}</code>
                   </article>
                   {index < 4 && <ArrowDown className="mx-auto my-1 size-4 text-zinc-700" />}
                 </div>
@@ -272,7 +272,7 @@ export function MailboxPage() {
                 key={command}
                 className="grid gap-2 border-b border-white/10 px-5 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1.2fr)_minmax(220px,.8fr)] sm:px-6"
               >
-                <code className="overflow-x-auto font-mono text-[11px] text-zinc-200">
+                <code className="overflow-x-auto font-mono text-xs text-zinc-200">
                   <span className="mr-2 text-brand">❯</span>
                   {command}
                 </code>

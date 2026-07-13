@@ -125,7 +125,7 @@ function IssueCard({ issue }: { issue: (typeof issues)[number] }) {
         onClick={() => setOpen((value) => !value)}
         className="grid w-full gap-3 p-5 text-left sm:grid-cols-[110px_1fr_24px] sm:items-center"
       >
-        <span className="w-fit rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-[9px] font-black uppercase text-brand">
+        <span className="w-fit rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-xs font-black uppercase text-brand">
           {issue.category}
         </span>
         <div>
@@ -139,7 +139,7 @@ function IssueCard({ issue }: { issue: (typeof issues)[number] }) {
       {open && (
         <div className="grid gap-px border-t border-line bg-line lg:grid-cols-2">
           <div className="bg-bg p-5">
-            <h3 className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+            <h3 className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
               Likely causes
             </h3>
             <ul className="mt-4 space-y-2">
@@ -152,7 +152,7 @@ function IssueCard({ issue }: { issue: (typeof issues)[number] }) {
             </ul>
           </div>
           <div className="bg-bg p-5">
-            <h3 className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+            <h3 className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
               Next checks
             </h3>
             <ul className="mt-4 space-y-2">

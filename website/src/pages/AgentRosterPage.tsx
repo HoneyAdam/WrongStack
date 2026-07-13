@@ -74,7 +74,7 @@ export function AgentRosterPage() {
             <div key={label} className="bg-card p-7">
               <strong className="font-mono text-3xl font-black text-brand-2">{value}</strong>
               <h2 className="mt-5 font-black text-fg">{label}</h2>
-              <code className="mt-2 block font-mono text-[9px] text-faint">{code}</code>
+              <code className="mt-2 block font-mono text-xs text-faint">{code}</code>
             </div>
           ))}
         </div>
@@ -127,7 +127,7 @@ export function AgentRosterPage() {
                   </span>
                   <h2 className="font-black text-fg">{title}</h2>
                   <p className="text-sm leading-7 text-muted">{body}</p>
-                  <code className="font-mono text-[10px] text-brand">{code}</code>
+                  <code className="font-mono text-xs text-brand">{code}</code>
                 </article>
                 {index < 5 && <ArrowDown className="mx-auto my-1 size-4 text-faint" />}
               </div>
@@ -160,7 +160,7 @@ export function AgentRosterPage() {
                 type="button"
                 onClick={() => setPhase(id)}
                 className={cn(
-                  'rounded-full border px-3.5 py-2 font-mono text-[9px] font-black uppercase tracking-[0.12em] transition-colors',
+                  'rounded-full border px-3.5 py-2 font-mono text-xs font-black uppercase tracking-[0.12em] transition-colors',
                   phase === id
                     ? 'border-brand-2 bg-brand-2 text-ink'
                     : 'border-line bg-card text-muted hover:text-fg',
@@ -171,7 +171,7 @@ export function AgentRosterPage() {
             ),
           )}
         </div>
-        <p className="mt-5 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        <p className="mt-5 font-mono text-xs uppercase tracking-[0.14em] text-faint">
           {visibleCount} matching phase-catalog roles
         </p>
 
@@ -202,7 +202,7 @@ export function AgentRosterPage() {
                       <Bot className="size-5 text-faint" />
                     </div>
                     <p className="mt-4 min-h-16 text-sm leading-7 text-muted">{agent.summary}</p>
-                    <div className="mt-5 flex flex-wrap gap-2 font-mono text-[9px] uppercase tracking-wider text-faint">
+                    <div className="mt-5 flex flex-wrap gap-2 font-mono text-xs uppercase tracking-wider text-faint">
                       <span className="rounded-full border border-line bg-bg px-2.5 py-1">
                         {agent.tools} tools
                       </span>
@@ -210,7 +210,7 @@ export function AgentRosterPage() {
                         {agent.budget}
                       </span>
                     </div>
-                    <code className="mt-5 block overflow-x-auto rounded-lg bg-ink px-3 py-2 font-mono text-[10px] text-zinc-300">
+                    <code className="mt-5 block overflow-x-auto rounded-lg bg-ink px-3 py-2 font-mono text-xs text-zinc-300">
                       /fleet spawn {agent.role}
                     </code>
                   </Link>
@@ -244,7 +244,7 @@ export function AgentRosterPage() {
                 <code className="mt-8 block font-mono text-xs text-brand">{agent.role}</code>
                 <h2 className="mt-3 text-2xl font-black">{agent.name}</h2>
                 <p className="mt-4 text-sm leading-7 text-zinc-400">{agent.summary}</p>
-                <code className="mt-6 block font-mono text-[10px] text-zinc-500">
+                <code className="mt-6 block font-mono text-xs text-zinc-500">
                   /shadow start · /fleet spawn shadow-agent
                 </code>
               </Link>
@@ -256,12 +256,12 @@ export function AgentRosterPage() {
                   href={`/agent-roster/${agent.role}`}
                   className="block bg-[#0c0d12] p-6 transition-colors hover:bg-[#12141c]"
                 >
-                  <span className="font-mono text-[9px] font-black uppercase tracking-wider text-zinc-600">
+                  <span className="font-mono text-xs font-black uppercase tracking-wider text-zinc-600">
                     external ACP
                   </span>
                   <h2 className="mt-5 font-black">{agent.name}</h2>
-                  <code className="mt-3 block font-mono text-[10px] text-brand">{agent.role}</code>
-                  <p className="mt-4 font-mono text-[9px] text-zinc-600">{agent.runtime}</p>
+                  <code className="mt-3 block font-mono text-xs text-brand">{agent.role}</code>
+                  <p className="mt-4 font-mono text-xs text-zinc-600">{agent.runtime}</p>
                 </Link>
               ))}
             </div>

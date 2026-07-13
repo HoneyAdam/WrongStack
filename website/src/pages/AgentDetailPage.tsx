@@ -39,16 +39,16 @@ export function AgentDetailPage() {
         description={agent.summary}
         aside={
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               {agent.role}
             </span>
             {agent.budget && (
-              <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+              <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
                 {agent.budget} budget
               </span>
             )}
             {typeof agent.tools === 'number' && (
-              <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+              <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
                 {agent.tools} tools
               </span>
             )}

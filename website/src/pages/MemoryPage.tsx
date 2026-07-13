@@ -64,7 +64,7 @@ export function MemoryPage() {
                 <ItemIcon className="size-5 text-brand" />
                 <h2 className="mt-8 text-xl font-black text-fg">{String(title)}</h2>
                 <p className="mt-3 text-sm leading-6 text-muted">{String(body)}</p>
-                <code className="mt-6 block font-mono text-[10px] text-faint">
+                <code className="mt-6 block font-mono text-xs text-faint">
                   {String(storage)}
                 </code>
               </article>
@@ -128,7 +128,7 @@ export function MemoryPage() {
         />
         <div className="mt-12 grid gap-6 lg:grid-cols-[.72fr_1fr]">
           <div className="rounded-2xl border border-line bg-ink p-7 text-zinc-300">
-            <div className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-600">
+            <div className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-600">
               Graph example
             </div>
             <div className="mt-8 space-y-4 font-mono text-xs">

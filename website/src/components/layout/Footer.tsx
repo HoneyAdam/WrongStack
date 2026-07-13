@@ -63,7 +63,7 @@ export function Footer() {
               An AI coding agent for people who want powerful automation and a clear answer to “what
               just happened?”
             </p>
-            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-brand-2/30 bg-brand-2/10 px-3 py-1.5 font-mono text-[10px] font-black uppercase tracking-[0.14em] text-brand-2">
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-brand-2/30 bg-brand-2/10 px-3 py-1.5 font-mono text-xs font-black uppercase tracking-[0.14em] text-brand-2">
               <span className="size-1.5 rounded-sm bg-brand" /> Open source · Free · MIT licensed
             </div>
             <Link
@@ -72,7 +72,7 @@ export function Footer() {
             >
               Created by Ersin KOÇ <ArrowUpRight className="size-3.5" />
             </Link>
-            <div className="mt-7 flex flex-wrap gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-500">
+            <div className="mt-7 flex flex-wrap gap-2 font-mono text-xs uppercase tracking-[0.14em] text-zinc-500">
               <span className="rounded-full border border-white/10 px-3 py-1.5">v{version}</span>
               <span className="rounded-full border border-white/10 px-3 py-1.5">
                 Node {nodeVersion}

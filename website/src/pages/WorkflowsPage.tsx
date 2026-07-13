@@ -86,7 +86,7 @@ export function WorkflowsPage() {
               </span>
               <strong className="text-sm text-fg">{name}</strong>
               <p className="text-sm leading-6 text-muted">{when}</p>
-              <code className="overflow-x-auto font-mono text-[10px] text-brand">{command}</code>
+              <code className="overflow-x-auto font-mono text-xs text-brand">{command}</code>
               <Link
                 href={href}
                 aria-label={`Open ${name}`}
@@ -110,7 +110,7 @@ export function WorkflowsPage() {
             {['Requirements', 'Analysis', 'Design', 'Tasks', 'Implementation'].map(
               (phase, index) => (
                 <article key={phase} className="relative rounded-xl border border-line bg-card p-5">
-                  <span className="font-mono text-[10px] font-black text-brand-2">
+                  <span className="font-mono text-xs font-black text-brand-2">
                     0{index + 1}
                   </span>
                   <h2 className="mt-8 text-sm font-black text-fg">{phase}</h2>

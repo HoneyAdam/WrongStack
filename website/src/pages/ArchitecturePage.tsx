@@ -58,7 +58,7 @@ export function ArchitecturePage() {
             <div key={layer.label}>
               <div className="grid gap-5 rounded-2xl border border-line bg-card p-6 sm:p-7 lg:grid-cols-[150px_1fr_1fr] lg:items-center">
                 <div>
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-faint">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-faint">
                     Layer 0{index + 1}
                   </span>
                   <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-fg">
@@ -70,7 +70,7 @@ export function ArchitecturePage() {
                     <code
                       key={pkg}
                       className={cn(
-                        'rounded-lg border px-2.5 py-1.5 font-mono text-[10px]',
+                        'rounded-lg border px-2.5 py-1.5 font-mono text-xs',
                         index === 0 && 'border-brand/20 bg-brand/5 text-brand',
                         index === 1 && 'border-brand-2/20 bg-brand-2/5 text-brand-2',
                         index === 2 &&

@@ -128,10 +128,10 @@ export function CodingPlansPage() {
         description="Connect WrongStack with ChatGPT Codex through browser sign-in, or bring a dedicated coding-plan API key from OpenCode, MiniMax, Z.AI or Kimi. This is the practical map from subscription to first request."
         aside={
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-brand">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase tracking-[0.12em] text-brand">
               1 OAuth path
             </span>
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-brand-2">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase tracking-[0.12em] text-brand-2">
               5 API-key paths
             </span>
           </div>
@@ -147,7 +147,7 @@ export function CodingPlansPage() {
                 href={item.href}
                 className="group bg-card p-6 transition-colors hover:bg-surface"
               >
-                <span className="font-mono text-[10px] font-black text-brand-2">{item.index}</span>
+                <span className="font-mono text-xs font-black text-brand-2">{item.index}</span>
                 <h2 className="mt-5 text-xl font-black tracking-[-0.03em] text-fg">
                   {item.question}
                 </h2>
@@ -182,7 +182,7 @@ export function CodingPlansPage() {
               <div className="flex items-center gap-4">
                 <ConnectionLogo connection={chatGptConnection} className="size-16 p-3" />
                 <div>
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-emerald-300">
                     {chatGptConnection.badge}
                   </span>
                   <h2 className="mt-1 text-3xl font-black tracking-[-0.035em] sm:text-4xl">
@@ -207,7 +207,7 @@ export function CodingPlansPage() {
                       className="rounded-xl border border-white/10 bg-white/[0.035] p-4"
                     >
                       <ItemIcon className="size-4 text-emerald-300" />
-                      <div className="mt-4 font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-600">
+                      <div className="mt-4 font-mono text-xs uppercase tracking-[0.14em] text-zinc-600">
                         {String(label)}
                       </div>
                       <strong className="mt-1 block text-sm text-zinc-200">{String(value)}</strong>
@@ -220,7 +220,7 @@ export function CodingPlansPage() {
               <ol className="space-y-6">
                 {chatGptConnection.steps.map((step, index) => (
                   <li key={step} className="grid grid-cols-[32px_1fr] gap-4">
-                    <span className="grid size-8 place-items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 font-mono text-[10px] font-black text-emerald-300">
+                    <span className="grid size-8 place-items-center rounded-full border border-emerald-400/20 bg-emerald-400/10 font-mono text-xs font-black text-emerald-300">
                       {index + 1}
                     </span>
                     <p className="pt-1 text-sm leading-6 text-zinc-300">{step}</p>
@@ -264,7 +264,7 @@ export function CodingPlansPage() {
                       <div className="flex items-center gap-4">
                         <ConnectionLogo connection={connection} className="size-14 p-3" />
                         <div>
-                          <span className="font-mono text-[9px] font-black uppercase tracking-[0.17em] text-brand-2">
+                          <span className="font-mono text-xs font-black uppercase tracking-[0.17em] text-brand-2">
                             {connection.vendor} / {connection.badge}
                           </span>
                           <h2 className="mt-1 text-2xl font-black tracking-[-0.035em] text-fg sm:text-3xl">
@@ -306,7 +306,7 @@ export function CodingPlansPage() {
                         <KeyRound className="size-4" />
                       </span>
                       <div>
-                        <span className="font-mono text-[9px] font-black uppercase tracking-[0.15em] text-faint">
+                        <span className="font-mono text-xs font-black uppercase tracking-[0.15em] text-faint">
                           Connection recipe
                         </span>
                         <h3 className="mt-0.5 text-lg font-black text-fg">Subscribe → key → run</h3>
@@ -318,7 +318,7 @@ export function CodingPlansPage() {
                           key={step}
                           className="grid grid-cols-[30px_1fr] gap-3 text-sm leading-6 text-muted"
                         >
-                          <span className="grid size-7 place-items-center rounded-full border border-line bg-bg font-mono text-[9px] font-black text-brand-2">
+                          <span className="grid size-7 place-items-center rounded-full border border-line bg-bg font-mono text-xs font-black text-brand-2">
                             {index + 1}
                           </span>
                           {step}
@@ -326,13 +326,13 @@ export function CodingPlansPage() {
                       ))}
                     </ol>
                     <div className="mt-7 space-y-2 border-t border-line pt-6">
-                      <code className="block overflow-x-auto rounded-lg bg-bg px-4 py-3 font-mono text-[10px] text-brand">
+                      <code className="block overflow-x-auto rounded-lg bg-bg px-4 py-3 font-mono text-xs text-brand">
                         {connection.authCommand}
                       </code>
-                      <code className="block overflow-x-auto rounded-lg bg-bg px-4 py-3 font-mono text-[10px] text-fg">
+                      <code className="block overflow-x-auto rounded-lg bg-bg px-4 py-3 font-mono text-xs text-fg">
                         {connection.runCommand}
                       </code>
-                      <div className="flex items-start gap-2 px-1 pt-2 text-[10px] leading-5 text-faint">
+                      <div className="flex items-start gap-2 px-1 pt-2 text-xs leading-5 text-faint">
                         <Link2 className="mt-0.5 size-3 shrink-0" />
                         <span className="break-all">{connection.endpoint}</span>
                       </div>
@@ -389,7 +389,7 @@ export function CodingPlansPage() {
               ].map(([number, title, body, command]) => (
                 <div key={number} className="border-t border-line pt-5 first:border-t-0 first:pt-0">
                   <div className="flex items-start gap-4">
-                    <span className="font-mono text-[10px] font-black text-brand-2">{number}</span>
+                    <span className="font-mono text-xs font-black text-brand-2">{number}</span>
                     <div>
                       <h3 className="font-black text-fg">{title}</h3>
                       <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
@@ -404,10 +404,10 @@ export function CodingPlansPage() {
           </div>
           <div className="overflow-hidden rounded-2xl border border-line bg-ink text-white">
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <div className="flex items-center gap-2 font-mono text-[9px] font-black uppercase tracking-[0.15em] text-zinc-500">
+              <div className="flex items-center gap-2 font-mono text-xs font-black uppercase tracking-[0.15em] text-zinc-500">
                 <Route className="size-3.5 text-brand-2" /> Multi-provider routing
               </div>
-              <span className="font-mono text-[9px] text-zinc-600">~/.wrongstack/config.json</span>
+              <span className="font-mono text-xs text-zinc-600">~/.wrongstack/config.json</span>
             </div>
             <div className="p-6 sm:p-8">
               <h2 className="text-3xl font-black tracking-[-0.035em]">
@@ -418,7 +418,7 @@ export function CodingPlansPage() {
                 default worker on different provider credentials without changing the shared tool,
                 mailbox or permission system.
               </p>
-              <pre className="mt-7 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-5 font-mono text-[11px] leading-6 text-zinc-300">
+              <pre className="mt-7 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-5 font-mono text-xs leading-6 text-zinc-300">
                 <code>{multiProviderExample}</code>
               </pre>
               <div className="mt-6 flex gap-3 text-xs leading-6 text-zinc-500">
@@ -447,7 +447,7 @@ export function CodingPlansPage() {
                     (heading) => (
                       <th
                         key={heading}
-                        className="px-5 py-4 font-mono text-[9px] font-black uppercase tracking-[0.16em] text-faint"
+                        className="px-5 py-4 font-mono text-xs font-black uppercase tracking-[0.16em] text-faint"
                       >
                         {heading}
                       </th>
@@ -459,10 +459,10 @@ export function CodingPlansPage() {
                 {codingConnections.map((connection) => (
                   <tr key={connection.id} className="border-b border-line last:border-b-0">
                     <td className="px-5 py-4 text-sm font-black text-fg">{connection.name}</td>
-                    <td className="px-5 py-4 font-mono text-[10px] text-brand">
+                    <td className="px-5 py-4 font-mono text-xs text-brand">
                       {connection.kind === 'oauth' ? 'ChatGPT OAuth' : 'Plan API key'}
                     </td>
-                    <td className="px-5 py-4 font-mono text-[10px] text-fg">
+                    <td className="px-5 py-4 font-mono text-xs text-fg">
                       {connection.providerId}
                     </td>
                     <td className="px-5 py-4 text-sm text-muted">{connection.billing}</td>

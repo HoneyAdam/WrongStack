@@ -77,7 +77,7 @@ export function GettingStartedPage() {
           />
           <div className="mt-12 grid gap-6 overflow-hidden rounded-2xl border border-emerald-500/30 bg-ink p-6 text-white sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
             <div>
-              <div className="flex items-center gap-3 font-mono text-[10px] font-black uppercase tracking-[0.17em] text-emerald-300">
+              <div className="flex items-center gap-3 font-mono text-xs font-black uppercase tracking-[0.17em] text-emerald-300">
                 <LogIn className="size-4" /> Fastest path for existing access
               </div>
               <h2 className="mt-5 text-3xl font-black tracking-[-0.035em] sm:text-4xl">
@@ -188,7 +188,7 @@ export function GettingStartedPage() {
               <article key={String(title)} className="bg-card p-6">
                 <ItemIcon className="size-5 text-brand" />
                 <h2 className="mt-7 font-black text-fg">{String(title)}</h2>
-                <code className="mt-3 block overflow-x-auto font-mono text-[10px] text-brand">
+                <code className="mt-3 block overflow-x-auto font-mono text-xs text-brand">
                   {String(command)}
                 </code>
                 <p className="mt-4 text-sm leading-6 text-muted">{String(body)}</p>
@@ -200,7 +200,7 @@ export function GettingStartedPage() {
       <section className="border-t border-line bg-ink text-white">
         <div className="mx-auto grid max-w-[1380px] gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[.65fr_1fr] lg:px-10">
           <div>
-            <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+            <span className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
               Before the first mutation
             </span>
             <h2 className="mt-5 text-4xl font-black tracking-[-0.025em]">

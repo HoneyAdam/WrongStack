@@ -79,7 +79,7 @@ export function DesignStudioPage() {
             <p className="mt-3 text-sm leading-7 text-muted">Materialize targets your stack: Tailwind v4 for web, StyleSheet for React Native, SwiftUI Color extensions, Flutter ThemeData, or Jetpack Compose Color. One kit, five output formats.</p>
             <div className="mt-5 flex flex-wrap gap-2">
               {['web', 'react-native', 'flutter', 'swiftui', 'compose'].map((s) => (
-                <span key={s} className="rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-[10px] font-black uppercase text-faint">{s}</span>
+                <span key={s} className="rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-xs font-black uppercase text-faint">{s}</span>
               ))}
             </div>
           </div>

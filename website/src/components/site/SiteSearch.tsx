@@ -207,7 +207,7 @@ export function SiteSearch() {
       >
         <Search className="size-4" />
         <span className="hidden text-xs font-semibold xl:inline">Search</span>
-        <kbd className="hidden rounded border border-line bg-bg px-1.5 py-0.5 font-mono text-[9px] text-faint sm:inline">
+        <kbd className="hidden rounded border border-line bg-bg px-1.5 py-0.5 font-mono text-xs text-faint sm:inline">
           ⌘ K
         </kbd>
       </button>
@@ -265,13 +265,13 @@ export function SiteSearch() {
                     <X className="size-4" />
                   </button>
                 )}
-                <kbd className="rounded border border-line bg-card px-2 py-1 font-mono text-[9px] text-faint">
+                <kbd className="rounded border border-line bg-card px-2 py-1 font-mono text-xs text-faint">
                   ESC
                 </kbd>
               </div>
 
               <div className="max-h-[56vh] overflow-y-auto p-2 sm:p-3" role="listbox">
-                <div className="px-2 pb-2 pt-1 font-mono text-[9px] font-black uppercase tracking-[0.16em] text-faint">
+                <div className="px-2 pb-2 pt-1 font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                   {query ? `${results.length} best matches` : 'Start here'}
                 </div>
                 {results.length > 0 ? (
@@ -331,7 +331,7 @@ export function SiteSearch() {
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-4 py-3 font-mono text-[9px] text-faint sm:px-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-4 py-3 font-mono text-xs text-faint sm:px-5">
                 <span>{allEntries.length} indexed destinations</span>
                 <div className="flex items-center gap-4">
                   <span>↑↓ navigate</span>

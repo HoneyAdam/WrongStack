@@ -32,13 +32,13 @@ export function ToolDetailPage() {
             <span
               className={
                 tool.permission === 'auto'
-                  ? 'rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 font-mono text-[10px] font-black uppercase text-emerald-500'
-                  : 'rounded-full border border-brand-2/25 bg-brand-2/10 px-3 py-1.5 font-mono text-[10px] font-black uppercase text-brand-2'
+                  ? 'rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 font-mono text-xs font-black uppercase text-emerald-500'
+                  : 'rounded-full border border-brand-2/25 bg-brand-2/10 px-3 py-1.5 font-mono text-xs font-black uppercase text-brand-2'
               }
             >
               {tool.permission}
             </span>
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               {tool.mutating ? 'mutating' : 'read-only'}
             </span>
           </div>
@@ -100,7 +100,7 @@ export function ToolDetailPage() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-left text-sm">
                   <thead>
-                    <tr className="border-b border-line bg-card font-mono text-[10px] font-black uppercase tracking-[0.14em] text-faint">
+                    <tr className="border-b border-line bg-card font-mono text-xs font-black uppercase tracking-[0.14em] text-faint">
                       <th className="px-5 py-4">Parameter</th>
                       <th className="px-5 py-4">Type</th>
                       <th className="px-5 py-4">Required</th>

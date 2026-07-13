@@ -9,7 +9,7 @@ export function ConnectWithPreview() {
       <div className="mx-auto max-w-[1380px] px-4 py-14 sm:px-6 sm:py-16 lg:px-10 lg:py-20">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand">
+            <div className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand">
               Connect with
             </div>
             <h2 className="mt-2 text-3xl font-black tracking-[-0.035em] text-fg sm:text-4xl">
@@ -43,7 +43,7 @@ export function ConnectWithPreview() {
                 <strong className="block text-lg font-black tracking-[-0.025em] text-fg">
                   {connection.name}
                 </strong>
-                <span className="mt-1.5 flex items-center gap-1.5 font-mono text-[9px] font-black uppercase tracking-[0.12em] text-faint">
+                <span className="mt-1.5 flex items-center gap-1.5 font-mono text-xs font-black uppercase tracking-[0.12em] text-faint">
                   {connection.kind === 'oauth' ? (
                     <LogIn className="size-3 text-emerald-500" />
                   ) : (

@@ -133,7 +133,7 @@ function CopyValue({ value, className }: { value: string; className?: string }) 
       type="button"
       onClick={copy}
       className={cn(
-        'inline-flex items-center gap-1.5 font-mono text-[10px] font-black uppercase tracking-[0.1em] transition-opacity hover:opacity-70',
+        'inline-flex items-center gap-1.5 font-mono text-xs font-black uppercase tracking-[0.1em] transition-opacity hover:opacity-70',
         className ?? 'text-fg',
       )}
       aria-label={`Copy ${value}`}
@@ -193,7 +193,7 @@ export function BrandPage() {
                 title={`${color.name} ${color.value}`}
               />
             ))}
-            <span className="ml-2 font-mono text-[10px] font-black uppercase tracking-[0.15em] text-faint">
+            <span className="ml-2 font-mono text-xs font-black uppercase tracking-[0.15em] text-faint">
               3 source colors
             </span>
           </div>
@@ -206,7 +206,7 @@ export function BrandPage() {
             <div className="manual-grid absolute inset-0 opacity-20" aria-hidden="true" />
             <div className="relative w-full max-w-3xl">
               <BrandMark title="WrongStack five-block mark" className="w-full" />
-              <div className="mt-10 flex items-center justify-between border-t border-white/15 pt-5 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+              <div className="mt-10 flex items-center justify-between border-t border-white/15 pt-5 font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
                 <span>Canonical mark / 340 × 90</span>
                 <span className="text-brand-2">5 blocks · 2 signals</span>
               </div>
@@ -214,7 +214,7 @@ export function BrandPage() {
           </div>
           <div className="flex flex-col justify-between bg-[#171714] p-8 sm:p-12">
             <div>
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand-2">
                 Brand idea
               </span>
               <h2 className="mt-6 text-4xl font-black tracking-[-0.04em] sm:text-5xl">
@@ -253,7 +253,7 @@ export function BrandPage() {
               />
             </div>
             <div className="flex flex-1 flex-col p-6">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                 Primary asset
               </span>
               <h2 className="mt-3 text-2xl font-black tracking-[-0.035em] text-fg">
@@ -278,7 +278,7 @@ export function BrandPage() {
               <img src="/wrongstack.svg" alt="WrongStack square app icon" className="size-44" />
             </div>
             <div className="flex flex-1 flex-col p-6">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
                 Compact asset
               </span>
               <h2 className="mt-3 text-2xl font-black tracking-[-0.035em] text-fg">App icon</h2>
@@ -305,7 +305,7 @@ export function BrandPage() {
               />
             </div>
             <div className="flex flex-1 flex-col p-6">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                 Sharing asset
               </span>
               <h2 className="mt-3 text-2xl font-black tracking-[-0.035em] text-fg">Social card</h2>
@@ -327,7 +327,7 @@ export function BrandPage() {
           {logoRules.map((rule, index) => (
             <article key={rule.title} className="bg-card p-6">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] font-black text-brand-2">0{index + 1}</span>
+                <span className="font-mono text-xs font-black text-brand-2">0{index + 1}</span>
                 {index === 0 ? (
                   <Maximize2 className="size-4 text-faint" />
                 ) : (
@@ -362,7 +362,7 @@ export function BrandPage() {
                 <h3 className="font-mono text-xs font-black uppercase tracking-[0.16em] text-fg">
                   Light interface
                 </h3>
-                <span className="font-mono text-[10px] text-faint">Default canvas</span>
+                <span className="font-mono text-xs text-faint">Default canvas</span>
               </div>
               <div className="grid gap-px overflow-hidden border border-line bg-line sm:grid-cols-2">
                 {lightPalette.map((color) => (
@@ -375,7 +375,7 @@ export function BrandPage() {
                 <h3 className="font-mono text-xs font-black uppercase tracking-[0.16em] text-fg">
                   Dark interface
                 </h3>
-                <span className="font-mono text-[10px] text-faint">Operator canvas</span>
+                <span className="font-mono text-xs text-faint">Operator canvas</span>
               </div>
               <div className="grid gap-px overflow-hidden border border-line bg-line sm:grid-cols-2">
                 {darkPalette.map((color) => (
@@ -408,7 +408,7 @@ export function BrandPage() {
         <div className="mt-14 grid gap-px overflow-hidden border border-line bg-line lg:grid-cols-3">
           <article className="flex min-h-[420px] flex-col bg-card p-7 sm:p-8">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                 Display
               </span>
               <TypeIcon className="size-4 text-faint" />
@@ -420,14 +420,14 @@ export function BrandPage() {
             </p>
             <div className="mt-auto border-t border-line pt-5">
               <strong className="text-sm text-fg">Space Grotesk</strong>
-              <p className="mt-2 font-mono text-[10px] leading-5 text-faint">
+              <p className="mt-2 font-mono text-xs leading-5 text-faint">
                 500 / 600 / 700 · headlines, numbers, editorial statements
               </p>
             </div>
           </article>
           <article className="flex min-h-[420px] flex-col bg-card p-7 sm:p-8">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
                 Reading
               </span>
               <TypeIcon className="size-4 text-faint" />
@@ -441,14 +441,14 @@ export function BrandPage() {
             </p>
             <div className="mt-auto border-t border-line pt-5">
               <strong className="text-sm text-fg">Manrope</strong>
-              <p className="mt-2 font-mono text-[10px] leading-5 text-faint">
+              <p className="mt-2 font-mono text-xs leading-5 text-faint">
                 400–800 · body copy, navigation, labels and controls
               </p>
             </div>
           </article>
           <article className="flex min-h-[420px] flex-col bg-ink p-7 text-white sm:p-8">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
                 Technical
               </span>
               <TypeIcon className="size-4 text-zinc-600" />
@@ -463,7 +463,7 @@ export function BrandPage() {
             </pre>
             <div className="mt-auto border-t border-white/10 pt-5">
               <strong className="text-sm">IBM Plex Mono</strong>
-              <p className="mt-2 font-mono text-[10px] leading-5 text-zinc-500">
+              <p className="mt-2 font-mono text-xs leading-5 text-zinc-500">
                 400–700 · code, commands, metadata, counters and system state
               </p>
             </div>
@@ -484,7 +484,7 @@ export function BrandPage() {
           <div className="mt-14 grid gap-px overflow-hidden border border-white/10 bg-white/10 md:grid-cols-2 lg:grid-cols-4">
             {voicePrinciples.map(([title, body], index) => (
               <article key={title} className="bg-ink p-6 sm:p-7">
-                <span className="font-mono text-[10px] font-black text-brand-2">0{index + 1}</span>
+                <span className="font-mono text-xs font-black text-brand-2">0{index + 1}</span>
                 <h3 className="mt-10 text-xl font-black tracking-[-0.03em]">{title}</h3>
                 <p className="mt-3 text-sm leading-6 text-zinc-400">{body}</p>
               </article>
@@ -493,7 +493,7 @@ export function BrandPage() {
 
           <div className="mt-10 grid gap-5 lg:grid-cols-2">
             <article className="border border-white/10 bg-white/[0.035] p-7 sm:p-8">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
                 Naming
               </span>
               <div className="mt-7 space-y-4 text-sm leading-6 text-zinc-400">
@@ -509,7 +509,7 @@ export function BrandPage() {
               </div>
             </article>
             <article className="border border-white/10 bg-white/[0.035] p-7 sm:p-8">
-              <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                 Approved copy
               </span>
               <div className="mt-7 space-y-5">

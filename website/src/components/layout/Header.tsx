@@ -162,7 +162,7 @@ export function Header() {
                           )}
                         >
                           <span className="block text-[13px] font-black">{group.label}</span>
-                          <span className="mt-0.5 block text-[10px] leading-4 text-faint">
+                          <span className="mt-0.5 block text-xs leading-4 text-faint">
                             {group.description}
                           </span>
                           {activeGroup === group.id && (
@@ -175,10 +175,10 @@ export function Header() {
                     {/* ── Right panel: card grid ── */}
                     <div className="min-w-0 flex-1 p-5">
                       <div className="mb-3 flex items-center gap-2 px-1">
-                        <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+                        <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                           {moreNavGroups.find((g) => g.id === activeGroup)?.label}
                         </span>
-                        <span className="font-mono text-[10px] text-faint">
+                        <span className="font-mono text-xs text-faint">
                           {activeItems.length} pages
                         </span>
                       </div>
@@ -199,7 +199,7 @@ export function Header() {
                               <span className="block text-[13px] font-black text-fg group-hover:text-brand transition-colors">
                                 {item.label}
                               </span>
-                              <span className="mt-0.5 block text-[10px] leading-[1.35] text-muted">
+                              <span className="mt-0.5 block text-xs leading-[1.35] text-muted">
                                 {item.description}
                               </span>
                             </span>
@@ -211,7 +211,7 @@ export function Header() {
                   <div className="relative flex items-center justify-between gap-6 border-t border-line bg-ink px-5 py-3 text-white">
                     <div className="flex items-center gap-3">
                       <span className="size-2 rounded-sm bg-brand-2 shadow-[13px_0_0_#ff3154]" />
-                      <span className="ml-3 font-mono text-[10px] font-black uppercase tracking-[0.16em]">
+                      <span className="ml-3 font-mono text-xs font-black uppercase tracking-[0.16em]">
                         Open source · Free · MIT licensed
                       </span>
                     </div>
@@ -292,7 +292,7 @@ export function Header() {
                     <div className="mb-2 px-2">
                       <span
                         className={cn(
-                          'font-mono text-[10px] font-black uppercase tracking-[0.16em]',
+                          'font-mono text-xs font-black uppercase tracking-[0.16em]',
                           groupIndex % 2 ? 'text-brand-2' : 'text-brand',
                         )}
                       >

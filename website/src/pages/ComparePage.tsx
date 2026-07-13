@@ -92,7 +92,7 @@ function EvidenceBadge({ level }: { level: EvidenceLevel }) {
   return (
     <span
       className={cn(
-        'inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 font-mono text-[9px] font-black uppercase tracking-[0.14em]',
+        'inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 font-mono text-xs font-black uppercase tracking-[0.14em]',
         levelStyles[level],
       )}
     >
@@ -114,7 +114,7 @@ function OverviewMatrix() {
             <tr className="border-b border-line bg-surface">
               <th
                 scope="col"
-                className="sticky left-0 z-10 w-52 border-r border-line bg-surface px-5 py-4 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint"
+                className="sticky left-0 z-10 w-52 border-r border-line bg-surface px-5 py-4 font-mono text-xs font-black uppercase tracking-[0.16em] text-faint"
               >
                 Capability
               </th>
@@ -157,7 +157,7 @@ function OverviewMatrix() {
           </tbody>
         </table>
       </div>
-      <div className="flex items-center gap-2 border-t border-line px-5 py-3 font-mono text-[9px] font-bold uppercase tracking-[0.13em] text-faint">
+      <div className="flex items-center gap-2 border-t border-line px-5 py-3 font-mono text-xs font-bold uppercase tracking-[0.13em] text-faint">
         <ArrowRight className="size-3 text-brand-2" /> Scroll horizontally on narrow screens
       </div>
     </div>
@@ -175,19 +175,19 @@ function MobileComparisonRows({ rows, name }: { rows: ComparisonRow[]; name: str
           </div>
           <dl className="mt-5 space-y-5">
             <div>
-              <dt className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-brand-2">
+              <dt className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
                 WrongStack
               </dt>
               <dd className="mt-2 text-sm leading-6 text-fg">{row.wrongstack}</dd>
             </div>
             <div>
-              <dt className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-brand">
+              <dt className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                 {name}
               </dt>
               <dd className="mt-2 text-sm leading-6 text-muted">{row.competitor}</dd>
             </div>
             <div className="border-t border-line pt-4">
-              <dt className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-faint">
+              <dt className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                 What changes
               </dt>
               <dd className="mt-2 text-sm leading-6 text-muted">{row.difference}</dd>
@@ -209,7 +209,7 @@ function DesktopComparisonTable({ product }: { product: ProductComparison }) {
             <tr className="border-b border-line bg-surface">
               <th
                 scope="col"
-                className="w-[16%] px-5 py-4 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint"
+                className="w-[16%] px-5 py-4 font-mono text-xs font-black uppercase tracking-[0.16em] text-faint"
               >
                 Capability
               </th>
@@ -271,7 +271,7 @@ function ProductSection({ product, index }: { product: ProductComparison; index:
                 {product.mark}
               </span>
               <div>
-                <p className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+                <p className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                   {sectionNumber} / {product.maker}
                 </p>
                 <h2 className="mt-1 text-3xl font-black tracking-[-0.035em] text-fg sm:text-4xl">
@@ -288,7 +288,7 @@ function ProductSection({ product, index }: { product: ProductComparison; index:
                   target="_blank"
                   rel="noreferrer"
                   title={source.note}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-2 font-mono text-[9px] font-black uppercase tracking-[0.12em] text-muted transition-colors hover:border-brand-2 hover:text-fg"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.12em] text-muted transition-colors hover:border-brand-2 hover:text-fg"
                 >
                   {source.label} <ArrowUpRight className="size-3" />
                 </a>
@@ -298,13 +298,13 @@ function ProductSection({ product, index }: { product: ProductComparison; index:
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
-              <span className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-brand">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand">
                 Where {product.name} is the better fit
               </span>
               <p className="mt-3 text-sm leading-6 text-muted">{product.strongestCase}</p>
             </div>
             <div className="rounded-2xl border border-brand-2/25 bg-brand-2/[0.07] p-5 sm:p-6">
-              <span className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-brand-2">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
                 Where WrongStack is different
               </span>
               <p className="mt-3 text-sm font-semibold leading-6 text-fg">
@@ -339,10 +339,10 @@ export function ComparePage() {
         description="Claude Code, Codex, OpenCode, Cursor and Pi are all serious tools. This page uses their current official documentation—and WrongStack’s runtime code—to show where the operating models genuinely diverge."
         aside={
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[9px] font-black uppercase tracking-[0.13em] text-fg">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase tracking-[0.13em] text-fg">
               Verified {comparisonVerifiedOn}
             </span>
-            <span className="rounded-full border border-brand-2/25 bg-brand-2/10 px-3 py-1.5 font-mono text-[9px] font-black uppercase tracking-[0.13em] text-brand-2">
+            <span className="rounded-full border border-brand-2/25 bg-brand-2/10 px-3 py-1.5 font-mono text-xs font-black uppercase tracking-[0.13em] text-brand-2">
               Official sources only
             </span>
           </div>
@@ -353,7 +353,7 @@ export function ComparePage() {
         <div className="mx-auto flex max-w-[1380px] gap-2 overflow-x-auto px-4 py-4 sm:px-6 lg:px-10">
           <a
             href="#overview"
-            className="shrink-0 rounded-full bg-fg px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.13em] text-bg"
+            className="shrink-0 rounded-full bg-fg px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.13em] text-bg"
           >
             Overview
           </a>
@@ -361,7 +361,7 @@ export function ComparePage() {
             <a
               key={product.id}
               href={`#${product.id}`}
-              className="shrink-0 rounded-full border border-line bg-card px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.13em] text-muted transition-colors hover:border-brand-2 hover:text-fg"
+              className="shrink-0 rounded-full border border-line bg-card px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.13em] text-muted transition-colors hover:border-brand-2 hover:text-fg"
             >
               vs {product.name}
             </a>
@@ -417,7 +417,7 @@ export function ComparePage() {
       <section className="border-t border-line bg-ink py-16 text-white sm:py-20 lg:py-24">
         <div className="mx-auto grid max-w-[1380px] gap-10 px-4 sm:px-6 lg:grid-cols-[.85fr_1.15fr] lg:px-10">
           <div>
-            <div className="flex items-center gap-3 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand-2">
+            <div className="flex items-center gap-3 font-mono text-xs font-black uppercase tracking-[0.16em] text-brand-2">
               <BadgeCheck className="size-4" /> Claim standard
             </div>
             <h2 className="mt-5 max-w-xl text-4xl font-black tracking-[-0.045em] sm:text-5xl">

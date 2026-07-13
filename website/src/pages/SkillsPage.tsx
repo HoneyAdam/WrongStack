@@ -56,7 +56,7 @@ export function SkillsPage() {
             <article key={title} className="rounded-2xl border border-line bg-card p-7">
               <Icon className="size-5 text-brand" />
               <h2 className="mt-8 text-xl font-black text-fg">{title}</h2>
-              <code className="mt-2 block font-mono text-[10px] text-faint">{path}</code>
+              <code className="mt-2 block font-mono text-xs text-faint">{path}</code>
               <p className="mt-4 text-sm leading-7 text-muted">{body}</p>
             </article>
           ))}

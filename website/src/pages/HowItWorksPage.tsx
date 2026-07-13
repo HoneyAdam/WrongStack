@@ -65,7 +65,7 @@ export function HowItWorksPage() {
                   {step.number}
                 </span>
                 <div>
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.18em] text-faint">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-faint">
                     {step.label}
                   </span>
                   <h2 className="mt-3 text-2xl font-black leading-tight tracking-[-0.035em] text-fg">
@@ -74,7 +74,7 @@ export function HowItWorksPage() {
                 </div>
                 <div>
                   <p className="text-sm leading-7 text-muted sm:text-base">{step.body}</p>
-                  <code className="mt-5 block overflow-x-auto rounded-lg border border-line bg-bg px-4 py-3 font-mono text-[11px] text-brand">
+                  <code className="mt-5 block overflow-x-auto rounded-lg border border-line bg-bg px-4 py-3 font-mono text-xs text-brand">
                     {step.code}
                   </code>
                 </div>
@@ -88,7 +88,7 @@ export function HowItWorksPage() {
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-32">
           <div className="grid gap-12 lg:grid-cols-[.55fr_1fr]">
             <div>
-              <div className="flex items-center gap-3 font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+              <div className="flex items-center gap-3 font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
                 <RotateCw className="size-4" /> Failure handling
               </div>
               <h2 className="mt-6 text-4xl font-black leading-[1.03] tracking-[-0.025em] sm:text-5xl">
@@ -162,7 +162,7 @@ export function HowItWorksPage() {
                 {String(index + 1).padStart(2, '0')}
               </span>
               <strong className="text-sm text-fg">{name}</strong>
-              <span className="w-fit rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-[10px] font-bold uppercase text-faint">
+              <span className="w-fit rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-xs font-bold uppercase text-faint">
                 {scope}
               </span>
               <p className="text-sm leading-6 text-muted">{body}</p>

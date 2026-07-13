@@ -88,7 +88,7 @@ export function ProvidersPage() {
             >
               <span className="font-mono text-xs font-black text-brand-2">0{index + 1}</span>
               <strong className="text-sm text-fg">{name}</strong>
-              <code className="font-mono text-[10px] text-brand">{transport}</code>
+              <code className="font-mono text-xs text-brand">{transport}</code>
               <p className="text-sm leading-6 text-muted">{examples}</p>
             </div>
           ))}
@@ -116,7 +116,7 @@ export function ProvidersPage() {
                     {provider.icon}
                   </span>
                   <span
-                    className={`rounded-full border px-2.5 py-1 font-mono text-[9px] font-black uppercase tracking-[0.08em] ${familyBadge[provider.family]}`}
+                    className={`rounded-full border px-2.5 py-1 font-mono text-xs font-black uppercase tracking-[0.08em] ${familyBadge[provider.family]}`}
                   >
                     {familyLabels[provider.family]}
                   </span>
@@ -124,8 +124,8 @@ export function ProvidersPage() {
                 <h3 className="mt-5 text-lg font-black text-fg">{provider.name}</h3>
                 <p className="mt-2 flex-1 text-sm leading-6 text-muted">{provider.description}</p>
                 <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
-                  <code className="font-mono text-[10px] text-faint">{provider.keyPlaceholder}</code>
-                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-brand">
+                  <code className="font-mono text-xs text-faint">{provider.keyPlaceholder}</code>
+                  <span className="inline-flex items-center gap-1 font-mono text-xs font-black uppercase tracking-[0.1em] text-brand">
                     Get key
                     <ArrowUpRight className="size-3 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                   </span>
@@ -145,7 +145,7 @@ export function ProvidersPage() {
                   <div key={provider.id} className="border-t border-line pt-4 first:border-t-0 first:pt-0">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <strong className="text-sm font-black text-fg">{provider.name}</strong>
-                      <code className="font-mono text-[10px] text-brand">{provider.command}</code>
+                      <code className="font-mono text-xs text-brand">{provider.command}</code>
                     </div>
                     <p className="mt-1.5 text-sm leading-6 text-muted">{provider.description}</p>
                   </div>
@@ -162,11 +162,11 @@ export function ProvidersPage() {
                   <div key={provider.id} className="border-t border-line pt-4 first:border-t-0 first:pt-0">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <strong className="text-sm font-black text-fg">{provider.name}</strong>
-                      <span className="font-mono text-[9px] font-black uppercase tracking-[0.08em] text-faint">
+                      <span className="font-mono text-xs font-black uppercase tracking-[0.08em] text-faint">
                         {provider.noAuth ? 'no auth' : 'optional bearer'}
                       </span>
                     </div>
-                    <code className="mt-1.5 block font-mono text-[10px] text-brand">
+                    <code className="mt-1.5 block font-mono text-xs text-brand">
                       {provider.baseUrl}
                     </code>
                     <p className="mt-1.5 text-sm leading-6 text-muted">{provider.hint}</p>
@@ -187,7 +187,7 @@ export function ProvidersPage() {
           <div className="mt-12 grid gap-6 overflow-hidden rounded-2xl border border-emerald-500/30 bg-ink p-6 text-white sm:p-8 lg:grid-cols-[.8fr_1.2fr_auto] lg:items-center">
             <LogIn className="size-10 text-emerald-300" />
             <div>
-              <span className="font-mono text-[9px] font-black uppercase tracking-[0.17em] text-emerald-300">
+              <span className="font-mono text-xs font-black uppercase tracking-[0.17em] text-emerald-300">
                 Connect with ChatGPT
               </span>
               <h2 className="mt-2 text-3xl font-black tracking-[-0.035em]">
@@ -240,7 +240,7 @@ export function ProvidersPage() {
                   <ItemIcon className="size-5 text-brand" />
                   <h2 className="mt-8 font-black text-fg">{String(title)}</h2>
                   <p className="mt-3 text-sm leading-6 text-muted">{String(body)}</p>
-                  <code className="mt-6 block overflow-x-auto font-mono text-[9px] text-brand">
+                  <code className="mt-6 block overflow-x-auto font-mono text-xs text-brand">
                     {String(command)}
                   </code>
                 </article>
@@ -267,7 +267,7 @@ export function ProvidersPage() {
         />
         <div className="mt-12 grid gap-6 lg:grid-cols-[.75fr_1fr]">
           <div className="rounded-2xl border border-line bg-ink p-6 text-zinc-300">
-            <pre className="overflow-x-auto font-mono text-[11px] leading-6">
+            <pre className="overflow-x-auto font-mono text-xs leading-6">
               <code>{matrixExample}</code>
             </pre>
           </div>
@@ -318,7 +318,7 @@ export function ProvidersPage() {
               ],
             ].map(([role, route, body]) => (
               <article key={role} className="bg-card p-6">
-                <span className="font-mono text-[9px] font-black uppercase tracking-[0.18em] text-faint">
+                <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-faint">
                   {role}
                 </span>
                 <h2 className="mt-5 text-xl font-black text-fg">{route}</h2>

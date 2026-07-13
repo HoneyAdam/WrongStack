@@ -66,19 +66,19 @@ export function PluginDetailPage() {
         aside={
           <div className="flex flex-wrap gap-2">
             <span
-              className={`rounded-full border px-3 py-1.5 font-mono text-[10px] font-black uppercase ${riskStyles[plugin.risk]}`}
+              className={`rounded-full border px-3 py-1.5 font-mono text-xs font-black uppercase ${riskStyles[plugin.risk]}`}
             >
               {plugin.risk} risk
             </span>
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               {plugin.defaultState} by default
             </span>
             {detail.version && (
-              <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+              <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
                 v{detail.version}
               </span>
             )}
-            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-[10px] font-black uppercase text-faint">
+            <span className="rounded-full border border-line bg-card px-3 py-1.5 font-mono text-xs font-black uppercase text-faint">
               {operational.llm.label}
             </span>
           </div>
@@ -98,7 +98,7 @@ export function PluginDetailPage() {
               <strong className="block break-words font-mono text-sm font-black text-fg">
                 {value}
               </strong>
-              <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.16em] text-faint">
+              <span className="mt-1 block text-xs font-black uppercase tracking-[0.16em] text-faint">
                 {label}
               </span>
             </div>
@@ -125,14 +125,14 @@ export function PluginDetailPage() {
             {(detail.apiVersion || (detail.dependsOn?.length ?? 0) > 0) && (
               <div className="mt-6 flex flex-wrap gap-2">
                 {detail.apiVersion && (
-                  <span className="rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-[10px] font-bold text-faint">
+                  <span className="rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-xs font-bold text-faint">
                     kernel {detail.apiVersion}
                   </span>
                 )}
                 {detail.dependsOn?.map((dep) => (
                   <span
                     key={dep}
-                    className="rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-[10px] font-bold text-faint"
+                    className="rounded-full border border-line bg-bg px-3 py-1.5 font-mono text-xs font-bold text-faint"
                   >
                     needs {dep}
                   </span>
@@ -140,7 +140,7 @@ export function PluginDetailPage() {
               </div>
             )}
             <div className="mt-8 border-t border-line pt-6">
-              <h3 className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-faint">
+              <h3 className="font-mono text-xs font-black uppercase tracking-[0.16em] text-faint">
                 Best used for
               </h3>
               <ul className="mt-4 space-y-3">
@@ -173,7 +173,7 @@ export function PluginDetailPage() {
               <div className="overflow-hidden rounded-2xl border border-line bg-ink">
                 <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
                   <GitBranch className="size-4 text-brand" />
-                  <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+                  <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
                     Config example
                   </span>
                 </div>
@@ -233,7 +233,7 @@ export function PluginDetailPage() {
             <Bot className="size-5 text-brand" />
             <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-xl font-black">LLM behavior</h2>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-mono text-[9px] font-black uppercase tracking-[0.12em] text-brand-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-mono text-xs font-black uppercase tracking-[0.12em] text-brand-2">
                 {operational.llm.label}
               </span>
             </div>
@@ -274,12 +274,12 @@ export function PluginDetailPage() {
                     <h3 className="font-mono text-base font-black text-fg">{tool.name}</h3>
                     <div className="flex gap-2">
                       {tool.category && (
-                        <span className="rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-[10px] font-bold text-faint">
+                        <span className="rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-xs font-bold text-faint">
                           {tool.category}
                         </span>
                       )}
                       {tool.mutating !== undefined && (
-                        <span className="rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-[10px] font-bold text-faint">
+                        <span className="rounded-full border border-line bg-bg px-2.5 py-1 font-mono text-xs font-bold text-faint">
                           {tool.mutating ? 'mutating' : 'read-only'}
                         </span>
                       )}
@@ -323,7 +323,7 @@ export function PluginDetailPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-line bg-card font-mono text-[10px] font-black uppercase tracking-[0.14em] text-faint">
+                  <tr className="border-b border-line bg-card font-mono text-xs font-black uppercase tracking-[0.14em] text-faint">
                     <th className="px-5 py-4">Option</th>
                     <th className="px-5 py-4">Type</th>
                     <th className="px-5 py-4">Default</th>

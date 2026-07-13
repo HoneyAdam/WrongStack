@@ -78,14 +78,14 @@ function TopologyNode({
             {eyebrow}
           </div>
           <div className="mt-1 truncate text-sm font-black tracking-[-0.02em]">{title}</div>
-          <div className="mt-0.5 truncate font-mono text-[9px] text-zinc-500">{subtitle}</div>
+          <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">{subtitle}</div>
         </div>
         <span className={cn('topology-pulse mt-1 size-2 rounded-full', toneStyle.dot)} />
       </div>
       <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/[.07] bg-white/[.07]">
         {metrics.map(([label, value]) => (
           <div key={label} className="bg-[#141720] px-2.5 py-2">
-            <div className="font-mono text-[9px] font-bold text-zinc-300">{value}</div>
+            <div className="font-mono text-xs font-bold text-zinc-300">{value}</div>
             <div className="mt-0.5 text-[8px] uppercase tracking-wider text-zinc-600">{label}</div>
           </div>
         ))}
@@ -138,7 +138,7 @@ export function FleetTopologyPreview() {
       <div className="mx-auto max-w-[1380px]">
         <div className="mb-9 grid gap-5 lg:grid-cols-[.8fr_1.2fr] lg:items-end">
           <div>
-            <div className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+            <div className="font-mono text-xs font-black uppercase tracking-[0.2em] text-brand">
               Live fleet topology
             </div>
             <h2 className="mt-4 max-w-2xl text-3xl font-black leading-[1.06] tracking-[-0.025em] text-fg sm:text-5xl">
@@ -159,10 +159,10 @@ export function FleetTopologyPreview() {
                 <Boxes className="size-3.5" />
               </span>
               <div>
-                <div className="font-mono text-[9px] font-black uppercase tracking-[0.18em] text-zinc-300">
+                <div className="font-mono text-xs font-black uppercase tracking-[0.18em] text-zinc-300">
                   WrongStack / Fleet map
                 </div>
-                <div className="text-[9px] text-zinc-600">read-only product preview</div>
+                <div className="text-xs text-zinc-600">read-only product preview</div>
               </div>
             </div>
             <div className="flex items-center gap-2 font-mono text-[8px] font-bold uppercase tracking-wider text-zinc-500">
@@ -218,7 +218,7 @@ export function FleetTopologyPreview() {
               <div className="flex items-center gap-2 font-mono text-[8px] font-black uppercase tracking-wider text-zinc-500">
                 <Activity className="size-3 text-emerald-300" /> Session stats
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-[9px]">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <span className="text-zinc-600">Clients</span>
                 <strong className="text-right font-mono text-zinc-300">3 / 3</strong>
                 <span className="text-zinc-600">Agents</span>
