@@ -196,7 +196,8 @@ export function parseMailboxLine(line: string): MailboxMessage | AckRecord | nul
 
 /**
  * Apply an ack record's effects to a MailboxMessage in-place.
- * This mutates the message object (readBy, completed, completedBy, completedAt, outcome).
+ * This mutates the message object (readBy, completed, completedBy, completedAt,
+ * outcome, deletedAt, deletedBy).
  */
 export function applyAckToMessage(msg: MailboxMessage, ack: AckRecord): void {
   if (ack.read && !(ack.readerId in msg.readBy)) {
@@ -209,6 +210,16 @@ export function applyAckToMessage(msg: MailboxMessage, ack: AckRecord): void {
   }
   if (ack.outcome !== undefined && msg.outcome !== ack.outcome) {
     msg.outcome = ack.outcome;
+  }
+  // Soft-delete: set deletedAt/deletedBy.
+  if (ack.deleted === true) {
+    msg.deletedAt = ack.timestamp;
+    msg.deletedBy = ack.deletedBy ?? ack.readerId;
+  }
+  // Restore: clear deletedAt/deletedBy.
+  if (ack.deleted === false) {
+    delete msg.deletedAt;
+    delete msg.deletedBy;
   }
 }
 

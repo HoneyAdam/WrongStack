@@ -414,6 +414,23 @@ export class GlobalMailbox implements Mailbox {
     return updated.length > 0 ? updated[0]! : null;
   }
 
+  /** Diagnostic counters exposed for test/tool introspection. */
+  readonly diag = {
+    ackManyCacheDesync: 0,
+    ackManyPreLockMtime: 0,
+    ackManyPostLockMtime: 0,
+    ackManyPreLockSize: 0,
+    ackManyPostLockSize: 0,
+    ackManyMessageCount: 0,
+    ackManyAckCount: 0,
+    cacheHitCount: 0,
+    cacheMissCount: 0,
+    cacheDesyncNoOp: 0,
+    applyAckTargetMissing: 0,
+    setMessageCacheCount: 0,
+    pushToCacheCount: 0,
+  };
+
   async ackMany(input: MailboxAckBatchInput): Promise<MailboxMessage[]> {
     // Append-only ack: instead of reading all messages, mutating them,
     // and rewriting the entire file (O(N) read + O(N) write), we append
@@ -434,6 +451,13 @@ export class GlobalMailbox implements Mailbox {
       byId.set(a.messageId, a);
       targetIds.add(a.messageId);
     }
+
+    // ── Pre-lock snapshot for cross-process desync detection ──
+    const preLockMtime = this._messageCacheMtime;
+    const preLockSize = this._messageCacheSize;
+    const preLockCacheLen = this._messageCache?.length ?? -1;
+    this.diag.ackManyPreLockMtime = preLockMtime;
+    this.diag.ackManyPreLockSize = preLockSize;
 
     // Build ack records and find target messages.
     // We need to find messages to return them; use cached view for speed.
@@ -507,6 +531,25 @@ export class GlobalMailbox implements Mailbox {
       // Advance cache trackers so the next read sees current size.
       this._messageCacheMtime = mtimeMs;
       this._messageCacheSize = size;
+
+      // ── Post-lock diagnostics ──
+      this.diag.ackManyPostLockMtime = mtimeMs;
+      this.diag.ackManyPostLockSize = size;
+      this.diag.ackManyMessageCount = this._messageCache?.length ?? -1;
+      this.diag.ackManyAckCount = ackRecords.length;
+
+      // DETECT: cross-process cache desync
+      // If the post-append stat jumped ahead more than our serialized ack
+      // bytes alone, another process appended data between our cache read
+      // and lock acquisition. The cache would then be missing those messages.
+      const expectedMinSize = preLockSize + serialized.length;
+      if (preLockSize > 0 && size > expectedMinSize) {
+        const extraBytes = size - expectedMinSize;
+        console.error(
+          `[MAILBOX-DIAG] ackMany: post-lock size ${size} exceeds expected ${expectedMinSize} by ${extraBytes}B (mtime ${preLockMtime}->${mtimeMs}). ` +
+            `Cache may be missing cross-process messages. diag.ackManyCacheDesync=${++this.diag.ackManyCacheDesync}`,
+        );
+      }
     });
 
     for (const message of updated) {
@@ -555,110 +598,104 @@ export class GlobalMailbox implements Mailbox {
   }
 
   async softDelete(mailId: string, by: string): Promise<MailboxMessage | null> {
-    // Single-message soft delete. Acquires the file lock and writes
-    // the file with the matched message's `deletedAt` set. No-op if
-    // the message does not exist or is already soft-deleted (the
-    // second case is a successful no-op: returns the message with
-    // `deletedAt` unchanged).
-    let updated: MailboxMessage | null = null;
-    await withFileLock(this.messagePath, async () => {
-      const all = await this._readMessagesFresh();
-      const now = new Date().toISOString();
-      let changed = false;
-      for (const m of all) {
-        if (m.id !== mailId) continue;
-        if (m.deletedAt !== undefined) {
-          // Already soft-deleted — return the existing record so the
-          // caller can no-op cleanly. No event is published.
-          updated = m;
-          continue;
-        }
-        m.deletedAt = now;
-        m.deletedBy = by;
-        updated = m;
-        changed = true;
-      }
-      // Only rewrite the file if the soft-delete actually mutated state —
-      // a re-delete of an already-deleted message is a no-op on disk.
-      if (changed) {
-        const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
-        await fsp.writeFile(this.messagePath, serialized, 'utf8');
-      }
-      // Promote the cache inside the lock with the post-write stat so the
-      // mtime/size trackers are set synchronously with the content.
-      const { mtimeMs, size } = await this._statMessageFile();
-      this._setMessageCache(all, mtimeMs, size);
-    });
-    if (updated !== null) {
-      const msg = updated as MailboxMessage;
-      this.publishHqMailboxEvent({
-        mailboxId: this.hqMailboxId,
-        action: 'message.updated',
-        message: msg,
-      });
-      this.publishHqMailboxSnapshot();
-      // SSE push for external HTTP bridge clients.
-      this.eventEmitter?.emit({
-        type: 'message.deleted' as const,
-        messageId: msg.id,
-        from: msg.from,
-        to: msg.to,
-        timestamp: msg.deletedAt ?? new Date().toISOString(),
-      });
+    // Append-only soft-delete: instead of reading all messages, mutating
+    // one, and rewriting the entire file, we append a single ack record
+    // with `deleted: true`. At read time, the delete is applied to the
+    // target message via _parseLines / applyAckToMessage.
+    // No-op when the message is already soft-deleted.
+
+    const all = await this._readMessagesCached();
+    const target = all.find((m) => m.id === mailId);
+    if (target === undefined) return null;
+    if (target.deletedAt !== undefined) {
+      return { ...target, readBy: { ...target.readBy } };
     }
-    return updated;
+
+    const now = new Date().toISOString();
+    const ack: AckRecord = {
+      __ack: true,
+      messageId: mailId,
+      readerId: by,
+      timestamp: now,
+      read: true,
+      deleted: true,
+      deletedBy: by,
+    };
+
+    await withFileLock(this.messagePath, async () => {
+      await fsp.appendFile(this.messagePath, serializeAckRecord(ack), 'utf8');
+      const { mtimeMs, size } = await this._statMessageFile();
+      this._applyAckToCache(ack);
+      this._messageCacheMtime = mtimeMs;
+      this._messageCacheSize = size;
+    });
+
+    const msg = { ...target, readBy: { ...target.readBy } };
+    msg.deletedAt = now;
+    msg.deletedBy = by;
+    this.publishHqMailboxEvent({
+      mailboxId: this.hqMailboxId,
+      action: 'message.updated',
+      message: msg,
+    });
+    this.publishHqMailboxSnapshot();
+    this.eventEmitter?.emit({
+      type: 'message.deleted' as const,
+      messageId: msg.id,
+      from: msg.from,
+      to: msg.to,
+      timestamp: msg.deletedAt ?? now,
+    });
+    return msg;
   }
 
   async restore(mailId: string): Promise<MailboxMessage | null> {
-    // Inverse of `softDelete`. Clears `deletedAt` + `deletedBy` so the
-    // message reappears in the default `query()` result. No-op when
-    // the message exists but is not currently soft-deleted. Emits an
-    // event unconditionally so the WebUI can re-fetch the message
-    // (the duplicate-event cost is acceptable: the WebUI dedupes by
-    // `mailId`).
-    let updated: MailboxMessage | null = null;
-    await withFileLock(this.messagePath, async () => {
-      const all = await this._readMessagesFresh();
-      let changed = false;
-      for (const m of all) {
-        if (m.id !== mailId) continue;
-        if (m.deletedAt === undefined && m.deletedBy === undefined) {
-          // Not soft-deleted — no-op, return the message as-is.
-          updated = m;
-          continue;
-        }
-        delete m.deletedAt;
-        delete m.deletedBy;
-        updated = m;
-        changed = true;
-      }
-      if (changed) {
-        const serialized = all.map((m) => JSON.stringify(m)).join(LINE_SEPARATOR) + LINE_SEPARATOR;
-        await fsp.writeFile(this.messagePath, serialized, 'utf8');
-      }
-      // Promote the cache inside the lock with the post-write stat so the
-      // mtime/size trackers are set synchronously with the content.
-      const { mtimeMs, size } = await this._statMessageFile();
-      this._setMessageCache(all, mtimeMs, size);
-    });
-    if (updated !== null) {
-      const msg = updated as MailboxMessage;
-      this.publishHqMailboxEvent({
-        mailboxId: this.hqMailboxId,
-        action: 'message.updated',
-        message: msg,
-      });
-      this.publishHqMailboxSnapshot();
-      // SSE push for external HTTP bridge clients.
-      this.eventEmitter?.emit({
-        type: 'message.restored' as const,
-        messageId: msg.id,
-        from: msg.from,
-        to: msg.to,
-        timestamp: new Date().toISOString(),
-      });
+    // Append-only restore (inverse of append-only softDelete). Same
+    // pattern: put a `deleted: false` ack record on disk, apply it to
+    // the cache. No-op when the message is not currently soft-deleted.
+
+    const all = await this._readMessagesCached();
+    const target = all.find((m) => m.id === mailId);
+    if (target === undefined) return null;
+    if (target.deletedAt === undefined && target.deletedBy === undefined) {
+      return { ...target, readBy: { ...target.readBy } };
     }
-    return updated;
+
+    const now = new Date().toISOString();
+    const ack: AckRecord = {
+      __ack: true,
+      messageId: mailId,
+      readerId: '',
+      timestamp: now,
+      read: true,
+      deleted: false,
+    };
+
+    await withFileLock(this.messagePath, async () => {
+      await fsp.appendFile(this.messagePath, serializeAckRecord(ack), 'utf8');
+      const { mtimeMs, size } = await this._statMessageFile();
+      this._applyAckToCache(ack);
+      this._messageCacheMtime = mtimeMs;
+      this._messageCacheSize = size;
+    });
+
+    const msg = { ...target, readBy: { ...target.readBy } };
+    delete msg.deletedAt;
+    delete msg.deletedBy;
+    this.publishHqMailboxEvent({
+      mailboxId: this.hqMailboxId,
+      action: 'message.updated',
+      message: msg,
+    });
+    this.publishHqMailboxSnapshot();
+    this.eventEmitter?.emit({
+      type: 'message.restored' as const,
+      messageId: msg.id,
+      from: msg.from,
+      to: msg.to,
+      timestamp: now,
+    });
+    return msg;
   }
 
   // ── Agent registry ──────────────────────────────────────────────────────

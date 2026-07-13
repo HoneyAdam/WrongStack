@@ -280,6 +280,17 @@ export interface AckRecord {
   completedBy?: string | undefined;
   /** Optional outcome summary. */
   outcome?: string | undefined;
+  /**
+   * Soft-delete or restore the target message.
+   * - `true`: set `deletedAt`/`deletedBy` on the message
+   * - `false`: clear `deletedAt`/`deletedBy` on the message
+   * - `undefined`: not a delete/restore operation (backward-compat default)
+   *
+   * When `deleted` is `true`, `deletedBy` records who performed the delete.
+   */
+  deleted?: boolean | undefined;
+  /** Who deleted the message (set when `deleted === true`). */
+  deletedBy?: string | undefined;
 }
 
 export interface MailboxAckInput {
