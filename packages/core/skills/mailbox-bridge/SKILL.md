@@ -114,8 +114,8 @@ WRONGSTACK_MAILBOX_TOKEN=$(cat ~/.wrongstack/projects/<slug>/.mailbox.token)
 | Flag | Default | Notes |
 |------|---------|-------|
 | `--host <ip>` | `127.0.0.1` | Loopback by default. Pass `0.0.0.0` to expose on LAN — NOT recommended without a reverse proxy that re-authenticates and rate-limits. |
-| `--port <n>` | OS-assigned (`0`) | The default binds port 0 so the OS picks a free port and the printed URL is always reachable. Pass an explicit number to pin. |
-| `--strict-port` | off | With `--port <n>`, fail if the port is in use. Without it, the bridge still works on a different port because it always lets the OS assign when `--port` is omitted. |
+| `--port <n>` | `7788` | Requested port used when `--strict-port` is set. In non-strict mode the server deliberately passes port `0` so the OS assigns a free port, even when a port value was supplied. |
+| `--strict-port` | off | Bind the requested/default port exactly and fail on `EADDRINUSE`; without it, bind an OS-assigned free port. |
 
 ## Routes
 
@@ -134,9 +134,11 @@ require `Authorization: Bearer <token>`. All responses are JSON.
 | POST | `/mailbox/agents/heartbeat` | `GlobalMailbox.heartbeat` |
 | POST | `/mailbox/register-client` | `GlobalMailbox.registerClient` (`source = 'http'`) |
 | POST | `/mailbox/heartbeat` | `GlobalMailbox.clientHeartbeat` |
+| POST | `/mailbox/purge-clients` | `GlobalMailbox.purgeClients` |
 | GET | `/mailbox/agents` | `GlobalMailbox.getAgentStatuses` |
 | GET | `/mailbox/agents/online` | `GlobalMailbox.getOnlineAgents` |
-| GET | `/healthz` | liveness probe (no auth) |
+| GET | `/mailbox/events` | authenticated SSE stream for mailbox events |
+| GET | `/healthz` | liveness probe (no auth or rate limit) |
 
 ### Error shape
 
@@ -151,6 +153,7 @@ Every error response follows the WrongStack API convention:
 | `VALIDATION_ERROR` | 400 | Missing/wrong-type field in request body, body too large, or invalid JSON. |
 | `UNAUTHORIZED` | 401 | Missing or wrong bearer token. |
 | `NOT_FOUND` | 404 | No route for the request method + URL. |
+| `RATE_LIMITED` | 429 | More than 120 authenticated requests in the rolling 60-second window. |
 | `INTERNAL_ERROR` | 500 | `GlobalMailbox` threw (e.g. file-lock contention, disk full). |
 
 ### Limits
@@ -158,8 +161,10 @@ Every error response follows the WrongStack API convention:
 - Body cap: **256 KB**. The mailbox message format is small; this leaves
   headroom for long bodies and base64 attachments while rejecting
   pathological payloads before they reach `JSON.parse`.
-- No rate limiting at the bridge layer — assume the bearer token is the
-  only credential and trust the loopback network.
+- Authenticated routes share a per-bearer sliding-window limit of **120
+  requests per 60 seconds**. `/healthz` bypasses authentication and the limit.
+  This bounds accidental flooding; it is not an identity or authorization
+  boundary because every caller uses the same project token.
 
 ## The HQ dashboard writes to the same mailbox
 
@@ -316,8 +321,12 @@ is 15 s.
   `~/.wrongstack/projects/<slug>/.mailbox.token` AND reach the bind host
   can act on the project's mailbox. Loopback binding makes "reach"
   require shell access on the host machine.
-- Token comparison is `timingSafeEqual` — there's no byte-level
-  side-channel.
+- The shared bearer is **not bound to an agent identity or capability set**.
+  An authenticated caller supplies message `from`/type, registration ids, and
+  acknowledgement `readerId`; the bridge does not separately authorize
+  `steer`/control messages or prevent impersonation. Add an identity-aware
+  trusted proxy before exposing it beyond mutually trusted local clients.
+- Token comparison uses `timingSafeEqual`.
 - The bridge does NOT log message bodies. The structured
   `mailbox_serve_started` event includes the bind URL, port, project dir,
   and token path — never the token itself.

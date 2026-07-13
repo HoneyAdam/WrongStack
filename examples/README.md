@@ -1,9 +1,9 @@
 # WrongStack Examples
 
-Working examples organized by complexity. Each subdirectory shows one
-WrongStack capability with **commands you can copy-paste verbatim** —
-every flag, slash command, and model id is verified against the live
-`models.dev/api.json` catalog and the current CLI surface.
+Examples organized by complexity. Each subdirectory shows one WrongStack
+capability with commands grounded in the current CLI surface. Provider model
+ids change independently of WrongStack releases, so confirm them with
+`wrongstack models <provider>` before running provider-specific commands.
 
 ## Quick start
 

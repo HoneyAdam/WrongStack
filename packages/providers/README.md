@@ -77,7 +77,7 @@ Every provider accepts the canonical `Request` type from `@wrongstack/core`. Par
 | `user` | ✅ (metadata.user_id) | ✅ `user` | ❌ | ✅ `user` |
 | `logprobs` | ❌ | ✅ `logprobs` + `top_logprobs` | ✅ `logprobs` | ✅ `logprobs` |
 | `reasoning` | ✅ `thinking` | ✅ `reasoning_effort` | ✅ `thinkingConfig` | via quirks |
-| `responseFormat` | ❌ | ✅ `response_format` | ✅ `responseMimeType`+`responseSchema` | ❌ |
+| `responseFormat` | ❌ | ✅ `response_format` | ✅ `responseMimeType`+`responseSchema` | Provider-specific |
 | `cache` | ✅ `cache_control` | ❌ | ❌ | ❌ |
 | `safetySettings` | ❌ | ❌ | ✅ `safetySettings` array | ❌ |
 | `candidateCount` | ❌ | ❌ | ✅ `candidateCount` | ❌ |
@@ -128,7 +128,6 @@ const result = await provider.complete(
     messages: [{ role: 'user', content: 'hello' }],
     maxTokens: 512,
     seed: 42,
-    responseFormat: { type: 'json_object' },
   },
   { signal: new AbortController().signal },
 );
@@ -148,7 +147,12 @@ const myWire = defineWireFormat({
   defaultBaseUrl: 'https://api.myprovider.com/v1',
   buildUrl: (baseUrl) => `${baseUrl.replace(/\/+$/, '')}/chat/completions`,
   buildHeaders: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
-  buildBody: (req) => ({ model: req.model, messages: req.messages, max_tokens: req.maxTokens, stream: true }),
+  buildBody: (req, { capabilities }) => ({
+    model: req.model,
+    messages: req.messages,
+    max_tokens: req.maxTokens ?? capabilities.maxOutput ?? 8192,
+    stream: true,
+  }),
   createStreamState: (fallbackModel) => ({ model: fallbackModel, started: false }),
   parseStreamEvent: () => [],
   finalizeStream: () => [{ type: 'message_stop', stopReason: 'end_turn', usage: { input: 0, output: 0 } }],

@@ -29,13 +29,13 @@ This is the on-ramp to the WrongStack documentation. If you're new to the projec
 |---|---|---|
 | [architecture.md](architecture.md) | Package layout, layer model, dependency direction, IPC contracts | **Read first** — the canonical entry point |
 | [architecture-reference.md](architecture-reference.md) | Complete technical reference: kernel primitives, agent lifecycle, prompt architecture, compaction, events, security, persistence, multi-agent coordination, autonomy, MCP, TUI, WebUI | Read when you need the full picture of a specific subsystem |
-| [architecture-rules.md](architecture-rules.md) | Strict internal layering rules (Layer 1 / 2 / 3) with automated enforcement | Read when adding a new file to `packages/core/src/` |
+| [architecture-rules.md](architecture-rules.md) | Seven-layer internal runtime-import ordering with automated enforcement | Read when adding a new file to `packages/core/src/` |
 | [webui.md](webui.md) | WebUI architecture: Vite + React 19 + WebSocket + Monaco | Read when working on `packages/webui/` |
 | [plans/hq-command-center-2026-07.md](plans/hq-command-center-2026-07.md) | HQ command center enhancement plan — `packages/webui-hq/` React app (Phase 5) | Read when working on the cross-machine HQ dashboard |
 | [agent-monitoring.md](agent-monitoring.md) | Agent monitoring system: FleetBus → AgentMonitorService → HQ browser + TUI timeline | Read when working on subagent visibility or HQ integration |
 | [mcp-server.md](mcp-server.md) | MCP server architecture: stdio / SSE / streamable-HTTP transports | Read when working on `packages/mcp/` |
 | [director-architecture.md](director-architecture.md) | Multi-agent Director orchestration: phase-based pipeline, brain handoff, autonomy levels | Read when working on `packages/core/src/coordination/` |
-| [kanban-architecture.md](kanban-architecture.md) | Project-scoped multi-kanban architecture: storage, queue semantics, TaskGraph bridge, and Director/fleet dispatch | Read when working on `packages/core/src/kanban/`, the `kanban` tool, or Kanban WebUI routes |
+| [kanban-architecture.md](kanban-architecture.md) | Project-scoped multi-kanban architecture: storage, queue semantics, TaskGraph bridge, and Director/fleet dispatch | Read when working on `packages/kanban/`, the `kanban` tool, or Kanban WebUI routes |
 | [kanban-orchestration-contract.md](kanban-orchestration-contract.md) | Canonical task/assignment lifecycle contract for Kanban-backed LLM, Director, subagent, review, and recovery work | Read before changing Kanban queue semantics, assignment lifecycle, stale recovery, or orchestration prompts |
 | [kanban-orchestration-roadmap.md](kanban-orchestration-roadmap.md) | Roadmap for turning Kanban into the source-of-truth orchestration state machine for LLM/fleet work | Read when planning Kanban leases, stale recovery, event logs, quality gates, phase orchestration, or E2E fleet tests |
 | [todos_architecture.md](todos_architecture.md) | Todo/plan/queue storage architecture | Read when working on `packages/core/src/storage/` |
@@ -58,7 +58,7 @@ How to add new things. Each guide is self-contained — read the one for the sur
 | [provider-author-guide.md](provider-author-guide.md) | How to add a new LLM provider: declarative `WireFormatConfig` path (preferred) or imperative `WireAdapter` subclass | Adding a new provider to `packages/providers/src/presets/` |
 | [help-modules.md](help-modules.md) | How to write a dedicated help module for a subcommand: the `customBody` delegation pattern, single-source-of-truth flag list, parser integration, byte-for-byte parity test | Adding help to a deep subcommand (e.g. `wstack <sub> <deep> --help`) |
 | [plugin-management.md](plugin-management.md) | How the plugin management commands work (`wstack plugin list`, `add`, `enable`, etc.) | Working on the plugin-management surface |
-| [plugin-audit-2026-07-10.md](plugin-audit-2026-07-10.md) | Full 73-plugin default-state, risk, security, and improvement audit | Reviewing plugin policy or planning follow-up work |
+| [plugin-audit-2026-07-10.md](plugin-audit-2026-07-10.md) | Audit of 73 managed first-party rows (core, suite catalog, and bridges) | Reviewing plugin policy or planning follow-up work |
 
 ### Style guide
 
@@ -74,7 +74,7 @@ How to add new things. Each guide is self-contained — read the one for the sur
 |---|---|
 | [configuration.md](configuration.md) | Configuration model, secret vault, environment variables, config migration |
 | [troubleshooting.md](troubleshooting.md) | Common problems and their fixes: provider failures, model registry, session replay, MCP issues |
-| [SECURITY.md](../SECURITY.md) | Threat model, security posture, controls in place, known limitations, HQ Phase 2 auth roadmap, vulnerability reporting |
+| [SECURITY.md](../SECURITY.md) | Threat model, current controls, known limitations, HQ implementation status, vulnerability reporting |
 
 ---
 

@@ -1,5 +1,7 @@
 # /suggest — Generate Next-Step Suggestions
 
+Aliases: `/next-steps`, `/what-next`.
+
 Analyzes the current project state and generates actionable next-step
 suggestions. Works with `/next` — suggestions are stored and can be
 selected with `/next 1`, `/next 1 2 3`, etc.

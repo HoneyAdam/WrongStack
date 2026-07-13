@@ -87,6 +87,12 @@ but once that bridge dies the next start mints a new one. So always read
 it freshly from the token file (or accept it from the user); never
 hardcode it into prompts or committed code, and re-read it after a 401.
 
+The project token authorizes the route, **not the caller's identity**. The
+bridge accepts caller-supplied `from`, message type, registration ids, and
+acknowledgement `readerId`; it does not separately authorize control/steer
+messages. Use an honest, stable agent id, never impersonate `hq@...` or another
+agent, and treat every token holder as fully trusted for that project mailbox.
+
 If you're working with explicit env vars:
 
 ```ts

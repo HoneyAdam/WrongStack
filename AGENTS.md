@@ -4,7 +4,7 @@
 
 ## Project brief
 
-WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that prompts for mutating/sensitive work when YOLO is off and auto-approves tool calls in YOLO mode unless an explicit deny rule blocks them. Monorepo: 18 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron). Entry: `apps/wrongstack/src/main.ts` → `packages/cli/src/index.ts`.
+WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs, with a permission policy that prompts for mutating/sensitive work when YOLO is off and auto-approves tool calls in YOLO mode unless an explicit deny rule blocks them. Monorepo: 19 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron), and HQ. Published entry: `apps/wrongstack/src/index.js` → `@wrongstack/cli` → `packages/cli/src/index.ts` / `cli-main.ts`.
 
 ## Package map
 
@@ -26,21 +26,21 @@ telegram/          — Telegram bridge plugin
 webui/             — Vite+React web UI frontend and client state (docs/webui.md)
 webui-server/      — Shared Node WebUI backend used by standalone, CLI, and Desktop
 webui-hq/          — React HQ Command Center dashboard
-plugins/           — Built-in plugin host: cron, file-watcher, session-tracker, subagent
+plugins/           — 63-entry first-party plugin catalog and subpath exports
 bench/             — Benchmark harness (Aider polyglot + SWE-bench); docs/subcommands/bench.md
 apps/wrongstack/   — bin entry (wrongstack / wstack)
 apps/desktop/      — Electron desktop shell
 ```
 
-**Dependency direction:** `core` stays at the bottom of the runtime graph and must not depend on `cli`, `tui`, `webui`, `webui-server`, `webui-hq`, or apps. `providers/tools/mcp/plug-lsp/acp/runtime/telegram/plugins/bench/kanban/sdd/security-scanner/super-memory` sit above or beside `core` according to package contracts. `cli/tui/webui-server/webui-hq/apps` compose the lower packages. Never reverse a surface dependency into the kernel.
+**Dependency direction:** `@wrongstack/kanban` has no WrongStack dependency and sits below `core`; `core` declares it as its sole `@wrongstack/*` package dependency. `core` must not depend on `cli`, `tui`, `webui`, `webui-server`, `webui-hq`, apps, or other packages that consume core. Product surfaces compose the lower packages; never reverse a surface dependency into the kernel.
 
-## Kernel (~1670 lines, `packages/core/src/kernel/`)
+## Kernel (`packages/core/src/kernel/`)
 
 **Container** — Typed DI keyed by `Token<T>` (branded symbol, not string). Bindings: `factory`/`value`/`decorator`; lazy + memoized. All well-known tokens (Logger, SessionStore, PermissionPolicy, Compactor, BrainArbiter, HookRegistry, …) live in `tokens.ts`. Plugins rebind tokens before `Agent.run`. No service locator.
 
 **Pipeline\<T\>** — Linear middleware chain. Six pipelines per agent step: `userInput` (every user turn), `request` (before provider call), `response` (after), `assistantOutput` (per text block), `toolCall` (after every tool call), `contextWindow` (before send if context may be too large). Middleware: `{ name, owner, handler: async (req, next) => ... }`; a middleware can `replace` a step — last `replace` wins (position-aware).
 
-**EventBus** — Typed pub/sub; ~56 events across 14 categories (session, agent.run, iteration, provider, tool, context, compaction, mcp.server, subagent, worktree, session audit, fleet + fleet.supervisor, brain, error) defined in `kernel/events.ts` — `EventMap` is the source of truth.
+**EventBus** — Typed pub/sub for session, run, iteration, provider, tool, context, compaction, MCP, subagent, worktree, fleet, brain, storage, and error lifecycles. `EventMap` in `kernel/events.ts` is the source of truth; do not maintain a hand-count.
 
 **RunController** — One per `Agent.run`. Owns `AbortController`, chains parent signal, drains abort hooks LIFO on dispose.
 
@@ -48,7 +48,7 @@ apps/desktop/      — Electron desktop shell
 
 `Context` is the live run object (messages, todos, system prompt, session writer, tools, provider, signal, cwd, model, meta) and implements `RunEnv`. `ctx.state: ConversationState` is an observable wrapper — `appendMessage(m)` / `replaceMessages(ms)` fire `onChange`; direct mutation works but bypasses subscribers.
 
-Lifecycle (`core/src/agent.ts`): `Agent.run` → `normalizeAndEmitUserInput` (userInput pipeline + appendMessage) → per iteration: checkIterationLimit → build request (request pipeline) → `runProviderWithRetry` (text_delta / response pipeline) → text only? done : `ToolExecutor.executeBatch` (permission check → tool.execute → toolCall pipeline → append) → `compactContextIfNeeded` (contextWindow pipeline) → `RunResult`.
+Lifecycle (`packages/core/src/core/agent.ts`): `Agent.run` → `normalizeAndEmitUserInput` (userInput pipeline + appendMessage) → per iteration: checkIterationLimit → build request (request pipeline) → `runProviderWithRetry` (text_delta / response pipeline) → text only? done : `ToolExecutor.executeBatch` (permission check → tool.execute → toolCall pipeline → append) → `compactContextIfNeeded` (contextWindow pipeline) → `RunResult`.
 
 ## Provider failure taxonomy & retry/fallback
 
@@ -76,7 +76,7 @@ User/plugin hooks that **steer** (EventBus can't block). Core in `core/src/hooks
 
 ## Multi-agent
 
-`DefaultMultiAgentCoordinator`: task queue with `maxConcurrent` (default 4; `--max-concurrent` / `WRONGSTACK_MAX_CONCURRENT` / `/fleet concurrency`); per-subagent `SubagentBudget` (iterations/tool-calls/tokens/cost/timeout); `AgentBridge` for parent↔subagent messaging; subagent signal recycled between tasks.
+`Agent.run()` rejects a second concurrent call on the same instance with `AGENT_RUN_FAILED`; mutable `Context` and run state are not a shareable concurrency boundary. `DefaultMultiAgentCoordinator`: task queue with `maxConcurrent` (default 4; `--max-concurrent` / `WRONGSTACK_MAX_CONCURRENT` / `/fleet concurrency`); per-subagent `SubagentBudget` (iterations/tool-calls/tokens/cost/timeout); `AgentBridge` for parent↔subagent messaging; subagent signal recycled between tasks.
 
 Subagent live lifecycle is host-configured by `config.fleet.lifecycle`: CLI/WebUI hosts default to `retireOnTaskComplete: true` and `idleTimeoutMs: 30000`. A final task result retires the worker on the next event-loop turn unless queued work already reused it; spawned/between-task workers are removed after the idle window. Removal must release Director/coordinator resources and emit `subagent.removed` so SessionRegistry, TUI, WebUI, and AgentMonitor delete the live entry. This lifecycle timeout is separate from the in-task `SubagentBudget.idleTimeoutMs` activity watchdog.
 
@@ -114,7 +114,7 @@ All surfaces on one project share `~/.wrongstack/projects/<slug>/`:
 
 - **One canonical slug** via `projectSlug()` (`core/utils/wstack-paths.ts`); `resolveProjectDir` (GlobalMailbox) and WebUI's `generateProjectSlug` DELEGATE to it — never reintroduce an inline copy (a divergent copy once split agents into two mailboxes).
 - **projects.json** auto-touched on every boot via file-locked `touchProjectInManifest()` (`cli/slash-commands/project-utils.ts`).
-- **GlobalMailbox** (`_mailbox.jsonl` + `_mailbox.registry.json`): agents register under session-unique `<base>@<session-tag>` (`attachMailboxChecker` → `ctx.meta['globalAgentId']`), 30s heartbeats (stale 60s). Bare base id (`leader`) is an alias — readers query unique id + alias + `*`, dedupe by message id; "to leader" fans out to every live leader, "to leader@a1b2c3d4" is exact. send() and ack() share one file lock.
+- **GlobalMailbox** (`_mailbox.jsonl` + `_mailbox.registry.json`): agents register under session-unique `<base>@<session-tag>` (`attachMailboxChecker` → `ctx.meta['globalAgentId']`), 30s heartbeats (stale 60s). Bare base id (`leader`) is an alias — readers query unique id + alias + `*`, dedupe by message id; "to leader" fans out to every live leader, "to leader@a1b2c3d4" is exact. Message append/ack paths use the mailbox file lock. Presence/cache state is best-effort across processes and has known race windows; it is coordination metadata, not an authorization boundary.
 - **SessionRegistry** (cross-process): CLI + standalone WebUI register sessions and run `AgentStatusTracker`; `/sessions status` lists every surface.
 - Agents read mail each iteration (`mailbox-loop` folds steer/btw inline), write via `mail_send`/`mail_inbox` or the `mailbox` power-tool; fleet subagents get distinct identities via Context `agentId`/`agentName` (host.ts); humans use `/mailbox`; TUI + WebUI forward mailbox events live.
 
@@ -179,13 +179,13 @@ Three noop-default pillars: Metrics (`MetricsSink`, opt-in `--metrics`), Traces 
 
 ## Key files
 
-`apps/wrongstack/src/main.ts` (binary entry) · `cli/src/index.ts` (boot: argv → container → REPL/TUI) · `cli/src/repl.ts` · `cli/src/slash-commands/index.ts` + `helpers.ts` · `core/src/kernel/{container,pipeline,event-bus,run-controller}.ts` · `core/src/agent.ts` (main loop) · `core/src/execution/tool-executor.ts` · `core/src/coordination/multi-agent-coordinator.ts` · `tools/src/builtin.ts` · `mcp/src/client.ts` · `core/src/storage/{session-store,memory-store,plan-store}.ts`.
+`apps/wrongstack/src/index.js` (published bin shim) · `packages/cli/src/index.ts` (export + main-entry guard) · `packages/cli/src/cli-main.ts` (boot orchestrator) · `packages/cli/src/repl.ts` · `packages/cli/src/slash-commands/index.ts` · `packages/core/src/kernel/{container,pipeline,events,run-controller}.ts` · `packages/core/src/core/agent.ts` (main loop) · `packages/core/src/execution/tool-executor.ts` · `packages/core/src/coordination/multi-agent-coordinator.ts` · `packages/tools/src/builtin.ts` · `packages/mcp/src/client.ts`.
 
 ## Slash commands
 
 All in `packages/cli/src/slash-commands/`; each exports `buildXxxCommand(opts: SlashCommandContext): SlashCommand` (`name`, `description`, optional `aliases`/`help`, `async run(args, ctx)`). `SlashCommandContext` (wired in `cli/src/index.ts`) carries the registries, context, paths, renderer, stores, provider/model, and the onSpawn/onFleet*/onAutonomy/etc. callbacks. Adding one: create `slash-commands/<name>.ts` → register in `buildBuiltinSlashCommands()` (`index.ts`) → tests `packages/cli/tests/slash-<name>.test.ts` → docs `docs/slash/<name>.md`.
 
-34 builtins registered (help … supervisor) — `buildBuiltinSlashCommands()` is the authoritative list. Planned-but-unimplemented (`git`, `health`, `metrics`, `plan`, `security`): implement first, then write fresh docs. Skill commands (`/skill*`) are a first-party plugin (`createSkillsPlugin`, `core/src/plugins/skills-plugin.ts`), not builtins.
+`buildBuiltinSlashCommands()` is the authoritative built-in list; do not maintain a hand-count here. `git`, `health`, `metrics`, `plan`, and `security` are implemented and registered. Skill commands (`/skill*`) are supplied by the first-party skills plugin rather than this built-in array.
 
 ## Issue tracking
 
@@ -218,7 +218,7 @@ Skills are `SKILL.md` files (agentskills.io: YAML frontmatter `name`/`descriptio
 
 ## Pre-commit hook
 
-`.githooks/pre-commit` (install: `pnpm run setup:hooks`) runs `guard-against-corruption`, `lint-console-logging`, and a **typecheck gate**: when any `packages/*/src/**/*.{ts,tsx}` is staged, it rebuilds `dist/` for each changed package then runs `pnpm -r typecheck` — `dist/` is gitignored, so a public-type edit otherwise leaves consumers typechecking against stale `dist/index.d.ts`. Run `pnpm build` once after pulling to seed local `dist/` (routes through `scripts/build.mjs`, topological sort, then `scripts/build-package.mjs` for esbuild + TypeScript declaration emit). **Never `pnpm -r build`** — alphabetical order can build a consumer before its workspace dependency, causing missing or stale declaration resolution and potentially unloadable runtime output. ~45s per source-touching commit; skipped for docs-only; `--no-verify` for emergencies only (CI's `release:check` still gates every PR). Stale-dist errors after pulling main → `pnpm build`.
+`.githooks/pre-commit` (install: `pnpm run setup:hooks`) runs `guard-against-corruption`, `lint-console-logging`, and a **typecheck gate**: when any `packages/*/src/**/*.{ts,tsx}` is staged, it rebuilds `dist/` for each changed package then runs `pnpm -r typecheck` — `dist/` is gitignored, so a public-type edit otherwise leaves consumers typechecking against stale `dist/index.d.ts`. Run `pnpm build` once after pulling to seed local `dist/` (routes through `scripts/build.mjs`, topological sort, then `scripts/build-package.mjs` for esbuild + TypeScript declaration emit). **Never `pnpm -r build`** — alphabetical order can build a consumer before its workspace dependency, causing missing or stale declaration resolution and potentially unloadable runtime output. ~45s per source-touching commit; skipped for docs-only; `--no-verify` for emergencies only (the maintainer-run `release:check` still provides the full local gate). Stale-dist errors after pulling main → `pnpm build`.
 
 ## Useful pointers
 

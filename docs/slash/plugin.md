@@ -1,5 +1,7 @@
 # /plugin — Plugin Manager
 
+Alias: `/plugins`.
+
 ## What it does
 
 Manages the lifecycle of installed plugins via the `onPlugin` callback. Delegates to the plugin management subsystem in `packages/cli/src/plugin-management.ts`.

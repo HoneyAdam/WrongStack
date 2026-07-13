@@ -1,34 +1,35 @@
 # ACP v1 Compliance Report — @wrongstack/acp
 
-**Date:** 2026-06-27
-**Version:** 0.274.1
+**Reviewed:** 2026-07-13
+**Package version:** 0.286.0
 **Specification:** Agent Client Protocol v1
 **Official SDK:** `@agentclientprotocol/sdk` ^1.0.0 (re-exported for its WS/SSE
 types; the live client/server paths are a self-contained hand-rolled
 JSON-RPC implementation, not the SDK runtime).
 
-> **Read this first — two kinds of "compliance".** The tables below measure
-> *wire compliance*: every ACP method name is answered with a spec-shaped
-> response. That is necessary but not sufficient. The
+> **Read this first — two kinds of "compliance".** The tables below distinguish
+> *wire handling* (including explicit JSON-RPC errors for unsupported requests)
+> from functional behavior. A response is necessary but not sufficient. The
 > **[Functional fidelity](#functional-fidelity-beyond-wire-compliance)**
 > section tracks whether each surface actually *does the work* (streams tool
 > calls, routes permissions to a human, forwards diffs, etc.), and
 > **[Known limitations](#known-limitations)** lists what is deliberately not
-> done yet. Do not read "30/30 methods" as "feature-complete".
+> done yet. Several optional requests receive an explicit error or no-op response;
+> a wire response is not the same as functional support.
 
 ## Summary
 
 | Metric | Value |
 |--------|-------|
-| ACP methods implemented (server) | 30/30 (100%) |
-| ACP methods implemented (client) | 26/26 (100%) |
-| session/update discriminators | 13/13 (100%) |
-| ACP type definitions | 35/35 (100%) |
+| Core client/server session lifecycle | Implemented and covered by package tests |
+| Optional provider/MCP/IDE methods | Partial or unsupported; see method tables below |
+| Stable `session/update` discriminators | 11 handled; unknown and `_unstable_*` updates are tolerated |
+| ACP type surface | WrongStack v1 types plus the official SDK re-export |
 | Transport (live, wired) | stdio (client + server), HTTP (server POST), **WebSocket** (client via `connectWebSocket`; server via `wstack acp --ws[=port]`) |
 | Transport (types only, not wired) | SSE — available via the SDK re-export, no command instantiates it |
 | Official SDK integration | ⚠️ Re-exported types/helpers only; live paths are hand-rolled JSON-RPC (the WS server uses `ws` + our handler, not the SDK's `AcpServer`) |
-| Source files audited | 21/21 |
-| Test status | ✅ All passing (acp 184 + cli acp suites; +21 new for the functional work) |
+| Source files | 27 TypeScript files under `packages/acp/src/` at review time |
+| Test status | Run `pnpm --filter @wrongstack/acp test`; counts may change as coverage grows |
 | End-to-end interop | ✅ Capstone loopback test wires OUR client (`ACPSession`) to OUR agent (`ACPProtocolHandler`) in-process with a JSON round-trip per hop, exercising tool streaming + client-fs read + permission round-trip across both directions at once |
 
 ## Agent Methods (Server Handles — `ACPProtocolHandler`)
@@ -51,20 +52,12 @@ Every method an ACP client can call on the server:
 | 12 | `session/cancel` | ✅ | Notification handler — aborts in-flight turn |
 | 13 | `session/set_mode` | ✅ | `handleSetMode()` — changes mode for session |
 | 14 | `session/set_config_option` | ✅ | `handleSetConfigOption()` — updates config value |
-| 15 | `providers/list` | ✅ | `handleProvidersList()` — lists available providers |
-| 16 | `providers/set` | ✅ | `handleProvidersSet()` — changes provider |
-| 17 | `providers/disable` | ✅ | `handleProvidersDisable()` — disables provider |
-| 18 | `mcp/message` | ✅ | `handleMcpMessage()` — MCP message routing |
-| 19 | `nes/start` | ✅ | Accepted as no-op (IDE feature) |
-| 20 | `nes/suggest` | ✅ | Accepted as no-op |
-| 21 | `nes/accept` | ✅ | Accepted as no-op |
-| 22 | `nes/reject` | ✅ | Accepted as no-op |
-| 23 | `nes/close` | ✅ | Accepted as no-op |
-| 24 | `document/didOpen` | ✅ | Accepted as no-op |
-| 25 | `document/didChange` | ✅ | Accepted as no-op |
-| 26 | `document/didClose` | ✅ | Accepted as no-op |
-| 27 | `document/didSave` | ✅ | Accepted as no-op |
-| 28 | `document/didFocus` | ✅ | Accepted as no-op |
+| 15 | `providers/list` | ⚠️ | Returns an empty list; provider configuration stays in `wstack auth` |
+| 16 | `providers/set` | ❌ | Returns an error directing callers to `wstack auth` |
+| 17 | `providers/disable` | ⚠️ | Acknowledges without changing CLI provider configuration |
+| 18 | `mcp/message` | ❌ | Returns an unavailable error |
+| 19–23 | `nes/*` | ❌ | Standard method-not-found response |
+| 24–28 | `document/*` | ❌ | Standard method-not-found response |
 | 29 | `$/cancel_request` | ✅ | Protocol-level cancellation |
 | 30 | `exit` | ✅ | Clean shutdown |
 
@@ -99,7 +92,7 @@ Every incoming request from an agent that the client must handle:
 
 | # | Method | Handler | Status |
 |---|--------|---------|--------|
-| 1 | `session/update` | `handleUpdate()` — streams 13 discriminators | ✅ |
+| 1 | `session/update` | `handleUpdate()` — handles 11 stable values and tolerates unstable/unknown values | ✅ |
 | 2 | `session/request_permission` | `handlePermissionRequest()` | ✅ |
 | 3 | `fs/read_text_file` | `FileServer.readTextFile()` | ✅ |
 | 4 | `fs/write_text_file` | `FileServer.writeTextFile()` | ✅ |
@@ -117,23 +110,25 @@ Every incoming request from an agent that the client must handle:
 
 ## session/update Discriminators
 
-All 13 `sessionUpdate` values handled in the streaming pump:
+The streaming pump handles all 11 stable v1 `sessionUpdate` values. It also recognizes
+two currently used unstable values and tolerates unknown future discriminators without
+crashing:
 
 | # | Discriminator | Status |
 |---|---------------|--------|
 | 1 | `agent_message_chunk` | ✅ Concatenated into result text |
 | 2 | `thought_chunk` | ✅ Observed, not surfaced |
 | 3 | `user_message_chunk` | ✅ Observed, not surfaced |
-| 4 | `tool_call` | ✅ Observerd, not proxied |
-| 5 | `tool_call_update` | ✅ Observerd, not proxied |
+| 4 | `tool_call` | ✅ Captured and exposed through progress/results |
+| 5 | `tool_call_update` | ✅ Captured and exposed through progress/results |
 | 6 | `plan` | ✅ Accumulated into result |
 | 7 | `available_commands_update` | ✅ Observed |
 | 8 | `current_mode_update` | ✅ Observed |
 | 9 | `config_option_update` | ✅ Observed |
 | 10 | `session_info_update` | ✅ Observed |
 | 11 | `usage_update` | ✅ Accumulated (tokens + cost) |
-| 12 | `next_edit_suggestions` | ✅ Observed (NES) |
-| 13 | `elicitation` | ✅ Observed |
+| 12 | `next_edit_suggestions` (unstable) | ✅ Observed (NES) |
+| 13 | `elicitation` (unstable) | ✅ Observed |
 
 ## Type Definitions
 
@@ -158,9 +153,9 @@ Every ACP type defined in `acp-v1.ts`:
   "protocolVersion": 1,
   "agentCapabilities": {
     "loadSession": true,
-    "promptCapabilities": { "image": false, "audio": false, "embeddedContext": true },
+    "promptCapabilities": { "image": true, "audio": false, "embeddedContext": true },
     "mcpCapabilities": { "http": false, "sse": false },
-    "sessionCapabilities": { "close": {}, "list": {}, "delete": {}, "resume": {} },
+    "sessionCapabilities": { "close": {}, "list": {}, "delete": {}, "resume": {}, "fork": {} },
     "auth": { "logout": {} }
   },
   "agentInfo": { "name": "wrongstack", "title": "WrongStack", "version": "0.274.1" },
@@ -177,7 +172,7 @@ Every ACP type defined in `acp-v1.ts`:
     "fs": { "readTextFile": true, "writeTextFile": true },
     "terminal": true
   },
-  "clientInfo": { "name": "wrongstack", "title": "WrongStack", "version": "0.274.1" }
+  "clientInfo": { "name": "wrongstack", "title": "WrongStack", "version": "0.263.0" }
 }
 ```
 
@@ -186,10 +181,9 @@ Every ACP type defined in `acp-v1.ts`:
 | Transport | Server | Client | Library |
 |-----------|--------|--------|---------|
 | stdio | ✅ `WrongStackACPServer` (default) | ✅ `ACPSession.start()` | Built-in |
-| HTTP | ✅ `WrongStackACPServer({ transport: 7788 })` | ✅ Via `fetch` | Built-in |
-| HTTP (Streamable) | ✅ `AcpServer` from official SDK | ✅ `AcpServer` client | SDK |
-| WebSocket | ✅ `AcpServer` + `createNodeWebSocketUpgradeHandler()` | ✅ `createWebSocketStream()` | SDK |
-| SSE | ✅ `AcpServer` (GET stream) | ✅ `AcpServer` SSE subscription | SDK |
+| HTTP POST | ✅ `WrongStackACPServer({ transport: 7788 })` | ❌ No `ACPSession` HTTP client | Built-in server |
+| WebSocket | ✅ `wstack acp --ws[=port]` bridge | ✅ `ACPSession.connectWebSocket()` | Built-in |
+| Streamable HTTP / SSE | Not wired by a WrongStack command | Not wired by `ACPSession` | Official SDK APIs are re-exported |
 
 ## SDK Bridge
 
@@ -201,14 +195,15 @@ import { ACPSession, AcpServer, AgentApp, createWebSocketStream } from '@wrongst
 
 ## Compliance Verification
 
-All checks automated via `_full-audit.mjs`:
+Run the package's checked-in Vitest suite:
 
-```
-Pass: 143, Fail: 0
-✅ 100% ACP v1 COMPLIANT
+```bash
+pnpm --filter @wrongstack/acp test
 ```
 
-Source files scanned: all 21 `.ts` files in `packages/acp/src/`.
+The suite includes public-barrel smoke tests, protocol handler/client tests,
+transport tests, and the JSON-round-trip loopback test. This report no longer
+publishes a frozen pass count because the suite evolves with the implementation.
 
 ## Functional fidelity (beyond wire compliance)
 

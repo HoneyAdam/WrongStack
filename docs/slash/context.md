@@ -1,5 +1,7 @@
 # /context — Context Window Inspector
 
+Alias: `/ctx`.
+
 ## What it does
 
 Shows a live snapshot of the current context window: message counts, estimated tokens, effective context limit, tool call stats, todo counts, read files, and active context policy. Also has subcommands for switching context modes, setting session-local compaction limits/thresholds, and repairing orphan tool_use/tool_result blocks.

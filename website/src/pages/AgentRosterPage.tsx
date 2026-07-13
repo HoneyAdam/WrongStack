@@ -44,7 +44,7 @@ export function AgentRosterPage() {
             <span className="text-brand-2">One accountable fleet.</span>
           </>
         }
-        description="WrongStack does not clone one generic worker 51 times. Each role has its own capability signals, prompt, tool scope and budget profile; smart dispatch uses those contracts to send bounded work to the right specialist."
+        description="WrongStack provides 50 selectable phase-catalog specialists plus the separate Shadow operational role. Each has its own capability signals, prompt, tool scope and budget profile; smart dispatch uses those contracts to send bounded work to the right specialist."
         aside={
           <ExternalDoc path="docs/slash/fleet.md">Open the fleet operator reference</ExternalDoc>
         }

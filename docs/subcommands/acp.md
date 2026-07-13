@@ -14,9 +14,12 @@ real editor (Zed, JetBrains, …) and verify each capability, see the
 | `wstack acp --echo` | Start the ACP server in no-op echo mode (connectivity test, no provider needed) |
 | `wstack acp server` | Same as `wstack acp` |
 | `wstack acp serve` | Same as `wstack acp` |
-| `wstack acp list` | List ACP-supporting agents detected on this host (live probe) |
+| `wstack acp list` | List ACP-supporting agents detected from the cached/synced registry and local probes |
+| `wstack acp sync` | Refresh the official `agentclientprotocol/registry` cache |
 | `wstack acp spawn <agent-id> <task>` | Run a task on a single ACP agent and stream the result |
 | `wstack acp parallel <agent-ids-csv> <task>` | Fan a task out to multiple ACP agents concurrently |
+| `wstack acp probe [agent-ids-csv]` | Handshake-test selected installed agents (all installed agents by default) |
+| `wstack acp bench [agent-ids-csv] [--fs]` | Run an end-to-end prompt/marker benchmark, optionally checking filesystem behavior |
 | `wstack acp help` | Show help |
 
 ACP clients such as Zed, JetBrains, and VS Code ACP integrations spawn

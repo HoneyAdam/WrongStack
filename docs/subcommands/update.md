@@ -15,14 +15,17 @@ wstack update
   → If error: "Update check failed — check your internet connection"
 ```
 
-By default the command detects `pnpm`, `yarn`, and `bun` from the runtime environment or install path, then falls back to npm. You can force a package manager:
+Use `wstack update --check-only` (or `-c`) to report availability without running a package manager.
 
-```bash
+By default the command detects `pnpm`, `yarn`, and `bun` from the runtime environment or install path, then falls back to npm. You can force a package manager with `--pm` or `--package-manager`; `--npm`, `--pnpm`, `--yarn`, and `--bun` are also accepted shortcuts:
+
+```text
 wstack update --pm npm
-wstack update --pm pnpm
-wstack update --pm yarn
-wstack update --pm bun
+wstack update --package-manager pnpm
+wstack update --yarn
 ```
+
+Package lifecycle scripts are disabled for the update by default. Pass `--allow-scripts` (alias `--lifecycle-scripts`) only when the global package requires them.
 
 Equivalent manual commands:
 

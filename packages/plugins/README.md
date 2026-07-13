@@ -87,6 +87,7 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. The canonical default is
 | 60 | [`smart-rename`](./src/smart-rename) | `smart_rename` | — | Whole-word symbol rename with preview and optional apply |
 | 61 | [`feature-flag-tracker`](./src/feature-flag-tracker) | `scan_feature_flags`, `feature_flag_status` | `PostToolUse` | Scans source files for feature-flag usage and reports flag inventory |
 | 62 | [`interface-contract-guard`](./src/interface-contract-guard) | `check_interface_contracts`, `interface_contract_status` | `PostToolUse` | Warns when TypeScript interfaces change or lack implementers |
+| 63 | [`plugin-stack-observer`](./src/plugin-stack-observer) | `plugin_stack_status` | Event listener + optional system prompt contributor | Reports active provider-runner wrappers in registration order |
 
 ### Removed plugins (use built-in tools instead)
 
@@ -97,7 +98,7 @@ under the `BUILTIN_PLUGIN_FACTORIES` array. The canonical default is
 
 If a user lists either name in `config.plugins`, the loader emits a
 one-shot `log.warn` and skips loading. See
-[`DEPRECATED_PLUGIN_NAMES`](../../cli/src/wiring/plugins.ts)
+[`DEPRECATED_PLUGIN_NAMES`](../cli/src/wiring/plugins.ts)
 in `packages/cli/src/wiring/plugins.ts` for the canonical list and
 migration hints.
 
@@ -701,7 +702,7 @@ context. Increase `includeTranscriptTail` for more history.
 Two hooks working together:
 
 **PostToolUse** (always active when the plugin is enabled):
-scans markdown files for *unlinked* references to one of the 62
+scans markdown files for *unlinked* references to one of the 63
 known plugins and surfaces them to the LLM via
 `additionalContext`. The plugin does NOT modify the file — it
 only injects a low-noise context block listing the unlinked
@@ -1043,18 +1044,26 @@ There are two surfaces for plugin configuration:
    {
      "plugins": [
        { "name": "auto-doc", "enabled": true },
-       { "name": "git-autocommit", "options": { "conventionalCommits": true } }
+       {
+         "name": "git-autocommit",
+         "enabled": true,
+         "options": { "conventionalCommits": true }
+       }
      ]
    }
    ```
-2. **Options** — `config.extensions["<plugin-name>"]` stores each
-   plugin's runtime options. The plugin's `configSchema` validates
-   this section before `setup()` runs.
+2. **Options** — set an entry's `options` field or use
+   `config.extensions["<plugin-name>"]`; the CLI merges both before `setup()`.
+   If both are present, `config.extensions` wins for duplicate keys.
 
 ```jsonc
 {
-  "plugins": {
-    "auto-doc": { "enabled": true },
+  "plugins": [
+    { "name": "auto-doc", "enabled": true },
+    { "name": "git-autocommit", "enabled": true },
+    { "name": "secret-scanner", "enabled": true }
+  ],
+  "extensions": {
     "git-autocommit": { "conventionalCommits": true },
     "secret-scanner": { "mode": "block", "matcher": "bash|write|edit" }
   }

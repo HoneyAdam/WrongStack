@@ -44,8 +44,8 @@ Every built-in plugin row has a `canDisable` flag in `PLUGIN_AUDIT_ENTRIES`
 - **Toggleable** (`canDisable: true`): can be flipped from `/plugin toggle`,
   `/settings plugin toggle`, or the interactive picker. All current bundled
   audit entries use this, including safety and guard plugins such as
-  [`secret-scanner`](packages/plugins/src/secret-scanner) and
-  [`branch-guard`](packages/plugins/src/branch-guard).
+  [`secret-scanner`](../packages/plugins/src/secret-scanner/) and
+  [`branch-guard`](../packages/plugins/src/branch-guard/).
 - **Locked** (`canDisable: false`): reserved for future rows that must be
   visible in the audit table but cannot be toggled from the picker.
 

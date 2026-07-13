@@ -11,7 +11,15 @@
 - Root Node types, Vitest, and coverage packages were patched to current versions; WebUI test/build ranges were aligned. Biome remains exactly pinned to 2.5.2 because 2.5.3 promotes a new optional-chaining rule across historical tests and is not a no-risk patch.
 - The monorepo now uses TypeScript 7.0.2. All `tsup` builds were replaced by a centralized esbuild + native `tsc --emitDeclarationOnly` driver. WrongStack tools that need the legacy compiler API use Microsoft's official `@typescript/typescript6` compatibility package side-by-side with the TS7 CLI.
 
-The remainder of this document is the original scan snapshot.
+## Current manifest state — 2026-07-13
+
+- Repository version is `0.286.0` across the root, 19 `packages/*` manifests, both `apps/*` manifests, and the private website manifest.
+- The repository contains **23 `package.json` files** total: root + 19 packages + 2 apps + website. The `pnpm` workspace itself contains 22 projects (19 packages + 2 apps + website); the root is the workspace root, not another workspace project.
+- TypeScript remains `^7.0.2`; package builds use the centralized esbuild + native declaration-emit driver. No workspace manifest declares `tsup` or `jszip`.
+- Root Vitest and coverage are aligned at `^4.1.10`; root Node types are `^26.1.1`. Biome remains exactly `2.5.2`.
+- This is a manifest reconciliation, not a new npm-registry freshness scan. Registry “latest” values and status totals below remain evidence from 2026-07-11, not current recommendations.
+
+The remainder of this document is the original 2026-07-11 scan snapshot, preserved for dated history. Its outdated/critical tables describe the pre-resolution manifests and are superseded by the two update sections above.
 
 ---
 

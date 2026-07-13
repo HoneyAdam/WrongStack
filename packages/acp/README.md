@@ -1,15 +1,19 @@
 # @wrongstack/acp — ACP v1 SDK
 
-Agent Client Protocol (ACP) v1 implementation for WrongStack, wrapping the official
-[`@agentclientprotocol/sdk`](https://github.com/agentclientprotocol/typescript-sdk).
+Agent Client Protocol (ACP) v1 implementation for WrongStack. The live client and
+server use WrongStack's JSON-RPC implementation; the `/sdk` export provides the official
+[`@agentclientprotocol/sdk`](https://github.com/agentclientprotocol/typescript-sdk) APIs.
 
-**100% spec coverage.** Both client and server sides fully implemented.
+WrongStack implements the ACP v1 client and server session flows, with stdio and
+WebSocket support plus an HTTP server transport. Some optional protocol surfaces
+are intentionally unavailable; see [COMPLIANCE.md](COMPLIANCE.md) for the tested
+surface and current limitations.
 
 ## Compliance
 
-[![ACP v1 Compliant](https://img.shields.io/badge/ACP%20v1-100%25%20compliant-2ea44f)](COMPLIANCE.md)
-
-**143 compliance checks — 0 failures.** See [COMPLIANCE.md](COMPLIANCE.md) for the full audit report.
+The package test suite includes client/server protocol tests and an in-process
+JSON round-trip loopback test. See [COMPLIANCE.md](COMPLIANCE.md) for the method
+matrix and the distinction between wire handling and functional behavior.
 
 ## Installation
 
@@ -43,7 +47,7 @@ await session.close();
 ### ACP Server (expose WrongStack as an ACP agent)
 
 ```typescript
-import { WrongStackACPServer, makeACPServerAgentTurn } from '@wrongstack/acp';
+import { WrongStackACPServer, makeACPServerAgentTurn } from '@wrongstack/acp/agent';
 
 const agentFor = async (sessionId: string) => {
   // Create a WrongStack Agent instance for this session
@@ -64,8 +68,8 @@ await server.start();
 import { ACPSession, AcpServer, createWebSocketStream } from '@wrongstack/acp/sdk';
 ```
 
-The `/sdk` entry point re-exports everything from `@agentclientprotocol/sdk` alongside
-WrongStack's own implementation.
+The `/sdk` entry point re-exports the official SDK's public high-level APIs, method
+constants, and experimental Node/WebSocket helpers alongside WrongStack's implementation.
 
 ## Architecture
 
@@ -217,7 +221,7 @@ Exposes WrongStack as an ACP-compatible agent:
 import {
   WrongStackACPServer,
   makeACPServerAgentTurn,
-} from '@wrongstack/acp';
+} from '@wrongstack/acp/agent';
 
 const server = new WrongStackACPServer({
   runTurn: makeACPServerAgentTurn({
@@ -248,7 +252,7 @@ curl -X POST http://127.0.0.1:7788 \
 ### Session Persistence
 
 ```typescript
-import { ACPSessionStore } from '@wrongstack/acp';
+import { ACPSessionStore } from '@wrongstack/acp/agent';
 
 const store = new ACPSessionStore({ dir: './.acp-sessions' });
 await store.init();
@@ -300,7 +304,7 @@ const result = await agent.run(prompt, { signal });
 
 | Method | Handler | Status |
 |--------|---------|--------|
-| `session/update` | Stream pump (11 discriminators) | ✅ |
+| `session/update` | Stream pump (11 stable discriminators; unknown/unstable updates are tolerated) | ✅ |
 | `session/request_permission` | Permission policy callback | ✅ |
 | `fs/read_text_file` | FileServer (sandboxed) | ✅ |
 | `fs/write_text_file` | FileServer (sandboxed) | ✅ |
@@ -328,13 +332,13 @@ const result = await agent.run(prompt, { signal });
 | `session/cancel` | Notification handler | ✅ |
 | `session/set_mode` | `handleSetMode` | ✅ |
 | `session/set_config_option` | `handleSetConfigOption` | ✅ |
-| `providers/list` | `handleProvidersList` | ✅ |
-| `providers/set` | `handleProvidersSet` | ✅ |
-| `providers/disable` | `handleProvidersDisable` | ✅ |
-| `mcp/message` | `handleMcpMessage` | ✅ |
-| `document/*` | Auto-acknowledged | ✅ |
-| `nes/*` | Auto-acknowledged | ✅ |
-| `elicitation/*` | Auto-acknowledged | ✅ |
+| `providers/list` | Returns an empty provider list; provider configuration stays in `wstack auth` | Limited |
+| `providers/set` | Returns an error directing callers to `wstack auth` | Unsupported |
+| `providers/disable` | Acknowledges without changing CLI provider configuration | Limited |
+| `mcp/message` | Returns an unavailable error | Unsupported |
+| `document/*` | Standard method-not-found response | Unsupported |
+| `nes/*` | Standard method-not-found response | Unsupported |
+| `elicitation/*` | Standard method-not-found response | Unsupported |
 | `$/cancel_request` | Notification handler | ✅ |
 
 ## Transport
@@ -342,9 +346,9 @@ const result = await agent.run(prompt, { signal });
 | Transport | Client | Server | Library |
 |-----------|--------|--------|---------|
 | stdio | ✅ `ACPSession.start()` | ✅ `WrongStackACPServer` | Built-in |
-| HTTP | ✅ Via `ACPSession` + fetch | ✅ `transport: <port>` | Built-in |
-| WebSocket | ✅ `createWebSocketStream()` | ✅ `AcpServer` + `createNodeWebSocketUpgradeHandler()` | Official SDK |
-| SSE | ✅ Via `AcpServer` | ✅ Via `AcpServer` | Official SDK |
+| HTTP | ❌ No `ACPSession` HTTP client | ✅ `transport: <port>` | Built-in server |
+| WebSocket | ✅ `ACPSession.connectWebSocket()` | ✅ via the CLI `--ws` bridge | Built-in |
+| SSE | SDK exports only; no WrongStack command wires it | SDK exports only; no WrongStack command wires it | Official SDK re-export |
 
 ## Error Handling
 
@@ -373,4 +377,4 @@ try {
 
 - [ACP Specification](https://agentclientprotocol.com)
 - [Official TypeScript SDK](https://github.com/agentclientprotocol/typescript-sdk)
-- [WrongStack CLI (`wstack acp`)](../../packages/cli/src/slash-commands/acp.md)
+- [WrongStack CLI (`wstack acp`)](../../docs/subcommands/acp.md)

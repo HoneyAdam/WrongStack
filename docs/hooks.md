@@ -283,16 +283,23 @@ ended) and the `reason` is shown to the model.
 - Command hooks run arbitrary commands **you** put in your own config — they are
   not model-controlled and cannot be installed by a prompt. Still: keep hook
   scripts in version control and review them like any other automation.
-- `runShellHook` enforces a **command allowlist** (shells, interpreters, common
-  utilities, git). Commands not on the list are rejected and logged. The two
+- `runShellHook` checks the **first whitespace-delimited token** against a
+  command allowlist (shells, interpreters, common utilities, git). Because the
+  accepted string is then executed with `shell: true`, this is a convenience
+  filter, **not a security boundary**: an allowed first command can still use
+  shell chaining, substitution, or redirection to execute other commands.
+  Treat the complete command string as trusted operator code. The two
   documented escape hatches for operator-authored executables are:
   1. Reference a script by **absolute path** (POSIX `/...` or Windows
-     `C:\...`/`C:/...`) — trusted because you wrote it.
+     `C:\...`/`C:/...`).
   2. Drop a wrapper under `.wrongstack/hooks/` and reference it by absolute
      path.
 - `--no-hooks` disables ordinary automation across every transport. Hooks
   explicitly marked `policy: true` remain active.
 - Command hooks inherit a sanitized child environment via `buildChildEnv()`.
+- HTTP hooks accept loopback `http://` URLs and **any syntactically valid
+  `https://` URL**; they do not block private, link-local, metadata, or other
+  sensitive HTTPS destinations. Configure only operator-trusted endpoints.
 - Hook payloads include tool inputs/results and can therefore contain sensitive
   data. Treat command scripts and HTTP endpoints as trusted policy components;
   prefer loopback or HTTPS and never log raw payloads indiscriminately.

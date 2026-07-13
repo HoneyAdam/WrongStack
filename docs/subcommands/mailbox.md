@@ -11,10 +11,11 @@ they do for internal callers — external agents never get raw file access.
 
 | Command | Effect |
 |---|---|
-| `wstack mailbox serve` | Bind `127.0.0.1`, OS-assigned port |
-| `wstack mailbox serve --port <n>` | Pin the port |
-| `wstack mailbox serve --strict-port` | Fail (instead of falling back) if the pinned port is busy |
+| `wstack mailbox` / `wstack mailbox serve` | Bind `127.0.0.1` on an OS-assigned port |
+| `wstack mailbox serve --port <n> --strict-port` | Pin the exact port and fail if it cannot be bound |
+| `wstack mailbox serve --port 0` | Explicitly request an OS-assigned free port |
 | `wstack mailbox serve --host <ip>` | Expose beyond loopback — NOT recommended without a re-authenticating reverse proxy |
+| `wstack mailbox help` | Show the process-level usage |
 
 From inside a REPL session, `/mailbox-serve` spawns this subcommand as a
 detached child (see `docs/slash/mailbox-serve.md`).

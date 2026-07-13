@@ -34,7 +34,9 @@ security, persistence, multi-agent coordination, autonomy, and user interfaces.
 ### Dependency Graph
 
 ```
-core (zero internal dependencies)
+kanban (no WrongStack dependencies)
+      ↓
+core (depends on @wrongstack/kanban; no product-surface dependencies)
  ├── kernel/     — Container, Pipeline, EventBus, Tokens
  ├── core/       — Agent, AgentLoop, Context, SystemPrompt
  ├── execution/  — ToolExecutor, Compactor, AutonomyEngine
@@ -44,20 +46,25 @@ core (zero internal dependencies)
  └── types/      — All type definitions
       ↓
 providers/  — Anthropic/OpenAI/Google/OpenAI-compatible adapters
-tools/      — 58 built-in tools (files, shell, browser, quality, codebase index, …)
+tools/      — built-in tools (58 in the current `builtinTools` array)
 mcp/        — MCP client + registry + transports
 runtime/    — Default runtime implementations
 acp/        — ACP server/client for external agent protocols
-plugins/    — Bundled plugin library
-plug-lsp/   — LSP bridge + language tooling
-telegram/   — Telegram bridge plugin
-skills/     — Skill subpackages
+plugins/           — bundled plugin catalog
+plug-lsp/          — LSP bridge + language tooling
+telegram/          — Telegram bridge plugin
+sdd/               — Spec-Driven Development workflows
+security-scanner/  — standalone scanner
+super-memory/      — memory store, graph, retrieval, and hygiene
       ↓
-cli/    — REPL, slash commands, subcommands, plugin management
-tui/    — React/Ink terminal UI
-webui/  — Vite+React web UI
+cli/           — boot assembly, REPL, commands, surface launchers
+tui/           — React/Ink terminal UI
+webui/         — Vite/React browser frontend
+webui-server/  — shared Node backend and `wstackui` bin
+webui-hq/      — HQ React dashboard
       ↓
-apps/wrongstack/ — Binary entry point
+apps/wrongstack/ — published CLI shim
+apps/desktop/   — Electron shell
 ```
 
 ### Package Responsibilities
@@ -66,38 +73,50 @@ apps/wrongstack/ — Binary entry point
 |---------|------|
 | `core` | Runtime kernel, types, agent loop, tool execution, compaction, coordination, security, persistence |
 | `providers` | LLM provider adapters: Anthropic, OpenAI, Google, OpenAI-compatible via WireFormatConfig |
-| `tools` | 58 built-in tools for filesystem, shell, browser/E2E, search, git, dependencies, language tooling and scaffolding |
+| `tools` | Built-in filesystem, shell, browser/E2E, search, git, dependency, language, and scaffolding tools; `builtinTools` is the inventory source |
 | `mcp` | MCP client with stdio/SSE/streamable-http transports, registry, tool wrapping |
 | `cli` | REPL, slash commands, subcommands, interactive pickers, plugin management |
 | `tui` | React/Ink terminal UI with live streaming, history, fleet monitoring, status bar |
-| `webui` | Vite+React browser UI with WebSocket transport, Zustand stores, multi-panel layout |
+| `webui` | Vite/React browser frontend with Zustand stores and multi-panel layout |
+| `webui-server` | Shared Node HTTP/WebSocket backend and standalone `wstackui` binary |
+| `webui-hq` | React HQ command-center dashboard |
+| `kanban` | Task-board and queue primitives below core |
+| `runtime` | Default host composition and runtime helpers |
+| `sdd` | Spec-Driven Development workflows |
+| `security-scanner` | Standalone scanning package |
+| `super-memory` | Project memory, graph, retrieval, verification, and hygiene |
+| `plugins` | First-party 63-entry plugin catalog |
+| `acp` | ACP server/client integration |
 
 ---
 
 ## 2. Kernel Primitives
 
-The kernel (`packages/core/src/kernel/`) is ~1670 lines total (including the full event type catalog). Six modules:
+The kernel lives in `packages/core/src/kernel/`. Its six files are `container.ts`, `pipeline.ts`, `events.ts`, `run-controller.ts`, `tokens.ts`, and the `index.ts` barrel:
 
 ### Container
 
 A typed DI container indexed by `Token<T>` (branded symbols). Bindings support
 `factory`, `value`, and `decorator` forms. Resolution is lazy and memoized.
 
-22 well-known tokens (as of v0.270.0):
+The current `TOKENS` object defines 23 well-known bindings:
 
 ```
 TOKENS.Logger              TOKENS.TokenCounter      TOKENS.SessionStore
 TOKENS.MemoryStore         TOKENS.PermissionPolicy  TOKENS.Compactor
 TOKENS.PathResolver        TOKENS.ConfigLoader      TOKENS.ConfigStore
 TOKENS.Renderer            TOKENS.InputReader       TOKENS.ErrorHandler
-TOKENS.RetryPolicy         TOKENS.SkillLoader       TOKENS.SystemPromptBuilder
-TOKENS.SecretScrubber      TOKENS.ModelsRegistry    TOKENS.ModeStore
-TOKENS.ProviderRunner      TOKENS.WorktreeManager   TOKENS.BrainArbiter
-TOKENS.HookRegistry
+TOKENS.RetryPolicy         TOKENS.SkillLoader       TOKENS.PromptLoader
+TOKENS.SystemPromptBuilder TOKENS.SecretScrubber    TOKENS.ModelsRegistry
+TOKENS.ModeStore           TOKENS.ProviderRunner    TOKENS.WorktreeManager
+TOKENS.BrainArbiter        TOKENS.HookRegistry
 ```
 
-Plugins can rebind any token before `Agent.run`. No service locator pattern —
-every dependency arrives through the container explicitly.
+The token names above are generated from `packages/core/src/kernel/tokens.ts`;
+that file is authoritative. Plugins can rebind a token before `Agent.run`.
+
+
+Dependencies resolved from the container are still passed into runtime objects explicitly rather than looked up through a global service locator.
 
 ### Pipeline
 
@@ -1890,7 +1909,7 @@ packages/acp/                    v1 client + server + ensemble
 3      MCP transports
 3      skill discovery paths
 2      permission policies (normal + subagent)
-1      kernel (~1670 lines incl. event types)
+1      isolated kernel directory (source: packages/core/src/kernel/)
 ```
 
 ---

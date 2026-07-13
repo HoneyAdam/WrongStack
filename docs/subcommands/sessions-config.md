@@ -1,103 +1,61 @@
-# `wstack sessions` · `wstack config` · `wstack rewind`
+# `wstack sessions` · `wstack config`
 
 ## `wstack sessions`
 
-Lists saved sessions from `DefaultSessionStore`:
+Bare `wstack sessions` lists up to 20 saved sessions. Each row contains the session id, start time, recorded token total, and title.
 
-```
-Recent sessions:
-  sess_01    2026-05-22 10:00   12,450 tok  "Refactor auth module"
-  sess_02    2026-05-22 09:30   8,200 tok   "Add MCP server"
-  sess_03    2026-05-22 08:45   3,100 tok   "Fix bug in tool executor"
-
-Resume one with: wstack resume <id>
+```text
+wstack sessions
 ```
 
-Each entry shows: id, startedAt, token total, title. Title comes from `session.summary.json` or the first user message.
+Resume is a launcher alias rather than a nested `sessions` action:
 
-### Resume a session
-```bash
-wstack resume sess_01
-# or
-wstack sessions resume sess_01
+```text
+wstack resume <session-id>
 ```
 
-File versions observed by `read`, `edit`, and `write` are journaled with a
-SHA-256 hash. On resume, the latest hash for each project-local path is checked
-again. Changed, deleted, unreadable, or out-of-project paths are injected as a
-temporary system notice so the model re-reads stale inputs before continuing;
-the notice itself is not appended to the historical transcript.
-
-Compaction writes an exact `context_snapshot` reconstruct event and flushes it
-through the durable JSONL boundary. Resume replaces earlier replay state at
-the latest snapshot, then applies later events, so it reconstructs the actual
-post-compaction conversation instead of reviving the un-compacted history.
+`wstack sessions resume <id>` and `wstack sessions delete <id>` are **not registered actions**. With those arguments, the current handler simply prints the normal session list.
 
 ### Fork a session journal
 
-```bash
-wstack sessions fork sess_01          # latest persisted boundary
-wstack sessions fork sess_01 --to 3   # checkpoint prompt index 3
+```text
+wstack sessions fork [session-id]
+wstack sessions fork [session-id] --to <checkpoint-index>
 ```
 
-Fork creates a new append-only child journal and leaves the parent unchanged.
-The result includes a SHA-256 checkpoint hash over the exact parent event
-prefix. Parent file snapshots are not copied as child rewind authority:
-`workspace: shared-current` means both journals still see the current project
-files.
+If the id is omitted, the latest saved session is used. Fork creates an append-only child journal while leaving the parent unchanged. The result prints the child id, the checkpoint hash, and any captured workspace-checkpoint manifest. The project files are shared; journal forking does not copy a working tree.
 
-New checkpoints in a Git workspace also capture a content-addressed workspace
-manifest: the checkpoint's Git `HEAD`, plus blobs for every changed or
-untracked non-ignored file (including deletion and symlink records). The CLI
-prints this manifest hash when it is available. A host or eval harness can use
-`SessionStore.materializeWorkspaceCheckpoint()` to apply the manifest to a
-**separate, clean checkout at that exact `HEAD`**; the parent working tree is
-explicitly refused as a target. CAS hashes and output paths are verified before
-the first mutation.
+`--to` must be a non-negative checkpoint prompt index. The output includes a `wstack resume <child-id>` command.
 
-This is not retroactive: old checkpoints have no workspace manifest. Ignored
-files are outside the declared `git-head-plus-dirty` coverage, and submodules or
-other non-file entries are recorded as unresolved. The same applies to a file
-over 64 MiB or aggregate checkpoint blobs over 512 MiB, which bounds prompt
-latency and memory use. Exact materialization is refused while any unresolved
-entry remains. Automatic `sessions fork` worktree handoff is intentionally not
-implied by journal forking because session storage is project-root scoped.
+### Inspect fleet runs
 
-### Delete a session
-```bash
-wstack sessions delete sess_01
+```text
+wstack sessions fleet
+wstack sessions fleet <run-id>
 ```
+
+The nested `fleet` handler lists persisted fleet runs or inspects one run. It is distinct from the in-session `/fleet` control surface.
 
 ## `wstack config`
 
-Show current config (decrypted):
+| Command | Effect |
+|---|---|
+| `wstack config` / `wstack config show` | Print the effective configuration as JSON with secret-like keys redacted. |
+| `wstack config edit` | Print the command/path to open the global config in `$EDITOR` (or `vi`). |
+| `wstack config history` | List configuration history entries. |
+| `wstack config history --id <id>` | Show one masked snapshot and diff summary. |
+| `wstack config restore <id>` | Restore a history snapshot and create a backup. |
+| `wstack config restore --latest` | Restore `config.json.last`. `-l` is also accepted. |
 
-```bash
-wstack config         # print current config
-wstack config edit    # open in $EDITOR
-```
+The command reads the effective in-memory config for `show`; it does not print decrypted API-key values.
 
-The config is the `~/.wrongstack/config.json` file without secrets (API keys redacted in output).
+## Related checkpoint command
 
-## `wstack rewind`
-
-Rewind the active session to a previous turn. Useful when the conversation went off track and you want to back up without losing earlier context.
-
-```bash
-wstack rewind           # list available rewind points
-wstack rewind 5         # rewind to turn 5
-wstack rewind sess_01   # rewind to a saved session
-```
-
-Rewind points are derived from the project-scoped session JSONL turn boundaries.
-By default rewind restores recorded file snapshots only. Passing `--resume`
-also truncates that same session at the selected checkpoint; it does not create
-a child session branch. Use `wstack sessions fork <id> --to N` for a
-non-destructive journal branch.
+Use [`wstack rewind`](rewind.md) to restore file checkpoints in an existing session. `sessions fork` creates a non-destructive child journal instead.
 
 ## Code reference
 
-- `packages/cli/src/subcommands/handlers/sessions-config.ts` — sessions + config handlers
-- `packages/cli/src/subcommands/handlers/rewind.ts` — rewind handler
-- `packages/core/src/storage/session-store.ts` — `DefaultSessionStore`
-- `packages/core/src/storage/session-reader.ts` — `DefaultSessionReader`
+- `packages/cli/src/subcommands/handlers/sessions-config.ts`
+- `packages/cli/src/subcommands/handlers/sessions-fleet.ts`
+- `packages/cli/src/config-history.ts`
+- `packages/core/src/storage/session-store.ts`

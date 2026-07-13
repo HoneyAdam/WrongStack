@@ -1,39 +1,50 @@
 # Subcommands - Overview
 
-WrongStack exposes top-level subcommands via `wstack <subcommand>` (also available through the `wrongstack` binary). Unlike slash commands, which run inside a REPL/TUI session, subcommands are standalone CLI entry points.
+WrongStack exposes standalone CLI entry points as `wstack <subcommand>` (the `wrongstack` binary is equivalent). The canonical named-subcommand registry is the `subcommands` object in `packages/cli/src/subcommands/index.ts`; `boot()` also normalizes a small set of shell surface aliases before that dispatch.
 
-## Full command map
+## Registered named subcommands
 
-| Subcommand | Handler | What it does |
+| Registered key | Aliases / nested forms | Reference |
 |---|---|---|
-| `wstack acp` | `acp.ts` | ACP integration entry point |
-| `wstack init` | `init.ts` | Deprecated compatibility alias; points to `wstack auth` |
-| `wstack auth` | `auth.ts` | Interactive API key management |
-| `wstack update` | `update.ts` | Check for WrongStack updates |
-| `wstack sessions` | `sessions-config.ts` | List saved sessions; resume or delete one |
-| `wstack config` | `sessions-config.ts` | Show or edit current config |
-| `wstack rewind` | `rewind.ts` | Revert a session's file changes checkpoint-by-checkpoint — see [rewind.md](rewind.md) |
-| `wstack replay` | `replay.ts` | Replay session events |
-| `wstack audit` | `audit.ts` | Inspect session/audit data |
-| `wstack tools` | `tools-skills.ts` | List all registered tools |
-| `wstack skills` | `tools-skills.ts` | List all available skills |
-| `wstack providers` | `providers-models.ts` | List configured providers |
-| `wstack models` | `providers-models.ts` | List available models for a provider |
-| `wstack mcp` | `mcp.ts` | List/add/remove MCP servers or run the MCP server mode |
-| `wstack plugin` | `plugin-usage.ts` | Manage plugins |
-| `wstack plugins` | `plugin-usage.ts` | Alias for `wstack plugin` |
-| `wstack diag` | `diag-doctor.ts` | Full diagnostic dump |
-| `wstack doctor` | `diag-doctor.ts` | Run health checks |
-| `wstack export` | `export.ts` | Export session data |
-| `wstack usage` | `plugin-usage.ts` | Show per-plugin usage statistics |
-| `wstack version` | `version-help.ts` | Show version info |
-| `wstack help` | `version-help.ts` | Show help |
-| `wstack projects` | `projects.ts` | List projects with WrongStack state |
-| `wstack modeldiag` | `modeldiag.ts` | Model diagnostics: key check, capability scan, suggestions, benchmarking — see [modeldiag.md](modeldiag.md) |
-| `wstack quick` | `quick.ts` | Launch straight into the TUI with defaults (handled in `boot()`) — see [quick.md](quick.md) |
-| `wstack mailbox serve` | `mailbox-serve.ts` | HTTP bridge over the project mailbox for external agents — see [mailbox.md](mailbox.md) |
-| `wstack bench` | `bench.ts` | Model-independent agentic benchmarks (Aider polyglot, SWE-bench Verified) — see [bench.md](bench.md) |
-| `wstack --hq` | `hq-server.ts` | Start the HQ command center (single-port HTTP + WebSocket dashboard that aggregates client telemetry and mailbox events) — see [hq.md](hq.md) |
+| `wstack acp` | bare, `server`, and `serve` start the server | [ACP](acp.md) |
+| `wstack init` | deprecated compatibility command; directs users to `auth` | [init](init.md) |
+| `wstack auth` | `list`/`ls`; `remove`/`rm`; OAuth provider aliases | [authentication](auth.md) |
+| `wstack update` | `--check-only`/`-c`; package-manager selectors | [update](update.md) |
+| `wstack sessions` | nested `fleet` and `fork` forms | [sessions and config](sessions-config.md) |
+| `wstack config` | `show`, `edit`, `history`, `restore` | [sessions and config](sessions-config.md) |
+| `wstack rewind` | checkpoint flags; distinct from the TUI `/rewind` command | [rewind](rewind.md) |
+| `wstack replay` | `--list`/`-l` | [replay](replay.md) |
+| `wstack audit` | `--list`/`-l` | [audit](audit.md) |
+| `wstack tools`, `wstack skills` | — | [tools and skills](tools-skills.md) |
+| `wstack providers`, `wstack models` | model management includes `caps`/`capabilities` | [providers and models](providers-models.md) |
+| `wstack mcp` | `list`, `add`, `remove`, `restart`, `serve` | [MCP](mcp.md) |
+| `wstack plugin` | registry key `plugins` is an exact alias | [plugins](plugin.md) |
+| `wstack diag`, `wstack doctor` | — | [diagnostics](diag-doctor.md) |
+| `wstack export` | — | [session export](export.md) |
+| `wstack usage` | — | [usage](usage.md) |
+| `wstack version`, `wstack help` | `--version` and `--help` are top-level flag paths | [version and help](version-help.md) |
+| `wstack projects` | — | [project registry](projects.md) |
+| `wstack modeldiag` | `keys`, `caps`, `suggest`, `test`, `bench`, `eval` (`evall` alias) | [model diagnostics](modeldiag.md) |
+| `wstack quick` | intercepted by `boot()` before its registered fallback handler | [quick launch](quick.md) |
+| `wstack bench` | `run`, `mine`, `report`, `list` | [benchmarks](bench.md) |
+| `wstack hq` | bare and `serve` normalize to `--hq`; `token` remains a real subcommand | [HQ](hq.md) |
+| `wstack mailbox` | bare and `serve` start the bridge; `help`/`--help`/`-h` show usage | [mailbox bridge](mailbox.md) |
+
+There are **28 registered keys** backed by **27 distinct handlers**: `plugin` and `plugins` share one handler. `hq` is still in the registry for token management even though `wstack hq` and `wstack hq serve` are normalized to the `--hq` launch flag by `parseArgs()`.
+
+## Shell surface aliases outside the registry
+
+These forms are normalized or intercepted before named-subcommand dispatch:
+
+| Form | Equivalent behavior |
+|---|---|
+| `wstack desktop` | `wstack --desktop` |
+| `wstack webui` | `wstack --webui` |
+| `wstack hq` / `wstack hq serve` | `wstack --hq` |
+| `wstack resume <id>` | `wstack --resume <id>` |
+| `wstack quick` | Set `--quick` and `--tui`, then continue through normal TUI startup |
+
+`desktop`, `webui`, and `resume` are therefore user-facing command forms, but they are not keys in `subcommands`. `mailbox serve`, by contrast, is a nested action handled by the registered `mailbox` key.
 
 ## Subcommand handler interface
 

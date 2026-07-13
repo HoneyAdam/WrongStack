@@ -2,7 +2,7 @@
 
 > Real-time subagent conversation tracking, HQ streaming, and timeline visualization.
 
-WrongStack's Agent Monitoring System gives you full visibility into what every subagent is doing — their conversations, tool calls, status changes, and transcripts — across three surfaces: the **CLI/TUI REPL**, the **HQ browser dashboard**, and the **filesystem**.
+WrongStack's Agent Monitoring System surfaces the events it receives for each subagent — conversation text, tool calls, status changes, and transcripts — across three surfaces: the **CLI/TUI REPL**, the **HQ browser dashboard**, and the **filesystem**. This is operational telemetry, not a completeness guarantee: dropped events, process interruption, or lifecycle races can leave a partial view.
 
 ---
 
@@ -12,7 +12,7 @@ WrongStack's Agent Monitoring System gives you full visibility into what every s
 subagent (EventBus)
   → FleetBus (fan-in with subagentId attribution)
     → AgentMonitorService
-      → In-memory virtual chat history (ring buffer, 50 entries/agent)
+      → In-memory virtual chat history (ring buffer, 500 entries/agent)
       → JSONL transcript (transcripts/<subagentId>/transcript.jsonl)
       → Local EventBus: agent.timeline.message, agent.status_changed
         → TUI: use-subagent-events.ts → chat history timeline entries
@@ -44,7 +44,7 @@ interface AgentTimelineMessageEvent {
   subagentId: string;
   agentName: string;
   content: string;
-  kind: 'text' | 'tool_use' | 'error' | 'status';
+  kind: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'status' | 'system';
   iteration: number;
   ts: string;          // ISO 8601
   toolName?: string;
@@ -56,9 +56,10 @@ interface AgentTimelineMessageEvent {
 
 | Kind | Triggered by |
 |------|-------------|
-| `text` | `provider.text_delta` — subagent's response text |
+| `text` | `provider.text_delta` — subagent response text |
+| `thinking` | `provider.thinking_delta` — streamed reasoning text |
 | `tool_use` | `tool.started` — subagent started a tool call |
-| `tool_use` (as tool_result) | `tool.executed` — subagent finished a tool call (includes duration) |
+| `tool_result` | `tool.executed` — subagent finished a tool call (includes duration) |
 | `status` | Every 5th `iteration.completed` — heartbeat |
 | `status` | `iteration.completed` with system message |
 
@@ -104,7 +105,7 @@ wstack --hq
 # Opens http://127.0.0.1:3499
 
 # Terminal 2: Connect a client
-WRONGSTACK_HQ_URL=ws://127.0.0.1:3499/ws/client wrongstack --tui
+WRONGSTACK_HQ_URL=http://127.0.0.1:3499 wrongstack --tui
 # Spawn subagents — HQ 🤖 Agent timeline shows live conversations
 ```
 
@@ -143,7 +144,7 @@ The AgentMonitorService is created in the CLI boot pipeline (`cli-main.ts`):
 | `streamEnabled` | false | Initial stream toggle state |
 | `transcriptsDir` | `<fleetRoot>/subagents/transcripts` | JSONL output directory |
 
-The HQ bridge is wired automatically when `WRONGSTACK_HQ_URL` environment variable is set and an `hqPublisher` is created.
+The HQ bridge is wired when an `hqPublisher` is created, either from an explicit `WRONGSTACK_HQ_URL` or through same-machine HQ discovery.
 
 ---
 

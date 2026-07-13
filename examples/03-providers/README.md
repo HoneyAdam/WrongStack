@@ -110,7 +110,9 @@ to swap mid-project without losing the session.
 
 ## Refresh the catalog
 
-The models.dev catalog is cached for 24 h. To force a refresh:
+WrongStack attempts a models.dev refresh at startup unless
+`--no-models-refresh` is set, and falls back to its cache on network failure.
+To force a refresh:
 
 ```bash
 wrongstack models refresh

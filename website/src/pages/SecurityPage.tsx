@@ -95,7 +95,7 @@ export function SecurityPage() {
         <SectionIntro
           index="03"
           eyebrow="Data and network"
-          title="Local first, encrypted at rest, redacted in transit."
+          title="Local first, selectively encrypted and redacted."
         />
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line lg:grid-cols-3">
           {securityFacts.map((fact) => (
@@ -113,18 +113,21 @@ export function SecurityPage() {
               <h2 className="font-black text-fg">Telemetry is scrubbed</h2>
             </div>
             <p className="mt-3 text-sm leading-7 text-muted">
-              Tool previews sent to WebUI and HQ are redacted and truncated. Capability-scoped
-              tokens separate browser access from client publishing and command control.
+              WebUI and HQ preview paths redact and truncate known credential shapes. Pattern-based
+              scrubbing is not a proof against arbitrary secrets, and local full-audit records may
+              retain raw tool data.
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-card p-6">
             <div className="flex items-center gap-3">
               <ShieldCheck className="size-5 text-emerald-500" />
-              <h2 className="font-black text-fg">Remote access is explicit</h2>
+              <h2 className="font-black text-fg">Remote access needs a trusted boundary</h2>
             </div>
             <p className="mt-3 text-sm leading-7 text-muted">
-              The normal WebUI, mailbox and MCP surfaces bind loopback by default. Non-loopback
-              WebUI requires token-gated HTTP, API and WebSocket access.
+              WebUI, mailbox and MCP surfaces bind loopback by default. Mailbox bridge tokens are
+              bearer capabilities, not agent identities. HQ auth now fails closed on corrupt or
+              unreadable auth files; missing files and explicit empty token lists remain intentional
+              open/bootstrap modes. Put a trusted proxy in front of any non-loopback exposure.
             </p>
           </div>
         </div>
@@ -143,7 +146,8 @@ export function SecurityPage() {
               <p className="text-lg leading-8 text-zinc-400">
                 The allow-list strips provider endpoints, keys, MCP servers, hooks, plugins, sync,
                 YOLO, extensions, HQ, ACP and fleet settings from checked-in config. Nested
-                dangerous fields are stripped too.
+                dangerous fields are stripped too. This does not sandbox trusted user config:
+                shell and HTTP hooks remain privileged operator code.
               </p>
               <div className="mt-6 flex items-center gap-3 text-sm font-semibold text-emerald-400">
                 <Check className="size-4" /> New config fields are denied until classified

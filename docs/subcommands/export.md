@@ -2,19 +2,18 @@
 
 ## What it does
 
-Exports a session or session range to various formats for sharing, archiving, or analysis.
+Exports one required session id to stdout or to a file. The command does not infer the active session and does not accept date ranges.
 
 ## Usage
 
-```bash
-wstack export                    # export active session
-wstack export <session-id>       # export a specific session
-wstack export --format markdown # export as markdown transcript
-wstack export --format json     # export as JSON
-wstack export --format text     # export as plain text
-wstack export --from <date>     # export sessions from date
-wstack export --to <date>       # export sessions until date
+```text
+wstack export <session-id>
+wstack export <session-id> --format markdown|json|text
+wstack export <session-id> --out <file>
+wstack export <session-id> --no-tools --no-diagnostics
 ```
+
+`-f` aliases `--format`, and `-o` aliases `--out`. The default format is `markdown`; tool calls and diagnostics are included unless disabled. Parent directories for `--out` are created relative to the current working directory.
 
 ## Formats
 

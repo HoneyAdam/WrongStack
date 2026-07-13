@@ -52,7 +52,7 @@ export function FleetPage() {
           href="/agent-roster"
           className="mt-8 inline-flex rounded-full border border-brand/25 bg-brand/5 px-4 py-2 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-brand"
         >
-          Browse 51 built-in specialist roles →
+          Browse 50 phase roles + Shadow →
         </Link>
         <div className="mt-14 space-y-2">
           {[

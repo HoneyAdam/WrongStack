@@ -25,8 +25,8 @@ const features = [
   {
     icon: Users,
     title: 'Multi-agent fleet',
-    tag: 'Director + 47 roles',
-    body: 'A Director promotes the session and drives a fleet through 14 orchestration tools — spawn, assign, await, ask, roll_up, health, transcripts, and collab debug. A smart dispatcher routes each task to the best-matching role.',
+    tag: '50 phase roles + Shadow',
+    body: 'A Director promotes the session and drives a 51-role built-in fleet through orchestration tools for spawning, assignment, waits, health, transcripts and collaboration. A smart dispatcher routes each task to the best-matching phase role; Shadow remains a separate operational role.',
   },
   {
     icon: Target,

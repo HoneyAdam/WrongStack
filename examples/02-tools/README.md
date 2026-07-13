@@ -1,10 +1,8 @@
 # 02 — Tool Usage
 
-Examples exercising the 36 built-in tools (read, write, edit, replace,
-glob, grep, bash, exec, fetch, search, patch, json, diff, tree, lint,
-format, typecheck, test, install, audit, outdated, logs, document,
-scaffold, todo, git, context_manager, remember/forget, and the meta
-tool_search / tool_use / batch_tool_use / tool_help).
+Examples exercising WrongStack's built-in tool registry. The full set currently
+contains 58 tools (including 16 `browser_*` tools); token-saving modes may expose
+a smaller tier for a session. Run `wrongstack tools` for the active registry.
 
 `wrongstack tools` lists everything currently registered for the active
 session.

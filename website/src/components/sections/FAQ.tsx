@@ -39,7 +39,7 @@ const faqs = [
   },
   {
     q: 'How often is it released?',
-    a: 'WrongStack ships continuously. Push a git tag matching v* and GitHub Actions typechecks, builds, and tests on Ubuntu, macOS, and Windows — then publishes all 20 package/app workspace manifests to npm. Every release is lockstep and documented in the changelog.',
+    a: 'WrongStack ships continuously across 19 packages and 2 apps. Maintainers run pnpm release:check, inspect pnpm release:dry, bump and tag the lockstep version, then run pnpm release with authenticated npm access. The checked-in GitHub Actions workflow deploys only the website; npm verification and the GitHub Release remain explicit post-release steps.',
   },
 ];
 

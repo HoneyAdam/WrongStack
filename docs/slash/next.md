@@ -1,5 +1,7 @@
 # /next — Next-Task Prediction
 
+Alias: `/enxt` (registered compatibility spelling).
+
 ## What it does
 
 When enabled, WrongStack runs a **lightweight, single-shot LLM call** after each

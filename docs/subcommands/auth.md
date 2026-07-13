@@ -19,6 +19,30 @@ wstack auth ls
 ```
 Prints all saved providers with their keys (masked), active indicators, families, and base URLs. No prompt — read-only, safe for scripts and CI.
 
+### Status and removal
+
+```text
+wstack auth status <provider-id>
+wstack auth remove <provider-id>
+wstack auth rm <provider-id>
+```
+
+`status` is read-only. `remove`/`rm` asks for confirmation before deleting the provider and all of its saved keys.
+
+### Subscription OAuth login
+
+```text
+wstack auth login chatgpt
+wstack auth login claude
+wstack auth login copilot
+```
+
+Accepted login aliases are:
+
+- ChatGPT/Codex: omitted id, `openai`, `codex`, `chatgpt`, `codex-cli`, `openai-codex`.
+- Claude: `claude`, `anthropic`, `claude-pro`, `claude-max`, `anthropic-oauth`.
+- GitHub Copilot: `copilot`, `github`, `github-copilot`, `gh`.
+
 ### Direct (flag-based)
 ```
 wstack auth <provider-id>

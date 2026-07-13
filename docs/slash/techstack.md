@@ -1,5 +1,7 @@
 # /techstack — Project Dependency Auditor
 
+Aliases: `/tech`, `/deps`.
+
 ## What it does
 
 `/techstack` spawns a subagent that scans every `package.json` in the project, looks up each dependency's latest version on the npm registry, and produces a structured report (`techstack.md` or `techstack.json`) in the project root.

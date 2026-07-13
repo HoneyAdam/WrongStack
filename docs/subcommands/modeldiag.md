@@ -3,7 +3,7 @@
 Read-only diagnostics over your configured providers and the model matrix:
 API-key check, capability scan, heuristic model suggestions per role, and
 real benchmarked comparisons. Never modifies config — pinning a suggestion is
-always an explicit `wstack setmodel` call.
+always an explicit in-session `/setmodel` call.
 
 Model metadata comes from the local models cache; capability heuristics use a
 built-in profile table (family, strengths, cost tier, speed tier).

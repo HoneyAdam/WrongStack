@@ -1,7 +1,8 @@
 # 06 — Real-World Workflows
 
-Practical recipes for daily development. Every command below has been
-verified against the current CLI surface.
+Practical recipes for daily development. The flags and slash commands below
+match the current CLI surface; provider model ids should be checked with
+`wrongstack models <provider>` because the remote catalog changes over time.
 
 ## Refactor a module
 
@@ -110,7 +111,7 @@ wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile \
 # Director + eternal — runs indefinitely against the goal
 wrongstack --director --eternal "migrate the test suite from Jest to Vitest one package at a time, verifying tests pass before moving on"
 
-# Offline-only run (no MCP, no plugins, no models.dev fetch, no skills)
-wrongstack --no-features --provider anthropic --model claude-opus-4-7 \
+# Reduced-feature run; also skip the startup models.dev refresh
+wrongstack --no-features --no-models-refresh --provider anthropic --model claude-opus-4-7 \
   "explain the kernel architecture using only what's in packages/core/src/"
 ```

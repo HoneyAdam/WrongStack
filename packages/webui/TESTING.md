@@ -13,7 +13,7 @@ ensures coverage keeps pace with new code.
 
 ### How to apply it
 
-1. Run `pnpm --filter webui test -- --coverage` locally.
+1. Run `pnpm --filter @wrongstack/webui test:coverage` locally.
 2. Note the new aggregate values for `statements`, `branches`, `functions`, `lines`.
 3. Set each threshold to `Math.floor(measured_value)`. This is the floor — CI
    will fail if coverage drops below this.
@@ -37,17 +37,17 @@ ensures coverage keeps pace with new code.
 - Files matching `**/code-detect.test.ts`
 - Any new test file targeting a previously uncovered module
 
-### Files excluded from 100% target
+### Files excluded from coverage
 
-These require E2E or integration tests (not unit-testable in jsdom):
+The configured exclusions in `vitest.config.ts` are bootstrap or declaration files:
 
-| File | LOC | Reason |
-|------|-----|--------|
-| `server/index.ts` | 3,652 | Node.js HTTP server, requires live runtime |
-| `SkillsPanel.tsx` | 1,567 | React component, requires E2E |
-| `AgentFlowCanvas.tsx` | 942 | React Flow canvas, requires E2E |
-| `ChatInput.tsx` | 532 | React component, requires E2E |
-| `ws-client.ts` | 724 | WebSocket wrapper, requires server |
+- `src/env.d.ts`
+- `src/main.tsx`
+- `src/lib/core-browser-shim.ts`
+- `src/server/entry.ts`
+
+All other `src/**/*.{ts,tsx}` files contribute to the aggregate ratchet, including
+components and WebSocket utilities.
 
 ## Running Tests
 
@@ -55,8 +55,8 @@ These require E2E or integration tests (not unit-testable in jsdom):
 # Unit tests (vitest workspace — includes webui via workspace projects)
 pnpm test
 
-# Webui-only tests with coverage
-pnpm --filter webui test -- --coverage
+# WebUI-only tests with coverage
+pnpm --filter @wrongstack/webui test:coverage
 
 # E2E tests (requires WebUI server running)
 pnpm test:e2e

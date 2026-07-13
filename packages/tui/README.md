@@ -26,11 +26,14 @@ const exitCode = await runTui({
   model: 'anthropic-test-model',
   banner: true,
   yolo: false,
-  appVersion: '0.1.6',
+  appVersion: '0.286.0',
   provider: 'anthropic',
   family: 'anthropic',
   keyTail: '…ABC',
   effectiveMaxContext: 200_000,
+  statuslineHiddenItems: [],
+  setStatuslineHiddenItems: () => {},
+  saveStatuslineHiddenItems: async () => {},
 });
 
 process.exit(exitCode);
@@ -40,7 +43,7 @@ process.exit(exitCode);
 
 ```
 ┌─ banner ─────────────────────────────────────────────┐
-│  wrongstack 0.1.6 — anthropic · anthropic-test-model    │
+│  wrongstack 0.286.0 — anthropic · anthropic-test-model  │
 └──────────────────────────────────────────────────────┘
   user> refactor auth.ts to async/await
   ⠋ thinking (3 tools used · 4.2k tokens · 1.3s)

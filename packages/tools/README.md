@@ -69,10 +69,10 @@ execution remain separate permission-gated steps.
 | `typecheck` | `auto` | Project-aware typechecker |
 | `test` | `confirm` | Project-aware test runner |
 | `install` | `confirm` | Package manager install |
-| `audit` | `auto` | Dependency vuln audit |
+| `audit` | `confirm` | Dependency vulnerability audit |
 | `outdated` | `auto` | List outdated dependencies |
 | `scaffold` | `confirm` | Template-based scaffolding |
-| `document` | `confirm` | Inline JSDoc generation |
+| `document` | `auto` | Deprecated read-only documentation-candidate preview; use plugin tool `auto_doc` for generation |
 | `logs` | `auto` | Tail logs with rolling 100k-line window |
 
 ### Agent control

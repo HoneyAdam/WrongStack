@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowRight, ArrowUpRight, Check, Clipboard } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, Copy } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { docsUrl, repoUrl } from '@/data/content';
 import { Link } from '@/lib/router';
@@ -141,7 +141,7 @@ export function CopyCommand({ command, label }: { command: string; label?: strin
         className="grid size-8 shrink-0 place-items-center rounded-full bg-fg text-bg"
         aria-label={`Copy ${command}`}
       >
-        {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       </button>
     </div>
   );

@@ -1,4 +1,3 @@
-import { toErrorMessage } from '@wrongstack/core/utils';
 # WrongStack TypeScript Style Guide
 
 Surgical guide for TypeScript patterns that are easy to get wrong in this

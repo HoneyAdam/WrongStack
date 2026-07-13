@@ -1,6 +1,6 @@
 # WrongStack Architecture
 
-This document is a repository-level architecture map for WrongStack as reviewed on 2026-07-06 (monorepo version 0.282.1). It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior. Counts and package internals can drift; prefer source and tests when a detail disagrees.
+This document is a repository-level architecture map for WrongStack as reviewed on 2026-07-13 (monorepo version 0.286.0). It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior. Counts and package internals can drift; package manifests, source, and tests remain authoritative.
 
 WrongStack is a TypeScript/Node.js agent platform. The user-facing product is a terminal AI coding agent, but the implementation is deliberately split into reusable packages: a small core runtime, provider adapters, built-in tools, MCP integration, terminal and browser UIs, and an optional multi-agent director layer.
 
@@ -49,25 +49,30 @@ flowchart LR
 
 ```text
 apps/
-  wrongstack/       Published umbrella package. Exposes the wrongstack and wstack bins.
+  wrongstack/       Published `wrongstack` / `wstack` entry shim.
+  desktop/          Electron desktop shell.
 
 packages/
-  core/             Runtime kernel, agent, context, storage, security, models, coordination.
-  providers/        Anthropic, OpenAI, Google, OpenAI-compatible, and wire-format adapters.
-  tools/            Built-in project tools: read, write, edit, bash, grep, test, git, etc.
-  mcp/              Model Context Protocol client, transports, registry, tool wrappers.
-  cli/              Main command-line entrypoint, boot, wiring, REPL, slash commands.
+  core/             Kernel, agent, shared contracts, storage, security, coordination.
+  kanban/           Task-board and queue primitives below core in the package graph.
+  providers/        Anthropic, OpenAI, Google, compatible, and wire-format adapters.
+  tools/            Built-in project, browser, quality, and meta-tools.
+  mcp/              MCP client, transports, registry, and tool wrappers.
+  runtime/          Default host composition and runtime helpers.
+  sdd/              Spec-Driven Development workflows.
+  security-scanner/ Standalone security scanning surface.
+  super-memory/     Project memory, graph, retrieval, and hygiene.
+  acp/              ACP server/client integration.
+  plug-lsp/         LSP bridge and language tooling.
+  plugins/          63-entry first-party plugin catalog.
+  telegram/         Telegram bridge plugin.
   tui/              Ink/React terminal UI.
-  webui/            Vite/React browser UI plus WebSocket backend.
-  plug-lsp/         Language Server Protocol plugin with LSP-backed tools and commands.
-  runtime/          Default runtime implementations and host-level composition helpers.
-  acp/              ACP (Agent Communication Protocol) integration: server transport,
-                    protocol handler, client runner for spawning external ACP agents.
-  plugins/          Bundled plugin library: 63 official plugins including auto-doc,
-                    cost-tracker, cron, secret-scanner, todo-tracker, git-autocommit,
-                    and many more (see README.md for the full table).
-  telegram/         Telegram bridge plugin: send messages, receive prompts, get notified.
-  core/skills/      Skill subpackages published as separate npm packages (git-flow, test-runner, etc.).
+  webui/            Vite/React browser frontend.
+  webui-server/     Shared Node backend and `wstackui` binary.
+  webui-hq/         React HQ command-center dashboard.
+  cli/              Boot assembly, REPL, commands, and surface launchers.
+  bench/            Benchmark harness.
+  core/skills/      23 bundled SKILL.md directories (assets, not packages).
 
 docs/
   architecture.md           Lower-level architecture notes.
@@ -86,10 +91,12 @@ The workspace currently contains these package-level responsibilities. File coun
 
 | Package | Primary responsibility |
 |---|---|
-| `@wrongstack/core` | Agent runtime, DI, storage, security, security-scanner, multi-agent coordination, observability, autophase, worktree, replay, built-in plugins, skills. |
-| `@wrongstack/cli` | CLI boot, runtime assembly, REPL, slash commands, plugin management, WebUI launcher. |
+| `@wrongstack/core` | Agent runtime, DI, storage, security, multi-agent coordination, observability, autophase, worktree, replay, built-in host plugins, and bundled skill assets. |
+| `@wrongstack/kanban` | Task-board and queue primitives consumed by core and product surfaces. |
+| `@wrongstack/cli` | CLI boot, runtime assembly, REPL, slash commands, plugin management, and surface launchers. |
 | `@wrongstack/tools` | Built-in tools and meta-tools. |
-| `@wrongstack/webui` | Browser UI and WebSocket backend. |
+| `@wrongstack/webui` | Vite/React browser frontend. |
+| `@wrongstack/webui-server` | Shared Node HTTP/WebSocket backend and standalone `wstackui` binary. |
 | `@wrongstack/plug-lsp` | LSP runtime, tools, slash commands, server lifecycle. |
 | `@wrongstack/providers` | Provider adapters, streaming parsers, tool wire conversions. |
 | `@wrongstack/plugins` | Bundled plugin library: 63 official plugins covering doc-sync, linting, security, versioning, notifications, and more. |
@@ -100,13 +107,19 @@ The workspace currently contains these package-level responsibilities. File coun
 | `@wrongstack/telegram` | Telegram bridge plugin with bot, tools, and slash commands. |
 | `@wrongstack/bench` | Model-independent benchmark harness (polyglot + SWE-bench) with graders, reporters, and session metrics. |
 | `@wrongstack/webui-hq` | HQ Command Center dashboard: cross-machine session aggregation, fleet views, cost trends. |
+| `@wrongstack/sdd` | Spec-Driven Development stores and workflow helpers. |
+| `@wrongstack/security-scanner` | Standalone security scanner package. |
+| `@wrongstack/super-memory` | Project memory store, graph, retrieval, verification, and hygiene. |
 
 ## Dependency Topology
 
-The dependency direction is intentionally layered. `core` has no dependency on other WrongStack packages. Packages above it consume its public interfaces.
+The dependency direction is intentionally layered. `@wrongstack/kanban` has no WrongStack package dependency and sits below `core`; `core` declares `@wrongstack/kanban` but must not depend on product surfaces or the packages that consume core. `packages/core/tests/architecture/package-boundaries.test.ts` enforces the allowed exception and the workspace DAG.
+
+The diagram highlights central composition edges rather than every manifest edge.
 
 ```mermaid
 flowchart BT
+  Kanban["@wrongstack/kanban"]
   Core["@wrongstack/core"]
   Providers["@wrongstack/providers"]
   Tools["@wrongstack/tools"]
@@ -121,6 +134,7 @@ flowchart BT
   WebUI["@wrongstack/webui"]
   App["wrongstack app package"]
 
+  Core --> Kanban
   Providers --> Core
   Tools --> Core
   MCP --> Core
@@ -172,7 +186,6 @@ packages/core/src/
   execution/       ToolExecutor, retry, error recovery, compaction, skills, autonomous runner, auto-compaction middleware, intelligent/selective compaction, eternal-autonomy, goal-preamble, parallel-eternal-engine.
   storage/         Sessions, config, memory, queue, plans + plan-templates, todos, recovery, attachments, config migration, goals, session rewind, cloud-sync, annotations, prompt-store, replay-log, session-analyzer, session-recovery, session-event-bridge, tool-audit-log.
   security/        Permission policy, secret vault, secret scrubber, config secrets.
-  security-scanner/ Security scanner: orchestrator, detector, scanner, gitignore updater, report generator, skill generator.
   registry/        Tool, provider, and slash command registries.
   plugin/          Plugin API and loader.
   hooks/           Lifecycle hooks: HookRegistry, HookRunner, shell-executor (PreToolUse/PostToolUse/UserPromptSubmit/SessionStart/Stop; shell + in-process). See docs/hooks.md.
@@ -180,7 +193,6 @@ packages/core/src/
   coordination/    Multi-agent coordinator, Director, FleetBus, FleetManager, delegate tool, bridge, budgets, transport, collab-debug, collab-bus, dispatcher, auto-extend, parallel-eternal-engine, agents (9-phase system), agent-subagent-runner, large-answer-store, subagent-nicknames.
   models/          models.dev registry, model selection (llm-selector), mode-store.
   observability/   Metrics, traces, health, Prometheus, OTLP, event bridge.
-  sdd/             Spec-driven development: parser, task generator, task flow, task tracker, graph store, visualizer, spec store, spec builder, spec versioning, spec templates, auto-executor, critical path, task decomposer, parallel run.
   infrastructure/  Logger, token counter, path resolver, context manager, MCP presets.
   types/           Public type contracts.
   defaults/        Backward-compatible re-export barrel for all default implementations.
@@ -206,10 +218,8 @@ The core area changes frequently, so this table tracks responsibilities rather t
 | `storage` | JSONL sessions (`session-store`, `file-session-writer`, `session-reader`, `session-id`, `session-summary`, `session-tool-call-ends`, `session-helpers`), config (`config-loader`, `config-store`, `config-migration`, `provider-config-watcher`), memory (`memory-store`, `memory-backend`, `memory-graph-backend`, `memory-consolidator`), goal store, queue store, plan store + templates, todos checkpoint, task store, prompt store + usage, replay log, session rewind/recovery, recovery lock, session analyzer, session event bridge, tool audit log, annotations store, attachment store, completed-work checkpoint, director state, cloud sync, storage concurrency. |
 | `utils` | Shared helpers: paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format, child-env, merge-models-payload. |
 | `execution` | Tool execution, retry, compaction, skill loading, autonomous runner, error handler, auto-compaction middleware, eternal-autonomy, goal-preamble, autonomy-prompt-contributor, parallel-eternal-engine. |
-| `sdd` | Parser, builder, store, versioning, templates; task generator/flow/tracker/visualizer/decomposer/critical-path; spec board subsystem (board-store, board-projector, board-types, lifecycle, parallel run, run registry, supervisor); interview driver; auto-executor; conflict resolver; verify-task. |
 | `core` | Agent loop, context, conversation state, input builder, run env, streaming response, provider runner, iteration limit, continue-to-next-iteration, system prompt builder, /btw steering, modes. |
 | `observability` | Metrics (`metrics`), traces (`tracer`, `otel-tracer`), health, Prometheus renderer, OTLP traces + metrics exporters, event bridge. |
-| `security-scanner` | Orchestrator, detector, scanner, gitignore updater, report generator, skill generator, slash-command, types. |
 | `autophase` | Auto-phase planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder, types. |
 | `plugins` | Built-in core plugins: git, observability, plan, prompts, security, skills, sync, chimera. |
 | `hq` | HQ command-center bridge layer: protocol, redaction, mailbox-mapper, publisher, factory, auth-store, agent-bridge, session-bridge, fleet-bridge, brain-bridge, worktree-bridge, tool-bridge, cost-bridge, persistence, commands, alerts, transcript-mapper. |
@@ -1026,7 +1036,7 @@ flowchart TD
 
 ### WebUI Flow
 
-The WebUI package (`packages/webui`) includes both the frontend (React + Vite) and a backend service. The CLI also has a `webui-server.ts` launcher path, which reuses the webui package's static-serve / free-port / browser-opener / instance-registry building blocks via the `@wrongstack/webui/server` export (so that logic lives in one place). Both launch paths serve the frontend over HTTP (`PORT`, default 3456), run the agent WebSocket (`WS_PORT`, default 3457), auto-advance past busy ports unless `WEBUI_STRICT_PORT=1`, inject the live WS port into the served HTML as `<meta name="wrongstack-ws-port">` (so multiple instances work), and record themselves in `~/.wrongstack/webui-instances.json` (`wstackui --list`). Full reference: [`docs/webui.md`](docs/webui.md).
+The WebUI frontend lives in `packages/webui`; the shared backend service lives in `packages/webui-server`. The CLI also has a `webui-server.ts` launcher path, which reuses the webui package's static-serve / free-port / browser-opener / instance-registry building blocks via the `@wrongstack/webui/server` export (so that logic lives in one place). Both launch paths serve the frontend over HTTP (`PORT`, default 3456), run the agent WebSocket (`WS_PORT`, default 3457), auto-advance past busy ports unless `WEBUI_STRICT_PORT=1`, inject the live WS port into the served HTML as `<meta name="wrongstack-ws-port">` (so multiple instances work), and record themselves in `~/.wrongstack/webui-instances.json` (`wstackui --list`). Full reference: [`docs/webui.md`](docs/webui.md).
 
 The backend WebSocket server (`packages/webui-server/src/server/`, the `@wrongstack/webui-server` package extracted in PR #018b; `@wrongstack/webui/server` remains a back-compat re-export shim) handles multiple handler types:
 
@@ -1157,7 +1167,7 @@ The package declares `@wrongstack/core` as a peer dependency and is used by the 
 
 ## Plugins Package
 
-`@wrongstack/plugins` is a bundled library of 36 installable plugins published as a single package. The single source of truth for the catalog is `packages/plugins/src/catalog.ts`; each subdirectory is a self-contained plugin and is also listed in the canonical `PLUGIN_CATALOG` map consumed by `spec-linker` for unlinked-reference detection.
+`@wrongstack/plugins` is a bundled library of 63 catalogued plugins published as a single package. The single source of truth for the catalog is `packages/plugins/src/catalog.ts`; each subdirectory is a self-contained plugin and is also listed in the canonical `PLUGIN_CATALOG` map consumed by `spec-linker` for unlinked-reference detection.
 
 | Plugin | Capability |
 |---|---|

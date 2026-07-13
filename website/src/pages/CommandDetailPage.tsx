@@ -7,7 +7,7 @@ import { Link, useRouter } from '@/lib/router';
 
 const commandDeepGuides: Partial<Record<string, { href: string; label: string }>> = {
   '/mode': { href: '/modes', label: 'Compare all 19 session modes' },
-  '/fleet': { href: '/agent-roster', label: 'Browse all 51 built-in roster roles' },
+  '/fleet': { href: '/agent-roster', label: 'Browse 50 phase roles plus Shadow' },
   '/spawn': { href: '/agent-roster', label: 'Choose a specialist role' },
   '/agents': { href: '/agent-roster', label: 'Understand the roster and lifecycle phases' },
   '/director': { href: '/agent-roster', label: 'See the Director’s complete roster' },

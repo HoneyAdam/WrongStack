@@ -1,98 +1,120 @@
 # Slash Commands - Overview
 
-WrongStack's REPL supports core slash commands plus commands registered by built-in plugins. Commands are registered into `SlashCommandRegistry`, dispatched by name, and wired with a shared `SlashCommandContext`.
+WrongStack routes slash commands through `SlashCommandRegistry`. The command set is assembled from three independently registered surfaces: CLI core commands, commands mounted by the TUI, and plugin commands. The tables below are derived from the corresponding registration sites; aliases are shown explicitly rather than treated as separate commands.
 
-## Core command map
+## Always-registered CLI commands
 
-| Command | Source | What it does |
+`buildBuiltinSlashCommands()` in `packages/cli/src/slash-commands/index.ts` is the canonical registry for this table.
+
+| Command | Aliases | Reference |
 |---|---|---|
-| `/help` | `packages/cli/src/slash-commands/help.ts` | List all commands; show detailed help for a named command |
-| `/init` | `packages/cli/src/slash-commands/init.ts` | Create or update `.wrongstack/AGENTS.md` |
-| `/clear` | `packages/cli/src/slash-commands/clear.ts` | Wipe session state and terminal view |
-| `/compact` | `packages/cli/src/slash-commands/compact.ts` | Run the context-window compactor |
-| `/context` | `packages/cli/src/slash-commands/context.ts` | Context summary, repair, mode, and limit controls; `/ctx` alias |
-| `/dev` | `packages/cli/src/slash-commands/dev.ts` | Run a shell command and see output (LLM does not see it) |
-| `/codebase-reindex` | `packages/cli/src/slash-commands/codebase-reindex.ts` | Rebuild the codebase symbol index; `/reindex` alias |
-| `/techstack` | `packages/cli/src/slash-commands/techstack.ts` | Scan dependencies, verify versions, write techstack report; `/tech`, `/deps` aliases |
-| `/diag` | `packages/cli/src/slash-commands/diag-stats.ts` | Runtime diagnostics |
-| `/stats` | `packages/cli/src/slash-commands/diag-stats.ts` | Session report |
-| `/memory` | `packages/cli/src/slash-commands/memory.ts` | Structured memory: search, graph, verify, hygiene, candidates, import |
-| `/todos` | `packages/cli/src/slash-commands/todos.ts` | Session todo list |
-| `/tasks` | `packages/cli/src/slash-commands/tasks.ts` | Structured task management with dependencies and priorities |
-| `/mode` | `packages/cli/src/slash-commands/mode.ts` | Switch or view session mode; includes token-saving lite and deep/full mode families |
-| `/setmodel` | `packages/cli/src/slash-commands/setmodel.ts` | View or set leader model and per-task model matrix |
-| `/models` | `packages/cli/src/slash-commands/models.ts` | Manage custom model definitions |
-| `/modelcaps` | `packages/cli/src/slash-commands/modelcaps.ts` | Browse model capacities and pricing across providers |
-| `/yolo` | `packages/cli/src/slash-commands/yolo.ts` | Toggle or query YOLO mode |
-| `/autonomy` | `packages/cli/src/slash-commands/autonomy.ts` | Set autonomy level |
-| `/goal` | `packages/cli/src/slash-commands/goal.ts` | Set, show, pause, resume, journal, or clear an autonomous mission |
-| `/save` | `packages/cli/src/slash-commands/session.ts` | Force-flush session to disk |
-| `/sessions` | `packages/cli/src/slash-commands/session.ts` | List recent sessions; `/resume`, `/load` aliases for backward compat |
-| `/prune` | `packages/cli/src/slash-commands/prune.ts` | Delete old sessions; `/prune --dry-run` to preview |
-| `/exit` | `packages/cli/src/slash-commands/session.ts` | Exit REPL; `/quit`, `/q` aliases |
-| `/tool` | `packages/cli/src/slash-commands/tool.ts` | Configure per-tool description detail (`simple` or `extend`) |
-| `/tools` | `packages/cli/src/slash-commands/tools.ts` | List registered tools |
-| `/plugin` | `packages/cli/src/slash-commands/plugin.ts` | Manage plugins |
-| `/mcp` | `packages/cli/src/slash-commands/mcp.ts` | Manage MCP servers |
-| `/auth` | `packages/cli/src/slash-commands/auth.ts` | API key status dashboard; run `wstack auth` for full key manager |
-| `/spawn` | `packages/cli/src/slash-commands/spawn-agents.ts` | Spawn an isolated subagent |
-| `/agents` | `packages/cli/src/slash-commands/agents.ts` | Monitor subagents: timeline stream toggle, list, per-agent transcript |
-| `/director` | `packages/cli/src/slash-commands/spawn-agents.ts` | Promote to director mode |
-| `/delegate` | `packages/cli/src/slash-commands/delegate.ts` | Hand a task to a specialist subagent; `/delegate list` for roles |
-| `/fleet` | `packages/cli/src/slash-commands/fleet.ts` | Fleet status, usage, kill, manifest, retry, log, stream |
-| `/sdd` | `packages/cli/src/slash-commands/sdd.ts` | Spec-driven development workflow |
-| `/btw` | `packages/cli/src/slash-commands/btw.ts` | Quick side-note workflow |
-| `/next` | `packages/cli/src/slash-commands/next.ts` | Toggle next-task prediction |
-| `/suggest` | `packages/cli/src/slash-commands/suggest.ts` | Generate context-aware next-step suggestions; `/suggest --fast` for heuristics |
-| `/enhance` | `packages/cli/src/slash-commands/enhance.ts` | Toggle prompt refinement ("did you mean this?") before sending |
-| `/ensemble` | `packages/cli/src/slash-commands/ensemble.ts` | Fan a task out to multiple ACP-supporting agents in parallel (claude-code, gemini-cli, codex-cli, etc.) |
-| `/fix` | `packages/cli/src/slash-commands/fix.ts` | Classify and route a bug/error fix |
-| `/autophase` | `packages/cli/src/slash-commands/autophase.ts` | Autonomous phase-based workflow |
-| `/worktree` | `packages/cli/src/slash-commands/worktree.ts` | Inspect and manage worktrees used by AutoPhase |
-| `/settings` | `packages/cli/src/slash-commands/settings.ts` | View or change runtime settings |
-| `/telegram-setup` | `packages/cli/src/slash-commands/telegram-setup.ts` | Configure Telegram bot token and default chat; `/tg-setup` alias |
-| `/collab` | `packages/cli/src/slash-commands/collab.ts` | Live collaboration helpers |
-| `/statusline` | `packages/cli/src/slash-commands/statusline.ts` | Toggle TUI status bar items; `/sl` alias |
-| `/interrupt` | `packages/cli/src/slash-commands/interrupt.ts` | Abort the in-flight leader iteration |
-| `/brain` | `packages/cli/src/slash-commands/brain.ts` | View and configure Brain risk arbiter; `/brain ask <q>`, `/brain risk <level>` |
-| `/coordinator` | `packages/cli/src/slash-commands/coordinator.ts` | Start/stop the AutonomousCoordinator for multi-session goal tracking; see `docs/slash/coordinator.md` and `docs/autonomous-coordinator.md` |
-| `/review` | `packages/cli/src/slash-commands/review.ts` | Run a review pass (LLM-driven code review) |
-| `/mailbox` | `packages/cli/src/slash-commands/mailbox.ts` | Inter-agent mailbox inspection and messaging |
-| `/mailbox-demo` | `packages/cli/src/slash-commands/mailbox-demo.ts` | Demo mailbox routing for development |
-| `/mailbox-serve` | `packages/cli/src/slash-commands/mailbox-serve.ts` | Start the mailbox HTTP bridge for external agents |
-| `/fallback` | `packages/cli/src/slash-commands/fallback.ts` | Configure fallback model behavior |
-| `/working_dir` | `packages/cli/src/slash-commands/working-dir.ts` | Show or change the working directory; `/wd`, `/cd` aliases |
-| `/project` | `packages/cli/src/slash-commands/project.ts` | Project picker and registry (list, add, rename, remove, switch) |
-| `/mouse` | `packages/cli/src/slash-commands/mouse.ts` | Mouse event capture for UI testing |
-| `/telegram-settings` | `packages/cli/src/slash-commands/telegram-settings.ts` | Configure Telegram notification preferences |
-| `/audit` | `packages/cli/src/slash-commands/audit.ts` | Side-effect audit trail (bash, install, fetch); `/sideeffects`, `/side` aliases |
-| `/f` | `packages/cli/src/slash-commands/f-keys.ts` | Open F-key panels by number (`/f 1`–`/f 12`, `/f1`–`/f12`) |
-| `/shadow` | `packages/cli/src/slash-commands/shadow.ts` | Start, manage, and stop the Shadow Agent fleet monitor |
-| `/security` | `packages/cli/src/slash-commands/security.ts` | Security diagnostics: audit-deps, scan dispatch, redact-test |
+| `/help` | — | [help](help.md) |
+| `/desktop` | — | [app surfaces](app-surfaces.md) |
+| `/webui` | `/web` | [app surfaces](app-surfaces.md) |
+| `/init` | — | [init](init.md) |
+| `/clear` | — | [clear](clear.md) |
+| `/interrupt` | `/stop`, `/int` | [interrupt](interrupt.md) |
+| `/kanban` | `/kb`, `/board` | [kanban](kanban.md) |
+| `/compact` | — | [compact](compact.md) |
+| `/context` | `/ctx` | [context](context.md) |
+| `/delegate` | — | [delegate](delegate.md) |
+| `/dev` | — | [dev](dev.md) |
+| `/doctor` | — | [doctor](doctor.md) |
+| `/health` | — | [health](health.md) |
+| `/metrics` | — | [metrics](metrics.md) |
+| `/tuneup` | `/checkup` | [tuneup](tuneup.md) |
+| `/codebase-reindex` | `/reindex` | [codebase reindex](codebase-reindex.md) |
+| `/techstack` | `/tech`, `/deps` | [tech stack](techstack.md) |
+| `/tool` | — | [tool modes](tool.md) |
+| `/tools` | — | [tools](tools.md) |
+| `/plugin` | `/plugins` | [plugin manager](plugin.md) |
+| `/prune` | — | [prune](prune.md) |
+| `/mcp` | `/mcp-servers` | [MCP](mcp.md) |
+| `/suggest` | `/next-steps`, `/what-next` | [suggest](suggest.md) |
+| `/auth` | — | [auth](auth.md) |
+| `/diag`, `/stats` | — | [diagnostics and stats](diag-stats.md) |
+| `/spawn`, `/agents`, `/director` | — | [multi-agent commands](spawn-agents.md) |
+| `/fleet` | — | [fleet](fleet.md) |
+| `/f` | hidden `/f1` … `/f12` commands | [F-key panels](f-keys.md) |
+| `/enhance` | — | [enhance](enhance.md) |
+| `/ensemble` | — | [ensemble](ensemble.md) |
+| `/acp` | — | [ACP](acp.md) |
+| `/memory` | — | [memory](memory.md) |
+| `/todos` | — | [todos](todos.md) |
+| `/plan` | — | [plan](plan.md) |
+| `/tasks` | — | [tasks](tasks.md) |
+| `/sdd` | — | [SDD](sdd.md) |
+| `/save`, `/sessions`, `/exit` | `/resume`, `/load`; `/quit`, `/q` | [session management](session.md) |
+| `/yolo` | — | [YOLO](yolo.md) |
+| `/mouse` | — | [mouse](mouse.md) |
+| `/autonomy` | — | [autonomy](autonomy.md) |
+| `/goal` | — | [goal](goal.md) |
+| `/coordinator` | — | [coordinator](coordinator.md) |
+| `/brain` | — | [Brain](brain.md) |
+| `/btw` | — | [by-the-way messages](btw.md) |
+| `/next` | `/enxt` | [next-task prediction](next.md) |
+| `/mode` | — | [mode](mode.md) |
+| `/design` | — | [design](design.md) |
+| `/mailbox-demo` | — | [mailbox demo](mailbox-demo.md) |
+| `/mailbox` | `/mb` | [mailbox](mailbox.md) |
+| `/mailbox-serve` | — | [mailbox bridge](mailbox-serve.md) |
+| `/fix` | — | [fix](fix.md) |
+| `/autophase` | — | [AutoPhase](autophase.md) |
+| `/worktree` | `/wt` | [worktrees](worktree.md) |
+| `/settings` | — | [settings](settings.md) |
+| `/hq` | — | [HQ connection](hq.md) |
+| `/telegram-setup` | `/tg-setup` | [Telegram setup](telegram-setup.md) |
+| `/telegram-settings` | `/tg-settings` | [Telegram settings](telegram-settings.md) |
+| `/setmodel` | — | [model selection](setmodel.md) |
+| `/refiner` | — | [goal refiner](refiner.md) |
+| `/fallback` | — | [fallback models](fallback.md) |
+| `/git`, `/commit`, `/gitcheck`, `/push` | `/gc`, `/gcstatus` | [Git commands](git.md) |
+| `/gitid` | — | [Git identity](gitid.md) |
+| `/modelcaps` | — | [model capabilities](modelcaps.md) |
+| `/models` | — | [custom models](models.md) |
+| `/collab` | — | [collaboration](collab.md) |
+| `/review` | `/cr` | [review](review.md) |
+| `/security` | — | [security](security.md) |
+| `/project` | `/projects` | [project registry](project.md) |
+| `/working_dir` | `/wd`, `/cd` | [working directory](working-dir.md) |
+| `/statusline` | `/sl` | [status line](statusline.md) |
+| `/shadow` | `/shadow-agent` | [Shadow Agent](shadow.md) |
+| `/supervisor` | — | [supervisor](supervisor.md) |
+| `/audit` | `/sideeffects`, `/side` | [side-effect audit](audit.md) |
 
-## Built-in plugin commands
+`/f1` through `/f12` are twelve separately registered hidden commands, not entries in the `aliases` array.
 
-These commands are enabled by default when plugins are enabled and their host dependencies are available.
+## TUI-mounted commands and aliases
 
-| Command | Source | What it does |
+The TUI registers these commands after mounting. They are not available in the plain REPL unless another surface registers the same name.
+
+| Command | Aliases | Behavior / reference |
 |---|---|---|
-| `/prompts` | `packages/core/src/plugins/prompts-plugin.ts` | Manage the prompt library (list/view/add/edit/delete/favorite/extend) |
-| `/prompt` | `packages/core/src/plugins/prompts-plugin.ts` | Search the merged library (builtin + user + project) and insert a prompt |
-| `/prompt-gen` | `packages/core/src/plugins/prompts-plugin.ts` | LLM-guided prompt authoring |
-| `/sync` | `packages/core/src/plugins/sync-plugin.ts` | GitHub-backed sync for prompts, skills, settings, memory, and history |
-| `/commit` | `packages/core/src/plugins/git-plugin.ts` | Stage all changes and commit with an auto-generated message; `/gc` alias |
-| `/gitcheck` | `packages/core/src/plugins/git-plugin.ts` | Silent uncommitted-change check; `/gcstatus` alias |
-| `/push` | `packages/core/src/plugins/git-plugin.ts` | Push current branch to configured remotes |
-| `/metrics` | `packages/core/src/plugins/observability-plugin.ts` | Metrics snapshot; requires `--metrics` |
-| `/health` | `packages/core/src/plugins/observability-plugin.ts` | Run health checks; requires `--metrics` |
-| `/skill` | `packages/core/src/plugins/skills-plugin.ts` | List skills or show a skill body |
-| `/skill-gen` | `packages/core/src/plugins/skills-plugin.ts` | LLM-guided skill authoring |
-| `/skill-install` | `packages/core/src/plugins/skills-plugin.ts` | Install skills from GitHub |
-| `/skill-update` | `packages/core/src/plugins/skills-plugin.ts` | Update installed skills |
-| `/skill-uninstall` | `packages/core/src/plugins/skills-plugin.ts` | Remove installed skills |
-| `/plan` | `packages/core/src/plugins/plan-plugin.ts` | Strategic plan board |
+| `/queue` | — | Manage pending mid-run messages; [queue](queue.md) |
+| `/kill` | — | List or stop tracked shell processes; [process control](process-control.md) |
+| `/ps` | — | Read-only tracked-process list; [process control](process-control.md) |
+| `/steer` | — | Abort the current run and redirect it; [steer](steer.md) |
+| `/rewind` | — | Open or directly use the checkpoint timeline; [rewind](rewind.md) |
+| `/model` | `/provider`, `/switch` | Open the provider/model picker; [model picker](model.md) |
+| `/settings-get` | `/config-get`, `/get` | Read settings without opening the picker; [settings lookup](settings-get.md) |
 
-Optional built-in plugins, such as the LSP and Telegram plugins, can also register slash commands when enabled.
+The TUI also installs official overrides for existing names. `/settings` gains `/config` and `/prefs`; `/mailbox` gains `/inbox` and `/mail`; and `/autonomy` gains `/auto`. The core aliases remain registered, so `/mb` still reaches the core mailbox command. The TUI claims `/resume` and `/load` for its session picker while `/sessions` remains the core listing command. `/f`, `/design`, and `/statusline` keep their core names but gain interactive behavior.
+
+## First-party plugin commands
+
+First-party plugins are official registry owners, so an enabled plugin exposes both a bare name and its `owner:name` form. Default-active plugins load only when plugins and their required host dependencies are available. The opt-in rows below refer to plugins present in the built-in factory list but marked inactive by default in `PLUGIN_AUDIT_ENTRIES`.
+
+| State | Plugin | Commands and aliases |
+|---|---|---|
+| Default active | `wstack-prompts` | `/prompts`, `/prompt`, `/prompt-gen`; [prompt library](prompts.md), [prompt search](prompt.md), [prompt generator](prompt-gen.md) |
+| Default active | `wstack-sync` | `/sync`; [sync](sync.md) |
+| Default active | `wstack-skills` | `/skill`, `/skill-gen`, `/skill-search`, `/skill-install`, `/skill-import`, `/skill-update`, `/skill-uninstall`; [skill commands](skills.md) |
+| Opt-in | `wstack-chimera` | `/chimera`; [Chimera](chimera.md) |
+| Opt-in | `semver-bump` | `/semver`; [semantic versioning](semver.md) |
+| Opt-in | `@wrongstack/plug-lsp` | `/lsp` (`/lsplsp`), plus `/list`, `/start`, `/stop`, `/restart`, `/diagnostics`; [LSP](lsp.md) |
+| Opt-in | `telegram` | `/telegram-health` (`/telegram`, `/tgstat`, `/tgs`), `/send`, `/chatid`; [Telegram plugin](telegram.md) |
+
+Plugin registration is last-write-wins for bare official names. In particular, enabling the LSP plugin makes bare `/stop` the LSP stop command instead of the core alias for `/interrupt`; `/interrupt` and `/int` remain unambiguous. Namespaced forms such as `/@wrongstack/plug-lsp:stop` and `/telegram:send` are always available while their plugin is loaded. External plugins do not receive bare names and are invoked only as `/owner:command`.
 
 ## Dispatch flow
 

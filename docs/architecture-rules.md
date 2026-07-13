@@ -51,8 +51,8 @@ The following layers exist within `packages/core/src/`. Rules below govern what 
 
 ## Dependency Rules
 
-### Rule 1 — No downward imports within a layer
-A higher layer must not directly import a lower layer's implementation (runtime values). Type-only imports (`import type`) from lower layers are allowed.
+### Rule 1 — Lower layers must not import higher-layer runtime values
+A lower layer must not directly import a higher layer's implementation. Runtime imports from a higher consumer layer into a lower provider layer are the normal dependency direction; type-only imports are erased and are permitted in either direction. The automated test treats the order in `LAYERS` as lowest to highest and rejects runtime edges whose source appears earlier than the target.
 
 ### Rule 2 — kernel/ is the base
 `kernel/` may import type-only contracts from `types/`. It must not import runtime values from any other subdirectory.
@@ -132,11 +132,11 @@ The test will flag `kernel/container.ts`'s runtime import of `WrongStackError` a
 │     │  └───────────────────────────────────────────────────────────────────┘              │
 │     └──────────────────────────────────────────────────────────────────────────────────┘              │
 │                                                                                             │
-│  ARROW = runtime (non-type-only) import.  Type-only imports are allowed in any direction.  │
+│  VERTICAL ORDER = low → high layer number. Allowed runtime dependencies point downward.   │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Rule of thumb**: arrows always point up (toward higher layers). A layer never imports a lower layer's runtime values.
+**Rule of thumb**: dependency arrows point from a higher consumer toward a lower provider. A lower layer must not import a higher layer's runtime values.
 
 ---
 
@@ -158,7 +158,7 @@ The following rules are enforced automatically by `packages/core/tests/architect
 | Bidirectional | No two non-barrel layers have mutual runtime dependencies |
 | Cycle | No directed cycle exists in the runtime dependency graph |
 
-As of 2026-05-20: **12 tests, all passing**.
+The current test file contains 14 named `it(...)` cases covering internal layers, bidirectional/cycle checks, extracted-package regressions, and the workspace DAG. Run it directly with `pnpm exec vitest run packages/core/tests/architecture/package-boundaries.test.ts`.
 
 ---
 
@@ -185,9 +185,9 @@ The `package.json` exports map already reflects the intended layering:
   "./storage":        { "types": "./dist/storage/index.d.ts" },
   "./security":       { "types": "./dist/security/index.d.ts" },
   "./coordination":   { "types": "./dist/coordination/index.d.ts" },
-  "./observability":  { "types": "./dist/observability/index.d.ts" },
+  "./tasking":        { "types": "./dist/tasking/index.d.ts" },
   ...
 }
 ```
 
-Every subpath export maps to one layer. External consumers (CLI, other packages) import what they need. The internal layering rules ensure that the physical source organization stays consistent with the declared public API surface.
+Most public subpath exports map to a source area; `./defaults` is a compatibility barrel and `./tasking` is a task-facing surface outside the historical `LAYERS` list. External consumers should use declared exports. The architecture test—not the exports map alone—is authoritative for internal runtime edges.

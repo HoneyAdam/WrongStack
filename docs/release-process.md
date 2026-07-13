@@ -1,33 +1,33 @@
 # Release Process
 
-WrongStack uses a **two-layer guard** before any package is
-published. Both layers are wired into `pnpm release` (which is
-the only sanctioned way to publish) so a guard failure blocks
-the release.
+WrongStack's root manifest provides a full release command, a dry-run command,
+and a narrow plugin invariant suite. Publication is currently maintainer-run:
+there is no checked-in npm release workflow.
 
-## Layer 1 — `release:check`
+## Full gate — `release:check`
 
 A broad correctness sweep run before anything goes to npm:
 
 ```bash
 pnpm release:check
 # ↪ pnpm audit --audit-level=moderate
-#   pnpm build           # esbuild bundles + TypeScript declarations
-#   pnpm typecheck       # tsc --noEmit across all packages
-#   pnpm test            # full vitest run
+#   pnpm build
+#   node scripts/check-package-contracts.mjs
+#   pnpm check:node-pty
+#   pnpm lint:i18n
+#   pnpm typecheck
+#   pnpm test
 ```
 
-**What it catches**: type errors, build failures, audit warnings
-above moderate, and any test failure in any package.
+**What it catches**: moderate-or-higher dependency audit findings (subject to the checked-in audit policy), build/type/test failures, package export/file contract drift, an unusable optional `node-pty`, and incomplete WebUI translations. Full `pnpm lint` and browser smoke are not part of this script.
 
 **Caveat**: it runs the *full* vitest suite. A single broken
 test anywhere in the monorepo blocks the release. That's by
 design — we don't ship if anything is red.
 
-## Layer 2 — `prepublishOnly`
+## Narrow plugin guard — `prepublishOnly` / `test:guard`
 
-A narrow correctness sweep that npm runs **automatically** before
-`pnpm publish` (or `pnpm release` which calls publish):
+The root manifest maps `prepublishOnly` to `pnpm test:guard`. It is useful when the root package lifecycle is invoked or when run explicitly, but it must not be described as a guaranteed hook for every recursively published child package: the public workspace package manifests do not each declare it. The full `pnpm release:check` remains the actual repository-wide gate.
 
 ```bash
 pnpm prepublishOnly
@@ -42,26 +42,23 @@ pnpm prepublishOnly
 | File | Why it matters |
 |------|-----------------|
 | `packages/plugins/tests/catalog.test.ts` | The plugin catalog must list every plugin exported from `src/index.ts`. A mismatch means `spec-linker` (or any other consumer) will be stale on day one. |
-| `packages/plugins/tests/plugin-teardown.test.ts` | The H1 audit pattern (every plugin implements `teardown` + `health`) must hold across the **63** plugins. A regression means a plugin can leak timers, watchers, or file handles across hot-reload. |
+| `packages/plugins/tests/plugin-teardown.test.ts` | Lifecycle expectations are checked across the 63 entries in `PLUGIN_CATALOG`. |
 | `packages/plugins/tests/smoke.test.ts` | All 8 historic plugin files (the original 8 from the pre-catalog era) must still import and register. Catches broken barrel exports. |
 
-**Why a separate script?** Running only the guards (≈2 seconds
-instead of ≈8 seconds for the full suite) lets CI flag the most
-common release-blocking regressions — stale catalog, missing
-teardown, broken barrel — quickly, without paying the full test
-cost on every publish.
+**Why a separate script?** It gives maintainers focused feedback on catalog,
+lifecycle, and barrel regressions. Avoid fixed timing claims: duration varies by
+machine and the full suite is much larger than this three-file selection.
 
 ## When each layer runs
 
-| Command | Layer 1 (`release:check`) | Layer 2 (`prepublishOnly`) |
-|---------|---------------------------|---------------------------|
-| `pnpm release` | ✅ | ✅ (npm/pnpm automatic) |
-| `pnpm release:dry` | ❌ | ✅ (publish --dry-run still runs prepublishOnly) |
-| `pnpm release:check` alone | ✅ | ❌ (use this if you want to inspect without publishing) |
-| `pnpm test:guard` alone | ❌ | ❌ (use this for fast feedback during plugin development) |
-| `pnpm test` alone | ❌ | ❌ (full vitest, not a release gate) |
-| **CI tag push** (`.github/workflows/release.yml`) | ✅ (explicit step) | ✅ (explicit step + automatic on `pnpm release`) |
-| **CI manual dispatch** (`workflow_dispatch`) | ✅ if `dry_run=false` | ✅ if `dry_run=false` (skipped on `dry_run=true`) |
+| Command | What runs |
+|---------|-----------|
+| `pnpm release` | `release:check`, then recursive public publish |
+| `pnpm release:dry` | Recursive publish dry-run only; run `release:check` separately |
+| `pnpm release:check` | Full repository release gate, no publication |
+| `pnpm test:guard` / `pnpm prepublishOnly` | Three focused plugin tests only |
+| `pnpm test` | Root Vitest suite, then the WebUI package test script |
+| Tag push | No npm release action in the current repository |
 
 ## Adding a new guard
 
@@ -89,26 +86,23 @@ baseline; new ones should match the same shape.
 > added to the index must also be added to the catalog — the
 > `plugin-teardown.test.ts` guard catches a drift between the two.
 
-## Why two layers and not one
+## Why keep the focused guard
 
-| Concern | Layer 1 | Layer 2 |
-|---------|---------|---------|
-| Type errors | ✅ | (redundant) |
-| Build failures | ✅ | (redundant) |
-| Audit warnings | ✅ | (redundant) |
-| Any test failure | ✅ | (redundant — 90% overlap) |
-| **Fast catalog/H1 invariant feedback** | ❌ (slow — 8s) | ✅ (2s) |
-| **Survives `pnpm publish` without `release:check`** (e.g. `pnpm publish -r` direct call) | ❌ | ✅ |
+| Concern | `release:check` | `test:guard` |
+|---------|-----------------|--------------|
+| Type/build/audit/package-contract/i18n failures | ✅ | ❌ |
+| Full test suite | ✅ | ❌ |
+| Focused catalog/lifecycle/barrel feedback | Covered by full tests | ✅ |
+| Guaranteed for each recursively published child | N/A | ❌ — child manifests do not declare this hook |
 
-Layer 2 is the **safety net** for the case where someone bypasses
-`pnpm release` and runs `pnpm publish` directly (e.g. to publish
-a single package in a hurry). Without Layer 2, the catalog could
-drift silently. With Layer 2, the guard fires regardless of how
-publish was invoked.
+Do not bypass `pnpm release` on the assumption that a recursive publish will
+run the root hook. For dry runs, use `pnpm release:check && pnpm release:dry`.
+For a real release, `pnpm release` encodes the required ordering.
 
 ## Cross-references
 
 - [`packages/plugins/src/catalog.ts`](../packages/plugins/src/catalog.ts) — what the catalog test guards
 - [`docs/feature-matrix.md`](feature-matrix.md) — the 63 plugins the H1 teardown test covers
 - [`packages/plugins/README.md`](../packages/plugins/README.md) — the plugin contract
-- [`.github/workflows/release.yml`](../.github/workflows/release.yml) — the CI workflow that runs both layers on tag push and (optionally) on manual dispatch
+- [`../RELEASE.md`](../RELEASE.md) — maintainer checklist, version bump, tagging, publication, and current automation status
+- [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) — website deployment only; not an npm release workflow

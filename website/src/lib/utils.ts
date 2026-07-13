@@ -262,6 +262,7 @@ export const packages = [
   '@wrongstack/kanban',
   '@wrongstack/sdd',
   '@wrongstack/security-scanner',
+  '@wrongstack/super-memory',
   '@wrongstack/tui',
   '@wrongstack/webui',
   '@wrongstack/webui-server',
@@ -302,7 +303,7 @@ export const changelog: ChangelogEntry[] = [
       'Workspace builds now run through one topologically ordered esbuild package driver instead of 19 per-package tsup configs',
       'Native TypeScript 7 declaration emit is used for package output while dependencies stay external and entry-point shims remain safe',
       "Compiler API consumers are isolated on Microsoft's @typescript/typescript6 compatibility package while build/typecheck run on TypeScript 7.0.2",
-      'README and website release copy now describe the current 18-package + 2-app workspace shape',
+      'README and website release copy then described the 0.285.0 18-package + 2-app workspace shape',
       'Package tables include kanban, SDD, security scanner, WebUI server, HQ, desktop, and the published wrongstack app entry',
     ],
   },
@@ -759,18 +760,16 @@ export const releaseProcess: ReleaseStep[] = [
   {
     phase: 'Pre-release',
     steps: [
-      'pnpm test — all tests green',
-      'pnpm typecheck — clean tsc --noEmit',
-      'pnpm lint — Biome clean',
-      'pnpm build — all packages build',
-      'node scripts/publish-check.mjs --dry-run',
+      'pnpm release:check — audit, build, contracts, typecheck and tests',
+      'pnpm release:dry — inspect the exact publish set',
+      'pnpm lint — optional full Biome policy gate',
     ],
   },
   {
     phase: 'Version bump',
     steps: [
       'node scripts/bump-version.mjs <patch|minor|major>',
-      'Version bumped in root + all 20 package/app workspace manifests + website/',
+      'Version bumped in root + all 21 package/app workspace manifests + website/',
       'CHANGELOG.md updated with release date and highlights',
     ],
   },
@@ -779,11 +778,11 @@ export const releaseProcess: ReleaseStep[] = [
     steps: ['git commit -am "release: X.Y.Z"', 'git tag vX.Y.Z', 'git push --follow-tags'],
   },
   {
-    phase: 'Verify CI',
+    phase: 'Publish',
     steps: [
-      'GitHub Actions Release workflow triggered by tag push',
-      'All 3 platforms green: Ubuntu, macOS, Windows',
-      'npm packages published to all workspace subpaths',
+      'Confirm npm authentication and intended registry',
+      'pnpm release — rerun release:check, then publish public workspaces',
+      'A tag alone does not publish packages',
     ],
   },
   {
@@ -791,21 +790,21 @@ export const releaseProcess: ReleaseStep[] = [
     steps: [
       'Verify: npm info @wrongstack/core',
       'Test install: npm install -g wrongstack && wrongstack version',
-      'GitHub Release created with auto-generated notes',
+      'Create or verify the GitHub Release and notes manually',
     ],
   },
 ];
 
 export const releaseWorkflow = {
-  trigger: 'Push a tag matching v*',
+  trigger: 'Run pnpm release after the release checklist',
   automation: [
-    'Typecheck + build + test on 3 platforms',
-    'Version tag verification (tag must match package.json)',
-    'npm publish for all workspace packages',
-    'GitHub Release creation with auto-generated notes',
+    'Audit, build, contract checks, typecheck and tests',
+    'Dry-run the exact recursive publish set',
+    'Publish public workspaces through authenticated pnpm',
+    'Verify npm and create the GitHub Release manually',
   ],
-  requiredSecrets: ['NPM_TOKEN — npm authentication token with publish access'],
-  preReleaseNote: 'Tags containing "-" (e.g. v1.0.0-beta.1) are marked as pre-release on GitHub.',
+  requiredSecrets: ['Authenticated npm session or token for the intended registry'],
+  preReleaseNote: 'Pre-release npm tags and GitHub Release flags are managed deliberately; no checked-in workflow infers them from a tag.',
   hotfix: [
     'git checkout vX.Y.Z',
     'git checkout -b hotfix/X.Y.Z+1',

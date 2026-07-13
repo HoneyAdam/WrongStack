@@ -34,22 +34,31 @@
 | `makeDirectorSessionFactory` | `packages/core/src/coordination/director-session.ts` | Produces per-subagent JSONL session writers under `<runDir>/<subagentId>.jsonl`. |
 | `createDelegateTool` | `packages/core/src/coordination/delegate-tool.ts` | Single-tool spawn+assign+await bundling available after Director mode is active. |
 
-### Director Tools (10 total — as of this release)
+### Director tools (14 total)
+
+`Director.tools()` currently returns these tool definitions:
 
 | Tool | Purpose |
 |------|---------|
 | `spawn_subagent` | Create a worker from roster role or explicit config. Returns subagent id. |
 | `assign_task` | Hand a task to a specific subagent. Returns task id. |
+| `kanban_queue` | Claim dependency-ready Kanban work and dispatch it into the fleet. |
 | `await_tasks` | Block until named task ids complete. |
-| `ask_subagent` | Synchronous bridge request to a running subagent (e.g. "summarize progress"). |
+| `ask_subagent` | Send a synchronous bridge request to a running subagent. |
+| `ask_result` | Retrieve the result of an earlier bridge request. |
 | `roll_up` | Aggregate completed task results into markdown or JSON. |
-| `terminate_subagent` | Forcibly abort a subagent. |
-| `fleet (action: status)` | Snapshot of all subagents and pending/completed task counts. |
-| `fleet (action: usage)` | Token + cost breakdown per subagent and fleet-total. |
-| `fleet (action: session)` | Read a subagent's JSONL transcript and extract last assistant text, stop reason, and tool-use count. |
-| `fleet (action: health)` | Per-subagent health snapshot: budget pressure, last activity timestamp, and status. |
+| `quality_gate` | Run verifier/reviewer agents and optionally request repair work. |
+| `terminate_subagent` | Abort one subagent. |
+| `terminate_all` | Abort all running subagents. |
+| `fleet` | Query status, usage, session, and health actions. |
+| `collab_debug` | Run the collaborative debug workflow. |
+| `fleet_emit` | Emit a fleet coordination event. |
+| `work_complete` | Record completion of delegated work. |
 
-### Pre-built Fleet Roster
+### Pre-built fleet roster
+
+`FLEET_ROSTER` contains 51 unique role ids: the 50-role phase catalog plus the
+operational `shadow-agent` role. Representative roles include:
 
 | Role | File | Purpose |
 |------|------|---------|
@@ -57,6 +66,8 @@
 | `bug-hunter` | `fleet.ts` | Systematic bug and code smell detection |
 | `refactor-planner` | `fleet.ts` | Architecture analysis, phased refactoring plans |
 | `security-scanner` | `fleet.ts` | Secret detection, injection vectors, CVE scanning |
+| `critic` | `fleet.ts` | Evaluate findings, plans, and architectural proposals |
+| `shadow-agent` | `fleet.ts` | One-shot fleet monitoring and intervention |
 
 ### CLI Integration
 
@@ -75,8 +86,8 @@ User Input
 ┌─────────────────────────────────────────────────────────────────┐
 │  Director Agent (LLM-driven)                                    │
 │  System Prompt: DEFAULT_DIRECTOR_PREAMBLE + leader prompt        │
-│  Tools: spawn_subagent, assign_task, await_tasks, ask_subagent,  │
-│         roll_up, terminate_subagent, fleet (action: status), fleet (action: usage)  │
+│  Tools: 14 orchestration definitions; see the table above       │
+│         (spawn, assign, await, review, fleet, terminate, etc.)   │
 └─────────────────────────────────────────────────────────────────┘
     │
     │ spawn() / assign() / awaitTasks()
@@ -105,13 +116,13 @@ User Input
 
 ### Key Design Decisions
 
-**Isolation is absolute.** Two sibling subagents never share a `Context`, `SessionWriter`, `TokenCounter`, or in-flight tool state. Communication is only via `AgentBridge` (parent-mediated).
+**Sibling run state is isolated by construction.** Each spawned subagent receives its own `Context`, `SessionWriter`, `TokenCounter`, and in-flight tool state. `Agent.run()` rejects a second concurrent call on the same instance because its shared context is not a concurrency boundary. Coordination may use `AgentBridge`, fleet events, the project mailbox, or an explicitly configured shared scratchpad.
 
 **Director is not an Agent.** `Director` is a coordinator + observability surface. To make it LLM-driven, construct an `Agent` with `director.tools()` registered. This keeps the construction symmetric with how other agents are built and avoids smuggling an LLM dependency into core.
 
 **Budget is explicit.** No implicit caps. The orchestrator picks budgets per task. `SubagentBudget` enforces hard stops; `FleetSpawnBudgetError` enforces fleet-wide spawn caps.
 
-**State survives crashes.** `DirectorStateCheckpoint` writes incremental snapshots on every mutation. `fleet.json` is the final manifest. Per-subagent JSONLs provide full replay capability.
+**State is checkpointed for recovery tooling.** `DirectorStateCheckpoint` schedules incremental snapshots after mutations, `fleet.json` is the final manifest, and per-subagent JSONLs preserve recorded events. These artifacts do not by themselves reattach in-flight workers after a process crash; fleet-aware resume remains a separate recovery path.
 
 ---
 
@@ -142,7 +153,7 @@ User Input
 | Hostile-prompt test pack | Verify bridge contract prevents parent-context exfiltration | 🔲 Pending |
 | `wstack sessions ls <runId>` | CLI command to list fleet/session artifacts | 🔲 Pending |
 | TUI fleet panel | Real-time subagent status dashboard in TUI | ✅ Shipped |
-| WebUI fleet tab | Fleet observability in web UI | 🔲 Pending |
+| WebUI fleet panel | Live subagent cards and counters in the per-session WebUI | ✅ Shipped |
 | `wstack replay <runId>` | Replay session events from JSONL | ✅ Shipped |
 | `fleet (action: session)` subagent-side bridge handler | Subagent responds to `session_read` bridge messages | 🔲 Pending |
 | `redirect` tool | Mid-flight task reassignment | 🔲 Pending |
@@ -206,7 +217,7 @@ Fleet artifacts are written. `wstack replay` exists for session-event replay, bu
 
 #### Fleet observability surface
 
-`FleetBus` events are emitted and consumed by the TUI. `FleetMonitor` (`Ctrl+F` / `F2`) shows the orchestration dashboard, `AgentsMonitor` (`Ctrl+G` / `F3`) shows per-agent live context, and `FleetPanel` renders the compact status-bar summary. WebUI has collaboration/worktree streaming handlers but does not yet have an equivalent dedicated fleet dashboard.
+`FleetBus` events are emitted and consumed by the TUI. `FleetMonitor` (`Ctrl+F` / `F2`) shows the orchestration dashboard, `AgentsMonitor` (`Ctrl+G` / `F3`) shows per-agent live context, and the TUI `FleetPanel` renders the compact status-bar summary. The per-session WebUI also ships a live `FleetPanel` with subagent cards and counters, but it does not have a dedicated full-page fleet dashboard.
 
 ### 4.5 Error Handling
 
@@ -224,9 +235,9 @@ The preamble uses generic fleet rules. For planner-class models, more explicit "
 
 The `DEFAULT_SUBAGENT_BASELINE` tells subagents to "be concise, structured, and self-contained" but provides no guidance on when to stop iterating (e.g. "if you've made 3 tool calls without meaningful progress, report back with what you tried"). Subagents in long-running tasks may exhaust their budget without producing useful output.
 
-#### Shared scratchpad is opt-in
+#### Shared scratchpad defaults in CLI-hosted Director sessions
 
-The scratchpad path must be explicitly passed to `Director`. If a director spawns multiple subagents without setting `sharedScratchpadPath`, they cannot coordinate via files. Making the scratchpad default to `<sessionsRoot>/<runId>/shared/` would make fleet coordination more discoverable.
+The CLI derives `sharedScratchpadPath` as `<fleetRoot>/shared` and passes it into the Director. Direct embedders constructing `Director` themselves must still provide the option if they want file-based coordination; otherwise `sharedScratchpadPath` is `null`.
 
 ### 4.7 Test Coverage Gaps
 
@@ -310,7 +321,7 @@ In `fleet-bus.ts` line 50-73, `FORWARDED_TYPES` is a const array listing every e
 | R2 | Hostile-prompt test pack | `director.test.ts` | Verify bridge contract prevents parent-context exfiltration |
 | R3 | `wstack sessions ls <runId>` | CLI subcommands | Inspect fleet artifacts |
 | R4 | TUI fleet panel | `packages/tui/src/components/fleet-panel.tsx` | Shipped compact status summary; full monitor also lives in `packages/tui/src/components/fleet-monitor.tsx` |
-| R5 | WebUI fleet tab | `packages/webui/` | Fleet observability in web UI |
+| R5 | Dedicated full-page WebUI fleet dashboard | `packages/webui/` | The live `FleetPanel` is shipped; a dedicated dashboard remains optional follow-up |
 | R6 | Fleet-aware replay | CLI, core | Extend existing `wstack replay` support to understand director/fleet run ids |
 | R7 | `fleet (action: session)` subagent-side bridge handler | `agent-subagent-runner.ts` | Subagent responds to `session_read` bridge messages |
 | R8 | `redirect` tool | `director-tools.ts` | Mid-flight task reassignment |
@@ -321,7 +332,7 @@ In `fleet-bus.ts` line 50-73, `FORWARDED_TYPES` is a const array listing every e
 | # | Action | Files | Rationale |
 |---|--------|-------|-----------|
 | B1 | `MultiAgentHost.status()` inconsistent after stopAll | `multi-agent.ts` | Pending count includes stopped subagent tasks |
-| B2 | `sharedScratchpadPath` default to `<sessionsRoot>/<runId>/shared/` | `director.ts` | Fleet coordination more discoverable |
+| B2 | Optional core-level `sharedScratchpadPath` default | `director.ts` | CLI-hosted sessions already pass `<fleetRoot>/shared`; direct embedders must opt in |
 | B3 | `SUBAGENT_TIMEOUT_BUFFER_MS` configurable | `delegate-tool.ts` | Hardcoded 30s buffer; make configurable |
 | B4 | `partial.lastAssistantText` in delegate failure output | `delegate-tool.ts` | LLM should see actual partial output |
 

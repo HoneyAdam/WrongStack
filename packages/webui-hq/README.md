@@ -8,10 +8,11 @@ coordination surface served at `wstack --hq` (port 3499).
 This is a **self-contained Vite + React app** with zero CDN dependencies —
 everything bundles into `dist/` so it works on offline/LAN/restricted-network
 machines. It connects to the HQ server's `/ws/browser` WebSocket channel and
-renders 9 views:
+renders 10 views:
 
 | View | Source | Purpose |
 |------|--------|---------|
+| Cockpit | `hq.snapshot` + `/api/alerts` | fleet, alert, and cost overview with quick actions |
 | Fleet | `hq.snapshot` | machine → project → terminal → agent tree |
 | Console | `/api/sessions/:id/events` | live chat transcript per terminal |
 | Mailbox | `hq.snapshot.mailboxes` | unread/incomplete/high-priority counts |

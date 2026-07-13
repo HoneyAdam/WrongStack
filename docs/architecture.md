@@ -8,31 +8,35 @@ How WrongStack is wired together, from the bottom up.
 
 ```
 packages/
-  core/         types + kernel + defaults — the runtime, zero opinions
-  providers/    Anthropic / OpenAI / Google / OpenAI-compatible adapters
-  tools/        bash, read, write, edit, grep, …, plus the meta-tools
-  mcp/          MCP client + registry + stdio/SSE/streamable-http transports
-  cli/          REPL, subcommands, interactive pickers, slash commands, plugin management
-  tui/          React/Ink terminal UI (lazy-loaded behind --tui)
-  plug-lsp/     LSP bridge + language tooling + slash commands
-  runtime/      Default runtime implementations and host-level composition helpers
-  acp/          ACP server/client integration for external agent protocols
-  plugins/      Bundled plugin library
-  telegram/     Telegram bridge plugin — send messages, receive prompts, get notified
-  skills/       Skill subpackages published independently
-  webui/        Standalone Vite+React web UI (wstackui) + WS backend; also embeddable via --webui
-  webui-hq/     HQ command-center React dashboard (Phase 5) — replaces the inline CDN HTML
+  core/              kernel, agent runtime, shared types, storage, security, coordination
+  kanban/            task-board and queue primitives; the one WrongStack dependency below core
+  providers/         Anthropic / OpenAI / Google / OpenAI-compatible adapters
+  tools/             built-in filesystem, shell, browser, quality, and meta-tools
+  mcp/               MCP client + registry + stdio/SSE/streamable-http transports
+  runtime/           default runtime implementations and host composition
+  sdd/               Spec-Driven Development stores and workflow helpers
+  security-scanner/  standalone security scanning surface
+  super-memory/      project memory, graph, retrieval, and hygiene
+  acp/               ACP server/client integration for external agent protocols
+  plug-lsp/          LSP bridge + language tooling + slash commands
+  plugins/           bundled plugin library
+  telegram/          Telegram bridge plugin
+  tui/               React/Ink terminal UI
+  webui/             Vite/React browser frontend
+  webui-server/      shared Node HTTP/WebSocket backend; owns the `wstackui` bin
+  webui-hq/          React HQ command-center dashboard
+  cli/               boot assembly, REPL, subcommands, slash commands, surface launchers
+  bench/             benchmark harness and reporters
 apps/
-  wrongstack/   bin entry — runs cli/main(argv)
+  wrongstack/        published `wrongstack` / `wstack` entry shim
+  desktop/           Electron shell
 ```
 
-Each package depends only on what's below it. `core` depends on nothing
-WrongStack-internal; `providers`/`tools`/`mcp`/`plug-lsp`/`runtime`/`acp`/`plugins`/`telegram` depend on `core`;
-`cli`/`tui`/`webui` compose the product-facing surfaces above those packages.
+The workspace dependency graph is a DAG enforced by `packages/core/tests/architecture/package-boundaries.test.ts` and by the topological build runner. `@wrongstack/kanban` has no WrongStack dependency and sits below `core`; `core` declares `@wrongstack/kanban`. Product-facing packages compose core and the extracted domain packages without introducing a dependency from core back into a product surface.
 
 ---
 
-## The kernel (~1670 lines total)
+## The kernel
 
 `packages/core/src/kernel/` holds six modules (Container, Pipeline, EventBus,
 RunController, Tokens, plus the full event type catalog). Nothing else in the
@@ -426,10 +430,10 @@ it's just the assembly of defaults + the interactive shell.
 
 ## WebUI
 
-A Vite+React web UI served by the CLI via `--webui` (or standalone via the
-`wstackui` binary). The server starts an HTTP server that mounts the
-compiled React app and wires it to the same EventBus and session store as
-the CLI/TUI, so all surfaces stay consistent with the agent run.
+The `@wrongstack/webui` Vite/React frontend is served by the CLI via
+`--webui` or by the `wstackui` binary owned by `@wrongstack/webui-server`.
+The shared backend mounts the compiled app and wires it to runtime events and
+session state.
 
 The standalone server lives in `packages/webui-server/src/server/` (the
 `@wrongstack/webui-server` package, extracted in PR #018b) and was

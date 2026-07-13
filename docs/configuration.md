@@ -729,7 +729,7 @@ When unset, git's own configuration applies (default behavior). Manage at runtim
 
 ### HQ command center
 
-The HQ command center (`wstack --hq`) is a project-independent observability layer. See the full architecture and deployment guide in [plans/hq-command-center-2026-06.md](./plans/hq-command-center-2026-06.md).
+The HQ command center (`wstack --hq`) is a project-independent observability and control layer. See the full architecture and deployment guide in [plans/hq-command-center-2026-06.md](./plans/hq-command-center-2026-06.md).
 
 **Start HQ:**
 
@@ -751,7 +751,7 @@ wstack
 export WRONGSTACK_HQ_PROJECT_ALIAS=my-project
 ```
 
-**Defaults:** when `WRONGSTACK_HQ_URL` is unset, no publisher is created and hosts run normally with zero overhead. Mailbox send/ack/register/heartbeat events are the primary telemetry source. Raw message bodies and file contents are never sent unless `WRONGSTACK_HQ_RAW_CONTENT=1`.
+**Defaults:** when `WRONGSTACK_HQ_URL` is unset, clients attempt same-machine HQ discovery and remain dormant when no live HQ is advertised; set `WRONGSTACK_HQ_ENABLED=0` (or `hq.enabled: false`) to opt out. Mailbox send/ack/register/heartbeat events are the primary telemetry source. Raw content publishing defaults on for HQ targets; set `WRONGSTACK_HQ_RAW_CONTENT=0` (or `hq.rawContent: false`) to redact it. Secret scrubbing and sensitive-field masking still apply.
 
 ### Windows shell selection (`WRONGSTACK_SHELL`)
 

@@ -15,7 +15,7 @@ export function Release() {
           eyebrow="How we ship"
           title="From a green CI run to"
           highlight="npm in 5 steps"
-          description="Every release is lockstep across 18 packages, 2 apps, and the website. A git tag triggers GitHub Actions, which typechecks, tests, builds, and publishes to npm on 3 platforms."
+          description="Every release is lockstep across 19 packages, 2 apps, and the website. Publishing is an explicit maintainer action: the repository has a Pages workflow, not an npm release workflow."
         />
 
         {/* Workflow banner */}
@@ -25,19 +25,19 @@ export function Release() {
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-brand">
                   <Rocket className="size-4" />
-                  Trigger
+                  Maintainer action
                 </div>
                 <p className="mt-1 text-lg font-bold tracking-tight">
-                  Push a tag matching <code className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-sm text-brand">v*</code>
+                  Run <code className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-sm text-brand">pnpm release</code> after version and tag preparation
                 </p>
                 <p className="mt-2 text-sm text-muted">
-                  The Release workflow typechecks, builds, and tests on Ubuntu, macOS, and Windows —
-                  then publishes all workspace packages to npm and creates a GitHub Release.
+                  The command reruns the repository release gate and publishes public workspaces.
+                  npm verification and the GitHub Release remain deliberate post-release steps.
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Badge variant="outline" className="border-brand/30 text-brand">
-                  <ShieldCheck className="mr-1 size-3" /> 3-platform CI
+                  <ShieldCheck className="mr-1 size-3" /> explicit publish
                 </Badge>
                 <Badge variant="outline" className="border-term-purple/30 text-term-purple">
                   Lockstep versioning
@@ -59,7 +59,7 @@ export function Release() {
 
             {/* Secrets note */}
             <div className="mt-4 rounded-xl border border-line bg-card px-4 py-3">
-              <span className="font-mono text-[11px] uppercase tracking-widest text-faint">Required secrets</span>
+              <span className="font-mono text-[11px] uppercase tracking-widest text-faint">Required operator setup</span>
               <div className="mt-1 flex flex-wrap gap-2">
                 {releaseWorkflow.requiredSecrets.map((s) => (
                   <code key={s} className="rounded bg-surface px-2 py-0.5 font-mono text-xs text-brand">{s}</code>

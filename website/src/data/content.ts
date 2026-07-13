@@ -84,7 +84,7 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
   },
   '/commands': {
     title: 'Slash command reference — WrongStack',
-    description: 'Search and understand all 92 documented WrongStack slash commands.',
+    description: 'Search and understand 92 documented WrongStack operator commands.',
   },
   '/settings': {
     title: 'Settings & configuration — WrongStack',
@@ -129,7 +129,7 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
   '/agent-roster': {
     title: 'Agent roster — WrongStack',
     description:
-      'Explore all 51 built-in fleet roles across nine phases, plus Shadow and five external ACP agents.',
+      'Explore 50 selectable phase roles, the separate Shadow operational role (51 built-ins total), and five optional ACP roles.',
   },
   '/mailbox': {
     title: 'Global Mailbox — WrongStack',

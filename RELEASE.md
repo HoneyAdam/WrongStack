@@ -6,11 +6,16 @@ Step-by-step guide for publishing a WrongStack release.
 
 ## Pre-release
 
-- [ ] All tests pass: `pnpm test`
-- [ ] Typecheck clean: `pnpm typecheck`
-- [ ] Lint clean: `pnpm lint`
-- [ ] Build clean: `pnpm build`
-- [ ] Publish dry-run: `pnpm -r publish --dry-run --no-git-checks`
+- [ ] Run the repository release gate: `pnpm release:check`
+  - `pnpm audit --audit-level=moderate`
+  - dependency-ordered `pnpm build`
+  - `node scripts/check-package-contracts.mjs`
+  - `pnpm check:node-pty`
+  - `pnpm lint:i18n`
+  - `pnpm typecheck`
+  - `pnpm test`
+- [ ] Run the exact publish dry-run script: `pnpm release:dry`
+- [ ] Run `pnpm lint` separately if the release policy requires the full Biome lint; it is not currently part of `release:check`.
 
 ## Version bump
 
@@ -22,31 +27,46 @@ node scripts/bump-version.mjs minor
 git diff --stat
 ```
 
-- [ ] Version bumped in all workspace packages
-- [ ] CHANGELOG.md updated with release date and highlights
+- [ ] Root, all 19 `packages/*`, both `apps/*`, and website version surfaces were updated by the bump script
+- [ ] `website/package-lock.json`, `website/src/lib/utils.ts`, and `website/index.html` contain the intended website version
+- [ ] CHANGELOG.md has a new dated release section; do not rewrite older release entries
 
-## Commit and tag
+## Commit the release candidate
 
 ```bash
 git commit -am 'release: 0.5.0'
+```
+
+- [ ] Commit message follows `release: X.Y.Z` format
+- [ ] Working tree is clean and the commit contains the intended version/docs only
+
+## Publish and verify
+
+There is currently **no npm release workflow** in `.github/workflows/`; the only checked-in workflow deploys the website. A version tag does not publish packages automatically.
+
+```bash
+pnpm release
+```
+
+`pnpm release` reruns `release:check`, then recursively publishes public workspace packages with `--access public --no-git-checks`. Confirm npm authentication and the intended registry before running it.
+
+- [ ] `pnpm release` completed successfully
+- [ ] Every intended public package is visible on npm
+
+After publication is verified, tag and push the exact published commit:
+
+```bash
 git tag v0.5.0
 git push --follow-tags
 ```
 
-- [ ] Commit message follows `release: X.Y.Z` format
-- [ ] Tag pushed (triggers the Release workflow)
-
-## Verify CI
-
-- [ ] GitHub Actions Release workflow passes
-- [ ] Ubuntu and Windows CI jobs are green
-- [ ] npm packages published successfully
+- [ ] The tag points at the exact published commit
 
 ## Post-release
 
 - [ ] Verify packages on npm: `npm info @wrongstack/core`
 - [ ] Test install: `npm install -g wrongstack && wrongstack version`
-- [ ] Create or verify the GitHub Release and generated notes
+- [ ] Create or verify the GitHub Release and notes manually (no checked-in release workflow currently does this)
 - [ ] Update README.md "What's new" section if major release
 
 ## Hotfix process
@@ -59,28 +79,17 @@ git checkout -b hotfix/0.5.1
 # fix the bug
 node scripts/bump-version.mjs patch
 git commit -am 'release: 0.5.1'
+pnpm release
+# after npm verification:
 git tag v0.5.1
 git push --follow-tags
 ```
 
 ---
 
-## Release workflow
+## Automation status
 
-The `.github/workflows/release.yml` automates:
-
-1. Browser runtime smoke test, topological build, typecheck, and test gates on Ubuntu
-2. Version tag verification (tag must match `package.json`)
-3. Main-ancestry verification (the tagged commit must be contained in `origin/main`)
-4. npm publication for validated tags, or a package dry-run for manual runs on `main`
-
-**Trigger**: Push a tag matching `v*`, or manually run the workflow from `main`
-for a dry-run. Manual workflow runs cannot publish.
-
-**Required secrets**:
-- `NPM_TOKEN` — npm authentication token with publish access
-
-**Pre-release tags**: Tags containing `-` (e.g. `v1.0.0-beta.1`) are marked as pre-release on GitHub.
+`.github/workflows/pages.yml` builds and deploys `website/` on pushes to `main` or manual dispatch. It does **not** typecheck/test/publish the npm workspace or create releases. If a release workflow is added later, document its triggers, ancestry/tag checks, permissions, and required secrets here only after the file exists.
 
 ---
 
@@ -89,5 +98,5 @@ for a dry-run. Manual workflow runs cannot publish.
 To see exactly what would be published without actually publishing:
 
 ```bash
-pnpm -r publish --dry-run --no-git-checks
+pnpm release:dry
 ```
