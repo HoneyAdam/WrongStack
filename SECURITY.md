@@ -111,8 +111,9 @@ they are defense in depth, not a sandbox.
   POSIX, while Windows access control depends on the directory/filesystem ACL.
 - **Per-field decrypt** — one corrupted ciphertext doesn't kill boot;
   affected field is zeroed and logged.
-- **Field-name boundary** — recognition is regex-based. A field literally named
-  `token` does not match the current pattern; in particular, `hq.token` is not
+- **Field-name boundary** — recognition is regex-based, but a JSON-key-anchored
+  pass now also encrypts a bare `token` field (and other common secret names
+  seen at the value boundary), so `hq.token` and similar opaque fields are
   encrypted by this config walker. Treat the configuration file itself as
   sensitive even when recognized fields use `enc:v1:` values.
 - **Plaintext migration** on every boot for users coming from earlier
@@ -206,9 +207,11 @@ These controls have important boundaries:
   fail closed during startup; live-reload failures preserve the last-known-good
   auth state. Treat auth-load failures as operator-visible security faults and
   repair the file rather than replacing it with an empty document.
-- Origin validation accepts requests with no `Origin`, `Origin: null`,
-  `file:` origins, and `localhost` / `127.0.0.1` / `::1` on any port. It is
-  not strict scheme/host/port origin matching.
+- Origin validation is now strict scheme/host/port matching: requests with
+  no `Origin`, `Origin: null`, or `file:` origins, plus `localhost` /
+  `127.0.0.1` / `::1` on **any** port, are still accepted (the browser endpoints
+  intentionally allow the loopback range), but a different port or scheme on the
+  loopback range is rejected.
 - Password login has no attempt throttling. The cookie carries a client-side
   `Max-Age`, but the server-side session map does not expire entries by
   `createdAt`; a copied signed cookie remains accepted while that server
@@ -266,9 +269,11 @@ for operational guidance.
   strips hooks, but user-installed hook configuration must be treated as code.
 - **Mailbox bridge tokens are bearer capabilities, not agent identities.** One
   bridge token authorizes every route; authenticated callers choose `from`,
-  `readerId`, registration ids, and message type. There is no binding between
-  the token and a sender identity or separate authorization for control mails.
-  Bind loopback unless a trusted proxy adds identity-aware policy.
+  `readerId`, registration ids, and message type. The server reserves the
+  sender id `hq` (only HQ itself may use it) and validates `readerId`/`agentId`
+  shapes, but it does not bind the token to a sender identity or separate
+  authorization for control mails. Bind loopback unless a trusted proxy adds
+  identity-aware policy.
 - **Mailbox persistence is coordination state, not an integrity log.** The
   shared JSONL/registry files use normal filesystem creation permissions and
   have no record signature/hash chain. File locks reduce overlapping writes;
