@@ -102,6 +102,9 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
       >
       {/* Drag handle */}
       <div
+        role="separator"
+        aria-orientation="vertical"
+        tabIndex={0}
         onMouseDown={startDrag}
         onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
         className="group/handle absolute top-0 right-0 h-full w-2 cursor-col-resize z-10 flex items-center justify-end"

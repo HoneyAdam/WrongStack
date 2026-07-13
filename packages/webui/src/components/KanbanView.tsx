@@ -406,6 +406,7 @@ function KanbanColumnView({
   const empty = tasks.length === 0;
   return (
     <section
+      role="list"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -435,6 +436,8 @@ function KanbanColumnView({
             onDragStart={() => setDragTaskId(task.id)}
             onDragEnd={() => setDragTaskId(null)}
             onClick={() => onSelectTask(task.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectTask(task.id); } }}
+            tabIndex={0}
             className={cn(
               'cursor-pointer rounded-md border bg-background p-3 shadow-sm transition-colors',
               selectedTaskId === task.id ? 'border-primary' : 'hover:border-primary/50',

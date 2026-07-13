@@ -528,8 +528,12 @@ export function SkillsList({ className }: { className?: string }) {
       {installModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+          role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) setInstallModalOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setInstallModalOpen(false);
           }}
         >
           <div
@@ -635,8 +639,12 @@ export function SkillsList({ className }: { className?: string }) {
       {createModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+          role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) setCreateModalOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setCreateModalOpen(false);
           }}
         >
           <div

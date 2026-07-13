@@ -875,8 +875,12 @@ export function SkillDetailView({ className }: { className?: string }) {
       {uninstallConfirmSkill && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+          role="presentation"
           onClick={(e) => {
             if (e.target === e.currentTarget) setUninstallConfirmSkill(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setUninstallConfirmSkill(null);
           }}
         >
           <div

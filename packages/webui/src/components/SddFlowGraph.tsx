@@ -103,7 +103,7 @@ function TaskNode({ data }: { data: TaskNodeData }) {
       )}
       style={{ width: NODE_W, animationDelay: `${Math.min(data.index * 45, 600)}ms` }}
       onClick={() => data.onTaskClick?.(t.id)}
-      role={data.onTaskClick ? 'button' : undefined}
+      role="button"
       tabIndex={data.onTaskClick ? 0 : undefined}
       onKeyDown={(e) => {
         if (data.onTaskClick && (e.key === 'Enter' || e.key === ' ')) {

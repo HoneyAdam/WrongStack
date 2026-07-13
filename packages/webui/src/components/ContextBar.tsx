@@ -109,7 +109,7 @@ export function ContextBar({
       }
       onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick(); } } : undefined}
-      role={onClick ? 'button' : undefined}
+      role="button"
       tabIndex={onClick ? 0 : undefined}
     >
       {/* Use tabular-nums font for reliable Unicode block alignment. */}
@@ -167,7 +167,7 @@ export function ContextFillBar({
       }
       onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick(); } } : undefined}
-      role={onClick ? 'button' : undefined}
+      role="button"
       tabIndex={onClick ? 0 : undefined}
     >
       <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted shrink-0">
