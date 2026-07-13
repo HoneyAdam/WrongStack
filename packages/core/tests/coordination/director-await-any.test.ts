@@ -203,7 +203,7 @@ describe('Director.awaitTasksAny', () => {
     await director.shutdown();
   });
 
-  it('shutdown() clears any-waiter timeout timers (no timedOut fires after shutdown)', async () => {
+  it('shutdown() resolves any-waiter promises with a stopped result (no hang)', async () => {
     vi.useFakeTimers();
     try {
       const { director, gateFor } = buildGatedDirector();
@@ -216,11 +216,19 @@ describe('Director.awaitTasksAny', () => {
         settled = r;
       });
       await director.shutdown();
-      // Advancing past the timeout must NOT fire the timedOut resolution —
-      // shutdown cleared the timer, so the promise stays pending (the same
-      // contract as taskWaiters after shutdown).
+      // shutdown now resolves pending any-waiters with a synthetic
+      // 'stopped' result instead of leaving the promise dangling.
+      // Use a microtask to let the settled assignment run.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).not.toBeNull();
+      const result = settled as { completed: Array<{ taskId: string; status: string }>; pending: string[] };
+      expect(result.completed).toHaveLength(1);
+      expect(result.completed[0]?.taskId).toBe('t-never');
+      expect(result.completed[0]?.status).toBe('stopped');
+      expect(result.pending).toEqual([]);
+      // Confirm the original timeout no longer fires (timer was cleared).
       await vi.advanceTimersByTimeAsync(3_600_000 + 1_000);
-      expect(settled).toBeNull();
+      expect(settled).not.toBeNull();
     } finally {
       vi.useRealTimers();
     }

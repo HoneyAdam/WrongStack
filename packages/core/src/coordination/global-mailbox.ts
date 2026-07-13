@@ -193,7 +193,7 @@ export class GlobalMailbox implements Mailbox {
    *
    * The index is rebuilt whenever the cache array is replaced
    * (`_setMessageCache`), extended when new messages are pushed
-   * (`_pushToCache`, `_readNewMessagesOnly`), and cleared on `close()`.
+   * (`_pushToCache`), and cleared on `close()`.
    * It is `null` when the cache itself is null (> MESSAGE_CACHE_MAX_ENTRIES
    * or never populated).
    *
@@ -1174,86 +1174,6 @@ export class GlobalMailbox implements Mailbox {
     }
   }
 
-  /**
-   * Read only newly-appended bytes from the file and append them to the
-   * in-memory cache. This avoids re-reading and re-parsing the entire file
-   * when another process appended messages since our last read.
-   *
-   * Only safe when the file grew in size (messages are append-only). When
-   * the file was rewritten (ack/purge changed existing content), callers
-   * must fall back to {@link _readMessages}.
-   *
-   * @returns The (now up-to-date) message cache.
-   */
-  private async _readNewMessagesOnly(
-    fd: fsp.FileHandle,
-    oldSize: number,
-    newSize: number,
-  ): Promise<MailboxMessage[]> {
-    const tailLen = newSize - oldSize;
-    const buf = Buffer.alloc(tailLen);
-    await fd.read(buf, 0, tailLen, oldSize);
-    const tail = buf.toString('utf8');
-
-    // Guard against a half-written tail: if another process is mid-append,
-    // the tail may not end with the LINE_SEPARATOR. Parsing a partial JSON
-    // line would throw (caught below), but worse: the NEXT incremental read
-    // would skip that same line because the size tracker already advanced.
-    // If the tail doesn't end with LINE_SEPARATOR, the last segment is a
-    // partial write — return the cache as-is WITHOUT advancing trackers so
-    // the next read retries from the same offset.
-    if (!tail.endsWith(LINE_SEPARATOR)) {
-      // Check if there are complete lines before the partial one.
-      // We can safely parse complete lines and leave the partial for next read.
-      const lastSeparatorIdx = tail.lastIndexOf(LINE_SEPARATOR);
-      if (lastSeparatorIdx === -1) {
-        // Entire tail is a partial line — don't advance, let caller fall
-        // through to a full re-read on the next call.
-        return this._messageCache!;
-      }
-      // Parse complete lines only; advance size tracker to the last complete
-      // byte so the next incremental read picks up from the right offset.
-      const completeTail = tail.slice(0, lastSeparatorIdx + 1);
-      this._appendIncrementalLines(completeTail);
-      // Advance size tracker to reflect only the consumed bytes.
-      // The caller still updates _messageCacheMtime from the stat.
-      this._messageCacheSize = oldSize + lastSeparatorIdx + 1;
-      return this._messageCache!;
-    }
-
-    // Normal path: tail ends with LINE_SEPARATOR, all lines are complete.
-    this._appendIncrementalLines(tail);
-    // Advance size tracker to match the fully-consumed tail.
-    this._messageCacheSize = newSize;
-    return this._messageCache!;
-  }
-
-  private _appendIncrementalLines(raw: string): void {
-    for (const line of raw.split(LINE_SEPARATOR)) {
-      if (!line.trim()) continue;
-      const message = this._parseLine(line);
-      if (message === null) continue;
-      this._messageCache!.push(message);
-      const idx = this._messageCache!.length - 1;
-      if (this._recipientIndex !== null) {
-        let set = this._recipientIndex.get(message.to);
-        if (set === undefined) {
-          set = new Set();
-          this._recipientIndex.set(message.to, set);
-        }
-        set.add(idx);
-      }
-      if (this._senderIndex !== null) {
-        let set = this._senderIndex.get(message.from);
-        if (set === undefined) {
-          set = new Set();
-          this._senderIndex.set(message.from, set);
-        }
-        set.add(idx);
-      }
-    }
-  }
-
   private _parseLine(line: string): MailboxMessage | null {
     try {
       return parseMailboxMessageLine(line);
@@ -1366,23 +1286,14 @@ export class GlobalMailbox implements Mailbox {
         return this._messageCache;
       }
 
-      // Incremental path: cache exists and the file only grew (appends).
-      // No ack/purge/clear rewrote the file, so we only need to parse
-      // the newly-appended bytes.
-      if (
-        this._messageCache !== null &&
-        this._messageCacheSize >= 0 &&
-        st.size > this._messageCacheSize
-      ) {
-        const fd = await fsp.open(this.messagePath, 'r');
-        try {
-          const updated = await this._readNewMessagesOnly(fd, this._messageCacheSize, st.size);
-          this._messageCacheMtime = st.mtimeMs;
-          return updated;
-        } finally {
-          await fd.close();
-        }
-      }
+      // Fall through to full re-read: the cache is stale but we cannot
+      // safely distinguish "file grew by appends" from "file was rewritten
+      // larger" (ackMany/purgeStale/clearAll all rewrite the entire file
+      // and can increase its size by adding readBy/completedAt fields).
+      // A cross-process rewrite makes the old incremental-read assumption
+      // unsafe — reading from the old byte offset would consume bytes
+      // from the middle of a rewritten JSON record, silently dropping
+      // messages. Always re-read when the cache is stale.
 
       // Full re-read: cache empty, file was rewritten (ack/purge), or
       // this is the first read.
