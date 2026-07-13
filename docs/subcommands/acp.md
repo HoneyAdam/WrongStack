@@ -29,25 +29,20 @@ The server speaks the v1 spec — see [the v1 protocol reference](https://agentc
 `wstack acp list` is a live probe of the 12-entry catalog in
 `packages/acp/src/registry/agents.catalog.ts`. Each entry is checked via
 `spawn()` with the platform-appropriate shell flag, and the result is
-cached for 5 seconds. Example output:
+cached for 5 seconds. Run `wstack acp sync` to pull the latest
+[agentclientprotocol/registry](https://github.com/agentclientprotocol/registry)
+(37+ agents). Example output (your host will differ):
 
 ```
 Detected ACP agents:
 
-  ✓ claude-code      Claude Code  (2.1.178 (Claude Code))
-  ✓ gemini-cli       Gemini CLI  (0.45.1)
-  ✓ codex-cli        Codex CLI  (codex-cli 0.139.0)
-  ✓ copilot          GitHub Copilot CLI  (Runs the GitHub Copilot CLI.)
-  ✓ cline            Cline  (11.11.0)
-  ✓ qwen-code        Qwen Code  (0.16.0)
-  ✓ kiro-cli         Kiro CLI  (0.12.224)
-  ✓ opencode         OpenCode  (1.15.5)
+  ✓ claude-code      Claude Code  (adapter)
+  ✓ gemini-cli       Gemini CLI  (native)
+  ✓ codex-cli        Codex CLI  (adapter)
+  ✓ opencode         OpenCode  (native)
   ✗ goose            Goose  (binary not found)
-  ✗ openhands        OpenHands  (binary not found)
-  ✗ mistral-vibe     Mistral Vibe  (binary not found)
   ✗ cursor           Cursor  (binary not found)
-
-8 of 12 agents available.
+  …
 ```
 
 ## `wstack acp spawn`
@@ -58,8 +53,9 @@ Runs a single task on a single ACP agent and waits for the result.
 wstack acp spawn <agent-id> <task description>
 ```
 
-The agent is looked up first in the legacy 5-entry `ACP_AGENT_COMMANDS` map,
-then falls back to the 12-entry catalog. The task is sent as a single
+The agent is looked up first in the legacy `ACP_AGENT_COMMANDS` map,
+then falls back to the 12-entry catalog, then the synced registry.
+The task is sent as a single
 `session/prompt` turn; `session/update` notifications are streamed to stderr
 (if you want them) and the final `stopReason` and result text are printed to
 stdout.

@@ -28,14 +28,14 @@ export function AcpPage() {
           <SectionIntro index="02" eyebrow="Discovery" title="Live $PATH probe. 12 agents. Cached results." description="EnsembleRegistry probes all catalog entries in parallel. Results are cached for 5 seconds. The bundled catalog is the offline fallback; `/acp sync` fetches the official registry (37+ agents)." />
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { name: 'Claude Code', vendor: 'Anthropic', integration: 'native' },
+              { name: 'Claude Code', vendor: 'Anthropic', integration: 'adapter' },
               { name: 'Gemini CLI', vendor: 'Google', integration: 'native' },
-              { name: 'Codex CLI', vendor: 'OpenAI', integration: 'native' },
-              { name: 'GitHub Copilot', vendor: 'GitHub', integration: 'native' },
+              { name: 'Codex CLI', vendor: 'OpenAI', integration: 'adapter' },
+              { name: 'GitHub Copilot', vendor: 'GitHub', integration: 'experimental' },
               { name: 'Cline', vendor: 'Community', integration: 'community' },
-              { name: 'Qwen Code', vendor: 'Community', integration: 'community' },
+              { name: 'Qwen Code', vendor: 'Community', integration: 'experimental' },
               { name: 'OpenCode', vendor: 'Community', integration: 'native' },
-              { name: 'Kiro CLI', vendor: 'Community', integration: 'community' },
+              { name: 'Kiro CLI', vendor: 'Community', integration: 'experimental' },
               { name: 'Cursor', vendor: 'Community', integration: 'experimental' },
               { name: 'Goose', vendor: 'Community', integration: 'experimental' },
               { name: 'OpenHands', vendor: 'Community', integration: 'experimental' },
@@ -60,9 +60,10 @@ export function AcpPage() {
             <Radio className="size-5 text-brand" /><h2 className="mt-8 text-xl font-black text-fg">Client commands</h2>
             <div className="mt-5 space-y-3">
               {[
-                { cmd: '/acp probe', desc: 'Test connectivity to all installed agents. Reports reachability and version.' },
-                { cmd: '/acp gemini-cli "review auth"', desc: 'Send a task to a specific agent. Blocking — waits for completion.' },
-                { cmd: '/acp list', desc: 'Show live detection: installed/not-found for all 12 catalog entries.' },
+                { cmd: '/acp probe', desc: 'Handshake-test agents — fast initialize-only check. Shows which agents can speak ACP at all.' },
+                { cmd: '/acp gemini-cli "review auth"', desc: 'Send a task to a specific agent. Blocking — waits for completion. Use --bg for background dispatch.' },
+                { cmd: '/acp bench [csv] [--fs]', desc: 'Full end-to-end verification per agent. Runs handshake→prompt→result and grades pass/partial/fail.' },
+                { cmd: '/acp list', desc: 'Live detection: installed/not-found for all 12 catalog entries with integration status.' },
                 { cmd: '/acp sync', desc: 'Fetch latest ACP registry (37+ agents) and cache for offline use.' },
               ].map(({ cmd, desc }) => (<div key={cmd} className="rounded-lg border border-line bg-bg p-4"><code className="font-mono text-sm font-black text-brand">{cmd}</code><p className="mt-1.5 text-xs leading-5 text-muted">{desc}</p></div>))}
             </div>

@@ -90,14 +90,14 @@ export function EnsemblePage() {
           />
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {([
-              { name: 'Claude Code', vendor: 'Anthropic', id: 'claude-code', integration: 'native' },
+              { name: 'Claude Code', vendor: 'Anthropic', id: 'claude-code', integration: 'adapter' },
               { name: 'Gemini CLI', vendor: 'Google', id: 'gemini-cli', integration: 'native' },
-              { name: 'Codex CLI', vendor: 'OpenAI', id: 'codex-cli', integration: 'native' },
-              { name: 'GitHub Copilot', vendor: 'GitHub', id: 'copilot', integration: 'native' },
+              { name: 'Codex CLI', vendor: 'OpenAI', id: 'codex-cli', integration: 'adapter' },
+              { name: 'GitHub Copilot', vendor: 'GitHub', id: 'copilot', integration: 'experimental' },
               { name: 'Cline', vendor: 'Community', id: 'cline', integration: 'community' },
-              { name: 'Qwen Code', vendor: 'Community', id: 'qwen-code', integration: 'community' },
+              { name: 'Qwen Code', vendor: 'Community', id: 'qwen-code', integration: 'experimental' },
               { name: 'OpenCode', vendor: 'Community', id: 'opencode', integration: 'native' },
-              { name: 'Kiro CLI', vendor: 'Community', id: 'kiro-cli', integration: 'community' },
+              { name: 'Kiro CLI', vendor: 'Community', id: 'kiro-cli', integration: 'experimental' },
               { name: 'Cursor', vendor: 'Community', id: 'cursor', integration: 'experimental' },
               { name: 'Goose', vendor: 'Community', id: 'goose', integration: 'experimental' },
               { name: 'OpenHands', vendor: 'Community', id: 'openhands', integration: 'experimental' },
@@ -123,10 +123,10 @@ export function EnsemblePage() {
                 `/acp probe` runs all 12 catalog entries in parallel via `Promise.allSettled`. Results are cached for 5 seconds. Each entry carries a probe command (e.g. `claude --version`) and an ACP startup command.
               </p>
               <div className="mt-5 rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-6 text-zinc-400">
-                <span className="text-emerald-400">✓</span> claude-code &nbsp;2.1.178<br />
-                <span className="text-emerald-400">✓</span> gemini-cli &nbsp;&nbsp;0.45.1<br />
-                <span className="text-emerald-400">✓</span> codex-cli &nbsp;&nbsp;&nbsp;0.139.0<br />
-                <span className="text-emerald-400">✓</span> copilot &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;installed<br />
+                <span className="text-emerald-400">✓</span> claude-code &nbsp;(adapter)<br />
+                <span className="text-emerald-400">✓</span> gemini-cli &nbsp;&nbsp;(native)<br />
+                <span className="text-emerald-400">✓</span> codex-cli &nbsp;&nbsp;&nbsp;(adapter)<br />
+                <span className="text-emerald-400">✓</span> opencode &nbsp;&nbsp;&nbsp;&nbsp;(native)<br />
                 <span className="text-amber-400">—</span> goose &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;binary not found<br />
                 <span className="text-amber-400">—</span> cursor &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;binary not found
               </div>

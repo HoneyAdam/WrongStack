@@ -76,9 +76,9 @@ Run `/acp` to see which are detected on this host.
 
 `/acp` (list) only checks whether the binary is on `$PATH`. **Being installed
 does not mean it speaks ACP.** Some CLIs need a specific entry flag or adapter
-(e.g. Gemini's `--experimental-acp`, Claude Code's Zed adapter). Run
-`/acp probe` to actually run the `initialize` handshake against each agent and
-see which truly respond.
+(e.g. Gemini's `--acp` flag, Claude Code's `@agentclientprotocol/claude-agent-acp`
+adapter). Run `/acp probe` to actually run the `initialize` handshake against each
+agent and see which truly respond.
 
 ## Fixing an agent that probes ✗
 
@@ -92,14 +92,14 @@ stripped as an arbitrary-command-exec risk:
   "acp": {
     "agents": {
       "codex-cli": { "command": "codex", "args": ["acp"] },
-      "claude-code": { "command": "npx", "args": ["-y", "@zed-industries/claude-code-acp"] }
+      "claude-code": { "command": "npx", "args": ["-y", "@agentclientprotocol/claude-agent-acp"] }
     }
   }
 }
 ```
 
-Precedence when resolving an agent's command: **user override → legacy map →
-catalog default**.
+Precedence when resolving an agent's command: **user override → synced registry →
+legacy map → bundled catalog**.
 
 ## Inline vs. `--bg`
 
