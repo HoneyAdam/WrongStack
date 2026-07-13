@@ -9,6 +9,7 @@ const columns = [
     links: [
       ['Features', '/features'],
       ['How it works', '/how-it-works'],
+      ['Compare products', '/compare'],
       ['Interfaces', '/interfaces'],
       ['Architecture', '/architecture'],
     ],
@@ -16,7 +17,7 @@ const columns = [
   {
     title: 'Operate',
     links: [
-      ['Slash commands', '/commands'],
+      ['Commands', '/commands'],
       ['Settings', '/settings'],
       ['Built-in tools', '/tools'],
       ['Plugin catalog', '/plugins'],
@@ -32,11 +33,12 @@ const columns = [
       ['Fleet & Brain', '/fleet'],
       ['Agent roster', '/agent-roster'],
       ['Session modes', '/modes'],
-      ['Agent mailbox', '/mailbox'],
+      ['Global Mailbox', '/mailbox'],
       ['Kanban work queue', '/features/kanban-work-queue'],
       ['Brain Council', '/features/brain-council'],
       ['Customization', '/features/customization'],
       ['Memory & sessions', '/memory'],
+      ['Connect with a coding plan', '/coding-plans'],
       ['Providers & models', '/providers'],
       ['MCP guide', '/mcp'],
       ['Troubleshooting', '/troubleshooting'],

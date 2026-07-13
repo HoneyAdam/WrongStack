@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Command, Copy, Layers3, TerminalSquare } from 'lucide-react';
+import { ArrowRight, Check, Command, Copy, Layers3, Terminal } from 'lucide-react';
 import { useState } from 'react';
 import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
 import { commandFromSlug, commandSlug, commands } from '@/data/content';
@@ -20,7 +20,7 @@ export function CommandDetailPage() {
   const pathParts = path.split('/').filter(Boolean);
   const slug = pathParts[pathParts.length - 1] ?? '';
   const command = commandFromSlug(slug);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   if (!command) return null;
   const guidance = commandGuidance[command.category];
@@ -32,9 +32,13 @@ export function CommandDetailPage() {
   const deepGuide = commandDeepGuides[command.name];
 
   const copy = async (value: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(value);
+      window.setTimeout(() => setCopied(null), 1600);
+    } catch {
+      // clipboard unavailable; ignore
+    }
   };
 
   return (
@@ -93,7 +97,7 @@ export function CommandDetailPage() {
               <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
                 Quick reference
               </span>
-              <TerminalSquare className="size-4 text-brand" />
+              <Terminal className="size-4 text-brand" />
             </div>
             {[
               ['Command', command.name],
@@ -135,9 +139,13 @@ export function CommandDetailPage() {
                   type="button"
                   onClick={() => copy(example)}
                   className="grid size-8 shrink-0 place-items-center rounded-full text-zinc-600 hover:bg-white/5 hover:text-white"
-                  aria-label={`Copy ${example}`}
+                  aria-label={copied === example ? 'Copied' : `Copy ${example}`}
                 >
-                  <Copy className="size-3.5" />
+                  {copied === example ? (
+                    <Check className="size-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
                 </button>
                 <span className="hidden font-mono text-[9px] text-zinc-700 sm:block">
                   0{index + 1}

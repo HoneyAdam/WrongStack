@@ -180,7 +180,11 @@ export function AgentRosterPage() {
               </div>
               <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {item.agents.map((agent) => (
-                  <article key={agent.role} className="rounded-2xl border border-line bg-card p-6">
+                  <Link
+                    key={agent.role}
+                    href={`/agent-roster/${agent.role}`}
+                    className="group block rounded-2xl border border-line bg-card p-6 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
+                  >
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <code className="font-mono text-xs font-black text-brand">
@@ -202,7 +206,7 @@ export function AgentRosterPage() {
                     <code className="mt-5 block overflow-x-auto rounded-lg bg-ink px-3 py-2 font-mono text-[10px] text-zinc-300">
                       /fleet spawn {agent.role}
                     </code>
-                  </article>
+                  </Link>
                 ))}
               </div>
             </div>
@@ -224,9 +228,10 @@ export function AgentRosterPage() {
           />
           <div className="mt-12 grid gap-5 lg:grid-cols-[.55fr_1fr]">
             {specialRosterAgents.map((agent) => (
-              <article
+              <Link
                 key={agent.role}
-                className="rounded-2xl border border-brand/25 bg-brand/5 p-7"
+                href={`/agent-roster/${agent.role}`}
+                className="block rounded-2xl border border-brand/25 bg-brand/5 p-7 transition-colors hover:border-brand/50"
               >
                 <Sparkles className="size-5 text-brand" />
                 <code className="mt-8 block font-mono text-xs text-brand">{agent.role}</code>
@@ -235,18 +240,22 @@ export function AgentRosterPage() {
                 <code className="mt-6 block font-mono text-[10px] text-zinc-500">
                   /shadow start · /fleet spawn shadow-agent
                 </code>
-              </article>
+              </Link>
             ))}
             <div className="grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2">
               {externalAcpAgents.map((agent) => (
-                <article key={agent.role} className="bg-[#0c0d12] p-6">
+                <Link
+                  key={agent.role}
+                  href={`/agent-roster/${agent.role}`}
+                  className="block bg-[#0c0d12] p-6 transition-colors hover:bg-[#12141c]"
+                >
                   <span className="font-mono text-[9px] font-black uppercase tracking-wider text-zinc-600">
                     external ACP
                   </span>
                   <h2 className="mt-5 font-black">{agent.name}</h2>
                   <code className="mt-3 block font-mono text-[10px] text-brand">{agent.role}</code>
                   <p className="mt-4 font-mono text-[9px] text-zinc-600">{agent.runtime}</p>
-                </article>
+                </Link>
               ))}
             </div>
           </div>

@@ -959,3 +959,26 @@ export const pluginCatalog = [
     source: 'Bridge',
   },
 ] as const;
+
+/* =========================================================================
+   Detail-page helpers — slugs and lookups for /plugins/:slug and /tools/:slug.
+   ========================================================================= */
+
+export type PluginCatalogEntry = (typeof pluginCatalog)[number];
+export type ToolCatalogEntry = (typeof toolCatalog)[number];
+
+export function pluginSlug(name: string): string {
+  return name.replace(/^@/, '').replace(/\//g, '-');
+}
+
+export function pluginFromSlug(slug: string): PluginCatalogEntry | undefined {
+  return pluginCatalog.find((plugin) => pluginSlug(plugin.name) === slug);
+}
+
+export function toolSlug(name: string): string {
+  return name.replace(/_/g, '-');
+}
+
+export function toolFromSlug(slug: string): ToolCatalogEntry | undefined {
+  return toolCatalog.find((tool) => toolSlug(tool.name) === slug);
+}

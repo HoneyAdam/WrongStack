@@ -1,17 +1,17 @@
 import {
   Activity,
   Braces,
-  CheckCircle2,
+  Check,
   Gauge,
   Layers3,
   Search,
   ShieldCheck,
-  TerminalSquare,
+  Terminal,
   Wrench,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
-import { toolCatalog, toolCategories } from '@/data/runtime-catalog';
+import { toolCatalog, toolCategories, toolSlug } from '@/data/runtime-catalog';
 import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 
@@ -28,9 +28,9 @@ const scopeOptions: Array<{ value: ToolScope; label: string }> = [
 const categoryIcons = [
   Activity,
   Braces,
-  TerminalSquare,
+  Terminal,
   Layers3,
-  CheckCircle2,
+  Check,
   Gauge,
   Wrench,
   Search,
@@ -61,7 +61,7 @@ export function ToolsPage() {
   return (
     <>
       <PageHero
-        index="21"
+        index="20"
         eyebrow="Built-in tool atlas"
         title={
           <>
@@ -209,9 +209,10 @@ export function ToolsPage() {
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {tools.map((tool) => (
-                      <article
+                      <Link
                         key={tool.name}
-                        className="group rounded-xl border border-line bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
+                        href={`/tools/${toolSlug(tool.name)}`}
+                        className="group block rounded-xl border border-line bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <code className="break-all font-mono text-sm font-black text-fg group-hover:text-brand">
@@ -242,7 +243,7 @@ export function ToolsPage() {
                             </>
                           )}
                         </div>
-                      </article>
+                      </Link>
                     ))}
                   </div>
                 </div>

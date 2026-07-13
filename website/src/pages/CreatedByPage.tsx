@@ -1,88 +1,22 @@
 import { ArrowUpRight, Globe2, Layers3, Terminal, UserRound } from 'lucide-react';
 import { PageHero, SectionIntro } from '@/components/site/primitives';
 import { GitHubIcon } from '@/components/ui/github-icon';
+import {
+  creatorFeaturedProjects as featuredProjects,
+  creatorProfiles,
+  creatorWorkshopProjects as workshopProjects,
+} from '@/data/content';
 
-const profiles = [
-  {
-    label: 'GitHub',
-    handle: '@ersinkoc',
-    href: 'https://github.com/ersinkoc',
-    icon: GitHubIcon,
-  },
-  {
-    label: 'X',
-    handle: '@ersinkoc',
-    href: 'https://x.com/ersinkoc',
-    icon: Globe2,
-  },
-  {
-    label: 'Web',
-    handle: 'ersinkoc.com',
-    href: 'https://www.ersinkoc.com',
-    icon: UserRound,
-  },
-] as const;
+const profileIcons = {
+  GitHub: GitHubIcon,
+  X: Globe2,
+  Web: UserRound,
+} as const;
 
-const featuredProjects = [
-  {
-    name: 'WrongStack',
-    eyebrow: 'AI coding agent',
-    language: 'TypeScript',
-    href: 'https://github.com/WrongStack/WrongStack',
-    description:
-      'A governed coding agent that reads repositories, runs tools and coordinates specialist fleets across terminal, browser and desktop surfaces.',
-  },
-  {
-    name: 'AGEZT',
-    eyebrow: 'Agentic operating system',
-    language: 'Go',
-    href: 'https://github.com/agezt/agezt',
-    description:
-      'An open-source, MIT-licensed agentic operating system designed to make autonomous software work feel like a coherent runtime.',
-  },
-  {
-    name: 'OwnPilot',
-    eyebrow: 'Personal AI platform',
-    language: 'TypeScript',
-    href: 'https://github.com/ownpilot/OwnPilot',
-    description:
-      'A privacy-first, self-hosted personal AI platform with autonomous agents, tool orchestration, multi-provider routing and persistent personal workflows.',
-  },
-] as const;
-
-const workshopProjects = [
-  {
-    name: 'DFMT',
-    description: 'Token and context preservation for machine-readable work.',
-    href: 'https://github.com/ersinkoc/dfmt',
-  },
-  {
-    name: 'NothingDNS',
-    description: 'A complete DNS server built as open infrastructure.',
-    href: 'https://github.com/NothingDNS/NothingDNS',
-  },
-  {
-    name: 'Labyrinth',
-    description: 'A pure Go recursive DNS resolver with a web dashboard.',
-    href: 'https://github.com/labyrinthdns/labyrinth',
-  },
-  {
-    name: 'CobaltDB',
-    description: 'A modern embedded database for Go applications.',
-    href: 'https://github.com/cobaltdb/cobaltdb',
-  },
-  {
-    name: 'GuardianWAF',
-    description: 'An open-source web application firewall.',
-    href: 'https://github.com/GuardianWAF/GuardianWAF',
-  },
-  {
-    name: 'UWAS',
-    description:
-      'A unified web server combining proxy, cache, HTTPS, WAF and dashboard capabilities.',
-    href: 'https://github.com/uwaserver/uwas',
-  },
-] as const;
+const profiles = creatorProfiles.map((profile) => ({
+  ...profile,
+  icon: profileIcons[profile.label],
+}));
 
 const principles = [
   {
@@ -106,7 +40,7 @@ export function CreatedByPage() {
   return (
     <>
       <PageHero
-        index="20"
+        index="19"
         eyebrow="Created by"
         title={
           <>

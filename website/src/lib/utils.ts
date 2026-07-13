@@ -295,9 +295,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.286.0',
+    date: '2026-07-13',
+    latest: true,
+    tagline: 'Autonomous Brain, realtime mailbox, and accessibility hardening',
+    highlights: [
+      'Autonomous Brain control plane: headless autonomy, an LLM pool, multi-LLM council support, and a decision ledger with live settings shared across CLI, TUI, and WebUI',
+      'Brain decisions with options now require an exact option id, preventing prose like "do not spawn" from accidentally selecting a spawn option',
+      'Realtime mailbox bridge: SSE delivery for external agents, sender/recipient indexes, HTTP rate limiting, and mailbox auto-compaction UI',
+      'WebUI chat carries pasted, dropped, and picked image attachments as real image blocks, with a vision-adapter fallback for non-vision models',
+      'Accessibility sweep across WebUI, HQ, and website components via the Biome accessibility preset',
+      'TUI F3 opens a fullscreen agents monitor, and MCP authorization routes through the governed OAuth path',
+    ],
+  },
+  {
     version: '0.285.0',
     date: '2026-07-11',
-    latest: true,
     tagline: 'TypeScript 7 build-system and release-docs alignment',
     highlights: [
       'Workspace builds now run through one topologically ordered esbuild package driver instead of 19 per-package tsup configs',

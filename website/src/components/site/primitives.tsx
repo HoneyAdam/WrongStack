@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight, ArrowUpRight, Check, Copy } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { docsUrl, repoUrl } from '@/data/content';
@@ -126,9 +126,13 @@ export function ExternalDoc({ path, children }: { path?: string; children: React
 export function CopyCommand({ command, label }: { command: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // clipboard unavailable; ignore
+    }
   };
 
   return (
@@ -139,7 +143,7 @@ export function CopyCommand({ command, label }: { command: string; label?: strin
         type="button"
         onClick={copy}
         className="grid size-8 shrink-0 place-items-center rounded-full bg-fg text-bg"
-        aria-label={`Copy ${command}`}
+        aria-label={copied ? 'Copied' : `Copy ${command}`}
       >
         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       </button>
@@ -156,12 +160,13 @@ export function Reveal({
   className?: string;
   delay?: number;
 }) {
+  const reducedMotion = useReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: 18 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 18 }}
+      whileInView={reducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-70px' }}
-      transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: reducedMotion ? 0 : 0.5, delay: reducedMotion ? 0 : delay, ease: [0.22, 1, 0.36, 1] }}
       className={className}
     >
       {children}

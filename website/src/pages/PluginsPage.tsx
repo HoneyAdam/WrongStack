@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
-import { pluginCatalog, pluginSources } from '@/data/runtime-catalog';
+import { pluginCatalog, pluginSlug, pluginSources } from '@/data/runtime-catalog';
 import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 
@@ -64,7 +64,7 @@ export function PluginsPage() {
   return (
     <>
       <PageHero
-        index="22"
+        index="21"
         eyebrow="Plugin field guide"
         title={
           <>
@@ -241,9 +241,10 @@ export function PluginsPage() {
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {plugins.map((plugin) => (
-                      <article
+                      <Link
                         key={plugin.name}
-                        className="group rounded-xl border border-line bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
+                        href={`/plugins/${pluginSlug(plugin.name)}`}
+                        className="group block rounded-xl border border-line bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <code className="break-all font-mono text-sm font-black text-fg group-hover:text-brand-2">
@@ -275,7 +276,7 @@ export function PluginsPage() {
                           </span>
                           <span className="text-faint">{plugin.source}</span>
                         </div>
-                      </article>
+                      </Link>
                     ))}
                   </div>
                 </div>
@@ -392,7 +393,7 @@ export function PluginsPage() {
                   'Runtime configuration change callbacks',
                 ].map((item) => (
                   <li key={item} className="flex gap-3">
-                    <Check className="mt-0.5 size-4 shrink-0 text-brand" />
+                    <Check className="mt-0.5 size-4 shrink-0 text-emerald-500" />
                     {item}
                   </li>
                 ))}
@@ -420,7 +421,7 @@ export function PluginsPage() {
             </p>
           </div>
           <a
-            href="https://github.com/ersinkoc/wrongstack"
+            href="https://github.com/WrongStack/WrongStack"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-full bg-brand-2 px-5 py-3 text-sm font-black text-ink transition-transform hover:-translate-y-0.5"

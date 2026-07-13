@@ -1,5 +1,17 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowRight, Command, CornerDownLeft, FileText, Layers3, Search, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Blocks,
+  Bot,
+  CircleGauge,
+  Command,
+  CornerDownLeft,
+  FileText,
+  Layers3,
+  Search,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   commandSlug,
@@ -10,10 +22,12 @@ import {
   primaryNav,
   type SiteRoute,
 } from '@/data/content';
+import { modeCatalog, rosterIndex } from '@/data/product-catalog';
+import { pluginCatalog, pluginSlug, toolCatalog, toolSlug } from '@/data/runtime-catalog';
 import { useRouter } from '@/lib/router';
 import { cn } from '@/lib/utils';
 
-type SearchKind = 'Page' | 'Feature' | 'Command';
+type SearchKind = 'Page' | 'Feature' | 'Command' | 'Plugin' | 'Tool' | 'Mode' | 'Agent';
 
 type SearchEntry = {
   id: string;
@@ -57,6 +71,39 @@ const allEntries: SearchEntry[] = [
     terms:
       `${command.name} ${command.category} ${command.summary} ${command.usage?.join(' ') ?? ''}`.toLowerCase(),
   })),
+  ...pluginCatalog.map((plugin) => ({
+    id: `plugin:${plugin.name}`,
+    kind: 'Plugin' as const,
+    label: plugin.name,
+    description: plugin.summary,
+    href: `/plugins/${pluginSlug(plugin.name)}`,
+    terms: `${plugin.name} ${plugin.source} ${plugin.risk} ${plugin.summary}`.toLowerCase(),
+  })),
+  ...toolCatalog.map((tool) => ({
+    id: `tool:${tool.name}`,
+    kind: 'Tool' as const,
+    label: tool.name,
+    description: tool.summary,
+    href: `/tools/${toolSlug(tool.name)}`,
+    terms: `${tool.name} ${tool.category} ${tool.permission} ${tool.summary}`.toLowerCase(),
+  })),
+  ...modeCatalog.map((mode) => ({
+    id: `mode:${mode.id}`,
+    kind: 'Mode' as const,
+    label: mode.name,
+    description: mode.description,
+    href: `/modes/${mode.id}`,
+    terms: `${mode.id} ${mode.name} ${mode.family} ${mode.description}`.toLowerCase(),
+  })),
+  ...rosterIndex.map((agent) => ({
+    id: `agent:${agent.role}`,
+    kind: 'Agent' as const,
+    label: agent.name,
+    description: agent.summary,
+    href: `/agent-roster/${agent.role}`,
+    terms:
+      `${agent.role} ${agent.name} ${agent.phaseLabel ?? ''} ${agent.kind} ${agent.summary}`.toLowerCase(),
+  })),
 ];
 
 const featuredHrefs = [
@@ -75,6 +122,10 @@ const iconForKind = {
   Page: FileText,
   Feature: Layers3,
   Command,
+  Plugin: Blocks,
+  Tool: Wrench,
+  Mode: CircleGauge,
+  Agent: Bot,
 } as const;
 
 function scoreEntry(entry: SearchEntry, query: string) {

@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRight,
+  ArrowUpRight,
   Check,
   ChevronRight,
   CircleDollarSign,
@@ -13,11 +14,15 @@ import {
   Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ConnectWithPreview } from '@/components/site/ConnectWithPreview';
 import { FleetTopologyPreview } from '@/components/site/FleetTopologyPreview';
 import { CopyCommand, Eyebrow, Reveal, SectionIntro } from '@/components/site/primitives';
 import {
   capabilityIndex,
   commands,
+  creatorFeaturedProjects,
+  creatorProfiles,
+  creatorWorkshopProjects,
   homeJourneys,
   installCommand,
   nodeVersion,
@@ -230,6 +235,8 @@ export function HomePage() {
 
       <FleetTopologyPreview />
 
+      <ConnectWithPreview />
+
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
         <SectionIntro
           index="01"
@@ -415,6 +422,110 @@ export function HomePage() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <Reveal>
+          <div className="grid overflow-hidden rounded-2xl border border-line bg-card lg:grid-cols-2">
+            <div className="flex flex-col p-7 sm:p-10">
+              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand">
+                Created by
+              </span>
+              <div className="mt-7 flex items-start gap-5">
+                <div className="relative shrink-0">
+                  <div className="absolute -bottom-1.5 -right-1.5 size-full border border-brand-2/45 bg-brand-2/10" />
+                  <img
+                    src="/ersin-koc.png"
+                    alt="Ersin KOÇ, creator of WrongStack"
+                    width="112"
+                    height="112"
+                    loading="lazy"
+                    className="relative aspect-square w-24 border border-line-strong object-cover grayscale sm:w-28"
+                  />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black tracking-[-0.025em] text-fg">Ersin KOÇ</h2>
+                  <p className="mt-1 font-mono text-xs font-black uppercase tracking-[0.14em] text-brand-2">
+                    Independent builder
+                  </p>
+                </div>
+              </div>
+              <p className="mt-6 max-w-xl text-sm leading-7 text-muted">
+                WrongStack is created and maintained by one independent developer building
+                production-ready open-source infrastructure — from the agent layer down to the
+                systems beneath it.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {creatorProfiles.map((profile) => (
+                  <a
+                    key={profile.label}
+                    href={profile.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-line bg-bg px-3 py-2 text-xs font-bold text-fg transition-colors hover:border-brand hover:text-brand"
+                  >
+                    {profile.label}
+                    <span className="font-mono text-[10px] font-normal text-faint">
+                      {profile.handle}
+                    </span>
+                    <ArrowUpRight className="size-3" />
+                  </a>
+                ))}
+              </div>
+              <Link
+                href="/created-by"
+                className="group mt-auto inline-flex items-center gap-2 pt-8 text-sm font-black text-brand"
+              >
+                Meet the creator
+                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+              </Link>
+            </div>
+            <div className="border-t border-line bg-surface p-7 sm:p-10 lg:border-l lg:border-t-0">
+              <span className="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-brand-2">
+                More from the workshop
+              </span>
+              <div className="mt-6 space-y-4">
+                {creatorFeaturedProjects.slice(1).map((project) => (
+                  <a
+                    key={project.name}
+                    href={project.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group block rounded-xl border border-line bg-card p-5 transition-colors hover:border-brand/45"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+                          {project.eyebrow}
+                        </span>
+                        <h3 className="mt-1 text-xl font-black tracking-[-0.03em] text-fg">
+                          {project.name}
+                        </h3>
+                      </div>
+                      <ArrowUpRight className="size-4 shrink-0 text-faint transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand" />
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted">{project.description}</p>
+                  </a>
+                ))}
+              </div>
+              <ul className="mt-6 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {creatorWorkshopProjects.map((project) => (
+                  <li key={project.name}>
+                    <a
+                      href={project.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group inline-flex items-center gap-2 text-sm font-bold text-fg transition-colors hover:text-brand"
+                    >
+                      {project.name}
+                      <ArrowUpRight className="size-3 text-faint group-hover:text-brand" />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Reveal>
       </section>
 
       <section className="border-t border-line">

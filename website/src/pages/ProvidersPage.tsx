@@ -1,6 +1,30 @@
-import { ArrowDown, Check, KeyRound, Radio, RefreshCw, Route, Sparkles } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUpRight,
+  Check,
+  HardDrive,
+  KeyRound,
+  LogIn,
+  Radio,
+  RefreshCw,
+  Route,
+  Sparkles,
+} from 'lucide-react';
 import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import {
+  curatedProviders,
+  familyLabels,
+  localProviders,
+  oauthProviders,
+} from '@/data/providers';
 import { Link } from '@/lib/router';
+
+const familyBadge: Record<string, string> = {
+  anthropic: 'border-amber-500/25 bg-amber-500/10 text-amber-500',
+  openai: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500',
+  'openai-compatible': 'border-brand/25 bg-brand/10 text-brand',
+  google: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
+};
 
 const families = [
   ['Anthropic', 'Native Messages API + SSE', 'Anthropic, MiniMax, Kimi, Vertex Anthropic'],
@@ -70,14 +94,120 @@ export function ProvidersPage() {
           ))}
         </div>
       </section>
+      <section className="border-t border-line bg-surface">
+        <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-32">
+          <SectionIntro
+            index="02"
+            eyebrow="Provider gallery"
+            title="Named providers, ready to connect."
+            description="Quick-start providers surfaced in setup, plus first-class subscription sign-ins and local runtimes. Beyond these, any models.dev provider on a matching wire family works with a key."
+          />
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {curatedProviders.map((provider) => (
+              <a
+                key={provider.id}
+                href={provider.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="group flex flex-col rounded-2xl border border-line bg-card p-6 transition-all hover:-translate-y-0.5 hover:border-brand/45"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="grid size-11 place-items-center rounded-xl border border-line bg-bg text-xl">
+                    {provider.icon}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 font-mono text-[9px] font-black uppercase tracking-[0.08em] ${familyBadge[provider.family]}`}
+                  >
+                    {familyLabels[provider.family]}
+                  </span>
+                </div>
+                <h3 className="mt-5 text-lg font-black text-fg">{provider.name}</h3>
+                <p className="mt-2 flex-1 text-sm leading-6 text-muted">{provider.description}</p>
+                <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
+                  <code className="font-mono text-[10px] text-faint">{provider.keyPlaceholder}</code>
+                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-brand">
+                    Get key
+                    <ArrowUpRight className="size-3 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                  </span>
+                </div>
+              </a>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.04] p-6 sm:p-8">
+              <div className="flex items-center gap-3">
+                <LogIn className="size-5 text-emerald-500" />
+                <h3 className="text-lg font-black text-fg">Subscription sign-in</h3>
+              </div>
+              <div className="mt-5 space-y-4">
+                {oauthProviders.map((provider) => (
+                  <div key={provider.id} className="border-t border-line pt-4 first:border-t-0 first:pt-0">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <strong className="text-sm font-black text-fg">{provider.name}</strong>
+                      <code className="font-mono text-[10px] text-brand">{provider.command}</code>
+                    </div>
+                    <p className="mt-1.5 text-sm leading-6 text-muted">{provider.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-line bg-card p-6 sm:p-8">
+              <div className="flex items-center gap-3">
+                <HardDrive className="size-5 text-brand" />
+                <h3 className="text-lg font-black text-fg">Local &amp; self-hosted runtimes</h3>
+              </div>
+              <div className="mt-5 space-y-4">
+                {localProviders.map((provider) => (
+                  <div key={provider.id} className="border-t border-line pt-4 first:border-t-0 first:pt-0">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <strong className="text-sm font-black text-fg">{provider.name}</strong>
+                      <span className="font-mono text-[9px] font-black uppercase tracking-[0.08em] text-faint">
+                        {provider.noAuth ? 'no auth' : 'optional bearer'}
+                      </span>
+                    </div>
+                    <code className="mt-1.5 block font-mono text-[10px] text-brand">
+                      {provider.baseUrl}
+                    </code>
+                    <p className="mt-1.5 text-sm leading-6 text-muted">{provider.hint}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section className="border-y border-line bg-surface">
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
           <SectionIntro
-            index="02"
+            index="03"
             eyebrow="Credentials"
-            title="Metered API key or existing subscription."
+            title="ChatGPT login first. Provider keys when you want another route."
           />
-          <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line lg:grid-cols-4">
+          <div className="mt-12 grid gap-6 overflow-hidden rounded-2xl border border-emerald-500/30 bg-ink p-6 text-white sm:p-8 lg:grid-cols-[.8fr_1.2fr_auto] lg:items-center">
+            <LogIn className="size-10 text-emerald-300" />
+            <div>
+              <span className="font-mono text-[9px] font-black uppercase tracking-[0.17em] text-emerald-300">
+                Connect with ChatGPT
+              </span>
+              <h2 className="mt-2 text-3xl font-black tracking-[-0.035em]">
+                Use Codex subscription access in one browser sign-in.
+              </h2>
+              <p className="mt-3 text-sm leading-7 text-zinc-400">
+                Run <code className="font-mono text-emerald-300">wstack auth login chatgpt</code>,
+                finish the browser flow, then select{' '}
+                <code className="font-mono text-emerald-300">openai-codex</code> like any other
+                provider.
+              </p>
+            </div>
+            <Link
+              href="/coding-plans"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-black text-ink"
+            >
+              Connect step by step →
+            </Link>
+          </div>
+          <div className="mt-5 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
             {[
               [
                 KeyRound,
@@ -87,9 +217,9 @@ export function ProvidersPage() {
               ],
               [
                 Sparkles,
-                'ChatGPT / Codex',
-                'PKCE loopback OAuth with refresh and Responses API provider routing.',
-                'wstack auth login chatgpt',
+                'Coding plan keys',
+                'OpenCode, MiniMax, Z.AI and Kimi each keep their subscription key on the correct endpoint.',
+                'wstack auth <plan-provider>',
               ],
               [
                 Sparkles,
@@ -118,15 +248,20 @@ export function ProvidersPage() {
             })}
           </div>
           <div className="mt-8">
-            <ExternalDoc path="docs/oauth-signin.md">
-              Read OAuth token storage and refresh details
-            </ExternalDoc>
+            <div className="flex flex-wrap gap-6">
+              <Link href="/coding-plans" className="text-sm font-black text-brand">
+                Compare coding plans and setup →
+              </Link>
+              <ExternalDoc path="docs/oauth-signin.md">
+                Read OAuth token storage and refresh details
+              </ExternalDoc>
+            </div>
           </div>
         </div>
       </section>
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
         <SectionIntro
-          index="03"
+          index="04"
           eyebrow="Model matrix"
           title="Route by exact role, then phase, then wildcard."
         />
@@ -158,7 +293,7 @@ export function ProvidersPage() {
       <section className="border-y border-line bg-surface">
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
           <SectionIntro
-            index="04"
+            index="05"
             eyebrow="One session, many models"
             title="Different providers can work on the same objective at the same time."
             description="The leader, specialist roles, fallback paths and Brain Council resolve credentials independently, then communicate through shared tasks and the project mailbox."
@@ -204,7 +339,7 @@ export function ProvidersPage() {
       <section className="border-y border-line bg-ink text-white">
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
           <SectionIntro
-            index="05"
+            index="06"
             eyebrow="Failure path"
             title="Retry, fallback, recovery—in that order."
           />

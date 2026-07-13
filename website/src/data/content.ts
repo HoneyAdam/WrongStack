@@ -11,6 +11,7 @@ import {
   FileClock,
   Fingerprint,
   GitBranch,
+  GitCompareArrows,
   Globe2,
   KeyRound,
   Layers3,
@@ -38,6 +39,7 @@ export const siteRoutes = [
   '/',
   '/features',
   '/how-it-works',
+  '/compare',
   '/interfaces',
   '/commands',
   '/settings',
@@ -52,6 +54,7 @@ export const siteRoutes = [
   '/mailbox',
   '/memory',
   '/providers',
+  '/coding-plans',
   '/mcp',
   '/tools',
   '/plugins',
@@ -76,6 +79,11 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
     title: 'How WrongStack works',
     description:
       'Follow one request through context, providers, tools, permissions, retries, memory and persistence.',
+  },
+  '/compare': {
+    title: 'WrongStack vs Claude Code, Codex, OpenCode, Cursor & Pi',
+    description:
+      'An evidence-based, official-source comparison of model routing, multi-agent coordination, mailbox, work tracking, extensions, security and operations.',
   },
   '/interfaces': {
     title: 'CLI, TUI, WebUI, Desktop & HQ — WrongStack',
@@ -145,6 +153,11 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
     title: 'Providers & model routing — WrongStack',
     description:
       'Configure API-key and subscription providers, model routing, fallback chains and runtime reasoning controls.',
+  },
+  '/coding-plans': {
+    title: 'Connect ChatGPT, OpenCode, MiniMax, Z.AI & Kimi — WrongStack',
+    description:
+      'Connect WrongStack with ChatGPT Codex sign-in or dedicated OpenCode, MiniMax, Z.AI and Kimi coding-plan API keys.',
   },
   '/mcp': {
     title: 'MCP guide — WrongStack',
@@ -225,6 +238,13 @@ export const moreNav = [
     group: 'learn',
   },
   {
+    href: '/compare',
+    label: 'Compare products',
+    description: 'Claude Code, Codex, OpenCode, Cursor and Pi',
+    icon: GitCompareArrows,
+    group: 'learn',
+  },
+  {
     href: '/workflows',
     label: 'Workflows',
     description: 'Goals, SDD, AutoPhase and reviews',
@@ -241,7 +261,7 @@ export const moreNav = [
   {
     href: '/agent-roster',
     label: 'Agent roster',
-    description: '51 roles across nine execution phases',
+    description: '50 phase roles across nine lifecycle phases, plus the Shadow operational role',
     icon: Bot,
     group: 'coordinate',
   },
@@ -285,6 +305,13 @@ export const moreNav = [
     label: 'Providers & models',
     description: 'Auth, routing, fallback and reasoning',
     icon: Sparkles,
+    group: 'extend',
+  },
+  {
+    href: '/coding-plans',
+    label: 'Connect with',
+    description: 'ChatGPT login and coding-plan keys',
+    icon: Cable,
     group: 'extend',
   },
   {
@@ -359,6 +386,13 @@ export const homeJourneys = [
     body: 'Add MCP tools, project skills, lifecycle hooks and plugins without forking the agent kernel.',
     href: '/ecosystem',
     link: 'Explore extension points',
+  },
+  {
+    index: '07',
+    title: 'Compare the operating models',
+    body: 'Use official sources to compare WrongStack with Claude Code, Codex, OpenCode, Cursor and Pi—without invented benchmark scores.',
+    href: '/compare',
+    link: 'Open the comparison',
   },
 ] as const;
 
@@ -745,7 +779,7 @@ export const surfaces = [
     tagline: 'The direct line',
     description:
       'Fast, scriptable and close to the shell. Use it for single-shot work, interactive sessions, subcommands and automation-friendly output.',
-    launch: 'wrongstack',
+    launch: 'wstack',
     best: 'Terminal-first work and scripts',
     traits: ['Streaming text', 'Slash commands', 'Non-interactive mode', 'All kernel capabilities'],
     icon: SquareTerminal,
@@ -756,7 +790,7 @@ export const surfaces = [
     tagline: 'The instrument panel',
     description:
       'A React/Ink terminal interface with status lines, pickers, fleet monitors, goal panels, worktrees and permission overlays—without leaving the terminal.',
-    launch: 'wrongstack --tui',
+    launch: 'wstack --tui',
     best: 'Long interactive coding sessions',
     traits: [
       'Keyboard-driven panels',
@@ -788,7 +822,7 @@ export const surfaces = [
     tagline: 'The local cockpit',
     description:
       'An Electron shell for multiple local projects and concurrent sessions, with native navigation, runtime isolation and persistent workspace state.',
-    launch: 'wrongstack --desktop',
+    launch: 'wstack --desktop',
     best: 'Many projects and concurrent sessions',
     traits: [
       'Multi-project launcher',
@@ -1455,6 +1489,77 @@ export const docsUrl = `${repoUrl}/tree/main/docs`;
 export const version = '0.286.0';
 export const nodeVersion = '22.19+';
 export const license = 'MIT';
+
+/* =========================================================================
+   Creator — shared between the homepage "Created by" card and /created-by.
+   ========================================================================= */
+
+export const creatorProfiles = [
+  { label: 'GitHub', handle: '@ersinkoc', href: 'https://github.com/ersinkoc' },
+  { label: 'X', handle: '@ersinkoc', href: 'https://x.com/ersinkoc' },
+  { label: 'Web', handle: 'ersinkoc.com', href: 'https://www.ersinkoc.com' },
+] as const;
+
+export const creatorFeaturedProjects = [
+  {
+    name: 'WrongStack',
+    eyebrow: 'AI coding agent',
+    language: 'TypeScript',
+    href: 'https://github.com/WrongStack/WrongStack',
+    description:
+      'A governed coding agent that reads repositories, runs tools and coordinates specialist fleets across terminal, browser and desktop surfaces.',
+  },
+  {
+    name: 'AGEZT',
+    eyebrow: 'Agentic operating system',
+    language: 'Go',
+    href: 'https://github.com/agezt/agezt',
+    description:
+      'An open-source, MIT-licensed agentic operating system designed to make autonomous software work feel like a coherent runtime.',
+  },
+  {
+    name: 'OwnPilot',
+    eyebrow: 'Personal AI platform',
+    language: 'TypeScript',
+    href: 'https://github.com/ownpilot/OwnPilot',
+    description:
+      'A privacy-first, self-hosted personal AI platform with autonomous agents, tool orchestration, multi-provider routing and persistent personal workflows.',
+  },
+] as const;
+
+export const creatorWorkshopProjects = [
+  {
+    name: 'DFMT',
+    description: 'Token and context preservation for machine-readable work.',
+    href: 'https://github.com/ersinkoc/dfmt',
+  },
+  {
+    name: 'NothingDNS',
+    description: 'A complete DNS server built as open infrastructure.',
+    href: 'https://github.com/NothingDNS/NothingDNS',
+  },
+  {
+    name: 'Labyrinth',
+    description: 'A pure Go recursive DNS resolver with a web dashboard.',
+    href: 'https://github.com/labyrinthdns/labyrinth',
+  },
+  {
+    name: 'CobaltDB',
+    description: 'A modern embedded database for Go applications.',
+    href: 'https://github.com/cobaltdb/cobaltdb',
+  },
+  {
+    name: 'GuardianWAF',
+    description: 'An open-source web application firewall.',
+    href: 'https://github.com/GuardianWAF/GuardianWAF',
+  },
+  {
+    name: 'UWAS',
+    description:
+      'A unified web server combining proxy, cache, HTTPS, WAF and dashboard capabilities.',
+    href: 'https://github.com/uwaserver/uwas',
+  },
+] as const;
 export const securityFacts = [
   {
     icon: KeyRound,

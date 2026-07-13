@@ -1,4 +1,4 @@
-import { ArrowRight, KeyRound, Laptop, Rocket, ShieldCheck, Terminal } from 'lucide-react';
+import { ArrowRight, KeyRound, Laptop, LogIn, Rocket, ShieldCheck, Terminal } from 'lucide-react';
 import {
   CopyCommand,
   ExternalDoc,
@@ -72,10 +72,34 @@ export function GettingStartedPage() {
           <SectionIntro
             index="02"
             eyebrow="Authentication"
-            title="API key or subscription: both are first-class."
-            description="Authentication chooses how the provider bills and refreshes access. It does not change the agent kernel or tool system."
+            title="Start with the account you already have."
+            description="ChatGPT with Codex connects through browser sign-in. Other coding plans connect with dedicated API keys. Authentication changes billing and access—not the agent kernel or tool system."
           />
-          <div className="mt-12 grid gap-5 lg:grid-cols-2">
+          <div className="mt-12 grid gap-6 overflow-hidden rounded-2xl border border-emerald-500/30 bg-ink p-6 text-white sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div>
+              <div className="flex items-center gap-3 font-mono text-[10px] font-black uppercase tracking-[0.17em] text-emerald-300">
+                <LogIn className="size-4" /> Fastest path for existing access
+              </div>
+              <h2 className="mt-5 text-3xl font-black tracking-[-0.035em] sm:text-4xl">
+                Already have ChatGPT with Codex? Connect it directly.
+              </h2>
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-400">
+                No Platform API key is required for this path. WrongStack opens the ChatGPT browser
+                login, creates the <code className="font-mono text-emerald-300">openai-codex</code>{' '}
+                provider and refreshes the encrypted local credential when needed.
+              </p>
+            </div>
+            <div className="flex flex-col items-start gap-4 lg:items-end">
+              <CopyCommand command="wstack auth login chatgpt" />
+              <Link
+                href="/coding-plans"
+                className="inline-flex items-center gap-2 text-sm font-black text-white"
+              >
+                See the complete connection guide <ArrowRight className="size-4" />
+              </Link>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-5 lg:grid-cols-2">
             <article className="rounded-2xl border border-line bg-card p-7">
               <KeyRound className="size-5 text-brand" />
               <h2 className="mt-8 text-2xl font-black text-fg">Provider API keys</h2>
@@ -94,17 +118,14 @@ export function GettingStartedPage() {
             </article>
             <article className="rounded-2xl border border-line bg-card p-7">
               <ShieldCheck className="size-5 text-emerald-500" />
-              <h2 className="mt-8 text-2xl font-black text-fg">Subscription OAuth</h2>
+              <h2 className="mt-8 text-2xl font-black text-fg">Other subscription sign-ins</h2>
               <p className="mt-3 text-sm leading-7 text-muted">
-                Sign in through vendor-supported flows. Access and refresh tokens are encrypted at
-                rest and refreshed near expiry or after an authentication failure.
+                Claude and GitHub Copilot have their own subscription credential routes. Access and
+                refresh tokens are encrypted at rest and refreshed near expiry or after an
+                authentication failure.
               </p>
               <div className="mt-6 space-y-2">
-                {[
-                  'wstack auth login chatgpt',
-                  'wstack auth login claude',
-                  'wstack auth login copilot',
-                ].map((command) => (
+                {['wstack auth login claude', 'wstack auth login copilot'].map((command) => (
                   <code
                     key={command}
                     className="block rounded-lg bg-bg px-4 py-3 font-mono text-xs text-fg"

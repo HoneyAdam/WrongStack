@@ -7,6 +7,7 @@ import { defineConfig } from 'vite';
 const baseRoutes = [
   'features',
   'how-it-works',
+  'compare',
   'interfaces',
   'commands',
   'settings',
@@ -21,6 +22,7 @@ const baseRoutes = [
   'mailbox',
   'memory',
   'providers',
+  'coding-plans',
   'mcp',
   'tools',
   'plugins',
@@ -183,7 +185,29 @@ function contentRoutes() {
     ([, name]) => `commands/${name?.replace(/_/g, '-')}`,
   );
   const features = [...source.matchAll(/slug: '([^']+)'/g)].map(([, slug]) => `features/${slug}`);
-  return [...new Set([...baseRoutes, ...commands, ...features])];
+
+  const runtimeSource = fs.readFileSync(path.resolve(__dirname, 'src/data/runtime-catalog.ts'), 'utf8');
+  const pluginBlock = sourceSection(
+    runtimeSource,
+    'export const pluginCatalog',
+    'export type PluginCatalogEntry',
+  );
+  const plugins = captures(pluginBlock, /\bname:\s*'([^']+)'/g).map(
+    (name) => `plugins/${name.replace(/^@/, '').replace(/\//g, '-')}`,
+  );
+  const toolBlock = sourceSection(runtimeSource, 'export const toolCatalog', 'export const pluginSources');
+  const tools = captures(toolBlock, /\bname:\s*'([^']+)'/g).map(
+    (name) => `tools/${name.replace(/_/g, '-')}`,
+  );
+
+  const productSource = fs.readFileSync(path.resolve(__dirname, 'src/data/product-catalog.ts'), 'utf8');
+  const modeBlock = sourceSection(productSource, 'export const modeCatalog', 'export type RosterBudget');
+  const modes = captures(modeBlock, /\bid:\s*'([^']+)'/g).map((id) => `modes/${id}`);
+  const agents = captures(productSource, /\brole:\s*'([^']+)'/g).map(
+    (role) => `agent-roster/${role}`,
+  );
+
+  return [...new Set([...baseRoutes, ...commands, ...features, ...plugins, ...tools, ...modes, ...agents])];
 }
 
 export default defineConfig({

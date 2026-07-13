@@ -122,7 +122,11 @@ export function ModesPage() {
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {visibleModes.map((mode, index) => (
-              <article key={mode.id} className="rounded-2xl border border-line bg-card p-6">
+              <Link
+                key={mode.id}
+                href={`/modes/${mode.id}`}
+                className="group block rounded-2xl border border-line bg-card p-6 transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lg"
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <span className="font-mono text-[9px] font-black uppercase tracking-[0.16em] text-faint">
@@ -156,7 +160,7 @@ export function ModesPage() {
                     </p>
                   </div>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         </div>

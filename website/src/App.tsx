@@ -3,6 +3,8 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Footer } from '@/components/layout/Footer';
 import { Header } from '@/components/layout/Header';
 import { commandFromSlug, featureFromSlug, pageMeta, type SiteRoute } from '@/data/content';
+import { agentFromSlug, modeFromSlug } from '@/data/product-catalog';
+import { pluginFromSlug, toolFromSlug } from '@/data/runtime-catalog';
 import { useRouter } from '@/lib/router';
 
 const HomePage = lazy(async () => ({ default: (await import('@/pages/HomePage')).HomePage }));
@@ -11,6 +13,9 @@ const FeaturesPage = lazy(async () => ({
 }));
 const HowItWorksPage = lazy(async () => ({
   default: (await import('@/pages/HowItWorksPage')).HowItWorksPage,
+}));
+const ComparePage = lazy(async () => ({
+  default: (await import('@/pages/ComparePage')).ComparePage,
 }));
 const InterfacesPage = lazy(async () => ({
   default: (await import('@/pages/InterfacesPage')).InterfacesPage,
@@ -48,6 +53,9 @@ const MemoryPage = lazy(async () => ({ default: (await import('@/pages/MemoryPag
 const ProvidersPage = lazy(async () => ({
   default: (await import('@/pages/ProvidersPage')).ProvidersPage,
 }));
+const CodingPlansPage = lazy(async () => ({
+  default: (await import('@/pages/CodingPlansPage')).CodingPlansPage,
+}));
 const McpPage = lazy(async () => ({ default: (await import('@/pages/McpPage')).McpPage }));
 const ToolsPage = lazy(async () => ({ default: (await import('@/pages/ToolsPage')).ToolsPage }));
 const PluginsPage = lazy(async () => ({
@@ -65,11 +73,30 @@ const CommandDetailPage = lazy(async () => ({
 const FeatureDetailPage = lazy(async () => ({
   default: (await import('@/pages/FeatureDetailPage')).FeatureDetailPage,
 }));
+const PluginDetailPage = lazy(async () => ({
+  default: (await import('@/pages/PluginDetailPage')).PluginDetailPage,
+}));
+const ToolDetailPage = lazy(async () => ({
+  default: (await import('@/pages/ToolDetailPage')).ToolDetailPage,
+}));
+const ModeDetailPage = lazy(async () => ({
+  default: (await import('@/pages/ModeDetailPage')).ModeDetailPage,
+}));
+const AgentDetailPage = lazy(async () => ({
+  default: (await import('@/pages/AgentDetailPage')).AgentDetailPage,
+}));
+
+function detailSlug(path: string, prefix: string): string | undefined {
+  return path.startsWith(prefix) && path.length > prefix.length
+    ? path.slice(prefix.length)
+    : undefined;
+}
 
 const pages = {
   '/': HomePage,
   '/features': FeaturesPage,
   '/how-it-works': HowItWorksPage,
+  '/compare': ComparePage,
   '/interfaces': InterfacesPage,
   '/commands': CommandsPage,
   '/settings': SettingsPage,
@@ -84,6 +111,7 @@ const pages = {
   '/mailbox': MailboxPage,
   '/memory': MemoryPage,
   '/providers': ProvidersPage,
+  '/coding-plans': CodingPlansPage,
   '/mcp': McpPage,
   '/tools': ToolsPage,
   '/plugins': PluginsPage,
@@ -137,11 +165,27 @@ export default function App() {
   const featureDetail = path.startsWith('/features/')
     ? featureFromSlug(path.slice('/features/'.length))
     : undefined;
+  const pluginSlugPart = detailSlug(path, '/plugins/');
+  const pluginDetail = pluginSlugPart ? pluginFromSlug(pluginSlugPart) : undefined;
+  const toolSlugPart = detailSlug(path, '/tools/');
+  const toolDetail = toolSlugPart ? toolFromSlug(toolSlugPart) : undefined;
+  const modeSlugPart = detailSlug(path, '/modes/');
+  const modeDetail = modeSlugPart ? modeFromSlug(modeSlugPart) : undefined;
+  const agentSlugPart = detailSlug(path, '/agent-roster/');
+  const agentDetail = agentSlugPart ? agentFromSlug(agentSlugPart) : undefined;
   const Page = commandDetail
     ? CommandDetailPage
     : featureDetail
       ? FeatureDetailPage
-      : pages[path as SiteRoute];
+      : pluginDetail
+        ? PluginDetailPage
+        : toolDetail
+          ? ToolDetailPage
+          : modeDetail
+            ? ModeDetailPage
+            : agentDetail
+              ? AgentDetailPage
+              : pages[path as SiteRoute];
 
   useEffect(() => {
     const dynamicCommand = path.startsWith('/commands/')
@@ -150,6 +194,14 @@ export default function App() {
     const dynamicFeature = path.startsWith('/features/')
       ? featureFromSlug(path.slice('/features/'.length))
       : undefined;
+    const dynamicPluginSlug = detailSlug(path, '/plugins/');
+    const dynamicPlugin = dynamicPluginSlug ? pluginFromSlug(dynamicPluginSlug) : undefined;
+    const dynamicToolSlug = detailSlug(path, '/tools/');
+    const dynamicTool = dynamicToolSlug ? toolFromSlug(dynamicToolSlug) : undefined;
+    const dynamicModeSlug = detailSlug(path, '/modes/');
+    const dynamicMode = dynamicModeSlug ? modeFromSlug(dynamicModeSlug) : undefined;
+    const dynamicAgentSlug = detailSlug(path, '/agent-roster/');
+    const dynamicAgent = dynamicAgentSlug ? agentFromSlug(dynamicAgentSlug) : undefined;
     const meta = dynamicCommand
       ? {
           title: `${dynamicCommand.name} command — WrongStack`,
@@ -160,10 +212,30 @@ export default function App() {
             title: `${dynamicFeature.title} — WrongStack`,
             description: dynamicFeature.summary,
           }
-        : (pageMeta[path as SiteRoute] ?? {
-            title: 'WrongStack',
-            description: 'WrongStack AI coding agent.',
-          });
+        : dynamicPlugin
+          ? {
+              title: `${dynamicPlugin.name} plugin — WrongStack`,
+              description: dynamicPlugin.summary,
+            }
+          : dynamicTool
+            ? {
+                title: `${dynamicTool.name} tool — WrongStack`,
+                description: dynamicTool.summary,
+              }
+            : dynamicMode
+              ? {
+                  title: `${dynamicMode.name} mode — WrongStack`,
+                  description: dynamicMode.description,
+                }
+              : dynamicAgent
+                ? {
+                    title: `${dynamicAgent.name} agent — WrongStack`,
+                    description: dynamicAgent.summary,
+                  }
+                : (pageMeta[path as SiteRoute] ?? {
+                    title: 'WrongStack',
+                    description: 'WrongStack AI coding agent.',
+                  });
     document.title = meta.title;
     document
       .querySelector<HTMLMetaElement>('meta[name="description"]')

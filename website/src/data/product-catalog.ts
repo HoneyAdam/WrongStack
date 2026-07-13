@@ -636,3 +636,73 @@ export const builtInRosterCount =
   specialRosterAgents.length;
 
 export const extendedRosterCount = builtInRosterCount + externalAcpAgents.length;
+
+/* =========================================================================
+   Detail-page helpers — slugs and lookups for /modes/:slug and
+   /agent-roster/:slug.
+   ========================================================================= */
+
+export type RosterAgentKind = 'phase' | 'operational' | 'acp';
+
+export type RosterDetailEntry = {
+  role: string;
+  name: string;
+  summary: string;
+  kind: RosterAgentKind;
+  tools?: number;
+  budget?: RosterBudget;
+  phaseId?: string;
+  phaseLabel?: string;
+  phasePurpose?: string;
+  runtime?: string;
+};
+
+export const rosterIndex: readonly RosterDetailEntry[] = [
+  ...rosterPhases.flatMap((phase) =>
+    phase.agents.map((agent) => ({
+      ...agent,
+      kind: 'phase' as const,
+      phaseId: phase.id,
+      phaseLabel: phase.label,
+      phasePurpose: phase.purpose,
+    })),
+  ),
+  ...specialRosterAgents.map((agent) => ({ ...agent, kind: 'operational' as const })),
+  ...externalAcpAgents.map((agent) => ({
+    role: agent.role,
+    name: agent.name,
+    summary: `External agent driven over the Agent Client Protocol through the \`${agent.runtime}\` runtime.`,
+    runtime: agent.runtime,
+    kind: 'acp' as const,
+  })),
+];
+
+export function agentFromSlug(slug: string): RosterDetailEntry | undefined {
+  return rosterIndex.find((agent) => agent.role === slug);
+}
+
+export function modeFromSlug(slug: string): ModeCatalogEntry | undefined {
+  return modeCatalog.find((mode) => mode.id === slug);
+}
+
+export const modeFamilyGuidance: Record<ModeFamily, { label: string; body: string }> = {
+  balanced: {
+    label: 'Balanced',
+    body: 'Full-capability modes for everyday work. They keep the complete toolset and default context budget, trading nothing away — pick one when the task shape matters more than token cost.',
+  },
+  lite: {
+    label: 'Lite',
+    body: 'Token-saving passes that constrain scope on purpose: fewer tools, tighter output and a narrow work surface. Pick one for quick triage, small diffs or high-frequency repetitive work.',
+  },
+  deep: {
+    label: 'Deep',
+    body: 'Specialist workflows that spend more context and more tool calls to go further: broader reading, more verification and structured multi-step output. Pick one when thoroughness beats speed.',
+  },
+};
+
+export const rosterBudgetGuidance: Record<RosterBudget, string> = {
+  light: 'Small context and tool budget — quick, focused passes that return fast.',
+  medium: 'Standard working budget for a self-contained task inside one phase.',
+  heavy: 'Extended budget for wide reading, long editing sessions or multi-file work.',
+  'single-shot': 'One pass, one answer — fired for a single verdict without iteration.',
+};
