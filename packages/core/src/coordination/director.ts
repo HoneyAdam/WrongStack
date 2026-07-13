@@ -32,6 +32,7 @@ import {
   FleetTokenCapError,
 } from './director/director-errors.js';
 import { DirectorCollabController } from './director/director-collab.js';
+import { DirectorBtwNotes } from './director/director-btw-notes.js';
 import {
   composeDirectorPrompt,
   composeSubagentPrompt,
@@ -600,8 +601,9 @@ export class Director implements ICoordinator {
    * coordinator from keeping workers alive for tasks that will never arrive.
    */
   private workCompleteFlag = false;
-  /** Pending /btw notes stashed by the leader agent (see setLeaderBtwNote). */
-  private _leaderBtwNotes: string[] = [];
+  /** Pending /btw notes stashed by the leader agent (see setLeaderBtwNote).
+   *  Owned by DirectorBtwNotes (R4); the public btw methods delegate to it. */
+  private readonly btwNotes = new DirectorBtwNotes();
   /** Owns active collab-debug sessions (spawn/cancel/alert/list). Extracted
    *  from Director in R4; the public collab methods below delegate to it. */
   private readonly collab: DirectorCollabController;
@@ -1085,10 +1087,7 @@ export class Director implements ICoordinator {
    * programmatically without going through the slash-command path.
    */
   setLeaderBtwNote(note: string): number {
-    const trimmed = note.trim();
-    if (!trimmed) return this._leaderBtwNotes.length;
-    this._leaderBtwNotes = [...this._leaderBtwNotes, trimmed].slice(-20);
-    return this._leaderBtwNotes.length;
+    return this.btwNotes.add(note);
   }
 
   /**
@@ -1100,9 +1099,7 @@ export class Director implements ICoordinator {
    * to cancel the collab session or let it continue.
    */
   getLeaderBtwNotes(): string[] {
-    const notes = this._leaderBtwNotes;
-    this._leaderBtwNotes = [];
-    return notes;
+    return this.btwNotes.drain();
   }
 
   /**
@@ -1110,7 +1107,7 @@ export class Director implements ICoordinator {
    * Useful for UI to show "N pending notes" without clearing them.
    */
   peekLeaderBtwNotes(): string[] {
-    return [...this._leaderBtwNotes];
+    return this.btwNotes.peek();
   }
 
   /**
