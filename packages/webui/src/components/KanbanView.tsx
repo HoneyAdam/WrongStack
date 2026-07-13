@@ -406,13 +406,6 @@ function KanbanColumnView({
   const empty = tasks.length === 0;
   return (
     <section
-      role="list"
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault();
-        if (dragTaskId) onMoveTask(dragTaskId, column.id);
-        setDragTaskId(null);
-      }}
       className={cn(
         'flex h-full shrink-0 flex-col rounded-md border bg-muted/25 transition-[width] duration-200',
         empty ? 'w-[180px]' : 'w-[310px]',
@@ -428,22 +421,33 @@ function KanbanColumnView({
           {tasks.length}
         </span>
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+      <ul
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (dragTaskId) onMoveTask(dragTaskId, column.id);
+          setDragTaskId(null);
+        }}
+      >
         {tasks.map((task) => (
-          <article
+          <li
             key={task.id}
             draggable
             onDragStart={() => setDragTaskId(task.id)}
             onDragEnd={() => setDragTaskId(null)}
-            onClick={() => onSelectTask(task.id)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectTask(task.id); } }}
-            tabIndex={0}
             className={cn(
-              'cursor-pointer rounded-md border bg-background p-3 shadow-sm transition-colors',
+              'relative rounded-md border bg-background p-3 shadow-sm transition-colors',
               selectedTaskId === task.id ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
-            <div className="flex items-start gap-2">
+            <button
+              type="button"
+              aria-label={`Select task: ${task.title}`}
+              onClick={() => onSelectTask(task.id)}
+              className="absolute inset-0 cursor-pointer rounded-md"
+            />
+            <div className="pointer-events-none relative flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 <div className="line-clamp-2 text-sm font-medium leading-5">{task.title}</div>
                 {task.description && (
@@ -455,16 +459,14 @@ function KanbanColumnView({
               <button
                 type="button"
                 title="Delete task"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDeleteTask(task);
-                }}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                aria-label={`Delete task: ${task.title}`}
+                onClick={() => onDeleteTask(task)}
+                className="pointer-events-auto relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               >
                 <Trash2 size={14} />
               </button>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <div className="pointer-events-none relative mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
               <span className={priorityClass(task.priority)}>{task.priority}</span>
               <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
                 {task.status}
@@ -480,9 +482,9 @@ function KanbanColumnView({
                 </span>
               )}
             </div>
-          </article>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
