@@ -10,6 +10,12 @@ import { cn } from '@/lib/utils';
 import { i18n, useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface SkillInfo {
   name: string;
@@ -525,37 +531,22 @@ export function SkillsList({ className }: { className?: string }) {
       </div>
 
       {/* ── Install skill modal ── */}
-      {installModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setInstallModalOpen(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setInstallModalOpen(false);
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('activity:skillsList.installHeading')}
-            className="flex max-h-[calc(100dvh-2rem)] w-[420px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl"
-          >
-            <div className="flex shrink-0 items-center justify-between border-b border-border/70 p-4">
-              <div className="flex items-center gap-2">
-                <Download className="h-4 w-4 text-primary" />
-                <span className="font-semibold text-sm">{t('activity:skillsList.installHeading')}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInstallModalOpen(false)}
-                aria-label={t('common:action.close')}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
+      <Dialog open={installModalOpen} onOpenChange={setInstallModalOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[420px] max-w-[90vw] flex-col gap-0 overflow-hidden p-0" showCloseButton={false}>
+          <DialogHeader className="flex shrink-0 items-center justify-between border-b border-border/70 p-4 sm:flex-row sm:justify-between sm:space-y-0">
+            <div className="flex items-center gap-2">
+              <Download className="h-4 w-4 text-primary" />
+              <DialogTitle className="font-semibold text-sm">{t('activity:skillsList.installHeading')}</DialogTitle>
             </div>
+            <button
+              type="button"
+              onClick={() => setInstallModalOpen(false)}
+              aria-label={t('common:action.close')}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
               <p className="text-xs text-muted-foreground">
@@ -631,9 +622,8 @@ export function SkillsList({ className }: { className?: string }) {
                 </button>
               )}
             </div>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Create skill modal ── */}
       {createModalOpen && (
