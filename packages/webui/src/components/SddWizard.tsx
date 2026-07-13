@@ -389,18 +389,18 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                 <div className="space-y-2.5">
                   {snapshot?.answers.map((qa) => (
                     <div key={qa.question.slice(0, 64)} className="space-y-2.5">
-                      <ChatBubble role="assistant" text={qa.question} />
-                      <ChatBubble role="user" text={qa.answer} />
+                      <ChatBubble speaker="assistant" text={qa.question} />
+                      <ChatBubble speaker="user" text={qa.answer} />
                     </div>
                   ))}
                   {/* The current unanswered agent question. Hidden while it still
                       equals the just-answered question (the next turn is in
                       flight) so it never duplicates the last transcript entry. */}
                   {agentText && phase === 'questioning' && agentText !== lastQuestion && (
-                    <ChatBubble role="assistant" text={agentText} />
+                    <ChatBubble speaker="assistant" text={agentText} />
                   )}
                   {/* "thinking" indicator while the agent works the next turn. */}
-                  {busy && <ChatBubble role="assistant" text="" thinking />}
+                  {busy && <ChatBubble speaker="assistant" text="" thinking />}
                 </div>
               ) : null}
 
@@ -458,7 +458,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
                 phase !== 'questioning' &&
                 phase !== 'implementation' &&
                 phase !== 'task_review' &&
-                !snapshot?.spec && <ChatBubble role="assistant" text={agentText} />}
+                !snapshot?.spec && <ChatBubble speaker="assistant" text={agentText} />}
 
               {/* Approve button for review phases */}
               {(phase === 'spec_review' ||
@@ -517,17 +517,17 @@ function stripJsonBlocks(text: string): string {
 
 /** One transcript message — agent question (left) or the user's answer (right). */
 function ChatBubble({
-  role,
+  speaker,
   text,
   live,
   thinking,
 }: {
-  role: 'assistant' | 'user';
+  speaker: 'assistant' | 'user';
   text: string;
   live?: boolean;
   thinking?: boolean;
 }): React.ReactElement {
-  const isUser = role === 'user';
+  const isUser = speaker === 'user';
   return (
     <div className={cn('sdd-rise flex items-start gap-2', isUser && 'flex-row-reverse')}>
       <span
