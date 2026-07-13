@@ -51,6 +51,46 @@ const MailboxPage = lazy(async () => ({
   default: (await import('@/pages/MailboxPage')).MailboxPage,
 }));
 const MemoryPage = lazy(async () => ({ default: (await import('@/pages/MemoryPage')).MemoryPage }));
+const SuperMemoryPage = lazy(async () => ({
+  default: (await import('@/pages/SuperMemoryPage')).SuperMemoryPage,
+}));
+const DesignStudioPage = lazy(async () => ({
+  default: (await import('@/pages/DesignStudioPage')).DesignStudioPage,
+}));
+const SkillsPage = lazy(async () => ({
+  default: (await import('@/pages/SkillsPage')).SkillsPage,
+}));
+const PromptsPage = lazy(async () => ({
+  default: (await import('@/pages/PromptsPage')).PromptsPage,
+}));
+const SddPage = lazy(async () => ({ default: (await import('@/pages/SddPage')).SddPage }));
+const ShadowAgentPage = lazy(async () => ({
+  default: (await import('@/pages/ShadowAgentPage')).ShadowAgentPage,
+}));
+const AcpPage = lazy(async () => ({ default: (await import('@/pages/AcpPage')).AcpPage }));
+const SupervisorPage = lazy(async () => ({
+  default: (await import('@/pages/SupervisorPage')).SupervisorPage,
+}));
+const AutophasePage = lazy(async () => ({
+  default: (await import('@/pages/AutophasePage')).AutophasePage,
+}));
+const EnsemblePage = lazy(async () => ({
+  default: (await import('@/pages/EnsemblePage')).EnsemblePage,
+}));
+const HqPage = lazy(async () => ({ default: (await import('@/pages/HqPage')).HqPage }));
+const TelegramPage = lazy(async () => ({
+  default: (await import('@/pages/TelegramPage')).TelegramPage,
+}));
+const CollabPage = lazy(async () => ({
+  default: (await import('@/pages/CollabPage')).CollabPage,
+}));
+const SyncPage = lazy(async () => ({ default: (await import('@/pages/SyncPage')).SyncPage }));
+const CheckpointsPage = lazy(async () => ({
+  default: (await import('@/pages/CheckpointsPage')).CheckpointsPage,
+}));
+const CommitWorkflowPage = lazy(async () => ({
+  default: (await import('@/pages/CommitWorkflowPage')).CommitWorkflowPage,
+}));
 const ProvidersPage = lazy(async () => ({
   default: (await import('@/pages/ProvidersPage')).ProvidersPage,
 }));
@@ -112,6 +152,22 @@ const pages = {
   '/agent-roster': AgentRosterPage,
   '/mailbox': MailboxPage,
   '/memory': MemoryPage,
+  '/super-memory': SuperMemoryPage,
+  '/design-studio': DesignStudioPage,
+  '/skills': SkillsPage,
+  '/prompts': PromptsPage,
+  '/sdd': SddPage,
+  '/shadow-agent': ShadowAgentPage,
+  '/acp': AcpPage,
+  '/supervisor': SupervisorPage,
+  '/autophase': AutophasePage,
+  '/ensemble': EnsemblePage,
+  '/hq': HqPage,
+  '/telegram': TelegramPage,
+  '/collab': CollabPage,
+  '/sync': SyncPage,
+  '/checkpoints': CheckpointsPage,
+  '/commit-workflow': CommitWorkflowPage,
   '/providers': ProvidersPage,
   '/coding-plans': CodingPlansPage,
   '/mcp': McpPage,

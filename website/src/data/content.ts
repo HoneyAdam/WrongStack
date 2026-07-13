@@ -9,8 +9,10 @@ import {
   Compass,
   Database,
   FileClock,
+  FileText,
   Fingerprint,
   GitBranch,
+  GitCommitHorizontal,
   GitCompareArrows,
   Globe2,
   KeyRound,
@@ -25,6 +27,7 @@ import {
   Palette,
   PanelTop,
   PlugZap,
+  Puzzle,
   Radar,
   Route,
   ScanSearch,
@@ -62,6 +65,22 @@ export const siteRoutes = [
   '/troubleshooting',
   '/brand',
   '/created-by',
+  '/super-memory',
+  '/design-studio',
+  '/skills',
+  '/prompts',
+  '/sdd',
+  '/shadow-agent',
+  '/acp',
+  '/supervisor',
+  '/autophase',
+  '/ensemble',
+  '/hq',
+  '/telegram',
+  '/collab',
+  '/sync',
+  '/checkpoints',
+  '/commit-workflow',
 ] as const;
 
 export type SiteRoute = (typeof siteRoutes)[number];
@@ -190,6 +209,86 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
     description:
       'Meet WrongStack creator Ersin KOÇ and explore AGEZT, OwnPilot and the wider open-source project workshop.',
   },
+  '/super-memory': {
+    title: 'Super Memory — WrongStack',
+    description:
+      'Persistent, structured knowledge that the agent remembers across sessions. Scopes, types, relevance scoring, graph edges, and auto-injection.',
+  },
+  '/design-studio': {
+    title: 'Design Studio — WrongStack',
+    description:
+      '48+ curated design kits. Pin one, materialize CSS tokens, and the agent builds themed, accessible UI.',
+  },
+  '/skills': {
+    title: 'Skills — WrongStack',
+    description:
+      'Installable packages of instructions that auto-activate on trigger words. Teach the agent new capabilities.',
+  },
+  '/prompts': {
+    title: 'Prompts library — WrongStack',
+    description:
+      'Reusable prompt templates across bundled, user, and project layers. Variables, favorites, and AI-assisted authoring.',
+  },
+  '/sdd': {
+    title: 'SDD workflow — WrongStack',
+    description:
+      'Spec-Driven Development: plan, implement, and verify in structured phases with review between each step.',
+  },
+  '/shadow-agent': {
+    title: 'Shadow Agent — WrongStack',
+    description:
+      'Background fleet monitor that detects stuck agents, spike tasks, and anomalies on a cron schedule.',
+  },
+  '/acp': {
+    title: 'ACP — WrongStack',
+    description:
+      'Drive external coding agents (Claude Code, Codex CLI, Gemini CLI) from WrongStack using their existing logins.',
+  },
+  '/supervisor': {
+    title: 'Fleet Supervisor — WrongStack',
+    description:
+      'Brain-gated safety layer that approves or blocks fleet actions against risk thresholds.',
+  },
+  '/autophase': {
+    title: 'AutoPhase — WrongStack',
+    description:
+      'Fully autonomous phased workflows with git worktree isolation and checkpoint rollback.',
+  },
+  '/ensemble': {
+    title: 'Ensemble — WrongStack',
+    description:
+      'Fan one task to multiple ACP agents simultaneously. Compare independent results side by side.',
+  },
+  '/hq': {
+    title: 'HQ Command Center — WrongStack',
+    description:
+      'Web-based fleet control panel. Monitor status, send steer prompts, and queue work from a browser.',
+  },
+  '/telegram': {
+    title: 'Telegram integration — WrongStack',
+    description:
+      'Push notifications, interactive approval prompts, and remote commands through Telegram.',
+  },
+  '/collab': {
+    title: 'Collab debugging — WrongStack',
+    description:
+      'BugHunter, RefactorPlanner, and Critic run in parallel and produce a structured verdict.',
+  },
+  '/sync': {
+    title: 'GitHub Sync — WrongStack',
+    description:
+      'Sync settings, skills, prompts, and memory across machines through a GitHub repository.',
+  },
+  '/checkpoints': {
+    title: 'Checkpoints — WrongStack',
+    description:
+      'File state snapshots before risky edits. Roll back to the last known-good state.',
+  },
+  '/commit-workflow': {
+    title: 'Commit workflow — WrongStack',
+    description:
+      'Auto-generated conventional commits from your diff. Stage, review, and commit with one command.',
+  },
 };
 
 export const primaryNav = [
@@ -203,27 +302,32 @@ export const moreNavGroups = [
   {
     id: 'learn',
     label: 'Learn the system',
-    description: 'Start, understand and choose a workflow.',
+    description: 'Start, understand, compare and choose.',
+  },
+  {
+    id: 'work',
+    label: 'Work & automate',
+    description: 'Workflows, planning, execution and modes.',
   },
   {
     id: 'coordinate',
-    label: 'Coordinate work',
-    description: 'Agents, modes, memory and communication.',
+    label: 'Coordinate agents',
+    description: 'Fleet, Brain, comms and collaboration.',
   },
   {
     id: 'extend',
     label: 'Build your stack',
-    description: 'Tools, plugins, providers and protocols.',
+    description: 'Tools, plugins, providers and customization.',
   },
   {
     id: 'operate',
-    label: 'Operate safely',
-    description: 'Security boundaries and diagnostics.',
+    label: 'Operate & secure',
+    description: 'Memory, security, diagnostics and sync.',
   },
 ] as const;
 
 export const moreNav = [
-  // learn: onboarding → the system itself → deeper reference → meta pages last
+  // learn: onboarding → the system itself → meta pages
   {
     href: '/getting-started',
     label: 'Getting started',
@@ -243,13 +347,6 @@ export const moreNav = [
     label: 'Architecture',
     description: 'Kernel, pipeline and package map',
     icon: Layers3,
-    group: 'learn',
-  },
-  {
-    href: '/workflows',
-    label: 'Workflows',
-    description: 'Goals, SDD, AutoPhase and reviews',
-    icon: Workflow,
     group: 'learn',
   },
   {
@@ -273,7 +370,50 @@ export const moreNav = [
     icon: Fingerprint,
     group: 'learn',
   },
-  // coordinate: fleet & brain overview → agents & personas → work dispatch → comms → memory
+  // work: workflows → execution → planning → modes → tracking
+  {
+    href: '/workflows',
+    label: 'Workflows',
+    description: 'Goals, SDD, AutoPhase and reviews',
+    icon: Workflow,
+    group: 'work',
+  },
+  {
+    href: '/sdd',
+    label: 'SDD workflow',
+    description: 'Spec-driven plan, implement, verify',
+    icon: FileText,
+    group: 'work',
+  },
+  {
+    href: '/autophase',
+    label: 'AutoPhase',
+    description: 'Autonomous worktrees with checkpoint rollback',
+    icon: GitBranch,
+    group: 'work',
+  },
+  {
+    href: '/modes',
+    label: 'Session modes',
+    description: '19 balanced, lite and deep personas',
+    icon: CircleGauge,
+    group: 'work',
+  },
+  {
+    href: '/features/kanban-work-queue',
+    label: 'Kanban work queue',
+    description: 'Durable tasks, dependencies and dispatch',
+    icon: PanelTop,
+    group: 'work',
+  },
+  {
+    href: '/commit-workflow',
+    label: 'Commit workflow',
+    description: 'Generated conventional commits',
+    icon: GitCommitHorizontal,
+    group: 'work',
+  },
+  // coordinate: fleet → agents → comms → collaboration
   {
     href: '/fleet',
     label: 'Fleet & Brain',
@@ -291,21 +431,49 @@ export const moreNav = [
   {
     href: '/agent-roster',
     label: 'Agent roster',
-    description: '50 phase roles across nine lifecycle phases, plus the Shadow operational role',
+    description: '50 phase roles, plus Shadow operational role',
     icon: Bot,
     group: 'coordinate',
   },
   {
-    href: '/modes',
-    label: 'Session modes',
-    description: '19 balanced, lite and deep personas',
-    icon: CircleGauge,
+    href: '/shadow-agent',
+    label: 'Shadow Agent',
+    description: 'Background fleet monitor and anomaly detection',
+    icon: Radar,
     group: 'coordinate',
   },
   {
-    href: '/features/kanban-work-queue',
-    label: 'Kanban work queue',
-    description: 'Durable tasks, dependencies and dispatch',
+    href: '/supervisor',
+    label: 'Supervisor',
+    description: 'Brain-gated fleet safety and risk policy',
+    icon: ShieldCheck,
+    group: 'coordinate',
+  },
+  {
+    href: '/acp',
+    label: 'ACP',
+    description: 'Drive Claude Code, Codex, Gemini CLI and more',
+    icon: Cable,
+    group: 'coordinate',
+  },
+  {
+    href: '/ensemble',
+    label: 'Ensemble',
+    description: 'Parallel multi-agent reviews and voting',
+    icon: GitCompareArrows,
+    group: 'coordinate',
+  },
+  {
+    href: '/collab',
+    label: 'Collab debugging',
+    description: 'BugHunter, RefactorPlanner, and Critic',
+    icon: ScanSearch,
+    group: 'coordinate',
+  },
+  {
+    href: '/hq',
+    label: 'HQ Command Center',
+    description: 'Web-based fleet control panel',
     icon: PanelTop,
     group: 'coordinate',
   },
@@ -316,14 +484,7 @@ export const moreNav = [
     icon: MessageSquareMore,
     group: 'coordinate',
   },
-  {
-    href: '/memory',
-    label: 'Memory & sessions',
-    description: 'Continuity, recovery and verification',
-    icon: MemoryStick,
-    group: 'coordinate',
-  },
-  // extend: internal building blocks → external connections → customization
+  // extend: tools → plugins → protocols → customization
   {
     href: '/tools',
     label: 'Built-in tools',
@@ -373,7 +534,42 @@ export const moreNav = [
     icon: Settings2,
     group: 'extend',
   },
-  // operate: secure first, then diagnose
+  {
+    href: '/design-studio',
+    label: 'Design Studio',
+    description: 'Curated UI kits, tokens and verification',
+    icon: Palette,
+    group: 'extend',
+  },
+  {
+    href: '/skills',
+    label: 'Skills',
+    description: 'Installable agent knowledge packages',
+    icon: Puzzle,
+    group: 'extend',
+  },
+  {
+    href: '/prompts',
+    label: 'Prompts library',
+    description: 'Reusable steering templates',
+    icon: Sparkles,
+    group: 'extend',
+  },
+  // operate: memory → security → diagnostics → sync
+  {
+    href: '/memory',
+    label: 'Memory & sessions',
+    description: 'Continuity, recovery and verification',
+    icon: MemoryStick,
+    group: 'operate',
+  },
+  {
+    href: '/super-memory',
+    label: 'Super Memory',
+    description: 'Structured knowledge, scoring and graph',
+    icon: BrainCircuit,
+    group: 'operate',
+  },
   {
     href: '/security',
     label: 'Security',
@@ -386,6 +582,20 @@ export const moreNav = [
     label: 'Troubleshooting',
     description: 'Diagnose common failures quickly',
     icon: LifeBuoy,
+    group: 'operate',
+  },
+  {
+    href: '/telegram',
+    label: 'Telegram',
+    description: 'Notifications and approval prompts',
+    icon: MessageSquareMore,
+    group: 'operate',
+  },
+  {
+    href: '/sync',
+    label: 'GitHub Sync',
+    description: 'Sync config across machines',
+    icon: Route,
     group: 'operate',
   },
 ] as const;

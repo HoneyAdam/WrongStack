@@ -7,6 +7,7 @@ import {
   SectionIntro,
   heroTitleFontSize,
 } from '@/components/site/primitives';
+import { commandDetails } from '@/data/command-details';
 import { commandFromSlug, commandSlug, commands } from '@/data/content';
 import { commandGuidance } from '@/data/deep-dives';
 import { Link, useRouter } from '@/lib/router';
@@ -21,6 +22,67 @@ const commandDeepGuides: Partial<Record<string, { href: string; label: string }>
   '/supervisor': { href: '/agent-roster', label: 'See which workers the Supervisor watches' },
 };
 
+/** Generate fallback usage examples that are more contextual than bare `/help <cmd>`. */
+function fallbackExamples(name: string): string[] {
+  const bare = name.slice(1);
+  // For commands with known sub-patterns, produce a realistic starter example.
+  if (name === '/help') return ['/help', '/help fleet', '/help mode code-reviewer'];
+  if (name === '/exit') return ['/exit', '/quit', '/q'];
+  if (name === '/sessions') return ['/sessions', '/resume', '/sessions rename <id> "label"'];
+  if (name === '/clear') return ['/clear', '/clear --reset-context'];
+  if (name === '/save') return ['/save'];
+  if (name === '/stats') return ['/stats'];
+  if (name === '/diag') return ['/diag'];
+  if (name === '/compact') return ['/compact'];
+  if (name === '/desktop') return ['/desktop'];
+  if (name === '/webui') return ['/webui'];
+  if (name === '/todos') return ['/todos'];
+  if (name === '/tasks') return ['/tasks', '/tasks promote <id>'];
+  if (name === '/models') return ['/models', '/models add <provider> <model-id>'];
+  if (name === '/modelcaps') return ['/modelcaps'];
+  if (name === '/yolo') return ['/yolo', '/yolo off'];
+  if (name === '/autonomy') return ['/autonomy', '/autonomy high'];
+  if (name === '/tool') return ['/tool', '/tool simple', '/tool extended'];
+  if (name === '/tools') return ['/tools'];
+  if (name === '/plugin') return ['/plugin', '/plugin list', '/plugin enable <name>'];
+  if (name === '/telegram-setup') return ['/telegram-setup'];
+  if (name === '/telegram-settings') return ['/telegram-settings', '/telegram-settings test'];
+  if (name === '/prompts') return ['/prompts', '/prompts search "code review"'];
+  if (name === '/prompt-gen') return ['/prompt-gen "explain complex refactors"'];
+  if (name === '/sync') return ['/sync', '/sync push', '/sync pull'];
+  if (name === '/metrics') return ['/metrics'];
+  if (name === '/health') return ['/health', '/health provider-reachability'];
+  if (name === '/skill') return ['/skill', '/skill list', '/skill bug-hunter'];
+  if (name === '/skill-gen') return ['/skill-gen "audit logging conventions"'];
+  if (name === '/skill-search') return ['/skill-search security'];
+  if (name === '/skill-import') return ['/skill-import', '/skill-import ~/.claude/skills/'];
+  if (name === '/skill-update') return ['/skill-update', '/skill-update bug-hunter'];
+  if (name === '/skill-uninstall') return ['/skill-uninstall bug-hunter'];
+  if (name === '/gitcheck') return ['/gitcheck'];
+  if (name === '/push') return ['/push'];
+  if (name === '/gitid') return ['/gitid', '/gitid set name "Jane Dev"'];
+  if (name === '/doctor') return ['/doctor'];
+  if (name === '/working_dir') return ['/working_dir', '/working_dir src/'];
+  if (name === '/project') return ['/project', '/project add ../other-project'];
+  if (name === '/f') return ['/f', '/f 2'];
+  if (name === '/mouse') return ['/mouse'];
+  if (name === '/design') return ['/design list', '/design use minimal-clarity'];
+  if (name === '/fallback') return ['/fallback', '/fallback add claude-sonnet'];
+  if (name === '/auth') return ['/auth'];
+  if (name === '/statusline') return ['/statusline', '/statusline model on'];
+  if (name === '/codebase-reindex') return ['/codebase-reindex', '/codebase-reindex --force'];
+  if (name === '/techstack') return ['/techstack'];
+  if (name === '/worktree') return ['/worktree list', '/worktree prune'];
+  if (name === '/mailbox-demo') return ['/mailbox-demo'];
+  if (name === '/mailbox-serve') return ['/mailbox-serve', '/mailbox-serve --port 7788'];
+  if (name === '/shadow') return ['/shadow start', '/shadow status', '/shadow stop'];
+  if (name === '/hq') return ['/hq', '/hq connect http://localhost:4000'];
+  if (name === '/coordinator') return ['/coordinator status', '/coordinator pause'];
+  if (name === '/collab') return ['/collab src/auth/', '/collab --timeout 120000 src/'];
+  if (name === '/ensemble') return ['/ensemble "review the API layer"'];
+  return [name, `/help ${bare}`];
+}
+
 export function CommandDetailPage() {
   const { path } = useRouter();
   const pathParts = path.split('/').filter(Boolean);
@@ -29,13 +91,22 @@ export function CommandDetailPage() {
   const [copied, setCopied] = useState<string | null>(null);
 
   if (!command) return null;
+
+  const detail = commandDetails[command.name];
   const guidance = commandGuidance[command.category];
   const position = commands.findIndex((item) => item.name === command.name) + 1;
   const related = commands
     .filter((item) => item.category === command.category && item.name !== command.name)
     .slice(0, 5);
-  const examples = command.usage ?? [command.name, `/help ${command.name.slice(1)}`];
+  const examples = command.usage ?? fallbackExamples(command.name);
   const deepGuide = commandDeepGuides[command.name];
+
+  // Per-command content with category-level fallback.
+  const purpose = detail?.purpose ?? guidance.intent;
+  const behavior = detail?.behavior ?? command.summary;
+  const before = detail?.before ?? guidance.before;
+  const during = detail?.during ?? guidance.during;
+  const after = detail?.after ?? guidance.after;
 
   const copy = async (value: string) => {
     try {
@@ -72,18 +143,20 @@ export function CommandDetailPage() {
           index="01"
           eyebrow="Purpose"
           title={`What ${command.name} is for`}
-          description={guidance.intent}
+          description={purpose}
         />
         <div className="mt-12 grid gap-6 lg:grid-cols-[1fr_.72fr]">
           <article className="rounded-2xl border border-line bg-card p-6 sm:p-8">
             <Command className="size-5 text-brand" />
             <h2 className="mt-8 text-2xl font-black tracking-[-0.04em] text-fg">Behavior</h2>
-            <p className="mt-4 text-base leading-8 text-muted">{command.summary}</p>
-            <p className="mt-4 text-sm leading-7 text-muted">
-              The REPL parses the command name before a provider request is built. It dispatches
-              through the shared slash-command registry, so the same behavior is available from the
-              plain REPL and command-aware TUI surfaces.
-            </p>
+            <p className="mt-4 text-base leading-8 text-muted">{behavior}</p>
+            {!detail && (
+              <p className="mt-4 text-sm leading-7 text-muted">
+                The REPL parses the command name before a provider request is built. It dispatches
+                through the shared slash-command registry, so the same behavior is available from the
+                plain REPL and command-aware TUI surfaces.
+              </p>
+            )}
             {command.note && (
               <div className="mt-6 rounded-xl border border-brand/15 bg-brand/5 p-4 text-sm leading-6 text-muted">
                 {command.note}
@@ -130,7 +203,7 @@ export function CommandDetailPage() {
             index="02"
             eyebrow="Usage"
             title="Start with the smallest useful invocation."
-            description="Use the built-in help command whenever you need the live version's exact subcommands and argument shape."
+            description="Copy any example below. Use the built-in help command whenever you need the live version's exact subcommands and argument shape."
           />
           <div className="mt-12 overflow-hidden rounded-2xl border border-line bg-ink">
             {examples.map((example, index) => (
@@ -176,9 +249,9 @@ export function CommandDetailPage() {
         />
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line lg:grid-cols-3">
           {[
-            ['Before', guidance.before],
-            ['During', guidance.during],
-            ['After', guidance.after],
+            ['Before', before],
+            ['During', during],
+            ['After', after],
           ].map(([label, body], index) => (
             <article key={label} className="bg-card p-7">
               <span className="font-mono text-xs font-black text-brand-2">0{index + 1}</span>

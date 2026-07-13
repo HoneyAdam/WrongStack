@@ -270,6 +270,22 @@ export function SettingsPage() {
           <ExternalDoc path="docs/configuration.md#secrets">Read secrets guide</ExternalDoc>
         </div>
       </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
+        <SectionIntro index="08" eyebrow="Related" title="Explore more configuration options." />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[
+            { href: '/telegram', label: 'Telegram', desc: 'Push notifications, approval prompts, and remote commands.' },
+            { href: '/sync', label: 'GitHub Sync', desc: 'Sync settings, skills, prompts, and memory across machines.' },
+            { href: '/checkpoints', label: 'Checkpoints', desc: 'File state snapshots. Roll back after risky edits.' },
+          ].map(({ href, label, desc }) => (
+            <Link key={href} href={href} className="group rounded-xl border border-line bg-card p-5 hover:border-brand/40 transition-colors">
+              <h3 className="font-black text-base text-fg group-hover:text-brand transition-colors">{label}</h3>
+              <p className="mt-2 text-xs leading-5 text-muted">{desc}</p>
+              <span className="mt-3 inline-block text-xs font-bold text-brand">Explore →</span>
+            </Link>
+          ))}
+        </div>
+      </section>
       <PageNext
         label="Architecture"
         title="See the boundaries in code"

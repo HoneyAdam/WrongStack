@@ -211,6 +211,18 @@ export function MemoryPage() {
               Learn /context →
             </Link>
           </div>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
+            {[
+              { href: '/checkpoints', label: 'Checkpoints', desc: 'File state snapshots before risky edits. Roll back to the last known-good state.' },
+              { href: '/commit-workflow', label: 'Commit workflow', desc: 'Auto-generated conventional commits from your diff. Stage, review, commit.' },
+            ].map(({ href, label, desc }) => (
+              <Link key={href} href={href} className="group rounded-xl border border-white/10 bg-white/[0.035] p-5 hover:border-brand/40 transition-colors">
+                <h3 className="font-black text-base group-hover:text-brand transition-colors">{label}</h3>
+                <p className="mt-2 text-xs leading-5 text-zinc-500">{desc}</p>
+                <span className="mt-3 inline-block text-xs font-bold text-brand">Explore →</span>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
       <PageNext

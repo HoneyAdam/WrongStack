@@ -1,5 +1,6 @@
 import { ArrowRight, Check, Terminal } from 'lucide-react';
 import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
+import { Link } from '@/lib/router';
 import { ecosystemPillars } from '@/data/content';
 
 export function EcosystemPage() {
@@ -173,6 +174,23 @@ export function EcosystemPage() {
               Browse prompt data <ArrowRight className="size-4" />
             </a>
           </div>
+        </div>
+      </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
+        <SectionIntro index="05" eyebrow="Related" title="Explore more ecosystem features." />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { href: '/skills', label: 'Skills', desc: 'Installable knowledge packages that auto-activate on trigger words.' },
+            { href: '/prompts', label: 'Prompts', desc: 'Reusable steering templates with variables and layered resolution.' },
+            { href: '/design-studio', label: 'Design Studio', desc: '48+ curated UI kits. Materialize CSS tokens and verify palette.' },
+            { href: '/sync', label: 'GitHub Sync', desc: 'Sync settings, skills, prompts, and memory across machines.' },
+          ].map(({ href, label, desc }) => (
+            <Link key={href} href={href} className="group rounded-xl border border-line bg-card p-5 hover:border-brand/40 transition-colors">
+              <h3 className="font-black text-base text-fg group-hover:text-brand transition-colors">{label}</h3>
+              <p className="mt-2 text-xs leading-5 text-muted">{desc}</p>
+              <span className="mt-3 inline-block text-xs font-bold text-brand">Explore →</span>
+            </Link>
+          ))}
         </div>
       </section>
       <PageNext

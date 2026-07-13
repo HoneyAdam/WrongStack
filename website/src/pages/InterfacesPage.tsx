@@ -7,6 +7,7 @@ import {
   Reveal,
   SectionIntro,
 } from '@/components/site/primitives';
+import { Link } from '@/lib/router';
 import { surfaces } from '@/data/content';
 
 const comparison = [
@@ -151,6 +152,22 @@ export function InterfacesPage() {
               <h3 className="mt-8 text-xl font-black tracking-[-0.035em] text-fg">{title}</h3>
               <p className="mt-3 text-sm leading-7 text-muted">{body}</p>
             </div>
+          ))}
+        </div>
+      </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
+        <SectionIntro index="05" eyebrow="Related" title="Explore more interfaces and tools." />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[
+            { href: '/hq', label: 'HQ Command Center', desc: 'Web-based fleet control panel. Monitor status, send steer prompts, queue work.' },
+            { href: '/telegram', label: 'Telegram', desc: 'Push notifications, approval prompts, and remote commands through Telegram.' },
+            { href: '/sync', label: 'GitHub Sync', desc: 'Sync settings, skills, prompts, and memory across machines.' },
+          ].map(({ href, label, desc }) => (
+            <Link key={href} href={href} className="group rounded-xl border border-line bg-card p-5 hover:border-brand/40 transition-colors">
+              <h3 className="font-black text-base text-fg group-hover:text-brand transition-colors">{label}</h3>
+              <p className="mt-2 text-xs leading-5 text-muted">{desc}</p>
+              <span className="mt-3 inline-block text-xs font-bold text-brand">Explore →</span>
+            </Link>
           ))}
         </div>
       </section>

@@ -131,7 +131,7 @@ export function Header() {
                   className="fixed left-1/2 top-[82px] w-[min(1120px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl shadow-black/20"
                 >
                   <div className="manual-grid absolute inset-0 opacity-35" aria-hidden="true" />
-                  <div className="relative grid grid-cols-4 gap-px bg-line">
+                  <div className="relative grid grid-cols-5 gap-px bg-line">
                     {moreNavGroups.map((group, groupIndex) => (
                       <div key={group.id} className="bg-surface p-4">
                         <div className="px-2 pb-3">
