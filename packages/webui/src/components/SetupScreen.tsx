@@ -841,9 +841,9 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
+              <span className="text-[11px] font-medium text-muted-foreground mb-1 block">
                 {t('setup:screen.custom.providerId')}
-              </label>
+              </span>
               <Input
                 placeholder="e.g. my-llm"
                 value={providerId}
@@ -852,9 +852,9 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
               />
             </div>
             <div>
-              <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
+              <span className="text-[11px] font-medium text-muted-foreground mb-1 block">
                 {t('setup:screen.custom.family')}
-              </label>
+              </span>
               <select
                 value={family}
                 onChange={(e) => setFamily(e.target.value)}
@@ -868,9 +868,9 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
             </div>
           </div>
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
+            <span className="text-[11px] font-medium text-muted-foreground mb-1 block">
               {t('setup:screen.custom.baseUrl')}
-            </label>
+            </span>
             <Input
               placeholder="e.g. http://localhost:11434/v1"
               value={baseUrl}
@@ -879,9 +879,9 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
             />
           </div>
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
+            <span className="text-[11px] font-medium text-muted-foreground mb-1 block">
               {t('setup:screen.custom.apiKey')}
-            </label>
+            </span>
             <Input
               type="password"
               placeholder={t('setup:screen.custom.apiKeyPlaceholder')}

@@ -574,7 +574,7 @@ export function SkillsList({ className }: { className?: string }) {
 
               {/* Scope toggle */}
               <div className="flex items-center gap-2">
-                <label className="text-xs text-muted-foreground">{t('activity:skillsList.installScope')}</label>
+                <span className="text-xs text-muted-foreground">{t('activity:skillsList.installScope')}</span>
                 <div className="flex overflow-hidden rounded-md border border-border/70">
                   <button
                     type="button"
@@ -667,9 +667,9 @@ export function SkillsList({ className }: { className?: string }) {
 
               {/* Skill name */}
               <div>
-                <label className="block text-xs font-medium mb-1">
+                <span className="block text-xs font-medium mb-1">
                   {t('activity:skillsList.nameLabel')} <span className="text-destructive">*</span>
-                </label>
+                </span>
                 <input
                   type="text"
                   value={createName}
@@ -686,9 +686,9 @@ export function SkillsList({ className }: { className?: string }) {
 
               {/* Description / trigger */}
               <div>
-                <label className="block text-xs font-medium mb-1">
+                <span className="block text-xs font-medium mb-1">
                   {t('activity:skillsList.descLabel')} <span className="text-destructive">*</span>
-                </label>
+                </span>
                 <textarea
                   value={createDescription}
                   onChange={(e) => {
@@ -707,7 +707,7 @@ export function SkillsList({ className }: { className?: string }) {
 
               {/* Scope toggle */}
               <div className="flex items-center gap-2">
-                <label className="text-xs text-muted-foreground">{t('activity:skillsList.saveIn')}</label>
+                <span className="text-xs text-muted-foreground">{t('activity:skillsList.saveIn')}</span>
                 <div className="flex overflow-hidden rounded-md border border-border/70">
                   <button
                     type="button"
