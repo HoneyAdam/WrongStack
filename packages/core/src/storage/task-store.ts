@@ -134,7 +134,18 @@ export async function saveTasks(
       recoverable: false,
       ...(traceId !== undefined && { traceId }),
     });
-    (warn ?? ((m) => console.warn('[task-store] save failed:', m)))(toErrorMessage(err));
+    (
+      warn ??
+      ((m) =>
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'task_store.save_failed',
+            message: m,
+            timestamp: new Date().toISOString(),
+          }),
+        ))
+    )(toErrorMessage(err));
     return false;
   }
 }
