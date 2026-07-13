@@ -194,6 +194,27 @@ export function WorkflowsPage() {
           ))}
         </div>
       </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <SectionIntro index="04" eyebrow="Decision guide" title="Which workflow for which situation?" />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { when: 'Well-understood feature', use: 'SDD', why: 'Interactive phases, you review each step.' },
+            { when: 'Complex multi-day effort', use: 'AutoPhase', why: 'Autonomous worktrees + checkpoint rollback.' },
+            { when: 'Quick fix or refactor', use: 'BTW / Goals', why: 'Lightweight. No phase overhead.' },
+            { when: 'Independent perspectives', use: 'Ensemble', why: 'Multiple ACP agents, compare results.' },
+            { when: 'Code review / QA', use: 'Collab', why: 'BugHunter + RefactorPlanner + Critic pipeline.' },
+            { when: 'Team coordination', use: 'Mailbox / HQ', why: 'Cross-session steer and fleet monitoring.' },
+            { when: 'CI/CD autonomous', use: 'AutoPhase', why: 'Zero-interaction pipeline with manifest.' },
+            { when: 'Learning / exploring', use: 'Goals', why: 'Loosely structured, adapts as you go.' },
+          ].map(({ when, use, why }) => (
+            <div key={when} className="rounded-xl border border-line bg-card p-4">
+              <span className="font-black text-xs text-fg">{when}</span>
+              <span className="mt-1 block font-mono text-[10px] text-brand">{use}</span>
+              <p className="mt-1.5 text-[11px] leading-4 text-muted">{why}</p>
+            </div>
+          ))}
+        </div>
+      </section>
       <PageNext
         label="Fleet & Brain"
         title="Scale a workflow into coordinated specialist work"

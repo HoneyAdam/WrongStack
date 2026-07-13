@@ -116,6 +116,16 @@ export function DesignStudioPage() {
           ].map(({ cmd, desc }) => (<div key={cmd} className="rounded-xl border border-line bg-card p-5"><code className="font-mono text-sm font-black text-brand">/design {cmd}</code><p className="mt-2 text-xs leading-5 text-muted">{desc}</p></div>))}
         </div>
       </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <SectionIntro index="04" eyebrow="Verification" title="design verify catches off-palette colors." description="After materializing a kit, run `design verify` to scan your UI files. It flags every hardcoded color, gradient, or shadow that doesn't match the kit's token palette — so you ship consistent, themed UI." />
+        <div className="mt-12 grid gap-4 sm:grid-cols-3">
+          {[
+            { title: 'Color audit', body: 'Scans className strings and inline styles for hex codes, rgb(), hsl(), and Tailwind palette utilities (text-red-500, bg-blue-100) that are not in the kit.' },
+            { title: 'Token mapping', body: 'Suggests the closest kit token for every off-palette color. Accept the suggestion or override the kit.' },
+            { title: 'CI integration', body: 'Run design verify in CI to block PRs that introduce off-brand colors. Enforce design consistency automatically.' },
+          ].map(({ title, body }) => (<div key={title} className="rounded-xl border border-line bg-card p-5"><h3 className="font-black text-sm text-fg">{title}</h3><p className="mt-2 text-xs leading-5 text-muted">{body}</p></div>))}
+        </div>
+      </section>
       <PageNext label="Skills" title="Package reusable agent knowledge" body="Skills bundle instructions, trigger words, and capability requirements into installable packages." href="/skills" />
     </>
   );

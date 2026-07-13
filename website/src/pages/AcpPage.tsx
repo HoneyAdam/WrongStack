@@ -1,22 +1,23 @@
+import { Cable, Globe, Network, Radio } from 'lucide-react';
 import { ExternalDoc, PageHero, PageNext, SectionIntro } from '@/components/site/primitives';
 
 export function AcpPage() {
   return (
     <>
-      <PageHero index="20" eyebrow="ACP" title={<>Drive external agents{" "}<span className="text-brand">from one terminal.</span></>} description="Agent Communication Protocol lets WrongStack control external coding agents — Claude Code, Codex CLI, Gemini CLI — using their existing logins. No extra API keys, no configuration files." aside={<ExternalDoc path="docs/acp/README.md">Open ACP docs</ExternalDoc>} />
+      <PageHero index="20" eyebrow="ACP" title={<>Drive external agents{" "}<span className="text-brand">from one terminal.</span></>} description="Agent Communication Protocol v1 — WrongStack is both client and server. Drive Claude Code, Gemini CLI, Codex CLI, and 9 more using their existing logins. External editors can drive WrongStack as an ACP server." aside={<ExternalDoc path="docs/acp-ensemble.md">Open ACP architecture</ExternalDoc>} />
 
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
-        <SectionIntro index="01" eyebrow="How it works" title="WrongStack becomes the conductor." description="ACP agents run as subprocesses. WrongStack sends tasks through stdio or WebSocket, translates tool calls, and collects results. Each agent uses its own tools, models, and permissions." />
-        <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line lg:grid-cols-3">
+        <SectionIntro index="01" eyebrow="Dual role" title="Client and server in the ACP ecosystem." description="WrongStack implements both sides of the ACP v1 spec. As a client, it drives external agents over stdio. As a server, external editors (Zed, JetBrains, VS Code) can drive WrongStack." />
+        <div className="mt-12 grid gap-6 lg:grid-cols-2">
           {[
-            { step: '01', title: 'Discover', body: '/acp probe scans your system for installed ACP-capable agents. Results show agent name, transport type, and status.' },
-            { step: '02', title: 'Dispatch', body: '/acp <agent> "task" sends work to one agent. /acp parallel <a>,<b> "task" fans to multiple. Each runs independently.' },
-            { step: '03', title: 'Collect', body: 'Results stream back to WrongStack. Compare outputs side by side. Use /ensemble for structured multi-agent reviews.' },
-          ].map(({ step, title, body }) => (
-            <article key={step} className="bg-card p-7">
-              <span className="font-mono text-xs font-black text-brand-2">{step}</span>
-              <h2 className="mt-8 text-xl font-black text-fg">{title}</h2>
-              <p className="mt-3 text-sm leading-7 text-muted">{body}</p>
+            { icon: Cable, title: 'ACP Client', items: ['Spawns agents as child processes over stdio', 'Full v1 client state machine: init→new→prompt→stream', 'Answer fs/read, terminal/create, session/request_permission', 'session/cancel notification on abort', 'Each agent uses its own tools, models, and permissions'] },
+            { icon: Network, title: 'ACP Server', items: ['Full v1 method set: 9 methods', 'initialize, authenticate, session/new, session/prompt', 'session/cancel, set_mode, set_config_option, session/load, session/list', '8 notification types emitted to client', 'Per-session concurrency with proper AbortController cancellation'] },
+          ].map(({ icon: Icon, title, items }) => (
+            <article key={title} className="rounded-2xl border border-line bg-card p-7">
+              <Icon className="size-5 text-brand" /><h2 className="mt-8 text-xl font-black text-fg">{title}</h2>
+              <ul className="mt-5 space-y-2">
+                {items.map((item) => (<li key={item} className="flex items-start gap-2 text-sm leading-6 text-muted"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand-2" />{item}</li>))}
+              </ul>
             </article>
           ))}
         </div>
@@ -24,17 +25,28 @@ export function AcpPage() {
 
       <section className="border-y border-line bg-surface">
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
-          <SectionIntro index="02" eyebrow="Usage" title="One command to rule them all." />
-          <div className="mt-12 grid gap-4 sm:grid-cols-2">
+          <SectionIntro index="02" eyebrow="Discovery" title="Live $PATH probe. 12 agents. Cached results." description="EnsembleRegistry probes all catalog entries in parallel. Results are cached for 5 seconds. The bundled catalog is the offline fallback; `/acp sync` fetches the official registry (37+ agents)." />
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { cmd: '/acp', desc: 'List all discovered ACP agents with their transport and status.' },
-              { cmd: '/acp probe', desc: 'Test connectivity to all installed agents. Reports reachability.' },
-              { cmd: '/acp gemini-cli "review this module"', desc: 'Send a task to a specific agent by name.' },
-              { cmd: '/acp parallel claude-code,codex-cli "review this diff"', desc: 'Fan out to multiple agents simultaneously.' },
-            ].map(({ cmd, desc }) => (
-              <div key={cmd} className="rounded-xl border border-line bg-card p-5">
-                <code className="font-mono text-sm font-black text-brand">{cmd}</code>
-                <p className="mt-2 text-xs leading-5 text-muted">{desc}</p>
+              { name: 'Claude Code', vendor: 'Anthropic', integration: 'native' },
+              { name: 'Gemini CLI', vendor: 'Google', integration: 'native' },
+              { name: 'Codex CLI', vendor: 'OpenAI', integration: 'native' },
+              { name: 'GitHub Copilot', vendor: 'GitHub', integration: 'native' },
+              { name: 'Cline', vendor: 'Community', integration: 'community' },
+              { name: 'Qwen Code', vendor: 'Community', integration: 'community' },
+              { name: 'OpenCode', vendor: 'Community', integration: 'native' },
+              { name: 'Kiro CLI', vendor: 'Community', integration: 'community' },
+              { name: 'Cursor', vendor: 'Community', integration: 'experimental' },
+              { name: 'Goose', vendor: 'Community', integration: 'experimental' },
+              { name: 'OpenHands', vendor: 'Community', integration: 'experimental' },
+              { name: 'Mistral Vibe', vendor: 'Community', integration: 'experimental' },
+            ].map(({ name, vendor, integration }) => (
+              <div key={name} className="rounded-xl border border-line bg-card p-4">
+                <h3 className="font-black text-sm text-fg">{name}</h3>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-faint">{vendor}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-brand-2">{integration}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -42,37 +54,28 @@ export function AcpPage() {
       </section>
 
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
-        <SectionIntro index="03" eyebrow="Architecture" title="Transport layer and tool translation." description="ACP uses stdio or WebSocket to communicate with external agents. WrongStack translates its tool calls into the agent's native format." />
+        <SectionIntro index="03" eyebrow="Commands" title="Single agent dispatch and server mode." />
         <div className="mt-12 grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-line bg-card p-7">
-            <h2 className="text-xl font-black text-fg">Transport options</h2>
+            <Radio className="size-5 text-brand" /><h2 className="mt-8 text-xl font-black text-fg">Client commands</h2>
             <div className="mt-5 space-y-3">
               {[
-                { label: 'Stdio', body: 'The agent runs as a child process. WrongStack sends JSON-RPC messages over stdin and reads responses from stdout. Lowest latency, simplest setup.' },
-                { label: 'WebSocket', body: 'The agent connects via WebSocket to a WrongStack bridge. Useful when the agent runs on a different machine or inside a container.' },
-                { label: 'Loopback bridge', body: 'For testing, a loopback transport lets you simulate ACP agent responses without installing external tools.' },
-              ].map(({ label, body }) => (
-                <div key={label} className="rounded-lg border border-line bg-bg p-4">
-                  <h3 className="font-black text-sm text-fg">{label}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{body}</p>
-                </div>
-              ))}
+                { cmd: '/acp probe', desc: 'Test connectivity to all installed agents. Reports reachability and version.' },
+                { cmd: '/acp gemini-cli "review auth"', desc: 'Send a task to a specific agent. Blocking — waits for completion.' },
+                { cmd: '/acp list', desc: 'Show live detection: installed/not-found for all 12 catalog entries.' },
+                { cmd: '/acp sync', desc: 'Fetch latest ACP registry (37+ agents) and cache for offline use.' },
+              ].map(({ cmd, desc }) => (<div key={cmd} className="rounded-lg border border-line bg-bg p-4"><code className="font-mono text-sm font-black text-brand">{cmd}</code><p className="mt-1.5 text-xs leading-5 text-muted">{desc}</p></div>))}
             </div>
           </div>
           <div className="rounded-2xl border border-line bg-card p-7">
-            <h2 className="text-xl font-black text-fg">Supported agents</h2>
+            <Globe className="size-5 text-brand" /><h2 className="mt-8 text-xl font-black text-fg">Server mode</h2>
             <div className="mt-5 space-y-3">
               {[
-                { label: 'Claude Code', body: 'Anthropic\'s official CLI agent. Uses its own API key and tools. Full tool translation support.' },
-                { label: 'Codex CLI (OpenAI)', body: 'OpenAI\'s open-source coding agent. Supports both stdio and WebSocket transport.' },
-                { label: 'Gemini CLI (Google)', body: 'Google\'s CLI agent. Requires Gemini API access. Supports parallel ensemble dispatch.' },
-                { label: 'Custom agents', body: 'Any tool that speaks the ACP v1 protocol can be registered. See the agent catalog at /acp for the full list.' },
-              ].map(({ label, body }) => (
-                <div key={label} className="rounded-lg border border-line bg-bg p-4">
-                  <h3 className="font-black text-sm text-fg">{label}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{body}</p>
-                </div>
-              ))}
+                { label: '/acp server', body: 'Start WrongStack as an ACP server on stdio. External editors connect and drive it.' },
+                { label: 'Spec compliance', body: 'Full v1 method set. Smoke-tested. JSON-RPC 2.0. Proper cancel propagation.' },
+                { label: 'Editor integration', body: 'Zed, JetBrains Junie, VS Code ACP can all drive WrongStack. No adapter needed.' },
+                { label: 'Tool registry', body: 'WrongStack tools are exposed as ACP ToolDefinitions. External editors can call any permitted tool.' },
+              ].map(({ label, body }) => (<div key={label} className="rounded-lg border border-line bg-bg p-4"><h3 className="font-black text-sm text-fg">{label}</h3><p className="mt-1 text-xs leading-5 text-muted">{body}</p></div>))}
             </div>
           </div>
         </div>

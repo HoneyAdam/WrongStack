@@ -193,6 +193,16 @@ export function EcosystemPage() {
           ))}
         </div>
       </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <SectionIntro index="04" eyebrow="Plugin development" title="Build once. Publish anywhere." description="Plugins follow a standard structure: a manifest, a setup function, and optional slash commands, hooks, or tool providers. The plugin SDK handles registration, versioning, and lifecycle." />
+        <div className="mt-12 grid gap-6 lg:grid-cols-3">
+          {[
+            { title: 'Manifest', body: 'name, version, apiVersion, description, capabilities. Declare what your plugin provides without implementing it.' },
+            { title: 'Setup & teardown', body: 'setup(api) registers commands, hooks, and providers. teardown(api) cleans up. Both receive a typed API surface.' },
+            { title: 'Distribution', body: 'Publish to npm, ship as a local project plugin, or install from GitHub. Plugins auto-discover from the config.' },
+          ].map(({ title, body }) => (<div key={title} className="rounded-xl border border-line bg-card p-5"><h3 className="font-black text-sm text-fg">{title}</h3><p className="mt-2 text-xs leading-5 text-muted">{body}</p></div>))}
+        </div>
+      </section>
       <PageNext
         label="Security"
         title="Know what each extension is allowed to do"

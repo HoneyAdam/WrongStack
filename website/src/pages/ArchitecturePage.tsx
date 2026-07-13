@@ -160,6 +160,24 @@ export function ArchitecturePage() {
           ))}
         </div>
       </section>
+      <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
+        <SectionIntro index="04" eyebrow="Pipelines" title="Six middleware pipelines surround every agent step." description="Each pipeline is a linear async middleware chain with position-aware replacement. They wrap tool execution, provider calls, context assembly, and more." />
+        <div className="mt-12 grid gap-4 sm:grid-cols-3">
+          {[
+            ['Pre-tool', 'Before every tool call: permission check, input validation, env expansion.'],
+            ['Post-tool', 'After every tool call: output redaction, secret scrubbing, side-effect recording.'],
+            ['Pre-provider', 'Before the LLM request: context assembly, memory injection, skill body loading.'],
+            ['Post-provider', 'After the LLM response: token counting, cost accounting, usage logging.'],
+            ['Pre-iteration', 'Before each agent iteration: budget check, compaction trigger, context pruning.'],
+            ['Post-iteration', 'After each agent iteration: session append, checkpoint update, fleet pulse.'],
+          ].map(([name, body]) => (
+            <div key={name} className="rounded-xl border border-line bg-card p-5">
+              <h3 className="font-black text-sm text-fg">{name}</h3>
+              <p className="mt-2 text-xs leading-5 text-muted">{body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
       <PageNext
         label="Ecosystem"
         title="Extend the contracts, not the core"
