@@ -339,6 +339,7 @@ function fakeMailbox(
     registerClient: vi.fn(async () => {}),
     clientHeartbeat: vi.fn(async () => {}),
     getClientStatuses: vi.fn(async () => []),
+    purgeClients: vi.fn(async () => 0),
   };
   return Object.assign(stub as unknown as Mailbox, { queryMock, ackManyMock });
 }

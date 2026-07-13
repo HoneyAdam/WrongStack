@@ -13,7 +13,7 @@
  * happened, `false` if the flag was empty.
  */
 
-import type { Agent } from '@wrongstack/core';
+import type { Agent, Logger } from '@wrongstack/core';
 import {
   type Compactor,
   type Config,
@@ -67,6 +67,8 @@ export interface EternalFlagDeps {
   eternalEngineRef?: {
     current: EternalAutonomyEngine | undefined;
   };
+  /** Logger for structured engine events. Falls back to console.error when omitted. */
+  logger?: Logger | undefined;
 }
 
 export async function launchEternalFromFlag(deps: EternalFlagDeps): Promise<boolean> {
@@ -75,7 +77,7 @@ export async function launchEternalFromFlag(deps: EternalFlagDeps): Promise<bool
 
   const { saveGoal, emptyGoal, goalFilePath, loadGoal } = await import('@wrongstack/core');
   const goalPath = goalFilePath(deps.projectRoot);
-  const prior = await loadGoal(goalPath);
+  const prior = await loadGoal(goalPath, undefined, deps.logger ? (msg) => deps.logger!.warn(msg) : undefined);
   // Preserve journal across flag-driven re-launches so the user can run
   // `wstack --eternal "<x>"`, ctrl-c, then `wstack --eternal "<y>"` and
   // still see the prior iteration history under /goal journal.
@@ -109,6 +111,7 @@ export async function launchEternalFromFlag(deps: EternalFlagDeps): Promise<bool
     maxContextTokens: deps.effectiveMaxContext > 0 ? deps.effectiveMaxContext : undefined,
     onIteration: deps.broadcastEternalIteration,
     brain,
+    logger: deps.logger,
   });
   await engine.prime();
   if (deps.eternalEngineRef) deps.eternalEngineRef.current = engine;

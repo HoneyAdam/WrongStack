@@ -8,7 +8,7 @@ import {
   loadGoal,
   saveGoal,
 } from '@wrongstack/core';
-import { type RefinedGoal, refineGoal, refineGoalHeuristic } from './goal-refiner.js';
+import { refineGoalWithFallback, resolveRefinerTarget } from './goal-refiner.js';
 import type { SlashCommandContext } from './index.js';
 
 const KNOWN_VERBS = new Set([
@@ -95,15 +95,23 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             return { message: msg };
           }
 
-          // Try LLM refinement
-          let refined: RefinedGoal | null = null;
-          if (opts.llmProvider && opts.llmModel) {
-            opts.renderer.write(color.dim('Refining goal with LLM…'));
-            refined = await refineGoal(setText, opts.llmProvider, opts.llmModel);
-          }
-          if (!refined) {
-            refined = refineGoalHeuristic(setText);
-          }
+          // Resolve the best available refiner provider+model from config,
+          // validated against favorites + available providers.
+          const cfg = opts.configStore?.get();
+          const activeId = cfg?.provider ?? '';
+          const activeModel = cfg?.model ?? '';
+          const refinerTarget =
+            cfg && opts.createProvider
+              ? resolveRefinerTarget(cfg, opts.createProvider, activeId, activeModel)
+              : undefined;
+
+          opts.renderer.write(color.dim('Refining goal…'));
+          const refined = await refineGoalWithFallback(setText, {
+            primaryProvider: opts.llmProvider,
+            primaryModel: opts.llmModel,
+            refinerProvider: refinerTarget?.provider,
+            refinerModel: refinerTarget?.model,
+          });
 
           const existing = await loadGoal(goalPath, opts.events);
           const now = new Date().toISOString();
@@ -162,14 +170,21 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
             return { message: msg };
           }
 
-          let refined: RefinedGoal | null = null;
-          if (opts.llmProvider && opts.llmModel) {
-            opts.renderer.write(color.dim('Re-refining goal with LLM…'));
-            refined = await refineGoal(current.goal, opts.llmProvider, opts.llmModel);
-          }
-          if (!refined) {
-            refined = refineGoalHeuristic(current.goal);
-          }
+          const cfg = opts.configStore?.get();
+          const activeId = cfg?.provider ?? '';
+          const activeModel = cfg?.model ?? '';
+          const refinerTarget =
+            cfg && opts.createProvider
+              ? resolveRefinerTarget(cfg, opts.createProvider, activeId, activeModel)
+              : undefined;
+
+          opts.renderer.write(color.dim('Re-refining goal…'));
+          const refined = await refineGoalWithFallback(current.goal, {
+            primaryProvider: opts.llmProvider,
+            primaryModel: opts.llmModel,
+            refinerProvider: refinerTarget?.provider,
+            refinerModel: refinerTarget?.model,
+          });
 
           const updated: GoalFile = {
             ...current,
@@ -200,9 +215,11 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
           // Cant: the goal file is gone. The autonomy engine and the `autonomous`
           // mode loop both check for the file's existence before running; without
           // it they will not spin up again until `/goal set` is called.
+          // Switching to `auto` mode so the agent keeps working autonomously
+          // without a goal — the user can stop with `/autonomy off`.
           if (opts.onEternalStop) opts.onEternalStop();
-          if (opts.onAutonomy) opts.onAutonomy('off');
-          const msg = `${color.amber('Goal cleared.')} Goal file removed; eternal mode will stop.`;
+          if (opts.onAutonomy) opts.onAutonomy('auto');
+          const msg = `${color.amber('Goal cleared.')} Goal file removed; switching to auto mode. Use /autonomy off to stop.`;
           opts.renderer.write(msg);
           return { message: msg };
         }

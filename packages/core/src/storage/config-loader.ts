@@ -21,6 +21,7 @@ import {
   DEFAULT_TOOLS_CONFIG,
 } from '../types/default-config.js';
 import { ConfigError, ERROR_CODES } from '../types/errors.js';
+import type { Logger } from '../types/logger.js';
 import type { SecretVault } from '../types/secret-vault.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import { type DeepMergeOptions, deepMerge as deepMergeCore } from '../utils/deep-merge.js';
@@ -744,6 +745,8 @@ export interface ConfigLoaderOptions {
   sources?: ConfigSource[] | undefined;
   events?: EventBus;
   traceId?: string;
+  /** Logger for structured warning/error events. When omitted, falls back to console.warn. */
+  logger?: Logger | undefined;
 }
 
 interface MemoizedConfigSource {
@@ -758,6 +761,7 @@ export class DefaultConfigLoader implements ConfigLoader {
   private readonly extraSources: ConfigSource[];
   private readonly events: EventBus | undefined;
   private readonly traceId: string | undefined;
+  private readonly logger: Logger | undefined;
   private readonly jsonCache = new Map<string, MemoizedConfigSource>();
 
   constructor(opts: ConfigLoaderOptions) {
@@ -767,6 +771,20 @@ export class DefaultConfigLoader implements ConfigLoader {
     this.extraSources = opts.sources ?? [];
     this.events = opts.events;
     this.traceId = opts.traceId;
+    this.logger = opts.logger;
+  }
+
+  /**
+   * Emit a structured warning. Uses the configured Logger when available;
+   * falls back to console.warn(JSON) so warnings are never silently dropped
+   * during early boot (before a Logger is constructed).
+   */
+  private logWarn(msg: string, ctx?: Record<string, unknown>): void {
+    if (this.logger) {
+      this.logger.warn(msg, ctx);
+    } else {
+      console.warn(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
+    }
   }
 
   async load(
@@ -807,7 +825,14 @@ export class DefaultConfigLoader implements ConfigLoader {
     // controllable. Strip credential/endpoint/code-execution fields before
     // merging so a malicious repo cannot redirect the provider endpoint
     // (API-key exfiltration) or auto-run an MCP server / hook (RCE) on launch.
-    cfg = deepMerge(cfg, stripUnsafeInProjectFields(inProject, this.paths.inProjectConfig));
+    cfg = deepMerge(
+      cfg,
+      stripUnsafeInProjectFields(
+        inProject,
+        this.paths.inProjectConfig,
+        this.logger ? (msg: string) => this.logger!.warn(msg) : undefined,
+      ),
+    );
 
     // Layer 4: env vars
     for (const [key, fn] of Object.entries(ENV_MAP)) {
@@ -830,14 +855,9 @@ export class DefaultConfigLoader implements ConfigLoader {
         }
       } catch (err) {
         // Best-effort: skip failing sources so one bad source doesn't block boot.
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            event: 'config.source_load_failed',
-            source: src.name,
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }),
+        this.logWarn(
+          'Config source load failed',
+          { event: 'config.source_load_failed', source: src.name, message: toErrorMessage(err) },
         );
       }
     }
@@ -926,14 +946,9 @@ export class DefaultConfigLoader implements ConfigLoader {
               durationMs: Date.now() - t0,
               ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
             });
-            console.warn(
-              JSON.stringify({
-                level: 'warn',
-                event: 'config.defaults_read_failed',
-                path: fp,
-                message: toErrorMessage(err),
-                timestamp: new Date().toISOString(),
-              }),
+            this.logWarn(
+              'Config defaults read failed',
+              { event: 'config.defaults_read_failed', path: fp, message: toErrorMessage(err) },
             );
             return;
           }
@@ -969,14 +984,9 @@ export class DefaultConfigLoader implements ConfigLoader {
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'config.defaults_write_failed',
-          path: fp,
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }),
+      this.logWarn(
+        'Config defaults write failed',
+        { event: 'config.defaults_write_failed', path: fp, message: toErrorMessage(err) },
       );
     }
   }
@@ -1086,13 +1096,9 @@ export class DefaultConfigLoader implements ConfigLoader {
         error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'config.sync_load_failed',
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }),
+      this.logWarn(
+        'Config sync load failed',
+        { event: 'config.sync_load_failed', message: toErrorMessage(err) },
       );
       return null;
     }
@@ -1123,14 +1129,9 @@ export class DefaultConfigLoader implements ConfigLoader {
         error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'config.read_failed',
-          path: file,
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }),
+      this.logWarn(
+        'Config read failed (stat)',
+        { event: 'config.read_failed', path: file, message: toErrorMessage(err) },
       );
       return {};
     }
@@ -1150,14 +1151,9 @@ export class DefaultConfigLoader implements ConfigLoader {
           error: storageErrorString(err),
           ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
         });
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            event: 'config.read_failed',
-            path: file,
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }),
+        this.logWarn(
+          'Config read failed (read)',
+          { event: 'config.read_failed', path: file, message: toErrorMessage(err) },
         );
       }
       this.jsonCache.set(file, { mtimeMs: null, value: {} });
@@ -1175,14 +1171,9 @@ export class DefaultConfigLoader implements ConfigLoader {
         error: 'parse error or empty file',
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'config.parse_failed',
-          path: file,
-          message: 'invalid JSON — falling back to defaults for this layer',
-          timestamp: new Date().toISOString(),
-        }),
+      this.logWarn(
+        'Config parse failed — falling back to defaults',
+        { event: 'config.parse_failed', path: file },
       );
       return {};
     }
@@ -1242,9 +1233,9 @@ export class DefaultConfigLoader implements ConfigLoader {
       const known = listContextWindowModes()
         .map((m) => m.id)
         .join(', ');
-      console.warn(
-        `[config] Ignoring unknown context.mode "${c.mode}" (expected one of: ${known}); ` +
-          `falling back to "${DEFAULT_CONTEXT_WINDOW_MODE_ID}".`,
+      this.logWarn(
+        `Ignoring unknown context.mode "${c.mode}" — falling back to "${DEFAULT_CONTEXT_WINDOW_MODE_ID}"`,
+        { event: 'config.unknown_context_mode', mode: c.mode, known },
       );
       c.mode = DEFAULT_CONTEXT_WINDOW_MODE_ID;
     }

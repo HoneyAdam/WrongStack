@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { ulid } from '@wrongstack/core/utils';
 import { BrowserArtifactStore } from './artifacts.js';
+import { BrowserNetworkGuardProxy } from './network-guard-proxy.js';
 import { assertBrowserUrlAllowed, redactBrowserText, safeBrowserUrl } from './security.js';
 import type {
   BrowserArtifact,
@@ -36,6 +37,8 @@ export class BrowserSessionManager {
   private readonly sessions = new Map<string, LiveSession>();
   private readonly artifacts: BrowserArtifactStore;
   private readonly allowPrivateHosts: boolean;
+  private readonly allowedPrivateOrigins: readonly string[];
+  private readonly networkProxy: BrowserNetworkGuardProxy;
   private readonly headless: boolean;
   private readonly operationTimeoutMs: number;
   private readonly maxSnapshotChars: number;
@@ -50,6 +53,11 @@ export class BrowserSessionManager {
   ) {
     this.artifacts = new BrowserArtifactStore(options.artifactRoot);
     this.allowPrivateHosts = options.allowPrivateHosts ?? false;
+    this.allowedPrivateOrigins = options.allowedPrivateOrigins ?? [];
+    this.networkProxy = new BrowserNetworkGuardProxy({
+      allowPrivateHosts: this.allowPrivateHosts,
+      allowedPrivateOrigins: this.allowedPrivateOrigins,
+    });
     this.headless = options.headless ?? true;
     this.operationTimeoutMs = options.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS;
     this.maxSnapshotChars = options.maxSnapshotChars ?? DEFAULT_MAX_SNAPSHOT_CHARS;
@@ -66,16 +74,20 @@ export class BrowserSessionManager {
     if (input.url) {
       await assertBrowserUrlAllowed(input.url, {
         allowPrivateHosts: this.allowPrivateHosts,
+        allowedPrivateOrigins: this.allowedPrivateOrigins,
         navigation: true,
       });
     }
     const browser = await this.ensureBrowser(signal);
+    const proxyServer = await this.networkProxy.start();
     const context = await abortable(
       signal,
       async () => {
         const created = await browser.newContext({
           acceptDownloads: false,
           ignoreHTTPSErrors: false,
+          serviceWorkers: 'block',
+          proxy: { server: proxyServer },
           viewport: input.viewport ?? { width: 1440, height: 900 },
         });
         if (signal.aborted) {
@@ -103,6 +115,7 @@ export class BrowserSessionManager {
       try {
         await assertBrowserUrlAllowed(route.request().url(), {
           allowPrivateHosts: this.allowPrivateHosts,
+          allowedPrivateOrigins: this.allowedPrivateOrigins,
           navigation: false,
         });
         await route.continue();
@@ -143,6 +156,7 @@ export class BrowserSessionManager {
   ): Promise<BrowserSessionSummary> {
     await assertBrowserUrlAllowed(rawUrl, {
       allowPrivateHosts: this.allowPrivateHosts,
+      allowedPrivateOrigins: this.allowedPrivateOrigins,
       navigation: true,
     });
     const session = this.requireOwned(id, ownerId);
@@ -283,6 +297,7 @@ export class BrowserSessionManager {
   ): Promise<void> {
     const session = this.requireOwned(id, ownerId);
     const root = path.resolve(projectRoot);
+    const realRoot = await fs.realpath(root);
     const resolved: string[] = [];
     for (const file of files) {
       const absolute = path.resolve(root, file);
@@ -290,9 +305,14 @@ export class BrowserSessionManager {
       if (relative.startsWith('..') || path.isAbsolute(relative)) {
         throw new Error('browser: upload files must stay inside the project root');
       }
-      const stat = await fs.stat(absolute);
+      const realFile = await fs.realpath(absolute);
+      const realRelative = path.relative(realRoot, realFile);
+      if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+        throw new Error('browser: upload files must not escape the project root through a symlink');
+      }
+      const stat = await fs.stat(realFile);
       if (!stat.isFile()) throw new Error(`browser: upload target is not a file: ${file}`);
-      resolved.push(absolute);
+      resolved.push(realFile);
     }
     await this.runPageOperation(session, signal, () =>
       session.page.locator(selector).setInputFiles(resolved, { timeout: this.operationTimeoutMs }),
@@ -350,6 +370,7 @@ export class BrowserSessionManager {
     this.browser = undefined;
     this.launching = undefined;
     await browser?.close().catch(() => undefined);
+    await this.networkProxy.close();
   }
 
   private async ensureBrowser(signal: AbortSignal): Promise<Browser> {

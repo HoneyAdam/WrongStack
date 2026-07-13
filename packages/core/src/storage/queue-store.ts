@@ -2,6 +2,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import type { ContentBlock } from '../types/blocks.js';
+import type { Logger } from '../types/logger.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 
@@ -33,11 +34,21 @@ export class QueueStore {
   // reject assigning an optional constructor parameter to these fields.
   private readonly events: EventBus | undefined;
   private readonly traceId: string | undefined;
+  private readonly logger: Logger | undefined;
 
-  constructor(opts: { dir: string; events?: EventBus; traceId?: string }) {
+  constructor(opts: { dir: string; events?: EventBus; traceId?: string; logger?: Logger | undefined }) {
     this.file = path.join(opts.dir, 'queue.json');
     this.events = opts.events;
     this.traceId = opts.traceId;
+    this.logger = opts.logger;
+  }
+
+  private logWarn(msg: string, ctx?: Record<string, unknown>): void {
+    if (this.logger) {
+      this.logger.warn(msg, ctx);
+    } else {
+      console.warn(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
+    }
   }
 
   async write(items: PersistedQueueItem[]): Promise<void> {
@@ -70,13 +81,7 @@ export class QueueStore {
         recoverable: false,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'queue_store.write_failed',
-        path: this.file,
-        message: toErrorMessage(err),
-        timestamp: new Date().toISOString(),
-      }));
+      this.logWarn('Queue store write failed', { event: 'queue_store.write_failed', path: this.file, message: toErrorMessage(err) });
     }
   }
 
@@ -109,13 +114,7 @@ export class QueueStore {
         recoverable: true,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'queue_store.read_failed',
-        path: this.file,
-        message: toErrorMessage(err),
-        timestamp: new Date().toISOString(),
-      }));
+      this.logWarn('Queue store read failed', { event: 'queue_store.read_failed', path: this.file, message: toErrorMessage(err) });
       return [];
     }
     let parsed: unknown;
@@ -192,13 +191,7 @@ export class QueueStore {
       // Best-effort: a permission/lock error during clear is rare and
       // the queue slash command is non-critical. Warn so it's observable
       // but don't throw so the slash command doesn't crash.
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'queue_store.clear_failed',
-        path: this.file,
-        message: (err as Error).message,
-        timestamp: new Date().toISOString(),
-      }));
+      this.logWarn('Queue store clear failed', { event: 'queue_store.clear_failed', path: this.file, message: (err as Error).message });
     }
   }
 }

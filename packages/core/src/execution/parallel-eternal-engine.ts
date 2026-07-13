@@ -7,6 +7,7 @@ import { makeAgentSubagentRunner, withDisabledToolFiltering } from '../coordinat
 import { dispatchAgent } from '../coordination/dispatcher.js';
 import type { DispatchClassifier, DispatchResult } from '../coordination/dispatcher.js';
 import type { EventBus } from '../kernel/events.js';
+import type { Logger } from '../types/logger.js';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JournalEntry, GoalFile } from '../storage/goal-store.js';
 import { loadGoal, saveGoal, appendJournal, goalFilePath } from '../storage/goal-store.js';
@@ -82,6 +83,8 @@ export interface ParallelEternalOptions {
   dispatchClassifier?: DispatchClassifier | undefined;
   /** Optional EventBus for emitting storage.* observability events from goal I/O. */
   events?: EventBus | undefined;
+  /** Logger for structured errors. Falls back to console.error when omitted. */
+  logger?: Logger | undefined;
 }
 
 const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]?complete\]\s*$/im;
@@ -130,6 +133,29 @@ export class ParallelEternalEngine {
       }));
   }
 
+  /**
+   * Emit a structured error. Uses the configured Logger when available;
+   * falls back to console.error(JSON) so events are never silently dropped.
+   */
+  private logError(msg: string, ctx?: Record<string, unknown>): void {
+    if (this.opts.logger) {
+      this.opts.logger.error(msg, ctx);
+    } else {
+      console.error(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
+    }
+  }
+
+  /**
+   * Load the goal file with structured logging for parse/schema warnings.
+   */
+  private loadGoal(): Promise<GoalFile | null> {
+    return loadGoal(
+      this.goalPath,
+      this.opts.events,
+      this.opts.logger ? (msg) => this.opts.logger!.warn(msg) : undefined,
+    );
+  }
+
   get currentState(): ParallelEngineState {
     return this.state;
   }
@@ -144,13 +170,10 @@ export class ParallelEternalEngine {
   stop(): void {
     this.stopRequested = true;
     void this.persistState('stopped').catch((err) => {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'engine.persist_state_failed',
-        message: toErrorMessage(err),
-        context: { expectedState: 'stopped' },
-        timestamp: new Date().toISOString(),
-      }));
+      this.logError(
+        'Engine persist state failed',
+        { event: 'engine.persist_state_failed', message: toErrorMessage(err), context: { expectedState: 'stopped' } },
+      );
     });
     this.state = 'stopped';
   }
@@ -212,7 +235,7 @@ export class ParallelEternalEngine {
 
     this.iterations++;
 
-    const goal = await loadGoal(this.goalPath, this.opts.events);
+    const goal = await this.loadGoal();
     if (!goal) {
       this.stopRequested = true;
       emit({ phase: 'stopped' });
@@ -416,13 +439,10 @@ export class ParallelEternalEngine {
             taskIds.push(taskId);
             await coordinator.assign(spec);
           } catch (err) {
-            console.error(JSON.stringify({
-              level: 'warn',
-              event: 'parallel_engine.spawn_failed',
-              message: toErrorMessage(err),
-              context: { slot: i, task, subagentId },
-              timestamp: new Date().toISOString(),
-            }));
+            this.logError(
+              'Parallel spawn failed',
+              { event: 'parallel_engine.spawn_failed', message: toErrorMessage(err), context: { slot: i, task, subagentId } },
+            );
           }
         })(),
       );
@@ -454,13 +474,10 @@ export class ParallelEternalEngine {
         clearTimeout(timer);
       }
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'warn',
-        event: 'parallel_engine.brainstorm_results_failed',
-        message: toErrorMessage(err),
-        context: { slotCount, taskIds },
-        timestamp: new Date().toISOString(),
-      }));
+      this.logError(
+        'Brainstorm results failed',
+        { event: 'parallel_engine.brainstorm_results_failed', message: toErrorMessage(err), context: { slotCount, taskIds } },
+      );
       results = coordinator.results().slice(-taskIds.length);
     }
 
@@ -513,13 +530,10 @@ export class ParallelEternalEngine {
           }
         }
       } catch (err) {
-        console.error(JSON.stringify({
-          level: 'warn',
-          event: 'parallel_engine.git_status_failed',
-          message: toErrorMessage(err),
-          context: { projectRoot: this.opts.projectRoot },
-          timestamp: new Date().toISOString(),
-        }));
+        this.logError(
+          'Git status failed',
+          { event: 'parallel_engine.git_status_failed', message: toErrorMessage(err), context: { projectRoot: this.opts.projectRoot } },
+        );
       }
     }
 
@@ -620,7 +634,7 @@ export class ParallelEternalEngine {
   // -------------------------------------------------------------------------
 
   private async appendIterationEntry(entry: Omit<JournalEntry, 'iteration' | 'at'>): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) return;
     const updated = appendJournal(current, entry);
     await saveGoal(this.goalPath, updated, this.opts.events);
@@ -637,7 +651,7 @@ export class ParallelEternalEngine {
   }
 
   private async persistState(state: GoalFile['engineState']): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) return;
     if (current.engineState === state) return;
     await saveGoal(this.goalPath, { ...current, engineState: state }, this.opts.events);

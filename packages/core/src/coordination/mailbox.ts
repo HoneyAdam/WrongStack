@@ -14,6 +14,8 @@ import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { withFileLock } from '../utils/atomic-write.js';
+import type { Logger } from '../types/logger.js';
+import { normalizeMailboxMessageType, parseMailboxMessageLine } from './mailbox-message-codec.js';
 import type {
   AgentHeartbeatInput,
   AgentRegistrationInput,
@@ -43,15 +45,19 @@ export class DefaultMailbox implements Mailbox {
   private _messageCache: MailboxMessage[] | null = null;
   private _messageCacheMtime = -1;
   private _messageCacheSize = -1;
+  /** True when the cache is only the newest MESSAGE_CACHE_MAX_ENTRIES records. */
+  private _messageCacheTruncated = false;
   /** Primary index: recipient → Set of messages (points into _messageCache). */
   private _byTo = new Map<string, Set<MailboxMessage>>();
   /** Secondary index: sender → Set of messages (points into _messageCache). */
   private _byFrom = new Map<string, Set<MailboxMessage>>();
   /** Counts malformed JSONL lines skipped during parsing for observability. */
   private _corruptionCount = 0;
+  private readonly logger: Logger | undefined;
 
-  constructor(sessionDir: string) {
+  constructor(sessionDir: string, opts?: { logger?: Logger | undefined }) {
     this.filePath = path.join(sessionDir, MAILBOX_FILE);
+    this.logger = opts?.logger;
   }
 
   get mailboxPath(): string {
@@ -73,7 +79,7 @@ export class DefaultMailbox implements Mailbox {
       // "all" is an accepted spelling of the broadcast address — canonical
       // form on disk is '*' so every query/checker matches it.
       to: normalizeRecipient(input.to),
-      type: input.type,
+      type: normalizeMailboxMessageType(input.type),
       subject: input.subject,
       body: input.body,
       priority: input.priority ?? 'normal',
@@ -109,20 +115,19 @@ export class DefaultMailbox implements Mailbox {
   // ── Query ─────────────────────────────────────────────────────────────
 
   async query(q: MailboxQuery): Promise<MailboxMessage[]> {
+    const queryType = q.type === undefined ? undefined : normalizeMailboxMessageType(q.type);
     // unreadBy and since require a full scan because they depend on per-message
     // mutable state (readBy) and wall-clock time respectively — no index helps.
     // When either is present, fall back to a scan; otherwise use the _byTo/_byFrom
     // indexes to narrow candidates O(1) before applying remaining filters.
     const needFullScan = q.unreadBy !== undefined || q.since !== undefined;
 
+    const cached = await this._readAllCached(false);
     let candidates: MailboxMessage[];
+    let candidatesComplete = !this._messageCacheTruncated || cached !== this._messageCache;
     if (needFullScan) {
-      candidates = await this._readAllCached();
+      candidates = cached;
     } else {
-      // Ensure cache + indexes are populated and fresh before reading from
-      // them. _readAllCached() compares mtime/size to detect external file
-      // changes and calls _setMessageCache() → _buildIndexes() when stale.
-      await this._readAllCached();
       if (q.to !== undefined) {
         const direct = this._byTo.get(q.to);
         const broadcast = this._byTo.get('*');
@@ -131,10 +136,12 @@ export class DefaultMailbox implements Mailbox {
         if (direct) for (const m of direct) combined.set(m.id, m);
         if (broadcast) for (const m of broadcast) combined.set(m.id, m);
         candidates = Array.from(combined.values());
+        candidatesComplete = !this._messageCacheTruncated;
       } else if (q.from !== undefined) {
         candidates = Array.from(this._byFrom.get(q.from) ?? []);
+        candidatesComplete = !this._messageCacheTruncated;
       } else {
-        candidates = await this._readAllCached();
+        candidates = cached;
       }
     }
 
@@ -146,7 +153,7 @@ export class DefaultMailbox implements Mailbox {
       if (q.from !== undefined && msg.from !== q.from) return false;
       if (q.unreadBy !== undefined && q.unreadBy in msg.readBy) return false;
       if (q.incompleteOnly && msg.completed) return false;
-      if (q.type !== undefined && msg.type !== q.type) return false;
+      if (queryType !== undefined && msg.type !== queryType) return false;
       if (order !== null && (order[msg.priority as keyof typeof order] ?? 1) < minPriorityRank)
         return false;
       if (q.since !== undefined && msg.timestamp <= q.since) return false;
@@ -160,25 +167,36 @@ export class DefaultMailbox implements Mailbox {
     // is also insertion order, which equals append order on this side
     // because every push goes through _pushToCache / _indexMsg in the
     // order the lines were parsed.
-    if (order === null) {
+    const selectNewest = (source: MailboxMessage[]): MailboxMessage[] => {
       const out: MailboxMessage[] = [];
-      for (let i = candidates.length - 1; i >= 0 && out.length < limit; i--) {
-        const msg = candidates[i]!;
+      for (let i = source.length - 1; i >= 0 && out.length < limit; i--) {
+        const msg = source[i]!;
         if (passes(msg)) out.push(msg);
       }
       return out;
+    };
+
+    if (order === null) {
+      const out = selectNewest(candidates);
+      if (out.length >= limit || candidatesComplete) return out;
+      return selectNewest(await this._readAll());
     }
 
     // Priority-ordered queries still require a full sort, but we cap
     // the working set to the first N matches under the timestamp order
     // so we never re-rank more messages than we have to return.
-    const filtered: MailboxMessage[] = [];
-    for (let i = candidates.length - 1; i >= 0; i--) {
-      const msg = candidates[i]!;
-      if (passes(msg)) filtered.push(msg);
-    }
-    filtered.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    return filtered.slice(0, limit);
+    const selectByPriority = (source: MailboxMessage[]): MailboxMessage[] => {
+      const filtered: MailboxMessage[] = [];
+      for (let i = source.length - 1; i >= 0; i--) {
+        const msg = source[i]!;
+        if (passes(msg)) filtered.push(msg);
+      }
+      filtered.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      return filtered.slice(0, limit);
+    };
+    const filtered = selectByPriority(candidates);
+    if (filtered.length >= limit || candidatesComplete) return filtered;
+    return selectByPriority(await this._readAll());
   }
 
   // ── Ack ───────────────────────────────────────────────────────────────
@@ -312,6 +330,7 @@ export class DefaultMailbox implements Mailbox {
     this._messageCache = null;
     this._messageCacheMtime = -1;
     this._messageCacheSize = -1;
+    this._messageCacheTruncated = false;
     this._byTo.clear();
     this._byFrom.clear();
   }
@@ -417,6 +436,11 @@ export class DefaultMailbox implements Mailbox {
     return [];
   }
 
+  async purgeClients(): Promise<number> {
+    // no-op: per-session mailbox doesn't track clients globally
+    return 0;
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────
 
   private async _readAll(): Promise<MailboxMessage[]> {
@@ -432,6 +456,11 @@ export class DefaultMailbox implements Mailbox {
   /**
    * Read only newly-appended bytes from the file and append them to the
    * in-memory cache, avoiding a full re-read when the file only grew.
+   *
+   * Guards against a half-written tail: when the tail doesn't end with
+   * LINE_SEPARATOR, another process may be mid-append. Parsing a partial
+   * JSON line would throw (caught below), but worse: the NEXT incremental
+   * read would skip that same line because the size tracker already advanced.
    */
   private async _readNewMessagesOnly(
     fd: fsp.FileHandle,
@@ -442,30 +471,54 @@ export class DefaultMailbox implements Mailbox {
     const buf = Buffer.alloc(tailLen);
     await fd.read(buf, 0, tailLen, oldSize);
     const tail = buf.toString('utf8');
-    for (const line of tail.split(LINE_SEPARATOR)) {
-      if (!line.trim()) continue;
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        if (!parsed['readBy']) {
-          const readBy: Record<string, string> = {};
-          if (parsed['read'] && parsed['readAt']) {
-            readBy[(parsed['to'] as string) ?? 'unknown'] = parsed['readAt'] as string;
-          }
-          parsed['readBy'] = readBy;
-          delete parsed['read'];
-          delete parsed['readAt'];
-        }
-        const msg = parsed as never as MailboxMessage;
-        this._messageCache!.push(msg);
-        this._indexMsg(msg);
-      } catch (err) {
-        this._corruptionCount++;
-        console.debug(
-          `[mailbox] skipped malformed line during incremental read: ${(err as Error).message}`,
-        );
+
+    // Guard against a half-written tail: if another process is mid-append,
+    // the tail may not end with LINE_SEPARATOR. When the last segment is a
+    // partial write, parse complete lines and advance the size tracker only
+    // to the last consumed byte so the next read retries the gap.
+    if (!tail.endsWith(LINE_SEPARATOR)) {
+      const lastSeparatorIdx = tail.lastIndexOf(LINE_SEPARATOR);
+      if (lastSeparatorIdx === -1) {
+        // Entire tail is a partial line — don't advance trackers.
+        return this._messageCache!;
       }
+      // Parse complete lines only; advance size tracker to the last complete byte.
+      const completeTail = tail.slice(0, lastSeparatorIdx + 1);
+      this._appendIncrementalLines(completeTail);
+      this._messageCacheSize = oldSize + lastSeparatorIdx + 1;
+      return this._messageCache!;
     }
+
+    // Normal path: tail ends with LINE_SEPARATOR, all lines are complete.
+    this._appendIncrementalLines(tail);
+    this._messageCacheSize = newSize;
     return this._messageCache!;
+  }
+
+  private _appendIncrementalLines(raw: string): void {
+    for (const line of raw.split(LINE_SEPARATOR)) {
+      if (!line.trim()) continue;
+      const msg = this._parseLine(line, 'incremental read');
+      if (msg === null) continue;
+      this._pushToCache(msg);
+    }
+  }
+
+  private _parseLine(line: string, source: string): MailboxMessage | null {
+    try {
+      return parseMailboxMessageLine(line);
+    } catch (err) {
+      this._corruptionCount++;
+      if (this.logger) {
+        this.logger.debug(
+          'Skipped malformed mailbox line',
+          { source, error: (err as Error).message, corruptionCount: this._corruptionCount },
+        );
+      } else {
+        console.debug(`[mailbox] skipped malformed line during ${source}: ${(err as Error).message}`);
+      }
+      return null;
+    }
   }
 
   /** Parse a JSONL string into MailboxMessage[], including migration. */
@@ -473,24 +526,8 @@ export class DefaultMailbox implements Mailbox {
     const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
     const messages: MailboxMessage[] = [];
     for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        if (!parsed['readBy']) {
-          const readBy: Record<string, unknown> = {};
-          if (parsed['read'] && parsed['readAt']) {
-            readBy[(parsed['to'] as string) ?? 'unknown'] = parsed['readAt'];
-          }
-          parsed['readBy'] = readBy;
-          delete parsed['read'];
-          delete parsed['readAt'];
-        }
-        messages.push(parsed as never as MailboxMessage);
-      } catch (err) {
-        this._corruptionCount++;
-        console.debug(
-          `[mailbox] skipped malformed line during full parse: ${(err as Error).message}`,
-        );
-      }
+      const message = this._parseLine(line, 'full parse');
+      if (message !== null) messages.push(message);
     }
     return messages;
   }
@@ -513,7 +550,7 @@ export class DefaultMailbox implements Mailbox {
     }
   }
 
-  private async _readAllCached(): Promise<MailboxMessage[]> {
+  private async _readAllCached(requireComplete = true): Promise<MailboxMessage[]> {
     try {
       const st = await fsp.stat(this.filePath);
 
@@ -523,6 +560,7 @@ export class DefaultMailbox implements Mailbox {
         this._messageCacheMtime === st.mtimeMs &&
         this._messageCacheSize === st.size
       ) {
+        if (requireComplete && this._messageCacheTruncated) return this._readAll();
         return this._messageCache;
       }
 
@@ -536,7 +574,7 @@ export class DefaultMailbox implements Mailbox {
         try {
           const updated = await this._readNewMessagesOnly(fd, this._messageCacheSize, st.size);
           this._messageCacheMtime = st.mtimeMs;
-          this._messageCacheSize = st.size;
+          if (requireComplete && this._messageCacheTruncated) return this._readAll();
           return updated;
         } finally {
           await fd.close();
@@ -557,16 +595,11 @@ export class DefaultMailbox implements Mailbox {
   }
 
   private _setMessageCache(messages: MailboxMessage[], mtime: number, size: number): void {
-    if (messages.length > MESSAGE_CACHE_MAX_ENTRIES) {
-      this._messageCache = null;
-      this._messageCacheMtime = -1;
-      this._messageCacheSize = -1;
-      this._byTo.clear();
-      this._byFrom.clear();
-      return;
-    }
-    this._messageCache = messages;
-    this._buildIndexes(messages);
+    this._messageCacheTruncated = messages.length > MESSAGE_CACHE_MAX_ENTRIES;
+    this._messageCache = this._messageCacheTruncated
+      ? messages.slice(-MESSAGE_CACHE_MAX_ENTRIES)
+      : messages;
+    this._buildIndexes(this._messageCache);
     // Set mtime/size synchronously in the same critical section as the
     // file write that produced them. The previous implementation fired
     // a fire-and-forget fsp.stat() here when callers did not pass values,
@@ -582,12 +615,9 @@ export class DefaultMailbox implements Mailbox {
   private _pushToCache(msg: MailboxMessage): void {
     if (this._messageCache === null) return;
     if (this._messageCache.length >= MESSAGE_CACHE_MAX_ENTRIES) {
-      this._messageCache = null;
-      this._messageCacheMtime = -1;
-      this._messageCacheSize = -1;
-      this._byTo.clear();
-      this._byFrom.clear();
-      return;
+      const evicted = this._messageCache.shift();
+      if (evicted !== undefined) this._unindexMsg(evicted);
+      this._messageCacheTruncated = true;
     }
     this._messageCache.push(msg);
     this._indexMsg(msg);
@@ -617,5 +647,16 @@ export class DefaultMailbox implements Mailbox {
     } else {
       this._byFrom.set(msg.from, new Set([msg]));
     }
+  }
+
+  /** Remove an evicted message from both indexes without rebuilding them. */
+  private _unindexMsg(msg: MailboxMessage): void {
+    const toSet = this._byTo.get(msg.to);
+    toSet?.delete(msg);
+    if (toSet?.size === 0) this._byTo.delete(msg.to);
+
+    const fromSet = this._byFrom.get(msg.from);
+    fromSet?.delete(msg);
+    if (fromSet?.size === 0) this._byFrom.delete(msg.from);
   }
 }

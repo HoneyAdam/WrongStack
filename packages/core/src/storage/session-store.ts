@@ -4,6 +4,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
+import type { Logger } from '../types/logger.js';
 import type { ContentBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
@@ -64,6 +65,8 @@ export interface SessionStoreOptions {
    * Resolves to a human-readable reason when in use, or `null` when safe.
    */
   isSessionInUse?: ((sessionId: string) => Promise<string | null>) | undefined;
+  /** Logger for structured warnings. Falls back to console.warn when omitted. */
+  logger?: Logger | undefined;
 }
 
 /**
@@ -157,6 +160,7 @@ export class DefaultSessionStore implements SessionStore {
   private readonly projectRoot?: string | undefined;
   private readonly checkpointCas?: SessionCheckpointCas | undefined;
   private readonly isSessionInUse?: ((sessionId: string) => Promise<string | null>) | undefined;
+  private readonly logger: Logger | undefined;
 
   /**
    * In-memory cache for load() results, keyed by session ID. The cache is
@@ -186,6 +190,19 @@ export class DefaultSessionStore implements SessionStore {
     this.events = opts.events;
     this.secretScrubber = opts.secretScrubber;
     this.isSessionInUse = opts.isSessionInUse;
+    this.logger = opts.logger;
+  }
+
+  /**
+   * Emit a structured warning. Uses the configured Logger when available;
+   * falls back to console.warn(JSON) so warnings are never silently dropped.
+   */
+  private logWarn(msg: string, ctx?: Record<string, unknown>): void {
+    if (this.logger) {
+      this.logger.warn(msg, ctx);
+    } else {
+      console.warn(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
+    }
   }
 
   /**
@@ -324,12 +341,10 @@ export class DefaultSessionStore implements SessionStore {
       return writer;
       /* v8 ignore start -- defensive: FileSessionWriter ctor does not throw in practice */
     } catch (err) {
-      await handle.close().catch((e) => console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'session_store.handle_close_failed',
-        message: e instanceof Error ? e.message : String(e),
-        timestamp: new Date().toISOString(),
-      })));
+      await handle.close().catch((e) => this.logWarn(
+        'Session handle close failed',
+        { event: 'session_store.handle_close_failed', message: e instanceof Error ? e.message : String(e) },
+      ));
       this.emitError(id, file, 'create', toErrorMessage(err), true);
       throw err;
     }
@@ -484,12 +499,10 @@ export class DefaultSessionStore implements SessionStore {
       return { writer, data: resumedData };
       /* v8 ignore start -- defensive: FileSessionWriter ctor does not throw in practice */
     } catch (err) {
-      await handle.close().catch((e) => console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'session_store.handle_close_failed',
-        message: e instanceof Error ? e.message : String(e),
-        timestamp: new Date().toISOString(),
-      })));
+      await handle.close().catch((e) => this.logWarn(
+        'Session handle close failed',
+        { event: 'session_store.handle_close_failed', message: e instanceof Error ? e.message : String(e) },
+      ));
       this.emitError(id, file, 'resume', toErrorMessage(err), true);
       throw err;
     }
@@ -1290,13 +1303,10 @@ export class DefaultSessionStore implements SessionStore {
       await atomicWrite(manifest, JSON.stringify(summary), { mode: 0o600 }).catch((err) => {
         const msg = toErrorMessage(err);
         this.emitError(id, manifest, 'summary_fallback', msg, true);
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'session_store.manifest_write_failed',
-          sessionId: id,
-          message: msg,
-          timestamp: new Date().toISOString(),
-        }));
+        this.logWarn(
+          'Session manifest write failed',
+          { event: 'session_store.manifest_write_failed', sessionId: id, message: msg },
+        );
       });
       outcome = 'failure';
       errorMsg = 'summary fallback â€” manifest rebuilt';

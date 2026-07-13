@@ -10,7 +10,7 @@ Step-by-step guide for publishing a WrongStack release.
 - [ ] Typecheck clean: `pnpm typecheck`
 - [ ] Lint clean: `pnpm lint`
 - [ ] Build clean: `pnpm build`
-- [ ] Publish check: `node scripts/publish-check.mjs --dry-run`
+- [ ] Publish dry-run: `pnpm -r publish --dry-run --no-git-checks`
 
 ## Version bump
 
@@ -39,14 +39,14 @@ git push --follow-tags
 ## Verify CI
 
 - [ ] GitHub Actions Release workflow passes
-- [ ] All 3 platforms (Ubuntu, macOS, Windows) green
+- [ ] Ubuntu and Windows CI jobs are green
 - [ ] npm packages published successfully
 
 ## Post-release
 
 - [ ] Verify packages on npm: `npm info @wrongstack/core`
 - [ ] Test install: `npm install -g wrongstack && wrongstack version`
-- [ ] GitHub Release created with auto-generated notes
+- [ ] Create or verify the GitHub Release and generated notes
 - [ ] Update README.md "What's new" section if major release
 
 ## Hotfix process
@@ -69,12 +69,13 @@ git push --follow-tags
 
 The `.github/workflows/release.yml` automates:
 
-1. Typecheck + build + test (all 3 platforms)
-2. Version tag verification (tag must match package.json)
-3. npm publish (all workspace packages)
-4. GitHub Release creation with auto-generated notes
+1. Browser runtime smoke test, topological build, typecheck, and test gates on Ubuntu
+2. Version tag verification (tag must match `package.json`)
+3. Main-ancestry verification (the tagged commit must be contained in `origin/main`)
+4. npm publication for validated tags, or a package dry-run for manual runs on `main`
 
-**Trigger**: Push a tag matching `v*`.
+**Trigger**: Push a tag matching `v*`, or manually run the workflow from `main`
+for a dry-run. Manual workflow runs cannot publish.
 
 **Required secrets**:
 - `NPM_TOKEN` — npm authentication token with publish access
@@ -88,6 +89,5 @@ The `.github/workflows/release.yml` automates:
 To see exactly what would be published without actually publishing:
 
 ```bash
-node scripts/publish-check.mjs --dry-run
 pnpm -r publish --dry-run --no-git-checks
 ```

@@ -21,11 +21,10 @@
  */
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
-import { WebSocket } from 'ws';
 import type { Config, Logger, MemoryStore } from '@wrongstack/core';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import {
-  AgentStatusTracker,
+  type AgentStatusTracker,
   AnnotationsStore,
   DEFAULT_SESSION_PRUNE_DAYS,
   DefaultModelsRegistry,
@@ -36,7 +35,6 @@ import {
   DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   EventBus,
-  FleetNotifier,
   GlobalMailbox,
   PromptUsageStore,
   ProviderRegistry,
@@ -47,8 +45,8 @@ import {
   applyToolDescriptionModes,
   applyToolResultRenderModes,
   configureChildEnvGitIdentity,
-  resolveContextWindowPolicy,
   getSessionRegistry,
+  resolveContextWindowPolicy,
   makeMailboxTool,
   makeMailInboxTool,
   makeFleetStatusTool,
@@ -82,7 +80,7 @@ import {
   searchMemoryTool,
 } from '@wrongstack/tools';
 import type { WstackPaths } from '@wrongstack/core/utils';
-import { toErrorMessage } from '@wrongstack/core/utils';
+import { sessionScopedPath, toErrorMessage } from '@wrongstack/core/utils';
 import type { WebUIOptions } from './types.js';
 import type { CustomModeStore } from './custom-context-modes.js';
 import { createCustomModeStore } from './custom-context-modes.js';
@@ -90,6 +88,10 @@ import { resolveSetupProvider } from './setup-screen.js';
 import { seedContextMeta } from './context-meta.js';
 import { resolveProviderModelMetadata } from './model-catalog.js';
 import { discoverAndMergeWebuiProviders } from './model-auto-discovery.js';
+import {
+  createStandaloneSessionIdentityLifecycle,
+  type StandaloneSessionIdentityLifecycle,
+} from './standalone-session-identity.js';
 
 const GITHUB_PROVIDERS_OVERLAY_URL =
   'https://raw.githubusercontent.com/WrongStack/WrongStack/main/packages/cli/data/providers.json';
@@ -123,6 +125,7 @@ export interface PreContextServices {
   session: Awaited<ReturnType<DefaultSessionStore['create']>>;
   sessionStartedAt: number;
   statusTracker: AgentStatusTracker | undefined;
+  sessionIdentity: StandaloneSessionIdentityLifecycle;
   tokenCounter: DefaultTokenCounter;
   modeStore: DefaultModeStore;
   modeId: string;
@@ -289,109 +292,22 @@ export async function createPreContextServices(
   } catch {
     /* best-effort */
   }
-  let statusTracker: AgentStatusTracker | undefined;
-  try {
-    const registry = getSessionRegistry(wpaths.globalRoot);
-    await registry.register({
-      sessionId: session.id,
-      projectSlug: wpaths.projectSlug,
+  const sessionIdentity = await createStandaloneSessionIdentityLifecycle({
+    config,
+    events,
+    logger,
+    paths: {
+      globalRoot: wpaths.globalRoot,
       projectRoot,
-      projectName: path.basename(projectRoot),
-      workingDir,
-      clientType: 'webui',
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-    });
-    const fleetNotifier = new FleetNotifier({ baseDir: wpaths.globalRoot, projectRoot, selfPid: process.pid });
-    statusTracker = new AgentStatusTracker({
-      events,
-      registry,
-      sessionId: () => session.id,
-      onUpdate: () => fleetNotifier.notify(),
-    });
-    statusTracker.start();
-
-    // ── HQ session telemetry ──
-    let stopHqSessionBridge: (() => void) | undefined;
-    let hqTelemetryPublisher: { close(): void } | undefined;
-    const stopHqAuxBridges: Array<() => void> = [];
-    try {
-      const {
-        createHqPublisherFromEnv,
-        startSessionTelemetryBridge,
-        startFleetTelemetryBridge,
-        startBrainTelemetryBridge,
-        startWorktreeTelemetryBridge,
-        startToolTelemetryBridge,
-        startCostTelemetryBridge,
-      } = await import('@wrongstack/core');
-      const hqTelemetry = createHqPublisherFromEnv({
-        clientKind: 'webui',
-        projectRoot,
-        projectName: path.basename(projectRoot),
-        appConfig: config as never as Parameters<typeof createHqPublisherFromEnv>[0]['appConfig'],
-        socketFactory: (url: string) => new WebSocket(url) as unknown as import('@wrongstack/core').HqSocketLike,
-      });
-      if (hqTelemetry) {
-        hqTelemetry.connect();
-        hqTelemetryPublisher = hqTelemetry;
-        stopHqSessionBridge = startSessionTelemetryBridge({
-          publisher: hqTelemetry, events, sessionId: session.id, projectRoot,
-          projectName: path.basename(projectRoot), globalRoot: wpaths.globalRoot,
-          initialAgents: statusTracker?.getAgents(), startedAt: new Date().toISOString(),
-        });
-        // Auxiliary telemetry bridges — forward fleet/brain/worktree/tool/cost
-        // signals to HQ so the command center dashboard is fully populated.
-        // All best-effort; never break the WebUI on failure.
-        try {
-          stopHqAuxBridges.push(
-            startFleetTelemetryBridge({ events, publisher: hqTelemetry, runId: session.id, sessionId: session.id }),
-          );
-        } catch { /* optional */ }
-        try {
-          stopHqAuxBridges.push(
-            startBrainTelemetryBridge({ events, publisher: hqTelemetry, sessionId: session.id }),
-          );
-        } catch { /* optional */ }
-        try {
-          stopHqAuxBridges.push(
-            startWorktreeTelemetryBridge({ events, publisher: hqTelemetry, sessionId: session.id }),
-          );
-        } catch { /* optional */ }
-        try {
-          stopHqAuxBridges.push(
-            startToolTelemetryBridge({ events, publisher: hqTelemetry, projectRoot, sessionId: session.id }),
-          );
-        } catch { /* optional */ }
-        try {
-          stopHqAuxBridges.push(
-            startCostTelemetryBridge({ events, publisher: hqTelemetry, sessionId: session.id }),
-          );
-        } catch { /* optional */ }
-      }
-    } catch {
-      /* telemetry optional */
-    }
-    const stopTracking = async () => {
-      try {
-        fleetNotifier.dispose();
-        await registry.markClosing();
-        statusTracker?.stop();
-        stopHqSessionBridge?.();
-        for (const stop of stopHqAuxBridges) {
-          try { stop(); } catch { /* ignore */ }
-        }
-        hqTelemetryPublisher?.close();
-      } catch {
-        /* ignore */
-      }
-    };
-    process.once('beforeExit', () => { void stopTracking(); });
-    process.once('SIGINT', () => { void stopTracking(); });
-    process.once('SIGTERM', () => { void stopTracking(); });
-  } catch {
-    /* best-effort — discovery degrades gracefully */
-  }
+      projectSlug: wpaths.projectSlug,
+      projectSessions: wpaths.projectSessions,
+    },
+    workingDir,
+    initialSessionId: session.id,
+    sessionStore,
+    manageRecoveryLock: !opts.services?.session,
+  });
+  const statusTracker = sessionIdentity.statusTracker;
 
   // ── Token counter ──
   let context: Context;
@@ -491,12 +407,20 @@ export async function createPreContextServices(
   const initialContextPolicy = resolveContextWindowPolicy(config.context);
   context.meta['contextWindowMode'] = initialContextPolicy.id;
   context.meta['contextWindowPolicy'] = initialContextPolicy;
+  context.state.setMeta(
+    'plan.path',
+    sessionScopedPath(wpaths.projectSessions, session.id, '.plan.json'),
+  );
+  context.state.setMeta(
+    'task.path',
+    sessionScopedPath(wpaths.projectSessions, session.id, '.tasks.json'),
+  );
   seedContextMeta(config, context);
 
   return {
     modelsRegistry, container, configStore, providerRegistry, toolRegistry,
     memoryStore, events, mcpRegistry, sessionStore, sessionReader, annotationsStore,
-    session, sessionStartedAt, statusTracker, tokenCounter, modeStore, modeId,
+    session, sessionStartedAt, statusTracker, sessionIdentity, tokenCounter, modeStore, modeId,
     customModeStore, skillLoader, skillInstaller, promptsCtx, modelCapabilitiesRef,
     provider, context, needsSetup,
   };

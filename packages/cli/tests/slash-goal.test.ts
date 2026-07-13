@@ -138,15 +138,18 @@ describe('/goal slash command', () => {
     expect(after?.journal).toHaveLength(2);
   });
 
-  it('/goal clear unlinks the goal file and signals stop', async () => {
+  it('/goal clear unlinks the goal file, signals stop, and sets auto mode', async () => {
     const { registry, goalCtx } = rig(tmp);
     const goalPath = goalCtx.paths?.projectGoal ?? goalFilePath(tmp);
     await saveGoal(goalPath, emptyGoal('to be cleared'));
     const stopSpy = vi.fn();
+    const autoSpy = vi.fn();
     goalCtx.onEternalStop = stopSpy;
+    goalCtx.onAutonomy = autoSpy;
     const result = await registry.dispatch('/goal clear', goalCtx as never as Context);
     expect(result?.message).toMatch(/Goal cleared/);
     expect(stopSpy).toHaveBeenCalledOnce();
+    expect(autoSpy).toHaveBeenCalledWith('auto');
     const after = await loadGoal(goalPath);
     expect(after).toBeNull();
   });

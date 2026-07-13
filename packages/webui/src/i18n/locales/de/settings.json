@@ -1,6 +1,9 @@
 {
   "title": "Einstellungen",
   "tabs": {
+    "tools": "Werkzeuge",
+    "brain": "Brain",
+    "shadow": "Shadow",
     "provider": "Anbieter",
     "connection": "Verbinden",
     "appearance": "Aussehen",
@@ -9,6 +12,10 @@
     "mcp": "MCP"
   },
   "appearance": {
+    "showThinkingLabel": "Thinking-Protokolle anzeigen",
+    "showThinkingHint": "Abgeschlossene Reasoning-Blöcke im Chatverlauf anzeigen.",
+    "groupToolCallsLabel": "Tool-Aufrufe gruppieren",
+    "groupToolCallsHint": "Aufeinanderfolgende Tool-Aufrufe in einem Chip zusammenfassen.",
     "themeHeading": "Design",
     "themeLight": "Hell",
     "themeDark": "Dunkel",
@@ -21,6 +28,21 @@
     "soundOnCompleteHint": "Spielt einen sanften Ton, wenn ein Durchlauf abgeschlossen ist.",
     "titleAnimation": "Titelanimation",
     "titleAnimationHint": "Animierten Terminal-Titel im CLI anzeigen.",
+    "thinkingWordLabel": "Denkwort (CLI/TUI)",
+    "thinkingWordHint": "Wort im TUI-Status-Chip. Ein einzelnes kurzes Wort.",
+    "statuslineModeLabel": "Statuszeilen-Modus (CLI/TUI)",
+    "statuslineModeHint": "Detailgrad der TUI-Statuszeile.",
+    "statuslineModeDetailed": "Detailliert",
+    "statuslineModeMinimum": "Minimal",
+    "statuslineModeNoColor": "Ohne Farbe",
+    "animationStyleLabel": "Animationsstil (CLI/TUI)",
+    "animationStyleHint": "Animation für den TUI-Arbeitsstatus-Chip.",
+    "animationStyleRainbow": "Regenbogen",
+    "animationStyleWave": "Welle",
+    "animationStylePulse": "Puls",
+    "animationStyleDots": "Punkte",
+    "animationStyleBreathe": "Atmen",
+    "animationStyleCycle": "Zyklus",
     "languageHeading": "Sprache",
     "languageLabel": "Oberflächensprache",
     "languageHint": "Ändert nur den Oberflächentext. Prompts, Skills und Modellausgaben bleiben unberührt."
@@ -40,6 +62,12 @@
     "startingBody": "Eigenständig: ./dev.ps1 vom Repo-Root ausführen, oder WS_HOST/WS_PORT vor dem Start von wstackui setzen. Oder alongside der CLI: wstack --webui."
   },
   "provider": {
+    "savedProviderCount_one": "{{count}} Anbieter",
+    "savedProviderCount_other": "{{count}} Anbieter",
+    "keyCount_one": "{{count}} Schlüssel konfiguriert",
+    "keyCount_other": "{{count}} Schlüssel konfiguriert",
+    "activeKeyCount_one": "{{count}} aktiver Schlüssel",
+    "activeKeyCount_other": "{{count}} aktive Schlüssel",
     "subscriptionHeading": "Abonnement-Anmeldung",
     "apiKeysHeading": "API-Schlüssel-Anbieter",
     "apiKeysBody": "Wähle einen Anbieter aus dem Katalog und füge einen API-Schlüssel hinzu oder verwalte gespeicherte Anbieter.",
@@ -196,6 +224,10 @@
     "refineLanguageHint": "Ihre Sprache behalten oder für das Modell ins Englische übersetzen.",
     "refineLanguageOriginal": "Original — Sprache behalten",
     "refineLanguageEnglish": "Englisch — ins Englische übersetzen",
+    "refinerProviderLabel": "Verfeinerungs-Provider",
+    "refinerProviderHint": "Provider-ID für die Zielverfeinerung. Leer = Provider der Sitzung verwenden.",
+    "refinerModelLabel": "Verfeinerungs-Modell",
+    "refinerModelHint": "Modell-ID für die Zielverfeinerung. Leer = Modell der Sitzung verwenden.",
     "reasoningHeading": "Reasoning & Cache",
     "reasoningModeLabel": "Reasoning-Modus",
     "reasoningModeHint": "Steuern, wie das Modell Extended Thinking nutzt. Auto = Anbieter-Standard.",
@@ -283,7 +315,11 @@
     "addModelToProfile": "Modell zum Profil hinzufügen…",
     "addFavoriteModel": "Favoritenmodell hinzufügen…",
     "hqRawContentLabel": "Rohe HQ-Inhalte",
-    "hqRawContentHint": "Rohe Inhaltsvorschauen statt geschwärzter Vorschauen an HQ senden."
+    "hqRawContentHint": "Rohe Inhaltsvorschauen statt geschwärzter Vorschauen an HQ senden.",
+    "breakerLabel": "Prozess-Schutzschalter",
+    "breakerHint": "Sperrt bash/exec nach wiederholten Fehlern; beim Auslösen startet der Kill/Reset-Countdown.",
+    "breakerTimeoutLabel": "Kill/Reset-Timeout des Schutzschalters",
+    "breakerTimeoutHint": "Verzögerung bis zum automatischen Kill/Reset nach dem Auslösen. 0 = manuelle Wiederherstellung."
   },
   "features": {
     "flagsHeading": "Feature-Flags",
@@ -330,7 +366,13 @@
     "auditLevelHint": "Detaillierungsgrad für Sitzungs-Audit-Logs.",
     "auditLevelMinimal": "Minimal — nur Fehler",
     "auditLevelStandard": "Standard — Tool-Aufrufe + Fehler",
-    "auditLevelFull": "Voll — jedes Ereignis (große Logs)"
+    "auditLevelFull": "Voll — jedes Ereignis (große Logs)",
+    "fsAccessLabel": "Dateisystemzugriff",
+    "fsAccessHint": "Geltungsbereich der Datei-Tools. Gilt ab der nächsten Sitzung.",
+    "fsAccessUnrestricted": "Uneingeschränkt — beliebiger Pfad",
+    "fsAccessProject": "Projekt — auf das Projektverzeichnis beschränkt",
+    "debugStreamLabel": "Debug-Stream",
+    "debugStreamHint": "Roher SSE-Hexdump auf stderr des Servers zum Provider-Debugging."
   },
   "toast": {
     "switchingTo": "Wechseln zu {{provider}} / {{model}}…",

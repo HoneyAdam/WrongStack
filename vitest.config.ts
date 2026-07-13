@@ -75,17 +75,17 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['packages/**/tests/**/*.test.ts', 'apps/**/tests/**/*.test.ts'],
     exclude: [
-        '**/node_modules/**',
-        '**/dist/**',
-        // WebUI tests require jsdom + globals:true — run separately:
-        //   cd packages/webui && pnpm test
-        // or: pnpm --filter webui test
-        'packages/webui/**',
-        // hq-dashboard.test.ts requires jsdom environment which the root
-        // forks pool may fail to resolve from the global vitest binary.
-        // Run it separately: cd packages/cli && npx vitest run tests/hq-dashboard.test.ts
-        'packages/cli/tests/hq-dashboard.test.ts',
-      ],
+      '**/node_modules/**',
+      '**/dist/**',
+      // WebUI tests require jsdom + globals:true — run separately:
+      //   cd packages/webui && pnpm test
+      // or: pnpm --filter webui test
+      'packages/webui/**',
+      // hq-dashboard.test.ts requires jsdom environment which the root
+      // forks pool may fail to resolve from the global vitest binary.
+      // Run it separately: cd packages/cli && npx vitest run tests/hq-dashboard.test.ts
+      'packages/cli/tests/hq-dashboard.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -162,7 +162,7 @@ export default defineConfig({
       // Global: 72% lines is achievable with targeted tests.
       // 100% requires DOM/jsdom for webui/tui and LSP stubs for plug-lsp.
       thresholds: {
-        // Floor: 71% statements, 62% branches — must not regress.
+        // Floor: 71% statements, 64% branches — must not regress.
         // Raised after ~2000+ new tests added across all 19 packages:
         // security-scanner (11 failures fixed, 200 tests), super-memory (359 tests),
         // bench (239 tests), webui-server (416 new tests), webui (330+ tests),
@@ -171,7 +171,10 @@ export default defineConfig({
         // runtime (107 tests), telegram (135 tests), acp (305 tests).
         lines: 73,
         functions: 73,
-        branches: 62,
+        // Measured at 64.00% before the payload-boundary coverage batch on
+        // 2026-07-12. Keep a small cross-platform margin below the new ~64.7%
+        // result while ratcheting toward the 70% target.
+        branches: 64,
         statements: 72,
       },
     },

@@ -4,6 +4,10 @@ import type { InputReader } from '../types/input-reader.js';
 import type { PermissionDecision, PermissionPolicy, TrustPolicy } from '../types/permission.js';
 import type { Tool } from '../types/tool.js';
 import { getDangerousCapabilities, hasCapability, ToolCapabilities } from './capabilities.js';
+import {
+  type TrustPolicyDiagnostic,
+  validateTrustPolicy,
+} from './permission-policy-schema.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { matchAny, matchGlob } from '../utils/glob-match.js';
 import { LruCache } from '../utils/lru-cache.js';
@@ -191,6 +195,8 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
    * the LRU evicts the least-recently-used entries first.
    */
   private _evalCache = new LruCache<string, PermissionDecision>(500);
+  private policyDiagnostics: TrustPolicyDiagnostic[] = [];
+  private policyInvalid = false;
 
   constructor(opts: PermissionPolicyOptions) {
     this.trustFile = opts.trustFile;
@@ -243,13 +249,51 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     return this.confirmDestructive;
   }
 
+  /** Read-only diagnostics for policy inspector/editor surfaces. */
+  getPolicyDiagnostics(): readonly TrustPolicyDiagnostic[] {
+    return this.policyDiagnostics.map((diagnostic) => ({ ...diagnostic }));
+  }
+
   async reload(): Promise<void> {
+    this.policyDiagnostics = [];
+    this.policyInvalid = false;
     try {
       const raw = await fs.readFile(this.trustFile, 'utf8');
-      const parsed = safeParse<TrustPolicy>(raw);
-      if (parsed.ok && parsed.value) this.policy = parsed.value;
-    } catch {
+      const parsed = safeParse<unknown>(raw);
+      if (!parsed.ok) {
+        this.policy = {};
+        this.policyInvalid = true;
+        this.policyDiagnostics = [
+          {
+            severity: 'error',
+            code: 'invalid_json',
+            path: '$',
+            message: parsed.error ?? 'trust policy is not valid JSON',
+          },
+        ];
+      } else {
+        const validation = validateTrustPolicy(parsed.value);
+        this.policyDiagnostics = validation.diagnostics;
+        if (validation.ok) {
+          this.policy = validation.policy;
+        } else {
+          this.policy = {};
+          this.policyInvalid = true;
+        }
+      }
+    } catch (err) {
       this.policy = {};
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.policyInvalid = true;
+        this.policyDiagnostics = [
+          {
+            severity: 'error',
+            code: 'read_error',
+            path: '$',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        ];
+      }
     }
     // Pre-compile wildcard entries so findNamespaceEntry is O(k) instead of O(n*m)
     this.wildcardEntries = [];
@@ -265,6 +309,14 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
 
   async evaluate(tool: Tool, input: unknown, ctx: Context): Promise<PermissionDecision> {
     if (!this.loaded) await this.reload();
+
+    if (this.policyInvalid) {
+      return {
+        permission: 'deny',
+        source: 'deny',
+        reason: 'trust policy is invalid; refusing tool execution until it is repaired',
+      };
+    }
 
     // 1. Tool-namespace matching (mcp__server__* etc.)
     const namespaceEntry = this.findNamespaceEntry(tool.name);
@@ -447,6 +499,9 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
 
   async trust(rule: { tool: string; pattern: string }): Promise<void> {
     if (!this.loaded) await this.reload();
+    if (this.policyInvalid) {
+      throw new Error('Cannot update trust rules while trust.json is invalid; repair it first.');
+    }
     const entry = this.policy[rule.tool] ?? {};
     entry.allow = Array.from(new Set([...(entry.allow ?? []), rule.pattern]));
     this.policy[rule.tool] = entry;
@@ -467,6 +522,9 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   /** Persist a deny rule — this tool+pattern pair is permanently blocked. */
   async deny(rule: { tool: string; pattern: string }): Promise<void> {
     if (!this.loaded) await this.reload();
+    if (this.policyInvalid) {
+      throw new Error('Cannot update deny rules while trust.json is invalid; repair it first.');
+    }
     const entry = this.policy[rule.tool] ?? {};
     entry.deny = Array.from(new Set([...(entry.deny ?? []), rule.pattern]));
     this.policy[rule.tool] = entry;

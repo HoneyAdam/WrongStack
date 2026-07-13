@@ -15,41 +15,24 @@
  *
  * @module hq-server
  */
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import type { Server as HttpServer } from 'node:http';
 import * as http from 'node:http';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   DEFAULT_HQ_REDACTION_POLICY,
-  HQ_PROTOCOL_VERSION,
-  HQ_TRANSCRIPT_TEXT_CAP,
   type EnsureHqFirstRunAuthResult,
-  type HqBrowserMessage,
-  type HqClientCapability,
-  type HqClientRecord,
   type HqEventEnvelope,
   type HqFleetSnapshotPayload,
-  type HqFleetSummary,
-  type HqMachineRecord,
-  type HqMailboxEventPayload,
   type HqMailboxSnapshotPayload,
-  type HqMailboxSummary,
-  type HqMcpHealthSnapshotPayload,
   type HqMcpServerHealth,
   type HqProjectIdentity,
-  type HqProjectRecord,
   type HqRedactionPolicy,
-  type HqSessionEndedPayload,
   type HqSessionSnapshotPayload,
-  type HqSessionSummary,
-  type HqSnapshot,
   type HqTimeseriesSample,
   type HqToken,
-  type HqTranscriptAppendPayload,
   type HqTranscriptEntry,
-  type HqWelcomePayload,
   buildTranscriptFromEvents,
   createHqPersistence,
   HqCommandAuditLog,
@@ -57,20 +40,23 @@ import {
   toAlertMessage,
   type HqCommand,
   type HqCommandAuditEntry,
-  type HqPersistence,
   type HqQueuedCommand,
   ensureHqFirstRunAuthFile,
-  parseHqEventPayload,
   validateHqCommand,
   verifyHqPassword,
-  parseHqFrame,
-  redactHqEvent,
-  resolveHqRedactionPolicy,
   resolveHqDataDir,
-  tightenHqRedactionPolicy,
   tokenHasCapability,
   watchHqAuthFile,
 } from '@wrongstack/core';
+// Pre-extracted modules under hq-server/ — local function definitions in this file
+// delegate to the extracted implementations. The const-aliases preserve backward
+// compatibility for internal callers. See hq-server/auth.ts, utils.ts, ws.ts, snapshot.ts.
+import * as HqServerAuth from './hq-server/auth.js';
+import * as HqServerUtils from './hq-server/utils.js';
+import * as HqServerWs from './hq-server/ws.js';
+import * as HqServerSnapshot from './hq-server/snapshot.js';
+
+
 // Inlined from @wrongstack/webui/server — avoids a hard dependency on the webui package.
 import { WebSocket, WebSocketServer } from 'ws';
 import { HQ_HTML } from './hq-dashboard-html.js';
@@ -188,22 +174,11 @@ interface ConnectedClient {
  * render a remote terminal's full chat history even though HQ can't read that
  * machine's on-disk JSONL. Local sessions are served from disk instead.
  */
-const TRANSCRIPT_RING_MAX = 4000;
 /** Bound how many distinct sessions/subagents we keep transcripts for, so a
  * long-lived HQ doesn't accumulate rings for every session that ever connected.
  * Eviction is least-recently-active (the maps are kept in LRU order). */
-const MAX_TRANSCRIPT_SESSIONS = 400;
-const MAX_AGENT_RINGS = 800;
 
-/** Evict least-recently-active entries until the map is within `max`. The maps
- * are maintained in LRU order (callers re-insert on each write). */
-function evictOldest(map: Map<string, unknown>, max: number): void {
-  while (map.size > max) {
-    const oldest = map.keys().next().value;
-    if (oldest === undefined) break;
-    map.delete(oldest);
-  }
-}
+
 
 interface TranscriptRing {
   entries: HqTranscriptEntry[];
@@ -309,192 +284,37 @@ const BROWSER_HEARTBEAT_INTERVAL_MS = 15_000;
  */
 const SESSION_SNAPSHOT_TTL_MS = 30_000;
 
-function setHqSecurityHeaders(res: http.ServerResponse): void {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://esm.sh; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data:; img-src 'self' data:; connect-src 'self' ws: wss:",
-  );
-}
-
+const setHqSecurityHeaders = HqServerAuth.setHqSecurityHeaders;
 /** Allow non-browser clients (no Origin) and same-host browser traffic only. */
-function hasTrustedBrowserOrigin(req: http.IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  if (origin === undefined) return true;
-  if (typeof origin !== 'string' || typeof req.headers.host !== 'string') return false;
-  try {
-    const parsed = new URL(origin);
-    return (
-      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-      parsed.host.toLowerCase() === req.headers.host.toLowerCase()
-    );
-  } catch {
-    return false;
-  }
-}
-
+const hasTrustedBrowserOrigin = HqServerAuth.hasTrustedBrowserOrigin;
 const HQ_SESSION_COOKIE = 'hq.session';
-const HQ_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function signHqSession(sessionId: string, secret: string): string {
-  return createHmac('sha256', secret).update(sessionId).digest('base64url');
-}
+const serializeHqSessionCookie = HqServerAuth.serializeHqSessionCookie;
+const parseHqSessionCookie = HqServerAuth.parseHqSessionCookie;
+const parseCookieHeader = HqServerAuth.parseCookieHeader;
+const setHqSessionCookie = HqServerAuth.setHqSessionCookie;
+const clearHqSessionCookie = HqServerAuth.clearHqSessionCookie;
 
-function serializeHqSessionCookie(sessionId: string, secret: string): string {
-  return `${sessionId}.${signHqSession(sessionId, secret)}`;
-}
 
-function parseHqSessionCookie(value: string, secret: string): string | undefined {
-  const dot = value.indexOf('.');
-  if (dot === -1) return undefined;
-  const sessionId = value.slice(0, dot);
-  const sig = value.slice(dot + 1);
-  if (!sessionId || !sig) return undefined;
-  const expected = signHqSession(sessionId, secret);
-  try {
-    if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return undefined;
-  } catch {
-    return undefined;
-  }
-  return sessionId;
-}
 
-function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (typeof cookieHeader !== 'string') return out;
-  for (const part of cookieHeader.split(';')) {
-    const idx = part.indexOf('=');
-    if (idx === -1) continue;
-    const key = part.slice(0, idx).trim();
-    const value = part.slice(idx + 1).trim();
-    if (key) out[key] = decodeURIComponent(value);
-  }
-  return out;
-}
-
-function setHqSessionCookie(res: http.ServerResponse, value: string): void {
-  const header = `${HQ_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(HQ_SESSION_MAX_AGE_MS / 1000)}`;
-  res.setHeader('Set-Cookie', header);
-}
-
-function clearHqSessionCookie(res: http.ServerResponse): void {
-  const header = `${HQ_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
-  res.setHeader('Set-Cookie', header);
-}
-
-interface HqBrowserAuthContext {
-  kind: 'token';
-  token: string;
-  id: string;
-  capabilities?: string[];
-}
-
-type HqBrowserAuthResult = HqBrowserAuthContext | 'cookie' | undefined;
-
-function isTokenAuth(auth: HqBrowserAuthResult): auth is HqBrowserAuthContext {
-  return auth !== undefined && auth !== 'cookie';
-}
-
-function authenticateBrowserRequest(
-  req: http.IncomingMessage,
-  url: URL,
-  mutableAuth: {
-    browserTokens: Set<string>;
-    browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
-    passwordHash?: string | undefined;
-    cookieSecret?: string | undefined;
-  },
-  sessions: Map<string, { createdAt: number }>,
-): HqBrowserAuthResult {
-  const token = extractBrowserToken(req, url);
-  if (token && mutableAuth.browserTokens.has(token)) {
-    const obj = mutableAuth.browserTokenObjs.get(token);
-    const ctx: HqBrowserAuthContext = { kind: 'token', token, id: obj?.id ?? 'unknown' };
-    if (obj?.capabilities !== undefined) ctx.capabilities = obj.capabilities;
-    return ctx;
-  }
-  if (mutableAuth.passwordHash && mutableAuth.cookieSecret) {
-    const cookies = parseCookieHeader(req.headers.cookie);
-    const raw = cookies[HQ_SESSION_COOKIE];
-    if (raw) {
-      const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret);
-      if (sessionId && sessions.has(sessionId)) return 'cookie';
-    }
-  }
-  return undefined;
-}
-
-function decodePathSegment(value: string): string | null {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
-}
-
-function displayHost(host: string): string {
-  return host === '0.0.0.0' ? '127.0.0.1' : host;
-}
-
+const isTokenAuth = HqServerAuth.isTokenAuth;
+const authenticateBrowserRequest = HqServerAuth.authenticateBrowserRequest;
+const decodePathSegment = HqServerUtils.decodePathSegment;
+const displayHost = HqServerUtils.displayHost;
 /** Read the full body of an HTTP request as a UTF-8 string (capped at 1 MB). */
-class RequestBodyTooLargeError extends Error {}
 
-function readRequestBody(req: http.IncomingMessage, maxBytes = 1_000_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let settled = false;
-    req.on('data', (chunk: Buffer) => {
-      if (settled) return;
-      size += chunk.length;
-      if (size > maxBytes) {
-        settled = true;
-        chunks.length = 0;
-        reject(new RequestBodyTooLargeError('request body too large'));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      if (!settled) resolve(Buffer.concat(chunks).toString('utf8'));
-    });
-    req.on('error', (error) => {
-      if (!settled) reject(error);
-    });
-  });
-}
 
-function writeInvalidBody(res: http.ServerResponse, error: unknown): void {
-  const tooLarge = error instanceof RequestBodyTooLargeError;
-  res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: tooLarge ? 'request body too large' : 'invalid json body' }));
-}
-
-function buildHttpUrl(host: string, port: number, token?: string): string {
-  const url = new URL(`http://${displayHost(host)}:${port}/`);
-  if (token) url.searchParams.set('token', token);
-  return url.toString();
-}
-
-function buildClientWsUrl(host: string, port: number, token?: string): string {
-  const url = new URL(`ws://${displayHost(host)}:${port}/ws/client`);
-  if (token) url.searchParams.set('token', token);
-  return url.toString();
-}
-
+const readRequestBody = HqServerUtils.readRequestBody;
+const writeInvalidBody = HqServerUtils.writeInvalidBody;
+const buildHttpUrl = HqServerUtils.buildHttpUrl;
+const buildClientWsUrl = HqServerUtils.buildClientWsUrl;
 interface HqRuntimeMarker {
   url?: string;
   pid?: number;
   updatedAt?: string;
 }
 
-function hqRuntimeMarkerPath(dataDir: string): string {
-  return path.join(dataDir, 'runtime.json');
-}
-
+const hqRuntimeMarkerPath = HqServerUtils.hqRuntimeMarkerPath;
 async function writeHqRuntimeMarker(dataDir: string, url: string): Promise<void> {
   const file = hqRuntimeMarkerPath(dataDir);
   const payload = JSON.stringify({ url, pid: process.pid, updatedAt: new Date().toISOString() }, null, 2);
@@ -513,21 +333,7 @@ async function clearHqRuntimeMarker(dataDir: string, url: string): Promise<void>
 }
 
 /** Non-internal IPv4 addresses, so we can print URLs reachable from other machines. */
-function lanIPv4Addresses(): string[] {
-  const out: string[] = [];
-  try {
-    const ifaces = os.networkInterfaces();
-    for (const name of Object.keys(ifaces)) {
-      for (const ni of ifaces[name] ?? []) {
-        if (ni.family === 'IPv4' && !ni.internal) out.push(ni.address);
-      }
-    }
-  } catch {
-    // best-effort
-  }
-  return out;
-}
-
+const lanIPv4Addresses = HqServerUtils.lanIPv4Addresses;
 function writeHqStartupInfo(write: (line: string) => void, handle: HqServerHandle): void {
   const startup = handle.firstRunSetup;
   write(`WrongStack HQ listening on http://${handle.host}:${handle.port}\n`);
@@ -744,24 +550,6 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
  *   2. `Authorization: Bearer …` header (for programmatic / curl access)
  * Returns the token string if found, otherwise `undefined`.
  */
-function extractBrowserToken(req: http.IncomingMessage, url: URL): string | undefined {
-  const queryToken = url.searchParams.get('token');
-  if (queryToken) return queryToken;
-
-  const auth = req.headers.authorization;
-  if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
-    return auth.slice(7).trim();
-  }
-
-  return undefined;
-}
-
-function truncateHqSummary(value: unknown, maxLength: number): string | undefined {
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, maxLength)}…[truncated:${value.length - maxLength}]`;
-}
-
 function startHqServerWithAuth(
   options: HqServerOptions,
   host: string,
@@ -1768,863 +1556,18 @@ function startHqServerWithAuth(
   });
 }
 
-function handleBrowser(
-  ws: WebSocket,
-  snapshotBroadcaster: HqSnapshotBroadcaster,
-  browsers: Set<WebSocket>,
-): void {
-  browsers.add(ws);
-
-  // Per-connection error handler. An oversized inbound frame makes the `ws`
-  // receiver throw (`RangeError: Max payload size exceeded`, close 1009) and
-  // emit 'error' on this socket — unhandled, that crashes the whole process.
-  ws.on('error', (err) => {
-    console.warn(
-      JSON.stringify({
-        level: 'warn',
-        event: 'hq.browser_socket_error',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      }),
-    );
-  });
-
-  ws.send(snapshotBroadcaster.currentSerialized());
-
-  ws.on('close', () => {
-    browsers.delete(ws);
-  });
-}
-
-function handleClient(
-  ws: WebSocket,
-  clients: Map<WebSocket, ConnectedClient>,
-  browsers: Set<WebSocket>,
-  eventLog: HqEventEnvelope[],
-  auth: {
-    token?: HqToken | undefined;
-    getOperatorPolicy: () => Partial<HqRedactionPolicy> | undefined;
-  },
-  snapshotBroadcaster: HqSnapshotBroadcaster,
-  transcripts: Map<string, TranscriptRing>,
-  agentMessages: Map<string, HqTranscriptEntry[]>,
-  persistence?: HqPersistence,
-  auditLog?: HqCommandAuditLog,
-): void {
-  let registered = false;
-
-  /**
-   * Record an event into both the in-memory ring and the persistent log, and
-   * fold any cost/tool signal into the timeseries store. Best-effort: never
-   * throws into the message handler.
-   */
-  function persistEvent(event: HqEventEnvelope): void {
-    eventLog.push(event);
-    if (eventLog.length > MAX_EVENT_LOG) eventLog.splice(0, eventLog.length - MAX_EVENT_LOG);
-    if (persistence !== undefined) {
-      persistence.eventLog.append(event);
-      recordTimeseriesSignal(persistence, event);
-    }
-  }
-
-  // Per-connection error handler. An oversized inbound frame makes the `ws`
-  // receiver throw (`RangeError: Max payload size exceeded`, close 1009) and
-  // emit 'error' on this socket — unhandled, that crashes the whole process.
-  ws.on('error', (err) => {
-    console.warn(
-      JSON.stringify({
-        level: 'warn',
-        event: 'hq.client_socket_error',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      }),
-    );
-  });
-
-  ws.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
-    const raw =
-      typeof data === 'string'
-        ? data
-        : Buffer.isBuffer(data)
-          ? data
-          : new TextDecoder().decode(data as ArrayBuffer);
-    const parsed = parseHqFrame(raw);
-    if (!parsed.ok) {
-      // RFC 6455 §7.4.1: 1003 = invalid payload (not processable),
-      // 1008 = policy violation (unknown type or malformed shape).
-      const code = parsed.reason === 'invalid-json' ? 1003 : 1008;
-      ws.close(code, `invalid frame: ${parsed.reason}`);
-      return;
-    }
-    const frame = parsed.frame;
-
-    if (frame.type === 'client.hello') {
-      if (registered) {
-        ws.close(1008, 'duplicate client.hello');
-        return;
-      }
-      const payload = frame.payload;
-      if (payload.protocolVersion !== HQ_PROTOCOL_VERSION) {
-        ws.close(1008, 'protocol version mismatch');
-        return;
-      }
-
-      const canPublishTelemetry =
-        auth.token === undefined || tokenHasCapability(auth.token, 'telemetry.publish');
-      const acceptedCapabilities = payload.capabilities.filter(
-        (capability) => capability === 'control.receive' || canPublishTelemetry,
-      );
-      const declaredRedactionPolicy = resolveHqRedactionPolicy(payload.redactionPolicy);
-
-      // A reconnect may overlap the old socket's close handshake. Keep one
-      // authoritative connection per clientId so control commands never land
-      // on a superseded process/socket.
-      for (const [otherWs, otherClient] of clients) {
-        if (otherWs !== ws && otherClient.clientId === payload.client.clientId) {
-          clients.delete(otherWs);
-          otherWs.close(4001, 'superseded by a newer HQ connection');
-        }
-      }
-
-      const client: ConnectedClient = {
-        ws,
-        clientId: payload.client.clientId,
-        projectId: payload.project.projectId,
-        project: payload.project,
-        kind: payload.client.kind,
-        connectedAt: new Date().toISOString(),
-        lastSeenAt: new Date().toISOString(),
-        ...(payload.client.hostname ? { hostname: payload.client.hostname } : {}),
-        ...(payload.client.pid ? { pid: payload.client.pid } : {}),
-        ...(payload.client.version ? { version: payload.client.version } : {}),
-        capabilities: acceptedCapabilities,
-        ...(auth.token !== undefined ? { authToken: auth.token } : {}),
-        declaredRedactionPolicy,
-        lastEventSeq: 0,
-        mailboxes: new Map(),
-        machineId: payload.client.machineId || payload.project.machineId,
-        sessions: new Map(),
-        fleets: new Map(),
-        mcpSnapshots: new Map(),
-        commandQueue: [],
-      };
-      clients.set(ws, client);
-      registered = true;
-
-      // Phase 1 server-to-client acknowledgement: the client learns which
-      // capabilities the server accepted and the active redaction policy.
-      // Phase 2 will also use this socket to push `HqServerCommandBatchMessage`
-      // frames via `client.command_poll`, but for now the welcome is a
-      // one-shot handshake reply with no command queue attached.
-      const welcome: HqWelcomePayload = {
-        type: 'hq.welcome',
-        protocolVersion: HQ_PROTOCOL_VERSION,
-        serverTime: new Date().toISOString(),
-        acceptedCapabilities,
-        // The operator-configured override (from <dataDir>/auth.json) wins
-        // over the default. The client learns the *effective* policy.
-        redactionPolicy: tightenHqRedactionPolicy(
-          declaredRedactionPolicy,
-          auth.getOperatorPolicy(),
-        ),
-      };
-      ws.send(JSON.stringify(welcome));
-
-      const event: HqEventEnvelope = {
-        id: randomUUID(),
-        type: 'client.hello',
-        schemaVersion: HQ_PROTOCOL_VERSION,
-        timestamp: new Date().toISOString(),
-        clientId: payload.client.clientId,
-        projectId: payload.project.projectId,
-        seq: 0,
-        payload: { client: payload.client, project: payload.project },
-      };
-      persistEvent(event);
-      snapshotBroadcaster.broadcast();
-      broadcastEvent(event, browsers);
-      return;
-    }
-
-    if (!registered) return;
-
-    // ── Phase 3 control plane: client polls for commands & acks them ──────
-    // The client SDK (HqPublisher) polls every ~2s with an `afterCommandId`
-    // cursor; we drain the per-client queue back to it as a `hq.command_batch`.
-    if (frame.type === 'client.command_poll') {
-      const client = clients.get(ws);
-      if (client) {
-        if (frame.clientId !== client.clientId || frame.projectId !== client.projectId) {
-          ws.close(1008, 'command poll identity mismatch');
-          return;
-        }
-        client.lastSeenAt = new Date().toISOString();
-        const afterId = frame.afterCommandId;
-        const limit = frame.limit ?? 25;
-        let toSend: HqQueuedCommand[];
-        if (afterId === undefined) {
-          toSend = client.commandQueue.slice(0, limit);
-        } else {
-          const idx = client.commandQueue.findIndex((c) => c.commandId === afterId);
-          toSend = (idx >= 0 ? client.commandQueue.slice(idx + 1) : client.commandQueue).slice(
-            0,
-            limit,
-          );
-        }
-        if (toSend.length > 0) {
-          const batch = JSON.stringify({ type: 'hq.command_batch', commands: toSend });
-          if (ws.readyState === WebSocket.OPEN) ws.send(batch);
-          for (const cmd of toSend) {
-            auditLog?.update(cmd.commandId, { status: 'delivered' });
-          }
-        }
-      }
-      return;
-    }
-
-    if (frame.type === 'client.command_ack') {
-      const client = clients.get(ws);
-      if (client) {
-        if (frame.clientId !== client.clientId || frame.projectId !== client.projectId) {
-          ws.close(1008, 'command ack identity mismatch');
-          return;
-        }
-        client.lastSeenAt = new Date().toISOString();
-      }
-      if (client) {
-        auditLog?.updateForClient(frame.commandId, client.clientId, {
-          status: 'acked',
-          ackStatus: frame.status,
-          ...(frame.message !== undefined ? { ackMessage: frame.message } : {}),
-          ackedAt: new Date().toISOString(),
-        });
-      }
-      return;
-    }
-
-    if (frame.type === 'client.event') {
-      const client = clients.get(ws);
-      if (!client) return;
-      const incomingEvent = frame.event;
-      if (
-        incomingEvent.clientId !== client.clientId ||
-        incomingEvent.projectId !== client.projectId
-      ) {
-        ws.close(1008, 'event identity mismatch');
-        return;
-      }
-      if (!tokenHasCapability(client.authToken, 'telemetry.publish') && auth.token !== undefined) {
-        ws.close(1008, 'client token lacks telemetry.publish capability');
-        return;
-      }
-      if (incomingEvent.seq <= client.lastEventSeq) {
-        ws.close(1008, 'event sequence must increase monotonically');
-        return;
-      }
-      const parsedPayload = parseHqEventPayload(incomingEvent.type, incomingEvent.payload);
-      if (!parsedPayload.ok) {
-        // A single malformed telemetry payload must not take down an otherwise
-        // healthy publisher connection. Drop it before sequence advancement;
-        // identity/auth violations above still close the socket.
-        return;
-      }
-      client.lastEventSeq = incomingEvent.seq;
-      client.lastSeenAt = new Date().toISOString();
-      const event = redactHqEvent(
-        { ...incomingEvent, payload: parsedPayload.payload },
-        {
-          policy: tightenHqRedactionPolicy(
-            client.declaredRedactionPolicy,
-            auth.getOperatorPolicy(),
-          ),
-          projectRoot: client.project.projectRoot,
-          // Chat-transcript events carry full turns — the generic 500-char
-          // summary cap would truncate them a second time after the
-          // publisher already applied the transcript cap.
-          ...(incomingEvent.type === 'session.transcript' || incomingEvent.type === 'agent.message'
-            ? { maxSummaryLength: HQ_TRANSCRIPT_TEXT_CAP }
-            : {}),
-        },
-      ).value;
-
-      if (event.type === 'client.heartbeat') {
-        return;
-      }
-
-      // Mailbox snapshots are authoritative rollups — adopt them into the
-      // per-client mailbox map and re-broadcast the global snapshot so the
-      // browser counters reflect the latest rollup. We validate the
-      // payload via `parseHqEventPayload` so a malformed snapshot cannot
-      // poison the per-client mailbox map; other event types are not
-      // validated yet and pass through unchanged.
-      if (event.type === 'mailbox.snapshot' && client !== undefined) {
-        const payloadResult = parseHqEventPayload(event.type, event.payload);
-        if (payloadResult.ok) {
-          const payload = payloadResult.payload as HqMailboxSnapshotPayload;
-          client.mailboxes.set(client.projectId + ':' + payload.mailboxId, payload);
-          persistEvent(event);
-          snapshotBroadcaster.broadcast();
-          broadcastEvent(event, browsers);
-          return;
-        }
-        // Malformed mailbox.snapshot: drop without logging or broadcasting so
-        // it cannot poison the per-client mailbox map.
-        return;
-      }
-
-      // Mailbox events are transient — validate the payload so a malformed
-      // envelope cannot leak garbage to the browser live feed, and truncate
-      // the optional `summary` preview before storing it in the event log and
-      // broadcasting to browsers.
-      if (event.type === 'mailbox.event') {
-        const payloadResult = parseHqEventPayload(event.type, event.payload);
-        if (!payloadResult.ok) {
-          return;
-        }
-        const payload = payloadResult.payload as HqMailboxEventPayload;
-        const sanitizedSummary = truncateHqSummary(payload.summary, 280);
-        const sanitizedEvent =
-          sanitizedSummary === undefined
-            ? event
-            : { ...event, payload: { ...payload, summary: sanitizedSummary } };
-        persistEvent(sanitizedEvent);
-        broadcastEvent(sanitizedEvent, browsers);
-        return;
-      }
-
-      // ── Session telemetry — the spine of the fleet tree ────────────────
-      if (event.type === 'session.snapshot' && client !== undefined) {
-        const result = parseHqEventPayload(event.type, event.payload);
-        if (result.ok) {
-          const payload = result.payload as HqSessionSnapshotPayload;
-          client.sessions.set(payload.sessionId, { payload, receivedAt: Date.now() });
-          snapshotBroadcaster.broadcast();
-        }
-        return;
-      }
-
-      if (event.type === 'session.ended' && client !== undefined) {
-        const result = parseHqEventPayload(event.type, event.payload);
-        if (result.ok) {
-          const payload = result.payload as HqSessionEndedPayload;
-          client.sessions.delete(payload.sessionId);
-          snapshotBroadcaster.broadcast();
-        }
-        return;
-      }
-
-      // Fleet snapshots — authoritative coordinator rollups. Store per
-      // (client, runId) so buildSnapshot can populate fleets[] the same way
-      // it folds sessions. Validate via parseHqEventPayload so a malformed
-      // snapshot cannot poison the map.
-      if (event.type === 'fleet.snapshot' && client !== undefined) {
-        const result = parseHqEventPayload(event.type, event.payload);
-        if (result.ok) {
-          const payload = result.payload as HqFleetSnapshotPayload;
-          client.fleets.set(payload.runId, payload);
-          snapshotBroadcaster.broadcast();
-        }
-        return;
-      }
-
-      // MCP health snapshots — authoritative per-session rollups. Store per
-      // (client, sessionId) so buildSnapshot can populate mcpServers[].
-      if (event.type === 'mcp.health.snapshot' && client !== undefined) {
-        const result = parseHqEventPayload(event.type, event.payload);
-        if (result.ok) {
-          const payload = result.payload as HqMcpHealthSnapshotPayload;
-          const sessionId = event.sessionId || 'unknown';
-          const stamped = payload.servers.map((s) => ({
-            ...s,
-            projectId: client.projectId,
-            clientId: client.clientId,
-          }));
-          client.mcpSnapshots.set(sessionId, stamped);
-          snapshotBroadcaster.broadcast();
-        }
-        return;
-      }
-
-      if (event.type === 'session.transcript' && client !== undefined) {
-        const result = parseHqEventPayload(event.type, event.payload);
-        if (result.ok) {
-          const payload = result.payload as HqTranscriptAppendPayload;
-          let ring = transcripts.get(payload.sessionId);
-          if (!ring) {
-            ring = { entries: [], ...(client.machineId ? { machineId: client.machineId } : {}) };
-          }
-          for (const entry of payload.entries) ring.entries.push(entry);
-          if (ring.entries.length > TRANSCRIPT_RING_MAX) {
-            ring.entries.splice(0, ring.entries.length - TRANSCRIPT_RING_MAX);
-          }
-          // Re-insert to keep LRU order, then bound the number of sessions kept.
-          transcripts.delete(payload.sessionId);
-          transcripts.set(payload.sessionId, ring);
-          evictOldest(transcripts, MAX_TRANSCRIPT_SESSIONS);
-          // Forward to browsers so an open history pane streams live.
-          broadcastEvent(event, browsers);
-        }
-        return;
-      }
-
-      // Subagent conversation — buffer per (sessionId, subagentId) so
-      // late-connecting browsers (incl. on other machines) can replay the
-      // full history. Scoping by session is essential: every session's
-      // leader uses the default id 'leader', so a bare-subId key would merge
-      // every leader's transcript into one shared ring.
-      if (event.type === 'agent.message') {
-        const p = event.payload as Record<string, unknown> | undefined;
-        const subId = p && typeof p['subagentId'] === 'string' ? (p['subagentId'] as string) : undefined;
-        if (subId) {
-          const key = agentRingKey(event.sessionId, subId);
-          let ring = agentMessages.get(key);
-          if (!ring) ring = [];
-          ring.push(agentMessageToEntry(p as Record<string, unknown>));
-          if (ring.length > TRANSCRIPT_RING_MAX) ring.splice(0, ring.length - TRANSCRIPT_RING_MAX);
-          agentMessages.delete(key);
-          agentMessages.set(key, ring);
-          evictOldest(agentMessages, MAX_AGENT_RINGS);
-        }
-        persistEvent(event);
-        broadcastEvent(event, browsers);
-        return;
-      }
-
-      // Other event types pass through unchanged.
-      persistEvent(event);
-      broadcastEvent(event, browsers);
-    }
-  });
-
-  ws.on('close', () => {
-    clients.delete(ws);
-    snapshotBroadcaster.broadcast();
-  });
-}
-
+const handleBrowser = HqServerWs.handleBrowser;
+const handleClient = HqServerWs.handleClient;
 /**
  * Stable per-machine key. Prefers hostname so the same physical computer maps
  * to one machine even when clients report different per-process machineIds
  * (older builds hashed `hostname:pid`). Falls back to machineId.
  */
-function hqMachineKey(hostname: string | undefined, machineId: string | undefined): string {
-  const hn = hostname?.trim();
-  return hn ? `host:${hn.toLowerCase()}` : `mid:${machineId || 'local'}`;
-}
-
 /**
  * Fold a cost/tool signal from an event envelope into the timeseries store.
  * Recognizes `session.usage` (cost/tokens) and `tool.completed` (tool call).
  * Best-effort, never throws.
  */
-function recordTimeseriesSignal(persistence: HqPersistence, event: HqEventEnvelope): void {
-  try {
-    if (event.type === 'session.usage') {
-      const p = event.payload as { costUsd?: number; inputTokens?: number; outputTokens?: number };
-      persistence.timeseries.record({
-        ts: Date.parse(event.timestamp) || Date.now(),
-        ...(typeof p.costUsd === 'number' ? { costUsd: p.costUsd } : {}),
-        ...(typeof p.inputTokens === 'number' ? { inputTokens: p.inputTokens } : {}),
-        ...(typeof p.outputTokens === 'number' ? { outputTokens: p.outputTokens } : {}),
-      });
-    } else if (event.type === 'tool.completed') {
-      persistence.timeseries.record({
-        ts: Date.parse(event.timestamp) || Date.now(),
-        toolCalls: 1,
-      });
-    }
-  } catch {
-    /* best-effort */
-  }
-}
-
-function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
-  const now = new Date().toISOString();
-  // Dedupe client records by clientId — one process may hold two sockets (a
-  // mailbox publisher + a telemetry publisher) sharing the same clientId.
-  const clientRecordById = new Map<string, HqClientRecord>();
-  const projectMap = new Map<string, HqProjectRecord>();
-  const mailboxSummaries: HqMailboxSummary[] = [];
-  // Live sessions, deduped by sessionId across sockets (latest wins).
-  const sessionById = new Map<string, HqSessionSnapshotPayload>();
-  // Fleet snapshots, deduped by runId across sockets (latest wins).
-  const fleetByRunId = new Map<string, { payload: HqFleetSnapshotPayload; clientId: string; projectId: string; lastActivityAt: string }>();
-
-  for (const client of clients.values()) {
-    const machineId = client.machineId || client.project.machineId || '';
-    if (!clientRecordById.has(client.clientId)) {
-      clientRecordById.set(client.clientId, {
-        clientId: client.clientId,
-        kind: client.kind as HqClientRecord['kind'],
-        machineId,
-        ...(client.hostname ? { hostname: client.hostname } : {}),
-        ...(client.pid ? { pid: client.pid } : {}),
-        ...(client.version ? { version: client.version } : {}),
-        connected: true,
-        connectedAt: client.connectedAt,
-        lastSeenAt: client.lastSeenAt,
-        projectId: client.projectId,
-        capabilities: client.capabilities as readonly HqClientCapability[],
-      });
-    }
-
-    let project = projectMap.get(client.projectId);
-    if (!project) {
-      project = {
-        projectId: client.projectId,
-        projectName: client.project.projectName || client.projectId,
-        projectRootDisplay: client.project.projectRoot,
-        machineIds: [machineId],
-        ...(client.project.gitBranch ? { gitBranch: client.project.gitBranch } : {}),
-        activeClients: 0,
-        activeSessions: 0,
-        activeSubagents: 0,
-        totalCostUsd: 0,
-        lastActivityAt: now,
-        status: 'active',
-      };
-      projectMap.set(client.projectId, project);
-    } else if (machineId && !project.machineIds.includes(machineId)) {
-      project.machineIds = [...project.machineIds, machineId];
-    }
-
-    for (const tracked of client.sessions.values()) {
-      sessionById.set(tracked.payload.sessionId, tracked.payload);
-    }
-
-    for (const snapshot of client.mailboxes.values()) {
-      mailboxSummaries.push({
-        mailboxId: snapshot.mailboxId,
-        projectId: client.projectId,
-        scope: snapshot.scope,
-        messageCount: snapshot.totals.messages,
-        unreadCount: snapshot.totals.unread,
-        incompleteCount: snapshot.totals.incomplete,
-        highPriorityCount: snapshot.totals.highPriority,
-        onlineAgentCount: snapshot.totals.onlineAgents,
-        lastActivityAt: now,
-      });
-    }
-
-    // Collect fleet snapshots — latest per runId wins.
-    for (const fleet of client.fleets.values()) {
-      fleetByRunId.set(fleet.runId, { payload: fleet, clientId: client.clientId, projectId: client.projectId, lastActivityAt: now });
-    }
-  }
-
-  // Per-project active-client counts from deduped client records.
-  for (const rec of clientRecordById.values()) {
-    const project = projectMap.get(rec.projectId);
-    if (project) project.activeClients++;
-  }
-
-  // Fold live sessions into projects + machines.
-  const liveSessions = Array.from(sessionById.values());
-  const machineMap = new Map<string, { record: HqMachineRecord; projects: Set<string> }>();
-  let totalAgents = 0;
-  let totalSubagents = 0;
-  let totalCostUsd = 0;
-
-  for (const session of liveSessions) {
-    // Ensure the project exists even if only a session (no mailbox/client
-    // record under this projectId yet) reported it.
-    let project = projectMap.get(session.projectId);
-    if (!project) {
-      project = {
-        projectId: session.projectId,
-        projectName: session.projectName || session.projectId,
-        projectRootDisplay: session.projectRoot,
-        machineIds: [session.machineId],
-        ...(session.gitBranch ? { gitBranch: session.gitBranch } : {}),
-        activeClients: 0,
-        activeSessions: 0,
-        activeSubagents: 0,
-        totalCostUsd: 0,
-        lastActivityAt: session.lastActivityAt,
-        status: 'active',
-      };
-      projectMap.set(session.projectId, project);
-    } else if (session.machineId && !project.machineIds.includes(session.machineId)) {
-      project.machineIds = [...project.machineIds, session.machineId];
-    }
-    project.activeSessions++;
-
-    let sessionCost = 0;
-    for (const agent of session.agents) {
-      totalAgents++;
-      if (agent.id !== 'leader') totalSubagents++;
-      if (typeof agent.costUsd === 'number') {
-        sessionCost += agent.costUsd;
-      }
-    }
-    project.activeSubagents += session.agents.filter((a) => a.id !== 'leader').length;
-    project.totalCostUsd += sessionCost;
-    totalCostUsd += sessionCost;
-
-    // Machine aggregation — keyed by hostname so the SAME computer is one
-    // machine even when clients report different per-process machineIds.
-    const mKey = hqMachineKey(session.hostname, session.machineId);
-    let machine = machineMap.get(mKey);
-    if (!machine) {
-      machine = {
-        record: {
-          machineId: session.machineId,
-          ...(session.hostname ? { hostname: session.hostname } : {}),
-          clientCount: 0,
-          sessionCount: 0,
-          agentCount: 0,
-          projectIds: [],
-          lastActivityAt: session.lastActivityAt,
-        },
-        projects: new Set<string>(),
-      };
-      machineMap.set(mKey, machine);
-    }
-    machine.record.sessionCount++;
-    machine.record.agentCount += session.agents.length;
-    machine.projects.add(session.projectId);
-    if (session.lastActivityAt > machine.record.lastActivityAt) {
-      machine.record.lastActivityAt = session.lastActivityAt;
-    }
-  }
-
-  // Attribute connected clients to machines too (so a machine with a client
-  // but no session yet still appears).
-  for (const rec of clientRecordById.values()) {
-    if (!rec.machineId && !rec.hostname) continue;
-    const rKey = hqMachineKey(rec.hostname, rec.machineId);
-    let machine = machineMap.get(rKey);
-    if (!machine) {
-      machine = {
-        record: {
-          machineId: rec.machineId,
-          ...(rec.hostname ? { hostname: rec.hostname } : {}),
-          clientCount: 0,
-          sessionCount: 0,
-          agentCount: 0,
-          projectIds: [],
-          lastActivityAt: rec.lastSeenAt,
-        },
-        projects: new Set<string>(),
-      };
-      machineMap.set(rKey, machine);
-    }
-    machine.record.clientCount++;
-    machine.projects.add(rec.projectId);
-    if (rec.hostname && !machine.record.hostname) machine.record.hostname = rec.hostname;
-  }
-
-  const machines: HqMachineRecord[] = Array.from(machineMap.values()).map((m) => ({
-    ...m.record,
-    projectIds: Array.from(m.projects),
-  }));
-
-  const clientRecords = Array.from(clientRecordById.values());
-  const projects = Array.from(projectMap.values());
-
-  let unread = 0;
-  let incomplete = 0;
-  for (const m of mailboxSummaries) {
-    unread += m.unreadCount;
-    incomplete += m.incompleteCount;
-  }
-
-  // Derive session summaries from live sessions (the spine of the fleet tree)
-  // so the dashboard's sessions[] rollup is populated alongside liveSessions.
-  const sessions: HqSessionSummary[] = liveSessions.map((s) => {
-    let sessionCost = 0;
-    for (const agent of s.agents) {
-      if (typeof agent.costUsd === 'number') sessionCost += agent.costUsd;
-    }
-    const provider = s.agents.find((a) => a.model !== undefined)?.model;
-    return {
-      sessionId: s.sessionId,
-      projectId: s.projectId,
-      clientId: `${s.machineId}:${s.clientKind}`,
-      status: s.status === 'active' ? 'running' : 'idle',
-      ...(provider !== undefined ? { model: provider } : {}),
-      startedAt: s.startedAt,
-      lastActivityAt: s.lastActivityAt,
-      ...(sessionCost > 0 ? { costUsd: sessionCost } : {}),
-    };
-  });
-
-  // Derive fleet summaries from collected coordinator snapshots so the
-  // dashboard's fleets[] rollup reflects every connected machine's fleet.
-  const fleets: HqFleetSummary[] = Array.from(fleetByRunId.values()).map((f) => ({
-    runId: f.payload.runId,
-    projectId: f.projectId,
-    clientId: f.clientId,
-    activeSubagents: f.payload.activeSubagents,
-    queuedTasks: f.payload.queuedTasks,
-    completedTasks: f.payload.completedTasks,
-    failedTasks: f.payload.failedTasks,
-    ...(f.payload.totalCostUsd !== undefined ? { totalCostUsd: f.payload.totalCostUsd } : {}),
-    lastActivityAt: f.lastActivityAt,
-  }));
-
-  // Collect MCP server health — latest per (client, sessionId, serverName).
-  const mcpServers: HqMcpServerHealth[] = [];
-  const seenMcp = new Set<string>();
-  for (const client of clients.values()) {
-    for (const [sessionId, servers] of client.mcpSnapshots.entries()) {
-      for (const server of servers) {
-        const key = `${client.clientId}:${sessionId}:${server.name}`;
-        if (seenMcp.has(key)) continue;
-        seenMcp.add(key);
-        mcpServers.push(server);
-      }
-    }
-  }
-
-  return {
-    generatedAt: now,
-    clients: clientRecords,
-    projects,
-    sessions,
-    fleets,
-    mailboxes: mailboxSummaries,
-    machines,
-    liveSessions,
-    mcpServers,
-    totals: {
-      activeProjects: projects.length,
-      activeClients: clientRecords.length,
-      activeSessions: liveSessions.length,
-      activeSubagents: totalSubagents,
-      unreadMailboxMessages: unread,
-      incompleteMailboxMessages: incomplete,
-      totalCostUsd,
-      activeMachines: machines.length,
-      activeAgents: totalAgents,
-    },
-  };
-}
-
-interface HqSnapshotBroadcaster {
-  currentSerialized(): string;
-  broadcast(): void;
-  close(): void;
-}
-
-const HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS = 250;
-
-function createSnapshotBroadcaster(
-  clients: Map<WebSocket, ConnectedClient>,
-  browsers: Set<WebSocket>,
-  persistence?: HqPersistence,
-): HqSnapshotBroadcaster {
-  let cached = '';
-  let dirty = true;
-  let timer: NodeJS.Timeout | null = null;
-
-  const serialize = (): string => {
-    if (!dirty && cached.length > 0) return cached;
-    const snapshot = buildSnapshot(clients);
-    const msg: HqBrowserMessage = { type: 'hq.snapshot', snapshot };
-    cached = JSON.stringify(msg);
-    dirty = false;
-    // Persist the snapshot checkpoint (best-effort, fire-and-forget) so a
-    // restarted HQ can re-seed its in-memory state from disk.
-    if (persistence !== undefined) persistence.snapshotStore.save(snapshot);
-    return cached;
-  };
-
-  const flush = (): void => {
-    timer = null;
-    if (browsers.size === 0) return;
-    const data = serialize();
-    for (const ws of browsers) {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
-    }
-  };
-
-  return {
-    currentSerialized: serialize,
-    broadcast: () => {
-      dirty = true;
-      if (timer !== null) return;
-      timer = setTimeout(flush, HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS);
-      timer.unref?.();
-    },
-    close: () => {
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-    },
-  };
-}
-
-interface ProjectDetail {
-  generatedAt: string;
-  project: HqProjectRecord;
-  clients: readonly HqClientRecord[];
-  mailboxes: readonly HqMailboxSnapshotPayload[];
-}
-
-function buildProjectDetail(
-  clients: Map<WebSocket, ConnectedClient>,
-  projectId: string,
-): ProjectDetail | null {
-  const projectClients: ConnectedClient[] = [];
-  for (const c of clients.values()) {
-    if (c.projectId === projectId) projectClients.push(c);
-  }
-  if (projectClients.length === 0) return null;
-
-  const now = new Date().toISOString();
-  const clientRecords: HqClientRecord[] = projectClients.map((c) => ({
-    clientId: c.clientId,
-    kind: c.kind as HqClientRecord['kind'],
-    machineId: '',
-    ...(c.hostname ? { hostname: c.hostname } : {}),
-    ...(c.pid ? { pid: c.pid } : {}),
-    ...(c.version ? { version: c.version } : {}),
-    connected: true,
-    connectedAt: c.connectedAt,
-    lastSeenAt: c.lastSeenAt,
-    projectId: c.projectId,
-    capabilities: c.capabilities as readonly HqClientCapability[],
-  }));
-
-  const mailboxPayloads: HqMailboxSnapshotPayload[] = [];
-  let latestActivity = now;
-  for (const c of projectClients) {
-    for (const snap of c.mailboxes.values()) {
-      mailboxPayloads.push(snap);
-      if (snap.totals.messages > 0) latestActivity = now;
-    }
-  }
-
-  const primaryProject = projectClients[0]!.project;
-  const machineIds = Array.from(new Set(projectClients.map((client) => client.project.machineId)));
-  const project: HqProjectRecord = {
-    projectId,
-    projectName: primaryProject.projectName || projectId,
-    projectRootDisplay: primaryProject.projectRoot,
-    machineIds,
-    ...(primaryProject.gitBranch ? { gitBranch: primaryProject.gitBranch } : {}),
-    activeClients: projectClients.length,
-    activeSessions: 0,
-    activeSubagents: 0,
-    totalCostUsd: 0,
-    lastActivityAt: latestActivity,
-    status: 'active',
-  };
-
-  return {
-    generatedAt: now,
-    project,
-    clients: clientRecords,
-    mailboxes: mailboxPayloads,
-  };
-}
-
-function broadcastEvent(event: HqEventEnvelope, browsers: Set<WebSocket>): void {
-  const msg: HqBrowserMessage = { type: 'hq.event', event };
-  const data = JSON.stringify(msg);
-  for (const ws of browsers) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
-  }
-}
+const buildSnapshot = HqServerSnapshot.buildSnapshot;
+const createSnapshotBroadcaster = HqServerSnapshot.createSnapshotBroadcaster;
+const buildProjectDetail = HqServerSnapshot.buildProjectDetail;

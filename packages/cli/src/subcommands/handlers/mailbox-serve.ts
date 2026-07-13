@@ -59,6 +59,7 @@
  *   POST /mailbox/agents/heartbeat  → heartbeat({...})
  *   POST /mailbox/register-client   → registerClient({...}) source='http'
  *   POST /mailbox/heartbeat         → clientHeartbeat({clientId,sessionId?})
+ *   POST /mailbox/purge-clients     → purgeClients()
  *   GET  /mailbox/agents            → getAgentStatuses()
  *   GET  /mailbox/agents/online     → getOnlineAgents()
  *
@@ -403,6 +404,10 @@ async function handle(
       const input = validateClientHeartbeat(body);
       await mailbox.clientHeartbeat(input);
       return writeJson(res, 200, { ok: true });
+    }
+    if (method === 'POST' && url === '/mailbox/purge-clients') {
+      const count = await mailbox.purgeClients();
+      return writeJson(res, 200, { ok: true, purged: count });
     }
     if (method === 'GET' && url === '/mailbox/agents') {
       const statuses = await mailbox.getAgentStatuses();

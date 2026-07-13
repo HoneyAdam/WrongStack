@@ -594,6 +594,9 @@ export async function handleKanbanRoute(
           'Kanban agent dispatch is only available from the CLI-hosted WebUI runtime.',
         );
         return true;
+      case 'kanban.capabilities':
+        ok(ws, type, { dispatchSupported: false });
+        return true;
       case 'kanban.task.remove': {
         const boardId = payload?.boardId as string | undefined;
         const taskId = payload?.taskId as string | undefined;

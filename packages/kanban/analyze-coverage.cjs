@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('node:fs');
 const c = require('../kanban-coverage.json');
 const sourceFiles = {};
 

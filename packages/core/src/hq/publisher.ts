@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Logger } from '../types/logger.js';
 import type { Mailbox, MailboxAgentStatus, MailboxMessage } from '../coordination/mailbox-types.js';
 import {
   createMailboxEventPayload,
@@ -103,6 +104,8 @@ export interface HqPublisherOptions {
    * running". Defaults to a single structured `console.warn` line.
    */
   warn?: (message: string) => void;
+  /** Logger for structured events. When provided, the `warn` callback is derived from it. */
+  logger?: Logger | undefined;
 }
 
 export interface HqPublishEventOptions {
@@ -191,6 +194,7 @@ export class HqPublisher {
   private readonly reconnectMaxMs: number;
   private readonly maxQueuedMessages: number;
   private readonly resolvedRedactionPolicy: HqRedactionPolicy;
+  private readonly logger: Logger | undefined;
   private socket: HqSocketLike | null = null;
   private seq = 0;
   private queue: string[] = [];
@@ -218,6 +222,7 @@ export class HqPublisher {
     this.reconnectMaxMs = options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS;
     this.maxQueuedMessages = options.maxQueuedMessages ?? DEFAULT_MAX_QUEUED_MESSAGES;
     this.resolvedRedactionPolicy = resolveHqRedactionPolicy(options.redactionPolicy);
+    this.logger = options.logger;
   }
 
   connect(): void {
@@ -634,6 +639,10 @@ export class HqPublisher {
       `${attempt !== null ? ` to ${attempt.url} (client token ${attempt.hadToken ? 'present' : 'absent'})` : ''}. ` +
       'Either the HQ server is unreachable or it rejected the token (401). ' +
       'If HQ runs in client-token mode, verify WRONGSTACK_HQ_TOKEN / auth.json. Retries continue with backoff.';
+    if (this.logger) {
+      this.logger.warn(message, { event: 'hq.publisher.connect_failed' });
+      return;
+    }
     const warn =
       this.options.warn ??
       ((msg: string) =>

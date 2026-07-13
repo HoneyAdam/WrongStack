@@ -3,9 +3,12 @@ export type BrowserArtifactKind = 'screenshot' | 'trace';
 export interface BrowserArtifact {
   id: string;
   kind: BrowserArtifactKind;
+  /** Browser evidence can contain page content, tokens, or user data. */
+  sensitivity: 'sensitive';
   path: string;
   mimeType: string;
   sizeBytes: number;
+  sha256: string;
   createdAt: string;
 }
 
@@ -49,7 +52,9 @@ export interface BrowserOpenOptions {
 
 export interface BrowserManagerOptions {
   artifactRoot: string;
+  /** @deprecated Test-only broad bypass. Production hosts use exact origins. */
   allowPrivateHosts?: boolean | undefined;
+  allowedPrivateOrigins?: string[] | undefined;
   headless?: boolean | undefined;
   operationTimeoutMs?: number | undefined;
   maxSnapshotChars?: number | undefined;

@@ -411,7 +411,7 @@ describe('GlobalMailbox EventBus push notification', () => {
       expect.objectContaining({
         from: 'a',
         to: 'b',
-        type: 'info',
+        type: 'note',
         subject: 'hello',
       }),
     );

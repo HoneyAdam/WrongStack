@@ -21,6 +21,21 @@ afterEach(async () => {
 const send = (over: Record<string, unknown> = {}) =>
   mb.send({ from: 'a', to: 'b', type: 'info', subject: 's', body: 'hi', ...over } as never);
 
+function persistedMessage(id: string, subject: string): string {
+  return JSON.stringify({
+    id,
+    from: 'external',
+    to: 'b',
+    type: 'info',
+    subject,
+    body: 'body',
+    priority: 'normal',
+    readBy: {},
+    completed: false,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 describe('resolveProjectDir', () => {
   it('joins globalRoot/projects/<slug>', () => {
     const p = resolveProjectDir('/some/project', '/root');
@@ -88,6 +103,26 @@ describe('GlobalMailbox messages', () => {
     const all = await mb.query({});
     expect(all.length).toBe(1);
     expect(all[0]?.readBy?.b).toBe('2026-01-01T00:00:00Z');
+  });
+
+  it('consumes complete incremental lines while retaining a partial tail for the next read', async () => {
+    await send({ subject: 'seed' });
+    expect(await mb.query({ limit: 100 })).toHaveLength(1);
+
+    const complete = persistedMessage('complete-1', 'complete-now');
+    const partial = persistedMessage('partial-1', 'completed-later');
+    const splitAt = Math.floor(partial.length / 2);
+    await fs.appendFile(mb.messagePath, `${complete}\n${partial.slice(0, splitAt)}`);
+
+    expect(new Set((await mb.query({ limit: 100 })).map((message) => message.subject))).toEqual(
+      new Set(['seed', 'complete-now']),
+    );
+
+    await fs.appendFile(mb.messagePath, `${partial.slice(splitAt)}\n`);
+    const all = await mb.query({ limit: 100 });
+    expect(new Set(all.map((message) => message.subject))).toEqual(
+      new Set(['seed', 'complete-now', 'completed-later']),
+    );
   });
 });
 

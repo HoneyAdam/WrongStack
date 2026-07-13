@@ -143,7 +143,7 @@ trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL wrongstack:$
 ## WrongStack-specific notes
 
 - **WrongStack CLI entry point**: `packages/cli/dist/index.js` after build.
-- **pnpm workspaces**: Build from repo root — `pnpm -r build` before `docker build`.
+- **pnpm workspaces**: Build from repo root with `pnpm build` before `docker build`; WrongStack's build runner topologically orders workspace dependencies.
 - **Session storage**: Sessions are stored at `WRONGSTACK_SESSION_ROOT` — mount a volume for persistence.
 - **Config**: Config is at `WRONGSTACK_CONFIG_DIR` — mount for config persistence across restarts.
 

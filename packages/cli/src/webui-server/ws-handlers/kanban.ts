@@ -714,6 +714,10 @@ export async function handleKanbanMessage(
         return;
       }
 
+      case 'kanban.capabilities':
+        ok(ctx, ws, type, { dispatchSupported: true });
+        return;
+
       // ── Task dispatch ──
       case 'kanban.task.dispatch': {
         const bId = payload?.boardId as string | undefined;

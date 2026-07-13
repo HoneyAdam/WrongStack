@@ -15,6 +15,8 @@ import { encryptConfigSecrets, isSecretField } from './config-secrets.js';
 export interface SecretVaultOptions {
   /** Absolute path to the key file. Created with mode 0o600 if missing. */
   keyFile: string;
+  /** Logger for structured warnings. Falls back to console.warn when omitted. */
+  logger?: Logger | undefined;
 }
 
 const KEY_BYTES = 32;
@@ -136,21 +138,19 @@ function unwrapDataKey(buf: Buffer, keyFile: string): { key: Buffer; version: nu
  * Check and warn if the key file has incorrect permissions on POSIX.
  * On Windows this is a no-op (mode bits don't apply).
  */
-function checkKeyFilePermissions(keyFile: string): void {
+function checkKeyFilePermissions(
+  keyFile: string,
+  opts?: { warn?: (msg: string) => void } | undefined,
+): void {
   if (process.platform === 'win32') return; // No mode bits on Windows
+  const warn = opts?.warn ?? ((msg: string) => console.warn(msg));
   try {
     const stat = fs.statSync(keyFile);
     const actualMode = stat.mode & 0o777;
     if (actualMode !== KEY_FILE_MODE) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'vault.key_file_wrong_permissions',
-        message: `Key file ${keyFile} has mode ${actualMode.toString(8)} — expected ${KEY_FILE_MODE.toString(8)}. Run: chmod ${KEY_FILE_MODE.toString(8)} ${keyFile}`,
-        keyFile,
-        expectedMode: KEY_FILE_MODE,
-        actualMode,
-        timestamp: new Date().toISOString(),
-      }));
+      warn(
+        `Key file ${keyFile} has mode ${actualMode.toString(8)} — expected ${KEY_FILE_MODE.toString(8)}. Run: chmod ${KEY_FILE_MODE.toString(8)} ${keyFile}`,
+      );
     }
   } catch {
     // stat can fail for reasons other than the file not existing;
@@ -173,11 +173,26 @@ function checkKeyFilePermissions(keyFile: string): void {
  */
 export class DefaultSecretVault implements RotatableSecretVault {
   private readonly keyFile: string;
+  private readonly logger: Logger | undefined;
   private key?: Buffer | undefined;
   private _keyVersion: number = 1;
 
   constructor(opts: SecretVaultOptions) {
     this.keyFile = opts.keyFile;
+    this.logger = opts.logger;
+  }
+
+  /**
+   * Emit a structured warning. Uses the configured Logger when available;
+   * falls back to console.warn(JSON) so warnings are never silently dropped
+   * during early boot.
+   */
+  private logWarn(msg: string, ctx?: Record<string, unknown>): void {
+    if (this.logger) {
+      this.logger.warn(msg, ctx);
+    } else {
+      console.warn(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
+    }
   }
 
   /** Current key version. Starts at 1; incremented by rotateKey(). */
@@ -267,7 +282,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
       newKey.copy(keyFileBuf, KEY_FILE_MAGIC.length + 1);
       fs.writeFileSync(this.keyFile, keyFileBuf, { mode: 0o600 });
     }
-    checkKeyFilePermissions(this.keyFile);
+    checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
 
     this.key = newKey;
     this._keyVersion = newVersion;
@@ -288,7 +303,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
       fs.writeFileSync(this.keyFile, wrapDataKey(this.key, this._keyVersion, passphrase), {
         mode: 0o600,
       });
-      checkKeyFilePermissions(this.keyFile);
+      checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
     } catch {
       // Non-fatal: the at-rest upgrade failed, but the loaded key is valid.
     }
@@ -312,7 +327,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
         const { key, version } = unwrapDataKey(buf, this.keyFile);
         this.key = key;
         this._keyVersion = version;
-        checkKeyFilePermissions(this.keyFile);
+        checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
         return this.key;
       }
 
@@ -321,7 +336,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
         // Legacy v1: raw 32-byte key
         this.key = buf;
         this._keyVersion = 1;
-        checkKeyFilePermissions(this.keyFile);
+        checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
         // Upgrade to passphrase-wrapped at rest if a passphrase is configured.
         this.migrateToWrappedIfPassphrase();
         return this.key;
@@ -348,7 +363,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
         }
         this.key = Buffer.from(key);
         this._keyVersion = version;
-        checkKeyFilePermissions(this.keyFile);
+        checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
         // Upgrade to passphrase-wrapped at rest if a passphrase is configured.
         this.migrateToWrappedIfPassphrase();
         return this.key;
@@ -386,14 +401,14 @@ export class DefaultSecretVault implements RotatableSecretVault {
         const { key: winnerKey, version } = unwrapDataKey(buf, this.keyFile);
         this.key = winnerKey;
         this._keyVersion = version;
-        checkKeyFilePermissions(this.keyFile);
+        checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
         return this.key;
       }
       if (buf.length === KEY_BYTES) {
         // Legacy v1 format
         this.key = buf;
         this._keyVersion = 1;
-        checkKeyFilePermissions(this.keyFile);
+        checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
         return this.key;
       }
       if (buf.length === VERSIONED_KEY_FILE_SIZE) {
@@ -410,7 +425,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
         const winnerKey = buf.subarray(KEY_FILE_MAGIC.length + 1);
         this.key = Buffer.from(winnerKey);
         this._keyVersion = version;
-        checkKeyFilePermissions(this.keyFile);
+        checkKeyFilePermissions(this.keyFile, { warn: (msg) => this.logWarn(msg) });
         return this.key;
       }
       throw new ConfigError({

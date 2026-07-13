@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   browserEvaluateTool,
+  browserListTool,
   browserOpenTool,
   browserSnapshotTool,
   browserTools,
@@ -55,5 +56,30 @@ describe('first-party browser tool contract', () => {
         secretEnv: 'TEST_PASSWORD',
       }),
     ).toEqual([]);
+  });
+
+  it('registers browser owner cleanup once per Agent.run signal', async () => {
+    const hooks: Array<() => void | Promise<void>> = [];
+    const firstRun = new AbortController();
+    const ctx = {
+      projectRoot: 'browser-cleanup-project',
+      signal: firstRun.signal,
+      agentId: 'leader',
+      registerAbortHook: vi.fn((hook: () => void | Promise<void>) => {
+        hooks.push(hook);
+        return () => undefined;
+      }),
+    };
+
+    await browserListTool.execute({}, ctx as never, { signal: firstRun.signal });
+    await browserListTool.execute({}, ctx as never, { signal: firstRun.signal });
+    expect(ctx.registerAbortHook).toHaveBeenCalledTimes(1);
+
+    await hooks[0]?.();
+    const secondRun = new AbortController();
+    ctx.signal = secondRun.signal;
+    await browserListTool.execute({}, ctx as never, { signal: secondRun.signal });
+
+    expect(ctx.registerAbortHook).toHaveBeenCalledTimes(2);
   });
 });

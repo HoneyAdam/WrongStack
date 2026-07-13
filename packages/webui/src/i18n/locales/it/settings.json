@@ -1,6 +1,9 @@
 {
   "title": "Impostazioni",
   "tabs": {
+    "tools": "Strumenti",
+    "brain": "Cervello",
+    "shadow": "Ombra",
     "provider": "Provider",
     "connection": "Connessione",
     "appearance": "Aspetto",
@@ -9,6 +12,10 @@
     "mcp": "MCP"
   },
   "appearance": {
+    "showThinkingLabel": "Mostra i registri di ragionamento",
+    "showThinkingHint": "Mostra i blocchi di ragionamento completati nella cronologia della chat.",
+    "groupToolCallsLabel": "Raggruppa le chiamate agli strumenti",
+    "groupToolCallsHint": "Raggruppa le chiamate consecutive agli strumenti in un unico indicatore.",
     "themeHeading": "Tema",
     "themeLight": "Chiaro",
     "themeDark": "Scuro",
@@ -21,6 +28,21 @@
     "soundOnCompleteHint": "Riproduci un leggero suono al termine di un'esecuzione.",
     "titleAnimation": "Animazione del titolo",
     "titleAnimationHint": "Mostra il titolo animato del terminale nella CLI.",
+    "thinkingWordLabel": "Parola di ragionamento (CLI/TUI)",
+    "thinkingWordHint": "Parola mostrata nel chip di stato della TUI. Una sola parola breve.",
+    "statuslineModeLabel": "Modalità barra di stato (CLI/TUI)",
+    "statuslineModeHint": "Densità della barra di stato della TUI.",
+    "statuslineModeDetailed": "Dettagliata",
+    "statuslineModeMinimum": "Minima",
+    "statuslineModeNoColor": "Senza colore",
+    "animationStyleLabel": "Stile di animazione (CLI/TUI)",
+    "animationStyleHint": "Animazione del chip di lavoro della TUI.",
+    "animationStyleRainbow": "Arcobaleno",
+    "animationStyleWave": "Onda",
+    "animationStylePulse": "Impulso",
+    "animationStyleDots": "Punti",
+    "animationStyleBreathe": "Respiro",
+    "animationStyleCycle": "Ciclo",
     "languageHeading": "Lingua",
     "languageLabel": "Lingua dell'interfaccia",
     "languageHint": "Modifica solo il testo dell'interfaccia. I prompt, le skill e l'output del modello non sono interessati."
@@ -40,6 +62,12 @@
     "startingBody": "Autonomo: esegui ./dev.ps1 dalla root del repo, oppure imposta WS_HOST/WS_PORT prima di avviare wstackui. Oppure alongside la CLI: wstack --webui."
   },
   "provider": {
+    "savedProviderCount_one": "{{count}} provider",
+    "savedProviderCount_other": "{{count}} provider",
+    "keyCount_one": "{{count}} chiave configurata",
+    "keyCount_other": "{{count}} chiavi configurate",
+    "activeKeyCount_one": "{{count}} chiave attiva",
+    "activeKeyCount_other": "{{count}} chiavi attive",
     "subscriptionHeading": "Accesso con abbonamento",
     "apiKeysHeading": "Provider con chiave API",
     "apiKeysBody": "Scegli un provider dal catalogo e aggiungi una chiave API, oppure gestisci i provider salvati.",
@@ -196,6 +224,10 @@
     "refineLanguageHint": "Mantieni la tua lingua o traduci in inglese per il modello.",
     "refineLanguageOriginal": "Originale — mantieni la tua lingua",
     "refineLanguageEnglish": "Inglese — traduci in inglese",
+    "refinerProviderLabel": "Provider di affinamento",
+    "refinerProviderHint": "Id del provider per l'affinamento degli obiettivi. Vuoto = usa il provider della sessione.",
+    "refinerModelLabel": "Modello di affinamento",
+    "refinerModelHint": "Id del modello per l'affinamento degli obiettivi. Vuoto = usa il modello della sessione.",
     "reasoningHeading": "Ragionamento e Cache",
     "reasoningModeLabel": "Modalità ragionamento",
     "reasoningModeHint": "Controlla come il modello usa il pensiero esteso. Auto = default del provider.",
@@ -283,7 +315,11 @@
     "addModelToProfile": "Aggiungi modello al profilo…",
     "addFavoriteModel": "Aggiungi modello preferito…",
     "hqRawContentLabel": "Contenuto HQ grezzo",
-    "hqRawContentHint": "Invia anteprime di contenuto grezze a HQ invece di anteprime censurate."
+    "hqRawContentHint": "Invia anteprime di contenuto grezze a HQ invece di anteprime censurate.",
+    "breakerLabel": "Interruttore di processo",
+    "breakerHint": "Blocca bash/exec dopo errori ripetuti; lo scatto avvia il conto alla rovescia kill/reset.",
+    "breakerTimeoutLabel": "Timeout kill/reset dell'interruttore",
+    "breakerTimeoutHint": "Ritardo prima del kill/reset automatico allo scatto. 0 = ripristino manuale."
   },
   "features": {
     "flagsHeading": "Flag di Funzionalità",
@@ -330,7 +366,13 @@
     "auditLevelHint": "Livello di dettaglio per i log di audit di sessione.",
     "auditLevelMinimal": "Minimale — solo errori",
     "auditLevelStandard": "Standard — chiamate strumenti + errori",
-    "auditLevelFull": "Completo — ogni evento (log grandi)"
+    "auditLevelFull": "Completo — ogni evento (log grandi)",
+    "fsAccessLabel": "Accesso al filesystem",
+    "fsAccessHint": "Ambito degli strumenti file. Si applica dalla prossima sessione.",
+    "fsAccessUnrestricted": "Illimitato — qualsiasi percorso",
+    "fsAccessProject": "Progetto — limitato alla radice del progetto",
+    "debugStreamLabel": "Stream di debug",
+    "debugStreamHint": "Dump esadecimale SSE grezzo su stderr del server per il debug dei provider."
   },
   "toast": {
     "switchingTo": "Passaggio a {{provider}} / {{model}}…",

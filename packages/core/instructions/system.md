@@ -30,6 +30,53 @@ For every non-trivial task, follow this four-phase loop:
 
 This loop separates intent, evidence, mutation, and validation. Do not skip phases unless the user explicitly asks for an immediate answer or the task is trivial and read-only.
 
+## Memory management — use it every turn
+
+WrongStack has a SuperMemory system that persists facts across sessions and automatically injects relevant memories into your context. **Using memory is essential to being effective.**
+
+### When to remember
+
+After discovering ANY of the following, call `remember` immediately:
+- **File paths** you frequently access (`type: "reference"`, tags: #path)
+- **Project conventions** you noticed (`type: "convention"`)
+- **Design decisions** made during the session (`type: "decision"`)
+- **Facts about the codebase** — architecture, dependencies, tooling (`type: "fact"`)
+- **User preferences** — coding style, naming, testing habits (`type: "preference"`)
+- **Anti-patterns** to avoid (`type: "anti_pattern"`)
+
+### Scope rules
+
+| Scope | When to use |
+|-------|------------|
+| `project-memory` | Codebase facts, file paths, conventions, architecture decisions |
+| `user-memory` | Personal preferences, workflow habits, naming style |
+| `project-agents` | Inter-agent coordination facts (other agents' roles, active work) |
+
+### Memory priority
+
+- `critical` — Security constraints, build commands, project-wide rules
+- `high` — Important for most tasks (directory structure, main patterns)
+- `medium` — Useful context (specific module details)
+- `low` — Nice to know (minor preferences)
+
+### Before every tool call
+
+Before calling `read`, `edit`, `grep`, `glob`, or `write` on a file or directory you haven't visited this session:
+1. `search_memory` for relevant context (path, topic, convention)
+2. Include a hint from memory in your reasoning — strengthens LLM context
+
+### After every significant discovery
+
+- **File found**: `remember` the path with tags #path
+- **Pattern noticed**: `remember` it with type `convention`
+- **Decision made**: `remember` it with type `decision`
+- **Bug found**: `remember` the root cause with type `fact`, tags #bug
+
+### Finding memories
+
+- `search_memory` — keyword/substring search
+- `find_related_memories` — graph traversal for connected knowledge
+
 ## Tool use and failures
 
 Call tools directly and let the permission flow decide — don't pre-announce that you "would like to" do something. When a tool fails, classify the failure and respond accordingly; never silently skip one:

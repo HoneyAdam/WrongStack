@@ -103,9 +103,15 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
     noOpLogger.debug('cleanupStaleProjects failed', { err });
   });
 
+  // Preliminary logger — created before config load so both the vault and
+  // config loader have a structured Logger for their warnings. Uses the
+  // env-level or 'info' (handled by DefaultLogger constructor); replaced
+  // with the properly-configured logger once config is loaded.
+  const bootLogger = new DefaultLogger({ stderr: true });
+
   // Vault must come first so the config loader can decrypt apiKey-like fields.
   // It lazily creates ~/.wrongstack/.key on first encrypt/decrypt.
-  const vault = new DefaultSecretVault({ keyFile: wpaths.secretsKey });
+  const vault = new DefaultSecretVault({ keyFile: wpaths.secretsKey, logger: bootLogger });
 
   // Auto-encrypt any plaintext secrets still sitting in config files (left
   // over from before the vault existed, or hand-written). Silent no-op for
@@ -125,7 +131,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
     }
   }
 
-  const configLoader = new DefaultConfigLoader({ paths: wpaths, vault });
+  const configLoader = new DefaultConfigLoader({ paths: wpaths, vault, logger: bootLogger });
   let config: Config;
   try {
     config = await configLoader.load({ cliFlags: flagsToConfigPatch(flags) });

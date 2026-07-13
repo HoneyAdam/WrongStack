@@ -9,7 +9,6 @@
  * as getters/setters so this stays a pure function of its context. Handler
  * bodies are a verbatim lift — only dependency references changed.
  */
-import * as path from 'node:path';
 import type { WebSocket } from 'ws';
 import {
   type Context,
@@ -21,6 +20,7 @@ import {
   resolveContextWindowPolicy,
 } from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
+import { sessionScopedPath } from '@wrongstack/core/utils';
 import type { ConnectedClient } from './types.js';
 import type { SessionRouteHandlers } from './session-routes.js';
 import type { CustomModeStore } from './custom-context-modes.js';
@@ -62,9 +62,11 @@ export interface SessionHandlersContext {
   getProjectRoot: () => string;
   getSession: () => Session;
   getSessionStore: () => SessionStore;
+  sessionsDir: string;
   /** Mutations of the startWebUI bindings. */
   setSession: (s: Session) => void;
   setSessionStartedAt: (t: number) => void;
+  onSessionSwapped: (sessionId: string) => Promise<void>;
   sessionStartPayload: () => Promise<SessionStartPayload>;
 }
 
@@ -95,35 +97,53 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     });
     return false;
   };
+  const finalizeSession = async (writer: Session): Promise<void> => {
+    await writer
+      .append({
+        type: 'session_end',
+        ts: new Date().toISOString(),
+        usage: ctx.tokenCounter.total(),
+      })
+      .catch(() => undefined);
+    await writer.close().catch(() => undefined);
+  };
+  const activateSession = async (
+    next: Session,
+    messages: Context['messages'],
+    usage?: Parameters<DefaultTokenCounter['account']>[0],
+  ): Promise<void> => {
+    const current = ctx.getSession();
+    if (current !== next) await finalizeSession(current);
+    ctx.setSession(next);
+    ctx.context.session = next;
+    ctx.context.state.replaceMessages(messages);
+    ctx.context.state.replaceTodos([]);
+    ctx.context.readFiles.clear();
+    ctx.context.fileMtimes.clear();
+    ctx.context.state.setMeta(
+      'plan.path',
+      sessionScopedPath(ctx.sessionsDir, next.id, '.plan.json'),
+    );
+    ctx.context.state.setMeta(
+      'task.path',
+      sessionScopedPath(ctx.sessionsDir, next.id, '.tasks.json'),
+    );
+    ctx.tokenCounter.reset();
+    if (usage) ctx.tokenCounter.account(usage, ctx.config.model);
+    ctx.setSessionStartedAt(Date.now());
+    await ctx.onSessionSwapped(next.id);
+  };
 
   return {
     newSession: async (ws, msg) => {
       if (!ensureCurrentSession(ws, msg, 'session.new')) return;
-      const session = ctx.getSession();
-      try {
-        await session.append({
-          type: 'session_end',
-          ts: new Date().toISOString(),
-          usage: ctx.tokenCounter.total(),
-        });
-        await session.close();
-      } catch {
-        // best-effort
-      }
       const next = await ctx.getSessionStore().create({
         id: '',
         title: '',
         model: ctx.config.model,
         provider: ctx.config.provider,
       });
-      ctx.setSession(next);
-      ctx.context.session = next;
-      ctx.context.state.replaceMessages([]);
-      ctx.context.state.replaceTodos([]);
-      ctx.context.readFiles.clear();
-      ctx.context.fileMtimes.clear();
-      ctx.tokenCounter.reset();
-      ctx.setSessionStartedAt(Date.now());
+      await activateSession(next, []);
       broadcast(ctx.clients, { type: 'session.start', payload: await ctx.sessionStartPayload() });
     },
     clearContext: async (ws, msg) => {
@@ -385,24 +405,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
           return;
         }
         const resumed = await ctx.getSessionStore().resume(id);
-        try {
-          await current.append({
-            type: 'session_end',
-            ts: new Date().toISOString(),
-            usage: ctx.tokenCounter.total(),
-          });
-          await current.close();
-        } catch {
-          /* noop */
-        }
-        ctx.setSession(resumed.writer);
-        ctx.context.session = resumed.writer;
-        ctx.context.state.replaceMessages(resumed.data.messages);
-        ctx.context.readFiles.clear();
-        ctx.context.fileMtimes.clear();
-        ctx.tokenCounter.reset();
-        ctx.tokenCounter.account(resumed.data.usage, ctx.config.model);
-        ctx.setSessionStartedAt(Date.now());
+        await activateSession(resumed.writer, resumed.data.messages, resumed.data.usage);
         broadcast(ctx.clients, {
           type: 'session.start',
           payload: {
@@ -426,10 +429,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       try {
         const { DefaultSessionRewinder } = await import('@wrongstack/core');
         const projectRoot = ctx.getProjectRoot();
-        const rewinder = new DefaultSessionRewinder(
-          path.join(projectRoot, '.wrongstack', 'sessions'),
-          projectRoot,
-        );
+        const rewinder = new DefaultSessionRewinder(ctx.sessionsDir, projectRoot);
         const checkpoints = await rewinder.listCheckpoints(ctx.getSession().id);
         send(ws, { type: 'session.checkpoints', payload: sessionPayload({ checkpoints }) });
       } catch {
@@ -442,10 +442,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       try {
         const { DefaultSessionRewinder } = await import('@wrongstack/core');
         const projectRoot = ctx.getProjectRoot();
-        const rewinder = new DefaultSessionRewinder(
-          path.join(projectRoot, '.wrongstack', 'sessions'),
-          projectRoot,
-        );
+        const rewinder = new DefaultSessionRewinder(ctx.sessionsDir, projectRoot);
         await rewinder.rewindToCheckpoint(ctx.getSession().id, checkpointIndex);
         await ctx.context.session.truncateToCheckpoint(checkpointIndex);
         sendResult(ws, true, `Rewound to checkpoint ${checkpointIndex}`);

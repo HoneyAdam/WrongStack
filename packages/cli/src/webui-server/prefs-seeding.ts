@@ -92,11 +92,21 @@ export const PREF_KEYS = [
   'hqUrl',
   'hqToken',
   'hqRawContent',
+  'refinerProvider',
+  'refinerModel',
+  'thinkingWord',
+  'statuslineMode',
+  'animationStyle',
   // Telegram plugin notification settings (parity with the standalone server).
   'tgConfigured',
   'tgSessionEnd',
   'tgDelegate',
   'tgLongToolMs',
+  // Safety / system prefs (parity with /settings breaker, fs-access, debug-stream).
+  'breakerEnabled',
+  'breakerAutoKillResetMs',
+  'fsAccess',
+  'debugStream',
 ] as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -176,6 +186,11 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     meta['hqUrl'] = typeof hqCfg['url'] === 'string' ? (hqCfg['url'] as string) : '';
     meta['hqToken'] = typeof hqCfg['token'] === 'string' ? (hqCfg['token'] as string) : '';
     meta['hqRawContent'] = hqCfg['rawContent'] === true;
+    meta['refinerProvider'] = (autonomyCfg['refinerProvider'] as string) ?? '';
+    meta['refinerModel'] = (autonomyCfg['refinerModel'] as string) ?? '';
+    meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
+    meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
+    meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';
     // Telegram plugin notification settings live under extensions.telegram —
     // same path the standalone server seeds and /telegram-settings writes.
     const tgExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
@@ -187,6 +202,25 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
     const tgMs = tgExt?.['longToolThresholdMs'];
     meta['tgLongToolMs'] = typeof tgMs === 'number' ? (tgMs as number) : 30_000;
+    // Safety / system prefs
+    const cbCfg = (cfg.circuitBreaker as Record<string, unknown>) ?? {};
+    meta['breakerEnabled'] = cbCfg['enabled'] === true;
+    meta['breakerAutoKillResetMs'] =
+      typeof cbCfg['autoKillResetMs'] === 'number' ? cbCfg['autoKillResetMs'] : 60_000;
+    {
+      // Same precedence as deriveFsAccessPair: features.allowOutsideProjectRoot
+      // wins when set, else the legacy tools.restrictToProjectRoot inverse.
+      const featuresAllow = features['allowOutsideProjectRoot'];
+      const toolsRestrict = (cfg.tools as Record<string, unknown>)?.['restrictToProjectRoot'];
+      const allow =
+        featuresAllow !== undefined
+          ? featuresAllow === true
+          : toolsRestrict !== undefined
+            ? toolsRestrict !== true
+            : true;
+      meta['fsAccess'] = allow ? 'unrestricted' : 'project';
+    }
+    meta['debugStream'] = cfg.debugStream === true;
   } catch {
     // best-effort — missing/corrupt config just leaves prefs unseeded
   }
@@ -261,7 +295,15 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
 
       // Map meta keys back to their config-file paths.
       const autonomy = (decrypted.autonomy as Record<string, unknown>) ?? {};
-      if ('autonomy' in payload) autonomy['defaultMode'] = payload['autonomy'];
+      // defaultMode only supports off|suggest|auto in the Config schema —
+      // eternal/eternal-parallel are live-only modes (autonomy is user-owned;
+      // sessions never START in eternal). Same guard as the standalone server.
+      if (
+        typeof payload['autonomy'] === 'string' &&
+        ['off', 'suggest', 'auto'].includes(payload['autonomy'])
+      ) {
+        autonomy['defaultMode'] = payload['autonomy'];
+      }
       if ('autonomyDelayMs' in payload) autonomy['autoProceedDelayMs'] = payload['autonomyDelayMs'];
       if ('autoProceedMaxIterations' in payload)
         autonomy['autoProceedMaxIterations'] = payload['autoProceedMaxIterations'];
@@ -336,6 +378,16 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
         decrypted['autonomy'] = autonomy;
       }
 
+      // Refiner + TUI visual prefs → autonomy block
+      if ('refinerProvider' in payload) autonomy['refinerProvider'] = payload['refinerProvider'];
+      if ('refinerModel' in payload) autonomy['refinerModel'] = payload['refinerModel'];
+      if ('thinkingWord' in payload) autonomy['thinkingWord'] = payload['thinkingWord'];
+      if ('statuslineMode' in payload) autonomy['statuslineMode'] = payload['statuslineMode'];
+      if ('animationStyle' in payload) autonomy['animationStyle'] = payload['animationStyle'];
+      if ('refinerProvider' in payload || 'refinerModel' in payload || 'thinkingWord' in payload || 'statuslineMode' in payload || 'animationStyle' in payload) {
+        decrypted['autonomy'] = autonomy;
+      }
+
       if (
         'reasoningMode' in payload ||
         'reasoningEffort' in payload ||
@@ -388,6 +440,35 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
           hqCfg['rawContent'] = payload['hqRawContent'];
         decrypted.hq = hqCfg;
       }
+
+      // Process circuit breaker → Config.circuitBreaker
+      if (
+        typeof payload['breakerEnabled'] === 'boolean' ||
+        typeof payload['breakerAutoKillResetMs'] === 'number'
+      ) {
+        const cb = (decrypted.circuitBreaker as Record<string, unknown>) ?? {};
+        if (typeof payload['breakerEnabled'] === 'boolean') cb['enabled'] = payload['breakerEnabled'];
+        if (typeof payload['breakerAutoKillResetMs'] === 'number')
+          cb['autoKillResetMs'] = payload['breakerAutoKillResetMs'];
+        decrypted['circuitBreaker'] = cb;
+      }
+
+      // Filesystem access scope — dual-write the inverse pair (same rule as
+      // deriveFsAccessPair: tools.restrictToProjectRoot legacy,
+      // features.allowOutsideProjectRoot canonical).
+      if (payload['fsAccess'] === 'unrestricted' || payload['fsAccess'] === 'project') {
+        const restrict = payload['fsAccess'] === 'project';
+        const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
+        toolsCfg['restrictToProjectRoot'] = restrict;
+        decrypted['tools'] = toolsCfg;
+        const featsCfg = (decrypted.features as Record<string, unknown>) ?? {};
+        featsCfg['allowOutsideProjectRoot'] = !restrict;
+        decrypted['features'] = featsCfg;
+      }
+
+      // Raw SSE debug dump → top-level Config.debugStream
+      if (typeof payload['debugStream'] === 'boolean')
+        decrypted['debugStream'] = payload['debugStream'];
 
       // Telegram plugin notification settings → extensions.telegram (parity
       // with the standalone server / the path /telegram-settings writes).

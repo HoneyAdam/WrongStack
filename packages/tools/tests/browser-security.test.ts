@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertBrowserUrlAllowed,
+  parsePrivateOriginAllowlist,
   redactBrowserText,
+  resolvePinnedBrowserTarget,
   safeBrowserUrl,
 } from '../src/browser/security.js';
 
@@ -52,6 +54,42 @@ describe('browser security boundary', () => {
         navigation: true,
       }),
     ).resolves.toBeInstanceOf(URL);
+  });
+
+  it('limits private access to an exact normalized origin', async () => {
+    const allowedPrivateOrigins = parsePrivateOriginAllowlist('http://127.0.0.1:3000');
+    await expect(
+      assertBrowserUrlAllowed('http://127.0.0.1:3000/path', {
+        allowedPrivateOrigins,
+        navigation: true,
+      }),
+    ).resolves.toBeInstanceOf(URL);
+    await expect(
+      assertBrowserUrlAllowed('http://127.0.0.1:3001/path', {
+        allowedPrivateOrigins,
+        navigation: true,
+      }),
+    ).rejects.toThrow(/private|loopback/);
+  });
+
+  it('rejects non-origin private allowlist entries', () => {
+    expect(() => parsePrivateOriginAllowlist('http://127.0.0.1:3000/admin')).toThrow(/origin/);
+  });
+
+  it('pins one public DNS answer and rejects mixed public/private answers', async () => {
+    const lookup = async () => [{ address: '203.0.113.10', family: 4 }];
+    await expect(
+      resolvePinnedBrowserTarget('https://example.test/path', { lookup }),
+    ).resolves.toMatchObject({ address: '203.0.113.10', family: 4 });
+
+    await expect(
+      resolvePinnedBrowserTarget('https://example.test/path', {
+        lookup: async () => [
+          { address: '203.0.113.10', family: 4 },
+          { address: '127.0.0.1', family: 4 },
+        ],
+      }),
+    ).rejects.toThrow(/private address/);
   });
 
   it('redacts common console credential forms', () => {

@@ -1,4 +1,5 @@
 {
+  "title": "Paleta de comandos",
   "placeholder": "Buscar comandos, sessões, configurações…",
   "noMatches": "Nenhum resultado para \"{{query}}\"",
   "footer": {

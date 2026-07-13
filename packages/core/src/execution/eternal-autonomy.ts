@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import type { Agent } from '../core/agent.js';
 import type { TodoItem } from '../core/context.js';
 import type { EventBus } from '../kernel/events.js';
+import type { Logger } from '../types/logger.js';
 import type { Compactor } from '../types/compactor.js';
 import type { BrainArbiter } from '../coordination/brain.js';
 import {
@@ -98,6 +99,8 @@ export interface EternalAutonomyOptions {
    * Optional clock — tests stub for deterministic timestamps.
    */
   now?: ((() => Date)) | undefined;
+  /** Logger for structured warnings/errors. Falls back to console.error when omitted. */
+  logger?: Logger | undefined;
   /**
    * Optional compactor. When provided, the engine runs compaction every
    * `compactEveryNIterations` iterations to keep the agent's message
@@ -219,9 +222,32 @@ export class EternalAutonomyEngine {
     this.goalPath = goalFilePath(opts.projectRoot);
   }
 
+  /**
+   * Emit a structured error. Uses the configured Logger when available;
+   * falls back to console.error(JSON) so events are never silently dropped.
+   */
+  private logError(msg: string, ctx?: Record<string, unknown>): void {
+    if (this.opts.logger) {
+      this.opts.logger.error(msg, ctx);
+    } else {
+      console.error(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
+    }
+  }
+
   /** Current engine state — readable for UIs. */
   get currentState(): EternalEngineState {
     return this.state;
+  }
+
+  /**
+   * Load the goal file with structured logging for parse/schema warnings.
+   */
+  private loadGoal(): Promise<GoalFile | null> {
+    return loadGoal(
+      this.goalPath,
+      this.opts.events,
+      this.opts.logger ? (msg) => this.opts.logger!.warn(msg) : undefined,
+    );
   }
 
   /** Synchronously request stop. Resolves once the running iteration aborts. */
@@ -233,13 +259,10 @@ export class EternalAutonomyEngine {
     // races with an in-flight iteration's write, the journal write wins
     // (engineState is metadata, not durable correctness).
     void this.persistEngineState('stopped').catch((err) => {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'engine.persist_state_failed',
-        message: toErrorMessage(err),
-        context: { expectedState: 'stopped' },
-        timestamp: new Date().toISOString(),
-      }));
+      this.logError(
+        'Engine persist state failed',
+        { event: 'engine.persist_state_failed', message: toErrorMessage(err), context: { expectedState: 'stopped' } },
+      );
     });
     this.state = 'stopped';
   }
@@ -304,7 +327,7 @@ export class EternalAutonomyEngine {
       this.opts.onStage?.(stage);
     };
 
-    const goal = await loadGoal(this.goalPath, this.opts.events);
+    const goal = await this.loadGoal();
     if (!goal) {
       // Goal file disappeared — treat as a graceful stop.
       emit({ phase: 'stopped' });
@@ -455,16 +478,13 @@ export class EternalAutonomyEngine {
     // approximation only as a last resort.
     let iterationIndex = 0;
     try {
-      const reloaded = await loadGoal(this.goalPath, this.opts.events);
+      const reloaded = await this.loadGoal();
       iterationIndex = reloaded?.iterations ?? 0;
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'warn',
-        event: 'autonomy.goal_reload_failed',
-        message: toErrorMessage(err),
-        context: { goalPath: this.goalPath },
-        timestamp: new Date().toISOString(),
-      }));
+      this.logError(
+        'Goal reload failed',
+        { event: 'autonomy.goal_reload_failed', message: toErrorMessage(err), context: { goalPath: this.goalPath } },
+      );
     }
     this.opts.onIteration?.({
       at: (this.opts.now?.() ?? new Date()).toISOString(),
@@ -760,13 +780,10 @@ export class EternalAutonomyEngine {
         clearTimeout(timer);
       }
     } catch (err) {
-      console.error(JSON.stringify({
-        level: 'warn',
-        event: 'autonomy.brainstorm_failed',
-        message: toErrorMessage(err),
-        context: { goal: goal.goal.slice(0, 100) },
-        timestamp: new Date().toISOString(),
-      }));
+      this.logError(
+        'Brainstorm failed',
+        { event: 'autonomy.brainstorm_failed', message: toErrorMessage(err), context: { goal: goal.goal.slice(0, 100) } },
+      );
       return null;
     }
   }
@@ -855,7 +872,7 @@ export class EternalAutonomyEngine {
   }
 
   private async appendIterationEntry(entry: Omit<JournalEntry, 'iteration' | 'at'>): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) {
       // Goal was cleared mid-iteration; nothing to write to.
       return;
@@ -871,7 +888,7 @@ export class EternalAutonomyEngine {
    * the counter to rotate past stuck todos once they cross `todoMaxAttempts`.
    */
   private async bumpTodoAttempt(todoId: string): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) return;
     const attempts = { ...(current.todoAttempts ?? {}) };
     attempts[todoId] = (attempts[todoId] ?? 0) + 1;
@@ -889,7 +906,7 @@ export class EternalAutonomyEngine {
     action: { source: JournalEntry['source']; task: string; directive: string },
     note: string,
   ): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) return;
     if (current.goalState === 'completed') return;
     const withFlag: GoalFile = { ...current, goalState: 'completed' };
@@ -921,7 +938,7 @@ export class EternalAutonomyEngine {
    * `onEternalStop` so the REPL returns to normal mode.
    */
   private async clearGoalManually(note: string): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (current) {
       const abandoned: GoalFile = { ...current, goalState: 'abandoned' };
       await saveGoal(this.goalPath, abandoned, this.opts.events);
@@ -1027,14 +1044,14 @@ export class EternalAutonomyEngine {
    * Persist a progress update from the agent's [PROGRESS: N%] output.
    */
   private async updateProgress(progress: number, note?: string): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) return;
     const updated = recordProgress(current, progress, note);
     await saveGoal(this.goalPath, updated, this.opts.events);
   }
 
   private async persistEngineState(state: GoalFile['engineState']): Promise<void> {
-    const current = await loadGoal(this.goalPath, this.opts.events);
+    const current = await this.loadGoal();
     if (!current) return;
     if (current.engineState === state) return;
     await saveGoal(this.goalPath, { ...current, engineState: state }, this.opts.events);

@@ -67,6 +67,18 @@ export const PREF_KEYS = [
   'favoriteModelsOnly',
   'modelMatrix',
   'fallbackAuto',
+  // Refiner + TUI visual prefs (parity with the CLI's embedded server —
+  // these were browser-editable there but rejected as unknown keys here).
+  'refinerProvider',
+  'refinerModel',
+  'thinkingWord',
+  'statuslineMode',
+  'animationStyle',
+  // Safety / system prefs (parity with /settings breaker, fs-access, debug-stream).
+  'breakerEnabled',
+  'breakerAutoKillResetMs',
+  'fsAccess',
+  'debugStream',
 ] as const;
 
 export interface PrefHelperDeps {
@@ -188,6 +200,16 @@ export async function persistPrefsToConfig(
       setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
     if (typeof payload['enhanceLanguage'] === 'string')
       setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
+    if (typeof payload['refinerProvider'] === 'string')
+      setAutonomy('refinerProvider', payload['refinerProvider']);
+    if (typeof payload['refinerModel'] === 'string')
+      setAutonomy('refinerModel', payload['refinerModel']);
+    if (typeof payload['thinkingWord'] === 'string')
+      setAutonomy('thinkingWord', payload['thinkingWord']);
+    if (typeof payload['statuslineMode'] === 'string')
+      setAutonomy('statuslineMode', payload['statuslineMode']);
+    if (typeof payload['animationStyle'] === 'string')
+      setAutonomy('animationStyle', payload['animationStyle']);
     if (autonomyTouched) decrypted.autonomy = autonomyCfg;
 
     if (typeof payload['nextPrediction'] === 'boolean')
@@ -341,5 +363,34 @@ export async function persistPrefsToConfig(
       }
       decrypted.modelRuntime = mr;
     }
+
+    // Process circuit breaker → Config.circuitBreaker
+    if (
+      typeof payload['breakerEnabled'] === 'boolean' ||
+      typeof payload['breakerAutoKillResetMs'] === 'number'
+    ) {
+      const cb = (decrypted.circuitBreaker as Record<string, unknown>) ?? {};
+      if (typeof payload['breakerEnabled'] === 'boolean') cb.enabled = payload['breakerEnabled'];
+      if (typeof payload['breakerAutoKillResetMs'] === 'number')
+        cb.autoKillResetMs = payload['breakerAutoKillResetMs'];
+      decrypted.circuitBreaker = cb;
+    }
+
+    // Filesystem access scope — dual-write the inverse pair, same as the
+    // CLI's deriveFsAccessPair (tools.restrictToProjectRoot is legacy,
+    // features.allowOutsideProjectRoot is canonical; they must stay inverses).
+    if (payload['fsAccess'] === 'unrestricted' || payload['fsAccess'] === 'project') {
+      const restrict = payload['fsAccess'] === 'project';
+      const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
+      toolsCfg.restrictToProjectRoot = restrict;
+      decrypted.tools = toolsCfg;
+      const featsCfg = (decrypted.features as Record<string, unknown>) ?? {};
+      featsCfg.allowOutsideProjectRoot = !restrict;
+      decrypted.features = featsCfg;
+    }
+
+    // Raw SSE debug dump → top-level Config.debugStream
+    if (typeof payload['debugStream'] === 'boolean')
+      decrypted.debugStream = payload['debugStream'];
   }, 'prefs');
 }

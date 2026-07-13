@@ -2,9 +2,10 @@ import * as path from 'node:path';
 import { type Context, type Tool, ToolCapabilities } from '@wrongstack/core';
 import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { BrowserSessionManager, browserInstallationDiagnostics } from './manager.js';
+import { parsePrivateOriginAllowlist } from './security.js';
 
 const managers = new Map<string, BrowserSessionManager>();
-const cleanupRegistered = new WeakSet<object>();
+const cleanupSignalByContext = new WeakMap<object, AbortSignal>();
 
 function managerFor(ctx: Context): BrowserSessionManager {
   const root = path.resolve(ctx.projectRoot);
@@ -13,13 +14,23 @@ function managerFor(ctx: Context): BrowserSessionManager {
     const wpaths = resolveWstackPaths({ projectRoot: root });
     manager = new BrowserSessionManager({
       artifactRoot: path.join(wpaths.projectDir, 'browser-artifacts'),
-      allowPrivateHosts: process.env['WRONGSTACK_BROWSER_ALLOW_PRIVATE'] === '1',
+      allowedPrivateOrigins: parsePrivateOriginAllowlist(
+        process.env['WRONGSTACK_BROWSER_PRIVATE_ORIGINS'],
+      ),
     });
     managers.set(root, manager);
   }
-  if (!cleanupRegistered.has(ctx)) {
-    cleanupRegistered.add(ctx);
-    ctx.registerAbortHook?.(() => manager!.closeOwner(owner(ctx)));
+  const runSignal = ctx.signal;
+  if (cleanupSignalByContext.get(ctx) !== runSignal) {
+    cleanupSignalByContext.set(ctx, runSignal);
+    const managerForRun = manager;
+    const ownerForRun = owner(ctx);
+    ctx.registerAbortHook?.(async () => {
+      if (cleanupSignalByContext.get(ctx) === runSignal) {
+        cleanupSignalByContext.delete(ctx);
+      }
+      await managerForRun.closeOwner(ownerForRun);
+    });
   }
   return manager;
 }
@@ -149,7 +160,8 @@ export const browserScreenshotTool: Tool<{
   selector?: string | undefined;
 }> = {
   name: 'browser_screenshot',
-  description: 'Capture a page or element PNG and return a durable artifact id and path.',
+  description:
+    'Capture a page or element PNG and return sensitive artifact metadata with integrity hash.',
   usageHint: 'browser_screenshot({ sessionId, fullPage?, selector? })',
   permission: 'confirm',
   mutating: true,
@@ -422,7 +434,7 @@ export const browserUploadTool: Tool<SelectorInput & { files: string[] }> = {
 export const browserCloseTool: Tool<{ sessionId: string }> = {
   name: 'browser_close',
   description:
-    'Close an owned browser session, reclaim its context, and return its trace artifact.',
+    'Close an owned browser session, reclaim its context, and return sensitive trace metadata.',
   usageHint: 'browser_close({ sessionId })',
   permission: 'auto',
   mutating: false,

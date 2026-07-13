@@ -122,15 +122,18 @@ describe('deny / trust persistence + revert', () => {
     expect(JSON.parse(await fs.readFile(trustFile, 'utf8')).edit.deny).toContain('src/secret.ts');
   });
 
-  it('deny() reverts the in-memory rule and rethrows when the write fails', async () => {
-    // trustFile is a directory → atomicWrite throws → deny() reverts + rethrows.
+  it('fails closed when the trust path is unreadable and refuses deny updates', async () => {
+    // A directory cannot be parsed as trust.json. Runtime enforcement denies
+    // calls until the operator repairs it, and mutation cannot overwrite it.
     const badTrust = path.join(dir, 'as-dir');
     await fs.mkdir(badTrust);
     const p = new DefaultPermissionPolicy({ trustFile: badTrust });
     await expect(p.deny({ tool: 'edit', pattern: 'x' })).rejects.toThrow();
-    // After revert, an evaluate must NOT see the (rolled-back) deny.
     const d = await p.evaluate(tool('edit'), { path: 'x' }, ctx());
-    expect(d.permission).not.toBe('deny');
+    expect(d).toMatchObject({ permission: 'deny', source: 'deny' });
+    expect(p.getPolicyDiagnostics()).toContainEqual(
+      expect.objectContaining({ code: 'read_error' }),
+    );
   });
 
   it('trust() reverts the in-memory rule and rethrows when the write fails', async () => {

@@ -106,7 +106,11 @@ export function goalFilePath(projectRoot: string): string {
   return resolveWstackPaths({ projectRoot }).projectGoal;
 }
 
-export async function loadGoal(filePath: string, events?: EventBus): Promise<GoalFile | null> {
+export async function loadGoal(
+  filePath: string,
+  events?: EventBus,
+  warn?: (msg: string) => void,
+): Promise<GoalFile | null> {
   const t0 = Date.now();
   let raw: string;
   try {
@@ -137,13 +141,9 @@ export async function loadGoal(filePath: string, events?: EventBus): Promise<Goa
   try {
     const parsed = JSON.parse(raw) as GoalFile;
     if (parsed?.version !== 1 || typeof parsed.goal !== 'string' || !Array.isArray(parsed.journal)) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'goal_store.invalid_schema',
-        path: filePath,
-        message: 'invalid schema — consider deleting and re-creating',
-        timestamp: new Date().toISOString(),
-      }));
+      (warn ?? ((msg) => console.warn(JSON.stringify({ level: 'warn', event: 'goal_store.invalid_schema', path: filePath, message: msg, timestamp: new Date().toISOString() }))))(
+        'invalid schema — consider deleting and re-creating',
+      );
       events?.emit('storage.read', {
         sessionId: '~boot~',
         store: 'goal',
@@ -165,13 +165,9 @@ export async function loadGoal(filePath: string, events?: EventBus): Promise<Goa
     });
     return parsed;
   } catch {
-    console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'goal_store.parse_failed',
-      path: filePath,
-      message: 'JSON parse failed — consider deleting and re-creating',
-      timestamp: new Date().toISOString(),
-    }));
+    (warn ?? ((msg) => console.warn(JSON.stringify({ level: 'warn', event: 'goal_store.parse_failed', path: filePath, message: msg, timestamp: new Date().toISOString() }))))(
+      'JSON parse failed — consider deleting and re-creating',
+    );
     events?.emit('storage.read', {
       sessionId: '~boot~',
       store: 'goal',

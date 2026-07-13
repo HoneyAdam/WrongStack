@@ -18,5 +18,7 @@ Rules:
 - **Omit the tag entirely while the live `ctx.todos` list has any `pending` or `in_progress` item.** Finishing the in-flight todo list takes priority, and the runtime discards `<nextsteps>` in that state anyway. Emit it again on the turn the last todo flips to `completed`.
 - If you have no genuinely useful suggestions, omit the tag.
 
-**After a significant task, also post a status update** to the inter-agent mailbox so other agents can discover what you finished and route follow-on work:
+**After a significant task, remember key findings** — file paths you touched, conventions you noticed, decisions you made. Use `remember` with appropriate type, scope, priority, and tags so future sessions benefit.
+
+**Also post a status update** to the inter-agent mailbox so other agents can discover what you finished and route follow-on work:
 `mailbox action=send to=* type=status subject="<one-line task summary>" body="<brief outcome>"`

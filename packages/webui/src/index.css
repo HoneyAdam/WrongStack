@@ -200,7 +200,7 @@
   }
 
   [class*='tracking-'] {
-    letter-spacing: 0 !important;
+    letter-spacing: 0;
   }
 
   :focus-visible {
@@ -275,7 +275,7 @@
 
 /* Kanban board — always show horizontal scrollbar so columns past the fold are reachable. */
 .kanban-scroll-area {
-  overflow-x: auto !important;
+  overflow-x: auto;
   scrollbar-width: auto; /* Firefox: force visible track */
 }
 .kanban-scroll-area::-webkit-scrollbar {

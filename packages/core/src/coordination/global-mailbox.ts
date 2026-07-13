@@ -22,27 +22,6 @@ import type { HqPublisher } from '../hq/publisher.js';
 import type { EventBus } from '../kernel/events.js';
 import { withFileLock } from '../utils/atomic-write.js';
 import { projectSlug } from '../utils/wstack-paths.js';
-import type {
-  AgentHeartbeatInput,
-  AgentRegistrationInput,
-  ClientHeartbeatInput,
-  ClientRegistrationInput,
-  ClientStatus,
-  Mailbox,
-  MailboxAckBatchInput,
-  MailboxAckInput,
-  MailboxAgentStatus,
-  MailboxMessage,
-  MailboxQuery,
-  MailboxSendInput,
-  AutoCompactOptions,
-  AutoCompactResult,
-  PurgeOptions,
-  PurgeResult,
-  RegisteredAgent,
-  RegisteredClient,
-} from './mailbox-types.js';
-import { normalizeRecipient } from './mailbox-types.js';
 import {
   AGENT_PURGE_MS,
   AGENT_STALE_MS,
@@ -55,7 +34,29 @@ import {
   MESSAGE_CACHE_MAX_ENTRIES,
   REGISTRY_CACHE_TTL_MS,
 } from './mailbox-constants.js';
-import { MailboxEventEmitter } from './mailbox-events.js';
+import type { MailboxEventEmitter } from './mailbox-events.js';
+import { normalizeMailboxMessageType, parseMailboxMessageLine } from './mailbox-message-codec.js';
+import type {
+  AgentHeartbeatInput,
+  AgentRegistrationInput,
+  AutoCompactOptions,
+  AutoCompactResult,
+  ClientHeartbeatInput,
+  ClientRegistrationInput,
+  ClientStatus,
+  Mailbox,
+  MailboxAckBatchInput,
+  MailboxAckInput,
+  MailboxAgentStatus,
+  MailboxMessage,
+  MailboxQuery,
+  MailboxSendInput,
+  PurgeOptions,
+  PurgeResult,
+  RegisteredAgent,
+  RegisteredClient,
+} from './mailbox-types.js';
+import { normalizeRecipient } from './mailbox-types.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -218,7 +219,12 @@ export class GlobalMailbox implements Mailbox {
    * @param hqPublisher — optional HQ publisher, or getter, for cross-project telemetry
    * @param eventEmitter — optional SSE event emitter for HTTP bridge push
    */
-  constructor(projectDir: string, events?: EventBus, hqPublisher?: HqPublisherRef, eventEmitter?: MailboxEventEmitter) {
+  constructor(
+    projectDir: string,
+    events?: EventBus,
+    hqPublisher?: HqPublisherRef,
+    eventEmitter?: MailboxEventEmitter,
+  ) {
     this.messagePath = path.join(projectDir, MAILBOX_FILE);
     this.registryPath = path.join(projectDir, '_mailbox.registry.json');
     this.clientRegistryPath = path.join(projectDir, CLIENT_REGISTRY_FILE);
@@ -261,7 +267,7 @@ export class GlobalMailbox implements Mailbox {
       // "all" is an accepted spelling of the broadcast address — canonical
       // form on disk is '*' so every query/checker matches it.
       to: normalizeRecipient(input.to),
-      type: input.type,
+      type: normalizeMailboxMessageType(input.type),
       subject: input.subject,
       body: input.body,
       priority: input.priority ?? 'normal',
@@ -270,9 +276,8 @@ export class GlobalMailbox implements Mailbox {
       timestamp: now,
       replyTo: input.replyTo,
       taskContext: input.taskContext,
-      expiresAt: input.ttlMs !== undefined
-        ? new Date(Date.now() + input.ttlMs).toISOString()
-        : undefined,
+      expiresAt:
+        input.ttlMs !== undefined ? new Date(Date.now() + input.ttlMs).toISOString() : undefined,
     };
 
     const line = JSON.stringify(msg) + LINE_SEPARATOR;
@@ -323,6 +328,7 @@ export class GlobalMailbox implements Mailbox {
   }
 
   async query(q: MailboxQuery): Promise<MailboxMessage[]> {
+    const queryType = q.type === undefined ? undefined : normalizeMailboxMessageType(q.type);
     const all = await this._readMessagesCached();
     const limit = q.limit ?? 50;
 
@@ -367,9 +373,8 @@ export class GlobalMailbox implements Mailbox {
     ) {
       // Sender index fast-path: iterate only messages from `q.from`.
       const indices = this._senderIndex.get(q.from);
-      candidates = indices !== undefined
-        ? [...indices].sort((a, b) => a - b).map((i) => all[i]!)
-        : [];
+      candidates =
+        indices !== undefined ? [...indices].sort((a, b) => a - b).map((i) => all[i]!) : [];
     } else {
       candidates = all;
     }
@@ -379,7 +384,7 @@ export class GlobalMailbox implements Mailbox {
       if (q.from !== undefined && m.from !== q.from) continue;
       if (q.unreadBy !== undefined && q.unreadBy in m.readBy) continue;
       if (q.incompleteOnly && m.completed) continue;
-      if (q.type !== undefined && m.type !== q.type) continue;
+      if (queryType !== undefined && m.type !== queryType) continue;
       if (order !== null && (order[m.priority as keyof typeof order] ?? 1) < minPriorityRank!) {
         continue;
       }
@@ -868,7 +873,17 @@ export class GlobalMailbox implements Mailbox {
   async getClientStatuses(): Promise<ClientStatus[]> {
     await this._ensureClientRegistry();
     const registry = await this._readClientRegistry();
+    const before = registry.size;
     this._pruneStaleClientsInPlace(registry);
+
+    // Persist the pruning so stale entries in _mailbox.clients.json don't
+    // accumulate indefinitely. Without this, `getClientStatuses` prunes in
+    // memory only — the stale JSON records survive on disk until another
+    // write happens (registerClient / clientHeartbeat), which may never
+    // occur if all bridge clients are dead.
+    if (registry.size < before) {
+      await this._writeClientRegistry(registry);
+    }
 
     const now = Date.now();
     return Array.from(registry.values())
@@ -882,6 +897,33 @@ export class GlobalMailbox implements Mailbox {
         pid: c.pid,
       }))
       .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+  }
+
+  /**
+   * Explicitly purge stale clients from the registry and write back to disk.
+   * Removes client entries whose lastSeenAt is older than CLIENT_STALE_MS.
+   * Returns the number of entries purged.
+   *
+   * Idempotent — safe to call regularly. The same pruning runs implicitly
+   * inside registerClient, clientHeartbeat, and getClientStatuses, but if
+   * no client registers or heartbeats for a long time, this public method
+   * ensures the file gets cleaned up on demand.
+   */
+  async purgeClients(): Promise<number> {
+    await this._ensureClientRegistry();
+    let purged = 0;
+    await withFileLock(this.clientRegistryPath, async () => {
+      const registry = await this._readClientRegistry({ fresh: true });
+      const before = registry.size;
+      this._pruneStaleClientsInPlace(registry);
+      purged = before - registry.size;
+      if (purged > 0) {
+        this._clientRegistryCache = registry;
+        this._clientRegistryCacheAt = Date.now();
+        await this._writeClientRegistry(registry);
+      }
+    });
+    return purged;
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -1021,8 +1063,7 @@ export class GlobalMailbox implements Mailbox {
         // Pass 2: Read by ALL currently-online agents.
         if (onlineAgentIds !== null && !msg.completed) {
           const readByAll =
-            onlineAgentIds.size > 0 &&
-            [...onlineAgentIds].every((id) => id in msg.readBy);
+            onlineAgentIds.size > 0 && [...onlineAgentIds].every((id) => id in msg.readBy);
           if (readByAll) {
             // Check age of the most recent read receipt.
             const readTimes = Object.values(msg.readBy).map((t) => new Date(t).getTime());
@@ -1141,67 +1182,55 @@ export class GlobalMailbox implements Mailbox {
         // through to a full re-read on the next call.
         return this._messageCache!;
       }
-      // Parse only the complete portion; leave trackers un-advanced so the
-      // partial tail is re-read next time.
+      // Parse complete lines only; advance size tracker to the last complete
+      // byte so the next incremental read picks up from the right offset.
       const completeTail = tail.slice(0, lastSeparatorIdx + 1);
-      for (const line of completeTail.split(LINE_SEPARATOR)) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line) as Record<string, unknown>;
-          if (!parsed['readBy']) {
-            const readBy: Record<string, string> = {};
-            if (parsed['read'] && parsed['readAt']) {
-              readBy[parsed['to'] as string] = parsed['readAt'] as string;
-            }
-            parsed['readBy'] = readBy;
-            delete parsed['read'];
-            delete parsed['readAt'];
-          }
-          this._messageCache!.push(parsed as never as MailboxMessage);
-        } catch {
-          // Skip malformed lines
-        }
-      }
-      // Signal to the caller that trackers should NOT advance past newSize
-      // by returning early. The caller checks the return value.
+      this._appendIncrementalLines(completeTail);
+      // Advance size tracker to reflect only the consumed bytes.
+      // The caller still updates _messageCacheMtime from the stat.
+      this._messageCacheSize = oldSize + lastSeparatorIdx + 1;
       return this._messageCache!;
     }
 
     // Normal path: tail ends with LINE_SEPARATOR, all lines are complete.
-    for (const line of tail.split(LINE_SEPARATOR)) {
+    this._appendIncrementalLines(tail);
+    // Advance size tracker to match the fully-consumed tail.
+    this._messageCacheSize = newSize;
+    return this._messageCache!;
+  }
+
+  private _appendIncrementalLines(raw: string): void {
+    for (const line of raw.split(LINE_SEPARATOR)) {
       if (!line.trim()) continue;
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        // Migrate old `read: boolean` + `readAt` to new `readBy`
-        if (!parsed['readBy']) {
-          const readBy: Record<string, string> = {};
-          if (parsed['read'] && parsed['readAt']) {
-            readBy[parsed['to'] as string] = parsed['readAt'] as string;
-          }
-          parsed['readBy'] = readBy;
-          delete parsed['read'];
-          delete parsed['readAt'];
+      const message = this._parseLine(line);
+      if (message === null) continue;
+      this._messageCache!.push(message);
+      const idx = this._messageCache!.length - 1;
+      if (this._recipientIndex !== null) {
+        let set = this._recipientIndex.get(message.to);
+        if (set === undefined) {
+          set = new Set();
+          this._recipientIndex.set(message.to, set);
         }
-        this._messageCache!.push(parsed as never as MailboxMessage);
-        // Update recipient + sender indexes for the newly appended message.
-        const idx = this._messageCache!.length - 1;
-        if (this._recipientIndex !== null) {
-          const to = (parsed as { to: string }).to;
-          let set = this._recipientIndex.get(to);
-          if (set === undefined) { set = new Set(); this._recipientIndex.set(to, set); }
-          set.add(idx);
+        set.add(idx);
+      }
+      if (this._senderIndex !== null) {
+        let set = this._senderIndex.get(message.from);
+        if (set === undefined) {
+          set = new Set();
+          this._senderIndex.set(message.from, set);
         }
-        if (this._senderIndex !== null) {
-          const from = (parsed as { from: string }).from;
-          let set = this._senderIndex.get(from);
-          if (set === undefined) { set = new Set(); this._senderIndex.set(from, set); }
-          set.add(idx);
-        }
-      } catch {
-        // Skip malformed lines
+        set.add(idx);
       }
     }
-    return this._messageCache!;
+  }
+
+  private _parseLine(line: string): MailboxMessage | null {
+    try {
+      return parseMailboxMessageLine(line);
+    } catch {
+      return null;
+    }
   }
 
   /** Parse a JSONL string into MailboxMessage[], including migration. */
@@ -1209,22 +1238,8 @@ export class GlobalMailbox implements Mailbox {
     const lines = raw.split(LINE_SEPARATOR).filter((l) => l.trim().length > 0);
     const messages: MailboxMessage[] = [];
     for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        // Migrate old `read: boolean` + `readAt` to new `readBy`
-        if (!parsed['readBy']) {
-          const readBy: Record<string, unknown> = {};
-          if (parsed['read'] && parsed['readAt']) {
-            readBy[parsed['to'] as string] = parsed['readAt'];
-          }
-          parsed['readBy'] = readBy;
-          delete parsed['read'];
-          delete parsed['readAt'];
-        }
-        messages.push(parsed as never as MailboxMessage);
-      } catch {
-        // Skip malformed lines
-      }
+      const message = this._parseLine(line);
+      if (message !== null) messages.push(message);
     }
     return messages;
   }
@@ -1334,7 +1349,6 @@ export class GlobalMailbox implements Mailbox {
         try {
           const updated = await this._readNewMessagesOnly(fd, this._messageCacheSize, st.size);
           this._messageCacheMtime = st.mtimeMs;
-          this._messageCacheSize = st.size;
           return updated;
         } finally {
           await fd.close();
@@ -1406,10 +1420,16 @@ export class GlobalMailbox implements Mailbox {
     for (let i = 0; i < cache.length; i++) {
       const msg = cache[i]!;
       let rSet = recIdx.get(msg.to);
-      if (rSet === undefined) { rSet = new Set(); recIdx.set(msg.to, rSet); }
+      if (rSet === undefined) {
+        rSet = new Set();
+        recIdx.set(msg.to, rSet);
+      }
       rSet.add(i);
       let sSet = sndIdx.get(msg.from);
-      if (sSet === undefined) { sSet = new Set(); sndIdx.set(msg.from, sSet); }
+      if (sSet === undefined) {
+        sSet = new Set();
+        sndIdx.set(msg.from, sSet);
+      }
       sSet.add(i);
     }
     this._recipientIndex = recIdx;
@@ -1450,13 +1470,19 @@ export class GlobalMailbox implements Mailbox {
     const newIdx = this._messageCache.length - 1;
     if (this._recipientIndex !== null) {
       let set = this._recipientIndex.get(msg.to);
-      if (set === undefined) { set = new Set(); this._recipientIndex.set(msg.to, set); }
+      if (set === undefined) {
+        set = new Set();
+        this._recipientIndex.set(msg.to, set);
+      }
       set.add(newIdx);
     }
     // Update the sender index with the new message's position.
     if (this._senderIndex !== null) {
       let set = this._senderIndex.get(msg.from);
-      if (set === undefined) { set = new Set(); this._senderIndex.set(msg.from, set); }
+      if (set === undefined) {
+        set = new Set();
+        this._senderIndex.set(msg.from, set);
+      }
       set.add(newIdx);
     }
     // Advance the trackers synchronously with the content push so a

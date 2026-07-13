@@ -480,6 +480,9 @@
     "rawData": "Données brutes"
   },
   "providerModels": {
+    "allowlistTitle": "Liste des modèles autorisés",
+    "modelCount_one": "{{count}} modèle",
+    "modelCount_other": "{{count}} modèles",
     "using": "Utilisé",
     "noModelPicked": "(aucun modèle choisi)",
     "clearAllowlist": "Vider la liste autorisée",
@@ -789,6 +792,7 @@
     "noMatch": "Aucune correspondance"
   },
   "modelSwitcher": {
+    "heading": "Changer de modèle",
     "filterPlaceholder": "Filtrer les fournisseurs et modèles…",
     "noSavedProviders": "Aucun fournisseur enregistré — enregistrez d'abord une clé dans les Paramètres.",
     "active": "actif"
@@ -1347,6 +1351,7 @@
     "noRecentEvents": "Aucun événement récent. Interagissez avec l'UI pour générer des événements."
   },
   "promptLib": {
+    "heading": "Bibliothèque de prompts",
     "searchPlaceholder": "Rechercher des prompts…",
     "newPrompt": "＋ Nouveau prompt",
     "all": "Tous",

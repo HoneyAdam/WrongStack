@@ -51,7 +51,7 @@ function attachMailboxCheckerInner(
   const projectDir = resolveProjectDir(a.ctx.projectRoot, wstackGlobalRoot());
   // Pass the agent's EventBus so GlobalMailbox can emit real-time events
   // (agent_registered, agent_heartbeat, etc.) for TUI/WebUI display.
-  const hqPublisher = createHqPublisherFromEnv({ clientKind: source ?? 'cli', projectRoot: a.ctx.projectRoot });
+  const hqPublisher = createHqPublisherFromEnv({ clientKind: source ?? 'cli', projectRoot: a.ctx.projectRoot, logger: a.logger });
   hqPublisher?.connect();
   if (hqPublisher) {
     a.ctx.registerAbortHook(() => hqPublisher.close());

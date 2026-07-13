@@ -792,6 +792,7 @@
     "noMatch": "Eşleşme yok"
   },
   "modelSwitcher": {
+    "heading": "Modeli değiştir",
     "filterPlaceholder": "Sağlayıcıları ve modelleri filtrele…",
     "noSavedProviders": "Kayıtlı sağlayıcı yok — önce Ayarlar'da bir anahtar kaydedin.",
     "active": "etkin"
@@ -1350,6 +1351,7 @@
     "noRecentEvents": "Yakın olay yok. Olay oluşturmak için arayüzle etkileşin."
   },
   "promptLib": {
+    "heading": "Prompt kitaplığı",
     "searchPlaceholder": "Promptları ara…",
     "newPrompt": "＋ Yeni prompt",
     "all": "Tümü",

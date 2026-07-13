@@ -30,6 +30,29 @@ describe('diagnoseConfig', () => {
     expect(report.changed).toBe(false);
   });
 
+  it('does not flag any valid Config key as unknown — regression', () => {
+    const report = diagnoseConfig({
+      version: 1,
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+      hints: true,
+      uiLocale: 'en',
+      favoriteModels: ['gpt-4'],
+      favoriteModelsOnly: false,
+      superMemory: { enabled: true },
+      skills: ['git-flow'],
+      brain: { defaultMode: 'off' },
+      fallbackProfiles: { coding: ['gpt-4o'] },
+      acp: { enabled: true },
+      agents: {},
+      fleet: { enabled: false },
+      git: { identity: { name: 'x', email: 'x@x' } },
+    });
+    const unknownKeys = report.findings.filter((f) => f.problem.includes('unknown key'));
+    expect(unknownKeys).toHaveLength(0);
+    expect(report.findings).toHaveLength(0);
+  });
+
   it('coerces stringified booleans and removes uncoercible ones', () => {
     const report = diagnoseConfig({ hints: 'true', debugStream: 'banana' });
     expect(report.fixed['hints']).toBe(true);

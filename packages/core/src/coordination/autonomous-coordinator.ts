@@ -48,6 +48,7 @@ export type CoordinatorEvent =
  */
 import { randomUUID } from 'node:crypto';
 import type { EventBus } from '../kernel/events.js';
+import type { Logger } from '../types/logger.js';
 import type { FleetBus, FleetEvent } from './fleet-bus.js';
 import type { FleetManager } from './fleet-manager.js';
 import type { Mailbox } from './mailbox-types.js';
@@ -86,6 +87,8 @@ export interface AutonomousCoordinatorOptions {
    * can forward it to the TUI coordinator panel timeline.
    */
   onCoordinatorEvent?: (event: CoordinatorEvent) => void;
+  /** Logger for structured error events. Falls back to console.error when omitted. */
+  logger?: Logger | undefined;
 }
 
 export interface RunOptions {
@@ -142,6 +145,7 @@ export class AutonomousCoordinator {
   private readonly mailbox?: Mailbox | undefined;
   private readonly events?: EventBus | undefined;
   private readonly onCoordinatorEvent?: ((event: CoordinatorEvent) => void) | undefined;
+  private readonly logger: Logger | undefined;
 
   private running = false;
   private iterationCount = 0;
@@ -160,6 +164,7 @@ export class AutonomousCoordinator {
     this.mailbox = opts.mailbox ?? undefined;
     this.events = opts.events ?? undefined;
     this.onCoordinatorEvent = opts.onCoordinatorEvent;
+    this.logger = opts.logger;
 
     // ── Core shared state ─────────────────────────────────────────────
     this.graph = new KnowledgeGraph(opts.sessionDir);
@@ -385,15 +390,22 @@ export class AutonomousCoordinator {
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        event: 'autonomous_coordinator.stop_signal',
-        message: 'stop signal received — shutting down',
-        iteration: this.iterationCount,
-        timestamp: new Date().toISOString(),
-      }),
-    );
+    if (this.logger) {
+      this.logger.error(
+        'Stop signal received — shutting down',
+        { event: 'autonomous_coordinator.stop_signal', iteration: this.iterationCount },
+      );
+    } else {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'autonomous_coordinator.stop_signal',
+          message: 'stop signal received — shutting down',
+          iteration: this.iterationCount,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    }
   }
 
   /**

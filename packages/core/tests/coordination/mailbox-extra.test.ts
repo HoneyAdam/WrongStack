@@ -18,6 +18,21 @@ afterEach(async () => {
 const send = (over: Record<string, unknown> = {}) =>
   mb.send({ from: 'a', to: 'b', type: 'info', subject: 's', body: 'hi', ...over } as never);
 
+function persistedMessage(id: string, subject: string): string {
+  return JSON.stringify({
+    id,
+    from: 'external',
+    to: 'b',
+    type: 'info',
+    subject,
+    body: 'body',
+    priority: 'normal',
+    readBy: {},
+    completed: false,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 describe('DefaultMailbox basics', () => {
   it('exposes the mailbox file path', () => {
     expect(mb.mailboxPath).toBe(path.join(dir, '_mailbox.jsonl'));
@@ -51,7 +66,12 @@ describe('DefaultMailbox basics', () => {
 
   it('acks read/complete/outcome and returns null for unknown ids', async () => {
     const msg = await send({ to: 'b' });
-    const acked = await mb.ack({ messageId: msg.id, readerId: 'b', completed: true, outcome: 'ok' } as never);
+    const acked = await mb.ack({
+      messageId: msg.id,
+      readerId: 'b',
+      completed: true,
+      outcome: 'ok',
+    } as never);
     expect(acked).toMatchObject({ completed: true, completedBy: 'b', outcome: 'ok' });
     expect(await mb.ack({ messageId: 'nope', readerId: 'b' } as never)).toBeNull();
   });
@@ -72,7 +92,12 @@ describe('DefaultMailbox basics', () => {
 
 describe('DefaultMailbox agent statuses (from status messages)', () => {
   it('synthesizes the latest status per agent', async () => {
-    await send({ from: 'ag1', type: 'status', subject: 'task-a', taskContext: { agentName: 'Neo', agentRole: 'executor', status: 'busy' } });
+    await send({
+      from: 'ag1',
+      type: 'status',
+      subject: 'task-a',
+      taskContext: { agentName: 'Neo', agentRole: 'executor', status: 'busy' },
+    });
     // older status for the same agent should be superseded
     await send({ from: 'ag1', type: 'status', subject: 'task-b', taskContext: { status: 'idle' } });
     await send({ from: 'ag2', type: 'status', subject: 'other' });
@@ -92,8 +117,30 @@ describe('DefaultMailbox agent statuses (from status messages)', () => {
 
   it('keeps the newest status when an older one appears later in the file', async () => {
     // Write a NEWER status first, then an OLDER one → the older is skipped.
-    const newer = { id: '1', from: 'ag', to: '*', type: 'status', subject: 'newer', body: '', priority: 'normal', readBy: {}, completed: false, timestamp: '2026-02-02T00:00:00Z' };
-    const older = { id: '2', from: 'ag', to: '*', type: 'status', subject: 'older', body: '', priority: 'normal', readBy: {}, completed: false, timestamp: '2026-01-01T00:00:00Z' };
+    const newer = {
+      id: '1',
+      from: 'ag',
+      to: '*',
+      type: 'status',
+      subject: 'newer',
+      body: '',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: '2026-02-02T00:00:00Z',
+    };
+    const older = {
+      id: '2',
+      from: 'ag',
+      to: '*',
+      type: 'status',
+      subject: 'older',
+      body: '',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: '2026-01-01T00:00:00Z',
+    };
     await fs.writeFile(mb.mailboxPath, `${JSON.stringify(newer)}\n${JSON.stringify(older)}\n`);
     const s = (await mb.getAgentStatuses())[0];
     expect(s?.currentTask).toBe('newer'); // older skipped
@@ -108,7 +155,18 @@ describe('DefaultMailbox query/migration edge cases', () => {
   });
 
   it('uses "unknown" as the read key when a legacy message has no recipient', async () => {
-    const legacy = JSON.stringify({ id: '1', from: 'a', type: 'info', subject: 's', body: 'x', read: true, readAt: '2026-01-01T00:00:00Z', timestamp: '2026-01-01T00:00:00Z', priority: 'normal', completed: false });
+    const legacy = JSON.stringify({
+      id: '1',
+      from: 'a',
+      type: 'info',
+      subject: 's',
+      body: 'x',
+      read: true,
+      readAt: '2026-01-01T00:00:00Z',
+      timestamp: '2026-01-01T00:00:00Z',
+      priority: 'normal',
+      completed: false,
+    });
     await fs.writeFile(mb.mailboxPath, `${legacy}\n`);
     const all = await mb.query({});
     expect(all[0]?.readBy?.unknown).toBe('2026-01-01T00:00:00Z');
@@ -118,9 +176,13 @@ describe('DefaultMailbox query/migration edge cases', () => {
 describe('DefaultMailbox lifecycle + stubs', () => {
   it('close, registerAgent, heartbeat, registerClient, clientHeartbeat are no-ops', async () => {
     await expect(mb.close()).resolves.toBeUndefined();
-    await expect(mb.registerAgent({ agentId: 'a', sessionId: 's', name: 'n', role: 'r' } as never)).resolves.toBeUndefined();
+    await expect(
+      mb.registerAgent({ agentId: 'a', sessionId: 's', name: 'n', role: 'r' } as never),
+    ).resolves.toBeUndefined();
     await expect(mb.heartbeat({ agentId: 'a' } as never)).resolves.toBeUndefined();
-    await expect(mb.registerClient({ clientId: 'c', sessionId: 's', name: 'n', source: 'tui' } as never)).resolves.toBeUndefined();
+    await expect(
+      mb.registerClient({ clientId: 'c', sessionId: 's', name: 'n', source: 'tui' } as never),
+    ).resolves.toBeUndefined();
     await expect(mb.clientHeartbeat({ clientId: 'c' } as never)).resolves.toBeUndefined();
     expect(await mb.getClientStatuses()).toEqual([]);
   });
@@ -134,13 +196,54 @@ describe('DefaultMailbox lifecycle + stubs', () => {
   it('purgeStale drops old completed and incomplete messages', async () => {
     const oldTs = new Date(Date.now() - 10 * 86_400_000).toISOString();
     const lines = [
-      { id: '1', from: 'a', to: 'b', type: 'info', subject: 'old-done', body: '', priority: 'normal', readBy: {}, completed: true, completedAt: oldTs, timestamp: oldTs },
-      { id: '2', from: 'a', to: 'b', type: 'info', subject: 'old-incomplete', body: '', priority: 'normal', readBy: {}, completed: false, timestamp: oldTs },
-      { id: '3', from: 'a', to: 'b', type: 'info', subject: 'recent', body: '', priority: 'normal', readBy: {}, completed: false, timestamp: new Date().toISOString() },
-    ].map((m) => JSON.stringify(m)).join('\n');
+      {
+        id: '1',
+        from: 'a',
+        to: 'b',
+        type: 'info',
+        subject: 'old-done',
+        body: '',
+        priority: 'normal',
+        readBy: {},
+        completed: true,
+        completedAt: oldTs,
+        timestamp: oldTs,
+      },
+      {
+        id: '2',
+        from: 'a',
+        to: 'b',
+        type: 'info',
+        subject: 'old-incomplete',
+        body: '',
+        priority: 'normal',
+        readBy: {},
+        completed: false,
+        timestamp: oldTs,
+      },
+      {
+        id: '3',
+        from: 'a',
+        to: 'b',
+        type: 'info',
+        subject: 'recent',
+        body: '',
+        priority: 'normal',
+        readBy: {},
+        completed: false,
+        timestamp: new Date().toISOString(),
+      },
+    ]
+      .map((m) => JSON.stringify(m))
+      .join('\n');
     await fs.writeFile(mb.mailboxPath, `${lines}\n`);
     const r = await mb.purgeStale();
-    expect(r).toMatchObject({ completedPurged: 1, incompletePurged: 1, totalPurged: 2, remaining: 1 });
+    expect(r).toMatchObject({
+      completedPurged: 1,
+      incompletePurged: 1,
+      totalPurged: 2,
+      remaining: 1,
+    });
   });
 
   it('purgeStale on an empty mailbox is a no-op', async () => {
@@ -200,14 +303,28 @@ describe('DefaultMailbox lifecycle + stubs', () => {
     // post-purge state, with no race-induced extra messages.
     const oldTs = new Date(Date.now() - 10 * 86_400_000).toISOString();
     const stale = {
-      id: 'stale-1', from: 'a', to: 'b', type: 'info',
-      subject: 'stale', body: '', priority: 'normal', readBy: {},
-      completed: false, timestamp: oldTs,
+      id: 'stale-1',
+      from: 'a',
+      to: 'b',
+      type: 'info',
+      subject: 'stale',
+      body: '',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: oldTs,
     };
     const recent = {
-      id: 'recent-1', from: 'a', to: 'b', type: 'info',
-      subject: 'recent', body: '', priority: 'normal', readBy: {},
-      completed: false, timestamp: new Date().toISOString(),
+      id: 'recent-1',
+      from: 'a',
+      to: 'b',
+      type: 'info',
+      subject: 'recent',
+      body: '',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: new Date().toISOString(),
     };
     await fs.writeFile(
       mb.mailboxPath,
@@ -250,6 +367,96 @@ describe('DefaultMailbox lifecycle + stubs', () => {
     const ids = new Set(all.map((m) => m.id));
     expect(ids.size).toBe(5);
     expect(ids.has(m0.id)).toBe(true);
+  });
+
+  it('retries a half-written incremental JSONL line after the append completes', async () => {
+    await send({ subject: 'seed' });
+    expect(await mb.query({ limit: 100 })).toHaveLength(1);
+
+    const line = persistedMessage('partial-1', 'completed-later');
+    const splitAt = Math.floor(line.length / 2);
+    await fs.appendFile(mb.mailboxPath, line.slice(0, splitAt));
+
+    expect((await mb.query({ limit: 100 })).map((message) => message.subject)).toEqual(['seed']);
+
+    await fs.appendFile(mb.mailboxPath, `${line.slice(splitAt)}\n`);
+    const all = await mb.query({ limit: 100 });
+    expect(new Set(all.map((message) => message.subject))).toEqual(
+      new Set(['seed', 'completed-later']),
+    );
+    expect(all.find((message) => message.id === 'partial-1')?.type).toBe('note');
+  });
+
+  it('keeps a bounded recent cache and falls back for matches outside the window', async () => {
+    const messages = Array.from({ length: 10_005 }, (_, index) => ({
+      id: `bounded-${index}`,
+      from: index === 0 ? 'rare-sender' : 'busy-sender',
+      to: index === 0 ? 'rare-recipient' : 'busy-recipient',
+      type: 'note',
+      subject: `bounded-${index}`,
+      body: 'body',
+      priority: index === 0 ? 'high' : 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: new Date(1_700_000_000_000 + index).toISOString(),
+    }));
+    await fs.writeFile(
+      mb.mailboxPath,
+      `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`,
+    );
+
+    expect((await mb.query({ to: 'busy-recipient', limit: 2 })).map((m) => m.id)).toEqual([
+      'bounded-10004',
+      'bounded-10003',
+    ]);
+
+    const internals = mb as unknown as {
+      _messageCache: unknown[];
+      _messageCacheTruncated: boolean;
+    };
+    expect(internals._messageCache).toHaveLength(10_000);
+    expect(internals._messageCacheTruncated).toBe(true);
+
+    expect((await mb.query({ to: 'rare-recipient', limit: 1 })).map((m) => m.id)).toEqual([
+      'bounded-0',
+    ]);
+    expect((await mb.query({ from: 'rare-sender', limit: 1 })).map((m) => m.id)).toEqual([
+      'bounded-0',
+    ]);
+    expect((await mb.query({ minPriority: 'high', limit: 1 })).map((m) => m.id)).toEqual([
+      'bounded-0',
+    ]);
+    expect(await mb.unreadCount('rare-recipient')).toBe(1);
+  });
+
+  it('evicts one oldest cached message per append instead of discarding the cache', async () => {
+    const messages = Array.from({ length: 10_000 }, (_, index) => ({
+      id: `append-${index}`,
+      from: 'sender',
+      to: 'recipient',
+      type: 'note',
+      subject: `append-${index}`,
+      body: 'body',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: new Date(1_700_000_000_000 + index).toISOString(),
+    }));
+    await fs.writeFile(
+      mb.mailboxPath,
+      `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`,
+    );
+    await mb.query({ limit: 1 });
+
+    const appended = await send({ subject: 'append-10000' });
+    const internals = mb as unknown as {
+      _messageCache: Array<{ id: string }>;
+      _messageCacheTruncated: boolean;
+    };
+    expect(internals._messageCache).toHaveLength(10_000);
+    expect(internals._messageCache[0]?.id).toBe('append-1');
+    expect(internals._messageCache.at(-1)?.id).toBe(appended.id);
+    expect(internals._messageCacheTruncated).toBe(true);
   });
 
   it('send + ackMany + send + query does not duplicate messages', async () => {
@@ -304,14 +511,28 @@ describe('DefaultMailbox lifecycle + stubs', () => {
     // post-purge send+query would re-parse the purged bytes.
     const oldTs = new Date(Date.now() - 10 * 86_400_000).toISOString();
     const stale = {
-      id: 'stale-1', from: 'a', to: 'b', type: 'info',
-      subject: 'stale', body: '', priority: 'normal', readBy: {},
-      completed: false, timestamp: oldTs,
+      id: 'stale-1',
+      from: 'a',
+      to: 'b',
+      type: 'info',
+      subject: 'stale',
+      body: '',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: oldTs,
     };
     const recent = {
-      id: 'recent-1', from: 'a', to: 'b', type: 'info',
-      subject: 'recent', body: '', priority: 'normal', readBy: {},
-      completed: false, timestamp: new Date().toISOString(),
+      id: 'recent-1',
+      from: 'a',
+      to: 'b',
+      type: 'info',
+      subject: 'recent',
+      body: '',
+      priority: 'normal',
+      readBy: {},
+      completed: false,
+      timestamp: new Date().toISOString(),
     };
     await fs.writeFile(
       mb.mailboxPath,
@@ -331,7 +552,19 @@ describe('DefaultMailbox lifecycle + stubs', () => {
 
 describe('DefaultMailbox _readAll', () => {
   it('migrates legacy read/readAt and skips malformed lines', async () => {
-    const legacy = JSON.stringify({ id: '1', from: 'a', to: 'b', type: 'info', subject: 's', body: 'x', read: true, readAt: '2026-01-01T00:00:00Z', timestamp: '2026-01-01T00:00:00Z', priority: 'normal', completed: false });
+    const legacy = JSON.stringify({
+      id: '1',
+      from: 'a',
+      to: 'b',
+      type: 'info',
+      subject: 's',
+      body: 'x',
+      read: true,
+      readAt: '2026-01-01T00:00:00Z',
+      timestamp: '2026-01-01T00:00:00Z',
+      priority: 'normal',
+      completed: false,
+    });
     await fs.writeFile(mb.mailboxPath, `${legacy}\nnot-json\n`);
     const all = await mb.query({});
     expect(all.length).toBe(1);

@@ -1,8 +1,7 @@
-import { Eye, EyeOff, Loader2, Power, PowerOff } from 'lucide-react';
+import { Eye, Loader2, PowerOff } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import type { WSServerMessage } from '@/types';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 

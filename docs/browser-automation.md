@@ -28,8 +28,12 @@ contexts as safety nets.
   confirmation tools.
 - Navigation accepts only absolute HTTP(S) URLs, rejects URL credentials, and blocks private,
   loopback, link-local, reserved, and metadata addresses by default. The same guard runs on browser
-  subrequests. For trusted local development fixtures, set
-  `WRONGSTACK_BROWSER_ALLOW_PRIVATE=1` in the host environment.
+  subrequests. Every Chromium connection passes through a loopback guard proxy that resolves once,
+  validates every DNS answer, and connects to the selected IP directly to prevent DNS rebinding.
+  For trusted local development fixtures, set an exact comma-separated origin allowlist such as
+  `WRONGSTACK_BROWSER_PRIVATE_ORIGINS=http://127.0.0.1:4173`; other ports and origins remain blocked.
+  The former broad `WRONGSTACK_BROWSER_ALLOW_PRIVATE=1` switch is no longer consumed by the
+  first-party browser tools; replace it with explicit origins.
 - Downloads are disabled. Uploads are restricted to existing files inside `projectRoot`.
 - For credentials, call `browser_type` with `secretEnv` instead of `text`. The environment variable
   is resolved only during execution, so tool arguments and session audit contain the placeholder
@@ -47,7 +51,10 @@ Screenshots and traces receive ULID artifact identifiers and are stored outside 
 ```
 
 `browser_screenshot` returns PNG metadata. `browser_close` returns the Playwright trace metadata.
-Both include an artifact id, MIME type, size, timestamp, and absolute local path.
+Both are explicitly marked `sensitive` and include an artifact id, MIME type, size, SHA-256,
+timestamp, and absolute local path. A mode-`0600` `<artifact-id>.metadata.json` audit sidecar stores
+the same non-content metadata and session provenance; screenshot/trace bytes are never copied into
+the session log.
 
 ## Installation diagnostics
 

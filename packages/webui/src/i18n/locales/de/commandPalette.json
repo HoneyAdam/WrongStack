@@ -1,4 +1,5 @@
 {
+  "title": "Befehlspalette",
   "placeholder": "Befehle, Sitzungen, Einstellungen suchen…",
   "noMatches": "Keine Treffer für \"{{query}}\"",
   "footer": {

@@ -1,4 +1,9 @@
-import { readBundledInstructionText, renderInstructionTemplate, type Provider } from '@wrongstack/core';
+import {
+  readBundledInstructionText,
+  renderInstructionTemplate,
+  type Config,
+  type Provider,
+} from '@wrongstack/core';
 
 /**
  * Result of refining a user's raw goal into a clear, actionable mission.
@@ -8,6 +13,123 @@ export interface RefinedGoal {
   refinedGoal: string;
   /** Concrete, verifiable deliverables (one per entry). */
   deliverables: string[];
+}
+
+/**
+ * Options for goal refinement with fallback tiers.
+ */
+export interface GoalRefinerOptions {
+  /** Primary provider (usually the session's main LLM). */
+  primaryProvider?: Provider | undefined;
+  /** Primary model on the primary provider. */
+  primaryModel?: string | undefined;
+  /**
+   * Optional dedicated refiner provider instance (e.g. a cheap/fast
+   * provider for refinement). Tried before the primary when set.
+   */
+  refinerProvider?: Provider | undefined;
+  /** Model on the refiner provider. Ignored when `refinerProvider` is unset. */
+  refinerModel?: string | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Built-in provider/model selection for the goal refiner
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved refiner target after validating against available providers,
+ * favorite models, and the currently active session model.
+ * Both `provider` and `model` are defined when a viable dedicated refiner
+ * is found; otherwise the caller should use the primary session defaults.
+ */
+export interface ResolvedRefinerTarget {
+  /** Resolved provider instance, ready for `provider.complete()`. */
+  provider: Provider;
+  /** Resolved model id on that provider. */
+  model: string;
+}
+
+/**
+ * Validate and resolve a dedicated refiner provider+model from the user
+ * config. Returns undefined when:
+ *   - Neither refinerProvider nor refinerModel is configured
+ *   - The configured provider is unavailable (createProvider returns
+ *     undefined, meaning the provider doesn't exist or has no credentials)
+ *   - The configured model is not a favorite model AND is not the
+ *     currently active session model
+ *
+ * When only `refinerModel` is set (no provider), the model is used on
+ * the active session provider — validated against the same constraints.
+ *
+ * @param cfg          — live Config from configStore
+ * @param createProvider— factory: providerId → Provider | undefined
+ * @param activeProviderId — the session's active provider id (config.provider)
+ * @param activeModel  — the session's active model (config.model)
+ */
+export function resolveRefinerTarget(
+  cfg: Config,
+  createProvider: ((providerId: string) => Provider | undefined) | undefined,
+  activeProviderId: string,
+  activeModel: string,
+): ResolvedRefinerTarget | undefined {
+  const refinerProviderId = cfg.autonomy?.refinerProvider;
+  const refinerModel = cfg.autonomy?.refinerModel;
+  if (!refinerProviderId && !refinerModel) return undefined;
+
+  // ── Validate model ──
+  // The model must be either a favorite or the active session model.
+  // When neither constraint is satisfied the config is likely stale or
+  // a typo — skip the dedicated refiner and fall through to the primary.
+  const model = refinerModel ?? activeModel;
+  const favorites = cfg.favoriteModels ?? [];
+  const isFavorite = favorites.length === 0 || favorites.includes(model);
+  const isActive = model === activeModel;
+  if (!isFavorite && !isActive) return undefined;
+
+  // ── Validate / resolve provider ──
+  const targetProviderId = refinerProviderId ?? activeProviderId;
+  if (!createProvider) return undefined;
+  const provider = createProvider(targetProviderId);
+  if (!provider) return undefined;
+
+  return { provider, model };
+}
+
+/**
+ * Refine a raw goal using the best available model/provider, with a
+ * four-tier fallback chain:
+ *   1. Dedicated refiner provider + refiner model (if both configured)
+ *   2. Dedicated refiner model on the primary provider (if model but no provider)
+ *   3. Primary provider + primary model (session default)
+ *   4. Heuristic (regex-based extraction, no LLM call)
+ *
+ * Each tier falls through to the next on any failure (timeout, error,
+ * parse failure, null result).
+ */
+export async function refineGoalWithFallback(
+  rawGoal: string,
+  opts: GoalRefinerOptions,
+): Promise<RefinedGoal> {
+  // Tier 1: dedicated refiner provider + model
+  if (opts.refinerProvider && opts.refinerModel) {
+    const result = await refineGoal(rawGoal, opts.refinerProvider, opts.refinerModel);
+    if (result) return result;
+  }
+
+  // Tier 2: refiner model on primary provider
+  if (opts.refinerModel && opts.primaryProvider) {
+    const result = await refineGoal(rawGoal, opts.primaryProvider, opts.refinerModel);
+    if (result) return result;
+  }
+
+  // Tier 3: primary provider + model
+  if (opts.primaryProvider && opts.primaryModel) {
+    const result = await refineGoal(rawGoal, opts.primaryProvider, opts.primaryModel);
+    if (result) return result;
+  }
+
+  // Tier 4: heuristic
+  return refineGoalHeuristic(rawGoal);
 }
 
 /**

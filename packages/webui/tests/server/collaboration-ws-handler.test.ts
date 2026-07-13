@@ -27,6 +27,8 @@ const noopLogger = {
   debug() {},
 } as any;
 
+const allowPrivilegedRoles = { authorizeRole: () => true };
+
 function lastOfType(ws: ReturnType<typeof fakeWs>, type: string) {
   const matching = ws.sent.filter((m: any) => m.type === type);
   return matching[matching.length - 1];
@@ -299,7 +301,14 @@ describe('CollaborationWebSocketHandler', () => {
   // ── 12. Annotator can annotate; broadcast to all participants ─────────
   it('annotator can annotate and the event is broadcast to all participants', async () => {
     const memStore = makeMemoryAnnotationsStore();
-    const h = new CollaborationWebSocketHandler(events, noopLogger, undefined, memStore as any);
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      memStore as any,
+      undefined,
+      allowPrivilegedRoles,
+    );
     const a = fakeWs();
     const b = fakeWs();
     h.addClient(a);
@@ -341,7 +350,14 @@ describe('CollaborationWebSocketHandler', () => {
   // ── 13. Observer cannot annotate ───────────────────────────────────────
   it('observer role cannot annotate; gets an error reply', async () => {
     const memStore = makeMemoryAnnotationsStore();
-    const h = new CollaborationWebSocketHandler(events, noopLogger, undefined, memStore as any);
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      memStore as any,
+      undefined,
+      allowPrivilegedRoles,
+    );
     const ws = fakeWs();
     h.addClient(ws);
     h.handleMessage(ws, {
@@ -368,7 +384,14 @@ describe('CollaborationWebSocketHandler', () => {
   // ── 14. Annotator can resolve their own annotation ─────────────────────
   it('annotator can resolve an annotation; broadcasts collab.annotation.resolved', async () => {
     const memStore = makeMemoryAnnotationsStore();
-    const h = new CollaborationWebSocketHandler(events, noopLogger, undefined, memStore as any);
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      memStore as any,
+      undefined,
+      allowPrivilegedRoles,
+    );
     const ws = fakeWs();
     h.addClient(ws);
     h.handleMessage(ws, {
@@ -403,7 +426,14 @@ describe('CollaborationWebSocketHandler', () => {
   // ── 15. SessionId mismatch on annotate is rejected ─────────────────────
   it('annotate with a sessionId that does not match the joined session is rejected', async () => {
     const memStore = makeMemoryAnnotationsStore();
-    const h = new CollaborationWebSocketHandler(events, noopLogger, undefined, memStore as any);
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      memStore as any,
+      undefined,
+      allowPrivilegedRoles,
+    );
     const ws = fakeWs();
     h.addClient(ws);
     h.handleMessage(ws, {
@@ -425,7 +455,14 @@ describe('CollaborationWebSocketHandler', () => {
   // ── 16. Resolve unknown annotation id returns an error ─────────────────
   it('resolve with unknown id returns a structured error', async () => {
     const memStore = makeMemoryAnnotationsStore();
-    const h = new CollaborationWebSocketHandler(events, noopLogger, undefined, memStore as any);
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      memStore as any,
+      undefined,
+      allowPrivilegedRoles,
+    );
     const ws = fakeWs();
     h.addClient(ws);
     h.handleMessage(ws, {
@@ -798,6 +835,92 @@ describe('CollaborationWebSocketHandler', () => {
     expect(err.payload.message).toMatch(/no participant/);
     h.dispose();
   });
+
+  it('rejects a self-selected controller without explicit server authorization', () => {
+    const bus = new CollaborationBus();
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      undefined,
+      bus,
+    );
+    const ws = fakeWs();
+    h.addClient(ws);
+
+    h.handleMessage(ws, {
+      type: 'collab.join',
+      payload: { sessionId: 'sess-auth', role: 'controller' },
+    });
+
+    expect(lastOfType(ws, 'error')?.payload.message).toMatch(/explicit server authorization/);
+    expect(lastOfType(ws, 'collab.state')).toBeUndefined();
+    h.dispose();
+  });
+
+  it('routes live events only to the runtime active session', () => {
+    let activeSessionId = 'sess-old';
+    const h = new CollaborationWebSocketHandler(
+      events,
+      noopLogger,
+      undefined,
+      undefined,
+      undefined,
+      { getActiveSessionId: () => activeSessionId },
+    );
+    const oldSession = fakeWs();
+    const activeSession = fakeWs();
+    const mismatched = fakeWs();
+    h.addClient(oldSession);
+    h.addClient(activeSession);
+    h.addClient(mismatched);
+
+    h.handleMessage(oldSession, {
+      type: 'collab.join',
+      payload: { sessionId: 'sess-old', role: 'observer' },
+    });
+    activeSessionId = 'sess-active';
+    h.handleMessage(activeSession, {
+      type: 'collab.join',
+      payload: { sessionId: 'sess-active', role: 'observer' },
+    });
+    h.handleMessage(mismatched, {
+      type: 'collab.join',
+      payload: { sessionId: 'sess-old', role: 'observer' },
+    });
+    oldSession.sent.length = 0;
+    activeSession.sent.length = 0;
+
+    events.emit('tool.started', { name: 'read', id: 'tu-scoped' } as never);
+
+    expect(lastOfType(oldSession, 'collab.event')).toBeUndefined();
+    expect(lastOfType(activeSession, 'collab.event')?.payload.kind).toBe('tool.started');
+    expect(lastOfType(mismatched, 'error')?.payload.message).toMatch(/sessionId mismatch/);
+    expect(lastOfType(mismatched, 'collab.state')).toBeUndefined();
+    h.dispose();
+  });
+
+  it('suppresses consumed injections when their author is no longer live', () => {
+    const { bus, h } = makeWithBus();
+    const ws = fakeWs();
+    h.addClient(ws);
+    h.handleMessage(ws, {
+      type: 'collab.join',
+      payload: { sessionId: 'sess-consumed', role: 'observer' },
+    });
+    ws.sent.length = 0;
+
+    bus.notifyInjectionConsumed({
+      toolUseId: 'tu-orphan',
+      toolName: 'bash',
+      authorId: 'departed-controller',
+      reason: 'orphaned',
+      isError: false,
+    });
+
+    expect(lastOfType(ws, 'collab.injection.granted')).toBeUndefined();
+    h.dispose();
+  });
 });
 
 // Minimal wiring helper: a fresh handler with a real bus (no
@@ -811,6 +934,7 @@ function makeWithBus() {
     undefined,
     undefined,
     bus,
+    allowPrivilegedRoles,
   );
   return { bus, h, events };
 }

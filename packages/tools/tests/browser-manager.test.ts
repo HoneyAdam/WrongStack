@@ -16,6 +16,7 @@ beforeEach(async () => {
     res.end(`<!doctype html>
       <html><head><title>Fixture App</title></head><body>
         <label>Name <input id="name" /></label>
+        <input id="upload" type="file" />
         <select id="role"><option value="dev">Developer</option><option value="qa">QA</option></select>
         <button id="submit" onclick="document.querySelector('#status').textContent = document.querySelector('#name').value + ':' + document.querySelector('#role').value">Submit</button>
         <div id="status">idle</div>
@@ -37,7 +38,7 @@ describe('BrowserSessionManager Playwright fixture integration', () => {
   it('navigates, observes, interacts, captures evidence, and reclaims the browser', async () => {
     const manager = new BrowserSessionManager({
       artifactRoot: path.join(tmp, 'artifacts'),
-      allowPrivateHosts: true,
+      allowedPrivateOrigins: [new URL(baseUrl).origin],
       operationTimeoutMs: 10_000,
     });
     const signal = new AbortController().signal;
@@ -64,11 +65,26 @@ describe('BrowserSessionManager Playwright fixture integration', () => {
 
       const shot = await manager.screenshot(opened.id, 'leader', { fullPage: true }, signal);
       expect(shot.kind).toBe('screenshot');
+      expect(shot.sensitivity).toBe('sensitive');
+      expect(shot.sha256).toMatch(/^[a-f0-9]{64}$/);
       expect(shot.path.startsWith(path.join(tmp, 'artifacts'))).toBe(true);
       expect((await fs.stat(shot.path)).size).toBeGreaterThan(0);
+      const shotMetadata = JSON.parse(
+        await fs.readFile(path.join(path.dirname(shot.path), `${shot.id}.metadata.json`), 'utf8'),
+      );
+      expect(shotMetadata).toMatchObject({
+        id: shot.id,
+        sessionId: opened.id,
+        kind: 'screenshot',
+        sensitivity: 'sensitive',
+        sha256: shot.sha256,
+      });
+      expect(shotMetadata).not.toHaveProperty('path');
 
       const closed = await manager.close(opened.id, 'leader');
       expect(closed.trace?.kind).toBe('trace');
+      expect(closed.trace?.sensitivity).toBe('sensitive');
+      expect(closed.trace?.sha256).toMatch(/^[a-f0-9]{64}$/);
       expect((await fs.stat(closed.trace!.path)).size).toBeGreaterThan(0);
       expect(await manager.list('leader')).toEqual([]);
     } finally {
@@ -79,7 +95,7 @@ describe('BrowserSessionManager Playwright fixture integration', () => {
   it('isolates sessions by agent owner', async () => {
     const manager = new BrowserSessionManager({
       artifactRoot: path.join(tmp, 'artifacts'),
-      allowPrivateHosts: true,
+      allowedPrivateOrigins: [new URL(baseUrl).origin],
     });
     const signal = new AbortController().signal;
     try {
@@ -97,7 +113,7 @@ describe('BrowserSessionManager Playwright fixture integration', () => {
   it('closes the session context when an operation is aborted', async () => {
     const manager = new BrowserSessionManager({
       artifactRoot: path.join(tmp, 'artifacts'),
-      allowPrivateHosts: true,
+      allowedPrivateOrigins: [new URL(baseUrl).origin],
     });
     const opened = await manager.open(
       'leader',
@@ -110,5 +126,28 @@ describe('BrowserSessionManager Playwright fixture integration', () => {
     await expect(waiting).rejects.toThrow('cancelled');
     expect(await manager.list('leader')).toEqual([]);
     await manager.dispose();
+  }, 30_000);
+
+  it('rejects an in-project upload symlink whose real target is outside the project', async () => {
+    const manager = new BrowserSessionManager({
+      artifactRoot: path.join(tmp, 'artifacts'),
+      allowedPrivateOrigins: [new URL(baseUrl).origin],
+    });
+    const signal = new AbortController().signal;
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-browser-upload-outside-'));
+    try {
+      const secret = path.join(outside, 'secret.txt');
+      const link = path.join(tmp, 'upload-link.txt');
+      await fs.writeFile(secret, 'must not be uploaded');
+      await fs.symlink(secret, link, 'file');
+      const opened = await manager.open('leader', { url: baseUrl, trace: false }, signal);
+
+      await expect(
+        manager.upload(opened.id, 'leader', '#upload', ['upload-link.txt'], tmp, signal),
+      ).rejects.toThrow(/symlink|escape the project root/);
+    } finally {
+      await manager.dispose();
+      await fs.rm(outside, { recursive: true, force: true });
+    }
   }, 30_000);
 });

@@ -480,6 +480,9 @@
     "rawData": "Rohdaten"
   },
   "providerModels": {
+    "allowlistTitle": "Modell-Allowlist",
+    "modelCount_one": "{{count}} Modell",
+    "modelCount_other": "{{count}} Modelle",
     "using": "Verwendet",
     "noModelPicked": "(kein Modell gewählt)",
     "clearAllowlist": "Allowlist löschen",
@@ -789,6 +792,7 @@
     "noMatch": "Kein Treffer"
   },
   "modelSwitcher": {
+    "heading": "Modell wechseln",
     "filterPlaceholder": "Anbieter und Modelle filtern…",
     "noSavedProviders": "Keine gespeicherten Anbieter — zuerst einen Schlüssel in den Einstellungen registrieren.",
     "active": "aktiv"
@@ -1347,6 +1351,7 @@
     "noRecentEvents": "Keine aktuellen Ereignisse. Interagiere mit der UI um Ereignisse zu erzeugen."
   },
   "promptLib": {
+    "heading": "Prompt-Bibliothek",
     "searchPlaceholder": "Prompts suchen…",
     "newPrompt": "＋ Neues Prompt",
     "all": "Alle",

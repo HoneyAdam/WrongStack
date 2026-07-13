@@ -105,6 +105,7 @@ export async function saveTodosCheckpoint(
   todos: readonly TodoItem[],
   events?: EventBus,
   traceId?: string,
+  warn?: (msg: string) => void,
 ): Promise<void> {
   const t0 = Date.now();
   const payload: TodosCheckpointFile = {
@@ -134,12 +135,7 @@ export async function saveTodosCheckpoint(
       error: toErrorMessage(err),
       recoverable: false,
     });
-    console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'todos_checkpoint.save_failed',
-      message: toErrorMessage(err),
-      timestamp: new Date().toISOString(),
-    }));
+    (warn ?? ((m) => console.warn(JSON.stringify({ level: 'warn', event: 'todos_checkpoint.save_failed', message: m, timestamp: new Date().toISOString() }))))(toErrorMessage(err));
   }
 }
 
@@ -157,6 +153,7 @@ export function attachTodosCheckpoint(
   sessionId: string,
   events?: EventBus,
   traceId?: string,
+  warn?: (msg: string) => void,
 ): TodosCheckpointDetach {
   let timer: NodeJS.Timeout | null = null;
   let pending: readonly TodoItem[] | null = null;
@@ -170,13 +167,7 @@ export function attachTodosCheckpoint(
         // Log and keep the chain alive — a failed write must not
         // poison the chain and silently stop all subsequent writes.
         const msg = toErrorMessage(err);
-        console.error(JSON.stringify({
-          level: 'error',
-          event: 'todos_checkpoint.write_chain_failed',
-          sessionId,
-          message: msg,
-          timestamp: new Date().toISOString(),
-        }));
+        (warn ?? ((m) => console.error(JSON.stringify({ level: 'error', event: 'todos_checkpoint.write_chain_failed', sessionId, message: m, timestamp: new Date().toISOString() }))))(msg);
       });
       /* v8 ignore stop */
     return writeChain;

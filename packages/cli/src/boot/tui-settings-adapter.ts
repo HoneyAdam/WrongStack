@@ -22,6 +22,7 @@ import {
   noOpVault,
   normalizeTokenSavingTier,
 } from '@wrongstack/core';
+import { getProcessRegistry } from '@wrongstack/tools';
 import { deriveFsAccessPair, filterSafeForProject } from '../settings-menu.js';
 import { normalizeTuiThinkingWord } from '../tui-thinking-word.js';
 import type { LiveSettingsInput } from '../execution.js';
@@ -212,7 +213,9 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.reasoningMode !== undefined ||
         s.reasoningEffort !== undefined ||
         s.reasoningPreserve !== undefined ||
-        s.cacheTtl !== undefined
+        s.cacheTtl !== undefined ||
+        s.breakerEnabled !== undefined ||
+        s.breakerAutoKillResetMs !== undefined
       ) {
         const configScope = s.configScope ?? configStore.get().configScope ?? 'global';
         const targetPath =
@@ -358,6 +361,12 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           }
           decrypted.modelRuntime = modelRuntime;
         }
+        if (s.breakerEnabled !== undefined || s.breakerAutoKillResetMs !== undefined) {
+          const cb = (decrypted.circuitBreaker as Record<string, unknown>) ?? {};
+          if (s.breakerEnabled !== undefined) cb.enabled = s.breakerEnabled;
+          if (s.breakerAutoKillResetMs !== undefined) cb.autoKillResetMs = s.breakerAutoKillResetMs;
+          decrypted.circuitBreaker = cb;
+        }
         const toWrite = targetPath === wpaths.globalConfig ? decrypted : filterSafeForProject(decrypted);
         const encrypted = encryptConfigSecrets(toWrite, noOpVault);
         if (targetPath !== wpaths.globalConfig) {
@@ -449,9 +458,25 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
                 modelRuntime: nextModelRuntime as Config['modelRuntime'],
               }
             : {}),
+          ...(s.breakerEnabled !== undefined || s.breakerAutoKillResetMs !== undefined
+            ? {
+                circuitBreaker: {
+                  ...currentConfig.circuitBreaker,
+                  ...((decrypted.circuitBreaker as Record<string, unknown> | undefined) ?? {}),
+                } as Config['circuitBreaker'],
+              }
+            : {}),
         });
       }
 
+      if (s.breakerEnabled !== undefined || s.breakerAutoKillResetMs !== undefined) {
+        getProcessRegistry().setBreakerConfig({
+          ...(s.breakerEnabled !== undefined ? { enabled: s.breakerEnabled } : {}),
+          ...(s.breakerAutoKillResetMs !== undefined
+            ? { autoKillResetMs: s.breakerAutoKillResetMs }
+            : {}),
+        });
+      }
       if (s.streamFleet !== undefined) fleetStreamController?.setEnabled(s.streamFleet);
       applyLiveSettings?.(s);
       return null;

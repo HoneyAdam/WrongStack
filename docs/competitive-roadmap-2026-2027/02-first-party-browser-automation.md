@@ -65,6 +65,16 @@ Completed:
   collision-free coexistence with the optional `playwright_*` MCP preset.
 - Added a package-manager-independent browser doctor/repair command plus real Chromium launch and
   interaction smoke gates on Ubuntu, Windows, and the Linux release job.
+- Added a loopback connection-guard proxy for every browser context. HTTP, HTTPS CONNECT, and plain
+  WebSocket traffic now resolves once, rejects mixed/private DNS answers unless the exact origin is
+  trusted, and connects to the validated IP directly, closing the DNS-rebinding gap. Service
+  workers are blocked so they cannot bypass request interception.
+- Replaced the broad production private-host switch with
+  `WRONGSTACK_BROWSER_PRIVATE_ORIGINS`, an exact scheme/host/port allowlist suitable for local
+  fixture servers without exposing other loopback or LAN services.
+- Browser screenshots and traces are now explicitly marked `sensitive`, carry SHA-256 integrity
+  metadata, and receive mode-`0600` audit sidecars containing only provenance and non-content
+  metadata. A sidecar failure removes the unaudited artifact.
 
 Remaining:
 

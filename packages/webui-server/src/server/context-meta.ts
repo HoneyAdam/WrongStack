@@ -78,6 +78,27 @@ export function seedContextMeta(
     meta['reasoningPreserve'] = mr.reasoning?.preserve === true;
     meta['cacheTtl'] = mr.cache?.ttl ?? 'default';
   }
+  // Refiner + TUI visual prefs — parity with the CLI server's seeding so the
+  // SettingsPanel shows persisted values on the standalone server too.
+  meta['refinerProvider'] = (autonomyCfg['refinerProvider'] as string) ?? '';
+  meta['refinerModel'] = (autonomyCfg['refinerModel'] as string) ?? '';
+  meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
+  meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
+  meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';
+  // Safety / system prefs
+  meta['breakerEnabled'] = config.circuitBreaker?.enabled === true;
+  meta['breakerAutoKillResetMs'] = config.circuitBreaker?.autoKillResetMs ?? 60_000;
+  {
+    // Same precedence as the CLI's deriveFsAccessPair: the canonical
+    // features.allowOutsideProjectRoot wins when set, else the legacy
+    // tools.restrictToProjectRoot, else unrestricted.
+    const featuresAllow = config.features?.allowOutsideProjectRoot;
+    const toolsRestrict = config.tools?.restrictToProjectRoot;
+    const allow =
+      featuresAllow !== undefined ? featuresAllow : toolsRestrict !== undefined ? !toolsRestrict : true;
+    meta['fsAccess'] = allow ? 'unrestricted' : 'project';
+  }
+  meta['debugStream'] = config.debugStream === true;
   const hqConfig = (
     config as { hq?: { enabled?: boolean; url?: string; token?: string; rawContent?: boolean } }
   ).hq;

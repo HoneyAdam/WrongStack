@@ -94,7 +94,7 @@ export async function loadPlan(filePath: string, events?: EventBus): Promise<Pla
  * result and throws so the plan TOOL can report `ok:false` instead of falsely
  * claiming the plan was persisted.
  */
-export async function savePlan(filePath: string, plan: PlanFile, events?: EventBus): Promise<boolean> {
+export async function savePlan(filePath: string, plan: PlanFile, events?: EventBus, warn?: (msg: string) => void): Promise<boolean> {
   const t0 = Date.now();
   try {
     await atomicWrite(filePath, JSON.stringify(plan, null, 2), { mode: 0o600 });
@@ -116,10 +116,7 @@ export async function savePlan(filePath: string, plan: PlanFile, events?: EventB
       error: toErrorMessage(err),
       recoverable: false,
     });
-    console.warn(
-      '[plan-store] save failed:',
-      toErrorMessage(err),
-    );
+    (warn ?? ((m) => console.warn('[plan-store] save failed:', m)))(toErrorMessage(err));
     return false;
   }
 }

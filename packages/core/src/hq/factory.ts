@@ -5,6 +5,7 @@ import { basename } from 'node:path';
 import { GlobalMailbox } from '../coordination/global-mailbox.js';
 import type { EventBus } from '../kernel/events.js';
 import type { HqClientConfig } from '../types/config.js';
+import type { Logger } from '../types/logger.js';
 import {
   type HqAuthFile,
   hqAuthFilePath,
@@ -178,6 +179,8 @@ export interface CreateHqPublisherOptions {
   onCommand?: HqPublisherCommandHandler;
   /** Dormant discovery re-check interval override (tests / tight loops). */
   discoveryPollMs?: number;
+  /** Logger for structured connect-failure diagnostics. */
+  logger?: Logger | undefined;
 }
 
 export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqPublisher | undefined {
@@ -229,6 +232,7 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
       ? { resolveEndpoint: () => discoverLocalHqEndpoint({ dataDir: discoveryDataDir }) }
       : {}),
     ...(options.discoveryPollMs !== undefined ? { discoveryPollMs: options.discoveryPollMs } : {}),
+    ...(options.logger !== undefined ? { logger: options.logger } : {}),
   });
 }
 

@@ -107,6 +107,7 @@ export async function saveTasks(
   tasks: TaskFile,
   events?: EventBus,
   traceId?: string,
+  warn?: (msg: string) => void,
 ): Promise<boolean> {
   const t0 = Date.now();
   try {
@@ -133,10 +134,7 @@ export async function saveTasks(
       recoverable: false,
       ...(traceId !== undefined && { traceId }),
     });
-    console.warn(
-      '[task-store] save failed:',
-      toErrorMessage(err),
-    );
+    (warn ?? ((m) => console.warn('[task-store] save failed:', m)))(toErrorMessage(err));
     return false;
   }
 }

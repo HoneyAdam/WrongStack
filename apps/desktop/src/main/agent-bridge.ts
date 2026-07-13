@@ -201,7 +201,7 @@ export class DesktopAgentBridge extends EventEmitter {
     // Calculate delay with exponential backoff and jitter
     const baseDelay = Math.min(
       RECONNECT_CONFIG.initialDelayMs *
-        Math.pow(RECONNECT_CONFIG.backoffMultiplier, conversation.reconnectAttempt),
+        RECONNECT_CONFIG.backoffMultiplier ** conversation.reconnectAttempt,
       RECONNECT_CONFIG.maxDelayMs,
     );
     

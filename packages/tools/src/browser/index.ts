@@ -4,7 +4,16 @@ export {
   BrowserSessionManager,
   browserInstallationDiagnostics,
 } from './manager.js';
-export { assertBrowserUrlAllowed, redactBrowserText, safeBrowserUrl } from './security.js';
+export { BrowserNetworkGuardProxy } from './network-guard-proxy.js';
+export {
+  assertBrowserUrlAllowed,
+  type BrowserDnsLookup,
+  type BrowserResolvedTarget,
+  parsePrivateOriginAllowlist,
+  redactBrowserText,
+  resolvePinnedBrowserTarget,
+  safeBrowserUrl,
+} from './security.js';
 export {
   browserClickTool,
   browserCloseTool,

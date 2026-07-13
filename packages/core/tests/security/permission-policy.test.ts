@@ -440,6 +440,56 @@ describe('DefaultPermissionPolicy', () => {
       expect(forcePush.permission).toBe('auto');
       expect(forcePush.source).toBe('yolo');
     });
+
+    it.each([
+      ['database_migrate', ToolCapabilities.SHELL_RESTRICTED],
+      ['deployment_apply', ToolCapabilities.SHELL_ARBITRARY],
+      ['api_contract_runner', ToolCapabilities.SHELL_EXEC],
+    ])(
+      'non-yolo confirms auto-permission domain wrapper %s by shell capability',
+      async (name, capability) => {
+        const p = new DefaultPermissionPolicy({ trustFile });
+        const decision = await p.evaluate(
+          tool(name, 'auto', 'standard', false, [capability]),
+          { command: 'echo', args: ['safe-looking wrapper'] },
+          { projectRoot: process.cwd() } as Context,
+        );
+
+        expect(decision.permission).toBe('confirm');
+        expect(decision.source).toBe('default');
+      },
+    );
+
+    it('gives raw exec and a domain wrapper the same non-yolo decision for an equivalent command', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile });
+      const input = { command: 'psql', args: ['--file', 'migration.sql'] };
+
+      const raw = await p.evaluate(
+        tool('exec', 'confirm', 'standard', true, [ToolCapabilities.SHELL_RESTRICTED]),
+        input,
+        { projectRoot: process.cwd() } as Context,
+      );
+      const wrapped = await p.evaluate(
+        tool('database_migrate', 'auto', 'standard', false, [ToolCapabilities.SHELL_RESTRICTED]),
+        input,
+        { projectRoot: process.cwd() } as Context,
+      );
+
+      expect(raw.permission).toBe('confirm');
+      expect(wrapped.permission).toBe(raw.permission);
+    });
+
+    it('applies sensitive-read gating to a custom shell-capable wrapper', async () => {
+      const p = new DefaultPermissionPolicy({ trustFile });
+      const decision = await p.evaluate(
+        tool('database_inspect', 'auto', 'safe', false, [ToolCapabilities.SHELL_RESTRICTED]),
+        { command: 'cat', args: ['.env.database'] },
+        { projectRoot: process.cwd() } as Context,
+      );
+
+      expect(decision.permission).toBe('confirm');
+      expect(decision.reason).toContain('sensitive file read');
+    });
   });
 
   describe('sensitive read gating', () => {

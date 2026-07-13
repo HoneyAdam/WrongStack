@@ -180,7 +180,10 @@ export {
 } from './process-handlers.js';
 export { handleBrainRoute } from './brain-routes.js';
 export type { BrainRouteHandlers } from './brain-routes.js';
-export { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
+export {
+  type CollaborationHandlerOptions,
+  CollaborationWebSocketHandler,
+} from './collaboration-ws-handler.js';
 export { SKIP_DIRS, isHiddenEntry, rankFiles } from './file-picker.js';
 export { handleWorklistMessage } from './handlers/worklist-handlers.js';
 export type { WorklistContext } from './handlers/worklist-handlers.js';

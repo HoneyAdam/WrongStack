@@ -1,4 +1,5 @@
 {
+  "title": "Tavolozza dei comandi",
   "placeholder": "Cerca comandi, sessioni, impostazioni…",
   "noMatches": "Nessuna corrispondenza per \"{{query}}\"",
   "footer": {

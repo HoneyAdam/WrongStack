@@ -62,6 +62,14 @@ export const AUTO_PROCEED_MAX_PRESETS = [10, 25, 50, 100, 250, 0];
 /** Presets for prompt refinement preview countdown. */
 export const ENHANCE_DELAY_PRESETS = [15_000, 30_000, 45_000, 60_000, 90_000, 120_000];
 
+/** Presets for the circuit-breaker auto kill/reset delay. 0 = manual recovery. */
+export const BREAKER_TIMEOUT_PRESETS = [0, 30_000, 60_000, 120_000, 300_000];
+
+export function formatBreakerTimeout(ms: number): string {
+  if (ms === 0) return 'manual';
+  return formatSettingsDelay(ms);
+}
+
 /**
  * Presets for the multi-file diff summary footer cutoff. Each value is the
  * minimum number of files before the aggregate `N files · +X -Y · …`
@@ -184,6 +192,11 @@ export interface SettingsPickerProps {
   // ── Logging ──
   logLevel: LogLevel;
   auditLevel: AuditLevel;
+  // ── Safety ──
+  /** Whether the process circuit breaker gates bash/exec. */
+  breakerEnabled: boolean;
+  /** Auto kill/reset delay (ms) when the breaker trips. 0 = manual recovery. */
+  breakerAutoKillResetMs: number;
   // ── Debug ──
   /** Raw SSE stream debugging toggle — hex-dump every byte received from providers. */
   debugStream: boolean;
@@ -207,7 +220,7 @@ export interface SettingsPickerProps {
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 37;
+export const SETTINGS_FIELD_COUNT = 39;
 
 /**
  * Field index of the "Thinking word" row. The reducer's per-field switch and
@@ -486,12 +499,14 @@ export type SettingsPickerPatch = Partial<{
   cacheTtl: CacheTtl;
   configScope: ConfigScope;
   animationStyle: AnimationStyleChoice;
+  breakerEnabled: boolean;
+  breakerAutoKillResetMs: number;
 }>;
 
 /**
- * Human-readable labels for all 36 settings fields (0–35), in picker
- * row order. Used by `resolveSettingsFieldValue` for confirmation and
- * error messages, and by the `/settings` help text.
+ * Human-readable labels for all settings fields (0–SETTINGS_FIELD_COUNT-1),
+ * in picker row order. Used by `resolveSettingsFieldValue` for confirmation
+ * and error messages, and by the `/settings` help text.
  */
 export const SETTINGS_FIELD_LABELS: readonly string[] = [
   'Default autonomy mode', // 0
@@ -531,6 +546,8 @@ export const SETTINGS_FIELD_LABELS: readonly string[] = [
   'Statusline', // 34
   'Config scope', // 35
   'Animation', // 36
+  'Circuit breaker', // 37
+  'Breaker timeout', // 38
 ];
 
 /**
@@ -563,7 +580,7 @@ export function resolveSettingsFieldValue(
     [9, 'featurePlugins'], [10, 'featureMemory'], [11, 'featureSkills'],
     [12, 'featureModelsRegistry'], [14, 'allowOutsideProjectRoot'],
     [18, 'enhanceEnabled'], [20, 'indexOnStart'], [25, 'reasoningPreserve'],
-    [27, 'contextAutoCompact'], [33, 'debugStream'],
+    [27, 'contextAutoCompact'], [33, 'debugStream'], [37, 'breakerEnabled'],
   ]);
   const boolKey = BOOL_FIELDS.get(field);
   if (boolKey) {
@@ -616,6 +633,7 @@ export function resolveSettingsFieldValue(
     [17, 'enhanceDelayMs', ENHANCE_DELAY_PRESETS, (n) => formatEnhanceDelay(n)],
     [21, 'multiDiffSummaryThreshold', MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS, (n) => formatMultiDiffSummaryThreshold(n)],
     [30, 'maxConcurrent', MAX_CONCURRENT_PRESETS, (n) => presetLabel(n, 'runtime default')],
+    [38, 'breakerAutoKillResetMs', BREAKER_TIMEOUT_PRESETS, (n) => formatBreakerTimeout(n)],
   ];
   for (const [f, key, presets, fmt] of PRESET_FIELDS) {
     if (field !== f) continue;
@@ -687,7 +705,7 @@ export function getSettingsFieldValue(
     [9, 'featurePlugins'], [10, 'featureMemory'], [11, 'featureSkills'],
     [12, 'featureModelsRegistry'], [14, 'allowOutsideProjectRoot'],
     [18, 'enhanceEnabled'], [20, 'indexOnStart'], [25, 'reasoningPreserve'],
-    [27, 'contextAutoCompact'], [33, 'debugStream'],
+    [27, 'contextAutoCompact'], [33, 'debugStream'], [37, 'breakerEnabled'],
   ];
   for (const [f, key] of BOOL_KEYS) {
     if (field !== f) continue;
@@ -716,6 +734,7 @@ export function getSettingsFieldValue(
     [17, 'enhanceDelayMs', formatEnhanceDelay],
     [21, 'multiDiffSummaryThreshold', formatMultiDiffSummaryThreshold],
     [30, 'maxConcurrent', (n) => presetLabel(n, 'runtime default')],
+    [38, 'breakerAutoKillResetMs', formatBreakerTimeout],
   ];
   for (const [f, key, fmt] of PRESET_KEYS) {
     if (field !== f) continue;
@@ -772,6 +791,10 @@ const SETTINGS_SECTIONS: ReadonlyArray<{ name: string; fields: readonly number[]
     name: 'Debug',
     fields: [33, 34, 35, 36],
   },
+  {
+    name: 'Safety',
+    fields: [37, 38],
+  },
 ];
 
 /**
@@ -805,7 +828,7 @@ export function formatAllSettingsSummary(values: SettingsPickerValues): string {
 }
 
 /**
- * Default values for all 36 configurable settings fields, in the same
+ * Default values for all configurable settings fields, in the same
  * shape as {@link SettingsPickerValues}. Extracted from the reducer's
  * initial state so there is a single source of truth for "factory
  * defaults". Used by {@link resetSettingsFieldValue}.
@@ -851,6 +874,8 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsPickerValues> = Object.freeze({
   cacheTtl: 'default',
   configScope: 'global',
   animationStyle: 'rainbow',
+  breakerEnabled: false,
+  breakerAutoKillResetMs: 60_000,
 } as const);
 
 /**
@@ -888,6 +913,7 @@ function buildResetPatch(field: number): SettingsPickerPatch | null {
     [27, 'contextAutoCompact'], [28, 'contextStrategy'], [29, 'contextMode'],
     [30, 'maxConcurrent'], [31, 'logLevel'], [32, 'auditLevel'], [33, 'debugStream'],
     [34, 'statuslineMode'], [35, 'configScope'], [36, 'animationStyle'],
+    [37, 'breakerEnabled'], [38, 'breakerAutoKillResetMs'],
   ];
   for (const [f, key] of KEY_MAP) {
     if (f === field) {
@@ -939,6 +965,8 @@ export function SettingsPicker({
   statuslineMode,
   configScope,
   animationStyle,
+  breakerEnabled,
+  breakerAutoKillResetMs,
   hint,
 }: SettingsPickerProps): React.ReactElement {
   const boolVal = (v: boolean) => (v ? 'on' : 'off');
@@ -1152,6 +1180,18 @@ export function SettingsPicker({
       label: 'Animation',
       value: animationStyle,
       detail: formatAnimationStyle(animationStyle),
+    },
+    // ── Safety ──
+    { section: 'Safety' },
+    {
+      label: 'Circuit breaker',
+      value: boolVal(breakerEnabled),
+      detail: 'Gate bash/exec after repeated failures',
+    },
+    {
+      label: 'Breaker timeout',
+      value: formatBreakerTimeout(breakerAutoKillResetMs),
+      detail: 'Auto kill/reset delay when tripped (manual = /kill reset)',
     },
   ];
 

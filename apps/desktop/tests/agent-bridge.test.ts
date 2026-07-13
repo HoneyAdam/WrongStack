@@ -73,7 +73,7 @@ describe('Reconnection logic', () => {
     function calculateBackoffDelay(attempt: number): number {
       const baseDelay = Math.min(
         RECONNECT_CONFIG.initialDelayMs *
-          Math.pow(RECONNECT_CONFIG.backoffMultiplier, attempt),
+          RECONNECT_CONFIG.backoffMultiplier ** attempt,
         RECONNECT_CONFIG.maxDelayMs,
       );
       // Add jitter (deterministic for testing)

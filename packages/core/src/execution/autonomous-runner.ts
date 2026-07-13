@@ -1,6 +1,7 @@
 import type { Agent, RunResult } from '../core/agent.js';
 import type { Context } from '../core/context.js';
 import { toWrongStackError } from '../types/errors.js';
+import type { Logger } from '../types/logger.js';
 import type { DoneCondition } from '../types/multi-agent.js';
 import { assertNever } from '../utils/assert-never.js';
 import { compileUserRegex } from '../utils/regex-guard.js';
@@ -16,20 +17,32 @@ export interface DoneCheckResult {
 
 export class DoneConditionChecker {
   private readonly compiledRegex: RegExp | null;
+  private readonly logger: Logger | undefined;
 
-  constructor(private readonly condition: DoneCondition) {
+  constructor(
+    private readonly condition: DoneCondition,
+    opts?: { logger?: Logger | undefined },
+  ) {
+    this.logger = opts?.logger;
     if (condition.type === 'output_match' && condition.pattern) {
       const result = compileUserRegex(condition.pattern, '');
       this.compiledRegex = result.ok ? result.regex : null;
       if (!result.ok) {
         // Log warning but don't throw — the done condition simply won't match
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'autonomous.done_condition_invalid_regex',
-          pattern: condition.pattern,
-          reason: result.reason,
-          timestamp: new Date().toISOString(),
-        }));
+        if (this.logger) {
+          this.logger.warn(
+            'Done condition has invalid regex — will never match',
+            { event: 'autonomous.done_condition_invalid_regex', pattern: condition.pattern, reason: result.reason },
+          );
+        } else {
+          console.warn(JSON.stringify({
+            level: 'warn',
+            event: 'autonomous.done_condition_invalid_regex',
+            pattern: condition.pattern,
+            reason: result.reason,
+            timestamp: new Date().toISOString(),
+          }));
+        }
       }
     } else {
       this.compiledRegex = null;
@@ -111,6 +124,8 @@ export interface AutonomousRunnerOptions {
    * re-invocation needed). The runner still provides iteration/timeouts.
    */
   enableAutonomousContinue?: boolean | undefined;
+  /** Logger for structured warnings. Falls back to console.warn when omitted. */
+  logger?: Logger | undefined;
 }
 
 export class AutonomousRunner {
@@ -121,7 +136,7 @@ export class AutonomousRunner {
   private readonly doneChecker: DoneConditionChecker;
 
   constructor(private readonly opts: AutonomousRunnerOptions) {
-    this.doneChecker = new DoneConditionChecker(opts.doneCondition);
+    this.doneChecker = new DoneConditionChecker(opts.doneCondition, { logger: opts.logger });
   }
 
   async run(): Promise<AutonomousResult> {

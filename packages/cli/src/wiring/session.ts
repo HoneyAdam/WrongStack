@@ -67,6 +67,8 @@ export async function setupSession(params: {
   ) => Promise<'resume' | 'delete' | 'skip'>;
   /** Optional EventBus for emitting storage.* events from todo/queue/task stores. */
   events?: import('@wrongstack/core').EventBus;
+  /** Logger for structured storage warnings. */
+  logger?: import('@wrongstack/core').Logger | undefined;
 }): Promise<SessionResult> {
   const {
     config,
@@ -82,6 +84,7 @@ export async function setupSession(params: {
     onRecovery,
     // Optional EventBus for storage observability
     events: eventsBus,
+    logger: loggerParam,
   } = params;
 
   // Prune sessions older than the shared retention window on every interactive start.
@@ -195,6 +198,7 @@ export async function setupSession(params: {
     dir: sessionDir,
     ...(eventsBus ? { events: eventsBus } : {}),
     ...(traceId ? { traceId } : {}),
+    ...(loggerParam ? { logger: loggerParam } : {}),
   });
 
   const todosCheckpointPath = sessionScopedPath(wpaths.projectSessions, sessionId, '.todos.json');
@@ -221,6 +225,7 @@ export async function setupSession(params: {
     sessionId,
     eventsBus,
     traceId,
+    loggerParam ? ((msg: string) => loggerParam.warn(msg)) : undefined,
   );
 
   const planPath = sessionScopedPath(wpaths.projectSessions, sessionId, '.plan.json');

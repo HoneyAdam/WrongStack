@@ -556,4 +556,11 @@ export interface Mailbox {
    * Get snapshot of online/offline clients and their last activity.
    */
   getClientStatuses(): Promise<ClientStatus[]>;
+
+  /**
+   * Explicitly purge stale clients from the registry.
+   * Removes client entries whose lastSeenAt is older than CLIENT_STALE_MS.
+   * Returns the number of entries purged.
+   */
+  purgeClients(): Promise<number>;
 }

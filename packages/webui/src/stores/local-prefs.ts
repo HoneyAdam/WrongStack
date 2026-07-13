@@ -80,6 +80,17 @@ export interface LocalPrefs {
   enhanceEnabled: boolean;
   enhanceDelayMs: number;
   enhanceLanguage: 'original' | 'english';
+  /** Provider id for goal refinement (`/goal set`). Empty = use session provider. */
+  refinerProvider: string;
+  /** Model id for goal refinement. Empty = use session model. */
+  refinerModel: string;
+
+  /** TUI status-chip word (e.g. "thinking", "vibing"). */
+  thinkingWord: string;
+  /** TUI statusline density. */
+  statuslineMode: 'minimum' | 'detailed' | 'no-color';
+  /** TUI working-chip animation style. */
+  animationStyle: 'rainbow' | 'wave' | 'pulse' | 'dots' | 'breathe' | 'cycle';
 
   // --- Display toggles ---
   /** Show completed thinking/logic blocks in chat history */
@@ -92,6 +103,16 @@ export interface LocalPrefs {
   reasoningEffort: string;
   reasoningPreserve: boolean;
   cacheTtl: 'default' | '5m' | '1h';
+
+  // --- Safety / system ---
+  /** Process circuit breaker — gates bash/exec after repeated failures. */
+  breakerEnabled: boolean;
+  /** Auto kill/reset delay (ms) when the breaker trips. 0 = manual recovery. */
+  breakerAutoKillResetMs: number;
+  /** File-tool access scope. 'project' confines file tools to the project root (restart to apply). */
+  fsAccess: 'unrestricted' | 'project';
+  /** Raw SSE hex-dump to the server's stderr for provider debugging. */
+  debugStream: boolean;
 
   // --- HQ client publishing ---
   hqEnabled: boolean;
@@ -156,12 +177,21 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   enhanceEnabled: true,
   enhanceDelayMs: 60_000,
   enhanceLanguage: 'original',
+  refinerProvider: '',
+  refinerModel: '',
+  thinkingWord: 'thinking',
+  statuslineMode: 'detailed',
+  animationStyle: 'rainbow',
   showThinkingLogs: true,
   groupToolCalls: true,
   reasoningMode: 'auto',
   reasoningEffort: 'high',
   reasoningPreserve: false,
   cacheTtl: 'default',
+  breakerEnabled: false,
+  breakerAutoKillResetMs: 60_000,
+  fsAccess: 'unrestricted',
+  debugStream: false,
   hqEnabled: false,
   hqUrl: '',
   hqToken: '',
@@ -182,7 +212,7 @@ export const useLocalPrefs = create<LocalPrefs>()(
     }),
     {
       name: 'wrongstack-local-prefs',
-      version: 6,
+      version: 8,
       // v1 stored option values that don't exist in core's config schema —
       // contextStrategy frugal/balanced/deep/archival (context-window modes,
       // a different setting) and auditLevel 'verbose'. Map them onto the
@@ -200,6 +230,9 @@ export const useLocalPrefs = create<LocalPrefs>()(
       //
       // v6 added showThinkingLogs / groupToolCalls (display toggles). Older
       // stores get the defaults via DEFAULTS spread; no remap needed.
+      //
+      // v8 added breakerEnabled / breakerAutoKillResetMs / fsAccess /
+      // debugStream (safety & system prefs, parity with /settings).
       migrate: (persisted) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         const validStrategies = ['hybrid', 'intelligent', 'selective'];
@@ -225,6 +258,10 @@ export const useLocalPrefs = create<LocalPrefs>()(
           // Backfill older stores with the browser-detected language.
           p.uiLocale = detectLocale();
         }
+        if (typeof p.breakerEnabled !== 'boolean') p.breakerEnabled = false;
+        if (typeof p.breakerAutoKillResetMs !== 'number') p.breakerAutoKillResetMs = 60_000;
+        if (p.fsAccess !== 'unrestricted' && p.fsAccess !== 'project') p.fsAccess = 'unrestricted';
+        if (typeof p.debugStream !== 'boolean') p.debugStream = false;
         return p as never as LocalPrefs;
       },
     },

@@ -1,4 +1,5 @@
 import type { Agent } from '@wrongstack/core';
+import { getProcessRegistry } from '@wrongstack/tools';
 import type { WebSocket } from 'ws';
 import type { WsCommon } from './index.js';
 import { resolveYoloEligiblePendingConfirms, type PendingConfirm } from './connection.js';
@@ -55,6 +56,25 @@ export function handlePrefsUpdate(
   if (typeof payload['yolo'] === 'boolean') {
     ctx.onYoloSwitch?.(payload['yolo']);
     if (payload['yolo'] === true) resolveYoloEligiblePendingConfirms(ctx.pendingConfirms);
+  }
+  // Live runtime effects — same singletons /settings breaker|debug-stream flip.
+  if (
+    typeof payload['breakerEnabled'] === 'boolean' ||
+    typeof payload['breakerAutoKillResetMs'] === 'number'
+  ) {
+    getProcessRegistry().setBreakerConfig({
+      ...(typeof payload['breakerEnabled'] === 'boolean'
+        ? { enabled: payload['breakerEnabled'] }
+        : {}),
+      ...(typeof payload['breakerAutoKillResetMs'] === 'number'
+        ? { autoKillResetMs: payload['breakerAutoKillResetMs'] }
+        : {}),
+    });
+  }
+  if (typeof payload['debugStream'] === 'boolean') {
+    void import('@wrongstack/providers').then(({ setDebugStreamEnabled }) =>
+      setDebugStreamEnabled(payload['debugStream'] as boolean),
+    );
   }
   ctx.broadcast({ type: 'prefs.updated', payload: ctx.prefSnapshot() });
 }

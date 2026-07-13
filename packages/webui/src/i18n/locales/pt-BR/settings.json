@@ -1,6 +1,9 @@
 {
   "title": "Configurações",
   "tabs": {
+    "tools": "Ferramentas",
+    "brain": "Cérebro",
+    "shadow": "Sombra",
     "provider": "Provedor",
     "connection": "Conexão",
     "appearance": "Aparência",
@@ -9,6 +12,10 @@
     "mcp": "MCP"
   },
   "appearance": {
+    "showThinkingLabel": "Mostrar registros de raciocínio",
+    "showThinkingHint": "Exibe os blocos de raciocínio concluídos no histórico do chat.",
+    "groupToolCallsLabel": "Agrupar chamadas de ferramentas",
+    "groupToolCallsHint": "Agrupa chamadas consecutivas de ferramentas em um único indicador.",
     "themeHeading": "Tema",
     "themeLight": "Claro",
     "themeDark": "Escuro",
@@ -21,6 +28,21 @@
     "soundOnCompleteHint": "Reproduz um toque suave quando uma execução termina.",
     "titleAnimation": "Animação do título",
     "titleAnimationHint": "Mostrar título animado do terminal no CLI.",
+    "thinkingWordLabel": "Palavra de raciocínio (CLI/TUI)",
+    "thinkingWordHint": "Palavra exibida no chip de status da TUI. Uma única palavra curta.",
+    "statuslineModeLabel": "Modo da linha de status (CLI/TUI)",
+    "statuslineModeHint": "Densidade da linha de status da TUI.",
+    "statuslineModeDetailed": "Detalhado",
+    "statuslineModeMinimum": "Mínimo",
+    "statuslineModeNoColor": "Sem cor",
+    "animationStyleLabel": "Estilo de animação (CLI/TUI)",
+    "animationStyleHint": "Animação do chip de trabalho da TUI.",
+    "animationStyleRainbow": "Arco-íris",
+    "animationStyleWave": "Onda",
+    "animationStylePulse": "Pulso",
+    "animationStyleDots": "Pontos",
+    "animationStyleBreathe": "Respiração",
+    "animationStyleCycle": "Ciclo",
     "languageHeading": "Idioma",
     "languageLabel": "Idioma da interface",
     "languageHint": "Altera apenas o texto da interface. Prompts, skills e a saída do modelo não são afetados."
@@ -40,6 +62,12 @@
     "startingBody": "Autônomo: execute ./dev.ps1 da raiz do repo, ou defina WS_HOST/WS_PORT antes de iniciar wstackui. Ou junto à CLI: wstack --webui."
   },
   "provider": {
+    "savedProviderCount_one": "{{count}} provedor",
+    "savedProviderCount_other": "{{count}} provedores",
+    "keyCount_one": "{{count}} chave configurada",
+    "keyCount_other": "{{count}} chaves configuradas",
+    "activeKeyCount_one": "{{count}} chave ativa",
+    "activeKeyCount_other": "{{count}} chaves ativas",
     "subscriptionHeading": "Login com assinatura",
     "apiKeysHeading": "Provedores de chave de API",
     "apiKeysBody": "Escolha um provedor do catálogo e adicione uma chave de API, ou gerencie os provedores salvos.",
@@ -196,6 +224,10 @@
     "refineLanguageHint": "Mantenha seu idioma ou traduza para inglês para o modelo.",
     "refineLanguageOriginal": "Original — mantenha seu idioma",
     "refineLanguageEnglish": "Inglês — traduzir para inglês",
+    "refinerProviderLabel": "Provedor do refinador",
+    "refinerProviderHint": "Id do provedor para o refinamento de objetivos. Vazio = usar o provedor da sessão.",
+    "refinerModelLabel": "Modelo do refinador",
+    "refinerModelHint": "Id do modelo para o refinamento de objetivos. Vazio = usar o modelo da sessão.",
     "reasoningHeading": "Raciocínio e Cache",
     "reasoningModeLabel": "Modo de raciocínio",
     "reasoningModeHint": "Controla como o modelo usa o pensamento estendido. Auto = padrão do provedor.",
@@ -283,7 +315,11 @@
     "addModelToProfile": "Adicionar modelo ao perfil…",
     "addFavoriteModel": "Adicionar modelo favorito…",
     "hqRawContentLabel": "Conteúdo HQ bruto",
-    "hqRawContentHint": "Enviar pré-visualizações de conteúdo brutas para HQ em vez de pré-visualizações redigidas."
+    "hqRawContentHint": "Enviar pré-visualizações de conteúdo brutas para HQ em vez de pré-visualizações redigidas.",
+    "breakerLabel": "Disjuntor de processos",
+    "breakerHint": "Bloqueia bash/exec após falhas repetidas; ao disparar, arma a contagem de kill/reset.",
+    "breakerTimeoutLabel": "Tempo de kill/reset do disjuntor",
+    "breakerTimeoutHint": "Atraso antes do kill/reset automático ao disparar. 0 = recuperação manual."
   },
   "features": {
     "flagsHeading": "Sinalizadores de Recursos",
@@ -330,7 +366,13 @@
     "auditLevelHint": "Nível de detalhe para logs de auditoria de sessão.",
     "auditLevelMinimal": "Mínimo — apenas erros",
     "auditLevelStandard": "Padrão — chamadas de ferramentas + erros",
-    "auditLevelFull": "Completo — cada evento (logs grandes)"
+    "auditLevelFull": "Completo — cada evento (logs grandes)",
+    "fsAccessLabel": "Acesso ao sistema de arquivos",
+    "fsAccessHint": "Escopo das ferramentas de arquivo. Aplica-se na próxima sessão.",
+    "fsAccessUnrestricted": "Irrestrito — qualquer caminho",
+    "fsAccessProject": "Projeto — limitado à raiz do projeto",
+    "debugStreamLabel": "Fluxo de depuração",
+    "debugStreamHint": "Dump hex SSE bruto no stderr do servidor para depurar provedores."
   },
   "toast": {
     "switchingTo": "Mudando para {{provider}} / {{model}}…",

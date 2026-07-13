@@ -13,6 +13,15 @@ export {
   AutoApprovePermissionPolicy,
   type PermissionPolicyOptions,
 } from './permission-policy.js';
+export {
+  TRUST_POLICY_JSON_SCHEMA,
+  TRUST_POLICY_LIMITS,
+  TRUST_POLICY_SCHEMA_VERSION,
+  type TrustPolicyDiagnostic,
+  type TrustPolicyDiagnosticCode,
+  type TrustPolicyValidationResult,
+  validateTrustPolicy,
+} from './permission-policy-schema.js';
 
 export {
   ToolCapabilities,

@@ -15,30 +15,34 @@ const REPLAY_LIMIT = 50;
 /** How long the middleware waits before auto-resuming (mirrors the middleware default). */
 const PAUSE_TIMEOUT_MS = 60_000;
 
+export interface CollaborationHandlerOptions {
+  /**
+   * Resolve the session currently owned by this WebUI runtime. When supplied,
+   * joins and live EventBus mirrors are constrained to that session.
+   */
+  getActiveSessionId?: (() => string) | undefined;
+  /**
+   * Host-owned authorization for roles that can mutate collaboration state.
+   * Omission is intentionally fail-closed: clients may only join as observers.
+   */
+  authorizeRole?:
+    | ((input: { ws: WebSocket; sessionId: string; requestedRole: Exclude<CollabRole, 'observer'> }) => boolean)
+    | undefined;
+}
+
 /**
- * CollaborationWebSocketHandler — passive read-only session observer (Phase 1
- * of idea #13 from IDEAS.md). Mirrors `WorktreeWebSocketHandler` and
- * `AutoPhaseWebSocketHandler`.
+ * CollaborationWebSocketHandler — session-scoped collaboration transport.
+ * Mirrors `WorktreeWebSocketHandler` and `AutoPhaseWebSocketHandler`.
  *
  * Capabilities in this phase:
  *   - A second human (or any client) joins an active agent run as an
  *     `observer` and receives a live mirror of the kernel's iteration /
  *     tool / subagent events.
- *   - The observer declares a `sessionId` on join (used for state scoping
- *     and future replay-on-join). Live event routing is session-agnostic
- *     for now — see the limitation note below.
+ *   - The observer declares a `sessionId` on join. Hosts provide the live
+ *     runtime session id so replay and EventBus routing stay session-scoped.
  *   - The observer can leave at any time; cleanup runs on WS close/error.
- *   - The observer CANNOT modify the agent's state, pause it, or inject
- *     tool calls. Those capabilities land in Phase 2/3.
- *
- * Limitation (documented, acceptable for Phase 1):
- *   The webui server multiplexes every active session onto a single
- *   EventBus, and most event payloads (`tool.started`, `iteration.*`,
- *   `subagent.*`) do NOT carry a `sessionId` field. The webui's primary
- *   WS path works because it is the only consumer and assumes one
- *   active session at a time. We mirror that assumption here. When a
- *   future multi-session "session router" lands, this handler will be
- *   upgraded to filter by sessionId.
+ *   - Privileged roles are never accepted from the wire by themselves.
+ *     The host must explicitly authorize annotator/controller grants.
  *
  * Protocol additions (see `packages/webui/src/types.ts`):
  *   client → server:  collab.join { sessionId, role: 'observer' }
@@ -79,6 +83,7 @@ export class CollaborationWebSocketHandler {
      * `collabPauseMiddleware` in the webui server boot.
      */
     private readonly bus?: CollaborationBus | undefined,
+    private readonly options: CollaborationHandlerOptions = {},
   ) {
     this.subscribe();
     // Phase 4 feedback loop: when the inject middleware applies a queued
@@ -115,13 +120,16 @@ export class CollaborationWebSocketHandler {
   ): boolean {
     if (msg.type === 'collab.join') {
       const payload = msg.payload as { sessionId?: string | undefined; role?: CollabRole | undefined } | undefined;
-      if (!payload?.sessionId) {
+      if (typeof payload?.sessionId !== 'string' || payload.sessionId.trim().length === 0) {
         this.send(ws, this.errorMessage('collab.join requires sessionId'));
         return true;
       }
-      // The `role` field is accepted on the wire for forward-compat;
-      // 'controller' (Phase 3) is not yet wired and is rejected here.
-      this.join(ws, payload.sessionId, payload.role ?? 'observer');
+      const role = payload.role ?? 'observer';
+      if (role !== 'observer' && role !== 'annotator' && role !== 'controller') {
+        this.send(ws, this.errorMessage(`unknown collaboration role '${String(role)}'`));
+        return true;
+      }
+      this.join(ws, payload.sessionId, role);
       return true;
     }
     if (msg.type === 'collab.leave') {
@@ -158,6 +166,20 @@ export class CollaborationWebSocketHandler {
   // ── Join / leave flow ──────────────────────────────────────────────────
 
   private join(ws: WebSocket, sessionId: string, role: CollabRole): void {
+    const activeSessionId = this.options.getActiveSessionId?.();
+    if (activeSessionId !== undefined && sessionId !== activeSessionId) {
+      this.send(
+        ws,
+        this.errorMessage(
+          `collab.join sessionId mismatch (active: ${activeSessionId})`,
+        ),
+      );
+      return;
+    }
+    if (this.findParticipant(ws)) {
+      this.send(ws, this.errorMessage('collab.join requires leaving the current session first'));
+      return;
+    }
     if (role === 'controller' && !this.bus) {
       this.send(
         ws,
@@ -173,6 +195,16 @@ export class CollaborationWebSocketHandler {
         this.errorMessage(
           `role 'annotator' is not available: server has no annotations store`,
         ),
+      );
+      return;
+    }
+    if (
+      role !== 'observer'
+      && this.options.authorizeRole?.({ ws, sessionId, requestedRole: role }) !== true
+    ) {
+      this.send(
+        ws,
+        this.errorMessage(`role '${role}' requires explicit server authorization`),
       );
       return;
     }
@@ -492,19 +524,13 @@ export class CollaborationWebSocketHandler {
       type: 'collab.event',
       payload: { kind, payload, at: new Date().toISOString() },
     };
-    const data = JSON.stringify(msg);
-    for (const bucket of this.bySession.values()) {
-      for (const p of bucket) {
-        try {
-          if (p.ws.readyState === 1) p.ws.send(data);
-        } catch (err) {
-          this.logger.debug?.(
-            `collab broadcast failed: ${
-              toErrorMessage(err)
-            }`,
-          );
-        }
-      }
+    const activeSessionId = this.options.getActiveSessionId?.();
+    if (activeSessionId !== undefined) {
+      this.broadcast(activeSessionId, msg);
+      return;
+    }
+    for (const sessionId of this.bySession.keys()) {
+      this.broadcast(sessionId, msg);
     }
   }
 
@@ -879,7 +905,8 @@ export class CollaborationWebSocketHandler {
    * Bus callback: a queued injection was spliced into a real tool call. Re-emit
    * `collab.injection.granted` with phase `'consumed'` and the now-known tool
    * name. The injection carries no sessionId, so resolve it from the author's
-   * current session; if they've already left, fall back to every live session.
+   * current participant. If the author has left, fail closed rather than leak
+   * the payload to unrelated sessions.
    */
   private broadcastInjectionConsumed(info: ConsumedInjectionInfo): void {
     let sessionId: string | null = null;
@@ -908,7 +935,9 @@ export class CollaborationWebSocketHandler {
     if (sessionId) {
       this.broadcast(sessionId, message(sessionId));
     } else {
-      for (const sid of this.bySession.keys()) this.broadcast(sid, message(sid));
+      this.logger.debug?.(
+        `collab: consumed injection ${info.toolUseId} has no live author; broadcast suppressed`,
+      );
     }
   }
 }

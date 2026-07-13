@@ -447,7 +447,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                   }
                 }
               }
-              opts.onAutonomy?.('off');
+              opts.onAutonomy?.('auto');
               continue;
             }
           } catch (err) {
@@ -541,7 +541,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
                   }
                 }
               }
-              opts.onAutonomy?.('off');
+              opts.onAutonomy?.('auto');
               continue;
             }
           } catch (err) {

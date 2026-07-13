@@ -1,6 +1,9 @@
 {
   "title": "Paramètres",
   "tabs": {
+    "tools": "Outils",
+    "brain": "Cerveau",
+    "shadow": "Ombre",
     "provider": "Fournisseur",
     "connection": "Connexion",
     "appearance": "Apparence",
@@ -9,6 +12,10 @@
     "mcp": "MCP"
   },
   "appearance": {
+    "showThinkingLabel": "Afficher les journaux de raisonnement",
+    "showThinkingHint": "Affiche les blocs de raisonnement terminés dans l'historique du chat.",
+    "groupToolCallsLabel": "Regrouper les appels d'outils",
+    "groupToolCallsHint": "Regroupe les appels d'outils consécutifs dans une seule puce.",
     "themeHeading": "Thème",
     "themeLight": "Clair",
     "themeDark": "Sombre",
@@ -21,6 +28,21 @@
     "soundOnCompleteHint": "Émet une douce sonnerie quand une exécution se termine.",
     "titleAnimation": "Animation du titre",
     "titleAnimationHint": "Affiche un titre de terminal animé dans le CLI.",
+    "thinkingWordLabel": "Mot de réflexion (CLI/TUI)",
+    "thinkingWordHint": "Mot affiché dans la puce d'état de la TUI. Un seul mot court.",
+    "statuslineModeLabel": "Mode de la ligne d'état (CLI/TUI)",
+    "statuslineModeHint": "Densité de la ligne d'état de la TUI.",
+    "statuslineModeDetailed": "Détaillé",
+    "statuslineModeMinimum": "Minimal",
+    "statuslineModeNoColor": "Sans couleur",
+    "animationStyleLabel": "Style d'animation (CLI/TUI)",
+    "animationStyleHint": "Animation de la puce d'activité de la TUI.",
+    "animationStyleRainbow": "Arc-en-ciel",
+    "animationStyleWave": "Vague",
+    "animationStylePulse": "Pulsation",
+    "animationStyleDots": "Points",
+    "animationStyleBreathe": "Respiration",
+    "animationStyleCycle": "Cycle",
     "languageHeading": "Langue",
     "languageLabel": "Langue de l'interface",
     "languageHint": "Modifie uniquement le texte de l'interface. Les prompts, les compétences et la sortie du modèle ne sont pas affectés."
@@ -40,6 +62,12 @@
     "startingBody": "Autonome : lancez ./dev.ps1 depuis la racine du repo, ou définissez WS_HOST/WS_PORT avant de lancer wstackui. Ou avec la CLI : wstack --webui."
   },
   "provider": {
+    "savedProviderCount_one": "{{count}} fournisseur",
+    "savedProviderCount_other": "{{count}} fournisseurs",
+    "keyCount_one": "{{count}} clé configurée",
+    "keyCount_other": "{{count}} clés configurées",
+    "activeKeyCount_one": "{{count}} clé active",
+    "activeKeyCount_other": "{{count}} clés actives",
     "subscriptionHeading": "Connexion par abonnement",
     "apiKeysHeading": "Fournisseurs de clés API",
     "apiKeysBody": "Choisissez un fournisseur dans le catalogue et ajoutez une clé API, ou gérez les fournisseurs enregistrés.",
@@ -196,6 +224,10 @@
     "refineLanguageHint": "Conserver votre langue ou traduire en anglais pour le modèle.",
     "refineLanguageOriginal": "Original — conserver votre langue",
     "refineLanguageEnglish": "Anglais — traduire en anglais",
+    "refinerProviderLabel": "Fournisseur d'affinage",
+    "refinerProviderHint": "Id du fournisseur pour l'affinage d'objectif. Vide = fournisseur de la session.",
+    "refinerModelLabel": "Modèle d'affinage",
+    "refinerModelHint": "Id du modèle pour l'affinage d'objectif. Vide = modèle de la session.",
     "reasoningHeading": "Raisonnement & Cache",
     "reasoningModeLabel": "Mode de raisonnement",
     "reasoningModeHint": "Contrôler comment le modèle utilise la pensée étendue. Auto = valeur du fournisseur.",
@@ -283,7 +315,11 @@
     "addModelToProfile": "Ajouter un modèle au profil…",
     "addFavoriteModel": "Ajouter un modèle favori…",
     "hqRawContentLabel": "Contenu HQ brut",
-    "hqRawContentHint": "Envoyer des aperçus de contenu bruts à HQ au lieu d'aperçus caviardés."
+    "hqRawContentHint": "Envoyer des aperçus de contenu bruts à HQ au lieu d'aperçus caviardés.",
+    "breakerLabel": "Disjoncteur de processus",
+    "breakerHint": "Bloque bash/exec après des échecs répétés ; le déclenchement arme le compte à rebours kill/reset.",
+    "breakerTimeoutLabel": "Délai kill/reset du disjoncteur",
+    "breakerTimeoutHint": "Délai avant le kill/reset automatique après déclenchement. 0 = récupération manuelle."
   },
   "features": {
     "flagsHeading": "Indicateurs de fonctionnalités",
@@ -330,7 +366,13 @@
     "auditLevelHint": "Niveau de détail pour les logs d'audit de session.",
     "auditLevelMinimal": "Minimal — erreurs uniquement",
     "auditLevelStandard": "Standard — appels d'outils + erreurs",
-    "auditLevelFull": "Complet — chaque événement (logs volumineux)"
+    "auditLevelFull": "Complet — chaque événement (logs volumineux)",
+    "fsAccessLabel": "Accès au système de fichiers",
+    "fsAccessHint": "Portée des outils de fichiers. Appliqué à la prochaine session.",
+    "fsAccessUnrestricted": "Illimité — tout chemin",
+    "fsAccessProject": "Projet — limité à la racine du projet",
+    "debugStreamLabel": "Flux de débogage",
+    "debugStreamHint": "Dump hexadécimal SSE brut vers stderr du serveur pour déboguer les fournisseurs."
   },
   "toast": {
     "switchingTo": "Basculement vers {{provider}} / {{model}}…",

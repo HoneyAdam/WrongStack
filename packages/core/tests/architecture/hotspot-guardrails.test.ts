@@ -35,8 +35,8 @@ const HOTSPOTS: readonly Hotspot[] = [
   },
   {
     file: 'packages/webui/src/components/SettingsPanel/index.tsx',
-    maxLines: 1500,
-    rationale: 'Settings panel must decompose into sections/hooks, not grow further. TEMP: cap raised from 1450 → 1500 to cover the model-router/runtime settings additions; once those extract into smaller modules, the cap should be re-tightened toward 1200.',
+    maxLines: 1200,
+    rationale: 'Settings panel must decompose into sections/hooks, not grow further. Cap re-tightened 1500 → 1200 after the model-routing section extracted into RoutingSection.tsx; extract further sections rather than raising this again.',
   },
   {
     file: 'packages/webui/src/components/SetupScreen.tsx',
