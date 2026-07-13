@@ -712,127 +712,143 @@ export class Director implements ICoordinator {
     // repeated Director construction against a cached coordinator
     // (tests, hot reloads) leaks listeners and eventually trips
     // EventEmitter's max-listener warning.
-    this.taskCompletedListener = (payload: { task: TaskSpec; result: TaskResult }) => {
-      const r = payload.result;
-      const internalTask = this.internalTaskIds.delete(r.taskId);
-      if (!internalTask) {
-        this.completed.set(r.taskId, r);
-        // Trim oldest entries when the cap is exceeded — keep most recent results
-        // so rollUp() and completedResults() still have data to return.
-        if (this.completed.size > Director.MAX_COMPLETED) {
-          const toDelete = this.completed.size - Director.MAX_COMPLETED;
-          const keys = [...this.completed.keys()].slice(0, toDelete);
-          for (const k of keys) this.completed.delete(k);
-        }
-      }
-      const waiter = this.taskWaiters.get(r.taskId);
-      if (waiter) {
-        waiter.resolve(r);
-        this.taskWaiters.delete(r.taskId);
-      }
-      // Sweep first-completion waiters: every unresolved any-await whose id
-      // set contains this task consumes the result in-band (each caller
-      // wants "the first of MY set" — overlapping sets all wake). Later
-      // completions of the same batch (the "losers") match no waiter and
-      // fall through to the report-back below — that is the whole point of
-      // awaitTasksAny: early finishers return in-band, slow siblings arrive
-      // as mailbox results instead of going silent.
-      let anyConsumed = false;
-      for (const aw of [...this.anyWaiters]) {
-        if (!aw.ids.has(r.taskId)) continue;
-        if (aw.timer) clearTimeout(aw.timer);
-        this.anyWaiters.delete(aw);
-        aw.resolve(r);
-        anyConsumed = true;
-      }
-      const consumedInBand = !!waiter || anyConsumed;
-      if (internalTask) return;
-      // Mirror into the on-disk checkpoint + session event stream so a
-      // crashed director leaves a complete picture of which tasks landed.
-      const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
-      // Fire-and-forget report-back: this result is not being returned
-      // in-band (no batch waiter, not the winning result of an any-await),
-      // so it would otherwise sit in the cache until the leader polls.
-      // Hand it to the notifier (host wires this to the project mailbox,
-      // which injects it into the leader's conversation before its next
-      // step). In-band-consumed tasks skip this — their result returns
-      // directly from await_tasks.
-      if (!consumedInBand && this.taskResultNotifier) {
-        const resultText =
-          typeof r.result === 'string'
-            ? r.result
-            : r.result !== undefined
-              ? safeStringify(r.result)
-              : undefined;
-        try {
-          void Promise.resolve(
-            this.taskResultNotifier({
-              taskId: r.taskId,
-              title,
-              status: r.status,
-              subagentId: r.subagentId,
-              subagentName: this.manifestEntries.get(r.subagentId)?.name,
-              resultText,
-              errorText: r.error ? `${r.error.kind}: ${r.error.message}` : undefined,
-              partialText: r.partial?.text,
-              report: r.report,
-              iterations: r.iterations,
-              toolCalls: r.toolCalls,
-              durationMs: r.durationMs,
-            }),
-          ).catch(() => {});
-        } catch {
-          // Notifier failures must never disturb task-completion bookkeeping.
-        }
-      }
-      const failed = r.status !== 'success';
-      // Disk-side state-checkpoint and session JSONL both store `error`
-      // as a string for historical reasons. The structured SubagentError
-      // envelope carries `kind`, `message`, `retryable`, etc. — flatten
-      // to a `kind: message` string here so old readers stay valid and
-      // grep-friendly. The full envelope is still available live via
-      // the EventBus / TaskResult to in-process consumers.
-      const errorString = r.error ? `${r.error.kind}: ${r.error.message}` : undefined;
-      this.stateCheckpoint?.recordTaskStatus(r.taskId, {
-        status: failed ? (r.status as 'failed' | 'timeout' | 'stopped') : 'completed',
-        completedAt: new Date().toISOString(),
-        iterations: r.iterations,
-        toolCalls: r.toolCalls,
-        durationMs: r.durationMs,
-        error: errorString,
-      });
-      this.stateCheckpoint?.setUsage(this.usage.snapshot());
-      void this.appendSessionEvent(
-        failed
-          ? {
-              type: 'task_failed',
-              ts: new Date().toISOString(),
-              taskId: r.taskId,
-              title,
-              error: errorString ?? r.status,
-            }
-          : {
-              type: 'task_completed',
-              ts: new Date().toISOString(),
-              taskId: r.taskId,
-              title,
-            },
-      );
-      // Flush immediately on task completion — the result should be
-      // visible in the manifest without waiting for the debounce window.
-      // Use flushManifest() so any pending debounce timer is also cleared.
-      if (this.fleetManager) {
-        void this.fleetManager.flushManifest();
-      } else {
-        this.scheduleManifest();
-      }
-      this.armSubagentIdleRetirement(
-        r.subagentId,
-        this.retireSubagentOnTaskComplete ? 0 : this.subagentIdleTimeoutMs,
-      );
-    };
+    this.taskCompletedListener = (payload) => this.handleTaskCompleted(payload);
     this.coordinator.on('task.completed', this.taskCompletedListener);
 
+    this.wireBudgetPolicy();
+    // Large-answer store: prevents big `ask_subagent` responses from
+    // bloating the leader's context window. Responses above 2K chars
+    // are stored out-of-band; only a summary goes into ctx.messages.
+    this.largeAnswerStore = new LargeAnswerStore(2000);
+    this.collab = new DirectorCollabController({
+      director: this,
+      fleet: this.fleet,
+      coordinator: this.coordinator,
+      logger: this.logger,
+    });
+  }
+
+  private handleTaskCompleted(payload: { task: TaskSpec; result: TaskResult }): void {
+    const r = payload.result;
+    const internalTask = this.internalTaskIds.delete(r.taskId);
+    if (!internalTask) {
+      this.completed.set(r.taskId, r);
+      // Trim oldest entries when the cap is exceeded — keep most recent results
+      // so rollUp() and completedResults() still have data to return.
+      if (this.completed.size > Director.MAX_COMPLETED) {
+        const toDelete = this.completed.size - Director.MAX_COMPLETED;
+        const keys = [...this.completed.keys()].slice(0, toDelete);
+        for (const k of keys) this.completed.delete(k);
+      }
+    }
+    const waiter = this.taskWaiters.get(r.taskId);
+    if (waiter) {
+      waiter.resolve(r);
+      this.taskWaiters.delete(r.taskId);
+    }
+    // Sweep first-completion waiters: every unresolved any-await whose id
+    // set contains this task consumes the result in-band (each caller
+    // wants "the first of MY set" — overlapping sets all wake). Later
+    // completions of the same batch (the "losers") match no waiter and
+    // fall through to the report-back below — that is the whole point of
+    // awaitTasksAny: early finishers return in-band, slow siblings arrive
+    // as mailbox results instead of going silent.
+    let anyConsumed = false;
+    for (const aw of [...this.anyWaiters]) {
+      if (!aw.ids.has(r.taskId)) continue;
+      if (aw.timer) clearTimeout(aw.timer);
+      this.anyWaiters.delete(aw);
+      aw.resolve(r);
+      anyConsumed = true;
+    }
+    const consumedInBand = !!waiter || anyConsumed;
+    if (internalTask) return;
+    // Mirror into the on-disk checkpoint + session event stream so a
+    // crashed director leaves a complete picture of which tasks landed.
+    const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
+    // Fire-and-forget report-back: this result is not being returned
+    // in-band (no batch waiter, not the winning result of an any-await),
+    // so it would otherwise sit in the cache until the leader polls.
+    // Hand it to the notifier (host wires this to the project mailbox,
+    // which injects it into the leader's conversation before its next
+    // step). In-band-consumed tasks skip this — their result returns
+    // directly from await_tasks.
+    if (!consumedInBand && this.taskResultNotifier) {
+      const resultText =
+        typeof r.result === 'string'
+          ? r.result
+          : r.result !== undefined
+            ? safeStringify(r.result)
+            : undefined;
+      try {
+        void Promise.resolve(
+          this.taskResultNotifier({
+            taskId: r.taskId,
+            title,
+            status: r.status,
+            subagentId: r.subagentId,
+            subagentName: this.manifestEntries.get(r.subagentId)?.name,
+            resultText,
+            errorText: r.error ? `${r.error.kind}: ${r.error.message}` : undefined,
+            partialText: r.partial?.text,
+            report: r.report,
+            iterations: r.iterations,
+            toolCalls: r.toolCalls,
+            durationMs: r.durationMs,
+          }),
+        ).catch(() => {});
+      } catch {
+        // Notifier failures must never disturb task-completion bookkeeping.
+      }
+    }
+    const failed = r.status !== 'success';
+    // Disk-side state-checkpoint and session JSONL both store `error`
+    // as a string for historical reasons. The structured SubagentError
+    // envelope carries `kind`, `message`, `retryable`, etc. — flatten
+    // to a `kind: message` string here so old readers stay valid and
+    // grep-friendly. The full envelope is still available live via
+    // the EventBus / TaskResult to in-process consumers.
+    const errorString = r.error ? `${r.error.kind}: ${r.error.message}` : undefined;
+    this.stateCheckpoint?.recordTaskStatus(r.taskId, {
+      status: failed ? (r.status as 'failed' | 'timeout' | 'stopped') : 'completed',
+      completedAt: new Date().toISOString(),
+      iterations: r.iterations,
+      toolCalls: r.toolCalls,
+      durationMs: r.durationMs,
+      error: errorString,
+    });
+    this.stateCheckpoint?.setUsage(this.usage.snapshot());
+    void this.appendSessionEvent(
+      failed
+        ? {
+            type: 'task_failed',
+            ts: new Date().toISOString(),
+            taskId: r.taskId,
+            title,
+            error: errorString ?? r.status,
+          }
+        : {
+            type: 'task_completed',
+            ts: new Date().toISOString(),
+            taskId: r.taskId,
+            title,
+          },
+    );
+    // Flush immediately on task completion — the result should be
+    // visible in the manifest without waiting for the debounce window.
+    // Use flushManifest() so any pending debounce timer is also cleared.
+    if (this.fleetManager) {
+      void this.fleetManager.flushManifest();
+    } else {
+      this.scheduleManifest();
+    }
+    this.armSubagentIdleRetirement(
+      r.subagentId,
+      this.retireSubagentOnTaskComplete ? 0 : this.subagentIdleTimeoutMs,
+    );
+  }
+
+  private wireBudgetPolicy(): void {
     // Wire budget.threshold_reached events from the FleetBus into the
     // coordinator's task completion path. When a subagent hits a soft
     // limit, the runner emits this event; we intercept it here, resolve
@@ -1009,16 +1025,6 @@ export class Director implements ICoordinator {
         return;
       }
       grantExtension();
-    });
-    // Large-answer store: prevents big `ask_subagent` responses from
-    // bloating the leader's context window. Responses above 2K chars
-    // are stored out-of-band; only a summary goes into ctx.messages.
-    this.largeAnswerStore = new LargeAnswerStore(2000);
-    this.collab = new DirectorCollabController({
-      director: this,
-      fleet: this.fleet,
-      coordinator: this.coordinator,
-      logger: this.logger,
     });
   }
 
